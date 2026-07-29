@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.s
     POSTGRES_STATS_CATALOGS,
     _collect_statements,
     _sanitize_statement_text,
-    _strip_sql_comments,
+    _scrub_statement_text,
     fetch_postgres_stats_columns,
     postgres_database_stats_source,
 )
@@ -353,21 +353,33 @@ class TestCollectStatementsScripted:
             # Postgres nests block comments, so a naive first-`*/` scan would leave the
             # tail — and the secret — behind.
             ("SELECT /* a /* nested secret */ still hidden */ 1", "SELECT 1"),
-            # Quoted spans are not comments, however much they look like one.
-            ("SELECT * FROM t WHERE url = '--not-a-comment'", "SELECT * FROM t WHERE url = '--not-a-comment'"),
+            # A literal is never emitted, even when it isn't a comment and even when the
+            # entry escaped normalization: the statement keeps its shape, not its values.
+            ("SELECT * FROM t WHERE token = 'secret'", "SELECT * FROM t WHERE token = '?'"),
+            ("SELECT * FROM t WHERE url = '--not-a-comment'", "SELECT * FROM t WHERE url = '?'"),
+            ("SELECT * FROM t WHERE note = 'it''s here'", "SELECT * FROM t WHERE note = '?'"),
+            # Identifiers are the signal and are already visible in the table catalogs.
             ('SELECT "odd--column" FROM t', 'SELECT "odd--column" FROM t'),
             # Unterminated: drop the remainder rather than guess where it ends.
             ("SELECT 1 /* unterminated secret", "SELECT 1"),
             ("VACUUM ANALYZE public.users", "VACUUM ANALYZE public.users"),
         ],
     )
-    def test_comments_are_stripped_from_retained_text(self, statement, expected):
-        assert _strip_sql_comments(statement) == expected
+    def test_comments_and_literals_are_scrubbed_from_retained_text(self, statement, expected):
+        assert _scrub_statement_text(statement) == expected
 
-    def test_retained_statement_text_has_its_comments_stripped(self):
+    def test_retained_statement_text_is_scrubbed(self):
         rows = _sanitize_statement_text([{"query": "SELECT $1 /* api_token=secret */", "calls": 3}])
         assert rows[0]["query"] == "SELECT $1"
         assert rows[0]["calls"] == 3
+
+    def test_unnormalized_literal_does_not_survive(self):
+        # pg_stat_statements keeps the text of the query that created the entry, which is
+        # not guaranteed to be the normalized form — so a retained statement can arrive
+        # with its constants intact.
+        rows = _sanitize_statement_text([{"query": "SELECT * FROM users WHERE token = 'secret'", "calls": 1}])
+        assert "secret" not in rows[0]["query"]
+        assert rows[0]["query"] == "SELECT * FROM users WHERE token = '?'"
 
     def test_unsafe_statement_text_is_redacted_but_counters_survive(self):
         # pg_stat_statements records utility statements verbatim, and the set that can

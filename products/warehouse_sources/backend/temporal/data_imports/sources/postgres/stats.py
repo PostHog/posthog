@@ -12,8 +12,9 @@ tables are readable by every project member, which the source's own credentials 
 - ``pg_settings`` is collected by allowlist, since custom GUC namespaces are
   user-defined and can hold application secrets (see ``_COLLECTED_SETTINGS``).
 - ``pg_stat_statements`` keeps every row's counters but nulls query text outside
-  ``_SAFE_STATEMENT_TEXT``, since utility statements are recorded verbatim, and strips
-  comments from the text it keeps, since normalization preserves those too.
+  ``_SAFE_STATEMENT_TEXT``, since utility statements are recorded verbatim, and scrubs
+  comments and string literals from the text it keeps, since normalization preserves
+  comments and is not guaranteed to have replaced the constants.
 - ``pg_stat_user_indexes`` truncates each definition before its ``WHERE`` clause, since
   a partial index's predicate embeds column values.
 - ``pg_stat_activity`` is aggregated to counts rather than mirrored, since its rows
@@ -178,6 +179,10 @@ _SAFE_STATEMENT_TEXT = re.compile(
 )
 _REDACTED_QUERY_COLUMN = "query"
 
+# Stands in for a string literal in retained query text. Kept quoted so the statement
+# still reads as SQL.
+_REDACTED_LITERAL = "'?'"
+
 
 def _scope_predicate(source_schema: str | None) -> sql.SQL | sql.Composed:
     if not source_schema:
@@ -225,7 +230,7 @@ def _collect_statements(
     objects in other schemas of the same database.
 
     Statement text outside `_SAFE_STATEMENT_TEXT` is nulled, and what is kept has its
-    comments stripped; the row and its counters are kept either way.
+    comments and string literals scrubbed; the row and its counters are kept either way.
     """
     with conn.cursor() as cur:
         relation = _pg_stat_statements_relation(cur)
@@ -261,15 +266,24 @@ def _collect_statements(
         return _sanitize_statement_text(snapshot_rows(cur, collected_at, snapshot_id))
 
 
-def _strip_sql_comments(text: str) -> str:
-    """Remove every SQL comment from a statement, collapsing the whitespace left behind.
+def _scrub_statement_text(text: str) -> str:
+    """Strip every comment and every string literal from a statement.
 
-    Normalization replaces constants but leaves comments verbatim — that is what makes
-    query tagging (`/*controller=\'users\'*/`) work, and equally what would carry
-    `/* api_token=… */` into the warehouse. Quoted spans are skipped so a literal or
-    identifier containing `--` isn\'t mistaken for a comment, block comments nest the way
-    Postgres nests them, and an unterminated comment drops the rest of the statement,
-    which is the safe direction.
+    Two things survive normalization that shouldn't reach the warehouse. Comments are
+    kept verbatim — that is what makes query tagging (`/*controller=\'users\'*/`) work,
+    and equally what would carry `/* api_token=… */`. And while normalization replaces a
+    statement's constants with `$n`, the stored text isn\'t guaranteed to be normalized:
+    the entry keeps the text of the query that created it, and an entry recycled under
+    deallocation pressure can hold the raw form. So rather than trust that, no
+    single-quoted span is ever emitted.
+
+    Double-quoted spans are identifiers — table and column names — and are kept, since
+    they are the signal and are already visible in the table catalogs. Numeric constants
+    are also kept: they are normalized in the ordinary case and carry far less than a
+    string does.
+
+    Block comments nest the way Postgres nests them, and an unterminated comment drops
+    the rest of the statement, which is the safe direction.
     """
     out: list[str] = []
     index, length, depth = 0, len(text), 0
@@ -295,7 +309,9 @@ def _strip_sql_comments(text: str) -> str:
                         continue
                     break
                 end += 1
-            out.append(text[index : end + 1])
+            # Identifiers survive; string literals are replaced wholesale, so the
+            # statement keeps its shape without ever carrying a value.
+            out.append(text[index : end + 1] if char == '"' else _REDACTED_LITERAL)
             index = end + 1
         elif text.startswith("/*", index):
             depth += 1
@@ -312,8 +328,8 @@ def _strip_sql_comments(text: str) -> str:
 
 
 def _sanitize_statement_text(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Null the text of statements outside `_SAFE_STATEMENT_TEXT`, and strip comments from
-    the rest, keeping every row's counters.
+    """Null the text of statements outside `_SAFE_STATEMENT_TEXT`, and scrub comments and
+    string literals from the rest, keeping every row's counters.
 
     Redacting rather than dropping the row: the timing and call counts of a statement are
     never sensitive and are worth having, it\'s only the text that can carry a secret.
@@ -322,7 +338,7 @@ def _sanitize_statement_text(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
         text = row.get(_REDACTED_QUERY_COLUMN)
         if not isinstance(text, str):
             continue
-        row[_REDACTED_QUERY_COLUMN] = _strip_sql_comments(text) if _SAFE_STATEMENT_TEXT.match(text) else None
+        row[_REDACTED_QUERY_COLUMN] = _scrub_statement_text(text) if _SAFE_STATEMENT_TEXT.match(text) else None
     return rows
 
 
@@ -513,8 +529,8 @@ POSTGRES_STATS_CATALOGS: dict[str, DatabaseStatsCatalog] = {
                 "execution time, rows and block I/O. Counters are cumulative since the last "
                 "statistics reset. Query text is kept for queries and maintenance commands and "
                 "nulled for everything else, since utility statements are recorded verbatim and "
-                "can embed credentials; comments are stripped from the text that is kept, since "
-                "normalization preserves them. Requires the pg_stat_statements extension."
+                "can embed credentials; the text that is kept has its comments and string "
+                "literals removed. Requires the pg_stat_statements extension."
             ),
             collector=_collect_statements,
         ),
