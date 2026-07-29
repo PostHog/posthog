@@ -11,6 +11,7 @@ from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.activity_context import current_activity_attempt
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
@@ -348,6 +349,16 @@ async def _handle_import_error(
     # on every retry regardless of source — classify it non-retryable by type here rather than
     # relying on each source listing the message in get_non_retryable_errors.
     if isinstance(error, SchemaColumnTypeChangedException):
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
+
+    # An OAuth `Integration.access_token`/`refresh_token` that still looks like Fernet ciphertext
+    # (a lost/rotated encryption key, a corrupted row) fails identically on every retry — the
+    # third-party API sees the same garbage credential every time. Classify by type here, shared
+    # across every OAuth-based source, rather than depending on each source's
+    # get_non_retryable_errors to recognise this message.
+    if isinstance(error, UndecryptedIntegrationSecretError):
         await handle_non_retryable_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )

@@ -20,15 +20,23 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_git_identity_env_vars,
     get_github_credential_source,
     get_imported_mcp_server_configs,
+    get_models_for_runtime_adapter,
     get_relayed_mcp_server_names,
     get_sandbox_github_token,
     get_sandbox_ph_mcp_configs,
+    get_supported_reasoning_efforts,
     get_task_run_actor_user,
     get_task_run_credential_user,
     get_user_mcp_server_configs,
     is_caller_token_run,
     loop_mcp_installation_allowlist,
 )
+
+
+class TestRuntimeModelCapabilities(SimpleTestCase):
+    def test_kimi_is_known_without_selectable_reasoning_effort(self) -> None:
+        assert "moonshotai/kimi-k3" in get_models_for_runtime_adapter("claude")
+        assert get_supported_reasoning_efforts("claude", "moonshotai/kimi-k3") == ()
 
 
 class TestRunStateSnapshotPaths(TestCase):
