@@ -71,11 +71,12 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     return isinstance(error, OSError) and any(needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS)
 
 
-# A merge's conflict checker raises CommitFailedError the moment a concurrent commit added data
-# the merge predicate didn't account for — unlike a plain version-bump race, delta-rs does not
-# consume max_commit_retries or retry this itself (see delta-rs kernel/transaction/conflict_checker.rs),
-# because resolving it safely requires re-reading the table and re-running the merge, which is
-# exactly what its "must be rerun" error message asks the caller to do.
+# Delta's conflict checker raises CommitFailedError the moment a concurrent commit invalidates what
+# a committing operation read — a merge predicate, or optimize.compact's file-rewrite plan — unlike a
+# plain version-bump race, delta-rs does not consume max_commit_retries or retry this itself (see
+# delta-rs kernel/transaction/conflict_checker.rs), because resolving it safely requires re-reading
+# the table and re-running the operation, which is exactly what its "must be rerun" error message
+# asks the caller to do.
 DELTA_MERGE_CONFLICT_RETRIES = 3
 
 
@@ -405,23 +406,24 @@ class DeltaTableHelper:
 
         return await asyncio.to_thread(delta_table.file_uris)
 
-    async def _execute_merge_with_conflict_retry(
-        self, table: deltalake.DeltaTable, merge_fn: Callable[[], dict]
+    async def _execute_with_conflict_retry(
+        self, table: deltalake.DeltaTable, operation_fn: Callable[[], dict], operation_name: str
     ) -> dict:
-        """Run a Delta merge, refreshing the table and re-running it on a commit conflict.
+        """Run a Delta operation that commits (merge, optimize.compact, ...), refreshing the table
+        and re-running it on a commit conflict.
 
         See DELTA_MERGE_CONFLICT_RETRIES for why this can't rely on delta-rs's own retry budget.
         """
         attempt = 0
         while True:
             try:
-                return await asyncio.to_thread(merge_fn)
+                return await asyncio.to_thread(operation_fn)
             except deltalake.exceptions.CommitFailedError:
                 if attempt >= DELTA_MERGE_CONFLICT_RETRIES:
                     raise
                 attempt += 1
                 await self._logger.awarning(
-                    f"write_to_deltalake: merge commit conflict, retrying with refreshed table "
+                    f"{operation_name}: commit conflict, retrying with refreshed table "
                     f"(attempt {attempt}/{DELTA_MERGE_CONFLICT_RETRIES})"
                 )
                 await asyncio.to_thread(table.update_incremental)
@@ -563,7 +565,9 @@ class DeltaTableHelper:
                             .execute()
                         )
 
-                    merge_stats = await self._execute_merge_with_conflict_retry(existing_delta_table, _do_merge)
+                    merge_stats = await self._execute_with_conflict_retry(
+                        existing_delta_table, _do_merge, "write_to_deltalake: merge"
+                    )
 
                     await self._logger.adebug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
 
@@ -587,8 +591,10 @@ class DeltaTableHelper:
                         .execute()
                     )
 
-                merge_stats = await self._execute_merge_with_conflict_retry(
-                    existing_delta_table, lambda: _do_merge_unpartitioned(data, predicate_ops)
+                merge_stats = await self._execute_with_conflict_retry(
+                    existing_delta_table,
+                    lambda: _do_merge_unpartitioned(data, predicate_ops),
+                    "write_to_deltalake: merge",
                 )
                 await self._logger.adebug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
         elif (
@@ -742,8 +748,10 @@ class DeltaTableHelper:
                         .execute()
                     )
 
-                close_stats = await self._execute_merge_with_conflict_retry(
-                    existing_delta_table, lambda: _do_scd2_close(first_per_pk, predicate)
+                close_stats = await self._execute_with_conflict_retry(
+                    existing_delta_table,
+                    lambda: _do_scd2_close(first_per_pk, predicate),
+                    "write_scd2_to_deltalake: close merge",
                 )
                 await self._logger.adebug(f"SCD2 close stats: {json.dumps(close_stats)}")
 
@@ -847,7 +855,9 @@ class DeltaTableHelper:
             raise Exception("Deltatable not found")
 
         await self._logger.adebug("Compacting table...")
-        compact_stats = await asyncio.to_thread(table.optimize.compact)
+        compact_stats = await self._execute_with_conflict_retry(
+            table, lambda: table.optimize.compact(), "compact_table"
+        )
         await self._logger.adebug(json.dumps(compact_stats))
 
         await self.vacuum_table()
