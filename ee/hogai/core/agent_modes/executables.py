@@ -161,7 +161,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             summary = await AnthropicConversationSummarizer(
                 self._team,
                 self._user,
-                extend_context_window=current_token_count > 195_000,
+                conversation_start_dt=state.start_dt,
             ).summarize(messages_to_summarize)
 
             summary_message = ContextMessage(

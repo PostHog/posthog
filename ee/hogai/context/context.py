@@ -59,7 +59,7 @@ from .prompts import (
 NOTEBOOK_MARKDOWN_MAX_LENGTH = 100_000
 
 # A dashboard's executed-results context is bounded so it can't overflow the conversation window
-# (compaction_manager.CONVERSATION_WINDOW_SIZE = 100k). If it overflows, the whole conversation —
+# (compaction_manager.CONVERSATION_WINDOW_SIZE). If it overflows, the whole conversation —
 # including this dashboard — gets summarized down to a few thousand tokens, so Max loses the
 # dashboard it was just asked about. Over budget, we fall back to schema-only (insight names +
 # queries, no result tables), which still lets Max identify and describe the dashboard and fetch
