@@ -1,3 +1,4 @@
+import functools
 import dataclasses
 from typing import Any, Optional
 
@@ -169,6 +170,30 @@ def _convert_timestamps(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
+# Redeemable invitation links Clerk returns on invitation rows. Anyone who can read the
+# warehouse table could otherwise copy one of these and accept the invitation, so drop them
+# before the row is stored. Values are dotted paths into each endpoint's row shape.
+SENSITIVE_FIELDS_BY_ENDPOINT: dict[str, tuple[str, ...]] = {
+    "invitations": ("url",),
+    "organization_invitations": ("url",),
+    "waitlist_entries": ("invitation.url",),
+}
+
+
+def _strip_sensitive_fields(item: dict[str, Any], paths: tuple[str, ...]) -> dict[str, Any]:
+    """Remove the given dotted-path fields from a row in place."""
+    for path in paths:
+        parts = path.split(".")
+        target: Any = item
+        for part in parts[:-1]:
+            target = target.get(part) if isinstance(target, dict) else None
+            if target is None:
+                break
+        if isinstance(target, dict):
+            target.pop(parts[-1], None)
+    return item
+
+
 def validate_credentials(secret_key: str) -> tuple[bool, str | None]:
     """Validate Clerk API credentials by making a test request."""
     url = "https://api.clerk.com/v1/users"
@@ -247,6 +272,10 @@ def clerk_source(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     ).add_map(_convert_timestamps)
+
+    sensitive_fields = SENSITIVE_FIELDS_BY_ENDPOINT.get(endpoint)
+    if sensitive_fields:
+        resource = resource.add_map(functools.partial(_strip_sensitive_fields, paths=sensitive_fields))
 
     if endpoint_config.partition_key is None:
         return SourceResponse(

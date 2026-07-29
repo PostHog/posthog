@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.cler
     ClerkPaginator,
     ClerkResumeConfig,
     _convert_timestamps,
+    _strip_sensitive_fields,
     clerk_source,
     get_resource,
 )
@@ -302,6 +303,36 @@ class TestClerkEndpoints:
 
         for field, value in item.items():
             assert converted[field] == (value // 1000 if value is not None else None)
+
+    @pytest.mark.parametrize(
+        "item,paths,expected",
+        [
+            # top-level redeemable link on invitations / organization_invitations
+            (
+                {"id": "inv_1", "email_address": "a@b.com", "url": "https://clerk.example/accept?ticket=secret"},
+                ("url",),
+                {"id": "inv_1", "email_address": "a@b.com"},
+            ),
+            # nested link on waitlist_entries
+            (
+                {"id": "wl_1", "invitation": {"id": "inv_2", "url": "https://clerk.example/accept?ticket=secret"}},
+                ("invitation.url",),
+                {"id": "wl_1", "invitation": {"id": "inv_2"}},
+            ),
+            # nested field absent (no invitation was sent) — nothing to strip, no crash
+            (
+                {"id": "wl_1", "invitation": None},
+                ("invitation.url",),
+                {"id": "wl_1", "invitation": None},
+            ),
+        ],
+    )
+    def test_sensitive_url_fields_are_stripped(
+        self, item: dict[str, Any], paths: tuple[str, ...], expected: dict[str, Any]
+    ) -> None:
+        # Redeemable invitation links must never reach the warehouse table, where any viewer
+        # could copy one and accept the invitation.
+        assert _strip_sensitive_fields(dict(item), paths) == expected
 
 
 class TestClerkSourceResponse:
