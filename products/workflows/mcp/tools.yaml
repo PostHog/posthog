@@ -129,15 +129,18 @@ tools:
             Provide an actions array with exactly one type='trigger' (config.type:
             event|webhook|manual|batch|tracking_pixel) plus action nodes
             (function/function_email/function_sms/function_push, delay, conditional_branch, wait_until_condition, ...)
-            connected by edges. Read the building-workflows skill for node shapes before composing: a node that
-            mismatches the per-type schema saves but breaks the visual editor. Two traps that save but break: (1) a
-            conditional_branch condition needs a 'filters' wrapper — {filters:{properties:[...]}}, not
-            {properties:[...]} on the condition; omitting it passes save but the editor flags it and the branch won't
-            evaluate your condition. (2) Never hand-author bytecode anywhere; send properties/hash and the server
-            compiles it. A 'batch' trigger broadcasts to an audience (config.filters.properties: person-property
-            conditions and/or cohort references), one run per matching person, and does NOT fire on enable: dispatch
-            with workflows-run-batch or attach a schedule with workflows-schedule-create. Behavioral targeting ('did
-            event X at least N times over the last M days') is unsupported; reject it and explain why.
+            connected by edges. A webhook or manual trigger also needs config.template_id set to the literal
+            'template-source-webhook', and a tracking_pixel trigger needs 'template-source-webhook-pixel'; without it
+            the create is rejected with 'Template not found' against the trigger node. Read the building-workflows skill
+            for node shapes before composing: a node that mismatches the per-type schema saves but breaks the visual
+            editor. Two traps that save but break: (1) a conditional_branch condition needs a 'filters' wrapper —
+            {filters:{properties:[...]}}, not {properties:[...]} on the condition; omitting it passes save but the
+            editor flags it and the branch won't evaluate your condition. (2) Never hand-author bytecode anywhere; send
+            properties/hash and the server compiles it. A 'batch' trigger broadcasts to an audience
+            (config.filters.properties: person-property conditions and/or cohort references), one run per matching
+            person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a schedule with
+            workflows-schedule-create. Behavioral targeting ('did event X at least N times over the last M days') is
+            unsupported; reject it and explain why.
         ui_app: workflow
     workflows-discard-draft:
         operation: hog_flows_discard_draft_create
@@ -165,11 +168,13 @@ tools:
         enrich_url: '{id}/workflow'
         title: Get workflow
         description: >
-            Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit
-            condition, variables, and any recurring 'schedules' (read-only here). For a batch workflow, check
-            status=='active' plus an active entry in 'schedules' to confirm it will actually fire. On an active
-            workflow, 'draft' holds staged content changes awaiting workflows-publish (null when nothing is staged) —
-            the live config in actions/edges is what's running.
+            Get a specific workflow by ID, where id is the workflow's UUID. When you have a workflow's name instead,
+            resolve it first with workflows-list (search=<name>) and use the id from that result. Returns the full
+            workflow definition including trigger, edges, actions, exit condition, variables, and any recurring
+            'schedules' (read-only here). For a batch workflow, check status=='active' plus an active entry in
+            'schedules' to confirm it will actually fire. On an active workflow, 'draft' holds staged content changes
+            awaiting workflows-publish (null when nothing is staged) — the live config in actions/edges is what's
+            running.
         ui_app: workflow
     workflows-get-invocation:
         operation: hog_flows_invocation_result_retrieve
@@ -230,7 +235,9 @@ tools:
         title: List workflows
         description: >
             List all workflows in the project. Returns workflows with their name, description, status
-            (draft/active/archived), version, trigger configuration, and timestamps.
+            (draft/active/archived), version, trigger configuration, and timestamps. Pass search=<name> to find a
+            workflow by name and read its id. Most workflows-* tools take that value as 'id'; workflows-blast-radius,
+            workflows-run-batch and workflows-schedule-create take it as 'workflow_id'.
         ui_app: workflow-list
     workflows-list-batch-jobs:
         operation: hog_flows_batch_jobs_list
@@ -372,7 +379,9 @@ tools:
             Execution stats for a single workflow by ID: time-series success/failure counts over a configurable interval
             (hour, day, or week). Use to inspect one workflow's health — failure spikes and reliability trends. For an
             at-a-glance view across ALL workflows, call workflows-global-stats first, then drill in here. Supports
-            breakdown by metric kind (success/failure) or name, and time range filtering.
+            breakdown by metric kind (success/failure) or name, and time range filtering. For email engagement, read
+            email_opened and email_link_clicked against (email_sent - email_untracked): email_untracked counts sends
+            with open/click tracking off, which can never register an open or a click.
     workflows-test-run:
         operation: hog_flows_invocations_create
         enabled: true

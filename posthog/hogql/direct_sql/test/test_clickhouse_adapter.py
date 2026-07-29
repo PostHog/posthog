@@ -1,17 +1,23 @@
 from typing import Any
 
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
+from posthog.hogql.database.models import StringDatabaseField, TableNode
 from posthog.hogql.direct_sql.clickhouse_adapter import (
     _fetch_capped_clickhouse_rows,
     ensure_read_only_raw_clickhouse_statement,
 )
 from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer.utils import prepare_and_print_ast
 
 
 class TestDirectClickHouseTable(SimpleTestCase):
@@ -47,6 +53,38 @@ class TestDirectClickHouseTable(SimpleTestCase):
             table.to_printed_postgres(None)
         with self.assertRaises(QueryError):
             table.to_printed_mysql(None)
+
+
+class TestDirectClickHouseTeamIdGuard(BaseTest):
+    def _print(self, *, is_direct_query: bool) -> str:
+        table = DirectClickHouseTable(
+            name="external_events",
+            fields={"col1": StringDatabaseField(name="col1")},
+            clickhouse_database="mydb",
+            clickhouse_table_name="events",
+            external_data_source_id="src",
+        )
+        database = Database()
+        root = TableNode()
+        root.add_child(TableNode(name="external_events", table=table))
+        database._add_warehouse_tables(root)
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=database,
+            is_direct_query=is_direct_query,
+        )
+        return prepare_and_print_ast(parse_select("SELECT col1 FROM external_events"), context, "clickhouse")[0]
+
+    def test_direct_query_prints_external_table_without_team_id(self):
+        printed = self._print(is_direct_query=True)
+        self.assertIn("mydb.events", printed)
+        self.assertNotIn("team_id", printed)
+
+    def test_refuses_external_table_outside_a_direct_query(self):
+        # Our own cluster would happily resolve `mydb.events` — printing it there must fail, not read it.
+        with self.assertRaisesRegex(QueryError, "direct connection"):
+            self._print(is_direct_query=False)
 
 
 class TestClickHouseReadOnlyGuard(SimpleTestCase):
