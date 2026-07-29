@@ -41,7 +41,11 @@ def normalize_volume_resolution(volume_resolution: int) -> int:
     return max(volume_resolution, 1)
 
 
-CONTEXT_EVENT_SELECTS = ["properties.$exception_list", "properties.$exception_releases"]
+CONTEXT_EVENT_SELECTS = [
+    "properties.$exception_list",
+    "properties.$exception_releases",
+    "properties.$exception_release",
+]
 DEFAULT_EVENT_CONTEXT_INCLUDES = ["exception", "environment", "navigation", "correlation"]
 EVENT_CONTEXT_PROPERTY_SELECTS = {
     "exception": [
@@ -65,7 +69,7 @@ EVENT_CONTEXT_PROPERTY_SELECTS = {
         "properties.$app_version",
         "properties.$device_type",
     ],
-    "release": ["properties.$exception_releases"],
+    "release": ["properties.$exception_releases", "properties.$exception_release"],
     "navigation": ["properties.$current_url", "properties.$screen_name", "properties.$referrer"],
     "correlation": [
         "properties.$session_id",
@@ -316,7 +320,7 @@ def normalize_error_property(
 ) -> object:
     if name == "$exception_list":
         return normalize_exception_list(value, include_stacktrace, only_app_frames, include_code_variables)
-    if name in {"$exception_releases", "$cymbal_errors"}:
+    if name in {"$exception_releases", "$exception_release", "$cymbal_errors"}:
         return parse_jsonish(value)
     if name == "$exception_handled" and isinstance(value, str) and value.lower() in {"true", "false"}:
         return value.lower() == "true"

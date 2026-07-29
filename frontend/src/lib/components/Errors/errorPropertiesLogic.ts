@@ -81,6 +81,7 @@ export interface errorPropertiesLogicMeta {
         frames: (exceptionList: ErrorTrackingException[]) => ErrorTrackingStackFrame[]
         uuid: (id: string) => string
         release: (
+            properties: Record<string, any>,
             frames: ErrorTrackingStackFrame[],
             stackFrameRecords: KeyedStackFrameRecords
         ) => ErrorTrackingRelease | null | undefined
@@ -164,8 +165,27 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
         ],
         uuid: [(_, props) => [props.id], (id: ErrorEventId) => id],
         release: [
-            (s) => [s.frames, s.stackFrameRecords],
-            (frames: ErrorTrackingStackFrame[], stackFrameRecords: KeyedStackFrameRecords) => {
+            (s) => [s.properties, s.frames, s.stackFrameRecords],
+            (
+                properties: ErrorEventProperties,
+                frames: ErrorTrackingStackFrame[],
+                stackFrameRecords: KeyedStackFrameRecords
+            ) => {
+                // Prefer the event-level release the server resolved from `$release_id`. It is
+                // authoritative and independent of whether the symbol sets still carry a release,
+                // which is the case once chunks are decoupled from releases. The event property is a
+                // ReleaseInfo ({ version, project, timestamp, metadata }); map it to the shape the
+                // pill reads. `id`/`created_at` aren't rendered by the pill, so no id is needed here.
+                const eventRelease = properties?.['$exception_release']
+                if (eventRelease) {
+                    return {
+                        id: '',
+                        version: eventRelease.version,
+                        created_at: eventRelease.timestamp,
+                        project: eventRelease.project,
+                        metadata: eventRelease.metadata,
+                    } as ErrorTrackingRelease
+                }
                 if (!frames.length || Object.keys(stackFrameRecords).length === 0) {
                     return undefined
                 }
