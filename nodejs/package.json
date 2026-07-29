@@ -159,6 +159,7 @@
         "@babel/types": "^7.20.2",
         "@bufbuild/protoc-gen-es": "^2.11.0",
         "@eslint-community/eslint-plugin-eslint-comments": "^4.4.1",
+        "@jest/test-sequencer": "^30.0.5",
         "@segment/actions-core": "^3.151.0",
         "@trivago/prettier-plugin-sort-imports": "^5.2.2",
         "@types/adm-zip": "^0.4.34",

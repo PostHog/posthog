@@ -238,7 +238,7 @@ jobs:
 
     tests:
         if: needs.changes.outputs.nodejs == 'true'
-        name: Node.js Tests ${{matrix.shard}}/3 (depot-ubuntu-24.04-4)
+        name: Node.js Tests ${{matrix.shard}}/6 (depot-ubuntu-24.04-4)
         needs: changes
         runs-on: depot-ubuntu-24.04-4
         # Tests fit comfortably in 30, but a rust change misses the turbo cache and cold-builds the
@@ -247,7 +247,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                shard: [1, 2, 3]
+                shard: [1, 2, 3, 4, 5, 6]
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -421,7 +421,7 @@ jobs:
             - name: Prepare Node.js workspace
               env:
                   SHARD_INDEX: ${{ matrix.shard }}
-                  SHARD_COUNT: 3
+                  SHARD_COUNT: 6
               run: bin/turbo --filter=@posthog/nodejs prepare
 
             - name: Test with Jest
@@ -438,7 +438,7 @@ jobs:
                   REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
                   SHARD_INDEX: ${{ matrix.shard }}
-                  SHARD_COUNT: 3
+                  SHARD_COUNT: 6
                   LOG_LEVEL: info
                   # Enable localstack integration tests for DynamoDB/KMS
                   LOCALSTACK_ENABLED: '1'
@@ -468,6 +468,19 @@ jobs:
                   JEST_JUNIT_SUITE_NAME: '{filepath}'
                   JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true'
               run: cd nodejs && pnpm run test:postgres-parity
+
+            # Source for nodejs/nodejs-timings.json, which the sequencer bin-packs the shards from.
+            # ci-nodejs-update-test-timing.yml refreshes the manifest from these on a schedule, so
+            # they only need to outlive one nightly cycle. Nothing is written when the Jest task
+            # hits the turbo cache, hence if-no-files-found: ignore.
+            - name: Upload test results
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: junit-results-nodejs-${{ matrix.shard }}
+                  path: junit-results/junit-nodejs-${{ matrix.shard }}.xml
+                  if-no-files-found: ignore
+                  retention-days: 1
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the

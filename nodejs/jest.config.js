@@ -8,6 +8,8 @@ module.exports = {
         ],
     },
     testEnvironment: 'node',
+    // Bin-packs --shard by measured runtime instead of by path hash, so no shard is an outlier.
+    testSequencer: './test-sequencer.js',
     // Emit JUnit XML for Trunk flaky-test detection only when JEST_JUNIT_OUTPUT_DIR is set.
     reporters: process.env.JEST_JUNIT_OUTPUT_DIR ? ['default', 'jest-junit'] : ['default'],
     clearMocks: true,

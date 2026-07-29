@@ -55,7 +55,18 @@
         },
         "test": {
             "dependsOn": ["^build"],
-            "inputs": ["src", "tests", "Cargo.toml", "!**/*.pyc"],
+            // test-sequencer.js/nodejs-timings.json decide which files a --shard runs, so they
+            // must be inputs: otherwise a re-partition keeps the old hash and a shard replays a
+            // cached log covering a different set of files. These globs anchor per-package, so
+            // they only match where the files exist.
+            "inputs": [
+                "src",
+                "tests",
+                "Cargo.toml",
+                "test-sequencer.js",
+                "nodejs-timings.json",
+                "!**/*.pyc"
+            ],
             "env": ["RUST_VERSION", "SHARD_INDEX", "SHARD_COUNT"],
             "passThroughEnv": [
                 "RUSTUP_HOME",

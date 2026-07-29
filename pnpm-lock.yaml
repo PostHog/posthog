@@ -1760,6 +1760,9 @@ importers:
       '@eslint-community/eslint-plugin-eslint-comments':
         specifier: ^4.4.1
         version: 4.7.1(eslint@8.57.0)
+      '@jest/test-sequencer':
+        specifier: ^30.0.5
+        version: 30.0.5
       '@segment/actions-core':
         specifier: ^3.151.0
         version: 3.153.0(encoding@0.1.13)
