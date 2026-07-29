@@ -1156,6 +1156,19 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # Stamped by the coordinator after each dispatch; drives the due-check. Written every
     # run, so it is excluded from activity logging (see field_exclusions below).
     last_run_at = models.DateTimeField(null=True, blank=True)
+    # Circuit breaker for a scout that keeps timing out. `consecutive_timeout_failures` counts
+    # back-to-back runs that hit the per-run poll wall without finalizing; any run that doesn't
+    # time out resets it to 0. When it crosses `CONSECUTIVE_TIMEOUT_PAUSE_THRESHOLD` the runner
+    # stamps `auto_paused_at`, and the coordinator then stops dispatching this config until a
+    # human clears the pause (editing the config via the API resets both). This is what stops one
+    # wedged tenant from re-dispatching doomed 15-minute sandbox runs every tick forever. The
+    # runner writes these via `.update()` (no `save()`), so they never emit an activity signal;
+    # they're bookkeeping, not user intent, and are excluded from change detection regardless.
+    consecutive_timeout_failures = models.PositiveIntegerField(default=0, db_default=0)
+    auto_paused_at = models.DateTimeField(null=True, blank=True)
+    # Human-readable why, surfaced on the config API/UI so a paused scout explains itself rather
+    # than the state living only in the per-run failure event.
+    auto_paused_reason = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(

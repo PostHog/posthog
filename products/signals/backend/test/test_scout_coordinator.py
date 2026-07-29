@@ -409,6 +409,19 @@ async def test_disabled_config_is_skipped(ateam):
     assert await _run_activity() == []
 
 
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_auto_paused_config_is_skipped(ateam):
+    # An enabled but circuit-breaker-paused config must not dispatch, which is what stops a
+    # wedged scout from re-dispatching doomed runs every tick until a human resumes it.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-errors")
+    await database_sync_to_async(_create_config)(
+        ateam, "signals-scout-errors", enabled=True, auto_paused_at=timezone.now()
+    )
+
+    assert await _run_activity() == []
+
+
 # ── Auto-register: author a skill, get a scout ──────────────────────────────────
 
 

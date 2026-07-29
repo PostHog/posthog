@@ -30,6 +30,16 @@ WORKFLOW_HARD_CEILING_S = DEFAULT_MAX_RUNTIME_S + ACTIVITY_SLACK_S
 # ticks.
 STALE_RUN_CUTOFF_S = 2 * WORKFLOW_HARD_CEILING_S
 
+# Circuit-breaker threshold: a scout config that hits the per-run poll wall
+# (`PollTurnTimeoutError`) on this many runs in a row is auto-paused so it stops re-dispatching
+# doomed 15-minute sandbox runs on every coordinator tick. Any run that doesn't time out (a
+# completed run, or a failure of another kind) resets the streak, so this only trips on a config
+# that is genuinely wedged, never on the marginal contention timeouts that resolve on the next run.
+# Deliberately well above the one-off timeouts a burst produces (a contention spike times a team
+# out once, not repeatedly) and low enough that a frequently-scheduled wedged scout pauses within
+# hours rather than burning leases for days. Tuning this is a config decision, not a per-run knob.
+CONSECUTIVE_TIMEOUT_PAUSE_THRESHOLD = 10
+
 # Per-team ceiling on ENABLED scout configs — the per-team cost cap. Each enabled scout
 # is a recurring LLM sandbox run, so this bounds what one team can switch on. Set high so
 # teams can freely author scouts with minimal friction; it's a backstop against runaway

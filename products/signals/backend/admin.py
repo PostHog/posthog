@@ -95,13 +95,22 @@ class SignalScoutConfigAdmin(admin.ModelAdmin):
         "run_interval_minutes",
         "run_cron_schedule",
         "last_run_at",
+        "auto_paused_at",
         "updated_at",
     )
     list_display_links = ("id",)
     list_filter = ("enabled", "emit")
     search_fields = ("id", "skill_name", "team__name", "team__organization__name")
     raw_id_fields = ("team", "created_by", "enabled_by")
-    readonly_fields = ("id", "created_at", "updated_at", "last_run_at")
+    readonly_fields = (
+        "id",
+        "created_at",
+        "updated_at",
+        "last_run_at",
+        "consecutive_timeout_failures",
+        "auto_paused_at",
+        "auto_paused_reason",
+    )
     list_select_related = ("team", "team__organization")
     show_full_result_count = False
 

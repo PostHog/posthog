@@ -1902,6 +1902,20 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="When the coordinator last dispatched this scout. Null if it has never run.",
     )
+    auto_paused_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "When this scout was auto-paused for repeatedly timing out, or null if it is not paused. "
+            "A paused scout is skipped by the coordinator until it is resumed; editing the config "
+            "(e.g. saving any change) clears the pause and lets it run again."
+        ),
+    )
+    auto_paused_reason = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Human-readable explanation of why the scout was auto-paused. Null when it is not paused.",
+    )
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_description(self, obj: SignalScoutConfig) -> str:
@@ -1930,6 +1944,8 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "run_cron_schedule",
             "output_destinations",
             "last_run_at",
+            "auto_paused_at",
+            "auto_paused_reason",
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]
@@ -2007,6 +2023,14 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             field in validated_data and validated_data[field] != getattr(instance, field) for field in schedule_fields
         ):
             validated_data["schedule_changed_at"] = timezone.now()
+        # Editing a paused config is the resume action: clear the auto-pause and reset the streak
+        # so the coordinator dispatches it again. Done here (not a dedicated endpoint) so any save
+        # a user makes to address the timeouts un-pauses the scout; if it keeps timing out the
+        # runner will trip the breaker again.
+        if instance.auto_paused_at is not None:
+            validated_data["auto_paused_at"] = None
+            validated_data["auto_paused_reason"] = None
+            validated_data["consecutive_timeout_failures"] = 0
         return super().update(instance, validated_data)
 
     class Meta:

@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.apps import apps
 from django.db import OperationalError
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
@@ -31,10 +32,16 @@ from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
-from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
+from products.signals.backend.scout_harness.limits import CONSECUTIVE_TIMEOUT_PAUSE_THRESHOLD, STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.prompt import _REPORT_CHARTS, HARNESS_PROMPT_VERSION, build_run_prompt
-from products.signals.backend.scout_harness.runner import RunResult, _create_run_row, arun_signals_scout
+from products.signals.backend.scout_harness.runner import (
+    RunResult,
+    _create_run_row,
+    _update_circuit_breaker,
+    arun_signals_scout,
+)
+from products.signals.backend.scout_harness.serializers import SignalScoutConfigUpdateSerializer
 from products.signals.backend.scout_harness.skill_loader import (
     LoadedSkill,
     SkillNotFoundError,
@@ -1672,3 +1679,53 @@ class TestRunRowProvenanceStamps(BaseTest):
         # The routing triple stays absent on the default-model path, so its keys can't be
         # confused with the always-present provenance keys.
         assert not any(key in stamped for key in _ROUTED_MODEL_KEYS)
+
+
+class TestCircuitBreaker(BaseTest):
+    def _config(self, **kwargs: object) -> SignalScoutConfig:
+        return SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-errors", **kwargs)
+
+    def test_timeout_increments_streak_below_threshold(self) -> None:
+        config = self._config()
+        paused, count = _update_circuit_breaker(config.pk, timed_out=True)
+        assert (paused, count) == (False, 1)
+        config.refresh_from_db()
+        assert config.consecutive_timeout_failures == 1
+        assert config.auto_paused_at is None
+
+    def test_non_timeout_outcome_resets_streak(self) -> None:
+        config = self._config(consecutive_timeout_failures=5)
+        paused, count = _update_circuit_breaker(config.pk, timed_out=False)
+        assert (paused, count) == (False, 0)
+        config.refresh_from_db()
+        assert config.consecutive_timeout_failures == 0
+
+    def test_crossing_threshold_pauses_once(self) -> None:
+        config = self._config(consecutive_timeout_failures=CONSECUTIVE_TIMEOUT_PAUSE_THRESHOLD - 1)
+        paused, count = _update_circuit_breaker(config.pk, timed_out=True)
+        assert paused is True
+        assert count == CONSECUTIVE_TIMEOUT_PAUSE_THRESHOLD
+        config.refresh_from_db()
+        assert config.auto_paused_at is not None
+        assert str(CONSECUTIVE_TIMEOUT_PAUSE_THRESHOLD) in (config.auto_paused_reason or "")
+
+        # Already paused: a further timeout must not re-trip (so no duplicate auto-paused event).
+        first_paused_at = config.auto_paused_at
+        paused_again, _ = _update_circuit_breaker(config.pk, timed_out=True)
+        assert paused_again is False
+        config.refresh_from_db()
+        assert config.auto_paused_at == first_paused_at
+
+    def test_editing_paused_config_resumes_it(self) -> None:
+        config = self._config(
+            auto_paused_at=timezone.now(),
+            auto_paused_reason="paused",
+            consecutive_timeout_failures=CONSECUTIVE_TIMEOUT_PAUSE_THRESHOLD,
+        )
+        serializer = SignalScoutConfigUpdateSerializer(instance=config, data={"enabled": True}, partial=True)
+        assert serializer.is_valid(), serializer.errors
+        serializer.save()
+        config.refresh_from_db()
+        assert config.auto_paused_at is None
+        assert config.auto_paused_reason is None
+        assert config.consecutive_timeout_failures == 0

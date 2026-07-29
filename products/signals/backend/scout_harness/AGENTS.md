@@ -181,7 +181,13 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   Runtime ceilings as module constants: `DEFAULT_MAX_RUNTIME_S` (per-run budget),
   `ACTIVITY_SLACK_S`, and `WORKFLOW_HARD_CEILING_S` (`= DEFAULT_MAX_RUNTIME_S +
 ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
-  `start_to_close_timeout`).
+  `start_to_close_timeout`). Also `CONSECUTIVE_TIMEOUT_PAUSE_THRESHOLD`, the circuit-breaker
+  trip point: after this many back-to-back runs hit the per-run poll wall
+  (`PollTurnTimeoutError`) without finalizing, the runner auto-pauses the config
+  (`SignalScoutConfig.auto_paused_at`) and the coordinator stops dispatching it until a human
+  resumes it by editing the config. Any non-timeout outcome resets the streak, so a wedged
+  tenant stops burning sandbox leases every tick while transient contention timeouts don't trip
+  it.
 - `team_limits.py`
   Single source of truth for a team's effective scout caps + metadata, resolved from the
   `signals-scout` flag payload in one read. The same three-layer cap resolution

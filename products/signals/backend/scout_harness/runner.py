@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
+from django.db.models import F
 from django.utils import timezone
 
 import posthoganalytics
@@ -20,7 +21,11 @@ from products.signals.backend.agent_runtime import STEP_SCOUT, resolve_agent_run
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
-from products.signals.backend.scout_harness.limits import DEFAULT_MAX_RUNTIME_S, STALE_RUN_CUTOFF_S
+from products.signals.backend.scout_harness.limits import (
+    CONSECUTIVE_TIMEOUT_PAUSE_THRESHOLD,
+    DEFAULT_MAX_RUNTIME_S,
+    STALE_RUN_CUTOFF_S,
+)
 from products.signals.backend.scout_harness.model_selection import resolve_scout_model
 from products.signals.backend.scout_harness.prompt import (
     HARNESS_PROMPT_VERSION,
@@ -40,7 +45,7 @@ from products.signals.backend.temporal.agentic import (
     resolve_acting_user_id_for_team,
 )
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
+from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession, PollTurnTimeoutError
 
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
@@ -303,6 +308,8 @@ async def arun_signals_scout(
             model=model,
             runtime_adapter=runtime_adapter,
         )
+        # A completed run clears the timeout streak, so the config is not treated as wedged.
+        await _record_circuit_breaker_outcome(team=team, config=config, skill=skill, timed_out=False)
         return RunResult(
             run_id=str(run_id),
             task_run_id=task_run_id,
@@ -355,6 +362,12 @@ async def arun_signals_scout(
             runtime_adapter=runtime_adapter,
             error_type=type(exc).__name__,
             error_message=str(exc)[:300],
+        )
+        # Circuit breaker: a poll-wall timeout advances the streak (and auto-pauses the config
+        # once it crosses the threshold); any other failure resets it, since the breaker targets
+        # the specific "burns the whole budget, finalizes nothing" wedge, not transient errors.
+        await _record_circuit_breaker_outcome(
+            team=team, config=config, skill=skill, timed_out=isinstance(exc, PollTurnTimeoutError)
         )
         return RunResult(
             run_id=str(run_id) if row_persisted else None,
@@ -927,6 +940,93 @@ def _capture_run_finished(
             "signals_scout: failed to capture run-finished analytics event",
             extra={"team_id": team.id, "run_id": str(run_id), "skill_name": skill.name},
         )
+
+
+def _auto_pause_reason(consecutive_timeouts: int) -> str:
+    return (
+        f"Paused automatically after {consecutive_timeouts} runs in a row timed out without "
+        "producing a report. Resume the scout once the underlying issue is resolved."
+    )
+
+
+def _update_circuit_breaker(config_pk: Any, *, timed_out: bool) -> tuple[bool, int]:
+    """Advance or reset the config's consecutive-timeout streak; return (paused_now, streak).
+
+    Sync DB helper. Writes via `.update()` (never `save()`) so this per-run bookkeeping bypasses
+    `ModelActivityMixin` and never emits an activity signal. Keyed on the config pk rather than the
+    in-memory row so a stale `last_run_at`/edit read on the passed object can't clobber the write.
+    """
+    if not timed_out:
+        # Reset only when the streak is non-zero, so a healthy scout doesn't take a write every run.
+        SignalScoutConfig.all_teams.filter(pk=config_pk, consecutive_timeout_failures__gt=0).update(
+            consecutive_timeout_failures=0
+        )
+        return (False, 0)
+    # Atomic increment so an overlapping write can't lose a count, then read back the settled value.
+    SignalScoutConfig.all_teams.filter(pk=config_pk).update(
+        consecutive_timeout_failures=F("consecutive_timeout_failures") + 1
+    )
+    count = (
+        SignalScoutConfig.all_teams.filter(pk=config_pk).values_list("consecutive_timeout_failures", flat=True).first()
+        or 0
+    )
+    if count < CONSECUTIVE_TIMEOUT_PAUSE_THRESHOLD:
+        return (False, count)
+    # Trip once. The `auto_paused_at__isnull=True` guard makes this idempotent: an already-paused
+    # config isn't re-stamped, so `auto_paused_at` marks the first trip and the event fires once.
+    paused = SignalScoutConfig.all_teams.filter(pk=config_pk, auto_paused_at__isnull=True).update(
+        auto_paused_at=timezone.now(),
+        auto_paused_reason=_auto_pause_reason(count),
+    )
+    return (bool(paused), count)
+
+
+def _capture_config_auto_paused(
+    *, team: Team, config: SignalScoutConfig, skill: LoadedSkill, consecutive_timeouts: int
+) -> None:
+    """Emit a scout-owned event when the breaker pauses a config, so the paused state is
+    observable in analytics/alerting instead of only inferable from a streak of timeout-failed
+    `signals_scout_run_finished` events. Best-effort: a capture failure never fails the run."""
+    try:
+        posthoganalytics.capture(
+            event="signals_scout_config_auto_paused",
+            distinct_id=str(team.uuid),
+            properties={
+                "skill_name": skill.name,
+                "scout_config_id": str(config.id),
+                "consecutive_timeout_failures": consecutive_timeouts,
+            },
+            groups=groups(team.organization, team),
+        )
+    except Exception:
+        logger.warning(
+            "signals_scout: failed to capture config auto-paused analytics event",
+            extra={"team_id": team.id, "skill_name": skill.name},
+        )
+
+
+async def _record_circuit_breaker_outcome(
+    *, team: Team, config: SignalScoutConfig, skill: LoadedSkill, timed_out: bool
+) -> None:
+    """Update the config's timeout streak for this run's outcome, auto-pausing and emitting the
+    event if the streak just crossed the threshold. Best-effort: bookkeeping must never turn a
+    finished run into a failed one, so any error is logged and swallowed."""
+    try:
+        paused_now, count = await database_sync_to_async(_update_circuit_breaker, thread_sensitive=False)(
+            config.pk, timed_out=timed_out
+        )
+    except Exception:
+        logger.exception(
+            "signals_scout: circuit-breaker bookkeeping failed",
+            extra={"team_id": team.id, "skill_name": skill.name},
+        )
+        return
+    if paused_now:
+        logger.warning(
+            "signals_scout: auto-paused scout config after consecutive timeouts",
+            extra={"team_id": team.id, "skill_name": skill.name, "consecutive_timeout_failures": count},
+        )
+        _capture_config_auto_paused(team=team, config=config, skill=skill, consecutive_timeouts=count)
 
 
 def _finalize_run_row(*, run_id: Any, team_id: int, summary: str) -> None:

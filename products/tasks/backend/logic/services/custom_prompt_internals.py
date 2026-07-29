@@ -133,6 +133,20 @@ class EmptyAgentTurnError(RuntimeError):
         self.printed_lines = printed_lines
 
 
+class PollTurnTimeoutError(RuntimeError):
+    """Raised when a turn's poll budget is exhausted without the agent finalizing.
+
+    A distinct type (not a bare RuntimeError) so callers can tell "the turn never finished
+    in its budget" apart from any other RuntimeError and react to it (for example, the Signals
+    scout harness circuit-breaks a config that keeps hitting this). `elapsed` is the seconds spent
+    polling before giving up.
+    """
+
+    def __init__(self, message: str, *, elapsed: int):
+        super().__init__(message)
+        self.elapsed = elapsed
+
+
 async def create_task_and_trigger(
     description: str,
     context: CustomPromptSandboxContext,
@@ -382,7 +396,7 @@ async def poll_for_turn(
         )
         if salvaged is not None:
             return salvaged
-    raise RuntimeError(f"custom_prompt - poll_for_turn: timed out after {elapsed}s")
+    raise PollTurnTimeoutError(f"custom_prompt - poll_for_turn: timed out after {elapsed}s", elapsed=elapsed)
 
 
 async def _read_turn_log_with_retry(

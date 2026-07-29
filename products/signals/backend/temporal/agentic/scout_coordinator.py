@@ -223,8 +223,12 @@ def _collect_planned_runs(
             live_skills = live_scout_skill_names(team.id, withheld_skill_names=withheld_for_team)
         # Skip enabled configs whose `signals-scout-*` skill was deleted or is no longer the
         # latest version: dispatching them would spawn a child workflow that fails fast in
-        # load_skill_for_run on every tick.
-        for config in SignalScoutConfig.all_teams.filter(team_id=team.id, enabled=True, skill_name__in=live_skills):
+        # load_skill_for_run on every tick. `auto_paused_at__isnull=True` also drops configs the
+        # runner's circuit breaker paused for repeated timeouts, so a wedged scout stops
+        # re-dispatching doomed runs every tick until a human resumes it (which clears the pause).
+        for config in SignalScoutConfig.all_teams.filter(
+            team_id=team.id, enabled=True, auto_paused_at__isnull=True, skill_name__in=live_skills
+        ):
             overdue_s = _overdue_seconds(config, now, team.timezone_info)
             if overdue_s is None:
                 continue
