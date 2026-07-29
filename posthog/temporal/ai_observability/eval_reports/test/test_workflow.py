@@ -3,6 +3,10 @@ import asyncio
 import pytest
 from unittest.mock import patch
 
+from posthog.temporal.ai_observability.eval_reports.activities import (
+    deliver_report_activity,
+    update_next_delivery_date_activity,
+)
 from posthog.temporal.ai_observability.eval_reports.types import (
     CheckCountTriggeredEvalReportOutput,
     CheckCountTriggeredEvalReportsBatchOutput,
@@ -11,6 +15,7 @@ from posthog.temporal.ai_observability.eval_reports.types import (
     RunEvalReportAgentInput,
     RunEvalReportAgentOutput,
     StoreReportRunOutput,
+    UpdateNextDeliveryDateInput,
 )
 from posthog.temporal.ai_observability.eval_reports.workflow import (
     GenerateAndDeliverEvalReportWorkflow,
@@ -69,6 +74,230 @@ async def test_generate_workflow_forwards_sentiment_output_type() -> None:
     agent_input = activity_inputs[1]
     assert isinstance(agent_input, RunEvalReportAgentInput)
     assert agent_input.output_type == "sentiment"
+
+
+@pytest.mark.parametrize(
+    (
+        "agent_generation_status",
+        "generation_status_patch_enabled",
+        "attempt_patch_enabled",
+        "expected_generation_status",
+        "expected_schedule_updates",
+    ),
+    [
+        ("metrics_unavailable", True, True, "metrics_unavailable", [(True, False)]),
+        ("metrics_unavailable", False, False, "completed", [(True, True)]),
+        ("completed", True, True, "completed", [(True, False), (False, True)]),
+    ],
+)
+@pytest.mark.asyncio
+async def test_generate_workflow_forwards_generation_status_to_schedule(
+    agent_generation_status: str,
+    generation_status_patch_enabled: bool,
+    attempt_patch_enabled: bool,
+    expected_generation_status: str,
+    expected_schedule_updates: list[tuple[bool, bool]],
+) -> None:
+    activity_calls: list[object] = []
+    activity_inputs: list[object] = []
+    responses = iter(
+        [
+            PrepareReportContextOutput(
+                report_id="report-id",
+                team_id=1,
+                evaluation_id="evaluation-id",
+                evaluation_name="Evaluation",
+                evaluation_description="",
+                evaluation_prompt="",
+                evaluation_type="llm_judge",
+                period_start="2026-07-01T00:00:00+00:00",
+                period_end="2026-07-02T00:00:00+00:00",
+                previous_period_start="2026-06-30T00:00:00+00:00",
+            ),
+            RunEvalReportAgentOutput(
+                report_id="report-id",
+                content={
+                    "generation_status": agent_generation_status,
+                    "metrics": None if agent_generation_status == "metrics_unavailable" else {},
+                },
+                period_start="2026-07-01T00:00:00+00:00",
+                period_end="2026-07-02T00:00:00+00:00",
+                generation_status=agent_generation_status,
+            ),
+            StoreReportRunOutput(report_run_id="run-id"),
+            None,
+            None,
+            None,
+        ]
+    )
+
+    async def fake_execute_activity(activity, inputs, **_kwargs):
+        activity_calls.append(activity)
+        activity_inputs.append(inputs)
+        return next(responses)
+
+    def is_patch_enabled(patch_id: str) -> bool:
+        if patch_id == "eval-report-generation-status-2026-07":
+            return generation_status_patch_enabled
+        if patch_id == "eval-report-attempt-before-delivery-2026-07":
+            return attempt_patch_enabled
+        return False
+
+    with (
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.execute_activity",
+            new=fake_execute_activity,
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.patched",
+            side_effect=is_patch_enabled,
+        ),
+    ):
+        await GenerateAndDeliverEvalReportWorkflow().run(
+            GenerateAndDeliverEvalReportWorkflowInput(report_id="report-id")
+        )
+
+    schedule_inputs = [inputs for inputs in activity_inputs if isinstance(inputs, UpdateNextDeliveryDateInput)]
+    assert [schedule_input.generation_status for schedule_input in schedule_inputs] == [
+        expected_generation_status
+    ] * len(expected_schedule_updates)
+    assert [
+        (schedule_input.record_attempt, schedule_input.advance_data_cursor) for schedule_input in schedule_inputs
+    ] == expected_schedule_updates
+
+    schedule_indexes = [
+        index for index, activity in enumerate(activity_calls) if activity is update_next_delivery_date_activity
+    ]
+    delivery_index = activity_calls.index(deliver_report_activity)
+    if attempt_patch_enabled:
+        assert schedule_indexes[0] < delivery_index
+        if expected_generation_status == "completed":
+            assert schedule_indexes[-1] > delivery_index
+    else:
+        assert schedule_indexes == [delivery_index + 1]
+
+
+@pytest.mark.parametrize("generation_status", ["completed", "metrics_unavailable"])
+@pytest.mark.asyncio
+async def test_automatic_run_records_attempt_before_delivery_failure(generation_status: str) -> None:
+    activity_calls: list[object] = []
+    activity_inputs: list[object] = []
+    responses = iter(
+        [
+            PrepareReportContextOutput(
+                report_id="report-id",
+                team_id=1,
+                evaluation_id="evaluation-id",
+                evaluation_name="Evaluation",
+                evaluation_description="",
+                evaluation_prompt="",
+                evaluation_type="llm_judge",
+                period_start="2026-07-01T00:00:00+00:00",
+                period_end="2026-07-02T00:00:00+00:00",
+                previous_period_start="2026-06-30T00:00:00+00:00",
+            ),
+            RunEvalReportAgentOutput(
+                report_id="report-id",
+                content={
+                    "generation_status": generation_status,
+                    "metrics": None if generation_status == "metrics_unavailable" else {},
+                },
+                period_start="2026-07-01T00:00:00+00:00",
+                period_end="2026-07-02T00:00:00+00:00",
+                generation_status=generation_status,
+            ),
+            StoreReportRunOutput(report_run_id="run-id"),
+            None,
+        ]
+    )
+
+    async def fake_execute_activity(activity, inputs, **_kwargs):
+        activity_calls.append(activity)
+        activity_inputs.append(inputs)
+        if activity is deliver_report_activity:
+            raise RuntimeError("delivery unavailable")
+        return next(responses)
+
+    with (
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.execute_activity",
+            new=fake_execute_activity,
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.patched",
+            side_effect=lambda patch_id: (
+                patch_id
+                in {
+                    "eval-report-generation-status-2026-07",
+                    "eval-report-attempt-before-delivery-2026-07",
+                }
+            ),
+        ),
+        pytest.raises(RuntimeError, match="delivery unavailable"),
+    ):
+        await GenerateAndDeliverEvalReportWorkflow().run(
+            GenerateAndDeliverEvalReportWorkflowInput(report_id="report-id")
+        )
+
+    schedule_inputs = [inputs for inputs in activity_inputs if isinstance(inputs, UpdateNextDeliveryDateInput)]
+    assert len(schedule_inputs) == 1
+    schedule_input = schedule_inputs[0]
+    assert schedule_input.generation_status == generation_status
+    assert schedule_input.record_attempt is True
+    assert schedule_input.advance_data_cursor is False
+    assert activity_calls.count(update_next_delivery_date_activity) == 1
+    assert activity_calls.index(update_next_delivery_date_activity) < activity_calls.index(deliver_report_activity)
+
+
+@pytest.mark.asyncio
+async def test_generate_workflow_does_not_emit_signal_without_metrics() -> None:
+    responses = iter(
+        [
+            PrepareReportContextOutput(
+                report_id="report-id",
+                team_id=1,
+                evaluation_id="evaluation-id",
+                evaluation_name="Evaluation",
+                evaluation_description="",
+                evaluation_prompt="",
+                evaluation_type="llm_judge",
+                period_start="2026-07-01T00:00:00+00:00",
+                period_end="2026-07-02T00:00:00+00:00",
+                previous_period_start="2026-06-30T00:00:00+00:00",
+            ),
+            RunEvalReportAgentOutput(
+                report_id="report-id",
+                content={"generation_status": "metrics_unavailable", "metrics": None},
+                period_start="2026-07-01T00:00:00+00:00",
+                period_end="2026-07-02T00:00:00+00:00",
+                generation_status="metrics_unavailable",
+            ),
+            StoreReportRunOutput(report_run_id="run-id"),
+            None,
+        ]
+    )
+
+    async def fake_execute_activity(_activity, _inputs, **_kwargs):
+        return next(responses)
+
+    with (
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.execute_activity",
+            new=fake_execute_activity,
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.patched",
+            return_value=True,
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.start_child_workflow"
+        ) as start_child_workflow,
+    ):
+        await GenerateAndDeliverEvalReportWorkflow().run(
+            GenerateAndDeliverEvalReportWorkflowInput(report_id="report-id", manual=True)
+        )
+
+    start_child_workflow.assert_not_called()
 
 
 @pytest.mark.asyncio

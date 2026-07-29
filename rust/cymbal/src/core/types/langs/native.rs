@@ -205,7 +205,11 @@ impl RawNativeFrame {
                 vec![self.handle_resolution_error(NativeError::MissingSymbolSet(chunk_id))],
             ),
             Err(ResolveError::ResolutionError(e)) => {
-                tracing::warn!("Unexpected native symbol resolution error: {:?}", e);
+                tracing::warn!(
+                    team_id,
+                    "Unexpected native symbol resolution error: {:?}",
+                    e
+                );
                 Ok(vec![self.handle_resolution_error(NativeError::ParseError(
                     e.to_string(),
                 ))])

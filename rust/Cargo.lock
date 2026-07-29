@@ -6607,6 +6607,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "keyed-stash"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
 name = "kube"
 version = "0.98.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8589,6 +8596,7 @@ dependencies = [
  "http-body 1.0.1",
  "http-body-util",
  "k8s-awareness",
+ "keyed-stash",
  "kube",
  "lifecycle",
  "metrics",

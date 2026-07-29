@@ -2,7 +2,7 @@ from django import forms
 from django.contrib import admin, messages
 from django.utils.html import format_html
 
-from products.managed_migrations.backend.models.batch_imports import BatchImport
+from products.managed_migrations.backend.models.batch_imports import DEFAULT_SEND_RATE, BatchImport
 
 
 class BatchImportAdminForm(forms.ModelForm):
@@ -13,8 +13,8 @@ class BatchImportAdminForm(forms.ModelForm):
     )
     send_rate = forms.IntegerField(
         required=False,
-        help_text="Events per second to send (e.g., 1000). Leave empty to keep current value.",
-        widget=forms.NumberInput(attrs={"placeholder": "e.g., 1000"}),
+        help_text=f"Events per second to send (e.g., {DEFAULT_SEND_RATE}). Leave empty to keep current value.",
+        widget=forms.NumberInput(attrs={"placeholder": f"e.g., {DEFAULT_SEND_RATE}"}),
     )
 
     class Meta:
@@ -42,7 +42,7 @@ class BatchImportAdminForm(forms.ModelForm):
             existing_sink = instance.import_config.get("sink", {})
             sink = {
                 "type": sink_type,
-                "send_rate": send_rate if send_rate is not None else existing_sink.get("send_rate", 1000),
+                "send_rate": send_rate if send_rate is not None else existing_sink.get("send_rate", DEFAULT_SEND_RATE),
             }
             if sink_type == "kafka":
                 sink["topic"] = existing_sink.get("topic", "historical")
