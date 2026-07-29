@@ -147,6 +147,11 @@ def preserved_push_config(
         .first()
     )
     existing_mode = (existing.config or {}).get(CONFIG_PUSH_IDENTITY_VERIFICATION) if existing else None
+    # Drop a stored value we don't recognize rather than carrying it forward. The push endpoint already
+    # treats an unknown mode as disabled, so preserving it would keep dead data alive indefinitely, and
+    # raising here would leave a corrupted integration unable to rotate its credentials.
+    if existing_mode not in PUSH_IDENTITY_VERIFICATION_MODES:
+        return {}
     return {CONFIG_PUSH_IDENTITY_VERIFICATION: existing_mode} if existing_mode else {}
 
 
