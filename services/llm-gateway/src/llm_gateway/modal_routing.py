@@ -3,6 +3,7 @@ from typing import Any
 
 from fastapi.responses import StreamingResponse
 
+from llm_gateway.anthropic_request import drop_orphaned_clear_thinking
 from llm_gateway.api.handler import (
     MODAL_ANTHROPIC_CONFIG,
     MODAL_OPENAI_CONFIG,
@@ -51,7 +52,12 @@ async def send_modal_anthropic_messages(
     request_data: dict[str, Any], user: AuthenticatedUser, is_streaming: bool, product: str
 ) -> dict[str, Any] | StreamingResponse:
     return await send_modal_request(
-        request_data, user, is_streaming, product, MODAL_ANTHROPIC_CONFIG, make_modal_anthropic_call
+        drop_orphaned_clear_thinking(request_data, product=product),
+        user,
+        is_streaming,
+        product,
+        MODAL_ANTHROPIC_CONFIG,
+        make_modal_anthropic_call,
     )
 
 
