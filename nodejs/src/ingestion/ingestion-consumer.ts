@@ -40,7 +40,7 @@ import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { effectivePersonMergeEventsEnabled } from '~/ingestion/common/persons/person-merge-event'
 import { PersonsStore } from '~/ingestion/common/persons/persons-store'
-import { createOkContext } from '~/ingestion/framework/helpers'
+import { createKafkaDebugContext, createOkContext } from '~/ingestion/framework/helpers'
 import { TopHog } from '~/ingestion/framework/tophog'
 import {
     JoinedIngestionPipelineConfig,
@@ -439,7 +439,9 @@ export class IngestionConsumer {
     }
 
     private async runIngestionPipeline(messages: Message[]): Promise<void> {
-        const batch = messages.map((message) => createOkContext({ message }, { message }))
+        const batch = messages.map((message) =>
+            createOkContext({ message }, { message, debugContext: createKafkaDebugContext(message) })
+        )
 
         const feedResult = await this.joinedPipeline.feed(batch)
         if (!feedResult.ok) {

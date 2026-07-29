@@ -48,6 +48,7 @@ import { GENERATED_TOOLS as review_hog } from './review_hog'
 import { GENERATED_TOOLS as signals } from './signals'
 import { GENERATED_TOOLS as skills } from './skills'
 import { GENERATED_TOOLS as stamphog } from './stamphog'
+import { GENERATED_TOOLS as streamlit_apps } from './streamlit_apps'
 import { GENERATED_TOOLS as subscriptions } from './subscriptions'
 import { GENERATED_TOOLS as surveys } from './surveys'
 import { GENERATED_TOOLS as tasks } from './tasks'
@@ -106,6 +107,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...signals,
     ...skills,
     ...stamphog,
+    ...streamlit_apps,
     ...subscriptions,
     ...surveys,
     ...tasks,

@@ -9,16 +9,15 @@ import { useChartTheme } from 'lib/charts/hooks'
 
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
-import { LineGraphProps } from './LineGraph'
+import { SqlChartProps } from './SqlChart'
 import { formatSqlSeriesValue } from './sqlLineGraphAdapter'
 import { buildPieSeries, buildPieSlices, formatPieSliceCount } from './sqlPieGraphAdapter'
 
 const handleChartError = makeChartErrorHandler('sql-pie-chart')
 
 /**
- * SQL pie graph on @posthog/quill-charts' {@link PieChart}, gated behind the
- * `product-analytics-quill-sql-charts` flag (see {@link sqlChartComponentFor}). The chart core lives
- * in quill; the aggregation total and side legend stay here as chrome, matching the legacy wrapper.
+ * SQL pie graph on @posthog/quill-charts' {@link PieChart}. The chart core lives in quill; the
+ * aggregation total and side legend stay here as chrome.
  */
 export const SqlPieGraph = ({
     xData,
@@ -26,7 +25,7 @@ export const SqlPieGraph = ({
     chartSettings,
     presetChartHeight,
     className,
-}: LineGraphProps): JSX.Element => {
+}: SqlChartProps): JSX.Element => {
     const theme = useChartTheme()
 
     const slices = useMemo(() => buildPieSlices(xData, yData), [xData, yData])

@@ -4420,7 +4420,7 @@
         }
     },
     "inbox-reports-list": {
-        "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers (PostHog user UUIDs), and task_id (only reports associated with that task — pass your own task id to see which reports you are already working against). Some statuses are hidden by default (currently suppressed, i.e. human-dismissed); pass `include_all_statuses=true` to list reports in every status — do this when deduplicating against the full inbox state, and read each row's `status` (plus `dismissal_reason` / `dismissal_note` on dismissed rows) before acting. For picking up work, filter to `ready` — earlier statuses are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each report's full work log — signal findings (evidence), judgments, and log entries — is readable via inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default.",
+        "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers (PostHog user UUIDs), and task_id (only reports associated with that task — pass your own task id to see which reports you are already working against). Some statuses are hidden by default (currently suppressed, i.e. human-dismissed); pass `include_all_statuses=true` to list reports in every status — do this when deduplicating against the full inbox state, and read each row's `status` (plus `dismissal_reason` / `dismissal_note` on dismissed rows) before acting. For picking up work, filter to `ready` — earlier statuses are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each report's full work log — signal findings (evidence), judgments, and log entries — is readable via inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default. To find the self-driving reports for one source record — e.g. what the inbox already investigated for a specific support ticket — pass that record's id as `source_id` together with exactly one `source_product` (for a support ticket: `source_product=conversations` and the ticket's UUID as `source_id`); add `include_all_statuses=true` to include dismissed ones.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List signal reports",
@@ -6265,6 +6265,21 @@
         "feature_flag": "metrics",
         "system_prompt_hint": "Discover which server/infrastructure metrics exist before querying them"
     },
+    "notebooks-configure-compute": {
+        "description": "Set the notebook's sandbox kernel resources (cpu_cores, memory_gb from supported options; idle_timeout_seconds). Config applies when a sandbox is provisioned — the response's restart_required is true when a kernel is already active, meaning it keeps its current resources until restarted (restarting loses materialized dataframes, so prefer configuring before the first Python cell runs).",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Configure notebook compute",
+        "title": "Configure notebook compute",
+        "required_scopes": ["notebook:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "revamped-py-notebooks"
+    },
     "notebooks-create": {
         "description": "Create a new notebook. Provide a title and content. Content is a JSON object representing the notebook's rich text document structure (ProseMirror-based). Returns the created notebook with its short_id.\nEmbedded charts use `{type: \"ph-query\", attrs: {nodeId, query}}` nodes. The `query` object must be one of: (a) `{kind: \"DataVisualizationNode\", source: {kind: \"HogQLQuery\", query: \"SELECT ...\"}, display: \"ActionsBar\", chartSettings: {...}}` for SQL charts — do NOT wrap this in an InsightVizNode; (b) `{kind: \"InsightVizNode\", source: <TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery>}` for product-analytics insights; or (c) `{kind: \"SavedInsightNode\", shortId: \"...\"}` to embed a saved insight. The server rejects other shapes and auto-corrects the common `InsightVizNode` wrapping a SQL chart.",
         "category": "Notebooks",
@@ -6277,7 +6292,9 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "revamped-py-notebooks",
+        "feature_flag_behavior": "disable"
     },
     "notebooks-destroy": {
         "description": "Delete a notebook by short_id. The notebook will be soft-deleted and no longer appear in lists.",
@@ -6293,6 +6310,21 @@
             "readOnlyHint": false
         }
     },
+    "notebooks-get": {
+        "description": "The full notebook view: title, markdown source, and every cell with its code, dataframe name, depends_on/dependents edges, and derived status — 'stale' means re-running the cell now would execute different code than its last completed run (the cell or an upstream changed), so its displayed result is outdated. Use this to read or orient in a notebook, find which cells need re-running after edits, and decide re-run order (walk stale cells in dependency order with notebooks-update-cell, omitting code). Legacy rich-text notebooks return their raw document in content instead of markdown.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Get notebook",
+        "title": "Get notebook",
+        "required_scopes": ["notebook:read", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "revamped-py-notebooks"
+    },
     "notebooks-list": {
         "description": "List all notebooks in the project. Supports filtering by search term, created_by, last_modified_by, date_from, date_to, and contains. Returns title, short_id, and creation/modification metadata.",
         "category": "Notebooks",
@@ -6306,6 +6338,21 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "notebooks-list-frames": {
+        "description": "The dataframes and DuckDB tables the notebook's kernel currently holds — what a SQL or Python cell can reference by name — with column names/types and row counts, plus the kernel's live status and compute config. Frames are empty unless the kernel is running (SQL-only notebooks never start one; frames appear after Python/DuckDB cells run). To probe deeper than the schema, run a SELECT in a cell.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "List notebook dataframes",
+        "title": "List notebook dataframes",
+        "required_scopes": ["notebook:read", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "revamped-py-notebooks"
     },
     "notebooks-partial-update": {
         "description": "Update an existing notebook by short_id. Can update title, content, and deleted status. IMPORTANT: when updating the content field, you must provide the current version number for optimistic concurrency control. Retrieve the notebook first to get the latest version. If the notebook content is a single ph-markdown-notebook node, preserve that structure and update attrs.markdown with valid markdown instead of replacing it with legacy rich-text blocks.",
@@ -6335,7 +6382,39 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        }
+        },
+        "feature_flag": "revamped-py-notebooks",
+        "feature_flag_behavior": "disable"
+    },
+    "notebooks-run-cell-interrupt": {
+        "description": "Stop a running cell. Idempotent — interrupting an already-finished run returns its outcome unchanged. The stdout/stderr captured before the stop still arrive through notebooks-run-cell-result.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Interrupt notebook cell run",
+        "title": "Interrupt notebook cell run",
+        "required_scopes": ["notebook:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "revamped-py-notebooks"
+    },
+    "notebooks-run-cell-result": {
+        "description": "Read the durable state of a cell run: status ('running', 'done', 'failed', 'interrupted') and, once done or interrupted, the result envelope — columns, a capped first page of rows, stdout/stderr (a Python cell's logs and tracebacks), media, and error. Use this when notebooks-add-cell or notebooks-update-cell returned status 'running' (the cell outlived the call's wait window): poll with the run_id, waiting a few seconds between polls, until the status is terminal, then use the envelope to decide the next step.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Get notebook cell run result",
+        "title": "Get notebook cell run result",
+        "required_scopes": ["notebook:read", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "revamped-py-notebooks"
     },
     "org-member-get-github-login": {
         "description": "Resolve the GitHub username (login) for a single organization member, given their PostHog user UUID (obtainable from org-members-list, or \"@me\" for the current user). Returns null if the member has no GitHub identity linked. Use this when you know which member you want and need their GitHub handle — for example to set suggested reviewers.",
@@ -7522,7 +7601,7 @@
         }
     },
     "scout-edit-report": {
-        "description": "The report channel's edit half: rewrite a report's `title`/`summary`, append a note, and/or set its `suggested_reviewers`. Can target ANY of the project's inbox reports, not just scout-authored ones — the edit is attributed to this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can open a draft PR. Each reviewer is a `github_login` and/or a PostHog `user_uuid` (resolved server-side to the linked GitHub login). Prefer `append_note` over rewriting a report you didn't author (additive and audit-friendly); title/summary edits are best-effort, since the pipeline may later re-research and overwrite them. NOT idempotent — a retried `append_note` appends a second note. Opt-in: only available to scouts that list `edit_report` in their skill's `allowed_tools`.",
+        "description": "The report channel's edit half: rewrite a report's `title`/`summary`, append a note, and/or set its `suggested_reviewers`. Can target ANY of the project's inbox reports, not just scout-authored ones — the edit is attributed to this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can open a draft PR. Each reviewer is a `github_login` and/or a PostHog `user_uuid` (resolved server-side to the linked GitHub login). Prefer `append_note` over rewriting a report you didn't author (additive and audit-friendly); title/summary edits are best-effort, since the pipeline may later re-research and overwrite them. Optional `charts` is the full set of queries the inbox renders on the report — it replaces the report's charts rather than adding to them (omit it to leave them alone), so read the report first when you mean to add one. NOT idempotent — a retried `append_note` appends a second note. Opt-in: only available to scouts that list `edit_report` in their skill's `allowed_tools`.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Edit an existing report for a run",
@@ -7536,7 +7615,7 @@
         }
     },
     "scout-emit-report": {
-        "description": "The report channel: author a complete `SignalReport` directly instead of emitting a weak signal, when you've already done the research and want 1:1 control over the report rather than letting the pipeline cluster it. The report passes the safety judge, then surfaces at the status your `actionability` call implies (`immediately_actionable` → READY, `requires_human_input` → PENDING_INPUT, `not_actionable` → suppressed); an unsafe report is suppressed regardless. Backing `evidence` is written as bound signals so the report behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `inbox-reports-list` to find a prior report and `scout-edit-report` to update it instead. `suggested_reviewers` is the primary way a report reaches a human (each a `github_login` and/or a PostHog `user_uuid` resolved server-side); for a concrete, fixable issue, passing `repository` + `priority` + `suggested_reviewers` also opens a draft PR automatically (autostart, custom_agent parity); omit them to just surface the report. Opt-in: only available to scouts that list `emit_report` in their skill's `allowed_tools`.",
+        "description": "The report channel: author a complete `SignalReport` directly instead of emitting a weak signal, when you've already done the research and want 1:1 control over the report rather than letting the pipeline cluster it. The report passes the safety judge, then surfaces at the status your `actionability` call implies (`immediately_actionable` → READY, `requires_human_input` → PENDING_INPUT, `not_actionable` → suppressed); an unsafe report is suppressed regardless. Backing `evidence` is written as bound signals so the report behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `inbox-reports-list` to find a prior report and `scout-edit-report` to update it instead. `suggested_reviewers` is the primary way a report reaches a human (each a `github_login` and/or a PostHog `user_uuid` resolved server-side); for a concrete, fixable issue, passing `repository` + `priority` + `suggested_reviewers` also opens a draft PR automatically (autostart, custom_agent parity); omit them to just surface the report. Optional `charts` attach queries the inbox renders inline — reference one from `summary` as `[label](chart:<chart_id>)` to place it in the body, or leave it unreferenced and it renders below. Opt-in: only available to scouts that list `emit_report` in their skill's `allowed_tools`.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Author a full report for a run",
@@ -8525,6 +8604,156 @@
             "readOnlyHint": true
         },
         "feature_flag": "stamphog"
+    },
+    "streamlit-apps-create": {
+        "description": "Create a new Streamlit app (metadata only — it has no code until you call streamlit-apps-set-source). Typical flow: create the app, set its source, then start it. cpu_cores (0.25–8) and memory_gb (0.5–16) control the sandbox size and default to 0.5 / 1.",
+        "category": "Streamlit apps",
+        "feature": "streamlit_apps",
+        "summary": "Create Streamlit app",
+        "title": "Create Streamlit app",
+        "required_scopes": ["streamlit_app:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "streamlit-apps"
+    },
+    "streamlit-apps-delete": {
+        "description": "Delete a Streamlit app by short_id. Stops any running sandbox and soft-deletes the app.",
+        "category": "Streamlit apps",
+        "feature": "streamlit_apps",
+        "summary": "Delete Streamlit app",
+        "title": "Delete Streamlit app",
+        "required_scopes": ["streamlit_app:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "streamlit-apps"
+    },
+    "streamlit-apps-get": {
+        "description": "Get a single Streamlit app by its short_id, including its active version and live sandbox status.",
+        "category": "Streamlit apps",
+        "feature": "streamlit_apps",
+        "summary": "Get Streamlit app",
+        "title": "Get Streamlit app",
+        "required_scopes": ["streamlit_app:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "streamlit-apps"
+    },
+    "streamlit-apps-list": {
+        "description": "List all Streamlit apps in the current project. Each app is a Python data app that runs in an isolated sandbox. Returns short_id, name, description, resource config, and current sandbox status.",
+        "category": "Streamlit apps",
+        "feature": "streamlit_apps",
+        "summary": "List Streamlit apps",
+        "title": "List Streamlit apps",
+        "required_scopes": ["streamlit_app:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "streamlit-apps"
+    },
+    "streamlit-apps-set-source": {
+        "description": "Create a new version of a Streamlit app from a single free-text app.py source string, and set it as the active version. This is the simplest way to ship code — no zip upload required. If the app is running, its sandbox is stopped; call streamlit-apps-start afterwards to serve the new version. Use posthog_apps.query(\"<HogQL>\") inside the app to read PostHog data as a pandas DataFrame. There is no way to add pip dependencies — only packages baked into the sandbox image are importable.",
+        "category": "Streamlit apps",
+        "feature": "streamlit_apps",
+        "summary": "Set Streamlit app source",
+        "title": "Set Streamlit app source",
+        "required_scopes": ["streamlit_app:write", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "streamlit-apps"
+    },
+    "streamlit-apps-start": {
+        "description": "Start the app's sandbox (boots the active version). Returns immediately while the sandbox boots asynchronously — poll streamlit-apps-status until it reports running. Requires an active version (set one first with streamlit-apps-set-source). Idempotent: a no-op if already running or starting. The response's _posthogUrl is the app's page in PostHog — share that link with humans.",
+        "category": "Streamlit apps",
+        "feature": "streamlit_apps",
+        "summary": "Start Streamlit app",
+        "title": "Start Streamlit app",
+        "required_scopes": ["streamlit_app:write", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "streamlit-apps"
+    },
+    "streamlit-apps-status": {
+        "description": "Get the live sandbox status for a Streamlit app: one of starting, running, stopping, stopped, or error, plus restart_count and last_error. Use this to poll after starting an app.",
+        "category": "Streamlit apps",
+        "feature": "streamlit_apps",
+        "summary": "Get Streamlit app status",
+        "title": "Get Streamlit app status",
+        "required_scopes": ["streamlit_app:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "streamlit-apps"
+    },
+    "streamlit-apps-stop": {
+        "description": "Stop the app's running sandbox. Idempotent: a no-op if the app is not running. The app's code and versions are unaffected — it can be started again later.",
+        "category": "Streamlit apps",
+        "feature": "streamlit_apps",
+        "summary": "Stop Streamlit app",
+        "title": "Stop Streamlit app",
+        "required_scopes": ["streamlit_app:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "streamlit-apps"
+    },
+    "streamlit-apps-update": {
+        "description": "Update an app's metadata or sandbox sizing: name, description, cpu_cores (0.25–8), memory_gb (0.5–16). Only the fields you provide change. Resizing applies the next time the sandbox starts. Code changes go through streamlit-apps-set-source, not this tool.",
+        "category": "Streamlit apps",
+        "feature": "streamlit_apps",
+        "summary": "Update Streamlit app",
+        "title": "Update Streamlit app",
+        "required_scopes": ["streamlit_app:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "streamlit-apps"
+    },
+    "streamlit-apps-versions": {
+        "description": "List a Streamlit app's versions (latest first). Each version is an immutable snapshot of the app's code.",
+        "category": "Streamlit apps",
+        "feature": "streamlit_apps",
+        "summary": "List Streamlit app versions",
+        "title": "List Streamlit app versions",
+        "required_scopes": ["streamlit_app:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "streamlit-apps"
     },
     "subscriptions-create": {
         "description": "Create a recurring subscription. The kind is inferred from which field you populate and returned as the read-only `resource_type`:\n(1) set `insight` — schedule periodic snapshots of one insight (`resource_type: \"insight\"`).\n(2) set `dashboard` and `dashboard_export_insights` (the subset of the dashboard's insights to include, max 6) — schedule periodic snapshots of one dashboard (`resource_type: \"dashboard\"`).\n(3) set `prompt` (≤4000 chars, with no insight or dashboard) — schedule a recurring LLM-generated report (`resource_type: \"ai_prompt\"`). Available on PostHog Cloud (self-hosted production is not eligible) once the organization has approved AI data processing and prompt subscriptions are enabled for it; otherwise create is rejected with a 400. Creating a prompt subscription also requires the `query:read` scope — the report runs LLM-generated HogQL over your data — so a `subscription:write`-only token is rejected for this kind.\nDelivery is set by `target_type` — `email` or `slack`.\nThe kind is fixed at create time — a PATCH that would change the populated relation to a different kind is rejected.\nFor insight and dashboard subscriptions you can attach an AI-generated summary to each delivery by setting `summary_enabled: true` (optionally steered by `summary_prompt_guide`). This requires the organization to have approved AI data processing and to be within its active-summary cap and AI credit budget; otherwise the create is rejected. Prompt subscriptions are themselves AI-generated, so these fields do not apply to them.\nIMPORTANT — when creating an insight (or dashboard) subscription, always ask the user whether to enable the AI-generated summary before creating it. Present it as their choice: they can turn it on (`summary_enabled: true`) or leave it off, and if they turn it on, offer them the option to add a custom prompt to steer the summary (`summary_prompt_guide`). Do not enable the summary on your own without asking. (Prompt subscriptions are themselves AI-generated, so this does not apply to them.)",

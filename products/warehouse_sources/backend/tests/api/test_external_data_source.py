@@ -2322,6 +2322,29 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(payload[0]["source_type"], "Postgres")
         self.assertEqual(payload[0]["supports_hogql"], True)
 
+    def test_direct_connection_options_lists_every_direct_capable_source_type(self):
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/direct_connection_options/")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        source_types = {option["source_type"] for option in payload}
+
+        # Guards the drift the picker hit: a direct-capable engine must surface as an addable option.
+        self.assertTrue({"Postgres", "MySQL", "Snowflake", "Redshift", "ClickHouse"}.issubset(source_types))
+        self.assertNotIn("Stripe", source_types)
+
+        clickhouse = next(option for option in payload if option["source_type"] == "ClickHouse")
+        self.assertEqual(clickhouse["label"], "ClickHouse")
+        self.assertIsNotNone(clickhouse["icon_path"])
+        self.assertTrue(clickhouse["icon_path"].endswith("clickhouse.png"))
+
+        for option in payload:
+            self.assertTrue(option["label"])
+            self.assertIn("icon_path", option)
+
+        labels = [option["label"] for option in payload]
+        self.assertEqual(labels, sorted(labels, key=str.lower))
+
     def test_dont_expose_job_inputs(self):
         self._create_external_data_source()
 
