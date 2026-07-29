@@ -90,6 +90,10 @@ pub enum ServerBehavior {
     Retry,
     /// Emit ErrorKind::Overloaded outcomes for every item on this stream.
     Overloaded,
+    /// Emit ErrorKind::Overloaded for the first `count` items on this stream and
+    /// Done for the rest, so tests can exercise recovery once the caller's
+    /// endpoint ejection lapses.
+    OverloadedFirstItems { count: usize },
     /// Emit one Done for the first item then break the stream with Internal.
     InterruptAfterFirst,
     /// Emit the first item as Done and every subsequent item as Error.
@@ -206,6 +210,15 @@ impl CymbalResolution for StubServer {
                             ServerBehavior::Overloaded => {
                                 send_outcome(&tx, error_outcome(&item, ErrorKind::Overloaded))
                                     .await;
+                            }
+                            ServerBehavior::OverloadedFirstItems { count } => {
+                                if seen <= count {
+                                    send_outcome(&tx, error_outcome(&item, ErrorKind::Overloaded))
+                                        .await;
+                                } else {
+                                    send_outcome(&tx, accepted_outcome(&item)).await;
+                                    send_outcome(&tx, done_outcome(&item)).await;
+                                }
                             }
                             ServerBehavior::InterruptAfterFirst => {
                                 if seen == 1 {
@@ -379,6 +392,23 @@ pub async fn make_ctx(
     if !addrs.is_empty() {
         wait_until_routable(&pool).await;
     }
+    RemoteResolutionContext::new(pool, config)
+}
+
+/// Context whose pool actually ejects overloaded endpoints. [`make_config`]
+/// disables ejection, which hides the pool-empty-after-overload path that the
+/// retry layer has to wait out.
+pub async fn make_ctx_with_overload_ejection(
+    addrs: &[SocketAddr],
+    max_retries: u32,
+    deadline: Duration,
+    ejection: Duration,
+) -> RemoteResolutionContext {
+    let mut config = make_config(max_retries, deadline);
+    config.overload_ejection_initial = ejection;
+    config.overload_ejection_max = ejection;
+    let pool = EndpointPool::from_addrs(config.clone(), addrs).expect("build pool");
+    wait_until_routable(&pool).await;
     RemoteResolutionContext::new(pool, config)
 }
 

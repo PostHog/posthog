@@ -626,16 +626,20 @@ async fn caller_deadline_on_slow_item_surfaces_without_local_fallback() {
 }
 
 #[tokio::test]
-async fn empty_pool_fails_clearly_without_local_fallback() {
+async fn empty_pool_is_shed_rather_than_reported_as_unhandled() {
     let ctx = make_ctx(&[], 0, Duration::from_secs(1)).await;
     let evt = build_event(1);
     let err = process_one(remote_stage(ctx), evt)
         .await
-        .expect_err("empty pool must surface as unhandled error");
+        .expect_err("empty pool must surface as an error");
     let msg = format!("{err}");
     assert!(
-        msg.contains("pool unavailable"),
-        "expected pool-empty error, got: {msg}"
+        err.is_load_shed(),
+        "an unroutable pool is backpressure, not an unhandled failure: {msg}"
+    );
+    assert!(
+        msg.contains("no_endpoints"),
+        "expected the bounded pool-empty reason, got: {msg}"
     );
 }
 

@@ -13,8 +13,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use common::{
-    build_event, make_config, make_ctx, process_one, remote_stage, spawn_stub_server, unbound_addr,
-    wait_until_routable, ServerBehavior,
+    build_event, make_config, make_ctx, make_ctx_with_overload_ejection, process_one, remote_stage,
+    spawn_stub_server, unbound_addr, wait_until_routable, ServerBehavior,
 };
 use cymbal::stages::resolution::remote::dns::DnsResolver;
 use cymbal::stages::resolution::remote::resolver::RemoteResolutionContext;
@@ -178,8 +178,55 @@ async fn pool_with_only_draining_endpoints_fails_fast_without_local_fallback() {
         "fast-fail expected, took {elapsed:?}"
     );
     assert!(
-        format!("{err}").contains("pool unavailable"),
-        "expected pool-unavailable error: {err}"
+        err.is_load_shed(),
+        "an unroutable pool is backpressure, not an unhandled failure: {err}"
+    );
+}
+
+#[tokio::test]
+async fn item_recovers_once_the_only_endpoint_leaves_its_overload_cooldown() {
+    let (addr, items) = spawn_stub_server(ServerBehavior::OverloadedFirstItems { count: 1 }).await;
+    // The ejection window is two orders of magnitude longer than the fixture's
+    // retry backoff, so a generic backoff spends every remaining attempt inside
+    // the same cooldown and the item is reported as failed instead of resolving.
+    let deadline = Duration::from_secs(5);
+    let ejection = Duration::from_millis(200);
+    let ctx = make_ctx_with_overload_ejection(&[addr], 2, deadline, ejection).await;
+
+    let resolved = process_one(remote_stage(ctx), build_event(1))
+        .await
+        .expect("item resolves once the ejection lapses");
+
+    assert_eq!(resolved.exception_list().len(), 1);
+    assert_eq!(
+        items.lock().unwrap().len(),
+        2,
+        "one overloaded submission, then one that resolves after the cooldown"
+    );
+}
+
+#[tokio::test]
+async fn exhausting_attempts_under_overload_sheds_with_an_item_independent_message() {
+    let (addr, _items) = spawn_stub_server(ServerBehavior::Overloaded).await;
+    // One retry, and an ejection that outlives the test, so the second attempt
+    // deterministically finds nothing routable.
+    let deadline = Duration::from_secs(5);
+    let ejection = Duration::from_secs(2);
+    let ctx = make_ctx_with_overload_ejection(&[addr], 1, deadline, ejection).await;
+
+    let err = process_one(remote_stage(ctx), build_event(1))
+        .await
+        .expect_err("sustained overload must surface");
+
+    assert!(
+        err.is_load_shed(),
+        "shedding under overload is not an unhandled failure: {err}"
+    );
+    // The message used to interpolate the per-item token and the pod address,
+    // so every occurrence fingerprinted into a brand new error tracking issue.
+    assert_eq!(
+        format!("{err}"),
+        "Load shed: remote resolution exhausted 2 attempt(s) (all_endpoints_ejected)"
     );
 }
 

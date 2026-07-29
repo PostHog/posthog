@@ -52,8 +52,19 @@ pub enum UnhandledError {
     SerdeError(#[from] serde_json::Error),
     #[error("Unhandled redis error: {0}")]
     RedisError(#[from] CustomRedisError),
+    // Expected backpressure rather than a defect: an upstream shed this work and
+    // the caller should retry. Kept out of exception capture so a brief overload
+    // doesn't page anyone.
+    #[error("Load shed: {0}")]
+    LoadShed(String),
     #[error("Unhandled error: {0}")]
     Other(String),
+}
+
+impl UnhandledError {
+    pub fn is_load_shed(&self) -> bool {
+        matches!(self, Self::LoadShed(_))
+    }
 }
 
 // These are errors that occur during frame resolution. This excludes e.g. network errors,

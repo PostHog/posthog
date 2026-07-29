@@ -24,9 +24,44 @@ use crate::metric_consts::{
 };
 use crate::types::Exception;
 
-use crate::stages::resolution::remote::{client::RemoteCallError, mux::ResolveItemSession};
+use crate::stages::resolution::remote::{
+    client::RemoteCallError, mux::ResolveItemSession, pool::EndpointPoolError,
+};
 
 use super::{RemoteResolutionContext, RemoteWorkItem, ResolvedRemoteItem};
+
+/// Why the most recent attempt failed. Each variant carries the same bounded
+/// tag the metrics use rather than a formatted detail string: the tag ends up
+/// in the error returned to `/process`, and interpolating the item token or the
+/// pod address there mints a fresh error tracking issue on every occurrence.
+#[derive(Clone, Copy)]
+enum AttemptFailure {
+    /// Upstream backpressure: nothing was routable, or the pod answered with an
+    /// overload outcome. Exhausting attempts on these is expected under load.
+    Shed(&'static str),
+    /// Anything else, including transport errors and protocol violations.
+    Failed(&'static str),
+}
+
+impl AttemptFailure {
+    fn reason(self) -> &'static str {
+        match self {
+            Self::Shed(reason) | Self::Failed(reason) => reason,
+        }
+    }
+
+    fn is_shed(self) -> bool {
+        matches!(self, Self::Shed(_))
+    }
+
+    /// Metric tag for exhausting the attempt budget on this failure.
+    fn outcome_tag(self) -> &'static str {
+        match self {
+            Self::Shed(_) => "shed",
+            Self::Failed(_) => "exhausted",
+        }
+    }
+}
 
 pub(super) async fn resolve_work_item(
     ctx: &RemoteResolutionContext,
@@ -35,7 +70,7 @@ pub(super) async fn resolve_work_item(
 ) -> Result<ResolvedRemoteItem, UnhandledError> {
     let max_attempts = ctx.config.max_retries.saturating_add(1);
     let mut excluded_endpoints: Vec<SocketAddr> = Vec::new();
-    let mut last_error: Option<String> = None;
+    let mut last_failure: Option<AttemptFailure> = None;
     let mut attempts_used = 0u32;
     let mut routing_permit = None;
 
@@ -53,9 +88,7 @@ pub(super) async fn resolve_work_item(
             Ok(handle) => handle,
             Err(err) => {
                 let reason = match &err {
-                    crate::stages::resolution::remote::pool::EndpointPoolError::Empty(reason) => {
-                        reason.as_metric_tag()
-                    }
+                    EndpointPoolError::Empty(reason) => reason.as_metric_tag(),
                     _ => "unknown",
                 };
                 metrics::counter!(
@@ -64,10 +97,16 @@ pub(super) async fn resolve_work_item(
                     "reason" => reason,
                 )
                 .increment(1);
-                last_error = Some(format!("pool unavailable: {err}"));
+                // Nothing is routable: this is a pool-wide condition, not something
+                // this item did. Every endpoint being in an overload cooldown is the
+                // common case, and a fixed backoff burns the whole retry budget inside
+                // one cooldown window, so treat it as shed rather than a defect.
+                last_failure = Some(AttemptFailure::Shed(reason));
                 if attempt + 1 < max_attempts {
-                    sleep_with_deadline(generic_retry_backoff_for(ctx, attempt, None), deadline)
-                        .await?;
+                    // The routing permit is only useful once an endpoint exists to
+                    // route to; holding it across the wait would block other items.
+                    routing_permit = None;
+                    wait_for_routability(ctx, deadline).await?;
                 }
                 continue;
             }
@@ -105,7 +144,7 @@ pub(super) async fn resolve_work_item(
                     "remote resolution transport-level retry for item"
                 );
                 excluded_endpoints.push(endpoint);
-                last_error = Some(err.to_string());
+                last_failure = Some(AttemptFailure::Failed(err.reason_tag()));
                 if attempt + 1 < max_attempts {
                     sleep_with_deadline(generic_retry_backoff_for(ctx, attempt, None), deadline)
                         .await?;
@@ -120,9 +159,15 @@ pub(super) async fn resolve_work_item(
                 )
                 .increment(1);
                 record_reroute_depth("terminal", attempts_used);
+                debug!(
+                    endpoint = %endpoint,
+                    token = work_item.token,
+                    error = %err,
+                    "remote resolution failed terminally for item"
+                );
                 return Err(UnhandledError::Other(format!(
-                    "remote resolution failed terminally for item {}: {err}",
-                    work_item.token
+                    "remote resolution failed terminally ({})",
+                    err.reason_tag()
                 )));
             }
         };
@@ -131,10 +176,13 @@ pub(super) async fn resolve_work_item(
         let Some(outcome) = single_outcome(work_item.token, outcomes)? else {
             metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "missing_items")
                 .increment(1);
-            last_error = Some(format!(
-                "missing item outcome from {endpoint} for token {}",
-                work_item.token
-            ));
+            debug!(
+                endpoint = %endpoint,
+                token = work_item.token,
+                attempt,
+                "remote resolution returned no outcome for item"
+            );
+            last_failure = Some(AttemptFailure::Failed("missing_items"));
             if attempt + 1 < max_attempts {
                 sleep_with_deadline(generic_retry_backoff_for(ctx, attempt, None), deadline)
                     .await?;
@@ -168,13 +216,12 @@ pub(super) async fn resolve_work_item(
                     endpoint = %endpoint,
                     token = work_item.token,
                     attempt,
+                    detail = %message,
                     "remote resolution returned item overload; rerouting with overload policy"
                 );
                 ctx.pool.eject_overloaded(endpoint).await;
                 excluded_endpoints.push(endpoint);
-                last_error = Some(format!(
-                    "per-item Overloaded outcome from {endpoint}: {message}"
-                ));
+                last_failure = Some(AttemptFailure::Shed("overloaded_item"));
                 if attempt + 1 < max_attempts {
                     sleep_with_deadline(overload_backoff_for(ctx, attempt), deadline).await?;
                 }
@@ -189,10 +236,11 @@ pub(super) async fn resolve_work_item(
                     endpoint = %endpoint,
                     token = work_item.token,
                     attempt,
+                    detail = %message,
                     "remote resolution returned item retry; rerouting"
                 );
                 excluded_endpoints.push(endpoint);
-                last_error = Some(format!("per-item Retry outcome from {endpoint}: {message}"));
+                last_failure = Some(AttemptFailure::Failed("retryable_item"));
                 if attempt + 1 < max_attempts {
                     sleep_with_deadline(
                         generic_retry_backoff_for(ctx, attempt, retry_after),
@@ -204,14 +252,23 @@ pub(super) async fn resolve_work_item(
         }
     }
 
-    metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "exhausted").increment(1);
-    record_reroute_depth("exhausted", attempts_used);
-    Err(UnhandledError::Other(format!(
-        "remote resolution exhausted retries for item {} ({} attempt(s)): {}",
-        work_item.token,
-        max_attempts,
-        last_error.unwrap_or_else(|| "no recorded cause".to_string()),
-    )))
+    let failure = last_failure.unwrap_or(AttemptFailure::Failed("no_recorded_cause"));
+    let outcome = failure.outcome_tag();
+    metrics::counter!(
+        REMOTE_RESOLUTION_REQUESTS,
+        "outcome" => outcome,
+        "reason" => failure.reason(),
+    )
+    .increment(1);
+    record_reroute_depth(outcome, attempts_used);
+    let detail = format!(
+        "remote resolution exhausted {max_attempts} attempt(s) ({})",
+        failure.reason()
+    );
+    if failure.is_shed() {
+        return Err(UnhandledError::LoadShed(detail));
+    }
+    Err(UnhandledError::Other(detail))
 }
 
 async fn wait_for_terminal_or_acceptance(
@@ -350,10 +407,14 @@ fn classify_outcome(
     }
 }
 
+/// The token identifies the item inside one batch and is meaningless across
+/// batches, so it stays in the log line rather than the error message — in the
+/// message it would fingerprint every occurrence into its own issue.
 fn terminal_item_error(token: u64, message: String) -> UnhandledError {
     metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "items_failed").increment(1);
+    debug!(token, "remote resolution item failed terminally");
     UnhandledError::Other(format!(
-        "remote resolution item {token} failed terminally; failing batch under all-or-nothing rollout policy ({message})"
+        "remote resolution item failed terminally; failing batch under all-or-nothing rollout policy ({message})"
     ))
 }
 
@@ -369,14 +430,43 @@ async fn acquire_routing_permit(
         })
 }
 
+/// Running out of the shared deadline means the upstream never had capacity in
+/// time, which is backpressure rather than a defect — the caller retries the
+/// batch instead of us minting an exception for it.
 fn remaining_deadline(deadline: Instant) -> Result<Duration, UnhandledError> {
     deadline
         .checked_duration_since(Instant::now())
         .ok_or_else(|| {
-            UnhandledError::Other(
+            UnhandledError::LoadShed(
                 "remote resolution item deadline elapsed before completion".to_string(),
             )
         })
+}
+
+/// Wait for the pool to become routable again after a pool-empty selection,
+/// rather than sleeping a fixed backoff. Overload ejections start at 100 ms and
+/// double to 5 s, so a generic backoff can spend the item's whole retry budget
+/// inside a single cooldown window and report expected shedding as a failure.
+/// The wait ends early when a subscription reports a fresh snapshot, and is
+/// capped at the earliest ejection expiry — or the max backoff when nothing is
+/// ejected — so the item keeps the rest of its attempts.
+async fn wait_for_routability(
+    ctx: &RemoteResolutionContext,
+    deadline: Instant,
+) -> Result<(), UnhandledError> {
+    let remaining = remaining_deadline(deadline)?;
+    let now = Instant::now();
+    let budget = ctx
+        .pool
+        .earliest_overload_expiry()
+        .await
+        .and_then(|expiry| expiry.checked_duration_since(now))
+        .unwrap_or(ctx.config.retry_max_backoff)
+        .min(remaining);
+    // An `Err` here just means the pool was still unroutable when the budget ran
+    // out; the caller's own attempt/deadline budget decides when to give up.
+    let _ = ctx.pool.wait_ready(budget).await;
+    Ok(())
 }
 
 async fn sleep_with_deadline(backoff: Duration, deadline: Instant) -> Result<(), UnhandledError> {

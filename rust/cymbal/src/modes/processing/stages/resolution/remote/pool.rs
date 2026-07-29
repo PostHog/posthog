@@ -634,6 +634,22 @@ impl EndpointPool {
         ))
     }
 
+    /// Earliest instant at which a currently-ejected endpoint returns to
+    /// routing, if any is ejected. Ejections lapse on a timer and nothing
+    /// notifies [`Self::ready`] when they do, so callers waiting for the pool
+    /// to become routable need this to size their wait.
+    pub async fn earliest_overload_expiry(&self) -> Option<Instant> {
+        let now = Instant::now();
+        let inner = self.inner.lock().await;
+        inner
+            .endpoints
+            .values()
+            .filter(|state| !state.draining)
+            .filter_map(|state| state.overload_ejected_until)
+            .filter(|until| *until > now)
+            .min()
+    }
+
     /// Test/observability helper: snapshot the current endpoints.
     pub async fn endpoints(&self) -> Vec<SocketAddr> {
         let inner = self.inner.lock().await;

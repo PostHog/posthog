@@ -96,6 +96,10 @@ become less likely to receive new work before they return overload outcomes.
 
 Each endpoint owns one bidirectional Resolve mux with a bounded outbound queue and one waiter per in-flight item. Queue admission failure, stream break, endpoint drain, and endpoint eviction all fail affected items as `ERROR_KIND_OVERLOADED`; the per-item retry layer excludes that endpoint and reroutes only those items. A `Retry` outcome uses the generic retry policy. Cymbal also holds a process-local routing semaphore for items trying to find an accepting pod; a permit is acquired before routing, released on `Accepted`, and otherwise held until routing exhausts or fails terminally. Terminal `ErrorKind`s fail the current all-or-nothing rollout path.
 
+When selection finds nothing routable, the item waits for the pool to become routable again rather than for a fixed backoff. Overload ejections start at 100 ms and double to 5 s, so a generic backoff can spend the item's whole retry budget inside a single cooldown. The wait ends early when a Subscribe tick reports a fresh snapshot, and is capped at the earliest ejection expiry (or `RETRY_MAX_BACKOFF_MS` when nothing is ejected) so the item keeps its remaining attempts. The routing permit is released for the duration of that wait.
+
+Exhausting the attempt budget on a shed cause (a pool-empty selection or a per-item `ERROR_KIND_OVERLOADED`) is upstream backpressure, not a defect. It is counted as `requests_total{outcome="shed"}`, `POST /process` answers `503`, and no exception is captured; the caller already retries `5xx`. Every other exhaustion stays `outcome="exhausted"` and is captured as before. Error messages on both paths carry only the bounded reason tag: per-item tokens and pod addresses live in the debug logs, because interpolating them made every occurrence fingerprint into its own error tracking issue.
+
 ### Disabling / rolling back
 
 Set `CYMBAL_REMOTE_RESOLUTION_ENABLED=false` on the cymbal pods and roll. That fully reverts to local resolution; no data-plane state needs to be flushed and the `cymbal-resolution` pods can keep running without harm.
@@ -184,6 +188,7 @@ These metric names are exported by the cymbal client unless noted. Definitions l
 | `transport_retry{reason="deadline_exceeded"}` with low load | Caller-side deadline shorter than worst-case resolution | Raise `CYMBAL_REMOTE_RESOLUTION_DEADLINE_MS`. |
 | `error_kinds_total{kind="invalid_payload"}` | Wire-format or metadata mismatch | Check deploy skew and the metadata JSON convention. |
 | `requests_total{outcome="exhausted"}` sustained | Pool unhealthy or reroute budget too small for current failures | Investigate server health; consider rollback. |
+| `requests_total{outcome="shed"}` sustained | Every endpoint is in an overload cooldown or otherwise unroutable, so `/process` is answering `503` | Scale server pods or lower the sample rate. Expected in short bursts; sustained means capacity is short. |
 | `pool_size` drops on a stable cluster | DNS refresh evicting endpoints | Confirm the headless service still resolves; check for pod restarts. |
 | `pool_empty` with `pool_size > 0` | Snapshot-required routing excluded every pod | Inspect the `reason` label plus `load_subscriptions_total{outcome="reconnect"}` and Subscribe logs. |
 

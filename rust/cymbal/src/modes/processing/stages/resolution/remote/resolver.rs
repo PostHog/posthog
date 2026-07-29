@@ -213,8 +213,26 @@ async fn resolve_remote_events(
     )
     .await;
 
+    // A real failure anywhere in the batch outranks shedding: shed results skip
+    // exception capture, so only report one when nothing else went wrong.
+    let mut shed: Option<UnhandledError> = None;
+    let mut items = Vec::with_capacity(resolved.len());
     for result in resolved {
-        let item = result?;
+        match result {
+            Ok(item) => items.push(item),
+            Err(err) if err.is_load_shed() => {
+                if shed.is_none() {
+                    shed = Some(err);
+                }
+            }
+            Err(err) => return Err(err),
+        }
+    }
+    if let Some(err) = shed {
+        return Err(err);
+    }
+
+    for item in items {
         let Some(event_slot) = event_slots.get_mut(item.event_slot) else {
             return Err(UnhandledError::Other(format!(
                 "remote resolution returned invalid event slot {}",

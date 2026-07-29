@@ -10,6 +10,7 @@ The external Node.js error-tracking consumer contract stays unchanged.
 - Each non-null response entry is the same `AnyEvent` shape with updated `properties`.
 - `null` entries keep their existing meaning: the event was suppressed by the normal cymbal pipeline.
 - Remote resolution only changes how cymbal fills the exception list before properties, grouping, linking, suppression, and alerting continue.
+- When remote resolution runs out of routable capacity for a batch, `/process` answers `503` instead of `500`. Both are already retriable on the Node side, so the consumer contract is unchanged; the split just keeps expected load shedding out of cymbal's own exception capture.
 
 ## Node-side chunking
 

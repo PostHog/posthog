@@ -49,6 +49,7 @@ fn get_request_id(headers: &HeaderMap) -> String {
 
 pub enum ProcessEventsError {
     Unhandled(Arc<UnhandledError>),
+    LoadShed(UnhandledError),
     Backpressure,
 }
 
@@ -59,6 +60,14 @@ impl IntoResponse for ProcessEventsError {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({
                     "error": "An unexpected error occurred while processing the events",
+                    "details": err.to_string(),
+                })),
+            )
+                .into_response(),
+            ProcessEventsError::LoadShed(err) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({
+                    "error": "Resolution capacity is unavailable, retry later",
                     "details": err.to_string(),
                 })),
             )
@@ -180,6 +189,23 @@ pub async fn process_events(
                 );
             }
         }
+        Err(err) if err.is_load_shed() => {
+            metrics::counter!(
+                PROCESS_REQUESTS_TOTAL,
+                "outcome" => "shed",
+                "status_class" => "5xx"
+            )
+            .increment(1);
+
+            warn!(
+                request_id = %request_id,
+                error = %err,
+                duration_ms,
+                batch_event_count,
+                team_count,
+                "Shed /process request"
+            );
+        }
         Err(err) => {
             metrics::counter!(
                 PROCESS_REQUESTS_TOTAL,
@@ -201,6 +227,11 @@ pub async fn process_events(
 
     match output {
         Ok(batch) => Ok(batch),
+        // Shedding is the pipeline working as designed under upstream overload, so
+        // the caller gets a retryable status and no exception is captured — the
+        // `cymbal_remote_resolution_requests_total{outcome="shed"}` counter carries
+        // the signal instead of a new error tracking issue per occurrence.
+        Err(err) if err.is_load_shed() => Err(ProcessEventsError::LoadShed(err)),
         Err(err) => {
             let err = Arc::new(err);
             common_posthog::capture_exception(
