@@ -103,6 +103,8 @@ TEAM_ID_FILTER_PATTERNS = {
     "_account_tagged_items": "system__accounts.team_id",
     "_account_custom_property_values": "system__accounts.team_id",
     "_account_custom_property_values_history": "system__accounts.team_id",
+    # Same shape, scoped through system.support_tickets instead
+    "_ticket_tagged_items": "system__support_tickets.team_id",
 }
 
 
@@ -137,6 +139,8 @@ class TestSystemTablesTeamScoping(BaseTest):
             "_account_tagged_items",
             "_account_custom_property_values",
             "_account_custom_property_values_history",
+            # Hidden junction backing system.support_tickets.tags; covered by TestSystemTicketTagsLazyJoin.
+            "_ticket_tagged_items",
             # information_schema is a namespace of virtual catalog tables (tables/columns/
             # relationships/data_types) computed per-query from the caller's own Database object,
             # so it has no team_id column to isolate; behaviour is covered by TestInformationSchema.
@@ -893,6 +897,62 @@ class TestSystemTablesNotebookMarkdown(NonAtomicBaseTest):
         rows = {row[0]: row[1] for row in response.results}
 
         assert rows == {"mdnote": markdown_source, "legacy": None, "empty": None}
+
+
+class TestSystemTicketTagsLazyJoin(NonAtomicBaseTest):
+    """Verify the `support_tickets.tags` lazy join returns per-ticket tag names and stays team-isolated."""
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self):
+        super().setUp()
+        other_org = Organization.objects.create(name="other_org")
+        other_project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=other_org)
+        self.other_team = Team.objects.create(id=other_project.id, project=other_project, organization=other_org)
+
+    def test_tags_lazy_join_returns_tag_names_array(self):
+        ticket = _create_support_ticket(self.team, "tagged")
+        ticket.tagged_items.create(tag=Tag.objects.create(name="billing", team=self.team))
+        ticket.tagged_items.create(tag=Tag.objects.create(name="urgent", team=self.team))
+        _create_support_ticket(self.team, "untagged")
+
+        response = execute_hogql_query(
+            "SELECT id, tags.names FROM system.support_tickets ORDER BY ticket_number",
+            team=self.team,
+            user=self.user,
+        )
+        tags_by_id = {str(row[0]): row[1] for row in response.results}
+
+        assert sorted(tags_by_id[str(ticket.id)]) == ["billing", "urgent"]
+        # The untagged ticket resolves to an empty array, not a dropped row.
+        assert len(tags_by_id) == 2
+
+    def test_not_tagged_filter(self):
+        # The reporting use case: tickets that are not tagged with a given tag.
+        kept = _create_support_ticket(self.team, "kept")
+        excluded = _create_support_ticket(self.team, "excluded")
+        excluded.tagged_items.create(tag=Tag.objects.create(name="exclude_from_reporting", team=self.team))
+
+        response = execute_hogql_query(
+            "SELECT id FROM system.support_tickets WHERE NOT has(tags.names, 'exclude_from_reporting')",
+            team=self.team,
+            user=self.user,
+        )
+        ids = {str(row[0]) for row in response.results}
+
+        assert str(kept.id) in ids
+        assert str(excluded.id) not in ids
+
+    def test_tags_lazy_join_isolated_per_team(self):
+        other_ticket = _create_support_ticket(self.other_team, "theirs")
+        other_ticket.tagged_items.create(tag=Tag.objects.create(name="billing", team=self.other_team))
+
+        response = execute_hogql_query(
+            "SELECT id, tags.names FROM system.support_tickets",
+            team=self.team,
+            user=self.user,
+        )
+        assert response.results == []
 
 
 class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
