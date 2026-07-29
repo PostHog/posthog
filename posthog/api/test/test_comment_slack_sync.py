@@ -409,7 +409,8 @@ class TestSlackThreadSerialization(APIBaseTest):
             slack_thread_ts="1700.1",
         )
 
-    def test_detail_response_includes_slack_thread(self):
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    def test_detail_response_includes_slack_thread(self, _mock_flag):
         # Detail responses replace list entries client-side — dropping slack_thread there
         # made the "Open in Slack" state vanish after an edit/complete.
         res = self.client.get(f"/api/projects/{self.team.id}/comments/{self.parent.id}/")
@@ -420,7 +421,8 @@ class TestSlackThreadSerialization(APIBaseTest):
             "url": "https://app.slack.com/archives/C1/p17001",
         }
 
-    def test_unposted_reservation_serializes_as_null(self):
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    def test_unposted_reservation_serializes_as_null(self, _mock_flag):
         # A reservation with no root message isn't a live mirror; reporting it would show a
         # dead "Open in Slack" link and hide re-sending.
         CommentSlackThread.objects.for_team(self.team.id).filter(id=self.mirror.id).update(slack_thread_ts="")
@@ -430,6 +432,13 @@ class TestSlackThreadSerialization(APIBaseTest):
         assert res.status_code == status.HTTP_200_OK
         results = {r["id"]: r for r in res.json()["results"]}
         assert results[str(self.parent.id)]["slack_thread"] is None
+
+    def test_slack_thread_lookup_skipped_when_flag_off(self):
+        # Unflagged teams must not pay the mirror lookup on the hot comments endpoint.
+        with patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=False):
+            res = self.client.get(f"/api/projects/{self.team.id}/comments/{self.parent.id}/")
+        assert res.status_code == status.HTTP_200_OK
+        assert res.json()["slack_thread"] is None
 
 
 class TestEscapeSlackMrkdwn(APIBaseTest):
