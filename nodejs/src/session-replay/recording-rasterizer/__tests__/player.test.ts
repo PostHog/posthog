@@ -153,9 +153,10 @@ describe('PlayerController', () => {
         await expect(startPromise).rejects.toBeInstanceOf(RasterizationError)
     })
 
-    it('waitForStart() overrides the player and marks NO_SNAPSHOTS non-retryable', async () => {
-        // The in-page player reports NO_SNAPSHOTS as retryable, but the same session and time window resolves to the
-        // same empty block set every attempt, so honoring that burns the whole retry budget to reach one answer.
+    it('waitForStart() keeps a retryable NO_SNAPSHOTS retryable', async () => {
+        // A scan can start once replay metadata exists but before the snapshot blocks are readable, and that render
+        // succeeds on a later attempt. Downgrading NO_SNAPSHOTS to non-retryable here would strand those recordings as
+        // permanently ineligible, so the player's own verdict has to survive.
         const mp = mockCapturePage()
         const controller = new PlayerController(mp.capturePage, mockBlockProxy, jest.fn())
         await controller.load(basePlayerConfig())
@@ -169,7 +170,7 @@ describe('PlayerController', () => {
             retryable: true,
         })
 
-        await expect(startPromise).rejects.toMatchObject({ code: 'NO_SNAPSHOTS', retryable: false })
+        await expect(startPromise).rejects.toMatchObject({ code: 'NO_SNAPSHOTS', retryable: true })
     })
 
     it('waitForStart() keeps a genuinely transient player error retryable', async () => {

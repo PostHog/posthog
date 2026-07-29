@@ -11,12 +11,6 @@ import { CapturePage } from './capture-page'
 import { RequestInterceptor } from './request-interceptor'
 
 /**
- * Codes where another render attempt can only reach the same conclusion, whatever the player reported.
- * The player sees one attempt and can't know that; this side owns the retry decision because it talks to Temporal.
- */
-const PERMANENTLY_UNRENDERABLE_CODES = new Set(['NO_SNAPSHOTS'])
-
-/**
  * Controls communication with the in-browser replay player.
  *
  * The player sends messages via {@link PLAYER_EMIT_FN} and receives
@@ -56,8 +50,7 @@ export class PlayerController {
     }
 
     private toError(err: { code: string; message: string; retryable: boolean }): RasterizationError {
-        const retryable = err.retryable && !PERMANENTLY_UNRENDERABLE_CODES.has(err.code)
-        return new RasterizationError(`[${err.code}] ${err.message}`, retryable, err.code)
+        return new RasterizationError(`[${err.code}] ${err.message}`, err.retryable, err.code)
     }
 
     private rejectWithError(err: { code: string; message: string; retryable: boolean }): void {

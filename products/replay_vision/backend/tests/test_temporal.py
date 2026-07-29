@@ -1725,7 +1725,9 @@ async def test_apply_scanner_workflow_splits_rasterizer_failures_by_cause(
 ) -> None:
     new_observation_id = uuid.uuid4()
     leaf = (
-        ApplicationError("No snapshots after processing", type=rasterizer_type, non_retryable=True)
+        # `non_retryable=False` is the real arrival shape: the rasterizer keeps NO_SNAPSHOTS retryable while blocks may
+        # still be landing, so it only reaches us once the attempts are spent. Classification keys off the type alone.
+        ApplicationError("No snapshots after processing", type=rasterizer_type, non_retryable=False)
         if rasterizer_type
         else RuntimeError("browser pod vanished")
     )

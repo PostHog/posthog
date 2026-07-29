@@ -21,10 +21,14 @@ import {
 import { elapsed } from '~/session-replay/recording-rasterizer/utils'
 
 function toActivityError(err: unknown): Error {
-    if (err instanceof RasterizationError && !err.retryable) {
-        // The code travels as the failure type so a caller can tell a recording that can never render (NO_SNAPSHOTS,
-        // INVALID_INPUT) from one that merely ran out of retries, and report the difference to the user.
-        return ApplicationFailure.nonRetryable(err.message, err.code, err)
+    if (err instanceof RasterizationError) {
+        // The code travels as the failure type either way, so a caller can tell a recording that can never render
+        // (NO_SNAPSHOTS) from one that merely ran out of retries. Retryability stays the player's call: NO_SNAPSHOTS is
+        // retryable while a recording is still being ingested, so the code is only conclusive once Temporal has spent
+        // the attempts.
+        return err.retryable
+            ? ApplicationFailure.retryable(err.message, err.code, err)
+            : ApplicationFailure.nonRetryable(err.message, err.code, err)
     }
     return err instanceof Error ? err : new Error(String(err))
 }

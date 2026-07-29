@@ -28,6 +28,13 @@ jest.mock('@temporalio/common', () => ({
             ;(err as any)._isNonRetryable = true
             return err
         }),
+        retryable: jest.fn().mockImplementation((message, type, cause) => {
+            const err = new Error(message)
+            ;(err as any).type = type
+            ;(err as any).cause = cause
+            ;(err as any)._isNonRetryable = false
+            return err
+        }),
     },
 }))
 
@@ -207,14 +214,28 @@ describe('rasterizeRecordingActivity', () => {
             expect(ApplicationFailure.nonRetryable).toHaveBeenCalledWith('No snapshot data', 'NO_SNAPSHOTS', error)
         })
 
-        it('re-throws retryable RasterizationError as plain Error (Temporal retries)', async () => {
+        it('wraps retryable RasterizationError as ApplicationFailure.retryable, keeping the code', async () => {
             const error = new RasterizationError('browser crashed', true, 'PLAYBACK_ERROR')
             mockedRasterizeRecording.mockRejectedValue(error)
 
-            const rejection = rasterizeRecordingActivity(baseInput())
-            await expect(rejection).rejects.toThrow('browser crashed')
-            await expect(rejection).rejects.toBeInstanceOf(RasterizationError)
+            await expect(rasterizeRecordingActivity(baseInput())).rejects.toThrow('browser crashed')
 
+            expect(ApplicationFailure.retryable).toHaveBeenCalledWith('browser crashed', 'PLAYBACK_ERROR', error)
+            expect(ApplicationFailure.nonRetryable).not.toHaveBeenCalled()
+        })
+
+        it('keeps a retryable NO_SNAPSHOTS retryable so an ingestion race gets another render', async () => {
+            const error = new RasterizationError('No snapshots after processing', true, 'NO_SNAPSHOTS')
+            mockedRasterizeRecording.mockRejectedValue(error)
+
+            await expect(rasterizeRecordingActivity(baseInput())).rejects.toThrow('No snapshots after processing')
+
+            // The code still travels, so the caller can classify once the retries are spent, but the attempts happen.
+            expect(ApplicationFailure.retryable).toHaveBeenCalledWith(
+                'No snapshots after processing',
+                'NO_SNAPSHOTS',
+                error
+            )
             expect(ApplicationFailure.nonRetryable).not.toHaveBeenCalled()
         })
 
