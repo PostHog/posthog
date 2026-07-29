@@ -302,10 +302,15 @@ class TestValidateSelfReportedUpdates(SimpleTestCase):
             ("kebab_key", {"has-report": True}),
             ("digit_leading_key", {"1st_flag": True}),
             ("oversized_key", {"k" * 65: True}),
+            ("trailing_newline_key", {"validation_run\n": True}),
             ("nested_dict_value", {"details": {"count": 1}}),
             ("list_value", {"tags": ["a", "b"]}),
             ("none_value", {"flag": None}),
             ("oversized_string_value", {"note": "x" * 201}),
+            ("nul_char_value", {"note": "a\x00b"}),
+            ("lone_surrogate_value", {"note": "\ud800"}),
+            ("nan_value", {"drift": float("nan")}),
+            ("infinity_value", {"drift": float("inf")}),
             ("too_many_keys", {f"key_{i}": True for i in range(26)}),
         ]
     )

@@ -20,6 +20,7 @@ about the run itself (a validation pass).
 from __future__ import annotations
 
 import re
+import math
 from collections.abc import Mapping
 from typing import Any
 
@@ -57,7 +58,13 @@ def validate_self_reported_updates(updates: Mapping[str, Any]) -> None:
     if len(updates) > MAX_SELF_REPORTED_KEYS:
         raise InvalidRunMetadataError(f"metadata carries {len(updates)} keys, exceeding max {MAX_SELF_REPORTED_KEYS}")
     for key, value in updates.items():
-        if not isinstance(key, str) or len(key) > MAX_SELF_REPORTED_KEY_LENGTH or not _SELF_REPORTED_KEY_RE.match(key):
+        # `fullmatch`, not `match`: `$` would accept a trailing newline ("validation_run\n"),
+        # minting a visually identical but distinct JSON key that exact-match queries then miss.
+        if (
+            not isinstance(key, str)
+            or len(key) > MAX_SELF_REPORTED_KEY_LENGTH
+            or not _SELF_REPORTED_KEY_RE.fullmatch(key)
+        ):
             raise InvalidRunMetadataError(
                 f"invalid metadata key {key!r}: keys must be snake_case identifiers "
                 f"(lowercase letters, digits, underscores; start with a letter; "
@@ -69,11 +76,32 @@ def validate_self_reported_updates(updates: Mapping[str, Any]) -> None:
             raise InvalidRunMetadataError(
                 f"invalid value for metadata key {key!r}: values must be scalars (string, boolean, or number)"
             )
-        if isinstance(value, str) and len(value) > MAX_SELF_REPORTED_VALUE_LENGTH:
+        if isinstance(value, str):
+            if len(value) > MAX_SELF_REPORTED_VALUE_LENGTH:
+                raise InvalidRunMetadataError(
+                    f"value for metadata key {key!r} is {len(value)} chars, exceeding max "
+                    f"{MAX_SELF_REPORTED_VALUE_LENGTH} — long-form context belongs in the scratchpad or run summary"
+                )
+            _validate_storable_string(key, value)
+        # Postgres jsonb rejects non-finite numbers at write time — catch them here so the
+        # caller gets the documented validation error, not a 500 from `run.save()`.
+        if isinstance(value, float) and not math.isfinite(value):
             raise InvalidRunMetadataError(
-                f"value for metadata key {key!r} is {len(value)} chars, exceeding max "
-                f"{MAX_SELF_REPORTED_VALUE_LENGTH} — long-form context belongs in the scratchpad or run summary"
+                f"invalid value for metadata key {key!r}: numbers must be finite (no NaN or Infinity)"
             )
+
+
+def _validate_storable_string(key: str, value: str) -> None:
+    """Reject strings Postgres jsonb cannot store — a NUL character or a lone surrogate would
+    otherwise pass the shape checks and turn into a 500 at `run.save()`."""
+    if "\x00" in value:
+        raise InvalidRunMetadataError(f"invalid value for metadata key {key!r}: strings must not contain NUL (\\x00)")
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise InvalidRunMetadataError(
+            f"invalid value for metadata key {key!r}: strings must be valid UTF-8 (no lone surrogates)"
+        )
 
 
 def record_run_metadata(*, run_id: Any, updates: Mapping[str, Any]) -> dict[str, Any]:
