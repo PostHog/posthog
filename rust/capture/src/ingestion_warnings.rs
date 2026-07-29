@@ -29,6 +29,14 @@ use serde_json::{json, Map};
 use crate::v0_request::ProcessingContext;
 use crate::v1::context::RequestContext;
 
+/// Max accepted length of a client-supplied `$lib` or `$lib_version`, matching
+/// the bound v1 puts on the `PostHog-Sdk-Info` header (real values are ~20
+/// bytes). Oversized values are treated as absent rather than truncated: they
+/// would otherwise ride into every warning payload for the batch and into the
+/// `Debug` output of [`ProcessingContext`], which the legacy path logs several
+/// times per request when chatty debug is on.
+const MAX_SDK_ATTRIBUTION_LEN: usize = 200;
+
 /// SDK identity as reported by a batch, for attribution only.
 ///
 /// Both fields are unvalidated client input. Nothing routes on them.
@@ -50,10 +58,14 @@ impl SdkAttribution {
             return Self::default();
         };
         Self {
-            lib: Some(info.name),
-            lib_version: info.version,
+            lib: within_bound(info.name),
+            lib_version: info.version.and_then(within_bound),
         }
     }
+}
+
+fn within_bound(value: String) -> Option<String> {
+    (value.len() <= MAX_SDK_ATTRIBUTION_LEN).then_some(value)
 }
 
 /// Warning attribution for a legacy-path batch.
@@ -179,36 +191,74 @@ mod tests {
     }
 
     // Each of these is a payload capture accepts today, so each must produce a
-    // stampable context rather than a missing key.
+    // stampable context rather than a missing key. Oversized values are dropped
+    // rather than truncated, so they land on the same fallback.
     #[test]
-    fn missing_or_partial_attribution_becomes_unknown() {
+    fn unusable_attribution_becomes_unknown() {
+        let at_bound = "w".repeat(MAX_SDK_ATTRIBUTION_LEN);
+        let over_bound = "w".repeat(MAX_SDK_ATTRIBUTION_LEN + 1);
         let cases = [
-            ("no events", vec![]),
-            ("no properties", vec![raw_event(json!({}))]),
+            (
+                "no events",
+                vec![],
+                UNKNOWN_ATTRIBUTION,
+                UNKNOWN_ATTRIBUTION,
+            ),
+            (
+                "no properties",
+                vec![raw_event(json!({}))],
+                UNKNOWN_ATTRIBUTION,
+                UNKNOWN_ATTRIBUTION,
+            ),
             (
                 "lib without version",
                 vec![raw_event(json!({"$lib": "web"}))],
+                "web",
+                UNKNOWN_ATTRIBUTION,
             ),
             (
                 "non-string lib",
                 vec![raw_event(json!({"$lib": 42, "$lib_version": "1.2.3"}))],
+                UNKNOWN_ATTRIBUTION,
+                UNKNOWN_ATTRIBUTION,
             ),
             (
                 "empty lib",
                 vec![raw_event(json!({"$lib": "", "$lib_version": ""}))],
+                UNKNOWN_ATTRIBUTION,
+                UNKNOWN_ATTRIBUTION,
+            ),
+            (
+                "oversized lib",
+                vec![raw_event(
+                    json!({"$lib": over_bound, "$lib_version": "1.2.3"}),
+                )],
+                UNKNOWN_ATTRIBUTION,
+                "1.2.3",
+            ),
+            (
+                "oversized version",
+                vec![raw_event(
+                    json!({"$lib": "web", "$lib_version": over_bound}),
+                )],
+                "web",
+                UNKNOWN_ATTRIBUTION,
+            ),
+            (
+                "lib at the bound",
+                vec![raw_event(
+                    json!({"$lib": at_bound, "$lib_version": "1.2.3"}),
+                )],
+                at_bound.as_str(),
+                "1.2.3",
             ),
         ];
 
-        for (label, events) in cases {
+        for (label, events, expected_lib, expected_lib_version) in cases {
             let attribution = SdkAttribution::from_first_event(&events);
             let ctx = legacy_request_context(&legacy_context(attribution));
-            let expected_lib = if label == "lib without version" {
-                "web"
-            } else {
-                UNKNOWN_ATTRIBUTION
-            };
             assert_eq!(ctx.lib, expected_lib, "{label}: lib");
-            assert_eq!(ctx.lib_version, UNKNOWN_ATTRIBUTION, "{label}: libVersion");
+            assert_eq!(ctx.lib_version, expected_lib_version, "{label}: libVersion");
         }
     }
 }

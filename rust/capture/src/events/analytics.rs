@@ -417,11 +417,21 @@ pub async fn process_events(
         if let Some(ref limiter) = global_rate_limiter {
             let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
             let mut limited_event_count: u64 = 0;
+            // Narrower than the tallies above: events an upstream event
+            // restriction had already taken person processing away from are
+            // excluded. The limiter didn't change their fate, so telling the
+            // customer we skipped person processing for them would inflate the
+            // count and name distinct_ids the limit never affected. v1 draws the
+            // same line via `already_disabled` in
+            // `v1::analytics::process::apply_token_distinct_id_limits`.
+            let mut warned_distinct_ids: HashSet<&str> = HashSet::new();
+            let mut warned_event_count: u64 = 0;
             for event in events.iter_mut() {
                 let cache_key =
                     GlobalRateLimitKey::TokenDistinctId(&context.token, &event.event.distinct_id)
                         .to_cache_key();
                 if limiter.is_limited(&cache_key, 1).await.is_some() {
+                    let already_disabled = event.metadata.skip_person_processing;
                     event.metadata.skip_person_processing = true;
                     // Reroute the hot key to overflow. AnalyticsMain only: historical
                     // never overflows, the AI lane keeps its dedicated topic (v1
@@ -432,6 +442,10 @@ pub async fn process_events(
                     }
                     limited_distinct_ids.insert(&event.event.distinct_id);
                     limited_event_count += 1;
+                    if !already_disabled {
+                        warned_distinct_ids.insert(&event.event.distinct_id);
+                        warned_event_count += 1;
+                    }
                 }
             }
             if limited_event_count > 0 {
@@ -453,13 +467,15 @@ pub async fn process_events(
                     distinct_ids = %preview,
                     "events rate limited by distinct_id -- person processing disabled"
                 );
+            }
 
+            if warned_event_count > 0 {
                 emit_rate_limit_warning(
                     ingestion_warning_emitter.as_deref(),
                     &legacy_request_context(context),
                     CAPTURE_LEGACY_RATE_LIMIT,
-                    &limited_distinct_ids,
-                    limited_event_count,
+                    &warned_distinct_ids,
+                    warned_event_count,
                 );
             }
         }
@@ -2256,6 +2272,68 @@ mod tests {
             serde_json::json!(expected_lib_version)
         );
         assert_eq!(w.extra_details["path"], serde_json::json!("/e/"));
+    }
+
+    #[tokio::test]
+    async fn global_rate_limit_does_not_warn_when_person_processing_was_already_off() {
+        // An ops restriction already took person processing away, so the limiter
+        // changed nothing the customer would recognize. It still reroutes the hot
+        // key, but a warning here would overstate the limit's reach.
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+        let events = vec![create_test_event(
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        )];
+
+        let sink = Arc::new(MockSink::new());
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+        let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
+        let collector = Arc::new(CollectingEmitter::new());
+
+        let service =
+            EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
+        let mut manager = RestrictionManager::new();
+        manager.insert_restrictions(
+            Pipeline::Analytics,
+            "test_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::SkipPersonProcessing,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        );
+        service.update(manager).await;
+
+        process_events(
+            sink.clone(),
+            dropper,
+            Some(service),
+            historical_cfg,
+            Some(global_limiter),
+            None,
+            None,
+            Some(collector.clone()),
+            &AiRouting::Primary,
+            events,
+            &context,
+        )
+        .await
+        .unwrap();
+
+        assert!(collector.emitted().is_empty());
+        let captured = sink.get_events();
+        assert_eq!(captured.len(), 1);
+        assert!(captured[0].metadata.skip_person_processing);
+        assert_eq!(
+            captured[0].metadata.overflow_reason,
+            Some(OverflowReason::ForceLimited),
+            "the hot key is still rerouted to overflow"
+        );
     }
 
     #[tokio::test]
