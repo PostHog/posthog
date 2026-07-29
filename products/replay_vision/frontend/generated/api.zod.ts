@@ -157,15 +157,31 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod
                 zod
                     .object({
                         type: zod
-                            .enum(['slack'])
-                            .describe('\* `slack` - Slack')
-                            .describe("Destination channel type. MVP supports 'slack' only.\n\n\* `slack` - Slack"),
+                            .enum(['slack', 'webhook'])
+                            .describe('\* `slack` - Slack\n\* `webhook` - Webhook')
+                            .describe(
+                                "Destination type: 'slack' posts to a Slack channel; 'webhook' POSTs a JSON payload to a URL.\n\n\* `slack` - Slack\n\* `webhook` - Webhook"
+                            ),
                         integration_id: zod
                             .number()
-                            .describe('ID of the Slack Integration on this team used to deliver the summary.'),
-                        channel: zod.string().describe('Slack channel ID or name the summary is posted to.'),
+                            .optional()
+                            .describe(
+                                "ID of the Slack Integration on this team used to deliver. Required when type is 'slack'."
+                            ),
+                        channel: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                "Slack channel ID or name the summary is posted to. Required when type is 'slack'."
+                            ),
+                        url: zod
+                            .url()
+                            .optional()
+                            .describe(
+                                "HTTPS endpoint the summary is POSTed to as JSON. Required when type is 'webhook'. Redacted to scheme+host in responses for users without editor access to the scanner."
+                            ),
                     })
-                    .describe('A single delivery destination. MVP supports Slack only.')
+                    .describe('A single delivery destination: a Slack channel or an HTTP webhook URL.')
             )
             .optional()
             .describe('List of delivery destinations the synthesized summary is sent to.'),
@@ -322,15 +338,31 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod
                 zod
                     .object({
                         type: zod
-                            .enum(['slack'])
-                            .describe('\* `slack` - Slack')
-                            .describe("Destination channel type. MVP supports 'slack' only.\n\n\* `slack` - Slack"),
+                            .enum(['slack', 'webhook'])
+                            .describe('\* `slack` - Slack\n\* `webhook` - Webhook')
+                            .describe(
+                                "Destination type: 'slack' posts to a Slack channel; 'webhook' POSTs a JSON payload to a URL.\n\n\* `slack` - Slack\n\* `webhook` - Webhook"
+                            ),
                         integration_id: zod
                             .number()
-                            .describe('ID of the Slack Integration on this team used to deliver the summary.'),
-                        channel: zod.string().describe('Slack channel ID or name the summary is posted to.'),
+                            .optional()
+                            .describe(
+                                "ID of the Slack Integration on this team used to deliver. Required when type is 'slack'."
+                            ),
+                        channel: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                "Slack channel ID or name the summary is posted to. Required when type is 'slack'."
+                            ),
+                        url: zod
+                            .url()
+                            .optional()
+                            .describe(
+                                "HTTPS endpoint the summary is POSTed to as JSON. Required when type is 'webhook'. Redacted to scheme+host in responses for users without editor access to the scanner."
+                            ),
                     })
-                    .describe('A single delivery destination. MVP supports Slack only.')
+                    .describe('A single delivery destination: a Slack channel or an HTTP webhook URL.')
             )
             .optional()
             .describe('List of delivery destinations the synthesized summary is sent to.'),
