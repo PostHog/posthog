@@ -426,26 +426,34 @@ describe('createProcessPersonsStep', () => {
         function identifyEvent(
             anonDistinctId: string,
             targetDistinctId: string,
-            set: Record<string, any> = {}
+            set: Record<string, any> = {},
+            setOnce: Record<string, any> = {}
         ): PluginEvent {
             return {
                 ...pluginEvent,
                 event: '$identify',
                 distinct_id: targetDistinctId,
                 uuid: new UUIDT().toString(),
-                properties: { $anon_distinct_id: anonDistinctId, $set: set },
+                properties: { $anon_distinct_id: anonDistinctId, $set: set, $set_once: setOnce },
+            }
+        }
+
+        function planForEvents(targetDistinctId: string, ...events: PluginEvent[]): MergeFoldPlan {
+            return {
+                targetDistinctId,
+                pairs: events.map((event) => ({
+                    anonDistinctId: String(event.properties!.$anon_distinct_id),
+                    event,
+                })),
+                status: 'planned',
             }
         }
 
         function planFor(targetDistinctId: string, ...anonDistinctIds: string[]): MergeFoldPlan {
-            return {
+            return planForEvents(
                 targetDistinctId,
-                pairs: anonDistinctIds.map((anonDistinctId) => ({
-                    anonDistinctId,
-                    eventUuid: new UUIDT().toString(),
-                })),
-                status: 'planned',
-            }
+                ...anonDistinctIds.map((anonDistinctId) => identifyEvent(anonDistinctId, targetDistinctId))
+            )
         }
 
         async function createPersonWithProps(
@@ -492,14 +500,22 @@ describe('createProcessPersonsStep', () => {
         }
 
         it('produces the same persons as sequential merges for a storm of identifies', async () => {
+            // The second source already carries $initial_utm_source, and the
+            // first event claims the same key with $set_once. Sequentially the
+            // first event wins it, so the fold must too — resolving every
+            // source's properties before applying one event's $set_once handed
+            // the key to the chronologically later profile instead.
+            const setOnce = { $initial_utm_source: 'google' }
+            const secondSourceProps = { b: 2, shared: 'second', $initial_utm_source: 'email' }
+
             // Sequential arm
             await createPersonWithProps('seq-anon-1', { a: 1, shared: 'first' })
-            await createPersonWithProps('seq-anon-2', { b: 2, shared: 'second' })
+            await createPersonWithProps('seq-anon-2', secondSourceProps)
             await createPersonWithProps('seq-user', { t: 1 })
             await runIdentifies(
                 [
-                    identifyEvent('seq-anon-1', 'seq-user', { s1: true }),
-                    identifyEvent('seq-anon-2', 'seq-user', { s2: true }),
+                    identifyEvent('seq-anon-1', 'seq-user', { s1: true }, setOnce),
+                    identifyEvent('seq-anon-2', 'seq-user', { s2: true }, setOnce),
                 ],
                 undefined,
                 foldOptions
@@ -507,17 +523,14 @@ describe('createProcessPersonsStep', () => {
 
             // Folded arm, identical fixtures under different distinct ids
             await createPersonWithProps('fold-anon-1', { a: 1, shared: 'first' })
-            await createPersonWithProps('fold-anon-2', { b: 2, shared: 'second' })
+            await createPersonWithProps('fold-anon-2', secondSourceProps)
             await createPersonWithProps('fold-user', { t: 1 })
-            const plan = planFor('fold-user', 'fold-anon-1', 'fold-anon-2')
-            await runIdentifies(
-                [
-                    identifyEvent('fold-anon-1', 'fold-user', { s1: true }),
-                    identifyEvent('fold-anon-2', 'fold-user', { s2: true }),
-                ],
-                plan,
-                foldOptions
-            )
+            const foldEvents = [
+                identifyEvent('fold-anon-1', 'fold-user', { s1: true }, setOnce),
+                identifyEvent('fold-anon-2', 'fold-user', { s2: true }, setOnce),
+            ]
+            const plan = planForEvents('fold-user', ...foldEvents)
+            await runIdentifies(foldEvents, plan, foldOptions)
 
             expect(plan.status).toBe('executed')
             // Person-row updates (merged properties, is_identified) are buffered
@@ -529,6 +542,7 @@ describe('createProcessPersonsStep', () => {
             const sequential = persons.find((p) => p.id !== foldPerson.id)!
 
             expect(foldPerson.properties).toEqual(sequential.properties)
+            expect(foldPerson.properties.$initial_utm_source).toBe('google')
             expect(foldPerson.is_identified).toBe(true)
             const seqDistinctIds = await fetchDistinctIdValues(infra.postgres, sequential)
             const foldDistinctIds = await fetchDistinctIdValues(infra.postgres, foldPerson)

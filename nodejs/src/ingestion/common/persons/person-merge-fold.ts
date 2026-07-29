@@ -9,8 +9,12 @@ import { EventHeaders, InternalPerson, Team } from '~/types'
 /** One planned merge: an anon distinct_id to fold into the group's target distinct_id. */
 export interface MergeFoldPair {
     anonDistinctId: string
-    /** UUID of the first event in the run that asked for this pair. */
-    eventUuid: string
+    /**
+     * The first event in the run that asked for this pair. Its $set/$set_once
+     * apply at this pair's position when the fold executes, so a folded run
+     * resolves properties in the same order the sequential path would.
+     */
+    event: PluginEvent
 }
 
 /**
@@ -104,8 +108,9 @@ function getFoldableAnonDistinctId(item: MergeFoldScanItem): string | null {
  * Scans a group's queued chunk for consecutive runs of two or more foldable
  * $identify events (a single merge has nothing to fold). Each run gets one
  * shared MergeFoldPlan, carried by the run's values as a `planned` decision,
- * with the distinct anon ids as pairs (first event wins the pair's eventUuid;
- * self-merges are excluded). Every other value gets the `immediate` decision.
+ * with the distinct anon ids as pairs (the first event asking for an anon id
+ * owns the pair; self-merges are excluded). Every other value gets the
+ * `immediate` decision.
  * Fold size is naturally bounded by the batch size; pathological per-source
  * distinct_id counts are handled by the merge-mode limit pre-check at
  * execution time.
@@ -162,7 +167,7 @@ function planRun<T extends MergeFoldScanItem>(
         if (isDistinctIdIllegal(anonDistinctId)) {
             continue
         }
-        pairByAnonId.set(anonDistinctId, { anonDistinctId, eventUuid: values[index].event.uuid })
+        pairByAnonId.set(anonDistinctId, { anonDistinctId, event: values[index].event })
     }
 
     if (pairByAnonId.size === 0) {

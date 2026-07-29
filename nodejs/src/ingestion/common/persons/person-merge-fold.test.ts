@@ -40,6 +40,10 @@ describe('createMergeFoldPlanningStep', () => {
         }
     }
 
+    function pairsOf(plan: MergeFoldPlan | undefined): [string, string][] {
+        return (plan?.pairs ?? []).map((pair) => [pair.anonDistinctId, pair.event.uuid])
+    }
+
     function planOf(item: WithMergeFoldDecision): MergeFoldPlan | undefined {
         return item.mergeFold.type === 'planned' ? item.mergeFold.plan : undefined
     }
@@ -75,15 +79,12 @@ describe('createMergeFoldPlanningStep', () => {
         const plan = planOf(items[0])
         expect(plan).toBeDefined()
         expect(items.every((item) => planOf(item) === plan)).toBe(true)
-        expect(plan).toMatchObject({
-            targetDistinctId: 'user-1',
-            status: 'planned',
-            pairs: [
-                { anonDistinctId: 'anon-1', eventUuid: 'uuid-0' },
-                { anonDistinctId: 'anon-2', eventUuid: 'uuid-1' },
-                { anonDistinctId: 'anon-3', eventUuid: 'uuid-2' },
-            ],
-        })
+        expect(plan).toMatchObject({ targetDistinctId: 'user-1', status: 'planned' })
+        expect(pairsOf(plan)).toEqual([
+            ['anon-1', 'uuid-0'],
+            ['anon-2', 'uuid-1'],
+            ['anon-3', 'uuid-2'],
+        ])
     })
 
     it('decides via returned values without mutating the inputs', async () => {
@@ -98,9 +99,9 @@ describe('createMergeFoldPlanningStep', () => {
     it('dedupes repeated pairs, keeping the first event uuid', async () => {
         const items = await scan([identify('anon-1'), identify('anon-1'), identify('anon-2')])
 
-        expect(planOf(items[0])?.pairs).toEqual([
-            { anonDistinctId: 'anon-1', eventUuid: 'uuid-0' },
-            { anonDistinctId: 'anon-2', eventUuid: 'uuid-2' },
+        expect(pairsOf(planOf(items[0]))).toEqual([
+            ['anon-1', 'uuid-0'],
+            ['anon-2', 'uuid-2'],
         ])
         expect(planOf(items[1])).toBe(planOf(items[0]))
     })

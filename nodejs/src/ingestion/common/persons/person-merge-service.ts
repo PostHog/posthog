@@ -488,6 +488,7 @@ export class PersonMergeService {
 
         // Partition pairs, preserving pair order for property-merge precedence.
         const mergeSources: InternalPerson[] = []
+        const mergeSourceByAnonDistinctId = new Map<string, InternalPerson>()
         const seenSourceIds = new Set<string>([target.id])
         const missingPairs: MergeFoldPair[] = []
         for (const pair of pairsToFold) {
@@ -498,7 +499,7 @@ export class PersonMergeService {
                         illegalDistinctId: pair.anonDistinctId,
                         otherDistinctId: plan.targetDistinctId,
                         distinctId: plan.targetDistinctId,
-                        eventUuid: pair.eventUuid,
+                        eventUuid: pair.event.uuid,
                     },
                     pipelineStep: 'person-merge',
                     alwaysSend: true,
@@ -522,7 +523,7 @@ export class PersonMergeService {
                         sourcePersonDistinctId: pair.anonDistinctId,
                         targetPersonDistinctId: plan.targetDistinctId,
                         distinctId: plan.targetDistinctId,
-                        eventUuid: pair.eventUuid,
+                        eventUuid: pair.event.uuid,
                         personId: target.uuid,
                         otherPersonId: source.uuid,
                     },
@@ -533,6 +534,7 @@ export class PersonMergeService {
             }
             seenSourceIds.add(source.id)
             mergeSources.push(source)
+            mergeSourceByAnonDistinctId.set(pair.anonDistinctId, source)
         }
 
         if (mergeSources.length === 0 && missingPairs.length === 0) {
@@ -541,22 +543,31 @@ export class PersonMergeService {
             return mergeSuccess(target, Promise.resolve(), true)
         }
 
-        // Sequential property precedence: each pair merges source properties
-        // under the accumulated target's (target wins, earlier sources win
-        // over later ones). Event $set/$set_once apply on top, as in mergePeople.
+        // Replay the pairs in order, exactly as the sequential path would: each
+        // pair merges its source's properties under the accumulated target's
+        // (target wins, earlier sources win over later ones), then that pair's
+        // own event applies its $set/$set_once on top before the next source
+        // contributes anything. Unioning every source first and only then
+        // applying one event's updates would let a later profile's value claim
+        // a $set_once key that an earlier event owns — that's how $initial_*
+        // properties ended up sourced from a chronologically later profile.
         let mergedProperties: Properties = target.properties
-        for (const source of mergeSources) {
-            mergedProperties = { ...source.properties, ...mergedProperties }
+        for (const pair of pairsToFold) {
+            const source = mergeSourceByAnonDistinctId.get(pair.anonDistinctId)
+            if (source) {
+                mergedProperties = { ...source.properties, ...mergedProperties }
+            }
+            const propertyUpdates = computeEventPropertyUpdates(
+                pair.event,
+                mergedProperties,
+                this.context.updateAllProperties
+            )
+            const [withEventProperties] = applyEventPropertyUpdates(propertyUpdates, {
+                ...target,
+                properties: mergedProperties,
+            })
+            mergedProperties = withEventProperties.properties
         }
-        const propertyUpdates = computeEventPropertyUpdates(
-            this.context.event,
-            mergedProperties,
-            this.context.updateAllProperties
-        )
-        const [updatedTempPerson] = applyEventPropertyUpdates(propertyUpdates, {
-            ...target,
-            properties: mergedProperties,
-        })
 
         const createdAt = DateTime.min(target.created_at, ...mergeSources.map((source) => source.created_at))
         const version = Math.max(target.version, ...mergeSources.map((source) => source.version)) + 1
@@ -574,7 +585,7 @@ export class PersonMergeService {
                         currentTarget,
                         {
                             created_at: createdAt,
-                            properties: updatedTempPerson.properties,
+                            properties: mergedProperties,
                             is_identified: true,
                             version,
                         },
