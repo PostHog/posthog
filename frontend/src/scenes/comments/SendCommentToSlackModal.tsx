@@ -5,13 +5,14 @@ import { LemonButton, LemonLabel, LemonModal } from '@posthog/lemon-ui'
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { sendCommentToSlackLogic } from './sendCommentToSlackLogic'
 
 export function SendCommentToSlackModal(): JSX.Element {
     const { isOpen, integrationId, channel, channelId, isSubmitting } = useValues(sendCommentToSlackLogic)
     const { closeModal, setIntegrationId, setChannel, submit } = useActions(sendCommentToSlackLogic)
-    const { slackIntegrations } = useValues(integrationsLogic)
+    const { slackIntegrations, integrationsLoading } = useValues(integrationsLogic)
 
     const selectedIntegration = slackIntegrations?.find((integration) => integration.id === integrationId)
 
@@ -31,7 +32,11 @@ export function SendCommentToSlackModal(): JSX.Element {
                         onClick={submit}
                         loading={isSubmitting}
                         disabledReason={
-                            !integrationId ? 'Select a workspace' : !channelId ? 'Select a channel' : undefined
+                            !integrationId
+                                ? 'Select a Slack workspace'
+                                : !channelId
+                                  ? 'Select a Slack channel'
+                                  : undefined
                         }
                     >
                         Send to Slack
@@ -40,7 +45,12 @@ export function SendCommentToSlackModal(): JSX.Element {
             }
         >
             <div className="flex flex-col gap-3">
-                {!slackIntegrations?.length ? (
+                {/* Integrations load async on mount — don't flash "not configured" at users who have Slack set up. */}
+                {!slackIntegrations?.length && integrationsLoading ? (
+                    <div className="flex justify-center p-2">
+                        <Spinner />
+                    </div>
+                ) : !slackIntegrations?.length ? (
                     <SlackNotConfiguredBanner />
                 ) : (
                     <>
