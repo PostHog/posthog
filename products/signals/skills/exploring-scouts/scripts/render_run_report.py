@@ -216,6 +216,13 @@ def render_header(L: list[str], run: dict, posture: dict | None, base_url: str) 
         emit = "live (emit: true)" if posture.get("emit") else "DRY-RUN (emit: false)"
         enabled = "enabled" if posture.get("enabled") else "disabled"
         L.append(f" posture     {enabled} · {emit} · every {posture.get('run_interval_minutes', '?')}m")
+    metadata = run.get("metadata") or {}
+    routed = {k: v for k, v in metadata.items() if k != "self_reported"}
+    if routed:
+        L.append(f" routing     {', '.join(f'{k}={v}' for k, v in sorted(routed.items()))}")
+    self_reported = metadata.get("self_reported") or {}
+    if self_reported:
+        L.append(f" self-report {', '.join(f'{k}={v}' for k, v in sorted(self_reported.items()))}")
     if full_url:
         L.append(f" transcript  {full_url}")
     L.append("")
