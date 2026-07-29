@@ -1,6 +1,8 @@
+import re
 import json
 import asyncio
-from collections.abc import Callable, Sequence
+import contextlib
+from collections.abc import Callable, Iterator, Sequence
 from typing import Any, Literal
 
 from django.conf import settings
@@ -22,6 +24,7 @@ from products.data_warehouse.backend.facade.api import aget_s3_client, ensure_bu
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    NonNullableColumnMissingException,
     align_incoming_decimals_to_delta,
     conditional_lru_cache_async,
     normalize_column_name,
@@ -69,6 +72,32 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
 
 def is_transient_object_store_error(error: BaseException) -> bool:
     return isinstance(error, OSError) and any(needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS)
+
+
+# delta-rs's message when a column the Delta schema marks NOT NULL is absent from the parquet files
+# it is reading. It has nothing to substitute for the missing values, so it refuses the whole scan.
+_MISSING_NON_NULLABLE_COLUMN = re.compile(r"column '([^']+)' is missing from the physical schema", re.IGNORECASE)
+
+
+@contextlib.contextmanager
+def _translating_missing_non_nullable_column() -> Iterator[None]:
+    """Turn delta-rs's opaque "missing from the physical schema" error into a reset-and-resync signal.
+
+    A NOT NULL column added to a table that already has files can never be satisfied — those files
+    predate the column — so this fails identically forever. Schema evolution no longer creates such
+    columns, but tables broken before that fix need an actionable, non-retryable error rather than a
+    retry loop.
+    """
+    try:
+        yield
+    except Exception as e:
+        match = _MISSING_NON_NULLABLE_COLUMN.search(str(e))
+        if match:
+            raise NonNullableColumnMissingException(
+                f"Column '{match.group(1)}' can't be read: it's stored as non-nullable, but this table's "
+                f"existing files were written before the column existed. Reset and fully re-sync this table."
+            ) from e
+        raise
 
 
 # A merge's conflict checker raises CommitFailedError the moment a concurrent commit added data
@@ -305,8 +334,12 @@ class DeltaTableHelper:
 
         delta_table_schema = pyarrow_schema_from_arrow_exportable(delta_table.schema())
 
+        # Force nullable: a column added to a table that already has files can never be NOT NULL,
+        # because those files predate it. SQL sources carry the upstream column's nullability through
+        # to the arrow schema, so an upstream `ADD COLUMN ... NOT NULL` would otherwise wedge the
+        # table — delta-rs won't substitute nulls, and every later merge fails reading its own data.
         new_fields = [
-            deltalake.Field.from_arrow(field)
+            deltalake.Field.from_arrow(field.with_nullable(True))
             for field in ensure_delta_compatible_arrow_schema(schema)
             if field.name not in delta_table_schema.names
         ]
@@ -415,7 +448,8 @@ class DeltaTableHelper:
         attempt = 0
         while True:
             try:
-                return await asyncio.to_thread(merge_fn)
+                with _translating_missing_non_nullable_column():
+                    return await asyncio.to_thread(merge_fn)
             except deltalake.exceptions.CommitFailedError:
                 if attempt >= DELTA_MERGE_CONFLICT_RETRIES:
                     raise
@@ -847,7 +881,8 @@ class DeltaTableHelper:
             raise Exception("Deltatable not found")
 
         await self._logger.adebug("Compacting table...")
-        compact_stats = await asyncio.to_thread(table.optimize.compact)
+        with _translating_missing_non_nullable_column():
+            compact_stats = await asyncio.to_thread(table.optimize.compact)
         await self._logger.adebug(json.dumps(compact_stats))
 
         await self.vacuum_table()

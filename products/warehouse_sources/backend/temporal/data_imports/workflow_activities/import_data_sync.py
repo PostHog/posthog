@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     trim_source_job_inputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
-    SchemaColumnTypeChangedException,
+    DeltaSchemaDriftException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
@@ -344,11 +344,12 @@ async def _handle_import_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
 
-    # Raised in shared pipeline code when incoming data can't be cast into the stored (narrower)
-    # Delta column type. delta-rs can't change a column's type in place, so this fails identically
-    # on every retry regardless of source — classify it non-retryable by type here rather than
-    # relying on each source listing the message in get_non_retryable_errors.
-    if isinstance(error, SchemaColumnTypeChangedException):
+    # Raised in shared pipeline code when the incoming data and the stored Delta schema have drifted
+    # apart in a way delta-rs can't reconcile in place — a column type widened upstream, or a
+    # non-nullable column the table's own files predate. Both fail identically on every retry
+    # regardless of source, so classify by type here rather than relying on each source listing the
+    # message in get_non_retryable_errors.
+    if isinstance(error, DeltaSchemaDriftException):
         await handle_non_retryable_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )

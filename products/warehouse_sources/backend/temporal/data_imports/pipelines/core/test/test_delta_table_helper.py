@@ -15,6 +15,7 @@ import pyarrow.compute as pc
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    NonNullableColumnMissingException,
     SchemaColumnTypeChangedException,
     evolve_pyarrow_schema,
 )
@@ -588,6 +589,87 @@ def _make_local_helper(delta_uri: str) -> DeltaTableHelper:
     patch.object(helper, "_get_credentials", new=MagicMock(return_value={})).start()
     helper.get_delta_table.cache_clear()
     return helper
+
+
+def _seed_partitioned_table(delta_path: str) -> None:
+    """Seed a partitioned table with no `status` column, so the files predate one added later."""
+    deltalake.write_deltalake(
+        delta_path,
+        pa.table({"id": pa.array([1, 2]), "name": pa.array(["a", "b"]), PARTITION_KEY: pa.array(["p0", "p0"])}),
+        partition_by=PARTITION_KEY,
+    )
+
+
+def _batch_with_not_null_status(ids: list[int], names: list[str]) -> pa.Table:
+    """An incoming batch the way a SQL source builds one for an upstream NOT NULL column."""
+    return pa.table(
+        {
+            "id": pa.array(ids),
+            "name": pa.array(names),
+            "status": pa.array(["live"] * len(ids)),
+            PARTITION_KEY: pa.array(["p0"] * len(ids)),
+        },
+        schema=pa.schema(
+            [
+                pa.field("id", pa.int64()),
+                pa.field("name", pa.string()),
+                pa.field("status", pa.string(), nullable=False),
+                pa.field(PARTITION_KEY, pa.string()),
+            ]
+        ),
+    )
+
+
+class TestNonNullableColumnEvolution:
+    """A column added by schema evolution can never be NOT NULL — the files already written
+    predate it, and the partitioned merge won't substitute nulls for a non-nullable field."""
+
+    @pytest.mark.asyncio
+    async def test_upstream_not_null_column_is_added_as_nullable(self, tmp_path: Path) -> None:
+        # SQL sources carry upstream nullability into the arrow schema, so an `ALTER TABLE ... ADD
+        # COLUMN ... NOT NULL` used to wedge the table for good: the merge that added the column
+        # succeeded, and every merge after it failed reading the table's own pre-existing files.
+        delta_path = str(tmp_path / "table")
+        _seed_partitioned_table(delta_path)
+        helper = _make_local_helper(delta_path)
+
+        await helper.write_to_deltalake(
+            data=_batch_with_not_null_status([3], ["c"]),
+            write_type="incremental",
+            should_overwrite_table=False,
+            primary_keys=["id"],
+        )
+
+        helper.get_delta_table.cache_clear()
+        result = await helper.write_to_deltalake(
+            data=_batch_with_not_null_status([4], ["d"]),
+            write_type="incremental",
+            should_overwrite_table=False,
+            primary_keys=["id"],
+        )
+
+        final = result.to_pyarrow_table().sort_by([("id", "ascending")])
+        assert final.column("id").to_pylist() == [1, 2, 3, 4]
+        assert final.column("status").to_pylist() == [None, None, "live", "live"]
+
+    @pytest.mark.asyncio
+    async def test_already_wedged_table_raises_reset_signal(self, tmp_path: Path) -> None:
+        # Tables broken before the fix above keep their NOT NULL column, so they need an actionable
+        # non-retryable error instead of delta-rs's opaque one retrying forever.
+        delta_path = str(tmp_path / "table")
+        _seed_partitioned_table(delta_path)
+        dt = deltalake.DeltaTable(delta_path)
+        dt.alter.add_columns([deltalake.Field.from_arrow(pa.field("status", pa.string(), nullable=False))])
+
+        helper = _make_local_helper(delta_path)
+
+        with pytest.raises(NonNullableColumnMissingException):
+            await helper.write_to_deltalake(
+                data=_batch_with_not_null_status([3], ["c"]),
+                write_type="incremental",
+                should_overwrite_table=False,
+                primary_keys=["id"],
+            )
 
 
 class TestLegacyDltTableReconciliation:

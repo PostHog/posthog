@@ -75,13 +75,35 @@ class TemporaryFileSizeExceedsLimitException(Exception):
     pass
 
 
-class SchemaColumnTypeChangedException(Exception):
+class DeltaSchemaDriftException(Exception):
+    """Base for schema differences delta-rs cannot reconcile against an existing Delta table.
+
+    Every subclass fails identically on every attempt, so callers classify these as
+    non-retryable and tell the user to reset and fully re-sync the table.
+    """
+
+    pass
+
+
+class SchemaColumnTypeChangedException(DeltaSchemaDriftException):
     """Raised when an incoming column can't be cast into the existing (narrower) Delta column type.
 
     The usual cause is the source column's type being widened upstream (e.g. Postgres
     `integer` → `bigint`) after the Delta table was already created with the narrower type.
     delta-rs cannot widen an existing column in place, so retrying is futile — the table must
     be reset and fully re-synced to adopt the new type.
+    """
+
+    pass
+
+
+class NonNullableColumnMissingException(DeltaSchemaDriftException):
+    """Raised when the Delta schema declares a NOT NULL column its own parquet files predate.
+
+    Schema evolution used to add a new column with the upstream column's nullability, so an
+    upstream `ADD COLUMN ... NOT NULL` landed as a non-nullable Delta column that the already
+    written files can't contain. delta-rs refuses to substitute nulls for a non-nullable field,
+    so every subsequent read of the table's own data fails the same way.
     """
 
     pass

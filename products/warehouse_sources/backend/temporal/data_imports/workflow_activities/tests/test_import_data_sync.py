@@ -6,6 +6,7 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    NonNullableColumnMissingException,
     SchemaColumnTypeChangedException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import SimpleSource
@@ -215,16 +216,26 @@ async def test_rest_client_retryable_error_logged_as_warning_without_source_opt_
     logger.aexception.assert_not_awaited()
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        SchemaColumnTypeChangedException(
+            "Source column type changed: 'val' has values that no longer fit its stored type int32 "
+            "(incoming data is now string). Reset and fully re-sync this table to adopt the new type."
+        ),
+        NonNullableColumnMissingException(
+            "Column 'status' can't be read: it's stored as non-nullable, but this table's existing files "
+            "were written before the column existed. Reset and fully re-sync this table."
+        ),
+    ],
+    ids=["column_type_changed", "non_nullable_column_missing"],
+)
 @pytest.mark.asyncio
-async def test_schema_column_type_changed_routes_through_handler_without_source_opt_in():
-    # SchemaColumnTypeChangedException is raised in shared pipeline code when incoming data can't be
-    # cast into the stored Delta column type — a deterministic failure that only a reset and re-sync
+async def test_delta_schema_drift_routes_through_handler_without_source_opt_in(error: Exception):
+    # Schema drift is raised in shared pipeline code when the stored Delta schema and the incoming
+    # data can't be reconciled in place — a deterministic failure that only a reset and re-sync
     # fixes. It must be non-retryable by type for every source, not just the SQL sources that list
-    # "Source column type changed" in get_non_retryable_errors, so non-SQL sources stop retrying it.
-    error = SchemaColumnTypeChangedException(
-        "Source column type changed: 'val' has values that no longer fit its stored type int32 "
-        "(incoming data is now string). Reset and fully re-sync this table to adopt the new type."
-    )
+    # the message in get_non_retryable_errors, so non-SQL sources stop retrying it.
     source = mock.MagicMock(spec=SimpleSource)
     source.get_non_retryable_errors.return_value = {}
     source.get_retryable_errors.return_value = set()

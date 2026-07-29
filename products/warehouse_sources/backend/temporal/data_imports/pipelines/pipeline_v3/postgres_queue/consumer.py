@@ -84,6 +84,12 @@ NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
     # incoming values no longer fit the stored Delta column type
     # (SchemaColumnTypeChangedException) — only a reset and full re-sync can fix it
     "Source column type changed",
+    # a Delta column stored as non-nullable that the table's own files predate — unreadable
+    # forever, only a reset and full re-sync can fix it. Both our translated wording
+    # (NonNullableColumnMissingException) and delta-rs's raw message, in case a write path
+    # surfaces the latter untranslated
+    "it's stored as non-nullable",
+    "is missing from the physical schema",
     # the schema or job row was deleted mid-sync — no retry can bring it back
     "ExternalDataSchema matching query does not exist",
     "ExternalDataJob matching query does not exist",
