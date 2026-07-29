@@ -5,6 +5,8 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.schema import (
     DateRange,
     EventPropertyFilter,
@@ -14,6 +16,8 @@ from posthog.schema import (
     PropertyOperator,
 )
 
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import UserAccessControlError
 
 from products.mcp_analytics.backend.hogql_queries.dashboard_series import MCPToolCallsAndErrorsQueryRunner
@@ -132,6 +136,28 @@ class TestMCPToolCallsAndErrorsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cli
 
         assert [r.successes for r in unfiltered] == [2]
         assert [r.successes for r in filtered] == [1]
+
+    @parameterized.expand(
+        [
+            (["query:read"], 403),
+            (["mcp_analytics:read"], 403),
+            (["query:read", "mcp_analytics:read"], 200),
+        ]
+    )
+    def test_query_endpoint_scope_parity_for_api_keys(self, scopes: list[str], expected_status: int) -> None:
+        # The runner's access check reads the token owner's RBAC, not the token's granted scopes, so
+        # without an entry in _QUERY_KIND_SCOPES the generic /query/ endpoint would serve this kind
+        # to any token holding only query:read.
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="test", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/query/",
+            {"query": {"kind": "MCPToolCallsAndErrorsQuery"}},
+            HTTP_AUTHORIZATION=f"Bearer {value}",
+        )
+
+        assert response.status_code == expected_status, response.json()
 
     def test_gates_on_the_mcp_analytics_flag(self) -> None:
         # Every other test calls calculate() with the flag already on, so a runner that lost its
