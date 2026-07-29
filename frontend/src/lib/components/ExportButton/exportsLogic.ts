@@ -7,8 +7,8 @@ import { TriggerExportProps, downloadBlob, downloadExportedAsset } from 'lib/com
 import { isLongRunningExportFormat } from 'lib/components/ExportButton/exportStatus'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { delay } from 'lib/utils/async'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { uuid } from 'lib/utils/dom'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
