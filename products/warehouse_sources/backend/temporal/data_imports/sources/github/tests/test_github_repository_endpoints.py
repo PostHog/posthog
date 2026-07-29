@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -241,6 +242,45 @@ class TestRowMappers:
         )
 
         assert [(row["author_id"], row["author_login"]) for row in rows] == [(11, "ada")]
+
+    @parameterized.expand(
+        [
+            # /repos/{repo} answers with a single repository object; a fork's parent/source are
+            # nested repository objects that can each carry their own clone token.
+            (
+                "repository",
+                {
+                    "id": 7,
+                    "temp_clone_token": "v1_realclonetoken",
+                    "parent": {"id": 3, "temp_clone_token": "v1_parenttoken"},
+                    "source": {"id": 3, "temp_clone_token": "v1_sourcetoken"},
+                    "template_repository": {"id": 1, "temp_clone_token": "v1_templatetoken"},
+                },
+            ),
+            # /forks answers with a list of repository objects, batched via the item mapper.
+            (
+                "forks",
+                [
+                    {
+                        "id": 9,
+                        "temp_clone_token": "v1_forktoken",
+                        "parent": {"id": 7, "temp_clone_token": "v1_parenttoken"},
+                    }
+                ],
+            ),
+        ]
+    )
+    def test_repository_clone_token_never_reaches_the_warehouse(self, endpoint: str, body: Any) -> None:
+        # temp_clone_token is a live credential to clone the private repo. The repository and forks
+        # tables are default-on, so a warehouse user without GitHub access could otherwise read it.
+        # Nested repository objects land as JSON strings, so assert over the serialized row to catch
+        # the token wherever it ends up.
+        rows, _calls = _run(endpoint, {"api.github.com": _response(body)})
+
+        assert rows, "expected at least one row"
+        for row in rows:
+            serialized = json.dumps(row, default=str)
+            assert "temp_clone_token" not in serialized
 
 
 class TestCommitFanOut:

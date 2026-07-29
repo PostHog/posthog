@@ -461,6 +461,25 @@ def _redact_secret_scanning_alert(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
+# Repository objects that GitHub nests inside a repository object: a fork's parent and source, and a
+# template-created repo's template_repository. Each is a full repository object, so it can carry the
+# same clone credential and has to be sanitized too.
+_NESTED_REPOSITORY_KEYS = ("parent", "source", "template_repository")
+
+
+def _redact_repository_secrets(item: dict[str, Any]) -> dict[str, Any]:
+    """A repository object can carry `temp_clone_token`, a short-lived credential that clones the
+    private repo. It must never reach the warehouse, where a user without GitHub access could read it
+    and use it before it expires. Strip it here (the `repository` and `forks` tables are default-on)
+    and recurse into the nested repository objects GitHub embeds."""
+    item.pop("temp_clone_token", None)
+    for key in _NESTED_REPOSITORY_KEYS:
+        nested = item.get(key)
+        if isinstance(nested, dict):
+            _redact_repository_secrets(nested)
+    return item
+
+
 def _has_contributor_author(item: dict[str, Any]) -> bool:
     """Drop anonymous contributor rows: the stats endpoint returns a null author for commits it
     can't attribute to an account, and author_id is this table's primary key."""
@@ -477,6 +496,8 @@ def _get_item_mapper(endpoint: str) -> Callable[[dict[str, Any]], dict[str, Any]
         return _flatten_contributor_stats
     if endpoint == "secret_scanning_alerts":
         return _redact_secret_scanning_alert
+    if endpoint == "forks":
+        return _redact_repository_secrets
     return None
 
 
@@ -492,7 +513,7 @@ def _get_item_filter(endpoint: str) -> Callable[[dict[str, Any]], bool] | None:
 
 def _rows_from_repository(body: Any, repository: str) -> list[dict[str, Any]]:
     """/repos/{repo} answers with the repository object itself, not a list."""
-    return [body] if isinstance(body, dict) and body else []
+    return [_redact_repository_secrets(body)] if isinstance(body, dict) and body else []
 
 
 def _rows_from_topics(body: Any, repository: str) -> list[dict[str, Any]]:
