@@ -134,6 +134,13 @@ def _with_artifact_headers(response: HttpResponse, etag: str) -> HttpResponse:
     response["ETag"] = etag
     response["Cache-Control"] = "private, max-age=31536000, immutable"
     response["Cross-Origin-Resource-Policy"] = "cross-origin"
+    # The canvas iframe is sandboxed without allow-same-origin, so its document
+    # has an opaque origin and the entry's module scripts are fetched in CORS
+    # mode — without this header the bundle is blocked and the canvas renders a
+    # blank page. The signed token in the URL is the access credential; a
+    # wildcard grants nothing beyond it and forbids credentialed requests by
+    # definition.
+    response["Access-Control-Allow-Origin"] = "*"
     response["Referrer-Policy"] = "no-referrer"
     response["X-Content-Type-Options"] = "nosniff"
     response["Content-Security-Policy"] = artifact_csp()

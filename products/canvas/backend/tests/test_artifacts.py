@@ -61,6 +61,10 @@ class TestCanvasArtifacts(APIBaseTest):
         assert response["ETag"] == f'"{self.content_hash}"'
         assert "default-src 'none'" in response["Content-Security-Policy"]
         assert response["Cache-Control"] == "private, max-age=31536000, immutable"
+        # The sandboxed iframe's opaque origin fetches module scripts in CORS
+        # mode; without this the entry bundle is blocked and the canvas
+        # white-screens.
+        assert response["Access-Control-Allow-Origin"] == "*"
 
     def test_revalidation_returns_304_without_reading_storage(self):
         url = self._url()
