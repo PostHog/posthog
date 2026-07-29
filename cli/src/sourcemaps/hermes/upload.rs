@@ -91,7 +91,7 @@ pub fn upload(args: &Args) -> Result<()> {
     );
 
     let started_at = Instant::now();
-    let upload_result = symbol_sets::upload_with_retry(
+    let (summary, upload_result) = symbol_sets::upload_with_retry(
         uploads,
         *batch_size,
         release.skip_release_on_fail,
@@ -107,9 +107,9 @@ pub fn upload(args: &Args) -> Result<()> {
         ("duration_ms", json!(duration_ms)),
         ("success", json!(upload_result.is_ok())),
     ];
-    match upload_result {
-        Ok(ref summary) => props.extend(summary.telemetry_props()),
-        Err(ref e) => props.push(("error", json!(format!("{:#}", e)))),
+    props.extend(summary.telemetry_props());
+    if let Err(ref e) = upload_result {
+        props.push(("error", json!(format!("{:#}", e))));
     }
     context().capture_event("error_tracking_cli_sourcemaps_upload_finished", props);
 

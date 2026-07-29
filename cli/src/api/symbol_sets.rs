@@ -118,13 +118,17 @@ struct BulkUploadFinishRequest {
 /// the upload will be retried without release IDs.
 /// If `force` is true, symbol sets whose content has changed are overwritten rather than skipped.
 /// If `skip_on_conflict` is true, symbol sets whose content has changed are skipped rather than failing.
+///
+/// The summary is returned beside the result rather than inside it, because a
+/// failed run still needs to report the chunks it uploaded and skipped before
+/// it gave up.
 pub fn upload_with_retry(
     input_sets: Vec<SymbolSetUpload>,
     batch_size: usize,
     skip_release_on_fail: bool,
     force: bool,
     skip_on_conflict: bool,
-) -> Result<UploadSummary> {
+) -> (UploadSummary, Result<()>) {
     upload_with_retry_and_concurrency(
         input_sets,
         batch_size,
@@ -142,14 +146,21 @@ pub fn upload_with_retry_and_concurrency(
     force: bool,
     skip_on_conflict: bool,
     concurrency: NonZeroUsize,
-) -> Result<UploadSummary> {
-    let thread_pool = build_upload_thread_pool(concurrency)?;
+) -> (UploadSummary, Result<()>) {
+    let mut summary = UploadSummary::default();
+    let thread_pool = match build_upload_thread_pool(concurrency) {
+        Ok(thread_pool) => thread_pool,
+        Err(e) => return (summary, Err(e)),
+    };
     // One client for the whole run: reusing its connection pool avoids paying a
     // TCP + TLS handshake per uploaded chunk.
-    let s3_client = context()
+    let s3_client = match context()
         .build_http_client()
-        .context("Failed to initialize upload HTTP client")?;
-    let mut summary = UploadSummary::default();
+        .context("Failed to initialize upload HTTP client")
+    {
+        Ok(client) => client,
+        Err(e) => return (summary, Err(e)),
+    };
     let res = upload_inner(
         &input_sets,
         batch_size,
@@ -186,7 +197,7 @@ pub fn upload_with_retry_and_concurrency(
     // Logged on failure too, so a partial run still reports how far it got.
     summary.log();
 
-    res.map(|()| summary).map_err(Into::into)
+    (summary, res.map_err(Into::into))
 }
 
 fn build_upload_thread_pool(concurrency: NonZeroUsize) -> Result<ThreadPool> {
