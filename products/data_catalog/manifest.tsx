@@ -15,13 +15,20 @@ export const manifest: ProductManifest = {
             iconType: 'data_warehouse',
             description: 'Review and manage governed metrics, certifications, and relationships for your data.',
         },
+        DataCatalogMetric: {
+            import: () => import('./frontend/DataCatalogMetricScene'),
+            projectBased: true,
+            name: 'Metric',
+        },
     },
     routes: {
         '/data-catalog': ['DataCatalog', 'dataCatalog'],
+        '/data-catalog/metrics/:name': ['DataCatalogMetric', 'dataCatalogMetric'],
     },
     redirects: {},
     urls: {
         dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
+        dataCatalogMetric: (name: string): string => `/data-catalog/metrics/${name}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

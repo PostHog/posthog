@@ -941,11 +941,12 @@ def report_warming_plan_op(context: dagster.OpExecutionContext, queries: list[di
         # The agent default is 2 CPUs / 8Gi (charts: argocd/dagster/values). The
         # sharded pass runs one subprocess per shard, each compiling HogQL on its
         # own core, so the run pod needs CPU for the shards and memory for that
-        # many Django interpreters.
+        # many Django interpreters. Capped at 6 CPUs: the dagster nodepool runs
+        # 8-core nodes with ~7.9 allocatable, so an 8-CPU request never schedules.
         "dagster-k8s/config": {
             "container_config": {
                 "resources": {
-                    "requests": {"cpu": "8000m", "memory": "12Gi"},
+                    "requests": {"cpu": "6000m", "memory": "12Gi"},
                     "limits": {"memory": "12Gi"},
                 }
             }
