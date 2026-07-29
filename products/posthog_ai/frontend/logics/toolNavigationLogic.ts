@@ -3,8 +3,13 @@ import { router } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { SidePanelTab } from '~/types'
+
 import { parseInvocationOutputRecord } from '../components/tool/widgets/extractors'
 import { foregroundStreamLogic } from './foregroundStreamLogic'
+import { handOffRunToEmbeddedPanel } from './runnerPanelLogic'
+import { runStreamLogic } from './runStreamLogic'
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
 
 /**
@@ -24,6 +29,23 @@ function pushWithinApp(url: string): void {
     }
     if (parsed.origin === window.location.origin) {
         router.actions.push(parsed.pathname + parsed.search + parsed.hash)
+    }
+}
+
+// Navigating may unmount the surface hosting this chat (a full-page run view). Hand the run to the
+// embedded side panel runner and open the panel, so the conversation follows the user to the
+// destination. A panel already showing the run makes this a no-op.
+function ensureChatFollows(streamKey: string): void {
+    const stream = runStreamLogic.findMounted({ streamKey })
+    const taskId = stream?.values.bootstrappedTaskId
+    const runId = stream?.values.bootstrappedRunId
+    if (!taskId || !runId) {
+        return
+    }
+    handOffRunToEmbeddedPanel({ streamKey, taskId, runId })
+    const sidePanel = sidePanelStateLogic.findMounted()
+    if (sidePanel && !sidePanel.values.sidePanelOpen) {
+        sidePanel.actions.openSidePanel(SidePanelTab.Max)
     }
 }
 
@@ -63,6 +85,7 @@ export const toolNavigationLogic = kea<toolNavigationLogicType>([
             delete cache.pendingTemplateRouteByStream[streamKey]
             delete cache.workflowRoutedByStream[streamKey]
             if (templateId && !router.values.location.pathname.includes(`/workflows/library/templates/${templateId}`)) {
+                ensureChatFollows(streamKey)
                 router.actions.push(urls.workflowsLibraryTemplate(templateId))
             }
         }
@@ -85,6 +108,7 @@ export const toolNavigationLogic = kea<toolNavigationLogicType>([
                     cache.workflowRoutedByStream[event.streamKey] = true
                     delete cache.pendingTemplateRouteByStream[event.streamKey]
                     if (!router.values.location.pathname.includes(`/workflows/${workflowId}`)) {
+                        ensureChatFollows(event.streamKey)
                         router.actions.push(urls.workflow(workflowId, 'workflow'))
                     }
                 } else if (
@@ -102,6 +126,7 @@ export const toolNavigationLogic = kea<toolNavigationLogicType>([
                     const url = typeof record?.url === 'string' ? record.url : null
                     if (url) {
                         // Only ever within this app's origin; foreign URLs stay a link in the reply.
+                        ensureChatFollows(event.streamKey)
                         pushWithinApp(url)
                     }
                 }

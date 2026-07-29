@@ -1,4 +1,17 @@
-import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    BuiltLogic,
+    MakeLogicType,
+    actions,
+    afterMount,
+    beforeUnmount,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 
 // The optimistic run opened on send, before the task/run exist. `streamKey` is the client key the pending
 // `RunSurface` (and its seeded `runStreamLogic`) bind to; `taskId`/`runId` are filled once known (reserved
@@ -65,6 +78,32 @@ export type runnerPanelLogicType = MakeLogicType<
 // e.g. following a link the assistant produced — restores it. Session-scoped on purpose: a new tab
 // or browser session starts at the composer. The scene singleton is URL-driven and never persists.
 const storageKey = (panelId: string): string => `posthog_ai_runner_panel_active_creation:${panelId}`
+
+// Chat handoff: when agent-driven navigation (see `toolNavigationLogic`) is about to unmount a
+// full-page run view, the run is handed to an embedded panel so the conversation follows the user.
+// Mounted embedded instances adopt it immediately; otherwise it parks here until one mounts (the
+// side panel opening as part of the same navigation).
+const mountedEmbeddedPanels = new Set<BuiltLogic<runnerPanelLogicType>>()
+let pendingRunHandoff: ActiveCreation | null = null
+
+export function clearPendingRunHandoff(): void {
+    pendingRunHandoff = null
+}
+
+/** Point an embedded runner panel at `creation`, now or when one next mounts. No-op if one already shows it. */
+export function handOffRunToEmbeddedPanel(creation: ActiveCreation): void {
+    for (const panel of mountedEmbeddedPanels) {
+        if (panel.values.activeCreation?.streamKey === creation.streamKey) {
+            return
+        }
+    }
+    const first: BuiltLogic<runnerPanelLogicType> | undefined = mountedEmbeddedPanels.values().next().value
+    if (first) {
+        first.actions.setActiveCreation(creation)
+    } else {
+        pendingRunHandoff = creation
+    }
+}
 
 function persistActiveCreation(panelId: string | undefined, creation: ActiveCreation | null): void {
     if (!panelId) {
@@ -178,12 +217,22 @@ export const runnerPanelLogic = kea<runnerPanelLogicType>([
         },
     })),
 
-    afterMount(({ actions, values, props }) => {
+    afterMount((logic) => {
+        const { actions, values, props } = logic
+        if (!props.panelId) {
+            return
+        }
+        mountedEmbeddedPanels.add(logic)
         if (!values.activeCreation) {
-            const restored = readPersistedActiveCreation(props.panelId)
-            if (restored) {
-                actions.setActiveCreation(restored)
+            // A parked handoff wins over the persisted run: it is the reason this panel just opened.
+            const adopted = pendingRunHandoff ?? readPersistedActiveCreation(props.panelId)
+            pendingRunHandoff = null
+            if (adopted) {
+                actions.setActiveCreation(adopted)
             }
         }
+    }),
+    beforeUnmount((logic) => {
+        mountedEmbeddedPanels.delete(logic)
     }),
 ])

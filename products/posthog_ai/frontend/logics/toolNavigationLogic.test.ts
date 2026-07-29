@@ -1,10 +1,13 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { ToolStreamEvent } from '../types/streamTypes'
 import { foregroundStreamLogic } from './foregroundStreamLogic'
+import { clearPendingRunHandoff, runnerPanelLogic } from './runnerPanelLogic'
+import { runStreamLogic } from './runStreamLogic'
 import { toolNavigationLogic } from './toolNavigationLogic'
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
 
@@ -93,5 +96,61 @@ describe('toolNavigationLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(router.values.location.pathname.endsWith(expectedPathTail)).toBe(true)
+    })
+
+    // Navigating away from a full-page run view must not orphan the chat: the run is handed to the
+    // embedded side panel runner so the conversation follows the user to the destination.
+    describe('chat handoff on navigation', () => {
+        let streamLogic: ReturnType<typeof runStreamLogic.build>
+
+        beforeEach(() => {
+            useMocks({})
+            sessionStorage.clear()
+            clearPendingRunHandoff()
+            streamLogic = runStreamLogic({ streamKey: STREAM_KEY })
+            streamLogic.mount()
+            streamLogic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-9' })
+        })
+
+        afterEach(() => {
+            streamLogic?.unmount()
+            clearPendingRunHandoff()
+        })
+
+        it('points a mounted embedded panel at the run when routing', async () => {
+            const panel = runnerPanelLogic({ panelId: 'sidepanel' })
+            panel.mount()
+
+            toolStreamEventsLogic.actions.emitToolEvent(creationEvent('workflows-create', { id: 'wf-1' }))
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(router.values.location.pathname.endsWith('/workflows/wf-1/workflow')).toBe(true)
+            expect(panel.values.activeCreation).toEqual({ streamKey: STREAM_KEY, taskId: 'task-1', runId: 'run-9' })
+            panel.unmount()
+        })
+
+        it('hands the run to an embedded panel that mounts after the route (panel was closed)', async () => {
+            toolStreamEventsLogic.actions.emitToolEvent(creationEvent('workflows-create', { id: 'wf-1' }))
+            await expectLogic(logic).toFinishAllListeners()
+
+            const panel = runnerPanelLogic({ panelId: 'sidepanel' })
+            panel.mount()
+            expect(panel.values.activeCreation).toEqual({ streamKey: STREAM_KEY, taskId: 'task-1', runId: 'run-9' })
+            panel.unmount()
+        })
+
+        it('leaves an embedded panel already showing the run untouched', async () => {
+            const panel = runnerPanelLogic({ panelId: 'sidepanel' })
+            panel.mount()
+            panel.actions.setActiveCreation({ streamKey: STREAM_KEY, taskId: 'task-1', runId: 'run-9' })
+            panel.actions.setHistoryExpanded(true)
+
+            toolStreamEventsLogic.actions.emitToolEvent(creationEvent('workflows-create', { id: 'wf-1' }))
+            await expectLogic(logic).toFinishAllListeners()
+
+            // An adoption would have collapsed the history view via setActiveCreation's listener.
+            expect(panel.values.historyExpanded).toBe(true)
+            panel.unmount()
+        })
     })
 })
