@@ -213,6 +213,7 @@ export interface supportTicketsSceneLogicValues {
     editableSelectedTicketIds: string[]
     hasActiveFilters: boolean
     loadedOrderBy: string | null
+    loadedPage: number | null
     orderBy: string
     priorityFilter: TicketPriority[]
     responseTargetCounts: Record<string, number> | null
@@ -300,6 +301,9 @@ export interface supportTicketsSceneLogicActions {
     }
     setLoadedOrderBy: (orderBy: string) => {
         orderBy: string
+    }
+    setLoadedPage: (page: number) => {
+        page: number
     }
     setPriorityFilter: (priorities: TicketPriority[]) => {
         priorities: TicketPriority[]
@@ -411,6 +415,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         setTotalCount: (count: number) => ({ count }),
         setResponseTargetCounts: (counts: Record<string, number> | null) => ({ counts }),
         setLoadedOrderBy: (orderBy: string) => ({ orderBy }),
+        setLoadedPage: (page: number) => ({ page }),
         setTicketsLoading: (loading: boolean) => ({ loading }),
         applyViewFilters: (filters: TicketViewFilters) => ({ filters }),
         applyUrlFilters: (filters: TicketViewFilters) => ({ filters }),
@@ -466,6 +471,16 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             null as string | null,
             {
                 setLoadedOrderBy: (_, { orderBy }) => orderBy,
+            },
+        ],
+        // The page the CURRENT tickets array belongs to — like loadedOrderBy,
+        // it describes the loaded data rather than the requested page, so the
+        // grouped view's first/last-page reasoning matches the rows actually
+        // rendered while a page change is in flight.
+        loadedPage: [
+            null as number | null,
+            {
+                setLoadedPage: (_, { page }) => page,
             },
         ],
         totalCount: [
@@ -788,6 +803,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 actions.setTotalCount(response.count ?? response.results?.length ?? 0)
                 actions.setResponseTargetCounts(response.response_target_counts ?? null)
                 actions.setLoadedOrderBy(params.order_by as string)
+                actions.setLoadedPage(Math.floor((params.offset as number) / SUPPORT_TICKETS_PAGE_SIZE) + 1)
             } catch (error: any) {
                 if (isBreakpoint(error)) {
                     throw error

@@ -1271,7 +1271,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
         connectSlack: async ({ nextPath }) => {
             const query = encodeURIComponent(nextPath)
             // nosemgrep: prefer-codegen-api
@@ -1319,6 +1319,11 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             // lands after the user confirms with Save.
             const value =
                 groups && JSON.stringify(groups) === JSON.stringify(DEFAULT_RESPONSE_TARGET_GROUPS) ? null : groups
+            // Arm the success listener to clear the draft: intent can't be
+            // inferred from the payload, because every other save in this file
+            // spreads ...conversations_settings and so carries the
+            // response_target_groups key once it has ever been saved.
+            cache.clearResponseTargetDraftOnSuccess = true
             actions.updateCurrentTeam({
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
@@ -1743,11 +1748,17 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 lemonToast.error('Failed to save repository selection')
             }
         },
-        updateCurrentTeamSuccess: ({ payload }) => {
-            // Only a save that actually carried the ladder clears the draft —
-            // an unrelated team update (e.g. toggling another setting) must
-            // not discard minutes of unsaved reordering.
-            if (payload?.conversations_settings && 'response_target_groups' in payload.conversations_settings) {
+        updateCurrentTeamFailure: () => {
+            // A failed ladder save must not leave the flag armed for a later
+            // unrelated save's success to consume.
+            cache.clearResponseTargetDraftOnSuccess = false
+        },
+        updateCurrentTeamSuccess: () => {
+            // Only a save initiated by saveResponseTargetGroups clears the
+            // draft — an unrelated team update (e.g. toggling another setting)
+            // must not discard minutes of unsaved reordering.
+            if (cache.clearResponseTargetDraftOnSuccess) {
+                cache.clearResponseTargetDraftOnSuccess = false
                 actions.setResponseTargetGroupsDraft(null)
             }
             actions.setGreetingInputValue(null)
