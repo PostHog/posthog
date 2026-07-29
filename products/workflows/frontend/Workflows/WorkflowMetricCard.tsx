@@ -1,30 +1,53 @@
 import { type ReactNode, useCallback, useMemo } from 'react'
 
+import { IconArrowRight, IconInfo } from '@posthog/icons'
 import {
     DefaultTooltip,
-    MetricCard,
+    useChartTheme,
     type ChangeColor,
     type MetricChange,
     type Series,
     type TooltipContext,
 } from '@posthog/quill-charts'
+import {
+    Metric,
+    MetricDelta,
+    MetricHeader,
+    MetricSparkline,
+    MetricTitle,
+    MetricValue,
+} from '@posthog/quill-components/metric'
+import { cn, Skeleton, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@posthog/quill-primitives'
 
-import { useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
 import { AppMetricsTimeSeriesResponse } from 'lib/components/AppMetrics/appMetricsLogic'
 import { dayjs } from 'lib/dayjs'
 import { formatPercentageDiff, humanFriendlyNumber } from 'lib/utils/numbers'
 
-// A summary tile built on quill's MetricCard, adapting our app-metrics series shape. The chrome
-// (border/padding/background) is passed through MetricCard's className so the whole tile — padding
-// included — is the clickable target when `onClick` is set, matching the surrounding tiles.
-const CARD_CHROME = 'flex-1 border rounded p-3 bg-surface-primary min-w-[16rem]'
+const SPARKLINE_HEIGHT = 160
+
+// `Metric` is content, not a surface, so the tile keeps the surrounding scene's chrome rather than
+// quill's Card — the step tables and trends chart below it are still Lemon surfaces.
+const CARD_CHROME = 'flex min-w-[16rem] flex-1 flex-col rounded border bg-surface-primary py-3'
 
 // The period-over-period pill stays neutral (grey), matching how these tiles reported change before —
 // several workflow metrics (Failed, Bounced, Rate Limited) are "bad when rising", so green/red good/bad
 // coloring would mislead. The chevron still shows direction.
 function neutralChange(): ChangeColor {
     return { background: 'transparent', foreground: getColorVar('muted') }
+}
+
+function DrillArrow({ tooltip }: { tooltip?: string }): JSX.Element {
+    const arrow = <IconArrowRight className="ml-1 inline-block align-text-bottom text-xl text-muted" aria-hidden />
+    if (!tooltip) {
+        return arrow
+    }
+    return (
+        <Tooltip>
+            <TooltipTrigger render={<span className="inline-flex" />}>{arrow}</TooltipTrigger>
+            <TooltipContent>{tooltip}</TooltipContent>
+        </Tooltip>
+    )
 }
 
 export interface WorkflowMetricCardProps {
@@ -55,6 +78,11 @@ function sumSeries(ts: AppMetricsTimeSeriesResponse | null | undefined): { data:
     return { data, total: data.reduce((acc, v) => acc + v, 0) }
 }
 
+/**
+ * A summary tile built by composing quill's `Metric`, adapting our app-metrics series shape. The click
+ * target, footer, title info icon and loading state are composition-level concerns, so they live here
+ * rather than as `Metric` props.
+ */
 export function WorkflowMetricCard({
     name,
     description,
@@ -113,31 +141,86 @@ export function WorkflowMetricCard({
         []
     )
 
+    const cardClassName = cn(
+        CARD_CHROME,
+        onClick &&
+            'cursor-pointer transition-colors hover:bg-surface-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'
+    )
+
+    if (loading) {
+        return (
+            <div className={CARD_CHROME}>
+                <div className="flex flex-col px-3">
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="mt-3 h-9 w-32" />
+                    <Skeleton className="mt-4 h-40 w-full" />
+                </div>
+            </div>
+        )
+    }
+
     return (
-        <MetricCard
-            className={CARD_CHROME}
-            title={name}
-            titleTooltip={description}
-            value={total}
-            data={data.length > 0 ? data : undefined}
-            series={sparklineSeries}
-            labels={timeSeries?.labels}
-            // The headline is a whole-period total, so don't caption it with a single bucket's date.
-            // The hover tooltip carries the per-point date instead.
-            subtitle=""
-            theme={theme}
-            color={total === 0 ? colorIfZero : color}
-            change={change}
-            positiveColor={neutral}
-            negativeColor={neutral}
-            formatValue={(v) => humanFriendlyNumber(v)}
-            loading={loading}
-            onClick={onClick}
-            onClickTooltip={onClickTooltip}
-            footer={footer}
-            sparklineHeight={160}
-            sparklineClassName="mt-4 -mx-3"
-            sparklineTooltip={renderTooltip}
-        />
+        <TooltipProvider>
+            <div
+                className={cardClassName}
+                onClick={onClick}
+                role={onClick ? 'button' : undefined}
+                tabIndex={onClick ? 0 : undefined}
+                // Only the card itself activates the drill — a link or icon inside it keeps its own keys.
+                onKeyDown={(e) => {
+                    if (onClick && e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+                        e.preventDefault()
+                        onClick()
+                    }
+                }}
+            >
+                <Metric
+                    className="px-3"
+                    value={total}
+                    data={data.length > 0 ? data : undefined}
+                    series={sparklineSeries}
+                    labels={timeSeries?.labels}
+                    theme={theme}
+                    color={total === 0 ? colorIfZero : color}
+                    change={change}
+                    positiveColor={neutral}
+                    negativeColor={neutral}
+                    formatValue={(v) => humanFriendlyNumber(v)}
+                    sparklineHeight={SPARKLINE_HEIGHT}
+                    sparklineTooltip={renderTooltip}
+                >
+                    <MetricHeader>
+                        <MetricTitle className="min-w-0">
+                            {name}
+                            {description != null && (
+                                <Tooltip>
+                                    <TooltipTrigger
+                                        render={
+                                            <span
+                                                className="ml-1 inline-flex align-text-bottom text-xl text-muted"
+                                                onClick={(e) => e.stopPropagation()}
+                                            />
+                                        }
+                                    >
+                                        <IconInfo />
+                                    </TooltipTrigger>
+                                    <TooltipContent>{description}</TooltipContent>
+                                </Tooltip>
+                            )}
+                            {onClick && <DrillArrow tooltip={onClickTooltip} />}
+                        </MetricTitle>
+                        <MetricDelta />
+                    </MetricHeader>
+                    <MetricValue className="mt-2" />
+                    <MetricSparkline className="-mx-3 mt-4" />
+                </Metric>
+                {footer && (
+                    // Stop clicks here from firing the tile's drill — the footer carries its own link.
+                    <div className="px-3 pt-2 text-center text-xs" onClick={(e) => e.stopPropagation()}>
+                        {footer}
+                    </div>
+                )}
+            </div>
+        </TooltipProvider>
     )
 }

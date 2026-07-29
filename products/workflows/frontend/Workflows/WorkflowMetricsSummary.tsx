@@ -207,9 +207,7 @@ export function WorkflowMetricsSummary({
                             ) : inProgressTotal === 0 ? (
                                 <LemonLabel className="text-muted text-md mb-2">No workflows in progress</LemonLabel>
                             ) : (
-                                <div className="text-6xl text-muted-foreground mb-2">
-                                    {humanFriendlyNumber(inProgressTotal)}
-                                </div>
+                                <div className="text-6xl mb-2">{humanFriendlyNumber(inProgressTotal)}</div>
                             )}
                         </div>
                     </div>
@@ -299,7 +297,7 @@ export function WorkflowMetricsSummary({
                                 ) : conversionStats.started === 0 ? (
                                     <LemonLabel className="text-muted text-md mb-2">No workflows started</LemonLabel>
                                 ) : (
-                                    <div className="text-6xl text-muted-foreground mb-2">
+                                    <div className="text-6xl mb-2">
                                         {`${(Math.min(conversionRate, 1) * 100).toFixed(1)}%`}
                                     </div>
                                 )}

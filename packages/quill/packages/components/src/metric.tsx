@@ -9,7 +9,9 @@ import {
     percentage,
     type ResolvedDelta,
     resolveDelta,
+    type Series,
     Sparkline,
+    type TooltipContext,
     useAnimatedNumber,
     useHoverIntent,
 } from '@posthog/quill-charts'
@@ -36,7 +38,9 @@ interface MetricContextValue {
     } | null
     /** Sparkline wiring, or null when no series was supplied. */
     sparkline: {
+        /** Per-index total when `series` is set, otherwise the single series' values. */
         data: number[]
+        series?: Series[]
         labels?: string[]
         theme: ChartTheme
         color?: string
@@ -45,6 +49,7 @@ interface MetricContextValue {
         fillOpacity: number
         dashedFromIndex?: number
         setHoverIndex: (index: number) => void
+        tooltip?: (ctx: TooltipContext) => React.ReactNode
     } | null
 }
 
@@ -71,6 +76,9 @@ export interface MetricProps {
     value?: number
     /** Series values. When present, a `MetricSparkline` renders and hovering a point swaps the headline. */
     data?: number[]
+    /** Multi-series sparkline (one line per series). The headline, hover and change pill run on the
+     *  per-index total, so the tile still reads as one number. Ignores `data`/`color`. */
+    series?: Series[]
     /** Labels paired with `data`. Used for the default subtitle on hover. */
     labels?: string[]
     /** Required when `data` is present. */
@@ -83,6 +91,8 @@ export interface MetricProps {
     sparklineFillOpacity?: number
     /** Dash the sparkline from this index onward (e.g. an in-progress trailing period). */
     sparklineDashedFromIndex?: number
+    /** Tooltip renderer for the sparkline. Off by default — hovering already scrubs the headline. */
+    sparklineTooltip?: (ctx: TooltipContext) => React.ReactNode
     formatValue?: (value: number) => string
     formatChange?: (percent: number) => string
     showChange?: boolean
@@ -144,6 +154,7 @@ export function Metric(props: MetricProps): React.ReactElement | null {
 function MetricInner({
     value,
     data,
+    series,
     labels,
     theme,
     color,
@@ -151,6 +162,7 @@ function MetricInner({
     sparklineFill = false,
     sparklineFillOpacity = 0.35,
     sparklineDashedFromIndex,
+    sparklineTooltip,
     formatValue = DEFAULT_FORMAT_VALUE,
     formatChange = DEFAULT_FORMAT_CHANGE,
     showChange = true,
@@ -168,7 +180,21 @@ function MetricInner({
     dataAttr,
     children,
 }: Omit<MetricProps, 'onError'>): React.ReactElement | null {
-    const sparklineData = data != null && data.length > 0 && theme != null ? data : null
+    // A multi-series tile still reads as one number: the headline, hover and change pill run on the
+    // per-index total across the series, while the sparkline draws the breakdown.
+    const sparklineData = React.useMemo<number[] | null>(() => {
+        if (theme == null) {
+            return null
+        }
+        if (series != null && series.length > 0) {
+            const pointCount = Math.max(0, ...series.map((s) => s.data.length))
+            const totals = Array.from({ length: pointCount }, (_, i) =>
+                series.reduce((acc, s) => acc + (s.data[i] ?? 0), 0)
+            )
+            return totals.length > 0 ? totals : null
+        }
+        return data != null && data.length > 0 ? data : null
+    }, [series, data, theme])
     const lastIndex = sparklineData ? sparklineData.length - 1 : -1
 
     const [hoverIndex, setHoverIndex] = React.useState(-1)
@@ -228,6 +254,7 @@ function MetricInner({
             sparkline: sparklineData
                 ? {
                       data: sparklineData,
+                      series,
                       labels,
                       theme: theme!,
                       color,
@@ -236,6 +263,7 @@ function MetricInner({
                       fillOpacity: sparklineFillOpacity,
                       dashedFromIndex: sparklineDashedFromIndex,
                       setHoverIndex,
+                      tooltip: sparklineTooltip,
                   }
                 : null,
         }
@@ -260,10 +288,12 @@ function MetricInner({
         labels,
         theme,
         color,
+        series,
         sparklineHeight,
         sparklineFill,
         sparklineFillOpacity,
         sparklineDashedFromIndex,
+        sparklineTooltip,
     ])
 
     if (ctx == null) {
@@ -376,7 +406,8 @@ export function MetricSparkline({
     const pinBottom = sparkline.fill ? '' : 'mt-auto'
     return (
         <Sparkline
-            data={sparkline.data}
+            data={sparkline.series != null ? undefined : sparkline.data}
+            series={sparkline.series}
             labels={sparkline.labels}
             theme={sparkline.theme}
             color={sparkline.color}
@@ -385,6 +416,7 @@ export function MetricSparkline({
             fillOpacity={sparkline.fillOpacity}
             dashedFromIndex={sparkline.dashedFromIndex}
             onHoverIndexChange={sparkline.setHoverIndex}
+            tooltip={sparkline.tooltip}
             className={cn('relative top-[6px]', pinBottom, className)}
             dataAttr="metric-sparkline"
         />

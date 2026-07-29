@@ -85,25 +85,22 @@ export function ChangePill({ positive, label, colors, size = 'sm', tooltip }: Ch
     if (!tooltip) {
         return pill
     }
-    return <HoverTooltip content={tooltip}>{pill}</HoverTooltip>
+    return <ChangePillTooltip content={tooltip}>{pill}</ChangePillTooltip>
 }
 
-// A hover tooltip built on floating-ui directly so the charts package stays dependency-light (no app
-// Tooltip import), but styled with the app's tooltip surface tokens so it reads as a normal PostHog
-// tooltip and stays legible over the tile's own --card background. Falls back to the chart tooltip
-// constants in non-app hosts that don't define those vars. Shared by the change pill and the title
-// info icon.
+// A hover tooltip for the change pill. Built on floating-ui directly so the charts package stays
+// dependency-light (no app Tooltip import), but styled with the app's tooltip surface tokens so it
+// reads as a normal PostHog tooltip and stays legible over the tile's own --card background. Falls
+// back to the chart tooltip constants in non-app hosts that don't define those vars.
 const TOOLTIP_BG = `var(--color-bg-surface-tooltip, ${TOOLTIP_FALLBACK_BG})`
 const TOOLTIP_COLOR = `var(--color-text-primary-inverse, ${TOOLTIP_FALLBACK_COLOR})`
 
-export function HoverTooltip({
+function ChangePillTooltip({
     content,
     children,
-    className,
 }: {
     content: React.ReactNode
     children: React.ReactNode
-    className?: string
 }): React.ReactElement {
     const [open, setOpen] = useState(false)
     const arrowRef = useRef<SVGSVGElement>(null)
@@ -121,7 +118,7 @@ export function HoverTooltip({
 
     return (
         <>
-            <span ref={refs.setReference} {...getReferenceProps()} className={`inline-flex${className ? ` ${className}` : ''}`}>
+            <span ref={refs.setReference} {...getReferenceProps()} className="inline-flex">
                 {children}
             </span>
             {open && (
@@ -154,46 +151,6 @@ export function HoverTooltip({
                 </FloatingPortal>
             )}
         </>
-    )
-}
-
-// Small inline glyphs so the charts package doesn't take an icon dependency.
-export function InfoIcon({ size = 14 }: { size?: number }): React.ReactElement {
-    return (
-        <svg
-            width={size}
-            height={size}
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-        >
-            <circle cx="8" cy="8" r="6.5" />
-            <path d="M8 7.25 L8 11" />
-            <path d="M8 5 L8 5.01" />
-        </svg>
-    )
-}
-
-export function ArrowRightIcon({ size = 14 }: { size?: number }): React.ReactElement {
-    return (
-        <svg
-            width={size}
-            height={size}
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-        >
-            <path d="M3 8 L13 8" />
-            <path d="M8.5 3.5 L13 8 L8.5 12.5" />
-        </svg>
     )
 }
 
