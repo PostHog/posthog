@@ -50,6 +50,7 @@ the row lists both.
 | -------------------------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
 | ably                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | adroll                           | HTTP                        | requests                                                        | ✅                          |
+| adyen                            | HTTP                        | requests                                                        | ✅                          |
 | agilecrm                         | HTTP                        | requests                                                        | ✅                          |
 | aha                              | HTTP                        | requests                                                        | ✅                          |
 | aha_ideas                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -480,6 +481,7 @@ the row lists both.
 | pylon                            | HTTP                        | requests                                                        | ✅                          |
 | pypi                             | HTTP                        | requests                                                        | ✅                          |
 | qualaroo                         | HTTP                        | requests                                                        | ✅                          |
+| qualtrics                        | HTTP                        | requests                                                        | ✅                          |
 | qualys_vmdr                      | HTTP (XML responses)        | requests                                                        | ✅                          |
 | railway                          | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | recurly                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -706,7 +708,6 @@ doesn't conflict with concurrent PRs.
 - adobe_analytics
 - adobe_commerce
 - adp_workforce_now
-- adyen
 - aftership
 - ahrefs
 - aikido_security
@@ -1211,7 +1212,6 @@ doesn't conflict with concurrent PRs.
 - pubnub
 - qdrant
 - qonto
-- qualtrics
 - quay
 - quickbooks
 - railz
