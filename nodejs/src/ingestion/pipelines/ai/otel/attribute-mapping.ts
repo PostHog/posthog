@@ -28,6 +28,16 @@ const FALLBACK_ATTRIBUTE_MAP: Record<string, string> = {
     'gen_ai.usage.completion_tokens': '$ai_output_tokens',
 }
 
+// Micrometer-based instrumentations (e.g. Spring AI) emit the literal string 'none' for attributes
+// whose value is unavailable — notably gen_ai.response.model on providers that don't echo the model
+// id in the response (Amazon Bedrock Converse). Treat that placeholder like an absent value so the
+// fallback attributes can apply.
+const MICROMETER_NONE_PLACEHOLDER = 'none'
+
+function isAbsent(value: unknown): boolean {
+    return value === undefined || value === null || value === MICROMETER_NONE_PLACEHOLDER
+}
+
 const STRIP_ATTRIBUTES = new Set([
     'telemetry.sdk.language',
     'gen_ai.operation.name',
@@ -101,7 +111,7 @@ export function mapOtelAttributes(event: PluginEvent): void {
     }
 
     for (const [otelKey, phKey] of Object.entries(FALLBACK_ATTRIBUTE_MAP)) {
-        if (event.properties[otelKey] !== undefined && event.properties[phKey] === undefined) {
+        if (!isAbsent(event.properties[otelKey]) && isAbsent(event.properties[phKey])) {
             event.properties[phKey] = event.properties[otelKey]
         }
         delete event.properties[otelKey]

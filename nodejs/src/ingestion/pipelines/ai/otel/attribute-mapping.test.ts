@@ -161,6 +161,35 @@ describe('mapOtelAttributes', () => {
         expect(event.properties!['gen_ai.response.model']).toBeUndefined()
     })
 
+    it.each([
+        ['gen_ai.system', '$ai_provider', 'gen_ai.provider.name'],
+        ['gen_ai.request.model', '$ai_model', 'gen_ai.response.model'],
+    ])("uses %s as fallback for %s when primary %s is the literal 'none' placeholder", (fallbackKey, phKey, primaryKey) => {
+        // Micrometer-based instrumentations (e.g. Spring AI) emit the literal string 'none' for
+        // unavailable attributes — notably the response model on Amazon Bedrock Converse, which
+        // does not echo the model id in the response.
+        const event = createEvent('$ai_generation', { [primaryKey]: 'none', [fallbackKey]: 'fallback' })
+        mapOtelAttributes(event)
+        expect(event.properties![phKey]).toBe('fallback')
+        expect(event.properties![fallbackKey]).toBeUndefined()
+        expect(event.properties![primaryKey]).toBeUndefined()
+    })
+
+    it('falls back to gen_ai.request.model when gen_ai.response.model is null', () => {
+        const event = createEvent('$ai_generation', {
+            'gen_ai.request.model': 'eu.anthropic.claude-opus-4-8',
+            'gen_ai.response.model': null,
+        })
+        mapOtelAttributes(event)
+        expect(event.properties!.$ai_model).toBe('eu.anthropic.claude-opus-4-8')
+    })
+
+    it("keeps the 'none' placeholder when no fallback value exists", () => {
+        const event = createEvent('$ai_generation', { 'gen_ai.response.model': 'none' })
+        mapOtelAttributes(event)
+        expect(event.properties!.$ai_model).toBe('none')
+    })
+
     it.each(['telemetry.sdk.language', 'gen_ai.operation.name', 'posthog.ai.debug'])(
         'strips %s from properties',
         (key) => {
