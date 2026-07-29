@@ -584,19 +584,21 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
     message.send()
 
 
-def _get_members_with_project_access(team: Team) -> list[OrganizationMembership]:
-    # Like get_members_to_notify, but with no notification-setting gate: used for operational
-    # notices (e.g. email sending suspension) that members must not be able to mute.
+def _get_project_admins_to_notify_of_email_sending_suspension(team: Team) -> list[OrganizationMembership]:
+    # Admin+ only: they're the ones who can act on the issue (contact support, clean up lists).
+    # Everyone else with project access still sees the persistent in-app banner. No
+    # notification-setting gate — the send is failing until action is taken and members must
+    # not be able to mute this.
     memberships_to_email = []
     memberships = OrganizationMembership.objects.prefetch_related("user", "organization").filter(
         organization_id=team.organization_id
     )
     for membership in memberships:
         team_permissions = UserPermissions(membership.user).team(team)
-        if (
-            team_permissions.effective_membership_level_for_parent_membership(membership.organization, membership)
-            is not None
-        ):
+        effective_level = team_permissions.effective_membership_level_for_parent_membership(
+            membership.organization, membership
+        )
+        if effective_level is not None and effective_level >= OrganizationMembership.Level.ADMIN:
             memberships_to_email.append(membership)
     return memberships_to_email
 
@@ -611,7 +613,7 @@ def send_email_sending_suspended(team_id: int, reason: str, suspended_at: str) -
     if not is_email_available(with_absolute_urls=True):
         return
     team = Team.objects.get(id=team_id)
-    memberships_to_email = _get_members_with_project_access(team)
+    memberships_to_email = _get_project_admins_to_notify_of_email_sending_suspension(team)
     if not memberships_to_email:
         return
     message = EmailMessage(
@@ -635,7 +637,7 @@ def send_email_sending_unsuspended(team_id: int, unsuspended_at: str) -> None:
     if not is_email_available(with_absolute_urls=True):
         return
     team = Team.objects.get(id=team_id)
-    memberships_to_email = _get_members_with_project_access(team)
+    memberships_to_email = _get_project_admins_to_notify_of_email_sending_suspension(team)
     if not memberships_to_email:
         return
     message = EmailMessage(

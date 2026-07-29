@@ -329,7 +329,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
             {emailSendingSuspended && (
                 <LemonBanner type="error" data-attr="workflows-email-suspended-banner">
                     Email sending is suspended for this project. Workflow emails are not being delivered.
-                    {emailSendingSuspensionReason ? <> Reason: {emailSendingSuspensionReason}</> : null}{' '}
+                    {emailSendingSuspensionReason ? <> Reason: {emailSendingSuspensionReason}.</> : null}{' '}
                     {emailReputationEnabled && (
                         <>
                             Review the <Link to={urls.workflows('reputation')}>Reputation tab</Link>

@@ -708,7 +708,7 @@ class TeamAdmin(admin.ModelAdmin):
                     else "Email sending has been re-enabled for this project"
                 ),
                 body=(
-                    f"{reason} Check the Reputation tab and contact support to get sending re-enabled."
+                    f"Reason: {reason}. Check the Reputation tab and contact support to get sending re-enabled."
                     if suspended
                     else "Your workflows can deliver email again. Keep bounce and complaint rates low to stay enabled."
                 ),
