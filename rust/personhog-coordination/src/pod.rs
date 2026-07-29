@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -147,6 +147,17 @@ pub struct PodConfig {
     /// Should be less than K8s terminationGracePeriodSeconds to allow
     /// time for lease revocation before SIGKILL.
     pub drain_timeout: Duration,
+    /// How often the watch loop re-derives every involved partition's
+    /// state from a fresh snapshot, independent of events — the same
+    /// truth path the router's reconcile pass provides. Runs as an arm
+    /// of the watch loop, serialized with event-driven convergence.
+    pub reconcile_interval: Duration,
+    /// How many consecutive reconcile failures to tolerate before
+    /// failing the run. Same reasoning as the router's budget: a failed
+    /// pass only means staleness equal to one tick, brief etcd blips
+    /// must not restart the fleet, and sustained outage self-fences
+    /// through the lease keepalive.
+    pub reconcile_failure_budget: u32,
     /// `host:port` where this pod's gRPC server is reachable; registered
     /// so routers can dial the pod through the routing table.
     pub advertise_address: Option<String>,
@@ -161,19 +172,38 @@ impl Default for PodConfig {
             lease_ttl: 30,
             heartbeat_interval: Duration::from_secs(10),
             drain_timeout: Duration::from_secs(30),
+            reconcile_interval: Duration::from_secs(5),
+            reconcile_failure_budget: 12,
             advertise_address: None,
         }
     }
+}
+
+/// What a partition's warm was installed for. A warm is only as fresh as
+/// the moment it replayed the changelog; `converge` records why each one
+/// was installed so a later Acquiring can tell a warm it may honor from
+/// one left over from an earlier era.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum WarmProvenance {
+    /// Warmed as (or on the way back to being) the serving owner: a
+    /// process restart, or the returning old owner of an in-flight
+    /// handoff. Current at install time and kept current by the pod's
+    /// own accepted writes for as long as it remains the owner.
+    Serving,
+    /// Warmed for one specific handoff's Warming phase, identified by
+    /// its id.
+    Handoff(String),
 }
 
 pub struct PodHandle {
     store: Arc<PersonhogStore>,
     config: PodConfig,
     handler: Arc<dyn HandoffHandler>,
-    /// Partitions warmed by this process — local, dies with the process.
-    /// `converge` consults it to decide whether a Serving/Acquiring
-    /// partition still needs a warm, and `drain()` waits for it to empty.
-    warmed_partitions: Mutex<HashSet<u32>>,
+    /// Partitions warmed by this process — local, dies with the process —
+    /// each with the provenance of its warm. `converge` consults it to
+    /// decide whether a Serving/Acquiring partition still needs a warm,
+    /// and `drain()` waits for it to empty.
+    warmed_partitions: Mutex<HashMap<u32, WarmProvenance>>,
     /// Partitions this process has write-fenced via a drain — local,
     /// consulted so convergence to Serving only issues a resume when a
     /// fence actually exists.
@@ -195,7 +225,7 @@ impl PodHandle {
             store,
             config,
             handler,
-            warmed_partitions: Mutex::new(HashSet::new()),
+            warmed_partitions: Mutex::new(HashMap::new()),
             fenced_partitions: Mutex::new(HashSet::new()),
             drain_notify: Notify::new(),
             k8s_awareness,
@@ -418,7 +448,11 @@ impl PodHandle {
     async fn held_partition_count(&self) -> usize {
         let warmed = self.warmed_partitions.lock().await;
         let fenced = self.fenced_partitions.lock().await;
-        warmed.union(&fenced).count()
+        warmed
+            .keys()
+            .chain(fenced.iter())
+            .collect::<HashSet<_>>()
+            .len()
     }
 
     /// Wait until all held partitions have been released via handoffs.
@@ -460,6 +494,12 @@ impl PodHandle {
                 partitions.insert(h.partition);
             }
         }
+        // Locally-held partitions the durable state no longer involves
+        // this pod in still need convergence — that is how a warm or
+        // fence left over from a departed ownership gets released when
+        // the Complete event that should have done it was missed.
+        partitions.extend(self.warmed_partitions.lock().await.keys().copied());
+        partitions.extend(self.fenced_partitions.lock().await.iter().copied());
 
         tracing::info!(
             pod,
@@ -505,13 +545,16 @@ impl PodHandle {
 
         match desired {
             DesiredState::Serving => {
-                if !self.warmed_partitions.lock().await.contains(&partition) {
+                if !self.warmed_partitions.lock().await.contains_key(&partition) {
                     tracing::info!(pod, partition, "converging to Serving: warming");
                     let start = Instant::now();
                     self.handler.warm_partition(partition).await?;
                     histogram!("personhog_coordination_partition_warm_ms", "trigger" => "restart")
                         .record(start.elapsed().as_secs_f64() * 1000.0);
-                    self.warmed_partitions.lock().await.insert(partition);
+                    self.warmed_partitions
+                        .lock()
+                        .await
+                        .insert(partition, WarmProvenance::Serving);
                 } else if self.fenced_partitions.lock().await.contains(&partition) {
                     tracing::info!(pod, partition, "converging to Serving: resuming writes");
                     self.handler.resume_partition(partition).await?;
@@ -553,16 +596,47 @@ impl PodHandle {
                 }
             }
             DesiredState::Acquiring => {
-                if !self.warmed_partitions.lock().await.contains(&partition) {
+                let handoff = handoff.expect("Acquiring state only derives from a handoff");
+                // Only a warm installed for *this* handoff satisfies its
+                // warming. One left over from an earlier era — the pod
+                // was this partition's owner or warming target before,
+                // ownership moved away, and the intervening Released
+                // convergence never ran — can hold values that predate
+                // writes the changelog accepted since. A fresh warm
+                // replays only from the writer's committed offset, so a
+                // stale cache below that offset would keep hitting;
+                // release first and rebuild from clean.
+                let valid = self.warmed_partitions.lock().await.get(&partition).is_some_and(
+                    |provenance| {
+                        matches!(provenance, WarmProvenance::Handoff(id) if *id == handoff.handoff_id)
+                    },
+                );
+                if !valid {
+                    if self
+                        .warmed_partitions
+                        .lock()
+                        .await
+                        .remove(&partition)
+                        .is_some()
+                    {
+                        tracing::info!(
+                            pod,
+                            partition,
+                            "converging to Acquiring: releasing a warm from an earlier era"
+                        );
+                        self.handler.release_partition(partition).await?;
+                    }
                     tracing::info!(pod, partition, "converging to Acquiring: warming");
                     let start = Instant::now();
                     self.handler.warm_partition(partition).await?;
                     histogram!("personhog_coordination_partition_warm_ms", "trigger" => "handoff")
                         .record(start.elapsed().as_secs_f64() * 1000.0);
-                    self.warmed_partitions.lock().await.insert(partition);
+                    self.warmed_partitions.lock().await.insert(
+                        partition,
+                        WarmProvenance::Handoff(handoff.handoff_id.clone()),
+                    );
                 }
                 self.fenced_partitions.lock().await.remove(&partition);
-                let handoff = handoff.expect("Acquiring state only derives from a handoff");
                 self.store
                     .put_warmed_ack(&PodWarmedAck {
                         pod_name: pod.clone(),
@@ -574,7 +648,12 @@ impl PodHandle {
                 tracing::info!(pod, partition, "warmed ack written");
             }
             DesiredState::Released => {
-                let was_warmed = self.warmed_partitions.lock().await.remove(&partition);
+                let was_warmed = self
+                    .warmed_partitions
+                    .lock()
+                    .await
+                    .remove(&partition)
+                    .is_some();
                 let was_fenced = self.fenced_partitions.lock().await.remove(&partition);
                 if was_warmed || was_fenced {
                     tracing::info!(pod, partition, "converging to Released: releasing");
@@ -596,9 +675,48 @@ impl PodHandle {
         mut stream: WatchStream,
         cancel: CancellationToken,
     ) -> Result<()> {
+        // The truth path: periodically re-derive every involved
+        // partition from a fresh snapshot, repairing whatever the event
+        // path failed to deliver. First pass one interval out — the
+        // startup reconcile has just run. An arm of this loop on
+        // purpose: convergence stays serialized with event handling.
+        let mut reconcile_tick = tokio::time::interval_at(
+            tokio::time::Instant::now() + self.config.reconcile_interval,
+            self.config.reconcile_interval,
+        );
+        let mut consecutive_reconcile_failures: u32 = 0;
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
+                _ = reconcile_tick.tick() => {
+                    // Tolerated for the same reason as the router's
+                    // reconcile arm: a failed pass leaves the pod as
+                    // stale as one tick ago and the next success fully
+                    // compensates, so a brief etcd blip must not take
+                    // the data plane down with it. The budget bounds
+                    // the reads-failing-while-lease-healthy mode.
+                    match self.reconcile_all().await {
+                        Ok(_) => consecutive_reconcile_failures = 0,
+                        Err(e) => {
+                            consecutive_reconcile_failures += 1;
+                            counter!(
+                                "personhog_coordination_reconcile_failures_total",
+                                "component" => "pod"
+                            )
+                            .increment(1);
+                            tracing::warn!(
+                                pod = %self.config.pod_name,
+                                error = %e,
+                                consecutive = consecutive_reconcile_failures,
+                                budget = self.config.reconcile_failure_budget,
+                                "pod reconcile failed; continuing on last-known state"
+                            );
+                            if consecutive_reconcile_failures >= self.config.reconcile_failure_budget {
+                                return Err(e);
+                            }
+                        }
+                    }
+                }
                 msg = stream.message() => {
                     let resp = msg?.ok_or_else(|| Error::invalid_state("handoff watch stream ended".to_string()))?;
                     for event in resp.events() {

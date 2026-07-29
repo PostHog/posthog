@@ -404,12 +404,11 @@ pub async fn process_events(
     //      (`stamp_overflow_reason` below); v1 runs the GRL AFTER its overflow
     //      stamping. Both set overflow_reason on AnalyticsMain only, so the
     //      end state matches, but the pass order differs.
-    //   2. Legacy does NOT skip events that already carry a person-processing
-    //      opt-out; v1 skips events with `force_disable_person_processing`
-    //      already set before consulting the limiter.
-    //   3. Lane assignment is a single `DataType::from_event_name` match in
+    //   2. Lane assignment is a single `DataType::from_event_name` match in
     //      legacy versus assign-then-reroute in v1.
-    // Import is unaffected by all three: the GRL never runs (guard below) and no
+    // Both paths consult the same shared limiter for every non-dropped event, so
+    // per-key counts are identical regardless of which pipeline serves the key.
+    // Import is unaffected by both: the GRL never runs (guard below) and no
     // overflowable lane is reachable, so behavior is identical across paths.
     if context.capture_mode.applies_global_rate_limit() {
         if let Some(ref limiter) = global_rate_limiter {
