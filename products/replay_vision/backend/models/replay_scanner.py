@@ -127,6 +127,13 @@ class ReplayScanner(UUIDModel):
         help_text="When the estimate was last computed. Refreshed on config saves and by the sweep when stale.",
     )
 
+    monthly_credit_limit = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1)],
+        help_text="Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap.",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     updated_at = models.DateTimeField(auto_now=True)
