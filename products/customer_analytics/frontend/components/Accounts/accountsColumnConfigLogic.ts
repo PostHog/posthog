@@ -748,7 +748,7 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                     ? null
                     : (accountsColumnGroups.find((group) => group.key === pickerGroupKey) ?? null),
         ],
-        // Null activePickerGroup means "All columns": search spans every non-freeform group.
+        // Null activePickerGroup means "All columns".
         filteredColumnOptions: [
             (s) => [s.accountsColumnGroups, s.activePickerGroup, s.pickerSearch],
             (
