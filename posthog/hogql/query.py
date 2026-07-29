@@ -381,6 +381,7 @@ class HogQLQueryExecutor:
 
         direct_context = dataclasses.replace(
             self.context,
+            is_direct_query=True,
             team_id=self.team.pk,
             team=self.team,
             enable_select_queries=True,
