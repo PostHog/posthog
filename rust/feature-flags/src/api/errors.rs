@@ -710,8 +710,8 @@ mod tests {
 
     #[test]
     fn test_remote_config_decrypt_failed_response_is_json() {
-        // Previously this fell through to FlagError::Internal's plain-text body, which broke
-        // SDKs that call res.json() unconditionally on the remote_config response.
+        // The remote_config response body must be JSON on every status code, because SDKs call
+        // res.json() on it unconditionally, so a plain-text 500 would crash them client-side.
         let rt = tokio::runtime::Runtime::new().unwrap();
         let err = FlagError::RemoteConfigDecryptFailed("failed to decrypt payload".to_string());
 

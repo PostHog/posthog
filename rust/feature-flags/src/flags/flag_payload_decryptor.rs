@@ -26,7 +26,7 @@ pub enum FlagPayloadDecryptorError {
     InvalidKeys { built: usize, configured: usize },
     /// `key_count` is how many keys were tried (never which ones, or any key material).
     /// `token_fingerprint` is a truncated hash of the ciphertext, for correlating repeat
-    /// failures on the same stored payload across log lines — not a security primitive.
+    /// failures on the same stored payload across log lines. It is not a security primitive.
     #[error("failed to decrypt payload with any of {key_count} configured key(s) (token {token_fingerprint})")]
     Decrypt {
         key_count: usize,

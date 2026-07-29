@@ -4384,13 +4384,23 @@ class FeatureFlagViewSet(
             # The stored ciphertext can't be decrypted by any key in FLAGS_SECRET_KEYS (e.g. it
             # predates a key rotation and was never re-encrypted). Surface a typed JSON error
             # instead of letting the exception become an unhandled 500 with an HTML body, which
-            # SDKs can't parse as JSON.
+            # SDKs can't parse as JSON. The body mirrors the drf-exceptions-hog envelope the Rust
+            # feature-flags service returns for this same failure, so the phase-2 shadow-compare
+            # (shadow_compare_remote_config) sees identical bodies on both paths.
             logger.exception(
                 "Failed to decrypt remote config payload",
                 extra={"team_id": self.team_id, "feature_flag_id": feature_flag.id},
             )
             capture_exception(e)
-            return Response({"error": "Failed to decrypt flag payload"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                {
+                    "type": "server_error",
+                    "code": "remote_config_decrypt_failed",
+                    "detail": "Failed to decrypt the remote config payload. Please contact support if the problem persists.",
+                    "attr": None,
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
         # Count after a successful decryption so a decrypt failure (500) is never counted.
         if should_count:

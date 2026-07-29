@@ -1474,8 +1474,8 @@ async fn test_remote_config_personal_key_decrypt_failure_returns_500() {
         .unwrap();
 
     let status = response.status();
-    // The SDK parses every remote_config response body as JSON, on any status code —
-    // this must not regress to a plain-text 500 that fails res.json() client-side.
+    // The SDK parses every remote_config response body as JSON on any status code, so this
+    // must not regress to a plain-text 500 that fails res.json() client-side.
     let body: Value = response.json().await.unwrap();
     assert_eq!(status, 500, "body: {body}");
     assert_eq!(body["code"], "remote_config_decrypt_failed");

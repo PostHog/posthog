@@ -2368,7 +2368,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_remote_config_returns_typed_error_when_payload_cannot_be_decrypted(self):
         # A payload that predates a FLAGS_SECRET_KEYS rotation (or is otherwise corrupt) fails to
         # decrypt with any configured key. Without explicit handling this becomes an unhandled 500
-        # with an HTML body that SDKs can't parse as JSON — assert it's a typed JSON error instead.
+        # with an HTML body that SDKs can't parse as JSON, so assert it returns a typed JSON error.
         # Decryption only runs on the personal-API-key path; a secret token gets the redacted
         # marker and never reaches the decrypt call, so authenticate with a personal API key here.
         FeatureFlag.objects.create(
@@ -2391,7 +2391,17 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             headers={"authorization": f"Bearer {auth_token}"},
         )
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
-        self.assertEqual(response.json(), {"error": "Failed to decrypt flag payload"})
+        # Mirrors the envelope the Rust feature-flags service returns for this failure so the
+        # phase-2 shadow-compare treats both paths as a match.
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "server_error",
+                "code": "remote_config_decrypt_failed",
+                "detail": "Failed to decrypt the remote config payload. Please contact support if the problem persists.",
+                "attr": None,
+            },
+        )
 
     # Encrypted remote config payloads are decrypted only for personal API keys; project
     # secret keys get the redacted marker. This is the parity oracle for the Rust port,
