@@ -200,6 +200,7 @@ dependencies = [
     "braintrust-core>=0.0.59,<1",
     "wrapt==1.17.3",
     "limits==5.8.0",
+    "deltalite==0.1.1",
 ]
 
 [dependency-groups]
@@ -293,7 +294,7 @@ hogql-parser-parity = [
 required-version = ">=0.10.2"
 add-bounds = "major"
 exclude-newer = "7 days"
-exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
+exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
 
 [tool.uv.workspace]
 members = ["tools/hogli", "tools/owners"]
