@@ -1390,6 +1390,71 @@ describe("sanitizeSessionJsonl", () => {
     expect(await fs.readFile(file, "utf8")).toBe(before);
   });
 
+  it("skips the parse entirely when the file stat is unchanged since the last clean pass", async () => {
+    // "hello" moves from the text block to the uuid so both lines have the
+    // same byte length; with mtime pinned, the stats are indistinguishable.
+    const clean = {
+      type: "assistant",
+      uuid: "a1",
+      parentUuid: null,
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "hello" }],
+      },
+    };
+    const dirty = {
+      type: "assistant",
+      uuid: "a1hello",
+      parentUuid: null,
+      message: { role: "assistant", content: [{ type: "text", text: "" }] },
+    };
+    expect(JSON.stringify(clean).length).toBe(JSON.stringify(dirty).length);
+
+    const pinned = new Date(1700000000000);
+    const file = await writeJsonl([clean]);
+    await fs.utimes(file, pinned, pinned);
+    expect(await sanitizeSessionJsonl(file)).toBe(false);
+
+    // Would be healed if parsed; the stat-based skip must win instead.
+    await fs.writeFile(file, `${JSON.stringify(dirty)}\n`);
+    await fs.utimes(file, pinned, pinned);
+    expect(await sanitizeSessionJsonl(file)).toBe(false);
+    const lines = await readJsonl(file);
+    expect((lines[0].message as { content: unknown[] }).content).toEqual([
+      { type: "text", text: "" },
+    ]);
+  });
+
+  it("re-sanitizes after the file grows past a clean pass", async () => {
+    const file = await writeJsonl([
+      {
+        type: "assistant",
+        uuid: "a1",
+        parentUuid: null,
+        message: { role: "assistant", content: [{ type: "text", text: "ok" }] },
+      },
+    ]);
+    expect(await sanitizeSessionJsonl(file)).toBe(false);
+
+    await fs.appendFile(
+      file,
+      `${JSON.stringify({
+        type: "assistant",
+        uuid: "a2",
+        parentUuid: "a1",
+        message: {
+          role: "assistant",
+          content: [{ type: "thinking", thinking: "" }],
+        },
+      })}\n`,
+    );
+    expect(await sanitizeSessionJsonl(file)).toBe(true);
+    const lines = await readJsonl(file);
+    expect((lines[1].message as { content: unknown[] }).content).toEqual([
+      { type: "text", text: " " },
+    ]);
+  });
+
   it("neutralizes an oversized image nested in a tool_result", async () => {
     // A Read on a big image file lands its bytes inside a tool_result; on
     // resume that block 400s every turn until it is replaced.

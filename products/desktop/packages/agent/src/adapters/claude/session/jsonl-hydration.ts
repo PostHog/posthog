@@ -601,6 +601,27 @@ interface HydrationLog {
   warn: (msg: string, data?: unknown) => void;
 }
 
+// Every reconnect re-runs sanitize, and the read + per-line parse of a large
+// transcript costs seconds. Files whose stat matches the last clean pass are
+// skipped; the SDK only ever appends, which changes size and mtime.
+const sanitizedFileStats = new Map<string, { mtimeMs: number; size: number }>();
+const SANITIZED_STATS_CAP = 256;
+
+function recordSanitized(
+  jsonlPath: string,
+  stat: { mtimeMs: number; size: number },
+): void {
+  sanitizedFileStats.delete(jsonlPath);
+  sanitizedFileStats.set(jsonlPath, {
+    mtimeMs: stat.mtimeMs,
+    size: stat.size,
+  });
+  for (const oldest of sanitizedFileStats.keys()) {
+    if (sanitizedFileStats.size <= SANITIZED_STATS_CAP) break;
+    sanitizedFileStats.delete(oldest);
+  }
+}
+
 // Heals a persisted transcript that would otherwise 400 on every resume:
 // empty content blocks, missing tool_use.input, and images the API can't
 // process (unsupported type or over the per-image byte limit). The image case
@@ -613,6 +634,14 @@ export async function sanitizeSessionJsonl(
   let statBefore: { mtimeMs: number; size: number };
   try {
     statBefore = await fs.stat(jsonlPath);
+    const lastClean = sanitizedFileStats.get(jsonlPath);
+    if (
+      lastClean &&
+      lastClean.mtimeMs === statBefore.mtimeMs &&
+      lastClean.size === statBefore.size
+    ) {
+      return false;
+    }
     raw = await fs.readFile(jsonlPath, "utf8");
   } catch {
     return false;
@@ -651,7 +680,10 @@ export async function sanitizeSessionJsonl(
     return JSON.stringify(parsed);
   });
 
-  if (!changed) return false;
+  if (!changed) {
+    recordSanitized(jsonlPath, statBefore);
+    return false;
+  }
 
   const tmpPath = `${jsonlPath}.tmp.${Date.now()}`;
   let renamed = false;
@@ -668,6 +700,8 @@ export async function sanitizeSessionJsonl(
     }
     await fs.rename(tmpPath, jsonlPath);
     renamed = true;
+    const statAfter = await fs.stat(jsonlPath).catch(() => null);
+    if (statAfter) recordSanitized(jsonlPath, statAfter);
     return true;
   } finally {
     if (!renamed) {
