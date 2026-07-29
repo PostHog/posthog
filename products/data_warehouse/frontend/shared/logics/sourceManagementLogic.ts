@@ -47,7 +47,7 @@ const REFRESH_INTERVAL = 10000
 // matters because the list response is large and was previously re-fetched every REFRESH_INTERVAL
 // on pages that never display it.
 const SOURCE_LIST_PATHS = [
-    '/data-management/sources', // SourcesScene: managed + self-managed sources tables
+    '/data-management/sources', // SourcesScene: managed, direct connect and self-managed sources tables
     '/data-management/revenue', // Revenue analytics settings: external source configuration
     '/settings/environment-marketing-analytics', // Marketing analytics settings: source configuration
 ]
@@ -59,8 +59,12 @@ export interface sourceManagementLogicValues {
     availableSources: Record<string, SourceConfig> | null // availableSourcesLogic
     dataWarehouseTables: DatabaseSchemaDataWarehouseTable[] // databaseTableListLogic
     database: Required<DatabaseSchemaQueryResponse> | null // databaseTableListLogic
+    databaseLoading: boolean // databaseTableListLogic
     dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourcesDataLogic
     dataWarehouseSourcesLoading: boolean // sourcesDataLogic
+    directSearchTerm: string
+    directSources: ExternalDataSource[]
+    filteredDirectSources: ExternalDataSource[]
     filteredManagedSources: ExternalDataSource[]
     filteredSelfManagedTables: DatabaseSchemaDataWarehouseTable[]
     hasZendeskSource: boolean
@@ -150,6 +154,9 @@ export interface sourceManagementLogicActions {
     schemaLoadingFinished: (schema: ExternalDataSourceSchema) => {
         schema: ExternalDataSourceSchema
     }
+    setDirectSearchTerm: (directSearchTerm: string) => {
+        directSearchTerm: string
+    }
     setManagedSearchTerm: (managedSearchTerm: string) => {
         managedSearchTerm: string
     }
@@ -187,6 +194,8 @@ export interface sourceManagementLogicMeta {
             searchTerm: string
         ) => DatabaseSchemaDataWarehouseTable[]
         managedSources: (dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null) => ExternalDataSource[]
+        directSources: (dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null) => ExternalDataSource[]
+        filteredDirectSources: (directSources: ExternalDataSource[], directSearchTerm: string) => ExternalDataSource[]
         managedSourcesFuse: (
             managedSources: ExternalDataSource[],
             availableSources: Record<string, SourceConfig> | null
@@ -212,7 +221,7 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
     connect(() => ({
         values: [
             databaseTableListLogic,
-            ['database', 'dataWarehouseTables'],
+            ['database', 'databaseLoading', 'dataWarehouseTables'],
             sourcesDataLogic,
             ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
             availableSourcesLogic,
@@ -242,6 +251,7 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
         refreshSelfManagedTableSchema: (tableId: string) => ({ tableId }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setManagedSearchTerm: (managedSearchTerm: string) => ({ managedSearchTerm }),
+        setDirectSearchTerm: (directSearchTerm: string) => ({ directSearchTerm }),
         deleteJoin: (join: DataWarehouseViewLink) => ({ join }),
     }),
     loaders(({ actions, values }) => ({
@@ -311,6 +321,12 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
                 setManagedSearchTerm: (_, { managedSearchTerm }) => managedSearchTerm,
             },
         ],
+        directSearchTerm: [
+            '' as string,
+            {
+                setDirectSearchTerm: (_, { directSearchTerm }) => directSearchTerm,
+            },
+        ],
     })),
     selectors({
         selfManagedTables: [
@@ -340,6 +356,30 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
                 (dataWarehouseSources?.results ?? []).filter(
                     (source) => source.access_method?.toLowerCase() !== 'direct'
                 ),
+        ],
+        directSources: [
+            (s) => [s.dataWarehouseSources],
+            (
+                dataWarehouseSources: null | import('lib/api').PaginatedResponse<ExternalDataSource>
+            ): ExternalDataSource[] =>
+                (dataWarehouseSources?.results ?? []).filter(
+                    (source) => source.access_method?.toLowerCase() === 'direct'
+                ),
+        ],
+        filteredDirectSources: [
+            (s) => [s.directSources, s.directSearchTerm],
+            (directSources: ExternalDataSource[], directSearchTerm: string): ExternalDataSource[] => {
+                const normalizedSearch = directSearchTerm?.trim().toLowerCase()
+                if (!normalizedSearch) {
+                    return directSources
+                }
+                return directSources.filter(
+                    (source) =>
+                        source.source_type.toLowerCase().includes(normalizedSearch) ||
+                        source.prefix?.toLowerCase().includes(normalizedSearch) ||
+                        source.description?.toLowerCase().includes(normalizedSearch)
+                )
+            },
         ],
         // Search the display label as well as the internal source_type. Fuzzy, like the source catalog.
         managedSourcesFuse: [

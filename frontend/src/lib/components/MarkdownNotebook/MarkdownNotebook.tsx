@@ -165,6 +165,7 @@ import {
     getInsertMenuOptionDomId,
     getInsertMenuPosition,
     getNextInsertMenuSelectedIndex,
+    omitInsertCommands,
 } from './InsertMenu'
 import {
     deleteListItemSelectionRange,
@@ -244,6 +245,9 @@ export type MarkdownNotebookProps = {
     /** Caller-supplied insert-menu commands. Receives an API for inserting blocks so the command's
      * behavior (e.g. opening a picker modal) and labeling stay in the caller, not this component. */
     extraInsertCommands?: (api: MarkdownNotebookInsertMenuApi) => InsertCommand[]
+    /** Built-in insert-menu commands to drop, by key (e.g. `QUERY_SQL_INSERT_COMMAND_KEY`). For a
+     * caller whose registry supplies its own block for the same job and must not offer both. */
+    hiddenInsertCommandKeys?: string[]
     remoteValue?: string
     /** Notebook version `remoteValue` corresponds to, for version-aware caret mapping. */
     remoteVersion?: number
@@ -561,6 +565,7 @@ function MarkdownNotebookEditor({
     mode = 'edit',
     registry,
     extraInsertCommands,
+    hiddenInsertCommandKeys,
     remoteValue,
     remoteVersion,
     deferRemoteValue = false,
@@ -2845,27 +2850,30 @@ function MarkdownNotebookEditor({
     const placeholderNodeId = hasNotebookContent(renderedNodes) ? null : renderedNodes[0]?.id
     const insertCommands = useMemo(
         () =>
-            buildInsertCommands(
-                mergedRegistry,
-                replaceNodeWithInsertedComponent,
-                replaceNode,
-                (nodeId) => {
-                    restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
-                },
-                (nodeId) => {
-                    restoreSelectionRef.current = {
-                        nodeId,
-                        tableCell: { section: 'header', rowIndex: 0, columnIndex: 0 },
-                        start: 0,
-                        end: 8,
-                    }
-                },
-                (nodeId) => {
-                    restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
-                },
-                onAskAI ? openAIPrompt : undefined,
-                false,
-                extraInsertCommands ? extraInsertCommands(insertMenuApi) : []
+            omitInsertCommands(
+                buildInsertCommands(
+                    mergedRegistry,
+                    replaceNodeWithInsertedComponent,
+                    replaceNode,
+                    (nodeId) => {
+                        restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
+                    },
+                    (nodeId) => {
+                        restoreSelectionRef.current = {
+                            nodeId,
+                            tableCell: { section: 'header', rowIndex: 0, columnIndex: 0 },
+                            start: 0,
+                            end: 8,
+                        }
+                    },
+                    (nodeId) => {
+                        restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
+                    },
+                    onAskAI ? openAIPrompt : undefined,
+                    false,
+                    extraInsertCommands ? extraInsertCommands(insertMenuApi) : []
+                ),
+                hiddenInsertCommandKeys
             ),
         [
             mergedRegistry,
@@ -2874,6 +2882,7 @@ function MarkdownNotebookEditor({
             onAskAI,
             openAIPrompt,
             extraInsertCommands,
+            hiddenInsertCommandKeys,
             insertMenuApi,
         ]
     )

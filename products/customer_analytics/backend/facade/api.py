@@ -38,7 +38,12 @@ from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 
-from products.conversations.backend.facade.api import SupportSlackChannelsUnavailable, SupportSlackNotConfigured
+from products.conversations.backend.facade.api import (
+    SupportSlackChannelsUnavailable,
+    SupportSlackNotConfigured,
+    TicketSummary as TicketSummary,
+    list_account_tickets,
+)
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
 from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROLE_FIELDS
 from products.customer_analytics.backend.events import emit_account_tags_added
@@ -2250,6 +2255,30 @@ def get_accessible_account_id(team_id: int, account_id: str, user_access_control
     except (ValidationError, ValueError):
         return None
     return str(account.id) if account is not None else None
+
+
+def get_account_support_tickets(
+    team_id: int,
+    account_id: str,
+    user_access_control: "UserAccessControl",
+    *,
+    limit: int = 50,
+) -> list[TicketSummary] | None:
+    """Support tickets (from the conversations product) for an accessible account, newest activity
+    first. None when the parent account isn't accessible (→ 404); an empty list when the account
+    has no linked customer org key, or has one but no matching tickets.
+
+    Raises :class:`ResourceForbiddenError` (→ 403) when the caller can read the account but not
+    tickets — this endpoint is authorized as ``account`` while the payload is ticket content, so
+    the ``ticket`` resource has to be gated separately or this path bypasses its RBAC."""
+    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+        return None
+    if not user_access_control.check_access_level_for_resource("ticket", "viewer"):
+        raise ResourceForbiddenError()
+    account = _resolve_account(team_id, account_id=account_id)
+    if account is None or not account.external_id:
+        return []
+    return list_account_tickets(team_id, account.external_id, limit=limit)
 
 
 def list_account_notebooks(

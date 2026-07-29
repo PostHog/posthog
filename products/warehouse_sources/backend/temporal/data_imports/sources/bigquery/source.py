@@ -260,6 +260,16 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # source view. Matched on BigQuery's stable wording, not the volatile peak-usage percentage
             # or job id.
             BIGQUERY_RESOURCES_EXCEEDED_ERROR: "BigQuery couldn't run a query for this source because it exceeded the memory allowed for a single query. This is usually caused by heavy sorts or analytic (window) functions over a large table or view. Retrying won't help — please reduce how much data you're syncing (for example add row filters or an incremental field), or simplify the source view, then re-enable the source.",
+            # Raised as a 400 BadRequest from `jobs.getQueryResults` (the poll `_run_destination_query_
+            # with_job_retry` / `_query_result_with_job_retry` in `bigquery.py` do while awaiting a query
+            # job) when the job's result set holds a NaN in a column typed NUMERIC/BIGNUMERIC — that type
+            # can't represent NaN the way FLOAT64 can. This traces back to the source table or view itself
+            # (a computed column doing arithmetic like division by zero) rather than anything our SELECT
+            # constructs, so it's a deterministic property of the customer's data: the same query keeps
+            # producing the same NaN on every retry, and Google's own default job-retry doesn't cover it.
+            # The user must fix the source view/column; retrying just spams error tracking. Matched on
+            # BigQuery's stable wording, not the volatile job id/URL.
+            "Invalid NUMERIC value: NaN": "BigQuery couldn't complete a query for this source because it produced a NaN (not-a-number) value in a column typed NUMERIC, which that type can't represent. This is usually caused by a computed column or view doing arithmetic like division by zero. Please fix the underlying view or column in BigQuery, then re-enable the source.",
         }
 
     def validate_credentials(
