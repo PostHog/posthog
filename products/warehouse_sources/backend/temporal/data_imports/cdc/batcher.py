@@ -18,6 +18,10 @@ DELETED_AT_COLUMN = "_ph_deleted_at"
 # real positions never approach 2^63. Names the buffer files' position range
 # and (in Phase B) drives the merge's monotonicity guard.
 CDC_SEQ_COLUMN = "_ph_cdc_seq"
+
+# Suffix of the SCD2 companion table's resource name ({schema.name}_cdc). Shared
+# so lane classification (validate_cdc_buffer) can never drift from the writers.
+CDC_COMPANION_SUFFIX = "_cdc"
 # Per-row list of source columns the change stream omitted because they are
 # unchanged from the previous row version (Postgres: unchanged TOAST values).
 # Consumed by enrich_toast_omitted_rows; the load processor drops it before
@@ -537,7 +541,11 @@ def _events_to_table(events: list[ChangeEvent], position_to_seq: Callable[[str],
         arrays.append(pa.array(omitted_lists, type=pa.list_(pa.string())))
         fields.append(pa.field(TOAST_OMITTED_COLUMN, pa.list_(pa.string())))
 
-    if position_to_seq is not None:
+    # Skip on collision: a source column literally named _ph_cdc_seq must pass
+    # through to the legacy lane untouched. The batch then carries no engine seq
+    # and the shadow writer skips it. Appended LAST by construction — the caller
+    # relies on that to strip our column without touching a same-named user one.
+    if position_to_seq is not None and CDC_SEQ_COLUMN not in column_names:
         seq_values = [position_to_seq(event.position_serialized) for event in events]
         arrays.append(pa.array(seq_values, type=pa.int64()))
         fields.append(pa.field(CDC_SEQ_COLUMN, pa.int64()))

@@ -12,13 +12,26 @@ filename, never by S3 mtime, and never parse Parquet to establish order.
 `file_index` disambiguates batches that share a position range: a micro-flush can
 split one transaction (all of whose events share a commit position) across
 consecutive batches. Within a capture run the index is strictly increasing per
-schema, so (start, end, index) sorts in WAL order. Filenames are deterministic on
-replay of the same WAL window, making capture retries idempotent overwrites.
+schema, so (start, end, index) sorts in WAL order.
+
+Replay semantics: micro-batch boundaries are NOT deterministic across activity
+attempts (the flush budget spans tables, the slot micro-advances mid-run, and a
+soft deadline cuts runs on wall clock), so a retried attempt may cover the same
+positions with differently-shaped files. Writers therefore call
+`cleanup_superseded_files` before their first write per schema: anything at or
+past the position the retry re-reads from is superseded and removed. A schema
+reset (TRUNCATE / lost slot) invalidates the whole prefix — `purge_buffer_prefix`.
+
+Retention: no TTL exists yet; resets purge, and disable flows should purge. An
+S3 lifecycle rule on `cdc_producer/` is tracked for the fleet-wide soak — until
+it exists, keep CDC_BUFFER_SHADOW_WRITE scoped to validation sources.
 """
 
 from __future__ import annotations
 
+import re
 import time
+from contextlib import suppress
 from dataclasses import dataclass
 
 from django.conf import settings
@@ -40,12 +53,20 @@ BUFFER_ROOT_FOLDER = "cdc_producer"
 _SEQ_WIDTH = 20  # zero-pad width covering the full u64 range
 _INDEX_WIDTH = 6
 
+# ASCII digits only: int() also accepts "+", "_", whitespace, and Unicode digits,
+# any of which would break "lexicographic order equals numeric order".
+_FILE_NAME_RE = re.compile(rf"([0-9]{{{_SEQ_WIDTH}}})-([0-9]{{{_SEQ_WIDTH}}})-([0-9]{{{_INDEX_WIDTH}}})\.parquet")
+
 
 def get_buffer_prefix(team_id: int, schema_id: str) -> str:
     return f"s3://{settings.DATAWAREHOUSE_BUCKET}/{BUFFER_ROOT_FOLDER}/{team_id}/{schema_id}"
 
 
 def build_buffer_file_name(start_seq: int, end_seq: int, file_index: int) -> str:
+    if not (0 <= start_seq <= end_seq < 10**_SEQ_WIDTH):
+        raise ValueError(f"Invalid buffer position range: {start_seq}-{end_seq}")
+    if not (0 <= file_index < 10**_INDEX_WIDTH):
+        raise ValueError(f"Buffer file index out of range: {file_index}")
     return f"{start_seq:0{_SEQ_WIDTH}d}-{end_seq:0{_SEQ_WIDTH}d}-{file_index:0{_INDEX_WIDTH}d}.parquet"
 
 
@@ -55,18 +76,10 @@ def parse_buffer_file_name(file_name: str) -> tuple[int, int, int] | None:
     Returns None for names that don't match the contract (foreign files are
     ignored, never treated as buffer data).
     """
-    if not file_name.endswith(".parquet"):
+    match = _FILE_NAME_RE.fullmatch(file_name)
+    if match is None:
         return None
-    parts = file_name.removesuffix(".parquet").split("-")
-    if len(parts) != 3:
-        return None
-    try:
-        start_seq, end_seq, file_index = (int(part) for part in parts)
-    except ValueError:
-        return None
-    if len(parts[0]) != _SEQ_WIDTH or len(parts[1]) != _SEQ_WIDTH or len(parts[2]) != _INDEX_WIDTH:
-        return None
-    return start_seq, end_seq, file_index
+    return int(match.group(1)), int(match.group(2)), int(match.group(3))
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,19 +116,31 @@ class CDCBufferWriter:
             raise ValueError(f"Buffer batches must carry {CDC_SEQ_COLUMN}")
         if table.num_rows == 0:
             raise ValueError("Refusing to write an empty buffer file")
+        seq_column = table.column(CDC_SEQ_COLUMN)
+        # Any null (not just all-null) is rejected: pc.min_max skips nulls, so a
+        # partially-null column would silently narrow the filename's range.
+        if seq_column.null_count != 0:
+            raise ValueError(f"{CDC_SEQ_COLUMN} must be non-null in buffer batches")
 
-        min_max = pc.min_max(table.column(CDC_SEQ_COLUMN))
+        min_max = pc.min_max(seq_column)
         start_seq = min_max["min"].as_py()
         end_seq = min_max["max"].as_py()
-        if start_seq is None or end_seq is None:
-            raise ValueError(f"{CDC_SEQ_COLUMN} must be non-null in buffer batches")
 
         file_name = build_buffer_file_name(start_seq, end_seq, file_index)
         s3_path = f"{get_buffer_prefix(team_id, schema_id)}/{file_name}"
+        key = strip_s3_protocol(s3_path)
 
         write_start = time.perf_counter()
-        with self._s3.open(strip_s3_protocol(s3_path), "wb") as f:
-            pq.write_table(table, f, compression="zstd")
+        try:
+            with self._s3.open(key, "wb") as f:
+                pq.write_table(table, f, compression="zstd")
+        except Exception:
+            # fsspec's close() flushes buffered bytes even after a mid-write
+            # failure, so a truncated object can land under a contract-valid
+            # name. Best-effort removal keeps the failure a gap, not corruption.
+            with suppress(Exception):
+                self._s3.rm(key)
+            raise
         write_duration = time.perf_counter() - write_start
 
         self._logger.debug(
@@ -135,3 +160,51 @@ class CDCBufferWriter:
             file_index=file_index,
             write_duration_seconds=write_duration,
         )
+
+    def cleanup_superseded_files(self, *, team_id: int, schema_id: str, restart_seq: int) -> int:
+        """Remove files a retried attempt is about to regenerate.
+
+        Called before the first write per schema in a run: every file whose
+        start_seq >= the position this run reads from (`restart_seq`) belongs to
+        a superseded attempt whose batch boundaries may differ. Files strictly
+        below restart_seq are settled — their WAL was released and will never be
+        re-produced. Returns the number of files removed.
+        """
+        prefix = strip_s3_protocol(get_buffer_prefix(team_id, schema_id))
+        try:
+            keys = self._s3.ls(prefix, detail=False)
+        except FileNotFoundError:
+            return 0
+
+        removed = 0
+        for key in keys:
+            parsed = parse_buffer_file_name(key.rsplit("/", 1)[-1])
+            if parsed is None:
+                continue
+            start_seq, _end_seq, _file_index = parsed
+            if start_seq >= restart_seq:
+                with suppress(Exception):
+                    self._s3.rm(key)
+                    removed += 1
+        if removed:
+            self._logger.info(
+                "cdc_buffer_superseded_files_removed",
+                schema_id=schema_id,
+                restart_seq=restart_seq,
+                removed=removed,
+            )
+        return removed
+
+
+def purge_buffer_prefix(team_id: int, schema_id: str, logger: FilteringBoundLogger) -> None:
+    """Best-effort removal of a schema's entire buffer prefix.
+
+    Called on schema reset (TRUNCATE / lost-slot re-snapshot): the legacy table is
+    wiped and re-seeded through the snapshot lane the buffer never sees, so every
+    existing buffer file predates a discontinuity no consumer could order across.
+    """
+    prefix = strip_s3_protocol(get_buffer_prefix(team_id, schema_id))
+    with suppress(Exception):
+        s3 = get_s3_client()
+        s3.rm(prefix, recursive=True)
+        logger.info("cdc_buffer_prefix_purged", schema_id=schema_id)

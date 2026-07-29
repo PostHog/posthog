@@ -1,6 +1,8 @@
 import io
 import uuid
+import asyncio
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -8,6 +10,7 @@ from unittest.mock import MagicMock, patch
 from django.core.management import call_command
 from django.core.management.base import CommandError
 
+import psycopg
 import pyarrow as pa
 import pyarrow.parquet as pq
 
@@ -26,19 +29,26 @@ def _parquet_bytes(rows: int) -> bytes:
     return buf.getvalue()
 
 
-def _fake_s3(files: dict[str, bytes]) -> MagicMock:
-    """files: key (no protocol) -> parquet bytes"""
+def _fake_s3(files: dict[str, bytes | tuple[bytes, datetime | None]]) -> MagicMock:
+    """files: key (no protocol) -> parquet bytes, or (bytes, LastModified)."""
+
+    def _content(value) -> bytes:
+        return value[0] if isinstance(value, tuple) else value
+
+    def _modified(value) -> datetime | None:
+        return value[1] if isinstance(value, tuple) else None
+
     s3 = MagicMock()
 
     def ls(prefix, detail=True):
         matching = [key for key in files if key.startswith(prefix)]
         if not matching:
             raise FileNotFoundError(prefix)
-        return [{"Key": key, "type": "file", "LastModified": None} for key in matching]
+        return [{"Key": key, "type": "file", "LastModified": _modified(files[key])} for key in matching]
 
     @contextmanager
     def open_(key, mode):
-        yield io.BytesIO(files[key])
+        yield io.BytesIO(_content(files[key]))
 
     s3.ls = ls
     s3.open = open_
@@ -56,7 +66,7 @@ def _schema_mock(mode: str = "consolidated", cdc_mode: str = "streaming"):
 
 
 class TestValidateCDCBuffer:
-    def _run(self, schema, files: dict[str, bytes], legacy: dict[tuple[str, str], int]):
+    def _run(self, schema, files, legacy: dict[tuple[str, str], int], runs: dict[str, int] | None = None):
         source = MagicMock()
         source.id = uuid.uuid4()
 
@@ -67,7 +77,7 @@ class TestValidateCDCBuffer:
             patch.object(
                 __import__(_CMD, fromlist=["Command"]).Command,
                 "_fetch_legacy_row_sums",
-                return_value=legacy,
+                return_value=(legacy, runs or {}),
             ),
         ):
             MockSource.objects.get.return_value = source
@@ -96,6 +106,13 @@ class TestValidateCDCBuffer:
         with pytest.raises(CommandError, match="violation"):
             self._run(schema, files, {(str(schema.id), "scd2"): 5})
 
+    def test_scd2_mismatch_downgrades_to_warning_with_multiple_runs(self):
+        # Legacy re-inserts replayed rows on activity retry while buffer files
+        # overwrite, so with >1 run in the window the exact match only warns.
+        schema = _schema_mock(mode="cdc_only")
+        files = {self._key(schema, build_buffer_file_name(100, 200, 0)): _parquet_bytes(3)}
+        self._run(schema, files, {(str(schema.id), "scd2"): 5}, runs={str(schema.id): 2})
+
     def test_fails_when_buffer_below_consolidated(self):
         schema = _schema_mock(mode="consolidated")
         files = {self._key(schema, build_buffer_file_name(100, 200, 0)): _parquet_bytes(2)}
@@ -108,6 +125,14 @@ class TestValidateCDCBuffer:
             self._key(schema, build_buffer_file_name(100, 250, 0)): _parquet_bytes(1),
             self._key(schema, build_buffer_file_name(200, 300, 0)): _parquet_bytes(1),
         }
+        with pytest.raises(CommandError, match="violation"):
+            self._run(schema, files, {})
+
+    def test_fails_on_inverted_range(self):
+        schema = _schema_mock(mode="consolidated")
+        # build_buffer_file_name refuses inverted ranges, so name it by hand.
+        name = f"{300:020d}-{200:020d}-{0:06d}.parquet"
+        files = {self._key(schema, name): _parquet_bytes(1)}
         with pytest.raises(CommandError, match="violation"):
             self._run(schema, files, {})
 
@@ -126,8 +151,117 @@ class TestValidateCDCBuffer:
         files = {self._key(schema, build_buffer_file_name(100, 200, 0)): _parquet_bytes(3)}
         self._run(schema, files, {(str(schema.id), "scd2"): 99})
 
+    def test_empty_buffer_with_legacy_rows_is_a_violation_not_a_crash(self):
+        # Day-one state: shadow just enabled, no files yet, legacy still dispatching.
+        schema = _schema_mock(mode="cdc_only")
+        with pytest.raises(CommandError, match="violation"):
+            self._run(schema, {}, {(str(schema.id), "scd2"): 5})
+
+    def test_files_older_than_window_are_excluded(self):
+        schema = _schema_mock(mode="cdc_only")
+        old = datetime.now(UTC) - timedelta(hours=48)
+        files = {
+            self._key(schema, build_buffer_file_name(1, 50, 0)): (_parquet_bytes(7), old),
+            self._key(schema, build_buffer_file_name(100, 200, 0)): (_parquet_bytes(3), None),
+        }
+        # Reconciles against only the in-window file (3 rows); counting the stale
+        # 7 rows would make the exact match pass at the wrong sum.
+        self._run(schema, files, {(str(schema.id), "scd2"): 3})
+
+    def test_unreadable_file_is_a_violation_not_a_crash(self):
+        schema = _schema_mock(mode="consolidated")
+        files = {self._key(schema, build_buffer_file_name(100, 200, 0)): b"not a parquet file"}
+        with pytest.raises(CommandError, match="violation"):
+            self._run(schema, files, {})
+
     def test_fails_on_foreign_file(self):
         schema = _schema_mock(mode="consolidated")
         files = {self._key(schema, "part-0000.parquet"): _parquet_bytes(1)}
         with pytest.raises(CommandError, match="violation"):
             self._run(schema, files, {})
+
+
+@pytest.mark.django_db(transaction=True)
+class TestFetchLegacyRowSums:
+    """DB-backed: the SQL must count only sync_type='cdc' dispatches — snapshots
+    (full_refresh) share the sourcebatch table and would otherwise inflate the
+    consolidated lane into a guaranteed false violation during onboarding."""
+
+    @pytest.fixture(autouse=True)
+    def _tables(self):
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.test_jobs_db import (
+            _ensure_tables,
+            _get_test_database_url,
+            _truncate_tables,
+        )
+
+        url = _get_test_database_url()
+        with psycopg.Connection.connect(url, autocommit=True) as conn:
+            _ensure_tables(conn)
+            _truncate_tables(conn)
+        self._url = url
+        yield
+
+    def _seed(self, rows: list[dict]) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.test_jobs_db import (
+            _insert_batch,
+        )
+
+        async def seed() -> None:
+            async with await psycopg.AsyncConnection.connect(self._url, autocommit=True) as conn:
+                for row in rows:
+                    await _insert_batch(conn, **row)
+
+        asyncio.run(seed())
+
+    def test_counts_only_cdc_dispatches_and_distinct_runs(self):
+        command_module = __import__(_CMD, fromlist=["Command"])
+        source = MagicMock()
+        source.id = "source-1"
+        schema_id = "schema-1"
+
+        self._seed(
+            [
+                {
+                    "schema_id": schema_id,
+                    "sync_type": "cdc",
+                    "resource_name": "users",
+                    "row_count": 10,
+                    "run_uuid": "r1",
+                },
+                {
+                    "schema_id": schema_id,
+                    "sync_type": "cdc",
+                    "resource_name": "users_cdc",
+                    "row_count": 7,
+                    "run_uuid": "r1",
+                    "batch_index": 1,
+                },
+                # Snapshot dispatch for the same schema: must NOT count.
+                {
+                    "schema_id": schema_id,
+                    "sync_type": "full_refresh",
+                    "resource_name": "users",
+                    "row_count": 9999,
+                    "run_uuid": "r2",
+                    "batch_index": 2,
+                },
+                # Second cdc run: bumps the distinct-run count.
+                {
+                    "schema_id": schema_id,
+                    "sync_type": "cdc",
+                    "resource_name": "users",
+                    "row_count": 5,
+                    "run_uuid": "r3",
+                    "batch_index": 3,
+                },
+            ]
+        )
+
+        with patch.object(command_module, "WAREHOUSE_SOURCES_DATABASE_URL", self._url):
+            sums, run_counts = command_module.Command()._fetch_legacy_row_sums(
+                source, datetime.now(UTC) - timedelta(hours=1)
+            )
+
+        assert sums == {(schema_id, "consolidated"): 15, (schema_id, "scd2"): 7}
+        assert run_counts[schema_id] == 2

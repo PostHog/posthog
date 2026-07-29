@@ -337,6 +337,16 @@ class TestGetCDCAdapter:
         assert isinstance(reader, PgCDCStreamReader)
         assert reader._params.require_ssl is False
 
+    def test_position_to_seq_matches_lsn_value_and_preserves_order(self):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import (
+            PostgresCDCAdapter,
+        )
+
+        adapter = PostgresCDCAdapter()
+        assert adapter.position_to_seq("0/100") == 0x100
+        assert adapter.position_to_seq("0/200") > adapter.position_to_seq("0/100")
+        assert adapter.position_to_seq("1/0") > adapter.position_to_seq("0/FFFFFFFF")
+
 
 def _make_extract_activity(source, log=None) -> CDCExtractActivity:
     """Build a CDCExtractActivity with source and log pre-injected for unit tests."""
@@ -580,6 +590,7 @@ class TestShadowBufferWrite:
             patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity") as mock_activity,
             override_settings(CDC_BUFFER_SHADOW_WRITE=shadow_on),
         ):
+            MockBufferWriter.return_value.write_batch.return_value.write_duration_seconds = 0.01
             source = _make_source()
             schema = _make_schema("users", cdc_mode="streaming", source=source)
             mock_reader, mock_s3, mock_producer, _mock_job = _setup_mocks(
@@ -639,6 +650,73 @@ class TestShadowBufferWrite:
         mock_s3.write_batch.assert_called_once()
         mock_producer.send_batch_notification.assert_called_once()
         mock_reader.confirm_position.assert_called_once_with("0/100")
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_source_column_named_like_seq_passes_through_legacy_untouched(self, MockBufferWriter):
+        # Collision: batcher skips the engine seq append, the strip must not touch
+        # the user's column, and the shadow lane must not treat it as positions.
+        events = [_make_event(op="I", position="0/100", columns={"id": 1, CDC_SEQ_COLUMN: 42})]
+        _schema, _reader, mock_s3, _producer = self._run(MockBufferWriter, events, shadow_on=True)
+
+        MockBufferWriter.return_value.write_batch.assert_not_called()
+        legacy_table = mock_s3.write_batch.call_args[0][0]
+        assert legacy_table.column(CDC_SEQ_COLUMN).to_pylist() == [42]
+
+    def _hook_activity(self):
+        source = _make_source()
+        act = _make_extract_activity(source)
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        table = pa.table({"id": pa.array([1], type=pa.int64()), CDC_SEQ_COLUMN: pa.array([256], type=pa.int64())})
+        return act, schema, table
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_shadow_file_index_increments_per_table_including_failures(self, MockBufferWriter):
+        act, schema, table = self._hook_activity()
+        MockBufferWriter.return_value.write_batch.side_effect = [
+            MagicMock(write_duration_seconds=0.01),
+            Exception("s3 down"),
+            MagicMock(write_duration_seconds=0.01),
+        ]
+        with override_settings(CDC_BUFFER_SHADOW_WRITE=True):
+            act._maybe_shadow_write_buffer(schema, "users", table)
+            act._maybe_shadow_write_buffer(schema, "users", table)
+            act._maybe_shadow_write_buffer(schema, "users", table)
+            act._maybe_shadow_write_buffer(schema, "other", table)
+
+        calls = MockBufferWriter.return_value.write_batch.call_args_list
+        # Failure still advances the ordinal: a lost chunk is an index gap, not a
+        # later chunk silently claiming its slot.
+        assert [c.kwargs["file_index"] for c in calls] == [0, 1, 2, 0]
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_shadow_disables_for_run_after_consecutive_failures(self, MockBufferWriter):
+        act, schema, table = self._hook_activity()
+        MockBufferWriter.return_value.write_batch.side_effect = Exception("s3 down")
+        with override_settings(CDC_BUFFER_SHADOW_WRITE=True):
+            for _ in range(5):
+                act._maybe_shadow_write_buffer(schema, "users", table)
+
+        # Breaker trips at 3 consecutive failures; later flushes skip entirely.
+        assert MockBufferWriter.return_value.write_batch.call_count == 3
+        assert act._shadow_disabled_for_run is True
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_first_write_per_schema_cleans_superseded_files(self, MockBufferWriter):
+        act, schema, table = self._hook_activity()
+        MockBufferWriter.return_value.write_batch.return_value.write_duration_seconds = 0.01
+        with override_settings(CDC_BUFFER_SHADOW_WRITE=True):
+            act._maybe_shadow_write_buffer(schema, "users", table)
+            act._maybe_shadow_write_buffer(schema, "users", table)
+
+        cleanup = MockBufferWriter.return_value.cleanup_superseded_files
+        cleanup.assert_called_once_with(team_id=schema.team_id, schema_id=str(schema.id), restart_seq=256)
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.purge_buffer_prefix")
+    def test_reset_to_snapshot_purges_buffer_prefix(self, mock_purge):
+        act, schema, _table = self._hook_activity()
+        act._reset_schema_to_snapshot(schema)
+        mock_purge.assert_called_once()
+        assert mock_purge.call_args.args[1] == str(schema.id)
 
 
 class TestCDCExtractActivity:

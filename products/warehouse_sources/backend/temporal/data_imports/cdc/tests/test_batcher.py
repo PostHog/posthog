@@ -672,6 +672,18 @@ class TestSeqColumn:
 
         assert CDC_SEQ_COLUMN not in table.column_names
 
+    def test_source_column_named_like_seq_wins_and_append_is_skipped(self):
+        # A user column literally named _ph_cdc_seq must pass through with its own
+        # values; the engine seq append is skipped rather than shadowing it.
+        batcher = ChangeEventBatcher(position_to_seq=_pg_position_to_seq)
+        batcher.add(_make_event(op="I", position="0/100", columns={"id": 1, CDC_SEQ_COLUMN: 42}))
+        table = batcher.flush()["users"]
+
+        assert table.column_names.count(CDC_SEQ_COLUMN) == 1
+        assert table.column(CDC_SEQ_COLUMN).to_pylist() == [42]
+        # Not last: the caller's strip-by-last-field rule must not remove it.
+        assert table.schema.field(table.num_columns - 1).name != CDC_SEQ_COLUMN
+
     def test_seq_survives_enrichment_untouched(self):
         # Seq is CDC metadata: DELETE/TOAST enrichment must never fill or copy it.
         batcher = ChangeEventBatcher(position_to_seq=_pg_position_to_seq)

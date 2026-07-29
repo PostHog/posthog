@@ -28,6 +28,24 @@ class TestBufferFileName:
         assert parse_buffer_file_name("256-512-3.parquet") is None  # unpadded
         assert parse_buffer_file_name(build_buffer_file_name(1, 2, 3).removesuffix(".parquet")) is None
 
+    def test_rejects_non_canonical_numeric_spellings(self):
+        # int() accepts these; the contract must not — they break lexicographic order.
+        base = build_buffer_file_name(100, 200, 0)
+        assert parse_buffer_file_name(base.replace("-", "-+", 1)) is None
+        assert parse_buffer_file_name("0000000000000001_000-" + base.split("-", 1)[1]) is None
+        assert parse_buffer_file_name(" " + base[1:]) is None
+        assert parse_buffer_file_name(base.replace("0", "０", 1)) is None  # fullwidth digit
+
+    def test_build_rejects_out_of_contract_values(self):
+        with pytest.raises(ValueError, match="range"):
+            build_buffer_file_name(300, 200, 0)  # inverted
+        with pytest.raises(ValueError, match="range"):
+            build_buffer_file_name(-1, 200, 0)
+        with pytest.raises(ValueError, match="index"):
+            build_buffer_file_name(1, 2, 10**6)  # would emit 7 digits and break sort
+        with pytest.raises(ValueError, match="index"):
+            build_buffer_file_name(1, 2, -1)
+
     def test_lexicographic_sort_equals_numeric_sort(self):
         # The consumer's only ordering primitive is a filename sort — padding must
         # make that equal to numeric (start, end, index) order across magnitudes.
@@ -91,3 +109,72 @@ class TestCDCBufferWriter:
         table = pa.table({"id": pa.array([1], type=pa.int64())})
         with pytest.raises(ValueError, match=CDC_SEQ_COLUMN):
             writer.write_batch(team_id=1, schema_id="abc", table=table, file_index=0)
+
+    def test_rejects_any_null_seq(self):
+        # pc.min_max skips nulls, so a partially-null column would silently
+        # narrow the filename's range — reject nulls outright.
+        writer, files = self._writer_with_captured_files()
+        for seqs in ([None], [256, None, 512]):
+            table = pa.table(
+                {
+                    "id": pa.array(range(len(seqs)), type=pa.int64()),
+                    CDC_SEQ_COLUMN: pa.array(seqs, type=pa.int64()),
+                }
+            )
+            with pytest.raises(ValueError, match="non-null"):
+                writer.write_batch(team_id=1, schema_id="abc", table=table, file_index=0)
+        assert not files
+
+    def test_failed_write_removes_the_partial_object(self):
+        # fsspec close() flushes buffered bytes even after a failure, so the key
+        # must be removed or a truncated file lands under a contract-valid name.
+        files: dict[str, io.BytesIO] = {}
+
+        @contextmanager
+        def fake_open(path, mode):
+            buf = io.BytesIO()
+            files[path] = buf
+            yield buf
+
+        mock_s3 = MagicMock()
+        mock_s3.open = fake_open
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.buffer.get_s3_client",
+                return_value=mock_s3,
+            ),
+            patch("products.warehouse_sources.backend.temporal.data_imports.cdc.buffer.ensure_bucket"),
+        ):
+            writer = CDCBufferWriter(MagicMock())
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.buffer.pq.write_table",
+                side_effect=OSError("mid-write failure"),
+            ),
+            pytest.raises(OSError),
+        ):
+            writer.write_batch(team_id=1, schema_id="abc", table=self._table([256]), file_index=0)
+        mock_s3.rm.assert_called_once_with(next(iter(files)))
+
+    def test_cleanup_superseded_files_removes_at_or_past_restart(self):
+        writer, _files = self._writer_with_captured_files()
+        prefix = "data-warehouse/cdc_producer/1/abc"
+        keys = [
+            f"{prefix}/{build_buffer_file_name(100, 200, 0)}",  # settled, below restart
+            f"{prefix}/{build_buffer_file_name(300, 400, 1)}",  # superseded
+            f"{prefix}/{build_buffer_file_name(300, 300, 2)}",  # superseded, shared boundary
+            f"{prefix}/schema.json",  # foreign — never touched
+        ]
+        writer._s3.ls = MagicMock(return_value=keys)
+        writer._s3.rm = MagicMock()
+
+        removed = writer.cleanup_superseded_files(team_id=1, schema_id="abc", restart_seq=300)
+
+        assert removed == 2
+        removed_keys = [c.args[0] for c in writer._s3.rm.call_args_list]
+        assert removed_keys == keys[1:3]
+
+    def test_cleanup_handles_missing_prefix(self):
+        writer, _files = self._writer_with_captured_files()
+        writer._s3.ls = MagicMock(side_effect=FileNotFoundError)
+        assert writer.cleanup_superseded_files(team_id=1, schema_id="abc", restart_seq=1) == 0

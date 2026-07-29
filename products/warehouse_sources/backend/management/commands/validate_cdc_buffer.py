@@ -16,6 +16,16 @@ Checks per CDC schema:
 Windows are aligned by timestamp (buffer LastModified vs sourcebatch created_at),
 so edge-of-window skew of one micro-batch is possible — treat single-batch-sized
 deltas near the window edge as noise and re-run with a wider --since-hours.
+
+Known windows where sums legitimately diverge:
+- Around the snapshot→streaming flip: shadow writes buffer files during the
+  snapshot phase, but their legacy dispatches are deferred and inserted with
+  created_at = flip time. Validate with a window that starts after the schema
+  began streaming (or spans the entire snapshot phase).
+- After a mid-run activity retry: the legacy lane re-inserts the replayed prefix
+  of an in-flight transaction (accepted duplicate scd2 rows) while the buffer's
+  same-named files overwrite. Multiple run_uuids in the window therefore
+  downgrade the scd2 exact-match to a warning.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -31,6 +41,7 @@ from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_COMPANION_SUFFIX
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import (
     get_buffer_prefix,
     parse_buffer_file_name,
@@ -58,7 +69,7 @@ class Command(BaseCommand):
         if not schemas:
             raise CommandError(f"Source {source.id} has no CDC schemas")
 
-        legacy_rows = self._fetch_legacy_row_sums(source, cutoff)
+        legacy_rows, run_counts = self._fetch_legacy_row_sums(source, cutoff)
         s3 = get_s3_client()
         violations: list[str] = []
 
@@ -81,9 +92,21 @@ class Command(BaseCommand):
                 continue
 
             if scd2_rows is not None and scd2_rows != buffer_rows:
-                violations.append(
-                    f"{schema.name}: scd2 lane rows ({scd2_rows}) != buffer rows ({buffer_rows}) — exact match expected"
-                )
+                # Legacy re-inserts replayed rows on activity retry while buffer
+                # files overwrite — with multiple runs in the window the exact
+                # match is expected to skew, so it warns instead of failing.
+                if run_counts.get(str(schema.id), 0) > 1:
+                    self.stdout.write(
+                        self.style.WARNING(
+                            f"WARNING: {schema.name}: scd2 rows ({scd2_rows}) != buffer rows ({buffer_rows}) "
+                            "with multiple runs in the window — likely retry-replay skew, verify manually"
+                        )
+                    )
+                else:
+                    violations.append(
+                        f"{schema.name}: scd2 lane rows ({scd2_rows}) != buffer rows ({buffer_rows}) — "
+                        "exact match expected"
+                    )
             if consolidated_rows is not None and buffer_rows < consolidated_rows:
                 violations.append(
                     f"{schema.name}: buffer rows ({buffer_rows}) < consolidated rows ({consolidated_rows}) — "
@@ -101,9 +124,11 @@ class Command(BaseCommand):
         """Return (row_sum, file_count, violations) for one schema's buffer prefix."""
         prefix = strip_s3_protocol(get_buffer_prefix(schema.team_id, str(schema.id)))
         try:
-            entries = s3.ls(prefix, detail=True)
+            ls_result = s3.ls(prefix, detail=True)
         except FileNotFoundError:
             return 0, 0, []
+        # Some fsspec ls implementations return a dict keyed by path.
+        entries = ls_result.values() if isinstance(ls_result, dict) else ls_result
 
         violations: list[str] = []
         named: list[tuple[str, tuple[int, int, int]]] = []
@@ -133,28 +158,45 @@ class Command(BaseCommand):
                 violations.append(f"{schema.name}: overlapping range in {key} (starts before previous end {prev_end})")
             prev_end = end_seq
 
-            with s3.open(key, "rb") as f:
-                row_sum += pq.ParquetFile(f).metadata.num_rows
+            # A failed shadow write can leave a truncated object; report it as a
+            # violation instead of crashing the whole validation run.
+            try:
+                with s3.open(key, "rb") as f:
+                    row_sum += pq.ParquetFile(f).metadata.num_rows
+            except Exception as e:
+                violations.append(f"{schema.name}: unreadable buffer file {key} ({type(e).__name__})")
 
         return row_sum, len(named), violations
 
-    def _fetch_legacy_row_sums(self, source: ExternalDataSource, cutoff: datetime) -> dict[tuple[str, str], int]:
-        """Sum sourcebatch row_count per (schema_id, lane) since cutoff.
+    def _fetch_legacy_row_sums(
+        self, source: ExternalDataSource, cutoff: datetime
+    ) -> tuple[dict[tuple[str, str], int], dict[str, int]]:
+        """Sum sourcebatch row_count per (schema_id, lane) since cutoff, plus the
+        distinct run count per schema (for retry-replay downgrades).
 
-        Lane is derived from resource_name: the `_cdc` suffix marks the
-        scd2_append companion, anything else is the consolidated write.
+        Only `sync_type = 'cdc'` dispatches count: snapshots and resyncs flow into
+        the same table as full_refresh/incremental and would otherwise inflate the
+        consolidated lane into a guaranteed false violation. Lane is derived from
+        resource_name via the shared companion suffix.
         """
+        companion_pattern = "%" + CDC_COMPANION_SUFFIX.replace("_", r"\_")
         with psycopg.connect(WAREHOUSE_SOURCES_DATABASE_URL) as conn:
             rows = conn.execute(
                 f"""
                 SELECT schema_id,
-                       CASE WHEN resource_name LIKE '%%\\_cdc' THEN 'scd2' ELSE 'consolidated' END AS lane,
-                       COALESCE(SUM(row_count), 0)
+                       CASE WHEN resource_name LIKE %(companion_pattern)s THEN 'scd2' ELSE 'consolidated' END AS lane,
+                       COALESCE(SUM(row_count), 0),
+                       COUNT(DISTINCT run_uuid)
                 FROM {BATCH_TABLE}
-                WHERE source_id = %(source_id)s AND created_at >= %(cutoff)s
+                WHERE source_id = %(source_id)s AND created_at >= %(cutoff)s AND sync_type = 'cdc'
                 GROUP BY schema_id, lane
                 """,
-                {"source_id": str(source.id), "cutoff": cutoff},
+                {"source_id": str(source.id), "cutoff": cutoff, "companion_pattern": companion_pattern},
             ).fetchall()
 
-        return {(str(schema_id), lane): int(total) for schema_id, lane, total in rows}
+        sums: dict[tuple[str, str], int] = {}
+        run_counts: dict[str, int] = {}
+        for schema_id, lane, total, runs in rows:
+            sums[(str(schema_id), lane)] = int(total)
+            run_counts[str(schema_id)] = max(run_counts.get(str(schema_id), 0), int(runs))
+        return sums, run_counts
