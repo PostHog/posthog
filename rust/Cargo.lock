@@ -2679,6 +2679,7 @@ dependencies = [
  "lifecycle",
  "metrics",
  "metrics-exporter-prometheus",
+ "nix 0.31.3",
  "object_store",
  "proptest",
  "rand 0.8.5",
@@ -3786,7 +3787,7 @@ dependencies = [
 
 [[package]]
 name = "deltalite-python"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "arrow",
  "arrow-array",
@@ -8465,6 +8466,7 @@ dependencies = [
  "assignment-coordination",
  "async-trait",
  "etcd-client",
+ "futures",
  "k8s-awareness",
  "k8s-openapi",
  "kube",

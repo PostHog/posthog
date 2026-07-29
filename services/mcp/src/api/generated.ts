@@ -179,6 +179,20 @@ export namespace Schemas {
     } | null;
 
     /**
+     * * `daily` - daily
+     * * `weekly` - weekly
+     * * `monthly` - monthly
+     */
+    export type SlackSummaryCadenceEnum = typeof SlackSummaryCadenceEnum[keyof typeof SlackSummaryCadenceEnum];
+
+
+    export const SlackSummaryCadenceEnum = {
+      Daily: 'daily',
+      Weekly: 'weekly',
+      Monthly: 'monthly',
+    } as const;
+
+    /**
      * A Customer Analytics account — a logical grouping used to assign customer-success ownership.
      */
     export interface Account {
@@ -203,6 +217,12 @@ export namespace Schemas {
       tags?: string[];
       /** Short IDs of the internal notebooks linked to this account, used to persist investigations, call notes, and other free-form context. Empty list if no notebooks have been created for the account. */
       readonly notebooks: readonly string[];
+      /** How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.
+       *
+       * * `daily` - daily
+       * * `weekly` - weekly
+       * * `monthly` - monthly */
+      slack_summary_cadence?: SlackSummaryCadenceEnum | null;
       readonly created_at: string;
       /** @nullable */
       readonly created_by: number | null;
@@ -218,6 +238,32 @@ export namespace Schemas {
       readonly id: number;
       /** Email of the assignee. */
       readonly email: string;
+    }
+
+    /**
+     * An AI summary of one closed period of the account's bound Slack channel (read-only).
+     */
+    export interface AccountChannelSummary {
+      /** UUID of the summary. */
+      readonly id: string;
+      /** Slack channel the summary covered — kept even if the account is later rebound. */
+      readonly slack_channel_id: string;
+      /** Cadence the summarized period belongs to (daily, weekly, or monthly).
+       *
+       * * `daily` - daily
+       * * `weekly` - weekly
+       * * `monthly` - monthly */
+      readonly cadence: SlackSummaryCadenceEnum;
+      /** Start of the summarized period (inclusive). */
+      readonly period_start: string;
+      /** End of the summarized period (exclusive). */
+      readonly period_end: string;
+      /** Markdown summary citing the original Slack messages with permalinks. */
+      readonly content: string;
+      /** Number of channel messages the summary covered. */
+      readonly message_count: number;
+      /** When the summary was generated. */
+      readonly generated_at: string;
     }
 
     export type PropertyOperator = typeof PropertyOperator[keyof typeof PropertyOperator];
@@ -5504,6 +5550,7 @@ export namespace Schemas {
       Firebase: 'firebase',
       Jira: 'jira',
       PinterestAds: 'pinterest-ads',
+      Pardot: 'pardot',
       CustomerioApp: 'customerio-app',
       CustomerioWebhook: 'customerio-webhook',
       CustomerioTrack: 'customerio-track',
@@ -16903,7 +16950,25 @@ export namespace Schemas {
 
     export type DatabaseSchemaBatchExportTableFields = {[key: string]: DatabaseSchemaField};
 
+    export type DatabaseSchemaTableCertificationStatus = typeof DatabaseSchemaTableCertificationStatus[keyof typeof DatabaseSchemaTableCertificationStatus];
+
+
+    export const DatabaseSchemaTableCertificationStatus = {
+      Certified: 'certified',
+      Deprecated: 'deprecated',
+    } as const;
+
+    export interface DatabaseSchemaTableCertification {
+      certified_at?: string | null;
+      certified_by?: string | null;
+      notes?: string | null;
+      /** Settled data catalog trust mark: 'certified' (prefer this source) or 'deprecated' (avoid it). */
+      status: DatabaseSchemaTableCertificationStatus;
+    }
+
     export interface DatabaseSchemaBatchExportTable {
+      /** Present only when the table or view carries a settled data catalog certification. */
+      certification?: DatabaseSchemaTableCertification | null;
       fields: DatabaseSchemaBatchExportTableFields;
       id: string;
       name: string;
@@ -16932,6 +16997,8 @@ export namespace Schemas {
     }
 
     export interface DatabaseSchemaDataWarehouseTable {
+      /** Present only when the table or view carries a settled data catalog certification. */
+      certification?: DatabaseSchemaTableCertification | null;
       fields: DatabaseSchemaDataWarehouseTableFields;
       /** Absent for a dual-mode source's virtual tables, which have no synced S3 backing. */
       format?: string | null;
@@ -16950,6 +17017,8 @@ export namespace Schemas {
     export type DatabaseSchemaEndpointTableFields = {[key: string]: DatabaseSchemaField};
 
     export interface DatabaseSchemaEndpointTable {
+      /** Present only when the table or view carries a settled data catalog certification. */
+      certification?: DatabaseSchemaTableCertification | null;
       fields: DatabaseSchemaEndpointTableFields;
       id: string;
       name: string;
@@ -16974,6 +17043,8 @@ export namespace Schemas {
     } as const;
 
     export interface DatabaseSchemaManagedViewTable {
+      /** Present only when the table or view carries a settled data catalog certification. */
+      certification?: DatabaseSchemaTableCertification | null;
       fields: DatabaseSchemaManagedViewTableFields;
       id: string;
       kind: DatabaseSchemaManagedViewTableKind;
@@ -16987,6 +17058,8 @@ export namespace Schemas {
     export type DatabaseSchemaMaterializedViewTableFields = {[key: string]: DatabaseSchemaField};
 
     export interface DatabaseSchemaMaterializedViewTable {
+      /** Present only when the table or view carries a settled data catalog certification. */
+      certification?: DatabaseSchemaTableCertification | null;
       fields: DatabaseSchemaMaterializedViewTableFields;
       id: string;
       last_run_at?: string | null;
@@ -17000,6 +17073,8 @@ export namespace Schemas {
     export type DatabaseSchemaPostHogTableFields = {[key: string]: DatabaseSchemaField};
 
     export interface DatabaseSchemaPostHogTable {
+      /** Present only when the table or view carries a settled data catalog certification. */
+      certification?: DatabaseSchemaTableCertification | null;
       fields: DatabaseSchemaPostHogTableFields;
       id: string;
       name: string;
@@ -17010,6 +17085,8 @@ export namespace Schemas {
     export type DatabaseSchemaSystemTableFields = {[key: string]: DatabaseSchemaField};
 
     export interface DatabaseSchemaSystemTable {
+      /** Present only when the table or view carries a settled data catalog certification. */
+      certification?: DatabaseSchemaTableCertification | null;
       fields: DatabaseSchemaSystemTableFields;
       id: string;
       name: string;
@@ -17020,6 +17097,8 @@ export namespace Schemas {
     export type DatabaseSchemaViewTableFields = {[key: string]: DatabaseSchemaField};
 
     export interface DatabaseSchemaViewTable {
+      /** Present only when the table or view carries a settled data catalog certification. */
+      certification?: DatabaseSchemaTableCertification | null;
       fields: DatabaseSchemaViewTableFields;
       id: string;
       name: string;
@@ -23056,10 +23135,11 @@ export namespace Schemas {
          */
       suggested_reviewers?: SuggestedReviewer[];
       /**
-         * The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field to leave the report's existing charts untouched.
+         * The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field (or send null) to leave the report's existing charts untouched, and send an empty list to take them all down.
          * @maxItems 20
+         * @nullable
          */
-      charts?: ReportChart[];
+      charts?: ReportChart[] | null;
     }
 
     export interface EditReportResponse {
@@ -23071,8 +23151,11 @@ export namespace Schemas {
       note_appended: boolean;
       /** Whether the report's suggested reviewers were replaced. */
       reviewers_set: boolean;
-      /** How many charts the report now shows, or 0 if charts were untouched. */
-      charts_set: number;
+      /**
+         * How many charts the report now shows, or null if the edit left its charts as they were (the field omitted, or a re-send of what was already stored). 0 means the edit took the report's charts down.
+         * @nullable
+         */
+      charts_set: number | null;
     }
 
     export type EffectiveMembershipLevelEnum = typeof EffectiveMembershipLevelEnum[keyof typeof EffectiveMembershipLevelEnum];
@@ -36450,6 +36533,7 @@ export namespace Schemas {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
      * * `reddit-ads` - Reddit Ads
@@ -36496,6 +36580,7 @@ export namespace Schemas {
       Linear: 'linear',
       LinkedinAds: 'linkedin-ads',
       MetaAds: 'meta-ads',
+      Pardot: 'pardot',
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
       RedditAds: 'reddit-ads',
@@ -36542,6 +36627,7 @@ export namespace Schemas {
        * * `linear` - Linear
        * * `linkedin-ads` - Linkedin Ads
        * * `meta-ads` - Meta Ads
+       * * `pardot` - Pardot
        * * `pinterest-ads` - Pinterest Ads
        * * `postgresql` - Postgresql
        * * `reddit-ads` - Reddit Ads
@@ -41685,6 +41771,15 @@ export namespace Schemas {
        * * `coarse` - COARSE
        * * `partial` - PARTIAL */
       metric_quality?: MetricQualityEnum;
+    }
+
+    export interface PaginatedAccountChannelSummaryList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: AccountChannelSummary[];
     }
 
     export interface PaginatedAccountList {
@@ -47137,6 +47232,34 @@ export namespace Schemas {
     }
 
     /**
+     * The in-flight `wizard_ask` question. Typed rather than a free-form dict so the shape the
+     * widget renders is enforced at the edge instead of trusted from the producer.
+     */
+    export interface PendingInput {
+      /**
+         * Identifier the wizard mints for this question. Changes when a new question is asked.
+         * @maxLength 255
+         */
+      id: string;
+      /** UTC timestamp when the wizard asked. Defaults to the session's update time when absent. */
+      asked_at?: string;
+      /**
+         * How many questions this single ask covers.
+         * @minimum 1
+         * @maximum 100
+         */
+      question_count?: number;
+      /** Whether the answer is a secret. Sensitive questions never carry prompt text. */
+      sensitive?: boolean;
+      /**
+         * The question text shown to the user. Always empty for sensitive questions.
+         * @maxItems 10
+         * @items.maxLength 2000
+         */
+      prompts?: string[];
+    }
+
+    /**
      * * `idle` - IDLE
      * * `running` - RUNNING
      * * `completed` - COMPLETED
@@ -47176,6 +47299,12 @@ export namespace Schemas {
       status: WizardTaskDTOStatusEnum;
     }
 
+    export interface WizardSessionUserDTO {
+      id: number;
+      first_name: string;
+      email: string;
+    }
+
     /**
      * @nullable
      */
@@ -47190,6 +47319,8 @@ export namespace Schemas {
      * Output: serialises a WizardSessionDTO returned by the facade.
      */
     export interface WizardSessionDTO {
+      /** The question the wizard is currently blocked on, or null when nothing is pending. */
+      pending_input: PendingInput | null;
       session_id: string;
       team_id: number;
       workflow_id: string;
@@ -47201,6 +47332,8 @@ export namespace Schemas {
       event_plan: WizardSessionDTOEventPlan;
       /** @nullable */
       error: WizardSessionDTOError;
+      /** The user who initiated this wizard run (null for runs created before attribution existed). Lets the UI name whose run it is. */
+      created_by: WizardSessionUserDTO | null;
       created_at: string;
       updated_at: string;
       is_stale: boolean;
@@ -47286,6 +47419,12 @@ export namespace Schemas {
       tags?: string[];
       /** Short IDs of the internal notebooks linked to this account, used to persist investigations, call notes, and other free-form context. Empty list if no notebooks have been created for the account. */
       readonly notebooks?: readonly string[];
+      /** How often to generate an AI summary of the account's bound Slack channel (daily, weekly, or monthly). Null means summaries are off.
+       *
+       * * `daily` - daily
+       * * `weekly` - weekly
+       * * `monthly` - monthly */
+      slack_summary_cadence?: SlackSummaryCadenceEnum | null;
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: number | null;
@@ -69911,6 +70050,8 @@ export namespace Schemas {
      * Input: validates the JSON the wizard CLI posts. team_id is derived from URL.
      */
     export interface UpsertWizardSessionRequest {
+      /** Populated while the wizard is blocked on a question in the terminal. Null/absent means no input is pending; a push without it clears the previous prompt. */
+      pending_input?: PendingInput | null;
       /**
          * Stable identifier the wizard mints for this run (format: '{workflow_id}-{skill_id}-{started_at_iso}'). Reposting with the same session_id upserts the existing row.
          * @maxLength 255
@@ -73151,6 +73292,17 @@ export namespace Schemas {
      * Include ended assignments (the full timeline), not just active ones.
      */
     include_history?: boolean;
+    };
+
+    export type AccountsSummariesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type ActionsListParams = {
@@ -77984,6 +78136,7 @@ export namespace Schemas {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
      * * `reddit-ads` - Reddit Ads
@@ -78041,6 +78194,7 @@ export namespace Schemas {
       Linear: 'linear',
       LinkedinAds: 'linkedin-ads',
       MetaAds: 'meta-ads',
+      Pardot: 'pardot',
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
       RedditAds: 'reddit-ads',

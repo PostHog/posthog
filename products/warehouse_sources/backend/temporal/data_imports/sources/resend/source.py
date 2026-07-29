@@ -232,6 +232,16 @@ Either way, the connection needs **full access** so the following resources can 
                 "account can't access the Broadcasts API — enable Broadcasts in Resend and grant the API key full "
                 "access, or unselect the Broadcasts table to keep syncing your other Resend data."
             ),
+            # Resend rejects the well-formed list request with a 400 when the connected account can't
+            # access the Domains API (seen in production for accounts without domain management
+            # enabled). Retrying the identical request can't fix an account-level restriction. Scope
+            # the match to the domains path so a 400 from another endpoint (which could be our bug)
+            # stays retryable and visible.
+            "400 Client Error: Bad Request for url: https://api.resend.com/domains": (
+                "Resend rejected the request to sync your Domains. This usually means the connected Resend "
+                "account can't access the Domains API — grant the API key full access, or unselect the Domains "
+                "table to keep syncing your other Resend data."
+            ),
         }
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ResendResumeConfig]:
