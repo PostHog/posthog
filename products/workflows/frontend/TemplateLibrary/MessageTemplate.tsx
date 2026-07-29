@@ -23,10 +23,30 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import { MessageTemplateCard } from './MessageTemplateCard'
 import { messageTemplateLogic } from './messageTemplateLogic'
 import { MessageTemplateSceneLogicProps, messageTemplateSceneLogic } from './messageTemplateSceneLogic'
+
+// Injected into the agent's trusted context while the editor is open (once per task chain), so an
+// edit request goes straight to a targeted patch instead of re-deriving how to work on templates
+// (loading the authoring skill, reading tool schemas). The id in the value keys the dedupe, so
+// opening a different template re-sends it.
+function buildTemplateEditorAgentContext(templateId: string): AttachedContextItem {
+    return {
+        type: 'instructions',
+        hidden: true,
+        value:
+            `The user has email template ${templateId} open in PostHog's visual editor; the open canvas live-reloads your saved edits. ` +
+            'To change it: call workflows-get-email-template for the current design and its block ids (humans may have edited it), then ' +
+            'workflows-patch-email-template with a small list of ops. Common op shapes: rewrite one block with ' +
+            `{op: 'update_content', id: '<block-id>', patch: {values: {text: '<p>New copy</p>'}}} (a null leaf deletes that key); ` +
+            'add_content / remove_content / move_content / add_row / remove_row for structure. Ops apply atomically and the server re-renders the sent HTML. ' +
+            'Subject, preheader, and plain-text changes go through workflows-update-email-template with the complete content. ' +
+            'The designing-email-templates skill is for composing whole designs; targeted patches need only the tools above.',
+    }
+}
 
 export const scene: SceneExport<MessageTemplateSceneLogicProps> = {
     component: MessageTemplate,
@@ -70,7 +90,10 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
 
     useAttachedContext(
         props.id && props.id !== 'new'
-            ? [{ type: 'email_template', key: props.id, label: template?.name || undefined }]
+            ? [
+                  { type: 'email_template', key: props.id, label: template?.name || undefined },
+                  buildTemplateEditorAgentContext(props.id),
+              ]
             : null
     )
 
