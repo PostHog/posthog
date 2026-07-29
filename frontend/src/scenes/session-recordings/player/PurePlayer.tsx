@@ -316,7 +316,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                     <div className="SessionRecordingPlayer__main flex flex-col h-full w-full">
                         {isRecentAndInvalid ? (
                             <div className="flex flex-1 flex-col items-center justify-center">
-                                <HedgehogConstruction2 height={200} />
+                                <HedgehogConstruction2 height={200} width={200} />
                                 <h1>We're still working on it</h1>
                                 <p>
                                     This recording hasn't been fully ingested yet. It should be ready to watch in a few
