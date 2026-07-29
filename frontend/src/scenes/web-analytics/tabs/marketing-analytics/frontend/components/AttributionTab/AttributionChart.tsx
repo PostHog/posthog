@@ -11,20 +11,15 @@ import { AttributionMode, MarketingAnalyticsAttributionRow } from '~/queries/sch
 
 import { MODEL_LABELS } from '../../logic/marketingAttributionLogic'
 
-// The chart scrolls horizontally, so the cap only guards against absurd band counts (a landing-page
-// breakdown can have hundreds of values); the table below still has every row.
+// A landing-page breakdown can have hundreds of values; the table below still has every row.
 const MAX_CHART_ROWS = 30
 
-// Below this width per band, five grouped bars squish into unreadable slivers; the chart scrolls
-// horizontally instead of shrinking further.
+// Below this, five grouped bars squish into unreadable slivers, so the chart scrolls instead.
 const MIN_BAND_WIDTH_PX = 96
 
-// Descending so the placeholder reads as a ranked chart, which is what actually arrives. Fixed rather
-// than random: a placeholder that reshuffles on every render draws the eye to the wrong thing.
 const SKELETON_BAR_HEIGHTS = ['h-48', 'h-40', 'h-32', 'h-28', 'h-20', 'h-16', 'h-12', 'h-8']
 
-// The response carries the model list, so on a first load there's nothing to count yet. Five is the
-// number of models the runner always returns.
+// The response carries the model list, so a first load has nothing to count yet.
 const SKELETON_SERIES_COUNT = 5
 
 function ChartSkeleton({ modelCount }: { modelCount: number }): JSX.Element {
@@ -74,8 +69,7 @@ export function AttributionChart({
         [models, chartRows]
     )
 
-    // Only a settled empty result hides the card. While loading the card stays mounted at its full
-    // height, so switching breakdown or date doesn't collapse the page and shove the table upward.
+    // Only a settled empty result hides the card: collapsing while loading shoves the table upward.
     if (!loading && !chartRows.length) {
         return null
     }
@@ -90,13 +84,13 @@ export function AttributionChart({
                     ? ` Showing the top ${MAX_CHART_ROWS} of ${rows.length} rows. The table below has all of them.`
                     : ''}
             </p>
-            {/* Flex column, not a plain block: with a legend enabled the chart root is a `flex-1
-                min-h-0` legend layout, which only resolves to a real height inside a flex parent. */}
+            {/* Flex column, not a plain block: with a legend the chart root is a `flex-1 min-h-0`
+                layout, which only resolves to a real height inside a flex parent. */}
             <div className="h-80 overflow-x-auto">
                 {chartRows.length ? (
                     <div
-                        // A refetch keeps the previous bars and just fades them, rather than replacing a
-                        // chart the user is reading with a placeholder they can't read.
+                        // A refetch fades the previous bars rather than replacing a readable chart with
+                        // a placeholder.
                         className={clsx('flex h-full flex-col', loading && 'opacity-50 transition-opacity')}
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ minWidth: `max(100%, ${chartRows.length * MIN_BAND_WIDTH_PX}px)` }}

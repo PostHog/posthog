@@ -34263,14 +34263,14 @@ export namespace Schemas {
       conversionRate: number | null;
       /** Null unless the goal is revenue-bearing. */
       conversionValue: number | null;
-      /** Fractional for multi-touch models — each conversion's credit is split across its touchpoints. */
+      /** Fractional for multi-touch models: each conversion's credit is split across its touchpoints. */
       conversions: number;
       model: AttributionMode;
     }
 
     export interface MarketingAnalyticsAttributionRow {
       breakdownValue: string;
-      /** Conversions with at least one touchpoint on this dimension. Counted once per conversion, so a conversion influenced by several dimensions is counted in each of their rows — these deliberately sum to more than the total, unlike the per-model columns. */
+      /** Conversions with at least one touchpoint on this dimension. Counted once per conversion, so a conversion influenced by several dimensions is counted in each of their rows. These deliberately sum to more than the total, unlike the per-model columns. */
       influencedConversions: number;
       influencedValue?: number | null;
       /** One cell per model, always in the order given by the response's `models`. */
@@ -34287,7 +34287,7 @@ export namespace Schemas {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
-      /** Whether the goal is revenue-bearing — gates the value columns. */
+      /** Whether the goal is revenue-bearing, which gates the value columns. */
       hasValue: boolean;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -58364,7 +58364,7 @@ export namespace Schemas {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
-      /** Whether the goal is revenue-bearing — gates the value columns. */
+      /** Whether the goal is revenue-bearing, which gates the value columns. */
       hasValue: boolean;
       /** Generated HogQL query. */
       hogql?: string | null;

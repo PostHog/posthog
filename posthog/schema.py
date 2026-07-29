@@ -1671,7 +1671,7 @@ class MarketingAnalyticsAttributionModelCell(BaseModel):
     conversionValue: float | None = Field(..., description="Null unless the goal is revenue-bearing.")
     conversions: float = Field(
         ...,
-        description=("Fractional for multi-touch models — each conversion's credit is split across its touchpoints."),
+        description=("Fractional for multi-touch models: each conversion's credit is split across its touchpoints."),
     )
     model: AttributionMode
 
@@ -5452,7 +5452,7 @@ class MarketingAnalyticsAttributionRow(BaseModel):
         description=(
             "Conversions with at least one touchpoint on this dimension. Counted once"
             " per conversion, so a conversion influenced by several dimensions is"
-            " counted in each of their rows — these deliberately sum to more than the"
+            " counted in each of their rows. These deliberately sum to more than the"
             " total, unlike the per-model columns."
         ),
     )
@@ -11624,7 +11624,7 @@ class CachedMarketingAnalyticsAttributionQueryResponse(BaseModel):
     hasMore: bool | None = None
     hasValue: bool = Field(
         ...,
-        description="Whether the goal is revenue-bearing — gates the value columns.",
+        description=("Whether the goal is revenue-bearing, which gates the value columns."),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
@@ -17113,7 +17113,7 @@ class MarketingAnalyticsAttributionQueryResponse(BaseModel):
     hasMore: bool | None = None
     hasValue: bool = Field(
         ...,
-        description="Whether the goal is revenue-bearing — gates the value columns.",
+        description=("Whether the goal is revenue-bearing, which gates the value columns."),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
@@ -18656,7 +18656,7 @@ class QueryResponseAlternative31(BaseModel):
     hasMore: bool | None = None
     hasValue: bool = Field(
         ...,
-        description="Whether the goal is revenue-bearing — gates the value columns.",
+        description=("Whether the goal is revenue-bearing, which gates the value columns."),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None

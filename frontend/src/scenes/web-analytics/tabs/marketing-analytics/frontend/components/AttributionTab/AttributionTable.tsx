@@ -2,7 +2,7 @@ import './AttributionTable.scss'
 
 import clsx from 'clsx'
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 
 import { LemonBanner, LemonTable, LemonTableColumn, LemonTableColumnGroup, Tooltip } from '@posthog/lemon-ui'
 
@@ -70,19 +70,17 @@ export function AttributionTable({
     const windowDays = attributionResponse?.attributionWindowDays ?? 90
     const dimensionLabel = BREAKDOWN_LABELS[breakdownBy]
 
-    // Counting a repeat converter every time makes conversions-over-visitors exceed 100%, which is a
-    // ratio rather than a share. Label it for what it is instead of formatting a lie as a percentage.
+    // With repeat conversions counted, conversions-over-visitors is a ratio rather than a share, so it
+    // must not be formatted as a percentage.
     const countsRepeatConversions = attributionResponse?.allowsMultipleConversionsPerVisitor ?? false
     const rateLabel = countsRepeatConversions ? 'Per visitor' : 'Conv. rate'
     const formatRate = (value: number): string =>
         countsRepeatConversions ? `${humanFriendlyNumber(value, 2)}x` : percentage(value, 2)
 
-    // Every conversions column shares one scale: the largest influenced count. A row's model credit can
-    // never exceed its influenced count, so bars stay within their cells, and one scale is what makes
-    // bar lengths comparable across the model columns, which is the point of showing them side by side.
-    const maxInfluenced = useMemo(() => Math.max(0, ...rows.map((row) => row.influencedConversions)), [rows])
+    // One scale across every conversions column is what makes bar lengths comparable between models.
+    const maxInfluenced = Math.max(0, ...rows.map((row) => row.influencedConversions))
 
-    const columns: LemonTableColumnGroup<MarketingAnalyticsAttributionRow>[] = useMemo(() => {
+    const buildColumns = (): LemonTableColumnGroup<MarketingAnalyticsAttributionRow>[] => {
         const numericColumn = (
             title: string,
             tooltip: string,
@@ -191,8 +189,8 @@ export function AttributionTable({
                             model
                         ].toLowerCase()} model. Fractional when credit is shared across touchpoints.`,
                         (row) => row.models[index]?.conversions ?? null,
-                        // One decimal place: multi-touch credit is fractional, and rounding to whole
-                        // numbers makes linear look identical to last touch at low volumes.
+                        // Multi-touch credit is fractional; whole numbers make linear look identical to
+                        // last touch at low volumes.
                         (value) => humanFriendlyNumber(value, 1),
                         `${model}_conversions`,
                         { withMagnitudeBar: true, groupBoundary: true }
@@ -220,7 +218,9 @@ export function AttributionTable({
                 ],
             })),
         ]
-    }, [dimensionLabel, hasValue, models, windowDays, baseCurrency, maxInfluenced, rateLabel, countsRepeatConversions])
+    }
+
+    const columns = buildColumns()
 
     if (responseError) {
         return (
@@ -236,9 +236,8 @@ export function AttributionTable({
     const unattributed = attributionResponse?.unattributedConversions ?? 0
     const totalConversions = attributionResponse?.totalConversions ?? 0
 
-    // Within a row the models differ only when there is more than one touchpoint to split credit over,
-    // so identical numbers everywhere almost always means the goal converts on the visitor's first
-    // session. Real data is fractional, so exact-ish equality is a safe test.
+    // Models only differ when a conversion has more than one touchpoint, so identical numbers across the
+    // board almost always means the goal converts on the visitor's first session.
     const allModelsAgree =
         rows.length > 0 &&
         rows.every((row) => {

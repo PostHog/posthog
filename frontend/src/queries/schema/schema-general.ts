@@ -6339,7 +6339,7 @@ export interface MarketingAnalyticsAttributionQuery extends Omit<
 /** One attribution model's credit for one breakdown row. */
 export interface MarketingAnalyticsAttributionModelCell {
     model: AttributionMode
-    /** Fractional for multi-touch models — each conversion's credit is split across its touchpoints. */
+    /** Fractional for multi-touch models: each conversion's credit is split across its touchpoints. */
     conversions: number
     /** conversions / visitors. Null when the row has no visitors. */
     conversionRate: number | null
@@ -6353,7 +6353,7 @@ export interface MarketingAnalyticsAttributionRow {
     visitors: integer
     /**
      * Conversions with at least one touchpoint on this dimension. Counted once per conversion, so a
-     * conversion influenced by several dimensions is counted in each of their rows — these
+     * conversion influenced by several dimensions is counted in each of their rows. These
      * deliberately sum to more than the total, unlike the per-model columns.
      */
     influencedConversions: integer
@@ -6366,7 +6366,7 @@ export interface MarketingAnalyticsAttributionQueryResponse extends AnalyticsQue
     results: MarketingAnalyticsAttributionRow[]
     /** Model order for the column groups. */
     models: AttributionMode[]
-    /** Whether the goal is revenue-bearing — gates the value columns. */
+    /** Whether the goal is revenue-bearing, which gates the value columns. */
     hasValue: boolean
     /** The team's configured attribution window, for the tooltips. */
     attributionWindowDays: integer

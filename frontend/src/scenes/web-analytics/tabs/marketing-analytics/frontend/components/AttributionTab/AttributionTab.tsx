@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonSelect, LemonSwitch, Popover } from '@posthog/lemon-ui'
@@ -15,8 +14,8 @@ import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsS
 import { BREAKDOWN_LABELS, marketingAttributionLogic } from '../../logic/marketingAttributionLogic'
 import { AttributionTable } from './AttributionTable'
 
-// Ad group and ad are offered but disabled: they exist on the Dashboard's drill-down, so silently
-// dropping them here reads as a bug. Events carry no ad identifier, so no model can credit them.
+// Offered but disabled: they exist on the Dashboard's drill-down, so dropping them silently reads as
+// a bug, but events carry no ad identifier for any model to credit.
 const UNATTRIBUTABLE_LEVELS = [
     { value: 'ad_group', label: 'Ad group' },
     { value: 'ad', label: 'Ad' },
@@ -37,6 +36,7 @@ export function AttributionTab(): JSX.Element {
         attributionWindowDays,
         effectiveLookbackDays,
         effectiveAllowMultipleConversions,
+        optionsOpen,
     } = useValues(marketingAttributionLogic)
     const {
         setBreakdownBy,
@@ -44,11 +44,11 @@ export function AttributionTab(): JSX.Element {
         setExcludeDirectTraffic,
         setLookbackWindowDays,
         setAllowMultipleConversionsPerVisitor,
+        setOptionsOpen,
     } = useActions(marketingAttributionLogic)
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     const { dateFilter } = useValues(marketingAnalyticsLogic)
     const { setDates } = useActions(marketingAnalyticsLogic)
-    const [optionsOpen, setOptionsOpen] = useState(false)
 
     const settingsUrl = urls.settings('environment-marketing-analytics', 'marketing-settings')
 

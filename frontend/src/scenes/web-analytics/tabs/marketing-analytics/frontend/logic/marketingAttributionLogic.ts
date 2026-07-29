@@ -61,6 +61,7 @@ export interface marketingAttributionLogicValues {
     effectiveLookbackDays: number
     excludeDirectTraffic: boolean
     lookbackWindowDays: number | null
+    optionsOpen: boolean
     query: MarketingAnalyticsAttributionQuery | null
     selectedGoalId: string | null
 }
@@ -81,6 +82,9 @@ export interface marketingAttributionLogicActions {
     }
     setAllowMultipleConversionsPerVisitor: (allowMultipleConversionsPerVisitor: boolean) => {
         allowMultipleConversionsPerVisitor: boolean
+    }
+    setOptionsOpen: (optionsOpen: boolean) => {
+        optionsOpen: boolean
     }
 }
 
@@ -134,6 +138,7 @@ export const marketingAttributionLogic = kea<marketingAttributionLogicType>([
         setAllowMultipleConversionsPerVisitor: (allowMultipleConversionsPerVisitor: boolean) => ({
             allowMultipleConversionsPerVisitor,
         }),
+        setOptionsOpen: (optionsOpen: boolean) => ({ optionsOpen }),
     }),
     reducers({
         breakdownBy: [
@@ -153,6 +158,7 @@ export const marketingAttributionLogic = kea<marketingAttributionLogicType>([
             null as number | null,
             { setLookbackWindowDays: (_, { lookbackWindowDays }) => lookbackWindowDays },
         ],
+        optionsOpen: [false, { setOptionsOpen: (_, { optionsOpen }) => optionsOpen }],
         // null means "follow the goal's own math", so a unique-users goal dedupes without being asked.
         allowMultipleConversionsPerVisitor: [
             null as boolean | null,
