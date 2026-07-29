@@ -78,18 +78,17 @@ Pushes still trigger CI, which burns runner credits, so batch related commits an
 
 #### Forcing the full CI matrix on a draft
 
-Draft PRs run a narrowed test matrix.
-The `run-ci-backend` and `run-ci-frontend` labels force the full one, but a label alone does not start a run.
-It applies on the next push, or when the PR is marked ready for review.
-So after labeling a draft, push to start the run. An empty commit is enough:
+Draft PRs run a narrowed matrix.
+The `run-ci-backend` and `run-ci-frontend` labels force the full one, but a label alone starts nothing: it takes effect on the next push, or when the PR is marked ready for review.
+An empty commit is enough.
 
 ```bash
 git commit --allow-empty -m "chore(ci): run the full matrix" && git push
 ```
 
-Do not add `labeled` or `unlabeled` back to a merge gate's `on.pull_request.types` to avoid that push.
-GitHub cannot filter a label trigger by name, so every unrelated label re-runs the full matrices against a commit CI already covered.
-Guarding it inside the workflow is worse, not better: skipping the gate job cascades to the `if: always()` aggregator, which counts skipped dependencies as success and posts a green required check with no tests behind it.
+Do not add `labeled`/`unlabeled` back to a merge gate's `on.pull_request.types` to avoid that push.
+GitHub cannot filter a label trigger by name, so every unrelated label re-runs the full matrices against a commit CI has already covered.
+Guarding it inside the workflow is worse: skipping the gate job cascades to the `if: always()` aggregator, which counts a skipped dependency as success and posts a green required check with no tests behind it.
 
 #### Stacked PRs
 
