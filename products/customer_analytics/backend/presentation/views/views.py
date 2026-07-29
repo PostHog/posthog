@@ -58,6 +58,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     EventStreamMemberWriteSerializer,
     EventStreamSerializer,
     EventStreamTestMessageSerializer,
+    SupportTicketSerializer,
 )
 
 from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
@@ -968,6 +969,18 @@ class AccountViewSet(
         except api.ResourceForbiddenError:
             raise PermissionDenied()
         return Response(AccountSerializer(instance=account).data)
+
+    @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: SupportTicketSerializer(many=True)})
+    @action(methods=["GET"], detail=True, pagination_class=None)
+    def support_tickets(self, request: Request, *args, **kwargs) -> Response:
+        tickets = api.get_account_support_tickets(
+            self.team_id,
+            self.kwargs["pk"],
+            user_access_control=self.user_access_control,
+        )
+        if tickets is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(SupportTicketSerializer(instance=tickets, many=True).data)
 
     def create(self, request: Request, *args, **kwargs) -> Response:
         serializer = AccountSerializer(data=request.data)
