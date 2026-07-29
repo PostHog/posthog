@@ -6,6 +6,8 @@ from decimal import Decimal
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import pyarrow as pa
@@ -31,7 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 )
 
 DELTA_HELPER_PATH = (
-    "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper.DeltaTableHelper"
+    "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper.DeltaTableHelper"
 )
 
 
@@ -191,6 +193,29 @@ class TestComputeTableStatisticsSync:
         assert stat.has_min_max is True
         assert stat.computed_for_delta_version == 12
         assert stat.column_type == "Int64"
+
+    def test_job_reuses_prefetched_schema_to_avoid_lazy_query(self) -> None:
+        # job is fetched without select_related("schema"), so job.folder_path() (which reads
+        # job.schema.source.source_type) would otherwise fire a lazy SELECT on a pooled connection a
+        # transaction pooler may have dropped mid-run, raising a transient OperationalError.
+        team = self._team()
+        schema, table, _ = self._schema_table_job(team)
+        add_actions = pa.table({"num_records": [1], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
+        captured: dict = {}
+
+        def _capture_helper(*, resource_name, job, logger):
+            captured["job"] = job
+            return self._mock_delta(add_actions)
+
+        with (
+            patch.object(comp, "statistics_enabled", return_value=True),
+            patch(DELTA_HELPER_PATH, side_effect=_capture_helper),
+        ):
+            compute_table_statistics_sync(team.id, schema.id)
+
+        with CaptureQueriesContext(connection) as ctx:
+            captured["job"].folder_path()
+        assert len(ctx.captured_queries) == 0
 
     def test_runs_without_ai_data_processing_consent(self) -> None:
         # Statistics never leave our infra, so — unlike enrichment — they must NOT be gated on AI consent.

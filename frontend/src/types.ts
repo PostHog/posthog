@@ -293,6 +293,7 @@ export enum AccessControlResourceType {
     LlmPlayground = 'llm_playground',
     AiObservabilityClusters = 'ai_observability_clusters',
     Notebook = 'notebook',
+    Ticket = 'ticket',
     SessionRecording = 'session_recording',
     SharingConfiguration = 'sharing_configuration',
     RevenueAnalytics = 'revenue_analytics',
@@ -6906,6 +6907,7 @@ export enum SDKKey {
     DOTNET = 'dotnet',
     DSPY = 'dspy',
     ELIXIR = 'elixir',
+    EVE = 'eve',
     FRAMER = 'framer',
     FIREWORKS_AI = 'fireworks_ai',
     FLUTTER = 'flutter',
@@ -7224,6 +7226,7 @@ export type HogFunctionConfigurationContextId =
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
     | 'survey-response'
+    | 'mcp-tool-error'
     | 'activity-log'
     | 'feature-flag-change'
     | 'error-tracking-issue-created'
@@ -7601,8 +7604,8 @@ export interface ProductManifest {
     treeItemsMetadata?: FileSystemImport[]
     /**
      * Boot-time setup-status probe for this product's empty state. Aggregated across
-     * manifests into `productSetupProbes` and answered by one combined event-count
-     * query at app boot (see `productSetupPreloadLogic`).
+     * manifests into `productSetupProbes` and answered by one property-definition
+     * request at app boot (see `productSetupPreloadLogic`).
      */
     setupProbe?: ProductSetupProbe
 }
