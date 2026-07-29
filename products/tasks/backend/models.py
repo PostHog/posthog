@@ -1,6 +1,5 @@
 import os
 import re
-import json
 import uuid
 import string
 import secrets
@@ -8,7 +7,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
-from django.db.models.signals import post_save
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
 from pydantic import BaseModel
@@ -48,6 +47,7 @@ from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
 from products.tasks.backend.metrics import observe_task_run_created, observe_task_run_dispatch_callback
 from products.tasks.backend.redis import evaluate_dedicated_stream_flag, run_uses_dedicated_stream
+from products.tasks.backend.storage import append_jsonl_object
 
 logger = structlog.get_logger(__name__)
 
@@ -387,7 +387,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         extra_state: dict | None = None,
         branch: str | None = None,
     ) -> "TaskRun":
-        state: dict = {"mode": mode}
+        state: dict = {} if self.runtime == Task.Runtime.PI else {"mode": mode}
         if extra_state:
             state.update({k: v for k, v in extra_state.items() if k != "mode"})
         # Pin the stream-routing decision once so every reader/writer agrees for this run's life.
@@ -870,6 +870,71 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         return task
 
 
+class TaskSession(TeamScopedRootMixin, UUIDModel):
+    organization = models.ForeignKey(
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+    )
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+    )
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="task_sessions", db_index=False)
+    object_storage_key = models.CharField(max_length=512, null=True, blank=True, unique=True)
+    content_sha256 = models.CharField(max_length=64, null=True, blank=True)
+    size = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_session"
+        indexes = [
+            models.Index(fields=["organization", "-updated_at"], name="task_session_org_updated_idx"),
+            models.Index(fields=["team", "-updated_at"], name="task_session_team_updated_idx"),
+            models.Index(fields=["task", "-updated_at"], name="task_session_task_updated_idx"),
+        ]
+
+    @classmethod
+    def create_for_task(cls, task: Task) -> "TaskSession":
+        return cls.objects.unscoped().create(
+            organization_id=task.team.organization_id,
+            team_id=task.team_id,
+            task=task,
+        )
+
+    def read_jsonl(self) -> str:
+        if self.object_storage_key is None:
+            return ""
+        return object_storage.read(self.object_storage_key, missing_ok=True) or ""
+
+    def tag_object(self) -> None:
+        if self.object_storage_key is None:
+            return
+        try:
+            object_storage.tag(
+                self.object_storage_key,
+                {
+                    "data_class": "task_session",
+                    "organization_id": str(self.organization_id),
+                    "team_id": str(self.team_id),
+                    "task_id": str(self.task_id),
+                },
+            )
+        except Exception as error:
+            logger.warning(
+                "task_session.failed_to_tag_object",
+                task_session_id=str(self.id),
+                object_storage_key=self.object_storage_key,
+                error=str(error),
+            )
+
+
 class TaskThreadMessage(TeamScopedRootMixin):
     """One message in a task's thread — the side conversation channel members have
     around a task. Human messages never reach the agent unless the task author
@@ -1029,6 +1094,18 @@ class TaskActivity(TeamScopedRootMixin):
                 """,
                 [uuid7(), team_id, user_id, task_id, message_id, kind, activity_at, read_at],
             )
+
+
+class TaskPin(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
+    pinned_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_pin"
+        constraints = [models.UniqueConstraint(fields=["user", "task"], name="task_pin_user_task_unique")]
+        indexes = [models.Index(fields=["user", "-pinned_at"], name="task_pin_user_pinned_idx")]
 
 
 @receiver(post_save, sender=Task)
@@ -1449,6 +1526,13 @@ class TaskRun(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    active_task_session = models.ForeignKey(
+        TaskSession,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="active_runs",
+    )
 
     branch = models.CharField(max_length=255, blank=True, null=True, help_text="Branch name for the run")
 
@@ -1592,6 +1676,9 @@ class TaskRun(models.Model):
         state.pop("pending_user_message", None)
         state.pop("pending_user_message_id", None)
         state.pop("pending_user_message_ts", None)
+        state.pop("sandbox_id", None)
+        state.pop("sandbox_url", None)
+        state.pop("sandbox_jwt_kid", None)
         self.state = state
 
         logger.info(
@@ -1650,6 +1737,21 @@ class TaskRun(models.Model):
                 state.pop(key, None)
             if updates:
                 state.update(updates)
+
+        return cls.mutate_state_atomic(run_id, _mutator)
+
+    @classmethod
+    def clear_sandbox_connection_state_atomic(
+        cls,
+        run_id: str | uuid.UUID,
+        sandbox_id: str,
+    ) -> dict[str, Any]:
+        def _mutator(state: dict[str, Any]) -> None:
+            if state.get("sandbox_id") != sandbox_id:
+                return
+
+            for key in ("sandbox_id", "sandbox_url", "sandbox_connect_token", "sandbox_jwt_kid"):
+                state.pop(key, None)
 
         return cls.mutate_state_atomic(run_id, _mutator)
 
@@ -1790,13 +1892,7 @@ class TaskRun(models.Model):
         if not entries:
             return
 
-        existing_content = object_storage.read(self.log_url, missing_ok=True) or ""
-        is_new_file = not existing_content
-
-        new_lines = "\n".join(json.dumps(entry) for entry in entries)
-        content = existing_content + ("\n" if existing_content else "") + new_lines
-
-        object_storage.write(self.log_url, content)
+        is_new_file = append_jsonl_object(self.log_url, entries)
 
         self._mirror_logs_to_posthog_logs(entries)
 
@@ -2687,6 +2783,27 @@ class TaskPresence(TeamScopedRootMixin):
 
     def __str__(self):
         return f"Presence: user {self.user_id} on task {self.task_id} via device {self.push_token_id}"
+
+
+@receiver(post_delete, sender=TaskSession)
+def delete_task_session_object(sender: type[TaskSession], instance: TaskSession, **kwargs: Any) -> None:
+    if instance.object_storage_key is None:
+        return
+    object_storage_key = instance.object_storage_key
+    task_session_id = str(instance.id)
+
+    def delete_object() -> None:
+        try:
+            object_storage.delete(object_storage_key)
+        except Exception as error:
+            logger.warning(
+                "task_session.failed_to_delete_object",
+                task_session_id=task_session_id,
+                object_storage_key=object_storage_key,
+                error=str(error),
+            )
+
+    transaction.on_commit(delete_object)
 
 
 @receiver(post_save, sender=TaskRun)

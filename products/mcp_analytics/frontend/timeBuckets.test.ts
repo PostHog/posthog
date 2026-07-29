@@ -4,14 +4,15 @@ import { buildBucketKeys, formatBucketLabel, normalizeBucket } from './timeBucke
 
 describe('timeBuckets', () => {
     describe('normalizeBucket', () => {
-        // Guards the flat-zero-sparkline bug: whether the query serializes the bucket as a naive
-        // datetime or a Z-stamped ISO, its wall-clock digits must survive verbatim — even when the
-        // browser sits in a different timezone than the project — or it matches no key.
+        // Guards the flat-zero-sparkline bug: however the query serializes the bucket, its
+        // wall-clock digits must survive verbatim, even when the browser sits in a different
+        // timezone than the project, or it matches no key.
         it.each([
             ['2026-06-18 00:00:00', '2026-06-18 00:00:00'], // naive (toString(dateTrunc))
             ['2026-06-19T00:00:00Z', '2026-06-19 00:00:00'], // Z-stamped ISO (raw DateTime column)
             ['2026-06-19T00:00:00+00:00', '2026-06-19 00:00:00'],
             ['2026-06-19T11:30:00Z', '2026-06-19 11:30:00'],
+            ['2026-06-19T00:00:00-07:00', '2026-06-19 00:00:00'], // offset-stamped (typed DateTime, non-UTC project)
         ])('keeps %s as %s under a non-UTC browser tz', (raw, expected) => {
             dayjs.tz.setDefault('Europe/Athens')
             try {

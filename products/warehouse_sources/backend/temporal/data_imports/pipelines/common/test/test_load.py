@@ -16,9 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.l
 
 _LOAD_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load"
 _PIPELINE_SYNC_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync"
-_REPARTITION_MODULE = (
-    "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.repartition_controller"
-)
+_REPARTITION_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
 
 
 def _make_schema(*, is_cdc: bool, sync_type_config: dict | None = None, partition_count: int | None = 7) -> MagicMock:
@@ -75,7 +73,6 @@ async def _run_post_load(
             source=MagicMock(),
             delta_table_helper=helper,
             row_count=10,
-            file_uris=["s3://bucket/orders/1.parquet"],
             table_schema_dict={},
             resource_name="orders",
             logger=logger,
@@ -176,18 +173,47 @@ class TestRunPostLoadDeltaMaintenance:
         else:
             update_config.assert_not_called()
 
+    @parameterized.expand(
+        [
+            # A genuine maintenance bug must still be captured for visibility.
+            ("genuine_bug", RuntimeError("maintenance blew up"), True),
+            # A transient S3 rate-limit/connectivity blip is already non-fatal here (the next
+            # tick's maintenance retries the same idempotent cleanup) and must not be promoted
+            # into a fresh error-tracking issue — the regression this guards.
+            ("transient_s3_slowdown", OSError("Generic S3 error: Please reduce your request rate."), False),
+        ]
+    )
     @pytest.mark.asyncio
-    async def test_maintenance_failure_does_not_fail_post_load(self):
-        # A maintenance hiccup (S3 flake) must not fail the final batch — the rest of post-load
+    async def test_maintenance_failure_handling(self, _name: str, error: Exception, expect_capture: bool):
+        # A maintenance hiccup must not fail the final batch — the rest of post-load
         # (queryable folder prep, table registration) still has to run or the job wedges.
         schema = _make_schema(is_cdc=True)
         helper = _make_helper()
-        helper.run_maintenance = AsyncMock(side_effect=RuntimeError("maintenance blew up"))
+        helper.run_maintenance = AsyncMock(side_effect=error)
 
         with patch(f"{_LOAD_MODULE}.capture_exception") as mock_capture:
             _, prepare_s3 = await _run_post_load(schema, helper, cdc_write_mode="incremental")
 
-        mock_capture.assert_called_once()
+        assert mock_capture.called is expect_capture
+        prepare_s3.assert_awaited_once()
+
+    @parameterized.expand(
+        [
+            ("genuine_bug", RuntimeError("compaction blew up"), True),
+            ("transient_s3_slowdown", OSError("Generic S3 error: Please reduce your request rate."), False),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_compact_failure_handling(self, _name: str, error: Exception, expect_capture: bool):
+        # Same non-fatal handling as maintenance, for the non-CDC unconditional compact_table path.
+        schema = _make_schema(is_cdc=False)
+        helper = _make_helper()
+        helper.compact_table = AsyncMock(side_effect=error)
+
+        with patch(f"{_LOAD_MODULE}.capture_exception") as mock_capture:
+            _, prepare_s3 = await _run_post_load(schema, helper)
+
+        assert mock_capture.called is expect_capture
         prepare_s3.assert_awaited_once()
 
 

@@ -13,6 +13,7 @@ import asyncio
 from datetime import timedelta
 from uuid import UUID
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -37,6 +38,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricsRecalculation,
 )
 from products.experiments.backend.result_serialization import strip_step_sessions
+from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
 from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.experiments.backend.temporal.recalculation_logic import discover_experiment_metrics, find_metric_dict
 
@@ -203,6 +205,29 @@ def build_job_payload(
         if live_progress is not None:
             payload.update(live_progress)
     return payload
+
+
+def cancel_recalculation_workflow(recalculation_id: str) -> None:
+    """Best-effort cancel of a single recalc's Temporal workflow. Swallows failures (already-finished or
+    never-started runs) so callers can pair it with a status write without the cancel masking that write."""
+    _cancel_superseded_workflows([recalculation_id])
+
+
+def start_metrics_recalculation_workflow(recalculation_id: str, organization_id: str) -> None:
+    """Dispatch the recalculation Temporal workflow for an already-created pending row. Mirrors the API's
+    start path (task queue + org-scoped fairness key) so the admin and the viewset stay in step."""
+    temporal = sync_connect()
+    asyncio.run(
+        temporal.start_workflow(
+            "experiment-metrics-recalculation-workflow",
+            ExperimentMetricsRecalculationWorkflowInputs(
+                recalculation_id=recalculation_id,
+                fairness_key=organization_id,
+            ),
+            id=f"experiment-metrics-recalculation-{recalculation_id}",
+            task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
+        )
+    )
 
 
 def _cancel_superseded_workflows(recalculation_ids: list[str]) -> None:

@@ -210,7 +210,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # has billing disabled (BigQuery sandbox mode), so any query job is rejected before it
             # runs. There's nothing we can do but stop retrying until they enable billing.
             "Billing has not been enabled for this project": "BigQuery billing is not enabled for your Google Cloud project. Enable billing in the Google Cloud console (https://console.cloud.google.com/billing), then resume this source.",
-            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
+            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/core/arrow_utils.py`
             # when an integer column's source type was widened (e.g. `INT64` widened from a
             # narrower numeric type) after the destination table was created with the narrower
             # type. Delta Lake can't widen an existing column in place, so retrying won't help —
