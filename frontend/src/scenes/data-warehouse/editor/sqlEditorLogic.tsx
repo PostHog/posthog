@@ -92,6 +92,9 @@ import { validateEndpointName } from 'products/endpoints/frontend/common'
 
 import type { ExternalDataSourceConnectionOptionApi } from '../../../../../products/warehouse_sources/frontend/generated/api.schemas'
 import type { PaginatedResponse } from '../../../lib/api'
+
+// Mirrors MANAGED_WAREHOUSE_SOURCE_PREFIX in products/warehouse_sources/backend/models/external_data_source.py.
+export const MANAGED_WAREHOUSE_SOURCE_PREFIX = 'managed_warehouse'
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { DatabaseSchemaQueryResponse, Node } from '../../../queries/schema/schema-general'
 import type { DataModelingDAG, DataWarehouseSavedQueryFolder, UserType } from '../../../types'
@@ -1820,12 +1823,19 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
             enforceConnectionRawQueryMode: () => {
                 // Raw-only connections cannot compile HogQL — force raw SQL mode.
-                if (
-                    values.selectedConnectionId &&
-                    !values.selectedConnectionSupportsHogQL &&
-                    !values.sourceQuery.source.sendRawQuery
-                ) {
-                    actions.setSendRawQuery(true)
+                // The managed warehouse (auto-provisioned Duckgres) speaks DuckDB
+                // natively end-to-end, so raw mode is the better default for it too:
+                // it skips the HogQL reprint and reaches the engine verbatim.
+                if (values.selectedConnectionId && !values.sourceQuery.source.sendRawQuery) {
+                    const option = (values.connectionOptions ?? []).find(
+                        (option) => option.id === values.selectedConnectionId
+                    )
+                    const isManagedWarehouseSource =
+                        option?.prefix === MANAGED_WAREHOUSE_SOURCE_PREFIX && option?.source_type === 'Postgres'
+
+                    if (!values.selectedConnectionSupportsHogQL || isManagedWarehouseSource) {
+                        actions.setSendRawQuery(true)
+                    }
                 }
             },
             // Options can load after a connection was restored from the URL.

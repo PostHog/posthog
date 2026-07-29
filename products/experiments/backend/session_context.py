@@ -73,14 +73,13 @@ MAX_CANDIDATE_EXPERIMENTS = 50
 # is a backstop far above any real configuration — without it HogQL applies an implicit
 # LIMIT 100, which would silently and nondeterministically truncate legitimate rows.
 MAX_EXPOSURE_ROWS = 10_000
-# Short-lived because the context is not immutable — late-arriving events, experiment edits,
-# and access-control changes must all surface within minutes. The key includes the viewer:
-# the experiment set is filtered by per-user access control, so entries must never be shared
-# across users. That per-viewer key is also why the TTL is an acceptable ACL boundary: there
-# is no cross-user leak to begin with, the only exposure is a bounded revocation lag for a
-# viewer who legitimately had access moments before — matching how other short-TTL caches in
-# this codebase behave on permission changes. Per-endpoint ACL-version invalidation would add
-# complexity and a lookup to a path that exists to cut latency.
+# Short-lived because the context is not immutable: late-arriving events and experiment edits
+# must surface within minutes. The key includes the viewer because the experiment set is
+# filtered by per-user access control, so entries must never be shared across users.
+# The TTL is not an access-control boundary. Entries are re-filtered against the viewer's
+# current experiment access on read (see _accessible_items), and whether the viewer may open
+# the recording at all is decided per request in the view, so neither kind of revocation waits
+# for expiry. That keeps invalidation out of a path whose only job is to cut latency.
 SESSION_CONTEXT_CACHE_TTL = 10 * 60
 # Hard cap on the batch endpoint's id list. A playlist page holds 20 recordings, and every
 # extra session widens the grouped scans; anything larger should arrive as separate batches.
@@ -150,6 +149,19 @@ def _cache_key(team: Team, user: User, session_id: str) -> str:
     return f"experiment_session_context_v2_{team.pk}_{user.pk}_{session_id}"
 
 
+def _accessible_items(
+    items: list[ExperimentSessionContextItem], accessible_experiment_ids: set[int]
+) -> list[ExperimentSessionContextItem]:
+    """Re-check cached items against the viewer's current experiment access.
+
+    An entry was filtered against `experiments` when it was computed, so without this a viewer
+    whose access to an experiment is revoked would keep seeing it until the entry expires.
+    Re-checking on read makes revocation take effect immediately; a newly granted experiment
+    still waits for the entry to expire, which is the safe direction to lag in.
+    """
+    return [item for item in items if item.experiment_id in accessible_experiment_ids]
+
+
 def get_session_experiment_context(
     team: Team, session_id: str, experiments: QuerySet[Experiment], user: User
 ) -> Optional[list[ExperimentSessionContextItem]]:
@@ -168,7 +180,7 @@ def get_session_experiment_context(
     cache_key = _cache_key(team, user, session_id)
     cached = get_safe_cache(cache_key)
     if cached is not None:
-        return cached
+        return _accessible_items(cached, set(experiments.values_list("id", flat=True)))
 
     metadata = SessionReplayEvents().get_metadata(session_id, team)
     if metadata is None:
@@ -204,10 +216,14 @@ def get_session_experiment_contexts(
     unique_ids = list(dict.fromkeys(session_ids))
     results: dict[str, list[ExperimentSessionContextItem]] = {}
     cold_ids: list[str] = []
+    # Resolved once for the whole batch, and only when something is actually served from cache.
+    accessible_experiment_ids: Optional[set[int]] = None
     for session_id in unique_ids:
         cached = get_safe_cache(_cache_key(team, user, session_id))
         if cached is not None:
-            results[session_id] = cached
+            if accessible_experiment_ids is None:
+                accessible_experiment_ids = set(experiments.values_list("id", flat=True))
+            results[session_id] = _accessible_items(cached, accessible_experiment_ids)
         else:
             cold_ids.append(session_id)
 
