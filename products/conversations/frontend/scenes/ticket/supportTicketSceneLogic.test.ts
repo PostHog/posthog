@@ -2,10 +2,14 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { initKeaTests } from '~/test/init'
 import type { CommentType } from '~/types'
 
 import type { TicketAssignee } from '../../components/Assignee'
+import { conversationsQuickActionsRunCreate } from '../../generated/api'
+import type { QuickActionApi } from '../../generated/api.schemas'
 import type { Ticket, TicketStatus } from '../../types'
 import { EmailReplyBlockedReason, getEmailReplyBlockedReason, supportTicketSceneLogic } from './supportTicketSceneLogic'
 
@@ -40,6 +44,11 @@ jest.mock('~/lib/api', () => {
 jest.mock('products/business_knowledge/frontend/generated/api', () => ({
     businessKnowledgeGapSuggestionsList: jest.fn().mockResolvedValue({ results: [] }),
     businessKnowledgeGapSuggestionsDismissCreate: jest.fn().mockResolvedValue(undefined),
+}))
+
+jest.mock('../../generated/api', () => ({
+    ...jest.requireActual('../../generated/api'),
+    conversationsQuickActionsRunCreate: jest.fn(),
 }))
 
 import api from '~/lib/api'
@@ -387,6 +396,58 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
         }).toDispatchActions(['updateTicket', 'setTicket'])
 
         expect(ticketUpdateMock).toHaveBeenLastCalledWith('42', { tags: ['bug'] })
+    })
+})
+
+describe('supportTicketSceneLogic runWorkflowQuickAction toasts', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    const runCreateMock = conversationsQuickActionsRunCreate as jest.Mock
+    const workflowQuickAction = { short_id: 'qa-1', name: 'Escalate', workflow_id: 'wf-1' } as QuickActionApi
+
+    beforeEach(() => {
+        initKeaTests()
+        runCreateMock.mockReset()
+        logic = supportTicketSceneLogic({ id: 'new' })
+        logic.mount()
+        logic.actions.setTicket(makeTicket())
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
+    })
+
+    // The run can fail, so claiming success before the request settles reads as
+    // success-then-error. Success may only be toasted once the run request is accepted.
+    it('toasts success only after the run request succeeds', async () => {
+        const successToast = jest.spyOn(lemonToast, 'success').mockReturnValue(undefined as any)
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
+        let resolveRun: (() => void) | undefined
+        runCreateMock.mockImplementation(() => new Promise<void>((resolve) => (resolveRun = resolve)))
+
+        logic.actions.runWorkflowQuickAction(workflowQuickAction)
+        await new Promise((r) => setTimeout(r, 0))
+
+        expect(runCreateMock).toHaveBeenCalledTimes(1)
+        expect(successToast).not.toHaveBeenCalled()
+
+        resolveRun?.()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(successToast).toHaveBeenCalledWith('Running "Escalate"')
+        expect(errorToast).not.toHaveBeenCalled()
+    })
+
+    it('toasts an error and no success when the run request fails', async () => {
+        const successToast = jest.spyOn(lemonToast, 'success').mockReturnValue(undefined as any)
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
+        runCreateMock.mockRejectedValue(new Error('request failed'))
+
+        logic.actions.runWorkflowQuickAction(workflowQuickAction)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(successToast).not.toHaveBeenCalled()
+        expect(errorToast).toHaveBeenCalledWith('Failed to run workflow')
     })
 })
 

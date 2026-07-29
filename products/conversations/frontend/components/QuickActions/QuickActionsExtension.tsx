@@ -17,6 +17,8 @@ export interface QuickActionsExtensionOptions {
     getVariables: () => TemplateVariableValues
     /** Applies a response quick action's ticket actions when one is inserted. */
     onApplyActions?: (actions: QuickActionActionsApi) => void
+    /** Runs a workflow quick action against the ticket. */
+    onRunWorkflow?: (quickAction: QuickActionApi) => void
 }
 
 type QuickActionSuggestionProps = {
@@ -38,6 +40,7 @@ const QuickActionSuggestionPopover = forwardRef<QuickActionPickerRef, QuickActio
                 variables: options.getVariables(),
                 range,
                 onApplyActions: options.onApplyActions,
+                onRunWorkflow: options.onRunWorkflow,
             })
             onClose?.()
         }
@@ -65,6 +68,7 @@ export const QuickActionsExtension = Extension.create<QuickActionsExtensionOptio
             enabled: false,
             getVariables: () => ({}),
             onApplyActions: undefined,
+            onRunWorkflow: undefined,
         }
     },
 

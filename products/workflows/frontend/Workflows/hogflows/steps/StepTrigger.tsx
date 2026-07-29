@@ -226,11 +226,14 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                 value: 'webhook',
                 icon: <IconWebhooks />,
             },
+            // The "manual" trigger is hidden from new workflows (trigger surface was reduced ahead of
+            // soft launch in 60ccc795624). It's only offered when the current trigger is already
+            // manual, so existing manual workflows still render and can switch to another type.
             ...(type === 'manual'
                 ? [
                       {
                           label: 'Manual',
-                          description: 'Trigger your workflow manually... with a button!',
+                          description: 'Run only when triggered by hand, from the trigger button',
                           value: 'manual',
                           icon: <IconButton />,
                       },
@@ -491,9 +494,9 @@ function StepTriggerConfigurationWebhook({
 function StepTriggerConfigurationManual(): JSX.Element {
     return (
         <>
-            <div className="flex gap-1">
+            <div className="flex flex-col gap-1">
                 <p className="mb-0">
-                    This workflow can be triggered manually via{' '}
+                    This workflow only runs when triggered by hand. It won't fire on its own. Trigger it from{' '}
                     <Tooltip title="It's up there on the top right ⤴︎">
                         <span className="font-bold cursor-pointer">the trigger button</span>
                     </Tooltip>

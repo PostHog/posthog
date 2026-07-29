@@ -14,8 +14,8 @@ class QuickActionVisibility(models.TextChoices):
 
 
 class QuickAction(TeamScopedRootMixin, UUIDModel):
-    """A saved action an agent triggers from the composer. When used it inserts its reply (if any)
-    and applies its ticket actions (if any), in any combination."""
+    """A saved action an agent triggers from the composer. When used it inserts its reply (if any),
+    applies its ticket actions (if any), and runs its workflow (if any), in any combination."""
 
     # db_constraint=False on the hot-table FKs (team, user) so CreateModel takes no lock
     # on posthog_team / posthog_user. App-level enforcement is enough here.
@@ -40,6 +40,10 @@ class QuickAction(TeamScopedRootMixin, UUIDModel):
     # Optional ticket actions applied when used, e.g.
     # {"status": "closed", "priority": "high", "tags": [...], "assignee": {...}}.
     actions = models.JSONField(default=dict, blank=True)
+
+    # Soft reference to a HogFlow (products/workflows) id, deliberately not a cross-product FK.
+    # The API layer validates that it resolves to an active workflow for the team.
+    workflow_id = models.UUIDField(null=True, blank=True)
 
     # "team" quick actions are shared with everyone on the team and "personal" ones are only
     # visible to their creator.

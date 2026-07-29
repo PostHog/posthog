@@ -43332,6 +43332,16 @@ export namespace Schemas {
       rich_content?: unknown;
       /** Ticket changes (status, priority, tags, assignee) applied when the quick action is used. */
       actions?: QuickActionActions;
+      /**
+         * Optional: id of a workflow to run against the ticket when the quick action is used.
+         * @nullable
+         */
+      workflow_id?: string | null;
+      /**
+         * Whether the attached workflow is active in the current environment. Null when the quick action has no workflow. False means it can't run here (workflows are environment-scoped while quick actions are shared across the project), so the UI can disable running it.
+         * @nullable
+         */
+      readonly workflow_runnable: boolean | null;
       /** "team" shares with everyone on the team; "personal" keeps it private to you.
        *
        * * `team` - Team
@@ -52245,6 +52255,16 @@ export namespace Schemas {
       rich_content?: unknown;
       /** Ticket changes (status, priority, tags, assignee) applied when the quick action is used. */
       actions?: QuickActionActions;
+      /**
+         * Optional: id of a workflow to run against the ticket when the quick action is used.
+         * @nullable
+         */
+      workflow_id?: string | null;
+      /**
+         * Whether the attached workflow is active in the current environment. Null when the quick action has no workflow. False means it can't run here (workflows are environment-scoped while quick actions are shared across the project), so the UI can disable running it.
+         * @nullable
+         */
+      readonly workflow_runnable?: boolean | null;
       /** "team" shares with everyone on the team; "personal" keeps it private to you.
        *
        * * `team` - Team
@@ -59790,6 +59810,16 @@ export namespace Schemas {
 
     export interface QueryUpgradeResponse {
       query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPHarnessBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | PropertyValuesQuery;
+    }
+
+    export interface QuickActionRunError {
+      /** Human-readable explanation of why the run failed. */
+      detail: string;
+    }
+
+    export interface QuickActionRunRequest {
+      /** Ticket to run the workflow against. */
+      ticket_id: string;
     }
 
     export interface QuotaResourceLimit {

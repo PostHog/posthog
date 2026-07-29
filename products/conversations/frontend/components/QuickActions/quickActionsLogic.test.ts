@@ -17,6 +17,7 @@ function makeQuickAction(shortId: string, name: string): QuickActionApi {
         rich_content: {},
         actions: {},
         visibility: QuickActionVisibilityEnumApi.Team,
+        workflow_runnable: null,
         created_at: '2020-01-01T00:00:00Z',
         created_by: { id: 1 } as QuickActionApi['created_by'],
     }

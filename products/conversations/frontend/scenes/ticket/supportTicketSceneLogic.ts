@@ -15,6 +15,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -48,7 +49,8 @@ import type { UserType } from '../../../../../frontend/src/types'
 import { assigneeSelectLogic } from '../../components/Assignee'
 import type { Assignee, TicketAssignee } from '../../components/Assignee'
 import { TemplateVariableValues } from '../../components/Editor/templateVariables'
-import type { QuickActionActionsApi } from '../../generated/api.schemas'
+import { conversationsQuickActionsRunCreate } from '../../generated/api'
+import type { QuickActionActionsApi, QuickActionApi } from '../../generated/api.schemas'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import { priorityOptions } from '../../types'
 import type {
@@ -336,6 +338,9 @@ export interface supportTicketSceneLogicActions {
         messageId: string
         rating: AiReplyFeedbackRating
     }
+    runWorkflowQuickAction: (quickAction: QuickActionApi) => {
+        quickAction: QuickActionApi
+    }
     sendMessage: (
         content: string,
         richContent: Record<string, unknown> | null,
@@ -517,6 +522,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setAssignee: (assignee: TicketAssignee) => ({ assignee }),
         setTags: (tags: string[]) => ({ tags }),
         applyTicketActions: (ticketActions: QuickActionActionsApi) => ({ ticketActions }),
+        runWorkflowQuickAction: (quickAction: QuickActionApi) => ({ quickAction }),
         setSnoozedUntil: (snoozedUntil: string | null) => ({ snoozedUntil }),
 
         // Session context actions
@@ -1051,8 +1057,49 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             }
             // Persist only the fields this quick action set, so any unrelated unsaved ticket edits
             // aren't saved as a side effect. Text insertion into the composer is handled separately.
+            // Publish a settle promise so a workflow run from the same quick action waits for the
+            // PATCH to commit before the backend reads the ticket (otherwise it sees stale fields).
             if (fields.length > 0) {
+                cache.ticketUpdateSettled = new Promise<void>((resolve) => {
+                    cache.resolveTicketUpdate = resolve
+                })
                 actions.updateTicket(fields)
+            }
+        },
+        runWorkflowQuickAction: async ({ quickAction }) => {
+            const ticket = values.ticket
+            if (!ticket) {
+                return
+            }
+            // The run isn't idempotent, so block a double-fire. Say so instead of swallowing the
+            // second click silently (there's no picker entry left to disable, it closes on select).
+            if (cache.runningWorkflowQuickAction) {
+                lemonToast.info(`Still running "${quickAction.name}". Give it a moment.`)
+                return
+            }
+            cache.runningWorkflowQuickAction = true
+            try {
+                // Wait out any ticket-field update from the same quick action so the workflow runs
+                // against the updated ticket, not the pre-update state.
+                if (cache.ticketUpdateSettled) {
+                    await cache.ticketUpdateSettled
+                }
+                await conversationsQuickActionsRunCreate(String(getCurrentTeamId()), quickAction.short_id, {
+                    ticket_id: ticket.id,
+                })
+                // Only claim success once the run request is accepted, since toasting before the await
+                // reads as success-then-error when the run fails.
+                lemonToast.success(`Running "${quickAction.name}"`)
+                // The workflow may change the ticket server-side, so refresh to prevent a later local edit
+                // doesn't PATCH over its changes with stale state.
+                actions.loadTicket()
+            } catch (error) {
+                posthog.captureException(error)
+                lemonToast.error('Failed to run workflow')
+            } finally {
+                cache.runningWorkflowQuickAction = false
+                // Drop the consumed settle promise so it can't latch a resolved value for a later run.
+                cache.ticketUpdateSettled = undefined
             }
         },
         loadTicket: async () => {
@@ -1106,8 +1153,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             actions.loadPreviousTickets()
         },
         updateTicket: async ({ restrictToFields }, breakpoint) => {
+            // Take ownership of the settle-promise resolver published for THIS update (if any) before
+            // any await, so an earlier update finishing later can't release a different quick action's
+            // workflow run. Mirrors the ticketUpdateRequest identity guard below.
+            const resolveThisUpdate = cache.resolveTicketUpdate
+            cache.resolveTicketUpdate = undefined
             if (props.id === 'new') {
                 actions.setTicketUpdating(false)
+                resolveThisUpdate?.()
                 return
             }
             // Serialize overlapping saves: wait out any in-flight PATCH so requests can't land out of
@@ -1164,6 +1217,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 if (cache.ticketUpdateRequest === request) {
                     cache.ticketUpdateRequest = null
                 }
+                // Release only the workflow run waiting on THIS update's settle promise.
+                resolveThisUpdate?.()
             }
         },
         loadMessages: async () => {

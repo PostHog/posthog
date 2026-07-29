@@ -233,6 +233,10 @@ export const ConversationsQuickActionsCreateBody = /* @__PURE__ */ zod.object({
         .describe('Optional ticket changes applied when a response quick action is used. Omit for text-only.')
         .optional()
         .describe('Ticket changes (status, priority, tags, assignee) applied when the quick action is used.'),
+    workflow_id: zod
+        .uuid()
+        .nullish()
+        .describe('Optional: id of a workflow to run against the ticket when the quick action is used.'),
     visibility: zod
         .enum(['team', 'personal'])
         .describe('\* `team` - Team\n\* `personal` - Personal')
@@ -321,6 +325,10 @@ export const ConversationsQuickActionsUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Optional ticket changes applied when a response quick action is used. Omit for text-only.')
         .optional()
         .describe('Ticket changes (status, priority, tags, assignee) applied when the quick action is used.'),
+    workflow_id: zod
+        .uuid()
+        .nullish()
+        .describe('Optional: id of a workflow to run against the ticket when the quick action is used.'),
     visibility: zod
         .enum(['team', 'personal'])
         .describe('\* `team` - Team\n\* `personal` - Personal')
@@ -410,6 +418,10 @@ export const ConversationsQuickActionsPartialUpdateBody = /* @__PURE__ */ zod.ob
         .describe('Optional ticket changes applied when a response quick action is used. Omit for text-only.')
         .optional()
         .describe('Ticket changes (status, priority, tags, assignee) applied when the quick action is used.'),
+    workflow_id: zod
+        .uuid()
+        .nullish()
+        .describe('Optional: id of a workflow to run against the ticket when the quick action is used.'),
     visibility: zod
         .enum(['team', 'personal'])
         .describe('\* `team` - Team\n\* `personal` - Personal')
@@ -417,6 +429,13 @@ export const ConversationsQuickActionsPartialUpdateBody = /* @__PURE__ */ zod.ob
         .describe(
             '\"team\" shares with everyone on the team; \"personal\" keeps it private to you.\n\n\* `team` - Team\n\* `personal` - Personal'
         ),
+})
+
+/**
+ * Run a workflow quick action against a ticket, synthesizing the ticket's event context.
+ */
+export const ConversationsQuickActionsRunCreateBody = /* @__PURE__ */ zod.object({
+    ticket_id: zod.uuid().describe('Ticket to run the workflow against.'),
 })
 
 /**

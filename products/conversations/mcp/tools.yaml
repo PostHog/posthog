@@ -24,6 +24,9 @@ tools:
     conversations-quick-actions-retrieve:
         operation: conversations_quick_actions_retrieve
         enabled: false
+    conversations-quick-actions-run-create:
+        operation: conversations_quick_actions_run_create
+        enabled: false
     conversations-quick-actions-update:
         operation: conversations_quick_actions_update
         enabled: false

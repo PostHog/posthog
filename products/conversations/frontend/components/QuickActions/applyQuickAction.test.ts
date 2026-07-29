@@ -8,6 +8,7 @@ function quickAction(overrides: Partial<QuickActionApi>): QuickActionApi {
         id: '1',
         short_id: 'abc',
         name: 'Test',
+        workflow_runnable: null,
         created_at: '2026-01-01T00:00:00Z',
         created_by: {} as QuickActionApi['created_by'],
         ...overrides,
@@ -75,26 +76,40 @@ describe('applyQuickAction', () => {
         })
     })
 
-    // Regression: the dispatcher inserts a reply when the quick action has one. An actions-only
-    // quick action applies its ticket actions without inserting any text.
+    // Regression: a quick action applies whatever it has. Workflow-only runs without inserting,
+    // reply-only inserts without running, and a quick action with both does both.
     describe('applyQuickAction', () => {
-        it("inserts a reply quick action's body", () => {
+        it('runs a workflow-only quick action without inserting text', () => {
             const { editor, state } = fakeEditor()
+            const onRunWorkflow = jest.fn()
+            const wf = quickAction({ workflow_id: 'w1' })
 
-            applyQuickAction(editor, quickAction({ content: 'hello' }), {})
+            applyQuickAction(editor, wf, { onRunWorkflow })
 
+            expect(onRunWorkflow).toHaveBeenCalledWith(wf)
+            expect(state.insertedContent).toBe(false)
+        })
+
+        it('inserts a reply-only quick action without running a workflow', () => {
+            const { editor, state } = fakeEditor()
+            const onRunWorkflow = jest.fn()
+            const resp = quickAction({ content: 'hello' })
+
+            applyQuickAction(editor, resp, { onRunWorkflow })
+
+            expect(onRunWorkflow).not.toHaveBeenCalled()
             expect(state.insertedContent).toBe(true)
         })
 
-        it('applies ticket actions without inserting for an actions-only quick action', () => {
+        it('both inserts the reply and runs the workflow when the quick action has both', () => {
             const { editor, state } = fakeEditor()
-            const onApplyActions = jest.fn()
-            const actionsOnly = quickAction({ actions: { tags: ['vip'] } })
+            const onRunWorkflow = jest.fn()
+            const both = quickAction({ content: 'generating that for you', workflow_id: 'w1' })
 
-            applyQuickAction(editor, actionsOnly, { onApplyActions })
+            applyQuickAction(editor, both, { onRunWorkflow })
 
-            expect(state.insertedContent).toBe(false)
-            expect(onApplyActions).toHaveBeenCalledWith({ tags: ['vip'] })
+            expect(state.insertedContent).toBe(true)
+            expect(onRunWorkflow).toHaveBeenCalledWith(both)
         })
     })
 })
