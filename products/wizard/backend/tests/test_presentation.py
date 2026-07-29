@@ -402,8 +402,10 @@ class TestWizardSessionViewSet(APIBaseTest):
         self.assertNotIn("prompts", response.json()["pending_input"])
 
         session = WizardSession.objects.unscoped().get(team=self.team)
-        self.assertNotIn("prompts", session.pending_input)
-        self.assertTrue(session.pending_input["sensitive"])
+        stored = session.pending_input
+        assert stored is not None
+        self.assertNotIn("prompts", stored)
+        self.assertTrue(stored["sensitive"])
 
     @parameterized.expand(
         [
