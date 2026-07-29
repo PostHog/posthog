@@ -41,7 +41,7 @@ import {
     FlushBatchStoresOutputs,
     createGroupProducePromises,
 } from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
-import { createOkContext } from '~/ingestion/framework/helpers'
+import { createKafkaDebugContext, createOkContext } from '~/ingestion/framework/helpers'
 import { TopHog } from '~/ingestion/framework/tophog'
 import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
 import {
@@ -471,7 +471,9 @@ export class IngestionApiServer implements NodeServer {
         try {
             const messages: Message[] = serializedMessages.map(deserializeKafkaMessage)
 
-            const batch = messages.map((message) => createOkContext({ message }, { message }))
+            const batch = messages.map((message) =>
+                createOkContext({ message }, { message, debugContext: createKafkaDebugContext(message) })
+            )
             // Per-key order check, synchronously adjacent to feed() so check
             // order equals feed order across concurrent requests. The grouping
             // stage processes each key in feed order, so this measures the
