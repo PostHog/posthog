@@ -14,7 +14,7 @@ function quickAction(overrides: Partial<QuickActionApi>): QuickActionApi {
     }
 }
 
-/** Minimal chainable editor stub — records whether insert methods were called. */
+/** Minimal chainable editor stub that records whether insert methods were called. */
 function fakeEditor(): { editor: Editor; state: { insertedContent: boolean } } {
     const state = { insertedContent: false }
     const chain: any = {

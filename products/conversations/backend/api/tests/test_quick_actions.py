@@ -114,7 +114,7 @@ class TestQuickActionAPI(APIBaseTest):
     def test_assignee_only_action_can_be_resaved_after_clearing_reply(self) -> None:
         # Regression guard: an assignee-only quick action (assignee is API-only) still counts as
         # doing something. Clearing the reply and submitting empty actions from the UI must not be
-        # rejected as empty — validate() has to see the assignee that update() merges back.
+        # rejected as empty, so validate() has to see the assignee that update() merges back.
         created = self.client.post(
             self.base_url,
             {"name": "Route to on-call", "actions": {"assignee": {"type": "user", "id": "42"}}},

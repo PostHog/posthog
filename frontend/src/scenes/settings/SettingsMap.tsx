@@ -1205,7 +1205,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'conversations-quick-actions',
                 title: 'Quick actions',
                 description:
-                    'Reusable actions your team can trigger in a conversation with / or the quick action button. A quick action can insert a saved reply (and set the ticket status, priority, or tags) or run one of your workflows against the ticket.',
+                    'Reusable actions your team can trigger in a conversation with / or the quick action button. A quick action can insert a saved reply and set the ticket status, priority, or tags.',
                 component: <QuickActionsSection />,
                 allowForTeam: (t) => !!t?.conversations_enabled,
                 keywords: [
@@ -1216,7 +1216,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'reply',
                     'template',
                     'snippet',
-                    'workflow',
                     'support',
                     'conversation',
                 ],

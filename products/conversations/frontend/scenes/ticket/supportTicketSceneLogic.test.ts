@@ -375,7 +375,7 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
         expect(logic.values.ticketUpdating).toBe(false)
     })
 
-    // Applying a quick action must persist only the fields it sets — a tags-only quick action
+    // Applying a quick action must persist only the fields it sets: a tags-only quick action
     // shouldn't sweep up an unrelated, unsaved priority edit the agent left pending.
     it('applyTicketActions saves only the fields the quick action set', async () => {
         ticketUpdateMock.mockResolvedValue({ ...loadedTicket(), tags: ['bug'] })

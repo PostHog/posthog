@@ -15,7 +15,7 @@ class QuickActionVisibility(models.TextChoices):
 
 class QuickAction(TeamScopedRootMixin, UUIDModel):
     """A saved action an agent triggers from the composer. When used it inserts its reply (if any)
-    and applies its ticket actions (if any) — in any combination."""
+    and applies its ticket actions (if any), in any combination."""
 
     # db_constraint=False on the hot-table FKs (team, user) so CreateModel takes no lock
     # on posthog_team / posthog_user; app-level enforcement is enough here.

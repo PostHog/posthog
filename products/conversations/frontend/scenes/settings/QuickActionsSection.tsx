@@ -15,7 +15,7 @@ import { hasVisibleText, quickActionHasReply, quickActionToDoc } from '../../com
 import { quickActionsLogic } from '../../components/QuickActions/quickActionsLogic'
 import { TicketTags } from '../../components/TicketTags'
 import type { QuickActionApi } from '../../generated/api.schemas'
-import { QuickActionVisibilityEnumApi } from '../../generated/api.schemas'
+import { AssigneeTypeEnumApi, QuickActionVisibilityEnumApi } from '../../generated/api.schemas'
 import { priorityOptions, statusOptionsWithoutAll } from '../../types'
 
 /** Short human summary of what a quick action does, for the table. */
@@ -32,6 +32,15 @@ function summary(quickAction: QuickActionApi): string {
     }
     if (quickAction.actions?.tags?.length) {
         parts.push(`${quickAction.actions.tags.length} tag${quickAction.actions.tags.length === 1 ? '' : 's'}`)
+    }
+    // Assignee is settable via the API only, but an assignee-only quick action still does something.
+    const assignee = quickAction.actions?.assignee
+    if (assignee) {
+        parts.push(
+            assignee.id
+                ? `assigns to a ${assignee.type === AssigneeTypeEnumApi.Role ? 'role' : 'user'}`
+                : 'clears assignee'
+        )
     }
     return parts.length ? parts.join(', ') : '—'
 }
@@ -68,7 +77,7 @@ export function QuickActionsSection(): JSX.Element {
 
     const editorRef = useRef<RichContentEditorType | null>(null)
     const editingQuickAction = quickActions.find((q) => q.short_id === editingShortId) ?? null
-    // Only the creator can turn a shared team quick action personal — otherwise it would vanish for
+    // Only the creator can turn a shared team quick action personal, because it would vanish for
     // everyone else. Mirrors the server-side guard so the invalid option isn't even offered.
     const canMakePersonal =
         !editingQuickAction ||
@@ -212,7 +221,7 @@ export function QuickActionsSection(): JSX.Element {
                             <LemonInput
                                 value={description}
                                 onChange={setDescription}
-                                placeholder="Optional — when to use this"
+                                placeholder="Optional. When to use this"
                             />
                         </LemonField.Pure>
                         <LemonField.Pure label="Visibility">
@@ -220,10 +229,10 @@ export function QuickActionsSection(): JSX.Element {
                                 value={visibility}
                                 onChange={setVisibility}
                                 options={[
-                                    { value: QuickActionVisibilityEnumApi.Team, label: 'Team — shared with everyone' },
+                                    { value: QuickActionVisibilityEnumApi.Team, label: 'Team (shared with everyone)' },
                                     {
                                         value: QuickActionVisibilityEnumApi.Personal,
-                                        label: 'Personal — only you',
+                                        label: 'Personal (only you)',
                                         disabledReason: canMakePersonal
                                             ? undefined
                                             : 'Only the creator can make a shared quick action personal',
@@ -248,7 +257,7 @@ export function QuickActionsSection(): JSX.Element {
                         />
                     </LemonField.Pure>
                     <div className="grid grid-cols-2 gap-3">
-                        <LemonField.Pure label="Set status" info="Optional — applied when the quick action is used.">
+                        <LemonField.Pure label="Set status" info="Optional. Applied when the quick action is used.">
                             <LemonSelect
                                 value={statusAction}
                                 onChange={setStatusAction}
@@ -257,7 +266,7 @@ export function QuickActionsSection(): JSX.Element {
                                 options={statusOptionsWithoutAll.map((o) => ({ value: o.value, label: o.label }))}
                             />
                         </LemonField.Pure>
-                        <LemonField.Pure label="Set priority" info="Optional — applied when the quick action is used.">
+                        <LemonField.Pure label="Set priority" info="Optional. Applied when the quick action is used.">
                             <LemonSelect
                                 value={priorityAction}
                                 onChange={setPriorityAction}
@@ -269,7 +278,7 @@ export function QuickActionsSection(): JSX.Element {
                     </div>
                     <LemonField.Pure
                         label="Set tags"
-                        info="Optional — replaces the ticket's tags when the quick action is used."
+                        info="Optional. Replaces the ticket's tags when the quick action is used."
                     >
                         <TicketTags tags={tagsAction} onChange={setTagsAction} className="p-0" />
                     </LemonField.Pure>

@@ -33,6 +33,7 @@ export interface quickActionsLogicValues {
     editingShortId: string | null
     isModalOpen: boolean
     loadFailed: boolean
+    modalSessionId: number
     name: string
     personalQuickActions: QuickActionApi[]
     priorityAction: TicketPriority | null
@@ -150,7 +151,7 @@ export const quickActionsLogic = kea<quickActionsLogicType>([
         quickActions: [
             [] as QuickActionApi[],
             {
-                loadQuickActions: async () => {
+                loadQuickActions: async (_, breakpoint) => {
                     // Page through so teams with more quick actions than the page size still see all.
                     const teamId = String(values.currentTeamId)
                     const pageSize = 100
@@ -158,6 +159,9 @@ export const quickActionsLogic = kea<quickActionsLogicType>([
                     let offset = 0
                     for (;;) {
                         const response = await conversationsQuickActionsList(teamId, { limit: pageSize, offset })
+                        // Bail if a newer load started in the meantime (e.g. a team switch), so a slow
+                        // multi-page fetch can't resolve last and clobber the newer list.
+                        breakpoint()
                         all.push(...response.results)
                         if (!response.next || response.results.length === 0) {
                             break
@@ -186,7 +190,15 @@ export const quickActionsLogic = kea<quickActionsLogicType>([
                 openCreateModal: () => true,
                 openEditModal: () => true,
                 closeModal: () => false,
-                quickActionSaved: () => false,
+            },
+        ],
+        // Increments each time the modal opens, so an in-flight save can tell whether the modal
+        // currently on screen is still the one it was started from before closing it.
+        modalSessionId: [
+            0,
+            {
+                openCreateModal: (state) => state + 1,
+                openEditModal: (state) => state + 1,
             },
         ],
         editingShortId: [
@@ -302,17 +314,27 @@ export const quickActionsLogic = kea<quickActionsLogicType>([
                 actions: ticketActions,
                 visibility: values.visibility,
             }
+            // Capture what this save is for before awaiting: the user can close and reopen the
+            // modal while the request is in flight, and a stale response must not act on the
+            // reopened modal's state.
+            const editingShortId = values.editingShortId
+            const modalSessionAtSave = values.modalSessionId
             actions.setSaving(true)
             try {
-                const saved = values.editingShortId
+                const saved = editingShortId
                     ? await conversationsQuickActionsPartialUpdate(
                           String(values.currentTeamId),
-                          values.editingShortId,
+                          editingShortId,
                           payload
                       )
                     : await conversationsQuickActionsCreate(String(values.currentTeamId), payload)
                 actions.quickActionSaved(saved)
-                lemonToast.success(values.editingShortId ? 'Quick action updated' : 'Quick action created')
+                // Only close the modal if it's still the one this save came from; otherwise a
+                // stale response would close a modal reopened for another item, discarding input.
+                if (values.modalSessionId === modalSessionAtSave) {
+                    actions.closeModal()
+                }
+                lemonToast.success(editingShortId ? 'Quick action updated' : 'Quick action created')
             } catch (error) {
                 posthog.captureException(error)
                 lemonToast.error('Failed to save quick action')
