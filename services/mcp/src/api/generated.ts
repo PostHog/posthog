@@ -78258,8 +78258,6 @@ export namespace Schemas {
 
     export type LlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown };
 
-    export type LlmAnalyticsEvaluationSummaryCreate429 = { [key: string]: unknown };
-
     export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown };
 
     export type LlmAnalyticsModelsRetrieveParams = {

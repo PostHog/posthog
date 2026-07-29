@@ -2823,8 +2823,6 @@ export type LlmAnalyticsEvaluationSummaryCreate403 = { [key: string]: unknown }
 
 export type LlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown }
 
-export type LlmAnalyticsEvaluationSummaryCreate429 = { [key: string]: unknown }
-
 export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsModelsRetrieveParams = {

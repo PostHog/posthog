@@ -7,12 +7,7 @@ runs can trip the ai-gateway's ~30s hard timeout.
 
 import json
 import asyncio
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from typing import Any, Literal, TypeVar, cast
-from uuid import uuid4
-
-from django.core.cache import cache
 
 import structlog
 from openai import AsyncOpenAI
@@ -24,7 +19,6 @@ from posthog.llm.gateway_client import build_async_openai_client
 
 from ..constants import (
     EVALUATION_SUMMARY_CHUNK_SIZE,
-    EVALUATION_SUMMARY_GENERATION_LOCK_TIMEOUT,
     EVALUATION_SUMMARY_MAP_REASONING_MAX_CHARS,
     EVALUATION_SUMMARY_MAX_CONCURRENT_MAP_CALLS,
     EVALUATION_SUMMARY_MIN_USER_PROMPT_CHARS,
@@ -45,27 +39,6 @@ logger = structlog.get_logger(__name__)
 
 StructuredResponse = TypeVar("StructuredResponse", bound=BaseModel)
 ResultCategory = Literal["pass", "fail", "na"]
-
-
-@asynccontextmanager
-async def _team_generation_lock(team_id: int) -> AsyncIterator[None]:
-    lock_key = f"llm_eval_summary_generation_lock:{team_id}"
-    lock_token = uuid4().hex
-    acquired = await cache.aadd(
-        lock_key,
-        lock_token,
-        timeout=EVALUATION_SUMMARY_GENERATION_LOCK_TIMEOUT,
-    )
-    if not acquired:
-        raise exceptions.Throttled(
-            detail="An evaluation summary is already being generated for this project. Try again when it finishes."
-        )
-
-    try:
-        yield
-    finally:
-        if await cache.aget(lock_key) == lock_token:
-            await cache.adelete(lock_key)
 
 
 def _result_label(result: bool | None) -> str:
@@ -585,17 +558,16 @@ async def summarize_evaluation_runs(
         raise exceptions.ValidationError("No evaluation runs provided")
 
     try:
-        async with _team_generation_lock(team_id):
-            return await _generate_evaluation_summary(
-                evaluation_runs=evaluation_runs,
-                team_id=team_id,
-                model=model,
-                filter_type=filter_type,
-                evaluation_name=evaluation_name,
-                evaluation_description=evaluation_description,
-                evaluation_prompt=evaluation_prompt,
-                user_distinct_id=user_distinct_id,
-            )
+        return await _generate_evaluation_summary(
+            evaluation_runs=evaluation_runs,
+            team_id=team_id,
+            model=model,
+            filter_type=filter_type,
+            evaluation_name=evaluation_name,
+            evaluation_description=evaluation_description,
+            evaluation_prompt=evaluation_prompt,
+            user_distinct_id=user_distinct_id,
+        )
     except exceptions.APIException:
         raise
     except Exception as error:

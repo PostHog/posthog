@@ -269,7 +269,6 @@ class LLMEvaluationSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             400: OpenApiTypes.OBJECT,
             403: OpenApiTypes.OBJECT,
             404: OpenApiTypes.OBJECT,
-            429: OpenApiTypes.OBJECT,
             500: OpenApiTypes.OBJECT,
         },
         examples=[
@@ -453,7 +452,7 @@ Data is fetched server-side by evaluation ID to ensure data integrity.
 
             return Response(result, status=status.HTTP_200_OK)
 
-        except (exceptions.Throttled, exceptions.ValidationError):
+        except exceptions.ValidationError:
             raise
         except Exception as e:
             logger.exception(

@@ -6,8 +6,6 @@ from typing import Any
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.core.cache import cache
-
 from rest_framework import exceptions
 
 from products.ai_observability.backend.summarization.constants import (
@@ -208,52 +206,6 @@ class TestSummarizeEvaluationRuns:
         mock_builder.assert_called_once_with("llma_eval_summary", ai_product="aio_eval_summary")
         assert mock_client.chat.completions.create.call_args.kwargs["timeout"] == SUMMARIZATION_TIMEOUT
         assert result.overall_assessment == "Mostly passing."
-
-    def test_concurrent_requests_share_team_generation_lock(self, valid_evaluation_summary_json: str) -> None:
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = valid_evaluation_summary_json
-
-        async def run_concurrent_summaries() -> None:
-            first_call_started = asyncio.Event()
-            release_first_call = asyncio.Event()
-
-            async def blocking_completion(**_kwargs: Any) -> MagicMock:
-                first_call_started.set()
-                await release_first_call.wait()
-                return mock_response
-
-            with patch(
-                "products.ai_observability.backend.summarization.llm.evaluation_summary.build_async_openai_client"
-            ) as mock_builder:
-                mock_client = MagicMock()
-                mock_client.chat.completions.create = AsyncMock(side_effect=blocking_completion)
-                mock_builder.return_value = mock_client
-
-                first_summary = asyncio.create_task(
-                    summarize_evaluation_runs(
-                        evaluation_runs=[{"generation_id": "g1", "result": True, "reasoning": "good"}],
-                        team_id=1,
-                        model=OpenAIModel.GPT_4_1_MINI,
-                    )
-                )
-                await first_call_started.wait()
-                try:
-                    with pytest.raises(exceptions.Throttled, match="already being generated"):
-                        await summarize_evaluation_runs(
-                            evaluation_runs=[{"generation_id": "g2", "result": True, "reasoning": "also good"}],
-                            team_id=1,
-                            model=OpenAIModel.GPT_4_1_MINI,
-                        )
-                finally:
-                    release_first_call.set()
-                    await first_summary
-
-        cache.clear()
-        try:
-            asyncio.run(run_concurrent_summaries())
-        finally:
-            cache.clear()
 
     def test_large_run_set_bounds_every_request_and_retries_incomplete_maps(self) -> None:
         def response_with_content(content: str) -> MagicMock:
