@@ -50,7 +50,7 @@ def _make_resilient_restore_context(
     return resilient_restore_context
 
 
-asgiref.sync._restore_context = _make_resilient_restore_context(asgiref.sync._restore_context)
+asgiref.sync._restore_context = _make_resilient_restore_context(asgiref.sync._restore_context)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
 # Prometheus metric to track database_sync_to_async execution time
 DATABASE_SYNC_TO_ASYNC_TIME = Histogram(
