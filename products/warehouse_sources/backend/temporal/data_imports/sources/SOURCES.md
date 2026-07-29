@@ -95,6 +95,7 @@ the row lists both.
 | bettermode                       | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | bigmailer                        | HTTP                        | requests                                                        | ✅                          |
 | bigquery                         | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
+| bill_com                         | HTTP                        | requests                                                        | ✅                          |
 | bing_ads                         | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
 | bitbucket                        | HTTP                        | requests                                                        | ✅                          |
 | bitrise                          | HTTP                        | requests                                                        | ✅                          |
@@ -371,6 +372,7 @@ the row lists both.
 | loops                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | luma                             | HTTP                        | requests                                                        | ✅                          |
 | mailchimp                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| marketo                          | HTTP                        | requests                                                        | ✅                          |
 | mem0                             | HTTP                        | requests                                                        | ✅                          |
 | mailerlite                       | HTTP                        | requests                                                        | ✅                          |
 | mailersend                       | HTTP                        | requests                                                        | ✅                          |
@@ -478,6 +480,7 @@ the row lists both.
 | pylon                            | HTTP                        | requests                                                        | ✅                          |
 | pypi                             | HTTP                        | requests                                                        | ✅                          |
 | qualaroo                         | HTTP                        | requests                                                        | ✅                          |
+| qualtrics                        | HTTP                        | requests                                                        | ✅                          |
 | qualys_vmdr                      | HTTP (XML responses)        | requests                                                        | ✅                          |
 | railway                          | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | recurly                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -634,6 +637,7 @@ the row lists both.
 | woocommerce                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | wordpress                        | HTTP                        | requests                                                        | ✅                          |
 | workable                         | HTTP                        | requests                                                        | ✅                          |
+| workday                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | workos                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | wrike                            | HTTP                        | requests                                                        | ✅                          |
 | writesonic                       | HTTP                        | requests                                                        | ✅                          |
@@ -799,7 +803,6 @@ doesn't conflict with concurrent PRs.
 - beehiiv
 - bigcommerce
 - bigeye
-- bill_com
 - billomat
 - bing_webmaster_tools
 - bitly
@@ -1076,7 +1079,6 @@ doesn't conflict with concurrent PRs.
 - m3ter
 - mailtrap
 - mantle
-- marketo
 - mastodon
 - meetup
 - memberful
@@ -1210,7 +1212,6 @@ doesn't conflict with concurrent PRs.
 - pubnub
 - qdrant
 - qonto
-- qualtrics
 - quay
 - quickbooks
 - railz
@@ -1386,7 +1387,6 @@ doesn't conflict with concurrent PRs.
 - wiz
 - wompi
 - workato
-- workday
 - workflowmax
 - workiz
 - workramp
