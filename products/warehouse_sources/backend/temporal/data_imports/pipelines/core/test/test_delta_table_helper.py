@@ -479,12 +479,12 @@ class TestWriteToDeltalakeCommitMetadataPassThrough:
                 assert commit_properties.custom_metadata == expected_custom_metadata
 
 
-class TestExecuteMergeWithConflictRetry:
-    """A merge's CommitFailedError means delta-rs's conflict checker rejected the commit
-    outright, without spending any of its own internal retry budget (see the comment on
+class TestExecuteWithConflictRetry:
+    """A committing operation's CommitFailedError means delta-rs's conflict checker rejected the
+    commit outright, without spending any of its own internal retry budget (see the comment on
     DELTA_MERGE_CONFLICT_RETRIES). Regression coverage for the sync dying on the first such
-    conflict instead of refreshing the table and re-running the merge, as the error's own
-    "must be rerun" message calls for."""
+    conflict instead of refreshing the table and re-running the operation, as the error's own
+    "must be rerun" message calls for. Shared by merges and `compact_table`'s optimize.compact."""
 
     def _helper(self) -> DeltaTableHelper:
         return DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
@@ -493,58 +493,84 @@ class TestExecuteMergeWithConflictRetry:
     async def test_succeeds_without_retry(self):
         helper = self._helper()
         table = MagicMock()
-        merge_fn = MagicMock(return_value={"num_output_rows": 1})
+        operation_fn = MagicMock(return_value={"num_output_rows": 1})
 
-        result = await helper._execute_merge_with_conflict_retry(table, merge_fn)
+        result = await helper._execute_with_conflict_retry(table, operation_fn, "op")
 
         assert result == {"num_output_rows": 1}
-        merge_fn.assert_called_once()
+        operation_fn.assert_called_once()
         table.update_incremental.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_retries_on_conflict_then_succeeds(self):
         helper = self._helper()
         table = MagicMock()
-        merge_fn = MagicMock(
+        operation_fn = MagicMock(
             side_effect=[
                 deltalake.exceptions.CommitFailedError("Commit failed: a concurrent transactions added new data."),
                 {"num_output_rows": 1},
             ]
         )
 
-        result = await helper._execute_merge_with_conflict_retry(table, merge_fn)
+        result = await helper._execute_with_conflict_retry(table, operation_fn, "op")
 
         assert result == {"num_output_rows": 1}
-        assert merge_fn.call_count == 2
+        assert operation_fn.call_count == 2
         table.update_incremental.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_gives_up_after_exhausting_retries(self):
         helper = self._helper()
         table = MagicMock()
-        merge_fn = MagicMock(
+        operation_fn = MagicMock(
             side_effect=deltalake.exceptions.CommitFailedError(
                 "Commit failed: a concurrent transactions added new data."
             )
         )
 
         with pytest.raises(deltalake.exceptions.CommitFailedError):
-            await helper._execute_merge_with_conflict_retry(table, merge_fn)
+            await helper._execute_with_conflict_retry(table, operation_fn, "op")
 
-        assert merge_fn.call_count == DELTA_MERGE_CONFLICT_RETRIES + 1
+        assert operation_fn.call_count == DELTA_MERGE_CONFLICT_RETRIES + 1
         assert table.update_incremental.call_count == DELTA_MERGE_CONFLICT_RETRIES
 
     @pytest.mark.asyncio
     async def test_other_errors_propagate_without_retry(self):
         helper = self._helper()
         table = MagicMock()
-        merge_fn = MagicMock(side_effect=ValueError("not a commit conflict"))
+        operation_fn = MagicMock(side_effect=ValueError("not a commit conflict"))
 
         with pytest.raises(ValueError):
-            await helper._execute_merge_with_conflict_retry(table, merge_fn)
+            await helper._execute_with_conflict_retry(table, operation_fn, "op")
 
-        merge_fn.assert_called_once()
+        operation_fn.assert_called_once()
         table.update_incremental.assert_not_called()
+
+
+class TestCompactTableConflictRetry:
+    """compact_table's optimize.compact() commits a REMOVE+ADD when rewriting fragmented files —
+    the same commit-conflict shape as a merge (see TestExecuteWithConflictRetry). Regression
+    coverage for a CommitFailedError propagating straight out of compact_table on the first
+    conflict instead of retrying with a refreshed table, like write_to_deltalake's merges do."""
+
+    @pytest.mark.asyncio
+    async def test_retries_compact_on_commit_conflict_then_succeeds(self, helper: DeltaTableHelper):
+        mock_delta = MagicMock()
+        mock_delta.optimize.compact = MagicMock(
+            side_effect=[
+                deltalake.exceptions.CommitFailedError(
+                    "Commit failed: a concurrent transaction deleted data this operation read."
+                ),
+                {"numFilesAdded": 1},
+            ]
+        )
+        mock_delta.vacuum = MagicMock(return_value=[])
+
+        with patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)):
+            await helper.compact_table()
+
+        assert mock_delta.optimize.compact.call_count == 2
+        mock_delta.update_incremental.assert_called_once()
 
 
 def _create_legacy_delta_table(path: str, *, partitioned: bool = False) -> deltalake.DeltaTable:
