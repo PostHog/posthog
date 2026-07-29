@@ -199,8 +199,17 @@ def validate_credentials(
             "plan that includes the data export API, and the account must be in good standing. Check your "
             "Mixpanel plan and billing, then try again.",
         )
+    if response.status_code == 400:
+        return (
+            False,
+            "Mixpanel rejected the request (400). This usually means the project ID isn't valid for the "
+            "selected region. Check your project ID and region, then try again.",
+        )
 
-    return False, f"Mixpanel returned an unexpected status ({response.status_code}) while validating credentials."
+    return (
+        False,
+        "Could not validate your Mixpanel credentials. Check the region, username, secret, and project ID, then try again.",
+    )
 
 
 def _check_response(response: requests.Response, url: str, logger: FilteringBoundLogger) -> requests.Response:
