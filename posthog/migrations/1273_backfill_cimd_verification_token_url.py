@@ -47,7 +47,7 @@ def backfill_cimd_url(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1271_cimdverificationtoken_cimd_url"),
+        ("posthog", "1272_cimdverificationtoken_cimd_url"),
     ]
 
     operations = [

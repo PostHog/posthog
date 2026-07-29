@@ -58,6 +58,7 @@ function progress(overrides: Partial<InstallationProgress>): InstallationProgres
         prMerged: false,
         isCurrent: true,
         pendingInput: null,
+        startedBy: null,
         ...overrides,
     }
 }
@@ -153,6 +154,22 @@ export const LocalRunning: Story = {
     },
 }
 
+// Local run started by a teammate: the chip names them instead of "On your machine".
+export const LocalRunningStartedByTeammate: Story = {
+    args: {
+        mode: 'local',
+        elapsedSeconds: 47,
+        startedByLabel: 'Edwin',
+        progress: progress({
+            steps: [
+                { id: 'plan', label: 'Plan event tracking', status: 'completed', detail: null },
+                { id: 'install', label: 'Install PostHog', status: 'in_progress', detail: null },
+                { id: 'capture', label: 'Capture events', status: 'pending', detail: null },
+            ],
+        }),
+    },
+}
+
 export const Completed: Story = {
     args: {
         mode: 'cloud',
@@ -220,6 +237,7 @@ export const AllStates: Story = {
             { label: 'Cloud, wizard running', args: CloudWizardRunning.args },
             { label: 'Cloud, keeping CI green', args: CloudKeepingCiGreen.args },
             { label: 'Local, running', args: LocalRunning.args },
+            { label: 'Local, started by a teammate', args: LocalRunningStartedByTeammate.args },
             { label: 'Completed', args: Completed.args },
             { label: 'Completed, local (dashboard payoff)', args: CompletedLocal.args },
             { label: 'Stalled', args: Stalled.args },
@@ -235,6 +253,7 @@ export const AllStates: Story = {
                             elapsedSeconds={args!.elapsedSeconds!}
                             mode={args!.mode!}
                             stale={args!.stale}
+                            startedByLabel={args!.startedByLabel}
                             dashboard={args!.dashboard}
                             onExpand={() => {}}
                             onDismiss={() => {}}

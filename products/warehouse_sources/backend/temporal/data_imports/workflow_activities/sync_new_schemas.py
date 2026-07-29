@@ -6,6 +6,7 @@ from django.db import close_old_connections
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
+from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.temporal.common.logger import get_logger
 
 from products.data_warehouse.backend.facade.api import delete_discover_schemas_schedule
@@ -82,6 +83,14 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             # retry here, and the per-schema sync path surfaces and disables the source on the
             # same error. Skip quietly on known non-retryable source errors rather than spamming
             # retries and error tracking on every discovery run. Other errors still propagate.
+            #
+            # UndecryptedIntegrationSecretError is checked by type, not message, mirroring
+            # import_data_sync.py's handling: it's shared across every OAuth-based source and
+            # fails identically on every retry, so it shouldn't depend on each source listing the
+            # message in get_non_retryable_errors.
+            if isinstance(e, UndecryptedIntegrationSecretError):
+                logger.warning(f"Skipping schema discovery due to non-retryable source error: {e}")
+                return
             error_msg = str(e)
             non_retryable_errors = new_source.get_non_retryable_errors()
             if any(pattern in error_msg for pattern in non_retryable_errors):

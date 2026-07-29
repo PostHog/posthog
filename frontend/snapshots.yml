@@ -7727,9 +7727,9 @@ snapshots:
     scenes-other-onboarding-shared-wizard-cloud-run--run-it-yourself--light:
         hash: v1.k794b7964.6929d887dd4bcc9ac0c6fcc32e16d829771b0f97f38af905b7e62752c0b39a97.p5weyrIGjeKhnV6FuarEp-O82xPcQjs8cKYuLGLiEzc
     scenes-other-onboarding-shared-wizard-sync-card--all-states--dark:
-        hash: v1.k794b7964.610af7be0cbae0d8376dd7e61322612efdddbcb3d05be1fc6ac207652703b43a.bedJrmXY8fLxRiAI-ETzr2ook0bKDAyyluxsI0fgAPA
+        hash: v1.k794b7964.65526a55e7a2c0658e60e0c330a015430f561d3d80b3c2463408d6120b6cd078.a3tsBW_wyWyuhTAvUbgNVRx6rqStiMURSToOppQEIbg
     scenes-other-onboarding-shared-wizard-sync-card--all-states--light:
-        hash: v1.k794b7964.4d66c7e4d4abbf5853fd62ca35c61eab1a81a53074d7353dfeb99475160505f5.Ineb2GA1mTqEg3KwUd_P0Y6hbdM6FKJRxuBzCNfYOFU
+        hash: v1.k794b7964.f744986e88baa2e34e13bb3c2dd9cfdec58e6e1741599ef7be96174720f3396a.IU3v7Hpl82zzZjvuQxEnRkXUTF0GEPAF2NBWdwCqcZg
     scenes-other-onboarding-shared-wizard-sync-card--cloud-keeping-ci-green--dark:
         hash: v1.k794b7964.fba9c3af456f60a00dec760305609433d1d8ffb609f1573352f71cb29f1fa6b2.2tmy7T0O1t2rw1SYTOXCMCePVPleYZWjuUnc4EU5a7Q
     scenes-other-onboarding-shared-wizard-sync-card--cloud-keeping-ci-green--light:
@@ -7766,6 +7766,10 @@ snapshots:
         hash: v1.k794b7964.f074463c40fd8b34d0ca55c651b409fb35668ecc69fefb4e631208b3f5db1bde.zioGxlu5eKa64EXl2wzmAT4K-EC_0eK5uoUMxZIu98Y
     scenes-other-onboarding-shared-wizard-sync-card--local-waiting-for-sensitive-input--light:
         hash: v1.k794b7964.57524d53d6835dd9472c87a6aca291266fb8e8971d95ba311842386f94347fc8.sMjUBzJVzLkCThwa5LT8ntVK63w5tJ0lYltmn2pD70E
+    scenes-other-onboarding-shared-wizard-sync-card--local-running-started-by-teammate--dark:
+        hash: v1.k794b7964.9238cd8306270044b6be400d8b253942a6ebc7639dac27e091afe3afb5900291.1tQS7yVR_gZ7fmjjzoegrw7GXmePG9-QafLgOaddLfo
+    scenes-other-onboarding-shared-wizard-sync-card--local-running-started-by-teammate--light:
+        hash: v1.k794b7964.311090aa83634a64027ca60d44a1ac93ecb22124f9144032439c364e0e513105.jEWKZmu_Lw9ugOlP0970x-jQom-SKcWM7N__q-UTgT8
     scenes-other-onboarding-shared-wizard-sync-card--playground--dark:
         hash: v1.k794b7964.c69534afe39d0311b0ed3247beb145b94381706a25f2e6c7b5d3415c87564375.ViSw0_amXLmDYynCEuR_kgnY5Ncm4ULveglgIJoTIaU
     scenes-other-onboarding-shared-wizard-sync-card--playground--light:
