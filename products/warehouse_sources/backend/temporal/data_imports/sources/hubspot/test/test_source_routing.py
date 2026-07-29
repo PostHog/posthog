@@ -3,7 +3,7 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import (
     DEFAULT_PROPS,
     HUBSPOT_API_VERSION_2026_03,
@@ -51,7 +51,7 @@ class TestGetSchemas:
         schemas = src.get_schemas(MagicMock(), team_id=1)
 
         by_name = {s.name: s for s in schemas}
-        # All seven endpoints currently have cursor properties, so all should support incremental.
+        # Every endpoint currently has a cursor property, so all should support incremental.
         assert set(by_name.keys()) == set(HUBSPOT_ENDPOINTS.keys())
         for name, schema in by_name.items():
             endpoint_config = HUBSPOT_ENDPOINTS[name]
@@ -62,6 +62,15 @@ class TestGetSchemas:
             if expected_field:
                 assert schema.incremental_fields
                 assert schema.incremental_fields[0]["field"] == expected_field
+
+    def test_leads_is_default_disabled_others_default_enabled(self) -> None:
+        # Leads needs the crm.objects.leads.read scope existing connections lack, so it must start
+        # off; flipping it on by default would 403 every existing customer's sync.
+        src = HubspotSource()
+        by_name = {s.name: s for s in src.get_schemas(MagicMock(), team_id=1)}
+
+        assert by_name["leads"].should_sync_default is False
+        assert all(s.should_sync_default for name, s in by_name.items() if name != "leads")
 
     def test_filters_by_names(self) -> None:
         src = HubspotSource()

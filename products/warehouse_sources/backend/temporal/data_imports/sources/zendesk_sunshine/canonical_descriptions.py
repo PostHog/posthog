@@ -65,4 +65,42 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "limit": "Maximum allowed by the account's plan.",
         },
     },
+    # v2 custom objects API tables.
+    "custom_objects": {
+        "description": "A custom object: a user-defined data model (identified by its key) that custom object records are validated against.",
+        "docs_url": "https://developer.zendesk.com/api-reference/custom-data/custom-objects/custom_objects/",
+        "columns": {
+            "key": "Unique, user-defined identifier for the custom object.",
+            "title": "Display name of the custom object.",
+            "title_pluralized": "Pluralized display name of the custom object.",
+            "description": "Description of the custom object.",
+            "created_at": "When the custom object was created.",
+            "updated_at": "When the custom object was last updated.",
+        },
+    },
+    "custom_object_records": {
+        "description": "A custom object record: an instance of a custom object, with its data held under custom_object_fields.",
+        "docs_url": "https://developer.zendesk.com/api-reference/custom-data/custom-objects/custom_object_records/",
+        "columns": {
+            "id": "Unique identifier of the record, assigned automatically on creation.",
+            "name": "Display name of the record.",
+            "custom_object_key": "Key of the custom object this record belongs to.",
+            "external_id": "Unique identifier from another system, if one was supplied.",
+            "custom_object_fields": "The record's field values, keyed by field key.",
+            "created_at": "When the record was created.",
+            "updated_at": "When the record was last updated.",
+        },
+    },
+    "custom_object_fields": {
+        "description": "A field defined on a custom object: describes one attribute (its key, type, and options) that records of the object can set.",
+        "docs_url": "https://developer.zendesk.com/api-reference/custom-data/custom-objects/custom_object_fields/",
+        "columns": {
+            "id": "Unique identifier of the field, assigned automatically on creation.",
+            "key": "Unique, user-defined identifier for the field within its custom object.",
+            "type": "Data type of the field (for example text, dropdown, or lookup).",
+            "title": "Display name of the field.",
+            "created_at": "When the field was created.",
+            "updated_at": "When the field was last updated.",
+        },
+    },
 }

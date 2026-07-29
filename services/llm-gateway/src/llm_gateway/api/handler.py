@@ -130,6 +130,21 @@ MODAL_OPENAI_RESPONSES_CONFIG = ProviderConfig(
     endpoint_name="modal_responses",
     extract_effort=effort_from_reasoning,
 )
+BASETEN_ANTHROPIC_CONFIG = ProviderConfig(
+    name="baseten",
+    endpoint_name="baseten_anthropic_messages",
+    extract_effort=effort_from_output_config,
+)
+BASETEN_OPENAI_CONFIG = ProviderConfig(
+    name="baseten",
+    endpoint_name="baseten_chat_completions",
+    extract_effort=effort_from_reasoning_effort,
+)
+BASETEN_OPENAI_RESPONSES_CONFIG = ProviderConfig(
+    name="baseten",
+    endpoint_name="baseten_responses",
+    extract_effort=effort_from_reasoning,
+)
 
 _KNOWN_LITELLM_PROVIDER_PREFIXES = (
     "anthropic/",

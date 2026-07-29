@@ -5,9 +5,9 @@ from urllib.parse import parse_qs, urlencode, urlparse
 import requests
 from urllib3.util.retry import Retry
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.polar.settings import (
     ENDPOINT_SORT_FIELDS,
     ENDPOINTS,

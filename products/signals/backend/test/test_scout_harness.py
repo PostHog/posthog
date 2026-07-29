@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+import json
 import random
 import asyncio
 from dataclasses import replace
@@ -12,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
 from django.db import OperationalError
+from django.test import SimpleTestCase
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
@@ -24,10 +27,11 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.model_selection import ScoutModel
-from products.signals.backend.scout_harness.prompt import build_run_prompt
+from products.signals.backend.scout_harness.prompt import _REPORT_CHARTS, build_run_prompt
 from products.signals.backend.scout_harness.runner import RunResult, arun_signals_scout
 from products.signals.backend.scout_harness.skill_loader import (
     SkillNotFoundError,
@@ -258,6 +262,30 @@ class TestSkillLoader(BaseTest):
         non_match = self._create_skill("custom-research-helper")
         assert is_signals_scout_skill(match) is True
         assert is_signals_scout_skill(non_match) is False
+
+
+class TestReportChartsSection(SimpleTestCase):
+    def test_worked_example_is_the_json_it_claims_to_be(self) -> None:
+        # The section is an f-string, so every brace in the example is doubled. A single brace is
+        # not a syntax error: `{"kind"}` is a valid set expression, so a mistyped example renders as
+        # mangled Python repr and teaches every scout in the fleet a query shape that cannot parse.
+        block = re.search(r"```json\n(.*?)\n```", _REPORT_CHARTS, re.S)
+        assert block is not None
+        charts = json.loads(block.group(1))
+
+        assert [c["query"]["kind"] for c in charts] == ["InsightVizNode", "DataVisualizationNode"]
+        for chart in charts:
+            ReportChart.model_validate(chart)
+
+    def test_sql_example_names_its_axes(self) -> None:
+        # A graphical DataVisualizationNode renders an empty box without chartSettings, so the
+        # example is the only place a scout learns to set it.
+        block = re.search(r"```json\n(.*?)\n```", _REPORT_CHARTS, re.S)
+        assert block is not None
+        sql_chart = json.loads(block.group(1))[1]["query"]
+
+        assert sql_chart["chartSettings"]["xAxis"]["column"]
+        assert sql_chart["chartSettings"]["yAxis"][0]["column"]
 
 
 class TestPromptBuilder(BaseTest):

@@ -10,8 +10,8 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.telnyx import TelnyxSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.telnyx.settings import ENDPOINTS, TELNYX_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.telnyx.source import TelnyxSource

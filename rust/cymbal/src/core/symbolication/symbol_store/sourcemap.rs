@@ -8,7 +8,7 @@ use posthog_symbol_data::{read_symbol_data_with_byte_count, write_symbol_data, S
 use reqwest::Url;
 use sqlx::PgPool;
 use symbolic::sourcemapcache::{SourceMapCache, SourceMapCacheWriter};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::{
     core::config::ResolverConfig,
@@ -312,7 +312,7 @@ async fn find_sourcemap_url(
     start: Url,
     max_response_bytes: usize,
 ) -> Result<JsSourcePeek, ResolveError> {
-    info!("Fetching script source from {}", start);
+    debug!("Fetching script source from {}", start);
 
     // If this request fails, we cannot resolve the frame, and hand this error to the frames
     // failure-case handling.
@@ -341,7 +341,7 @@ async fn find_sourcemap_url(
     let chunk_id_from_body = extract_chunk_id_from_body(&body);
 
     if let Some(header_url) = header_url {
-        info!("Found sourcemap header: {:?}", header_url);
+        debug!("Found sourcemap header: {:?}", header_url);
         metrics::counter!(SOURCEMAP_HEADER_FOUND).increment(1);
 
         // If the header was set but is unusable, that's a js-specific resolution error - one we can try to handle,
