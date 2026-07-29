@@ -25,7 +25,7 @@ from django.utils import timezone
 import structlog
 
 from products.tasks.backend.logic.services.sandbox import SandboxConfig
-from products.tasks.backend.models import SandboxSession, TaskRun
+from products.tasks.backend.models import ComputeSource, SandboxSession, TaskRun
 
 logger = structlog.get_logger(__name__)
 
@@ -63,7 +63,7 @@ def open_sandbox_session(
                     "id",
                     "team_id",
                     "state",
-                    "created_via_code",
+                    "compute_source",
                     "task__origin_product",
                     "task__loop__internal",
                 )
@@ -76,7 +76,7 @@ def open_sandbox_session(
                 "team_id": run.team_id,
                 "task_run_id": run.id,
                 "origin_product": run.task.origin_product,
-                "created_via_code": run.created_via_code,
+                "compute_source": run.compute_source,
                 "loop_internal": loop.internal if loop is not None else None,
                 "prewarmed": bool(state.get("prewarmed")),
                 "vm_runtime": config.is_vm,
@@ -120,23 +120,27 @@ def close_sandbox_session(sandbox_id: str, *, reason: str) -> None:
 
 
 @_best_effort
-def record_task_run_user_activity(run_id: str | UUID, team_id: int, *, created_via_code: bool = False) -> None:
+def record_task_run_user_activity(
+    run_id: str | UUID, team_id: int, *, compute_source: ComputeSource | None = None
+) -> None:
     """Stamp a user message against the run's open sandbox sessions.
 
-    Sets ``last_user_activity_at`` on every message and ``user_attributed_at``
-    set-if-NULL, so the first message both claims a warm sandbox and self-heals the
-    race where a claim lands mid-provision (before ``open_sandbox_session`` read the
-    run state).
+    Sets ``last_user_activity_at`` on every message. The first message atomically
+    claims a warm sandbox and fixes its compute source, including when the claim
+    lands mid-provision.
     """
     now = timezone.now()
     run_uuid = run_id if isinstance(run_id, UUID) else UUID(run_id)
-    if created_via_code:
-        TaskRun.objects.filter(id=run_uuid, team_id=team_id).update(created_via_code=True)
     open_sessions = SandboxSession.objects.for_team(team_id).filter(task_run_id=run_uuid, ended_at__isnull=True)
-    if created_via_code:
-        open_sessions.update(created_via_code=True)
+    claim_updates: dict[str, object] = {"user_attributed_at": now}
+    if compute_source is not None:
+        claim_updates["compute_source"] = compute_source
+    claimed = open_sessions.filter(user_attributed_at__isnull=True).update(**claim_updates)
+    if claimed and compute_source is not None:
+        TaskRun.objects.filter(id=run_uuid, team_id=team_id, compute_source__isnull=True).update(
+            compute_source=compute_source
+        )
     open_sessions.update(last_user_activity_at=now)
-    open_sessions.filter(user_attributed_at__isnull=True).update(user_attributed_at=now)
 
 
 @dataclass(frozen=True)

@@ -9,19 +9,23 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="taskrun",
-            name="created_via_code",
-            field=models.BooleanField(
+            name="compute_source",
+            field=models.CharField(
+                choices=[("posthog_desktop", "PostHog Desktop")],
                 editable=False,
-                help_text="Whether the current cloud execution was initiated by a PostHog Code OAuth application",
+                help_text="Trusted surface that initiated the current cloud execution",
+                max_length=32,
                 null=True,
             ),
         ),
         migrations.AddField(
             model_name="sandboxsession",
-            name="created_via_code",
-            field=models.BooleanField(
+            name="compute_source",
+            field=models.CharField(
+                choices=[("posthog_desktop", "PostHog Desktop")],
                 editable=False,
-                help_text="PostHog Code OAuth provenance at provision time",
+                help_text="Trusted compute source at provision or claim time",
+                max_length=32,
                 null=True,
             ),
         ),
@@ -35,3 +39,4 @@ class Migration(migrations.Migration):
             ),
         ),
     ]
+

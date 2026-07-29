@@ -38,7 +38,7 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
 from posthog.storage import object_storage
-from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_CLIENT_IDS
+from posthog.temporal.oauth import POSTHOG_DESKTOP_OAUTH_CLIENT_IDS
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.facade import api as tasks_facade
@@ -69,6 +69,7 @@ from products.tasks.backend.models import (
     Channel,
     CodeInvite,
     CodeInviteRedemption,
+    ComputeSource,
     SandboxCustomImage,
     SandboxEnvironment,
     SandboxSession,
@@ -950,10 +951,10 @@ class TestTaskAPI(BaseTaskAPITest):
         self.client.force_authenticate(user=None)
         self.client.force_login(self.user)
 
-    def _code_oauth_client(self) -> APIClient:
+    def _desktop_oauth_client(self) -> APIClient:
         application = OAuthApplication.objects.create(
             name="PostHog Code",
-            client_id=next(iter(POSTHOG_CODE_OAUTH_CLIENT_IDS)),
+            client_id=next(iter(POSTHOG_DESKTOP_OAUTH_CLIENT_IDS)),
             client_type=OAuthApplication.CLIENT_PUBLIC,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="posthog-code://oauth/callback",
@@ -1281,16 +1282,16 @@ class TestTaskAPI(BaseTaskAPITest):
         task = Task.objects.get(id=data["id"])
         self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
 
-    def test_create_cloud_run_records_code_oauth_provenance(self):
+    def test_create_cloud_run_records_desktop_compute_source(self):
         task = self.create_task()
-        response = self._code_oauth_client().post(
+        response = self._desktop_oauth_client().post(
             f"/api/projects/{self.team.id}/tasks/{task.id}/runs/",
             {"environment": "cloud", "mode": "interactive"},
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertTrue(TaskRun.objects.get(id=response.json()["id"]).created_via_code)
+        self.assertEqual(TaskRun.objects.get(id=response.json()["id"]).compute_source, ComputeSource.POSTHOG_DESKTOP)
 
     def test_create_task_with_hogdesk_origin_product(self):
         # HogDesk creates Code tasks from a support ticket's Code chat with this
@@ -1977,7 +1978,7 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(task_run.state["initial_permission_mode"], "auto")
         self.assertEqual(task_run.state["run_source"], "manual")
         self.assertEqual(task_run.state["auto_publish"], True)
-        self.assertFalse(task_run.created_via_code)
+        self.assertIsNone(task_run.compute_source)
         mock_workflow.assert_not_called()
 
     # is_url_allowed resolves DNS for real in CI, and example.com subdomains don't resolve.
@@ -2328,11 +2329,11 @@ class TestTaskAPI(BaseTaskAPITest):
         )
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_start_existing_cloud_run_records_code_oauth_provenance(self, _mock_workflow):
+    def test_start_existing_cloud_run_records_desktop_compute_source(self, _mock_workflow):
         task = self.create_task()
         task_run = task.create_run(environment=TaskRun.Environment.CLOUD)
 
-        response = self._code_oauth_client().post(
+        response = self._desktop_oauth_client().post(
             f"/api/projects/{self.team.id}/tasks/{task.id}/runs/{task_run.id}/start/",
             {},
             format="json",
@@ -2340,7 +2341,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         task_run.refresh_from_db()
-        self.assertTrue(task_run.created_via_code)
+        self.assertEqual(task_run.compute_source, ComputeSource.POSTHOG_DESKTOP)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_start_run_endpoint_starts_pi_task(self, mock_workflow):

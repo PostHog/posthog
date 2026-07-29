@@ -54,6 +54,10 @@ logger = structlog.get_logger(__name__)
 LogLevel = Literal["debug", "info", "warn", "error"]
 
 
+class ComputeSource(models.TextChoices):
+    POSTHOG_DESKTOP = "posthog_desktop", "PostHog Desktop"
+
+
 def resolve_schema(schema: type[BaseModel] | dict) -> dict:
     if isinstance(schema, dict):
         return schema
@@ -385,7 +389,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         mode: str = "background",
         extra_state: dict | None = None,
         branch: str | None = None,
-        created_via_code: bool | None = None,
+        compute_source: ComputeSource | None = None,
     ) -> "TaskRun":
         state: dict = {} if self.runtime == Task.Runtime.PI else {"mode": mode}
         if extra_state:
@@ -408,7 +412,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             **({"environment": environment} if environment else {}),
             state=state,
             branch=branch,
-            created_via_code=created_via_code,
+            compute_source=compute_source,
         )
         task_run.publish_stream_state_event()
         observe_task_run_created(task_run)
@@ -1534,10 +1538,12 @@ class TaskRun(models.Model):
         blank=True,
         related_name="active_runs",
     )
-    created_via_code = models.BooleanField(
+    compute_source = models.CharField(
+        max_length=32,
+        choices=ComputeSource,
         null=True,
         editable=False,
-        help_text="Whether the current cloud execution was initiated by a PostHog Code OAuth application",
+        help_text="Trusted surface that initiated the current cloud execution",
     )
 
     branch = models.CharField(max_length=255, blank=True, null=True, help_text="Branch name for the run")
@@ -1703,7 +1709,7 @@ class TaskRun(models.Model):
                 "completed_at",
                 "error_message",
                 "state",
-                "created_via_code",
+                "compute_source",
                 "updated_at",
             ]
         )
@@ -2288,10 +2294,12 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
         blank=True,
         help_text="Task origin at provision time, denormalized for per-origin aggregation",
     )
-    created_via_code = models.BooleanField(
+    compute_source = models.CharField(
+        max_length=32,
+        choices=ComputeSource,
         null=True,
         editable=False,
-        help_text="PostHog Code OAuth provenance at provision time",
+        help_text="Trusted compute source at provision or claim time",
     )
     loop_internal = models.BooleanField(
         null=True,

@@ -33,7 +33,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import CodeInviteThrottle
 from posthog.renderers import ServerSentEventRenderer
-from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_CLIENT_IDS
+from posthog.temporal.oauth import POSTHOG_DESKTOP_OAUTH_CLIENT_IDS
 
 from products.tasks.backend.facade import (
     access as tasks_access,
@@ -59,6 +59,7 @@ from products.tasks.backend.facade.streams import (
     get_task_run_stream_key,
     run_uses_dedicated_stream,
 )
+from products.tasks.backend.models import ComputeSource
 from products.tasks.backend.presentation.serializers import (
     CodeInviteRedeemRequestSerializer,
     ConnectionTokenResponseSerializer,
@@ -158,14 +159,16 @@ def _pi_cloud_runtime_disabled_response() -> Response:
     )
 
 
-def _is_posthog_code_request(request) -> bool:
+def _compute_source(request) -> ComputeSource | None:
     authenticator = request.successful_authenticator
     if not isinstance(authenticator, OAuthAccessTokenAuthentication):
-        return False
+        return None
     if "internal_run:read" in (authenticator.access_token.scope or "").split():
-        return False
+        return None
     application = authenticator.access_token.application
-    return application is not None and application.client_id in POSTHOG_CODE_OAUTH_CLIENT_IDS
+    if application is not None and application.client_id in POSTHOG_DESKTOP_OAUTH_CLIENT_IDS:
+        return ComputeSource.POSTHOG_DESKTOP
+    return None
 
 
 TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox"
@@ -331,14 +334,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def create(self, request, **kwargs):
         serializer = self._write_serializer(request.data, serializer_class=TaskCreateSerializer)
         validated_data = dict(serializer.validated_data)
-        created_via_code = _is_posthog_code_request(request)
+        compute_source = _compute_source(request)
         if (
-            created_via_code
+            compute_source
             and validated_data.get("origin_product", tasks_facade.TaskOriginProduct.USER_CREATED)
             != tasks_facade.TaskOriginProduct.USER_CREATED
         ):
             raise ValidationError(
-                {"origin_product": "PostHog Code can only use the generic tasks API for user-created tasks."}
+                {"origin_product": "PostHog Desktop can only use the generic tasks API for user-created tasks."}
             )
         task = tasks_facade.create_task(self.team_id, self._user_id(), validated_data=validated_data)
         return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
@@ -346,9 +349,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(request=SignalReportTaskCreateSerializer, responses={200: TaskSerializer, 201: TaskSerializer})
     @action(detail=False, methods=["post"], url_path="from_signal_report", required_scopes=["task:write"])
     def from_signal_report(self, request, **kwargs):
-        if not isinstance(request.successful_authenticator, SessionAuthentication) and not _is_posthog_code_request(
-            request
-        ):
+        if not isinstance(request.successful_authenticator, SessionAuthentication) and not _compute_source(request):
             raise PermissionDenied("Signal report tasks must be started from PostHog Inbox.")
         serializer = self._write_serializer(request.data, serializer_class=SignalReportTaskCreateSerializer)
         validated_data = dict(serializer.validated_data)
@@ -1028,7 +1029,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self.team_id,
             self._user_id(),
             validated_data=dict(request.validated_data),
-            created_via_code=_is_posthog_code_request(request),
+            compute_source=_compute_source(request),
         )
         if result is None:
             raise NotFound("Task not found")
@@ -1088,7 +1089,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self.team_id,
             self._user_id(),
             validated_data=dict(request.validated_data),
-            created_via_code=_is_posthog_code_request(request),
+            compute_source=_compute_source(request),
         )
         if outcome == "not_found":
             raise NotFound()
@@ -1770,7 +1771,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     actor_user_id=request.user.id,
                     message_id=str(request_id) if request_id is not None else None,
                     steer=command_params.get("steer", False),
-                    created_via_code=_is_posthog_code_request(request),
+                    compute_source=_compute_source(request),
                 )
             except Exception:
                 # A synchronous web request can't retry the way the Temporal
@@ -2095,7 +2096,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             task_id,
             self.team_id,
             self._user_id(),
-            created_via_code=_is_posthog_code_request(request),
+            compute_source=_compute_source(request),
         )
         if outcome == "not_found":
             raise NotFound()

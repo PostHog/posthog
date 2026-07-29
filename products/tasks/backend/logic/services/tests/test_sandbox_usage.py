@@ -14,7 +14,7 @@ from products.tasks.backend.logic.services.sandbox_usage import (
     open_sandbox_session,
     record_task_run_user_activity,
 )
-from products.tasks.backend.models import Loop, SandboxSession, Task, TaskRun
+from products.tasks.backend.models import ComputeSource, Loop, SandboxSession, Task, TaskRun
 
 
 def _config(**overrides) -> SandboxConfig:
@@ -24,7 +24,7 @@ def _config(**overrides) -> SandboxConfig:
 
 
 class SandboxUsageBase(APIBaseTest):
-    def _run(self, *, state: dict | None = None, created_via_code: bool | None = None) -> TaskRun:
+    def _run(self, *, state: dict | None = None, compute_source: ComputeSource | None = None) -> TaskRun:
         task = Task.objects.create(
             team=self.team,
             title="t",
@@ -35,13 +35,13 @@ class SandboxUsageBase(APIBaseTest):
             task=task,
             team=self.team,
             state=state or {},
-            created_via_code=created_via_code,
+            compute_source=compute_source,
         )
 
 
 class TestSandboxSessionWrites(SandboxUsageBase):
     def test_open_attributes_cold_runs_immediately(self):
-        run = self._run(created_via_code=True)
+        run = self._run(compute_source=ComputeSource.POSTHOG_DESKTOP)
 
         open_sandbox_session(run_id=run.id, sandbox_id="sb-cold", config=_config())
 
@@ -49,7 +49,7 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         assert session.team_id == self.team.id
         assert session.task_run_id == run.id
         assert session.origin_product == Task.OriginProduct.USER_CREATED
-        assert session.created_via_code is True
+        assert session.compute_source == ComputeSource.POSTHOG_DESKTOP
         assert session.user_attributed_at is not None
         assert session.prewarmed is False
         assert session.vm_runtime is False
@@ -204,16 +204,28 @@ class TestSandboxSessionWrites(SandboxUsageBase):
 
         assert SandboxSession.objects.unscoped().get(sandbox_id="sb-claim").user_attributed_at is not None
 
-    def test_code_claim_updates_run_and_open_session_provenance(self):
+    def test_desktop_claim_updates_run_and_open_session_compute_source(self):
         run = self._run(state={"prewarmed": True, "await_user_message": True})
         open_sandbox_session(run_id=run.id, sandbox_id="sb-code-claim", config=_config())
 
-        record_task_run_user_activity(run.id, self.team.id, created_via_code=True)
+        record_task_run_user_activity(run.id, self.team.id, compute_source=ComputeSource.POSTHOG_DESKTOP)
 
         run.refresh_from_db()
         session = SandboxSession.objects.unscoped().get(sandbox_id="sb-code-claim")
-        assert run.created_via_code is True
-        assert session.created_via_code is True
+        assert run.compute_source == ComputeSource.POSTHOG_DESKTOP
+        assert session.compute_source == ComputeSource.POSTHOG_DESKTOP
+
+    def test_later_desktop_activity_does_not_relabel_an_attributed_session(self):
+        run = self._run(state={"prewarmed": True, "await_user_message": True})
+        open_sandbox_session(run_id=run.id, sandbox_id="sb-other-claim", config=_config())
+        record_task_run_user_activity(run.id, self.team.id)
+
+        record_task_run_user_activity(run.id, self.team.id, compute_source=ComputeSource.POSTHOG_DESKTOP)
+
+        run.refresh_from_db()
+        session = SandboxSession.objects.unscoped().get(sandbox_id="sb-other-claim")
+        assert run.compute_source is None
+        assert session.compute_source is None
 
 
 class TestSandboxUsageAggregation(SandboxUsageBase):

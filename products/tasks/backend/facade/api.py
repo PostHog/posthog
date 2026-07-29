@@ -58,6 +58,7 @@ from products.tasks.backend.models import (
     ChannelFeedMessage,
     CodeInvite,
     CodeInviteRedemption,
+    ComputeSource,
     SandboxCustomImage,
     SandboxEnvironment,
     SandboxSession,
@@ -2932,7 +2933,7 @@ def signal_task_run_user_message(
     message_id: str | None = None,
     actor_slack_user_id: str | None = None,
     steer: bool = False,
-    created_via_code: bool = False,
+    compute_source: ComputeSource | None = None,
 ) -> bool | None:
     """Queue a user_message follow-up signal on the run's workflow.
 
@@ -2966,11 +2967,13 @@ def signal_task_run_user_message(
             logger.warning("Follow-up signal target workflow gone for task run %s", run.id)
             return False
         raise
-    record_task_run_user_activity(run.id, team_id, created_via_code=created_via_code)
+    record_task_run_user_activity(run.id, team_id, compute_source=compute_source)
     return True
 
 
-def record_task_run_user_activity(run_id: str | UUID, team_id: int, *, created_via_code: bool = False) -> None:
+def record_task_run_user_activity(
+    run_id: str | UUID, team_id: int, *, compute_source: ComputeSource | None = None
+) -> None:
     """Stamp a user message against the run's open sandbox usage sessions.
 
     Best-effort (the ledger swallows its own failures): records last-activity on
@@ -2981,7 +2984,7 @@ def record_task_run_user_activity(run_id: str | UUID, team_id: int, *, created_v
         record_task_run_user_activity as _record_user_activity,
     )
 
-    _record_user_activity(run_id, team_id, created_via_code=created_via_code)
+    _record_user_activity(run_id, team_id, compute_source=compute_source)
 
 
 def get_task_run_sandbox_connection(
@@ -3241,7 +3244,7 @@ def bootstrap_task_run(
     user_id: int | None,
     *,
     validated_data: dict,
-    created_via_code: bool = False,
+    compute_source: ComputeSource | None = None,
 ) -> contracts.TaskRunCreateResult | None:
     """Create a task run (without starting execution) from validated bootstrap data.
 
@@ -3380,7 +3383,7 @@ def bootstrap_task_run(
         mode=mode,
         branch=branch,
         extra_state=extra_state,
-        created_via_code=created_via_code,
+        compute_source=compute_source,
     )
 
     if imported_mcp_servers or relayed_mcp_servers:
@@ -3481,7 +3484,7 @@ def start_task_run(
     user_id: int | None,
     *,
     validated_data: dict,
-    created_via_code: bool = False,
+    compute_source: ComputeSource | None = None,
 ) -> tuple[str, UUID | None]:
     """Apply run-scoped attachments and trigger the cloud workflow for a startable run.
 
@@ -3498,8 +3501,8 @@ def start_task_run(
     if run is None:
         return "not_found", None
     task = run.task
-    run.created_via_code = created_via_code
-    run.save(update_fields=["created_via_code", "updated_at"])
+    run.compute_source = compute_source
+    run.save(update_fields=["compute_source", "updated_at"])
 
     pending_user_message = validated_data.get("pending_user_message")
     pending_user_artifact_ids = validated_data.get("pending_user_artifact_ids") or []
@@ -3550,7 +3553,7 @@ def resume_task_run_in_cloud(
     team_id: int,
     user_id: int | None,
     *,
-    created_via_code: bool = False,
+    compute_source: ComputeSource | None = None,
 ) -> tuple[str, contracts.TaskRunDetailDTO | None, str | None]:
     """Resume a run in a cloud sandbox, terminating any prior workflow.
 
@@ -3620,8 +3623,8 @@ def resume_task_run_in_cloud(
         prior_environment = run.environment
         prior_completed_at = run.completed_at
         prior_state = dict(run.state or {})
-        prior_created_via_code = run.created_via_code
-        run.created_via_code = created_via_code
+        prior_compute_source = run.compute_source
+        run.compute_source = compute_source
         run.prepare_for_cloud_handoff()
 
     logger.info("Resuming task run in cloud", extra={"task_run_id": str(run.id), "task_id": str(run.task_id)})
@@ -3641,7 +3644,7 @@ def resume_task_run_in_cloud(
             run.environment = prior_environment
             run.completed_at = prior_completed_at
             run.state = prior_state
-            run.created_via_code = prior_created_via_code
+            run.compute_source = prior_compute_source
             run.error_message = "Failed to start cloud workflow"
             run.save(
                 update_fields=[
@@ -3649,7 +3652,7 @@ def resume_task_run_in_cloud(
                     "environment",
                     "completed_at",
                     "state",
-                    "created_via_code",
+                    "compute_source",
                     "error_message",
                     "updated_at",
                 ]
