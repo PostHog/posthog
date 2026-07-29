@@ -186,6 +186,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.FUNNELS_QUERY
             | NodeKind.RETENTION_QUERY
             | NodeKind.PATHS_QUERY
+            | NodeKind.PATHS_V2_QUERY
             | NodeKind.STICKINESS_QUERY
             | NodeKind.LIFECYCLE_QUERY
             | NodeKind.EVENTS_QUERY
