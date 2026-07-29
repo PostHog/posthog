@@ -5,6 +5,7 @@ import {
     IconExpand45,
     IconLaptop,
     IconPullRequest,
+    IconQuestion,
     IconWarning,
     IconX,
 } from '@posthog/icons'
@@ -17,6 +18,7 @@ import {
     currentTaskLabel,
     elapsedLabel,
     formatElapsed,
+    pendingQuestionLabel,
     pipClass,
     prNameLabel,
     stepCounts,
@@ -39,6 +41,9 @@ export function StatusGlyph({ progress }: { progress: InstallationProgress }): J
     }
     if (progress.prMerged) {
         return <IconPullRequest className="text-purple text-xl shrink-0" />
+    }
+    if (progress.pendingInput) {
+        return <IconQuestion className="text-warning text-xl shrink-0" />
     }
     return <Spinner className="text-xl shrink-0 text-accent" textColored />
 }
@@ -86,6 +91,7 @@ export function WizardSyncCard({
 }): JSX.Element {
     const { completed, total } = stepCounts(progress.steps)
     const task = currentTaskLabel(progress)
+    const question = pendingQuestionLabel(progress)
     const isRunning = progress.phase !== 'completed' && progress.phase !== 'error'
 
     return (
@@ -111,6 +117,13 @@ export function WizardSyncCard({
                             {task}
                         </p>
                         <p className="m-0 text-xs text-muted truncate">{syncHeadline(progress)}</p>
+                        {question && (
+                            // ph-no-capture: the prompt is whatever the wizard asked, so it can
+                            // carry project detail that must not reach autocapture.
+                            <p className="m-0 text-xs text-tertiary truncate ph-no-capture" title={question}>
+                                {question}
+                            </p>
+                        )}
                     </div>
                     <span className="text-xs text-muted tabular-nums shrink-0" title={formatElapsed(elapsedSeconds)}>
                         {elapsedLabel(elapsedSeconds, stale)}

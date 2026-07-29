@@ -12,6 +12,15 @@ import * as zod from 'zod'
 /**
  * Upsert a wizard session. The `session_id` key is the idempotency anchor — reposting the same `session_id` replaces the existing row. Returns 201 on create, 200 on update.
  */
+export const wizardSessionsCreateBodyPendingInputOneIdMax = 255
+
+export const wizardSessionsCreateBodyPendingInputOneQuestionCountMax = 100
+
+export const wizardSessionsCreateBodyPendingInputOneSensitiveDefault = false
+export const wizardSessionsCreateBodyPendingInputOnePromptsItemMax = 2000
+
+export const wizardSessionsCreateBodyPendingInputOnePromptsMax = 10
+
 export const wizardSessionsCreateBodySessionIdMax = 255
 
 export const wizardSessionsCreateBodyWorkflowIdMax = 255
@@ -20,6 +29,47 @@ export const wizardSessionsCreateBodySkillIdMax = 255
 
 export const WizardSessionsCreateBody = /* @__PURE__ */ zod
     .object({
+        pending_input: zod
+            .union([
+                zod
+                    .object({
+                        id: zod
+                            .string()
+                            .max(wizardSessionsCreateBodyPendingInputOneIdMax)
+                            .describe(
+                                'Identifier the wizard mints for this question. Changes when a new question is asked.'
+                            ),
+                        asked_at: zod.iso
+                            .datetime({ offset: true })
+                            .optional()
+                            .describe(
+                                "UTC timestamp when the wizard asked. Defaults to the session's update time when absent."
+                            ),
+                        question_count: zod
+                            .number()
+                            .min(1)
+                            .max(wizardSessionsCreateBodyPendingInputOneQuestionCountMax)
+                            .optional()
+                            .describe('How many questions this single ask covers.'),
+                        sensitive: zod
+                            .boolean()
+                            .default(wizardSessionsCreateBodyPendingInputOneSensitiveDefault)
+                            .describe('Whether the answer is a secret. Sensitive questions never carry prompt text.'),
+                        prompts: zod
+                            .array(zod.string().max(wizardSessionsCreateBodyPendingInputOnePromptsItemMax))
+                            .max(wizardSessionsCreateBodyPendingInputOnePromptsMax)
+                            .optional()
+                            .describe('The question text shown to the user. Always empty for sensitive questions.'),
+                    })
+                    .describe(
+                        'The in-flight `wizard_ask` question. Typed rather than a free-form dict so the shape the\nwidget renders is enforced at the edge instead of trusted from the producer.'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Populated while the wizard is blocked on a question in the terminal. Null\/absent means no input is pending; a push without it clears the previous prompt.'
+            ),
         session_id: zod
             .string()
             .max(wizardSessionsCreateBodySessionIdMax)
