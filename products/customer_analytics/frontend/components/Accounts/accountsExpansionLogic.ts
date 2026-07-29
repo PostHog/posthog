@@ -3,7 +3,15 @@ import posthog from 'posthog-js'
 
 import { AccountsEvents } from './constants'
 
-export type AccountExpansionTab = 'notes' | 'users' | 'relationships' | 'usage' | 'spend' | 'opportunities'
+export type AccountExpansionTab =
+    | 'notes'
+    | 'users'
+    | 'relationships'
+    | 'usage'
+    | 'spend'
+    | 'opportunities'
+    | 'support_tickets'
+    | 'event_stream'
 
 export const ACCOUNT_EXPANSION_TABS: AccountExpansionTab[] = [
     'notes',
@@ -12,6 +20,8 @@ export const ACCOUNT_EXPANSION_TABS: AccountExpansionTab[] = [
     'usage',
     'spend',
     'opportunities',
+    'support_tickets',
+    'event_stream',
 ]
 
 export const DEFAULT_ACCOUNT_TAB: AccountExpansionTab = 'notes'

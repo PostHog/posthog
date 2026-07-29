@@ -8,6 +8,7 @@ import { isLongRunningExportFormat } from 'lib/components/ExportButton/exportSta
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { delay } from 'lib/utils/async'
 import { uuid } from 'lib/utils/dom'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
@@ -238,6 +239,12 @@ export const exportsLogic = kea<exportsLogicType>([
 
     listeners(({ actions, values, cache }) => ({
         startExport: async ({ exportData }) => {
+            // Fires for every dashboard export entry point (menu bar, dropdown, export button)
+            // regardless of edit permission. Format is a property so PNG is filterable.
+            if (exportData.dashboard && exportData.export_format) {
+                eventUsageLogic.actions.reportDashboardExported(exportData.dashboard, exportData.export_format)
+            }
+
             if (isLocalExport(exportData.export_context)) {
                 try {
                     const blob = new Blob([exportData.export_context.localData], {
@@ -257,10 +264,34 @@ export const exportsLogic = kea<exportsLogicType>([
             actions.loadExports()
         },
         downloadExport: async ({ exportedAsset }) => {
-            // Only drop the "not downloaded" highlight once the file actually downloads, so a
-            // failed retrieval leaves the user a retry cue instead of a silent dead end.
-            if (await downloadExportedAsset(exportedAsset)) {
-                actions.removeFresh(exportedAsset)
+            // Downloading a synchronous export blocks server-side while the content is generated,
+            // and downloadExportedAsset probes the endpoint before navigating — that wait can run
+            // for a minute or more. Drive it through lemonToast.promise so the user sees a spinner
+            // immediately instead of a button that looks like it did nothing until the download starts.
+            const downloadToastId = 'download-' + uuid()
+            try {
+                await lemonToast.promise(
+                    (async (): Promise<string> => {
+                        // Only drop the "not downloaded" highlight once the file actually downloads, so a
+                        // failed retrieval leaves the user a retry cue instead of a silent dead end.
+                        if (!(await downloadExportedAsset(exportedAsset))) {
+                            throw new Error(EXPORT_DOWNLOAD_FAILED)
+                        }
+                        actions.removeFresh(exportedAsset)
+                        return 'Download started'
+                    })(),
+                    {
+                        pending: 'Preparing download…',
+                        success: 'Download started',
+                        error: 'Download failed',
+                    },
+                    { toastId: downloadToastId }
+                )
+            } catch (error) {
+                if (error instanceof Error && error.message === EXPORT_DOWNLOAD_FAILED) {
+                    // downloadExportedAsset already surfaced a specific error toast — drop the generic one.
+                    lemonToast.dismiss(downloadToastId)
+                }
             }
         },
         loadExportsSuccess: async ({ exports: exportsList }, breakpoint) => {

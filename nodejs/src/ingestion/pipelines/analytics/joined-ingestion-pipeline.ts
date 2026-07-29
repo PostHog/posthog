@@ -14,6 +14,7 @@ import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { FeatureFlagCalledDedupService } from '~/ingestion/common/feature-flag-called-dedup/feature-flag-called-dedup-service'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
 import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
+import { createMergeFoldPlanningStep } from '~/ingestion/common/persons/person-merge-fold'
 import { PersonsStore } from '~/ingestion/common/persons/persons-store'
 import { createDenyEventsStep } from '~/ingestion/common/steps/deny-events'
 import {
@@ -181,11 +182,14 @@ export function createJoinedIngestionPipeline<
         topHog: topHogWrapper,
     }
 
+    const mergeFoldPlanningStep = createMergeFoldPlanningStep<PerDistinctIdPipelineInput>(perDistinctIdOptions)
+
     return (
         newCommonIngestionPipeline<TInput, TContext, OverflowOutput | AsyncOutput>({
             teamManager,
             outputs,
             promiseScheduler,
+            topHog,
             // Batch stores are singleton persistent caches, but each batch receives a
             // batch-bound view so entries can be reference-counted and released after
             // that batch's flush lifecycle completes. The Rust consumer's per-worker
@@ -222,9 +226,14 @@ export function createJoinedIngestionPipeline<
             .pipe(createEnrichSurveyPersonPropertiesStep())
             .compose((b) => createPostTeamPreprocessingSubpipeline(b, postTeamConfig))
             // Group by token:distinctId and process each group concurrently.
-            // Events within each group are processed sequentially.
+            // Events within each group are processed sequentially, after the
+            // merge-fold planning step has scanned the group's chunk. Whether
+            // the step plans anything is its own config-driven decision; when
+            // folding is disabled it passes every event through unplanned.
             .concurrentlyPerGroup(getTokenAndDistinctId, (group) =>
-                group.sequentially((event) => createPerDistinctIdPipeline(event, perEventConfig))
+                group
+                    .pipeChunk(mergeFoldPlanningStep)
+                    .sequentially((event) => createPerDistinctIdPipeline(event, perEventConfig))
             )
             .afterBatch((afterBatch) =>
                 afterBatch

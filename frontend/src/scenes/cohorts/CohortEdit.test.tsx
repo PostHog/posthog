@@ -1,16 +1,18 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { NEW_COHORT } from 'scenes/cohorts/CohortFilters/constants'
+import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
+import { AnyCohortCriteriaType, BehavioralEventType } from '~/types'
 
 import { CohortEdit } from './CohortEdit'
 
@@ -487,6 +489,78 @@ describe('cohortEditLogic', () => {
                     isPendingCalculation: isPending,
                     isCalculatingOrPending: isCalcOrPending,
                 })
+            }
+        )
+    })
+
+    describe('criteria row type switching', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        const q = (selector: string): HTMLElement => {
+            const el = document.querySelector(selector)
+            if (!el) {
+                throw new Error(`not found: ${selector}`)
+            }
+            return el as HTMLElement
+        }
+
+        // mockCohort's single criterion is negated ("Did not complete event", stored as
+        // {value: performed_event, negation: true}). Negated criteria store the positive enum
+        // plus a negation flag, so a type pick that doesn't reset negation used to leave rows
+        // permanently stuck on the negated variant (e.g. "Do not have the property").
+        test.each([
+            {
+                pick: 'cohort-personPropertyBehavioral-have_property-type',
+                expectedLabel: 'Have the property',
+                expectedCriteria: {
+                    type: BehavioralFilterKey.Person,
+                    value: BehavioralEventType.HaveProperty,
+                    negation: false,
+                },
+            },
+            {
+                pick: 'cohort-eventBehavioral-performed_event-type',
+                expectedLabel: 'Completed event',
+                expectedCriteria: {
+                    type: BehavioralFilterKey.Behavioral,
+                    value: BehavioralEventType.PerformEvent,
+                    negation: false,
+                },
+            },
+            {
+                pick: 'cohort-personPropertyBehavioral-not_have_property-type',
+                expectedLabel: 'Do not have the property',
+                expectedCriteria: {
+                    type: BehavioralFilterKey.Person,
+                    value: BehavioralEventType.HaveProperty,
+                    negation: true,
+                },
+            },
+        ])(
+            'switching a negated row via $pick lands on $expectedLabel',
+            async ({ pick, expectedLabel, expectedCriteria }) => {
+                render(<CohortEdit id={1} />)
+
+                await waitFor(() => {
+                    expect(q('[data-attr="cohort-selector-field-value"]')).toHaveTextContent('Did not complete event')
+                })
+
+                await userEvent.click(q('[data-attr="cohort-selector-field-value"]'))
+                await waitFor(() => {
+                    expect(q(`[data-attr="${pick}"]`)).toBeInTheDocument()
+                })
+                await userEvent.click(q(`[data-attr="${pick}"]`))
+
+                logic = cohortEditLogic({ id: 1 })
+                await waitFor(() => {
+                    const group = logic.values.cohort.filters.properties.values[0] as {
+                        values: AnyCohortCriteriaType[]
+                    }
+                    expect(group.values[0]).toEqual(expect.objectContaining(expectedCriteria))
+                })
+                expect(q('[data-attr="cohort-selector-field-value"]')).toHaveTextContent(expectedLabel)
             }
         )
     })

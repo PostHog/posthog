@@ -1896,7 +1896,8 @@
          "posthog_experiment"."status",
          "posthog_experiment"."conclusion",
          "posthog_experiment"."conclusion_comment",
-         "posthog_experiment"."flag_cleanup_task_id"
+         "posthog_experiment"."flag_cleanup_task_id",
+         "posthog_experiment"."repository"
   FROM "posthog_experiment"
   WHERE ("posthog_experiment"."feature_flag_id" = 99999
          AND NOT "posthog_experiment"."deleted")
@@ -1974,7 +1975,8 @@
          "posthog_experiment"."status",
          "posthog_experiment"."conclusion",
          "posthog_experiment"."conclusion_comment",
-         "posthog_experiment"."flag_cleanup_task_id"
+         "posthog_experiment"."flag_cleanup_task_id",
+         "posthog_experiment"."repository"
   FROM "posthog_experiment"
   WHERE ("posthog_experiment"."feature_flag_id" = 99999
          AND NOT "posthog_experiment"."deleted")
@@ -2030,12 +2032,15 @@
   SELECT "posthog_earlyaccessfeature"."id",
          "posthog_earlyaccessfeature"."team_id",
          "posthog_earlyaccessfeature"."feature_flag_id",
+         "posthog_earlyaccessfeature"."created_by_id",
          "posthog_earlyaccessfeature"."name",
          "posthog_earlyaccessfeature"."description",
          "posthog_earlyaccessfeature"."stage",
          "posthog_earlyaccessfeature"."documentation_url",
          "posthog_earlyaccessfeature"."payload",
-         "posthog_earlyaccessfeature"."created_at"
+         "posthog_earlyaccessfeature"."created_at",
+         "posthog_earlyaccessfeature"."assigned_user_id",
+         "posthog_earlyaccessfeature"."assigned_role_id"
   FROM "posthog_earlyaccessfeature"
   WHERE "posthog_earlyaccessfeature"."feature_flag_id" = 99999
   '''

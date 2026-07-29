@@ -12,10 +12,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -28,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.resend import ResendSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.resend.oauth import (
     ResendIntegrationAuth,
@@ -183,7 +180,16 @@ Either way, the connection needs **full access** so the following resources can 
         try:
             token = self._probe_token(config, team_id)
         except ValueError as e:
-            return False, str(e)
+            # _probe_token and the OAuth mixin raise deterministic config/credential errors
+            # (missing integration ID, integration deleted) whose developer wording is unhelpful in
+            # the wizard and can carry a volatile integration ID. Reuse the curated messages from
+            # get_non_retryable_errors so this path doesn't leak the internal string; fall back to
+            # the raw message if unmapped.
+            raw = str(e)
+            for pattern, friendly in self.get_non_retryable_errors().items():
+                if friendly and pattern in raw:
+                    return False, friendly
+            return False, raw
 
         if validate_resend_credentials(token):
             return True, None

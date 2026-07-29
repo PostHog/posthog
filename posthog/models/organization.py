@@ -756,6 +756,21 @@ def clean_up_alert_subscriptions_on_membership_removal(sender, instance: Organiz
 
 
 @receiver(models.signals.post_delete, sender=OrganizationMembership)
+def clean_up_event_streams_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
+    from products.customer_analytics.backend.facade.api import delete_event_streams_for_user
+
+    deleted_count = delete_event_streams_for_user(user_id=instance.user_id, organization_id=instance.organization_id)
+
+    if deleted_count > 0:
+        logger.info(
+            "Removed customer analytics event streams for user removed from organization",
+            user_id=instance.user_id,
+            organization_id=str(instance.organization_id),
+            deleted_count=deleted_count,
+        )
+
+
+@receiver(models.signals.post_delete, sender=OrganizationMembership)
 def sync_billing_on_membership_removal(sender, instance: OrganizationMembership, **kwargs):
     from posthog.tasks.sync_billing import sync_members_to_billing
 

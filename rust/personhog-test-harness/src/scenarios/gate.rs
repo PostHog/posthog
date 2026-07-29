@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
@@ -7,8 +8,10 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Context, Result};
 use sqlx::postgres::PgPool;
 
+use personhog_proto::personhog::identity::v1::GetOrCreatePersonEntry;
+
 use crate::cli::GateArgs;
-use crate::client::HarnessClient;
+use crate::client::{HarnessClient, IdentityClient};
 use crate::report::print_report;
 use crate::scenarios::{blast, consistency};
 use crate::seed;
@@ -127,6 +130,18 @@ pub async fn run(args: GateArgs) -> Result<()> {
     if args.external_router_url.is_some() && (!chaos.is_empty() || args.kill_handoff_target) {
         bail!("chaos flags require a spawned stack; they cannot target --external-router-url");
     }
+    if args.create_via_identity
+        && args.external_router_url.is_some()
+        && args.external_identity_url.is_none()
+    {
+        bail!("--create-via-identity with --external-router-url needs --external-identity-url");
+    }
+    // The identity service writes the real posthog_person table (its distinct
+    // id FKs require it); a stack targeting another table would recover
+    // created persons from a table they were never written to.
+    if args.create_via_identity && args.pg_target_table != "posthog_person" {
+        bail!("--create-via-identity requires --pg-target-table posthog_person");
+    }
     if (args.router_kill_after.is_some() || args.router_shutdown_after.is_some())
         && args.routers < 3
     {
@@ -158,6 +173,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
                     cache_memory_capacity: args.cache_capacity,
                     recovery_pool_size: args.recovery_pool_size,
                     leader_lease_ttl: args.leader_lease_ttl,
+                    spawn_identity: args.create_via_identity,
                 })
                 .await?,
             )
@@ -178,14 +194,33 @@ pub async fn run(args: GateArgs) -> Result<()> {
     // A crashed prior run may have left rows behind; the team id belongs to
     // the harness, so start from a clean slate.
     seed::cleanup_team(&pool, &args.pg_target_table, args.team_id).await?;
-    let person_ids = Arc::new(
-        seed::seed_persons(&pool, &args.pg_target_table, args.team_id, args.persons).await?,
-    );
-    println!(
-        "Seeded {} persons for team {}",
-        person_ids.len(),
-        args.team_id
-    );
+    let state = PersonState::new();
+    // A spawned stack always uses its own identity service — the gate's
+    // assertions target that stack, so an external identity service pointed
+    // elsewhere would only produce confusing failures.
+    let identity_url = match (&args.external_identity_url, &stack) {
+        _ if !args.create_via_identity => None,
+        (_, Some(stack)) => stack.identity_url.clone(),
+        (Some(url), None) => Some(url.clone()),
+        (None, None) => unreachable!("validated above"),
+    };
+    let person_ids = match &identity_url {
+        Some(url) => {
+            let ids = create_persons_via_identity(url, args.team_id, args.persons, &state).await?;
+            println!(
+                "Created {} persons via identity for team {}",
+                ids.len(),
+                args.team_id
+            );
+            Arc::new(ids)
+        }
+        None => {
+            let ids = seed::seed_persons(&pool, &args.pg_target_table, args.team_id, args.persons)
+                .await?;
+            println!("Seeded {} persons for team {}", ids.len(), args.team_id);
+            Arc::new(ids)
+        }
+    };
 
     println!(
         "Driving traffic for {} with concurrency {}...",
@@ -193,7 +228,6 @@ pub async fn run(args: GateArgs) -> Result<()> {
         args.concurrency
     );
     let collector = Arc::new(StatsCollector::new());
-    let state = PersonState::new();
     let traffic = {
         let client = client.clone();
         let person_ids = person_ids.clone();
@@ -368,6 +402,75 @@ pub async fn run(args: GateArgs) -> Result<()> {
     }
     println!("Gate passed: every acked write visible in strong reads and Postgres");
     Ok(())
+}
+
+/// Create the traffic-target persons through the identity service's batch
+/// get-or-create, with one seed property per person. The create ack covers
+/// both planes (stub committed in Postgres, initial properties durable in
+/// the changelog), so each ack is journaled like any other write — the
+/// end-of-run strong reads and the Postgres check then hold create
+/// visibility to the same invariant as update visibility.
+async fn create_persons_via_identity(
+    identity_url: &str,
+    team_id: i64,
+    count: u32,
+    state: &PersonState,
+) -> Result<Vec<i64>> {
+    /// The identity service caps batches at 250 entries by default.
+    const CREATE_BATCH_SIZE: u32 = 250;
+
+    let client = IdentityClient::connect(identity_url).await?;
+    let mut person_ids = Vec::with_capacity(count as usize);
+    let mut start = 0u32;
+    while start < count {
+        let end = (start + CREATE_BATCH_SIZE).min(count);
+        let entries: Vec<GetOrCreatePersonEntry> = (start..end)
+            .map(|i| {
+                let distinct_id = format!("harness-gate-{team_id}-{i}");
+                GetOrCreatePersonEntry {
+                    team_id,
+                    distinct_id: distinct_id.clone(),
+                    extra_distinct_ids: vec![],
+                    event_name: "$set".to_string(),
+                    set_properties: serde_json::to_vec(
+                        &serde_json::json!({ "harness_seed": distinct_id }),
+                    )
+                    .expect("seed properties serialize"),
+                    set_once_properties: Vec::new(),
+                    created_at: 0,
+                    is_identified: false,
+                }
+            })
+            .collect();
+
+        for result in client.get_or_create_persons(entries).await? {
+            if let Some(error) = &result.error {
+                bail!(
+                    "identity create failed for distinct id {}: {error}",
+                    result.distinct_id
+                );
+            }
+            let person = result
+                .person
+                .with_context(|| format!("no person for distinct id {}", result.distinct_id))?;
+            if !result.created {
+                bail!(
+                    "distinct id {} already existed — the harness team must start clean",
+                    result.distinct_id
+                );
+            }
+            let seed_properties = HashMap::from([(
+                "harness_seed".to_string(),
+                serde_json::json!(result.distinct_id),
+            )]);
+            state
+                .record_write(person.id, person.version, seed_properties)
+                .await;
+            person_ids.push(person.id);
+        }
+        start = end;
+    }
+    Ok(person_ids)
 }
 
 #[cfg(test)]

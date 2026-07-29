@@ -382,6 +382,47 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert stored["dave"]["reason"] == "Owns this area"
         assert "bob" not in stored
 
+    def test_put_stamps_manual_add_reason_without_clobbering_kept_reviewer(self):
+        # A manually-added reviewer carries no routing evidence, so the server stamps a
+        # "who added them, when" reason for the inbox UI. A kept reviewer's existing reason
+        # must survive the same edit — the manual-add default only fills newly-added entries.
+        self.user.first_name = "Zelda"
+        self.user.last_name = "Zebra"
+        self.user.save()
+        dave = self._create_org_member("dave@example.com", github_login="dave")
+        report = self._create_report()
+        artefact = self._create_artefact(
+            report,
+            content=[{"github_login": "alice", "reason": "Top recent author on the affected surface"}],
+        )
+
+        response = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": [{"github_login": "alice"}, {"user_uuid": str(dave.uuid)}]}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        stored = {r["github_login"]: r for r in self._latest_reviewers(report)}
+        assert stored["alice"]["reason"] == "Top recent author on the affected surface"
+        assert stored["dave"]["reason"].startswith("Added as a reviewer by Zelda Zebra on ")
+
+    def test_put_explicit_null_reason_on_new_reviewer_is_not_stamped(self):
+        # Field-presence semantics: an explicitly-supplied null reason clears the reason, so the
+        # manual-add note must only fill entries where the reason field was omitted entirely.
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[])
+
+        response = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": [{"github_login": "alice", "reason": None}]}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        stored = {r["github_login"]: r for r in self._latest_reviewers(report)}
+        assert stored["alice"]["reason"] is None
+
     def test_put_resolves_user_uuid_to_github_login(self):
         member = self._create_org_member("alice@example.com", github_login="AliceCase")
         report = self._create_report()

@@ -144,6 +144,7 @@ export interface logsViewerDataLogicValues {
     sparklineBreakdownBy: LogsSparklineBreakdownBy // logsViewerConfigLogic
     filterGroup: UniversalFiltersGroup // logsViewerFiltersLogic
     filters: LogsViewerFilters // logsViewerFiltersLogic
+    personId: string | undefined // logsViewerFiltersLogic
     queryFilterGroup: UniversalFiltersGroup // logsViewerFiltersLogic
     utcDateRange: {
         date_from: string | null | undefined
@@ -495,7 +496,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         ],
         values: [
             logsViewerFiltersLogic({ id }),
-            ['filters', 'utcDateRange', 'filterGroup', 'queryFilterGroup'],
+            ['filters', 'utcDateRange', 'filterGroup', 'queryFilterGroup', 'personId'],
             logsViewerConfigLogic({ id }),
             ['sparklineBreakdownBy', 'orderBy', 'customColumns'],
         ],
@@ -687,11 +688,18 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             severityLevels: values.filters.severityLevels,
                             serviceNames: values.filters.serviceNames,
+                            personId: values.personId,
                             customColumns: sentCustomColumns,
                         },
                         signal,
                     })
                     actions.setLogsAbortController(null)
+                    // A 2xx response with an empty body legitimately resolves to null (see
+                    // getJSONFromSuccessResponse in lib/api.ts) — treat it as a failure instead of
+                    // crashing on the first property access below.
+                    if (!response) {
+                        throw new Error('Logs query returned an empty response')
+                    }
                     actions.setHasMoreLogsToLoad(!!response.hasMore)
                     actions.setNextCursor(response.nextCursor ?? null)
                     actions.setMaxExportableLogs(response.maxExportableLogs)
@@ -732,12 +740,17 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             severityLevels: values.filters.severityLevels,
                             serviceNames: values.filters.serviceNames,
+                            personId: values.personId,
                             customColumns: values.customColumns,
                             after: values.nextCursor,
                         },
                         signal,
                     })
                     actions.setLogsAbortController(null)
+                    // See the matching guard in fetchLogs: an empty-body 2xx response resolves to null.
+                    if (!response) {
+                        throw new Error('Logs query returned an empty response')
+                    }
                     actions.setHasMoreLogsToLoad(!!response.hasMore)
                     actions.setNextCursor(response.nextCursor ?? null)
                     return [...values.logs, ...response.results]
@@ -762,6 +775,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             severityLevels: values.filters.severityLevels,
                             serviceNames: values.filters.serviceNames,
                             sparklineBreakdownBy: values.sparklineBreakdownBy,
+                            personId: values.personId,
                         },
                         signal,
                     })
@@ -960,7 +974,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
 
     subscriptions(({ actions }) => ({
         // Subscribe to the combined query view rather than the user-editable filterGroup
-        // so the query reruns when pinned filters change (e.g. team `logs_distinct_id_attribute_key`
+        // so the query reruns when pinned filters change (e.g. team `logs_distinct_id_attribute_keys`
         // resolves after mount), not just when the user edits filters.
         queryFilterGroup: (filterGroup: UniversalFiltersGroup, oldFilterGroup: UniversalFiltersGroup | undefined) => {
             if (shouldSkipFilterGroupChange(filterGroup, oldFilterGroup)) {
@@ -1138,6 +1152,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                         filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                         severityLevels: values.filters.severityLevels,
                         serviceNames: values.filters.serviceNames,
+                        personId: values.personId,
                         customColumns: values.customColumns,
                         liveLogsCheckpoint: values.liveLogsCheckpoint ?? undefined,
                     },

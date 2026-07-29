@@ -15,6 +15,7 @@ from rest_framework.serializers import BaseSerializer
 
 from posthog.api.capture import capture_internal
 from posthog.api.llm_prompt_serializers import (
+    ALLOWED_LIST_ORDERINGS,
     LLMPromptDuplicateSerializer,
     LLMPromptFetchQuerySerializer,
     LLMPromptGetByNameQuerySerializer,
@@ -66,29 +67,12 @@ from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrot
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
+from products.ai_observability.backend.activity_logging import log_llm_prompt_activity
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel, get_prompt_outline
 
 PROMPT_FETCHED_EVENT = "$llm_prompt_fetched"
 PROMPT_FETCHED_EVENT_SOURCE = "llm_prompt_management"
-ALLOWED_LIST_ORDERINGS = {
-    "name": "name",
-    "-name": "-name",
-    "created_at": "created_at",
-    "-created_at": "-created_at",
-    "updated_at": "updated_at",
-    "-updated_at": "-updated_at",
-    "version": "version",
-    "-version": "-version",
-    "latest_version": "latest_version",
-    "-latest_version": "-latest_version",
-    "version_count": "version_count",
-    "-version_count": "-version_count",
-    "first_version_created_at": "first_version_created_at",
-    "-first_version_created_at": "-first_version_created_at",
-    "prompt_size_bytes": "prompt_size_bytes",
-    "-prompt_size_bytes": "-prompt_size_bytes",
-}
 
 
 @extend_schema(extensions={"x-product": "llm_analytics"})
@@ -225,7 +209,7 @@ class LLMPromptViewSet(
         if created_by_id:
             queryset = queryset.filter(created_by_id=created_by_id)
 
-        order_by = request.query_params.get("order_by", "-created_at")
+        order_by = params.get("order_by", "-created_at")
         queryset = queryset.order_by(ALLOWED_LIST_ORDERINGS.get(order_by, "-created_at"), "-id")
         return queryset
 
@@ -243,6 +227,12 @@ class LLMPromptViewSet(
     def perform_create(self, serializer: BaseSerializer[Any]) -> None:
         instance = cast(LLMPrompt, serializer.save())
 
+        log_llm_prompt_activity(
+            team=self.team,
+            user=cast(User, self.request.user),
+            prompt_name=instance.name,
+            activity="created",
+        )
         report_user_action(
             cast(User, self.request.user),
             "llma prompt created",
@@ -389,6 +379,7 @@ class LLMPromptViewSet(
             }
         )
 
+    @extend_schema(request=None, responses={204: None})
     @action(
         methods=["POST"],
         detail=False,
@@ -403,7 +394,7 @@ class LLMPromptViewSet(
             return auth_error
 
         try:
-            prompt_versions = archive_prompt(self.team, prompt_name)
+            prompt_versions = archive_prompt(self.team, prompt_name, user=cast(User, request.user))
         except LLMPromptNotFoundError:
             return self._prompt_not_found_response(prompt_name)
 

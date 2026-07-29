@@ -27,7 +27,13 @@ _LENGTH_GUIDANCE: dict[SummaryLength, str] = {
 class SummarizerSummaryResponse(BaseModel, frozen=True):
     """First turn: the title + body summary. Field order is load-bearing — `confidence` last, after the content."""
 
-    title: str = Field(max_length=120, description="Short title for the session (~80 chars). Plain text, no quotes.")
+    title: str = Field(
+        max_length=120,
+        description=(
+            "Short title for the session (~80 chars). Plain text, no quotes. If the team's context specifies "
+            "a naming convention or format for observations, the title must follow it exactly."
+        ),
+    )
     summary: str = Field(description="Body text whose length follows the scanner's configured length.")
     confidence: float = confidence_field()
 

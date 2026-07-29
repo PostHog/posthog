@@ -14,9 +14,9 @@ use sqlx::postgres::PgPool;
 /// on rows, so the first insert brings the harness team into existence and
 /// a team-wide delete removes every trace of it.
 ///
-/// This writes SQL instead of calling CreatePerson because the create RPC's
-/// future is still being settled; this function is the seam where the RPC
-/// swaps in.
+/// This SQL path is the default; the gate's --create-via-identity flag
+/// swaps in the personhog-identity GetOrCreatePersonsByDistinctIds RPC
+/// instead.
 pub async fn seed_persons(
     pool: &PgPool,
     table: &str,
@@ -46,14 +46,25 @@ pub async fn seed_persons(
     Ok(ids)
 }
 
-/// Delete all of `team_id`'s rows from `table`. The harness owns its team
-/// ids outright, so a team-wide delete is the whole cleanup. Nothing
-/// writes distinct-id rows today (traffic is id-keyed), so nothing cleans
-/// them — that changes together when seeding grows a mechanism that
-/// writes them.
+/// Delete all of `team_id`'s rows from `table`, plus the distinct id and
+/// personless rows the identity-service create path writes. The harness
+/// owns its team ids outright, so team-wide deletes are the whole cleanup.
+/// Distinct id rows go first: their FK references the person rows.
 pub async fn cleanup_team(pool: &PgPool, table: &str, team_id: i64) -> Result<u64> {
     validate_table_name(table)?;
     let team: i32 = team_id.try_into().context("team_id out of i32 range")?;
+
+    sqlx::query("DELETE FROM posthog_persondistinctid WHERE team_id = $1")
+        .bind(team)
+        .execute(pool)
+        .await
+        .context("deleting distinct ids")?;
+    sqlx::query("DELETE FROM posthog_personlessdistinctid WHERE team_id = $1")
+        .bind(team)
+        .execute(pool)
+        .await
+        .context("deleting personless distinct ids")?;
+
     let deleted = sqlx::query(&format!("DELETE FROM {table} WHERE team_id = $1"))
         .bind(team)
         .execute(pool)

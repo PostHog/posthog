@@ -64,7 +64,7 @@ from products.feature_flags.backend.models.feature_flag import (
     FeatureFlagDashboards,
     get_feature_flags_for_team_in_cache,
 )
-from products.feature_flags.backend.user_blast_radius import get_user_blast_radius_persons
+from products.feature_flags.backend.user_blast_radius import get_user_blast_radius, get_user_blast_radius_persons
 from products.product_analytics.backend.models.insight import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
@@ -2891,6 +2891,34 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         }
         conflicts = serializer._get_conflicting_changes(feature_flag, validated_data, original_flag)
         self.assertEqual(conflicts, ["name", "filters"])
+
+    @parameterized.expand(
+        [
+            ("list", ["active"]),
+            ("string", "active"),
+            ("number", 1),
+        ]
+    )
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
+    def test_updating_feature_flag_with_non_dict_original_flag(
+        self, _name, original_flag, mock_report_user_action
+    ) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={"name": "original name", "key": "a-flag-with-a-bad-original-flag"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        # A stale version enters the conflict branch, where original_flag is indexed by field name.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+            data={"active": False, "version": 999, "original_flag": original_flag},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(FeatureFlag.objects.get(id=flag_id).active)
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_treats_null_version_as_zero(self, mock_report_user_action):
@@ -6361,6 +6389,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         activity: list[dict] = activity_response["results"]
         for item in activity:
             item.pop("id", None)
+            for envelope_key in ("is_system", "was_impersonated", "client"):
+                item.pop(envelope_key, None)
         self.maxDiff = None
         assert activity == expected
 
@@ -8893,6 +8923,58 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         response_json = response.json()
         self.assertLessEqual({"affected": 4, "total": 10}.items(), response_json.items())
+
+    @parameterized.expand(
+        [
+            (
+                "event_filter_in_person_scope",
+                {"key": "$browser", "type": "event", "value": ["Chrome"], "operator": "exact"},
+                "does not work in 'person' scope",
+            ),
+            (
+                "non_numeric_cohort_id",
+                {"key": "id", "type": "cohort", "value": "not-a-cohort-id"},
+                "expected a number",
+            ),
+            (
+                "missing_cohort",
+                {"key": "id", "type": "cohort", "value": 999999999},
+                "does not exist",
+            ),
+        ]
+    )
+    def test_user_blast_radius_rejects_unevaluable_filters(self, _name, prop, message_fragment):
+        from rest_framework.exceptions import ValidationError  # noqa: PLC0415
+
+        with self.assertRaises(ValidationError) as ctx:
+            get_user_blast_radius(self.team, {"properties": [prop]})
+        self.assertIn(message_fragment, str(ctx.exception))
+
+    def test_user_blast_radius_execution_value_error_is_not_masked_as_caller_error(self):
+        # A bare ValueError from query execution is a server fault, not invalid filters.
+        with (
+            patch(
+                "products.feature_flags.backend.user_blast_radius._get_person_blast_radius",
+                side_effect=ValueError("could not load timezone"),
+            ),
+            self.assertRaises(ValueError),
+        ):
+            get_user_blast_radius(
+                self.team,
+                {"properties": [{"key": "group", "type": "person", "value": ["1"], "operator": "exact"}]},
+            )
+
+    def test_user_blast_radius_endpoint_returns_400_for_unevaluable_filters(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [{"key": "$browser", "type": "event", "value": ["Chrome"], "operator": "exact"}]
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["type"], "validation_error")
 
     def test_user_blast_radius_with_flag_dependency(self):
         for i in range(10):

@@ -19,7 +19,7 @@ from rest_framework import status
 
 from posthog.hogql.errors import QueryError
 
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
@@ -561,6 +561,8 @@ class TestExports(APIBaseTest):
         activity: list[dict] = activity_response["results"]
         for item in activity:
             item.pop("id", None)
+            for envelope_key in ("is_system", "was_impersonated", "client"):
+                item.pop(envelope_key, None)
 
         self.maxDiff = None
         self.assertEqual(activity, expected)
@@ -1543,7 +1545,7 @@ class TestExportAssetCounters(APIBaseTest):
             # User error: recorded but not raised
             (QueryError("Invalid query"), FAILURE_TYPE_USER, 0.0, 1.0, False),
             # System error: retried by tenacity, then recorded (not raised, swallowed by export_asset)
-            (CHQueryErrorTooManySimultaneousQueries("err"), FAILURE_TYPE_SYSTEM, 0.0, 1.0, False),
+            (ClickHouseAtCapacity(), FAILURE_TYPE_SYSTEM, 0.0, 1.0, False),
         ],
         name_func=lambda func, num, params: f"{func.__name__}_{['success', 'user_error', 'system_error'][int(num)]}",
     )

@@ -1,8 +1,9 @@
 """Intent clustering pipeline for MCP analytics.
 
 Four pure functions, each independently testable, that together build a cluster
-snapshot of MCP intents. The Celery task in ``tasks.py`` orchestrates them and
-persists the result.
+snapshot of MCP intents. The Temporal activity in
+``posthog/temporal/mcp_analytics/intent_clustering/activities.py`` orchestrates
+them and persists the result.
 
 Why pure functions: the algorithm is the riskiest part of this feature. Keeping
 each stage as a pure function over numpy arrays / dataclasses makes the
@@ -27,6 +28,7 @@ from typing import Any
 from django.utils import timezone
 
 import numpy as np
+import structlog
 from sklearn.cluster import AgglomerativeClustering
 
 from posthog.hogql import ast
@@ -40,6 +42,8 @@ from posthog.sync import database_sync_to_async
 
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.models import MCPIntentEmbeddingCache, MCPSession
+
+logger = structlog.get_logger(__name__)
 
 # Constants
 EMBEDDING_MODEL = "text-embedding-3-small-1536"
@@ -85,6 +89,12 @@ class IntentRecord:
 # in the two per-session queries below at a sane size; with
 # DEFAULT_TOP_N_INTENTS=500 a larger sample only adds long-tail singletons.
 MAX_CORPUS_SESSIONS = 2000
+
+# execute_hogql_query injects LIMIT 100 into any query without an explicit
+# LIMIT — far below what the per-session stats and journey queries return at
+# production scale (one-plus rows per corpus session). Cap explicitly at the
+# HogQL per-query maximum so results are never silently truncated.
+MAX_QUERY_ROWS = 50_000
 
 # Event-sourced intents are free text written by the calling agent — clip them
 # so one oversized value can't blow up embedding requests (the worker's model
@@ -132,6 +142,7 @@ WHERE event = {event}
     AND properties.$mcp_tool_name != ''
     AND timestamp >= now() - INTERVAL {lookback_days} DAY
 GROUP BY session_id, tool_name
+LIMIT {max_rows}
 """
 
 # Per-session ordered tool sequence + whether any call errored. arrayMap +
@@ -154,6 +165,7 @@ WHERE event = {event}
     AND properties.$mcp_tool_name != ''
     AND timestamp >= now() - INTERVAL {lookback_days} DAY
 GROUP BY session_id
+LIMIT {max_rows}
 """
 
 
@@ -224,6 +236,7 @@ def fetch_intent_corpus(
             "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
             "session_ids": ast.Tuple(exprs=[ast.Constant(value=sid) for sid in session_ids]),
             "lookback_days": ast.Constant(value=lookback_days),
+            "max_rows": ast.Constant(value=MAX_QUERY_ROWS),
         },
     )
     with tags_context(product=Product.MCP, feature=Feature.QUERY, team_id=team.id):
@@ -292,6 +305,7 @@ def fetch_session_journeys(
             "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
             "session_ids": ast.Tuple(exprs=[ast.Constant(value=sid) for sid in session_ids]),
             "lookback_days": ast.Constant(value=lookback_days),
+            "max_rows": ast.Constant(value=MAX_QUERY_ROWS),
         },
     )
     with tags_context(product=Product.MCP, feature=Feature.QUERY, team_id=team.id):
@@ -469,6 +483,18 @@ async def embed_intents_async(team: Team, texts: list[str]) -> tuple[np.ndarray,
             continue
         vectors.append(vector)
         valid_indices.append(i)
+
+    failed_count = len(texts) - len(valid_indices)
+    if failed_count:
+        # Failures are swallowed per text so one bad request can't sink the
+        # batch — surface the aggregate so a degraded embedding worker is
+        # visible instead of silently shrinking the corpus.
+        logger.warning(
+            "mcpa.intent_clustering.embedding_failures",
+            team_id=team.id,
+            failed=failed_count,
+            total=len(texts),
+        )
 
     if not vectors:
         return np.zeros((0, 0), dtype=np.float32), []

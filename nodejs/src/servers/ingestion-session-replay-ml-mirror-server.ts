@@ -158,11 +158,21 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
             keyStore,
             encryptor: new CleartextRecordingEncryptor(keyStore),
             createPipeline: (pipelineConfig) =>
-                createMlMirrorReplayPipeline(pipelineConfig, {
-                    anonymizeMaxConcurrency: resolveMlAnonymizeMaxConcurrency(
-                        this.config.SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY
-                    ),
-                }),
+                createMlMirrorReplayPipeline(
+                    pipelineConfig,
+                    {
+                        anonymizeMaxConcurrency: resolveMlAnonymizeMaxConcurrency(
+                            this.config.SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY
+                        ),
+                    },
+                    this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED
+                        ? {
+                              outputs,
+                              pseudonymSecret,
+                              producedRefCacheMax: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCED_REF_CACHE_MAX,
+                          }
+                        : undefined
+                ),
             // Isolate the mirror's session tracker/filter keys from the main lane. Sharing them would let
             // the cleartext mirror mark a session seen without the main lane's KMS key, so the main lane
             // would then fetch a missing key and record cleartext.

@@ -11,14 +11,11 @@ from posthog.schema import (
 
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mongodb import (
     MongoDBSourceConfig,
 )
@@ -150,6 +147,16 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             # stays retryable.
             "Topology Description:": _MONGO_UNREACHABLE_MESSAGE,
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # For a `mongodb+srv://` URI, pymongo resolves the SRV record via dnspython inside the
+        # MongoClient constructor, before any of our own connectivity handling runs. dnspython
+        # already retries across nameservers for the whole resolution lifetime before giving up
+        # with a ConfigurationError wrapping its LifetimeTimeout — a momentary DNS blip on the
+        # resolver PostHog's worker queries, unrelated to the user's cluster hostname — so Temporal
+        # retrying the whole activity is self-recovering. Match dnspython's fixed message prefix,
+        # not the variable timeout duration or nameserver address it's followed by.
+        return {"The resolution lifetime expired"}
 
     def get_schemas(
         self,

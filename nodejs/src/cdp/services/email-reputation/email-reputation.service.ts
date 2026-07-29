@@ -4,9 +4,15 @@ import { Counter } from 'prom-client'
 
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
+import { captureTeamEvent } from '~/common/utils/posthog'
+import { TeamManager } from '~/common/utils/team-manager'
 
 import { ReputationMetrics, ReputationThresholds, classifyReputation } from './classifier'
 import { BatchEvaluationSummary, HourlyEmailMetricsRow } from './types'
+
+export const REPUTATION_STATE_CHANGED_EVENT = 'workflow_email_reputation_state_changed'
+
+const DEGRADED_STATES = new Set(['warning', 'critical'])
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -22,14 +28,18 @@ interface HogFlowRow {
 }
 
 export interface EmailReputationServiceConfig {
-    /** Each target's window must contain at least this many sends (SES-style
-     * "representative volume") — small senders' windows stretch back until it's met. */
+    /** Floor for each target's representative volume — small senders' windows stretch back
+     * (up to the lookback) until at least this many sends are covered. */
     targetVolume: number
     /** ...and must span at least this many hours — so a high-volume sender is judged on at
      * least a full day of mail, not just the newest buckets that happen to reach the volume. */
     minWindowHours: number
     /** How far back to scan for that volume. Bounded by app_metrics2's 90-day TTL. */
     lookbackDays: number
+    /** Scales each target's representative volume to its own sending scale:
+     * volume = max(targetVolume, multiplier × its biggest sending day in the lookback).
+     * This is what makes the window span multiple campaigns — see representativeVolume(). */
+    representativeVolumeMultiplier: number
     thresholds: ReputationThresholds
 }
 
@@ -49,12 +59,15 @@ interface SnapshotRow {
  * posthog_emailreputationsnapshot, so the table doubles as a time series for trend dashboards.
  *
  * Rates are volume-based, mirroring how AWS SES judges the shared sending account: each target's
- * bounce/complaint rate covers at least its most recent `targetVolume` sends AND at least the
- * last `minWindowHours` — whichever reaches further back (walking hourly buckets backwards from
- * the evaluation time, capped at `lookbackDays`). A weekly batch blast keeps counting until
- * enough newer volume dilutes it, and a high-volume sender can't bury a bad morning under a few
- * clean recent hours. Because each window ends at evaluation time, bounces that arrive hours
- * after their send are picked up by the next run automatically.
+ * bounce/complaint rate covers at least its most recent representative volume of sends AND at
+ * least the last `minWindowHours` — whichever reaches further back (walking hourly buckets
+ * backwards from the evaluation time, capped at `lookbackDays`). The representative volume is
+ * sized to the target's own scale — `max(targetVolume, multiplier × its biggest sending day)` —
+ * so the window always spans multiple typical campaigns: a weekly batch blast keeps counting
+ * until enough newer batches dilute it (one clean batch can't wash it out), and a high-volume
+ * sender can't bury a bad morning under a few clean recent hours. Because each window ends at
+ * evaluation time, bounces that arrive hours after their send are picked up by the next run
+ * automatically.
  *
  * Runs as Temporal activities: the workflow fetches the team list once, then evaluates teams in
  * paced batches. All rows of a run share the workflow's `evaluatedAt`, and inserts are
@@ -65,6 +78,7 @@ export class EmailReputationService {
     constructor(
         private clickhouse: ClickHouseClient,
         private postgres: PostgresRouter,
+        private teamManager: TeamManager,
         private config: EmailReputationServiceConfig
     ) {}
 
@@ -146,7 +160,7 @@ export class EmailReputationService {
         const minWindowStart = Math.floor(Date.parse(evaluatedAt) / 1000) - this.config.minWindowHours * 3600
 
         // Per-workflow: fold each source's hourly buckets into its workflow, then take each
-        // workflow's window (>= minWindowHours and >= targetVolume sends).
+        // workflow's window (>= minWindowHours and >= its representative volume of sends).
         const workflowBuckets = new Map<string, Map<number, ReputationMetrics>>()
         for (const row of rows) {
             const flowId = sourceToFlow.get(row.appSourceId)
@@ -167,7 +181,7 @@ export class EmailReputationService {
             if (!flow) {
                 continue
             }
-            const totals = accumulateRecentVolume(buckets, this.config.targetVolume, minWindowStart)
+            const totals = accumulateRecentVolume(buckets, this.representativeVolume(buckets), minWindowStart)
             const { state, bounceRate, complaintRate } = classifyReputation(totals, this.config.thresholds)
             snapshots.push({
                 teamId: flow.team_id,
@@ -194,7 +208,7 @@ export class EmailReputationService {
             // via a recent nonzero snapshot, so record an explicit "no recent volume" row rather
             // than leaving a stale rate presented as current.
             const totals = buckets
-                ? accumulateRecentVolume(buckets, this.config.targetVolume, minWindowStart)
+                ? accumulateRecentVolume(buckets, this.representativeVolume(buckets), minWindowStart)
                 : { sent: 0, bounced: 0, complained: 0 }
             const { state, bounceRate, complaintRate } = classifyReputation(totals, this.config.thresholds)
             snapshots.push({
@@ -209,11 +223,20 @@ export class EmailReputationService {
             summary.teamsEvaluated++
         }
 
+        // Read before the inserts so "previous" can't see this run's own rows.
+        const previousStates = await this.fetchPreviousTeamStates(teamIds, evaluatedAt)
+        const suspendedTeamIds = await this.fetchSuspendedTeamIds(teamIds)
+
         for (const snapshot of snapshots) {
             const inserted = await this.insertSnapshot(snapshot, evaluatedAt)
             if (inserted) {
                 summary.snapshotsWritten++
                 reputationSnapshotsCounter.labels(snapshot.scope, snapshot.state).inc()
+                if (snapshot.scope === 'team') {
+                    // Emitting only on a real insert makes Temporal activity retries emit-once for
+                    // free: a retried batch hits ON CONFLICT and never reaches this branch.
+                    await this.maybeEmitTeamStateChange(snapshot, previousStates, suspendedTeamIds, evaluatedAt)
+                }
             }
         }
 
@@ -338,6 +361,80 @@ export class EmailReputationService {
         return new Map(result.rows.map((row) => [row.id, row]))
     }
 
+    private representativeVolume(buckets: Map<number, ReputationMetrics>): number {
+        return representativeVolume(buckets, this.config.targetVolume, this.config.representativeVolumeMultiplier)
+    }
+
+    /**
+     * Emit `workflow_email_reputation_state_changed` into PostHog's own project for team-scope
+     * snapshots, so internal alerting/analytics ride the CDP (a workflow with a Slack destination
+     * consumes it) instead of a hardcoded webhook. Emits on any transition into or out of a
+     * degraded state, and on every run while critical — the repeat while critical and unsuspended
+     * is the manual enforcement queue's nag; the consumer filters on `email_sending_suspended`.
+     * Quietly-healthy fleets emit nothing (a new team's first healthy snapshot is not an event).
+     */
+    private async maybeEmitTeamStateChange(
+        snapshot: SnapshotRow,
+        previousStates: Map<number, string>,
+        suspendedTeamIds: Set<number>,
+        evaluatedAt: string
+    ): Promise<void> {
+        const previousState = previousStates.get(snapshot.teamId) ?? null
+        const changed = previousState !== snapshot.state
+        const involvesDegraded =
+            DEGRADED_STATES.has(snapshot.state) || (previousState !== null && DEGRADED_STATES.has(previousState))
+        if (!((changed && involvesDegraded) || snapshot.state === 'critical')) {
+            return
+        }
+        try {
+            const team = await this.teamManager.getTeam(snapshot.teamId)
+            if (!team) {
+                return
+            }
+            captureTeamEvent(team, REPUTATION_STATE_CHANGED_EVENT, {
+                scope: 'team',
+                affected_team_id: snapshot.teamId,
+                previous_state: previousState,
+                new_state: snapshot.state,
+                bounce_rate: snapshot.bounceRate,
+                complaint_rate: snapshot.complaintRate,
+                emails_sent: snapshot.emailsSent,
+                evaluated_at: evaluatedAt,
+                email_sending_suspended: suspendedTeamIds.has(snapshot.teamId),
+            })
+        } catch (error) {
+            // The snapshot is the source of truth; a failed emit must not fail the batch.
+            logger.error('[EmailReputation] failed to emit state change event', {
+                teamId: snapshot.teamId,
+                error,
+            })
+        }
+    }
+
+    private async fetchPreviousTeamStates(teamIds: number[], evaluatedAt: string): Promise<Map<number, string>> {
+        const result = await this.postgres.query<{ team_id: number | string; state: string }>(
+            PostgresUse.COMMON_READ,
+            `SELECT DISTINCT ON (team_id) team_id, state
+             FROM posthog_emailreputationsnapshot
+             WHERE hog_flow_id IS NULL AND team_id = ANY($1) AND evaluated_at < $2::timestamptz
+             ORDER BY team_id, evaluated_at DESC`,
+            [teamIds, evaluatedAt],
+            'emailReputationFetchPreviousTeamStates'
+        )
+        return new Map(result.rows.map((row) => [Number(row.team_id), row.state]))
+    }
+
+    private async fetchSuspendedTeamIds(teamIds: number[]): Promise<Set<number>> {
+        const result = await this.postgres.query<{ team_id: number | string }>(
+            PostgresUse.COMMON_READ,
+            `SELECT team_id FROM workflows_teamworkflowsconfig
+             WHERE team_id = ANY($1) AND email_sending_suspended_at IS NOT NULL`,
+            [teamIds],
+            'emailReputationFetchSuspendedTeams'
+        )
+        return new Set(result.rows.map((row) => Number(row.team_id)))
+    }
+
     /** Returns true if a row was written, false if it already existed (retry dedupe). */
     private async insertSnapshot(snapshot: SnapshotRow, evaluatedAt: string): Promise<boolean> {
         const result = await this.postgres.query(
@@ -379,6 +476,34 @@ function addBucket(buckets: Map<number, ReputationMetrics>, row: HourlyEmailMetr
     acc.bounced += row.bounced
     acc.complained += row.complained
     buckets.set(row.hourBucket, acc)
+}
+
+/**
+ * Sizes a target's representative volume from its own sending scale, mirroring AWS SES's stated
+ * principle that rates are computed over "representative volume" sized to limit the influence of
+ * any single campaign:
+ *
+ *     volume = max(floor, multiplier × biggest sending day in the buckets)
+ *
+ * Anchoring on the biggest single day (rather than an average) is what makes bursty senders
+ * work: a weekly 10k batch sender averages ~1.4k/day — under one campaign — but their max day
+ * is 10k, so their window spans their last `multiplier` batches. The guarantee this buys: no
+ * single day can contribute more than 1/multiplier of the window, so one clean campaign can
+ * never fully wash out yesterday's disaster, and redemption means sending `multiplier` clean
+ * campaigns. Days are UTC calendar days, matching the daily evaluation cadence.
+ */
+export function representativeVolume(
+    buckets: Map<number, ReputationMetrics>,
+    floor: number,
+    multiplier: number
+): number {
+    const sentByDay = new Map<number, number>()
+    for (const [hour, bucket] of buckets) {
+        const day = Math.floor(hour / 86400)
+        sentByDay.set(day, (sentByDay.get(day) ?? 0) + bucket.sent)
+    }
+    const maxDaily = Math.max(0, ...sentByDay.values())
+    return Math.max(floor, multiplier * maxDaily)
 }
 
 /**

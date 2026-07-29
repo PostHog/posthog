@@ -16,6 +16,7 @@ import {
     evaluationsTestHogCreate,
     llmAnalyticsEvaluationSummaryCreate,
 } from '../generated/api'
+import type { TestHogRequestApi, TestHogResultItemApi } from '../generated/api.schemas'
 import { parsePlaygroundProviderKeyId } from '../ModelPicker'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import type { EvaluationConfig as TeamEvaluationConfig } from '../settings/llmProviderKeysLogic'
@@ -38,20 +39,23 @@ import type {
     EvaluationConditionSet,
     EvaluationConfig,
     EvaluationRun,
+    EvaluationSettleStrategy,
     EvaluationSummary,
     EvaluationSummaryFilter,
     EvaluationTarget,
+    EvaluationTargetConfig,
     EvaluationType,
     HogEvaluation,
     LLMJudgeEvaluation,
-    HogTestResult,
     ModelConfiguration,
     SentimentEvaluation,
 } from './types'
 
-// Mirrors TRACE_EVAL_DEFAULT_WINDOW_SECONDS on the backend — the value pre-filled when an
-// evaluation is switched to the trace target. The backend re-defaults and clamps regardless.
+// Mirror the backend defaults in evaluation_configs.py — pre-filled when a strategy is
+// selected. The backend re-defaults and clamps regardless.
 export const DEFAULT_TRACE_WINDOW_SECONDS = 30 * 60
+export const DEFAULT_TRACE_QUIET_PERIOD_SECONDS = 5 * 60
+export const DEFAULT_TRACE_MAX_AGE_SECONDS = 2 * 60 * 60
 
 export const DEFAULT_HOG_SOURCE = getHogEvalExample('output_not_empty').source
 
@@ -128,6 +132,24 @@ function filterEvaluationRuns(runs: EvaluationRun[], filter: EvaluationSummaryFi
     return completedRuns.filter((r) => r.sentiment_label?.toLowerCase() === filter)
 }
 
+function buildHogTestRequest(evaluation: HogEvaluation): TestHogRequestApi {
+    const request: TestHogRequestApi = {
+        source: evaluation.evaluation_config.source,
+        sample_count: 5,
+        allows_na: evaluation.output_config?.allows_na ?? false,
+        conditions: evaluation.conditions
+            .filter((condition) => condition.properties && condition.properties.length > 0)
+            .map((condition) => ({ properties: condition.properties })),
+        target: evaluation.target,
+    }
+    if (evaluation.target === 'trace') {
+        request.target_config = {
+            window_seconds: evaluation.target_config.window_seconds ?? DEFAULT_TRACE_WINDOW_SECONDS,
+        }
+    }
+    return request
+}
+
 export interface LLMEvaluationLogicProps {
     evaluationId: string
     templateKey?: EvaluationTemplateKey
@@ -158,7 +180,7 @@ export interface llmEvaluationLogicValues {
     filteredEvaluationRuns: EvaluationRun[]
     formValid: boolean
     hasUnsavedChanges: boolean
-    hogTestResults: HogTestResult[] | null
+    hogTestResults: TestHogResultItemApi[] | null
     hogTestResultsLoading: boolean
     isForceRefresh: boolean
     isNewEvaluation: boolean
@@ -252,6 +274,9 @@ export interface llmEvaluationLogicActions {
         runsStats: EvaluationRunsStats | null
         payload?: any
     }
+    patchTargetConfig: (patch: Partial<Omit<EvaluationTargetConfig, 'strategy'>>) => {
+        patch: Partial<Omit<EvaluationTargetConfig, 'strategy'>>
+    }
     refreshEvaluationRuns: () => {
         value: true
     }
@@ -314,13 +339,13 @@ export interface llmEvaluationLogicActions {
     setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => {
         modelConfiguration: ModelConfiguration | null
     }
-    setTraceWindowSeconds: (windowSeconds: number) => {
-        windowSeconds: number
+    setSettleStrategy: (strategy: EvaluationSettleStrategy) => {
+        strategy: EvaluationSettleStrategy
     }
     setTriggerConditions: (conditions: EvaluationConditionSet[]) => {
         conditions: EvaluationConditionSet[]
     }
-    testHogOnSample: () => any
+    testHogOnSample: (_?: void) => void
     testHogOnSampleFailure: (
         error: string,
         errorObject?: any
@@ -329,11 +354,11 @@ export interface llmEvaluationLogicActions {
         errorObject?: any
     }
     testHogOnSampleSuccess: (
-        hogTestResults: HogTestResult[] | null,
-        payload?: any
+        hogTestResults: TestHogResultItemApi[] | null,
+        payload?: void
     ) => {
-        hogTestResults: HogTestResult[] | null
-        payload?: any
+        hogTestResults: TestHogResultItemApi[] | null
+        payload?: void
     }
     toggleSummaryExpanded: () => {
         value: true
@@ -427,7 +452,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => ({ modelConfiguration }),
         setEvaluationType: (evaluationType: EvaluationType) => ({ evaluationType }),
         setEvaluationTarget: (target: EvaluationTarget) => ({ target }),
-        setTraceWindowSeconds: (windowSeconds: number) => ({ windowSeconds }),
+        setSettleStrategy: (strategy: EvaluationSettleStrategy) => ({ strategy }),
+        // Duration fields only — switching strategy must go through setSettleStrategy so the
+        // bag is fully reseeded (the strategies carry disjoint fields).
+        patchTargetConfig: (patch: Partial<Omit<EvaluationTargetConfig, 'strategy'>>) => ({ patch }),
         setHogSource: (source: string) => ({ source }),
 
         // Tab navigation
@@ -462,9 +490,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
     loaders(({ props, values }) => ({
         hogTestResults: [
-            null as HogTestResult[] | null,
+            null as TestHogResultItemApi[] | null,
             {
-                testHogOnSample: async (): Promise<HogTestResult[] | null> => {
+                testHogOnSample: async (_?: void, breakpoint?: () => void): Promise<TestHogResultItemApi[] | null> => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return null
@@ -473,25 +501,24 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     if (!evaluation || evaluation.evaluation_type !== 'hog') {
                         return null
                     }
+
+                    const request = buildHogTestRequest(evaluation)
+                    const requestFingerprint = JSON.stringify(request)
+                    let results: TestHogResultItemApi[]
                     try {
-                        const conditions = evaluation.conditions
-                            .filter((c) => c.properties && c.properties.length > 0)
-                            .map((c) => ({ properties: c.properties }))
-                        const response = await evaluationsTestHogCreate(teamId.toString(), {
-                            source: evaluation.evaluation_config.source,
-                            sample_count: 5,
-                            allows_na: evaluation.output_config?.allows_na ?? false,
-                            conditions,
-                        })
-                        return response.results.map((result) => ({
+                        const response = await evaluationsTestHogCreate(teamId.toString(), request)
+                        results = response.results.map((result) => ({
                             ...result,
                             reasoning: result.reasoning ?? '',
                         }))
                     } catch (e: unknown) {
                         const message = e instanceof Error ? e.message : typeof e === 'string' ? e : 'Unknown error'
-                        return [
+                        results = [
                             {
-                                event_uuid: 'error',
+                                sample_id: 'error',
+                                sample_type: evaluation.target,
+                                event_uuid: null,
+                                trace_id: null,
                                 input_preview: '',
                                 output_preview: '',
                                 result: null,
@@ -500,6 +527,17 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                             },
                         ]
                     }
+
+                    breakpoint?.()
+                    const currentEvaluation = values.evaluation
+                    if (
+                        !currentEvaluation ||
+                        currentEvaluation.evaluation_type !== 'hog' ||
+                        JSON.stringify(buildHogTestRequest(currentEvaluation)) !== requestFingerprint
+                    ) {
+                        return null
+                    }
+                    return results
                 },
             },
         ],
@@ -627,9 +665,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     if (!state) {
                         return null
                     }
-                    // Seed the window when switching to trace so the field shows a sane default;
-                    // clear the bag when switching back so we don't persist a stale window.
-                    const target_config = target === 'trace' ? { window_seconds: DEFAULT_TRACE_WINDOW_SECONDS } : {}
+                    // Seed a fixed-window settle config when switching to trace so the fields show a
+                    // sane default; clear the bag when switching back so we don't persist stale settings.
+                    const target_config: EvaluationTargetConfig =
+                        target === 'trace'
+                            ? { strategy: 'fixed_window', window_seconds: DEFAULT_TRACE_WINDOW_SECONDS }
+                            : {}
                     if (
                         state.evaluation_type === 'hog' &&
                         LEGACY_HOG_DEFAULT_SOURCES.includes(state.evaluation_config.source)
@@ -643,10 +684,24 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     }
                     return { ...state, target, target_config }
                 },
-                setTraceWindowSeconds: (state, { windowSeconds }) =>
-                    state
-                        ? { ...state, target_config: { ...state.target_config, window_seconds: windowSeconds } }
-                        : null,
+                setSettleStrategy: (state, { strategy }) => {
+                    if (!state || state.target !== 'trace') {
+                        return state
+                    }
+                    // Full reseed rather than a patch: the two strategies carry disjoint fields and
+                    // extra="forbid" on the backend rejects leftovers from the other one.
+                    const target_config: EvaluationTargetConfig =
+                        strategy === 'inactivity'
+                            ? {
+                                  strategy: 'inactivity',
+                                  quiet_period_seconds: DEFAULT_TRACE_QUIET_PERIOD_SECONDS,
+                                  max_age_seconds: DEFAULT_TRACE_MAX_AGE_SECONDS,
+                              }
+                            : { strategy: 'fixed_window', window_seconds: DEFAULT_TRACE_WINDOW_SECONDS }
+                    return { ...state, target_config }
+                },
+                patchTargetConfig: (state, { patch }) =>
+                    state ? { ...state, target_config: { ...state.target_config, ...patch } } : null,
                 setHogSource: (state, { source }) =>
                     state && state.evaluation_type === 'hog'
                         ? { ...state, evaluation_config: { ...state.evaluation_config, source } }
@@ -657,7 +712,13 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         ],
         hogTestResults: {
             clearHogTestResults: () => null,
+            setAllowsNA: () => null,
+            setEvaluationTarget: () => null,
+            setEvaluationType: () => null,
             setHogSource: () => null,
+            setSettleStrategy: () => null,
+            patchTargetConfig: () => null,
+            setTriggerConditions: () => null,
         },
         selectedModel: [
             '' as string,
@@ -710,7 +771,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setModelConfiguration: () => true,
                 setEvaluationType: () => true,
                 setEvaluationTarget: () => true,
-                setTraceWindowSeconds: () => true,
+                setSettleStrategy: () => true,
+                patchTargetConfig: () => true,
                 setHogSource: () => true,
                 saveEvaluationSuccess: () => false,
                 loadEvaluationSuccess: () => false,

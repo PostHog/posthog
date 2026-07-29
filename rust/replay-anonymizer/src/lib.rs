@@ -34,6 +34,8 @@ pub mod bytewalk;
 #[doc(hidden)]
 pub mod canvas;
 #[doc(hidden)]
+pub mod collect;
+#[doc(hidden)]
 pub mod compression;
 pub mod context;
 #[doc(hidden)]
@@ -61,6 +63,7 @@ pub mod url;
 pub mod value;
 
 pub use allow_lists::AllowLists;
+pub use collect::ImageCollection;
 pub use context::Ctx;
 pub use event::{
     anonymize_event, anonymize_event_str, anonymize_line, anonymize_line_with_ctx,

@@ -32,7 +32,7 @@ import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { Query } from '~/queries/Query/Query'
-import { AccessControlLevel, AccessControlResourceType, LLMPrompt, LLMPromptVersionSummary } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { ExperimentBasicApi } from '../../../experiments/frontend/generated/api.schemas'
 import { useTracesQueryContext } from '../AIObservabilityTracesScene'
@@ -43,6 +43,7 @@ import { PromptAnalyticsScope, isPrompt, llmPromptLogic } from './llmPromptLogic
 import { promptExperimentsLogic } from './promptExperimentsLogic'
 import { PromptLabelChip } from './PromptLabelChip'
 import { PromptLabelPicker } from './PromptLabelPicker'
+import { LLMPrompt, LLMPromptVersionSummary } from './types'
 import { PROMPT_NAME_MAX_LENGTH } from './utils'
 
 const MonacoDiffEditor = lazyWithRetry(() => import('lib/components/MonacoDiffEditor'))
@@ -448,7 +449,7 @@ from posthog.ai.prompts import Prompts
 posthog = Posthog(
     '${projectApiKey}',
     host='${host}',
-    personal_api_key='<personal_api_key>',  # scope: llm_prompt:read
+    secret_key='<personal_api_key>',  # scope: llm_prompt:read
 )
 prompts = Prompts(posthog)
 

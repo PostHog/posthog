@@ -1111,6 +1111,10 @@ class ActivityLoggingMiddleware:
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest):
+        # Lets bearer-auth code (which runs later, inside the view) attribute activity safely,
+        # knowing the finally block below will clean up.
+        activity_storage.mark_request_scoped()
+
         # Set user in activity storage if authenticated
         if request.user.is_authenticated:
             activity_storage.set_user(request.user)

@@ -23,7 +23,7 @@ export interface BuildToolResultOptions {
     /** Whether formatted-result text should win over structuredContent for this client profile. */
     suppressStructuredContentForFormattedResults?: boolean | undefined
     /**
-     * For inline-exec UI-app hosts (PostHog Code, Claude Code, Cowork): always drop
+     * For inline-exec UI-app hosts (PostHog Desktop, Claude Code, Cowork): always drop
      * top-level `structuredContent` toward the model and re-home the app payload onto
      * `_meta` instead — even when there's no formatted table (the model then reads the
      * TOON text). These hosts surface `structuredContent` to the model, so it must

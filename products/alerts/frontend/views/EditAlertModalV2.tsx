@@ -115,6 +115,7 @@ export function EditAlertModalV2({
         isAlertFormSubmitting,
         alertFormChanged,
         alertFormHasErrors,
+        alertFormValidationErrors,
         alertFormSubmitAttempted,
         simulationResult,
         simulationResultLoading,
@@ -266,6 +267,9 @@ export function EditAlertModalV2({
         />
     )
 
+    const thresholdValidationError =
+        typeof alertFormValidationErrors.threshold === 'string' ? alertFormValidationErrors.threshold : undefined
+
     const definitionNode = (
         <AlertDefinitionSection
             alertForm={alertForm}
@@ -384,7 +388,7 @@ export function EditAlertModalV2({
                                 notifyNode,
                                 advancedNode,
                                 summary,
-                                thresholdBoundsFormError,
+                                thresholdValidationError,
                                 scheduleRestrictionFormError,
                                 alertFormHasErrors,
                                 alertName: alertForm.name,

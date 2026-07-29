@@ -60,8 +60,9 @@ Use this first when the question asks for the most expensive users:
 ```sql
 posthog:execute-sql
 SELECT
-    argMax(user_tuple, timestamp) AS __llm_person,
     distinct_id,
+    argMax(email, timestamp) AS email,
+    argMax(name, timestamp) AS name,
     countDistinctIf(ai_trace_id, notEmpty(ai_trace_id)) AS traces,
     count() AS generations,
     countIf(notEmpty(ai_error) OR ai_is_error = 'true') AS errors,
@@ -81,7 +82,8 @@ FROM (
         toString(properties.$ai_is_error) AS ai_is_error,
         toInt(properties.$ai_input_tokens) AS ai_input_tokens,
         toInt(properties.$ai_output_tokens) AS ai_output_tokens,
-        tuple(distinct_id, person.created_at, person.properties) AS user_tuple
+        toString(person.properties.email) AS email,
+        toString(person.properties.name) AS name
     FROM events
     WHERE event = '$ai_generation'
         AND timestamp >= now() - INTERVAL 30 DAY
@@ -101,8 +103,10 @@ AND (
 )
 ```
 
-Use person properties only for labeling, such as email or name. Do not expose
-more personal data than needed.
+Project only the explicit label columns you need, such as `email` and `name`.
+Never select the raw `person.properties` object or a tuple containing it: it
+serializes the full property blob into the result and leaks personal data far
+beyond a label. If a user has no email or name, fall back to `distinct_id`.
 
 ### 2. Establish the baseline
 
@@ -312,7 +316,9 @@ the trace timestamp so the UI opens the right time window.
 Lead with the answer, not the queries. A good response has:
 
 1. **Top users** - ranked by total cost, with total cost, share of spend,
-   generations, traces, average cost per generation, and error rate.
+   generations, traces, average cost per generation, and error rate. Identify
+   each user by a label only (email, name, or `distinct_id`). Do not print raw
+   `person.properties` objects or other personal fields the user did not ask for.
 2. **Why they are expensive** - one or two concrete drivers per user, compared
    against the baseline.
 3. **Evidence** - model/token/cache/custom-dimension breakdowns plus linked

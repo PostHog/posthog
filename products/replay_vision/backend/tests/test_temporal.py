@@ -1,3 +1,4 @@
+import time
 import uuid
 import datetime as dt
 from typing import Any
@@ -21,6 +22,7 @@ from temporalio.exceptions import (
     TimeoutError as TemporalTimeoutError,
     TimeoutType,
 )
+from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
 from posthog.models.user import User
@@ -30,6 +32,12 @@ from posthog.session_recordings.queries.session_replay_events import SessionEven
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.enqueue_claims import (
+    _RELEASE_GRACE_SECONDS,
+    pending_enqueue_claims_for_scanner,
+    pending_enqueue_claims_for_team,
+    try_claim_enqueue_slot,
+)
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -49,7 +57,10 @@ from products.replay_vision.backend.temporal.activities.count_in_flight_applies 
 from products.replay_vision.backend.temporal.activities.create_observation import create_observation_activity
 from products.replay_vision.backend.temporal.activities.embed_observation import embed_observation_activity
 from products.replay_vision.backend.temporal.activities.emit_classifier_tags import emit_classifier_tags_activity
-from products.replay_vision.backend.temporal.activities.emit_observation_event import emit_observation_event_activity
+from products.replay_vision.backend.temporal.activities.emit_observation_event import (
+    _emit_event,
+    emit_observation_event_activity,
+)
 from products.replay_vision.backend.temporal.activities.emit_observation_signal import (
     SIGNAL_WEIGHT,
     emit_observation_signal_activity,
@@ -66,6 +77,7 @@ from products.replay_vision.backend.temporal.activities.upload_video_to_gemini i
 from products.replay_vision.backend.temporal.errors import (
     INELIGIBLE_SESSION_ERROR_TYPE,
     SCANNER_FAILURE_ERROR_TYPE,
+    ConsentWithdrawnError,
     FailureKind,
     IneligibleSessionError,
     IneligibleSessionKind,
@@ -89,11 +101,13 @@ from products.replay_vision.backend.temporal.state import (
 from products.replay_vision.backend.temporal.sweep_types import CountInFlightAppliesInputs, InFlightApplyCounts
 from products.replay_vision.backend.temporal.types import (
     ApplyScannerInputs,
+    CallScannerProviderInputs,
     CleanupGeminiFileInputs,
     CreateObservationInputs,
     CreateObservationOutput,
     EmbedObservationInputs,
     EmitClassifierTagsInputs,
+    EmitObservationEventInputs,
     EmitObservationSignalInputs,
     EnsureSessionAssetInputs,
     EnsureSessionAssetOutput,
@@ -109,6 +123,7 @@ from products.replay_vision.backend.temporal.types import (
     ScannerSnapshot,
     SessionMetadata,
     UploadedVideo,
+    UploadVideoToGeminiInputs,
 )
 from products.replay_vision.backend.temporal.workflow import (
     _activity_timeout_kind,
@@ -189,6 +204,24 @@ class TestCountInFlightAppliesActivity:
 
         assert result == InFlightApplyCounts(scanner=2, team=3)
 
+    def test_counts_include_enqueued_claims(self) -> None:
+        # Missing claims here lets the sweep dispatch on top of an on-demand burst.
+        scanner = _make_scanner()
+        _make_observation(scanner, session_id="s1", status=ObservationStatus.PENDING)
+        assert try_claim_enqueue_slot(
+            team_id=scanner.team_id,
+            scanner_id=scanner.id,
+            workflow_id="wf-enqueued",
+            team_in_flight_rows=1,
+            scanner_in_flight_rows=1,
+        )
+
+        result = count_in_flight_by_team_activity(
+            CountInFlightAppliesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+        )
+
+        assert result == InFlightApplyCounts(scanner=2, team=2)
+
 
 @pytest.mark.django_db(transaction=True)
 class TestCreateObservationActivity:
@@ -221,6 +254,37 @@ class TestCreateObservationActivity:
         assert observation.scanner_snapshot["scanner_config"] == scanner.scanner_config
         assert observation.started_at is None  # set when transitioning to running, not here
         assert observation.completed_at is None
+
+    def test_decays_enqueue_claim_once_the_row_exists(self) -> None:
+        # A claim that never decays holds a phantom cap slot for the full TTL.
+        scanner = _make_scanner()
+        assert try_claim_enqueue_slot(
+            team_id=scanner.team_id,
+            scanner_id=scanner.id,
+            workflow_id="wf-claimed",
+            team_in_flight_rows=0,
+            scanner_in_flight_rows=0,
+        )
+
+        create_observation_activity(
+            CreateObservationInputs(
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
+                session_id="sess-claimed",
+                triggered_by=ObservationTrigger.ON_DEMAND,
+                triggered_by_user_id=None,
+                workflow_id="wf-claimed",
+            )
+        )
+
+        # The claim decays: it overlaps its new row for the grace, then expires.
+        assert pending_enqueue_claims_for_team(scanner.team_id) == 1
+        with patch(
+            "products.replay_vision.backend.enqueue_claims.time.time",
+            return_value=time.time() + _RELEASE_GRACE_SECONDS + 1,
+        ):
+            assert pending_enqueue_claims_for_team(scanner.team_id) == 0
+            assert pending_enqueue_claims_for_scanner(scanner.id) == 0
 
     def test_snapshot_is_frozen_against_later_scanner_edits(self) -> None:
         scanner = _make_scanner()
@@ -399,6 +463,77 @@ class TestCreateObservationActivity:
             observation_id=None, was_created=False, scanner_type=scanner.scanner_type
         )
         assert not ReplayObservation.objects.filter(scanner=scanner, session_id="sess-quota").exists()
+
+    def test_skips_insert_when_ai_data_processing_not_approved(self) -> None:
+        scanner = _make_scanner()
+        org = scanner.team.organization
+        org.is_ai_data_processing_approved = False
+        org.save()
+
+        result = create_observation_activity(
+            CreateObservationInputs(
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
+                session_id="sess-no-consent",
+                triggered_by=ObservationTrigger.SCHEDULE,
+                triggered_by_user_id=None,
+                workflow_id="wf-no-consent",
+            )
+        )
+        assert result == CreateObservationOutput(
+            observation_id=None, was_created=False, scanner_type=scanner.scanner_type
+        )
+        assert not ReplayObservation.objects.filter(scanner=scanner, session_id="sess-no-consent").exists()
+
+
+@pytest.mark.django_db(transaction=True)
+class TestEgressConsentRecheck:
+    """Consent is re-checked at each external-data egress step. Revoking it after an observation is created
+    must still abort before any recording bytes reach Gemini — creation-time gating alone leaves in-flight scans."""
+
+    @staticmethod
+    def _team_without_consent() -> Team:
+        org = Organization.objects.create(name="no-consent-org", is_ai_data_processing_approved=False)
+        return Team.objects.create(organization=org, name="no-consent-team")
+
+    @pytest.mark.asyncio
+    async def test_upload_aborts_before_touching_gemini_when_consent_withdrawn(self) -> None:
+        team = await sync_to_async(self._team_without_consent)()
+        # The activity derives the team from the asset row (no team_id in the payload), so it must exist.
+        asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4")
+        with patch(
+            "products.replay_vision.backend.temporal.activities.upload_video_to_gemini.RawGenAIClient"
+        ) as mock_client:
+            with pytest.raises(ConsentWithdrawnError) as exc_info:
+                await ActivityEnvironment().run(
+                    upload_video_to_gemini_activity,
+                    UploadVideoToGeminiInputs(asset_id=asset.id),
+                )
+        mock_client.assert_not_called()
+        assert exc_info.value.non_retryable is True
+        assert exc_info.value.type == INELIGIBLE_SESSION_ERROR_TYPE
+        assert exc_info.value.details == ("no_ai_consent",)
+
+    @pytest.mark.asyncio
+    async def test_provider_aborts_before_generation_when_consent_withdrawn(self) -> None:
+        team = await sync_to_async(self._team_without_consent)()
+        with patch(
+            "products.replay_vision.backend.temporal.activities.call_scanner_provider._run_mission"
+        ) as mock_run_mission:
+            with pytest.raises(ConsentWithdrawnError) as exc_info:
+                await ActivityEnvironment().run(
+                    call_scanner_provider_activity,
+                    CallScannerProviderInputs(
+                        team_id=team.id,
+                        observation_id=uuid.uuid4(),
+                        file_uri="gemini://files/x",
+                        mime_type="video/mp4",
+                    ),
+                )
+        mock_run_mission.assert_not_called()
+        assert exc_info.value.non_retryable is True
+        assert exc_info.value.type == INELIGIBLE_SESSION_ERROR_TYPE
+        assert exc_info.value.details == ("no_ai_consent",)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -594,6 +729,26 @@ class TestObservationStateActivities:
         )
 
         assert ReplayObservationUsage.objects.filter(observation_id=observation.id).count() == 0
+
+
+@pytest.mark.django_db(transaction=True)
+class TestEmitObservationEventActivity:
+    def test_event_prices_credits_from_the_frozen_snapshot(self) -> None:
+        # The spend chart sums this property; dropping or mispricing it silently flatlines the chart.
+        scanner = _make_scanner()
+        observation = _make_observation(scanner)
+        inputs = EmitObservationEventInputs(
+            observation_id=observation.id,
+            model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9),
+        )
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.emit_observation_event.capture_internal"
+        ) as capture:
+            _emit_event(inputs)
+
+        properties = capture.call_args.kwargs["properties"]
+        assert properties["credits"] == observation_credits_for_model(observation.scanner_snapshot["model"])
 
 
 def _counter_value(metric_name: str, **labels: str) -> float:

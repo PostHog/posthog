@@ -1,16 +1,23 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from unittest.mock import patch
 
 from django.test import TestCase
 from django.utils import timezone as django_timezone
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Organization, OrganizationMembership, Team, User
 
-from products.tasks.backend.models import Channel, ChannelFeedMessage, Task, TaskRun, TaskThreadMessage
+from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.models import Channel, ChannelFeedMessage, Task, TaskActivity, TaskRun, TaskThreadMessage
+from products.tasks.backend.push_dispatcher import (
+    notify_task_run_awaiting_input,
+    notify_task_run_completed,
+    notify_task_run_turn_completed,
+)
 
 
 class ChannelsAPITestCase(TestCase):
@@ -332,6 +339,273 @@ class TaskMentionsAPITestCase(ChannelTaskAPITestCase):
         self.assertEqual(self.peer_client.get(self._mentions_url()).json(), [])
         other_team_mentions = self.peer_client.get(f"/api/projects/{other_team.id}/task_mentions/").json()
         self.assertEqual(len(other_team_mentions), 1)
+
+
+class TaskActivityAPITestCase(ChannelTaskAPITestCase):
+    def _activity_url(self) -> str:
+        return f"/api/projects/{self.team.id}/task_activity/"
+
+    def _thread_url(self, task=None) -> str:
+        return f"/api/projects/{self.team.id}/tasks/{(task or self.task).id}/thread_messages/"
+
+    def _post_message(self, client, content: str, task=None) -> dict:
+        response = client.post(self._thread_url(task), {"content": content})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        return response.json()
+
+    def _mark_read(self, client, activities) -> dict:
+        response = client.post(self._activity_url() + "mark_read/", {"activities": activities}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        return response.json()
+
+    def _rows(self, client) -> list[dict]:
+        return client.get(self._activity_url()).json()["results"]
+
+    def _row_for(self, client, task) -> dict:
+        rows = [row for row in self._rows(client) if row["task_id"] == str(task.id)]
+        self.assertEqual(len(rows), 1, rows)
+        return rows[0]
+
+    def _awaiting_input(self, task=None) -> None:
+        run = TaskRun.objects.create(team=self.team, task=task or self.task, status=TaskRun.Status.IN_PROGRESS)
+        # Go through the real notifier so the feed stays wired to whatever the product
+        # treats as "the agent is waiting", but leave the push side (flag, cooldown,
+        # Expo call) out of it.
+        with patch("products.tasks.backend.push_dispatcher._enqueue"):
+            notify_task_run_awaiting_input(run)
+
+    def test_creator_sees_the_task_they_created(self):
+        row = self._row_for(self.author_client, self.task)
+        self.assertEqual(row["activity_kind"], "created")
+        self.assertEqual(row["snippet"], "")
+        self.assertEqual(row["channel_name"], "growth")
+        # A teammate with no relationship to the task sees nothing.
+        self.assertEqual(self._rows(self.peer_client), [])
+
+    def test_authored_message_shows_as_message_with_snippet(self):
+        self._post_message(self.peer_client, "looking into this")
+        row = self._row_for(self.peer_client, self.task)
+        self.assertEqual(row["activity_kind"], "message")
+        self.assertEqual(row["snippet"], "looking into this")
+        self.assertEqual(row["latest_author"]["id"], self.peer.id)
+
+    def test_agent_message_is_unread_for_the_task_creator(self):
+        tasks_facade._create_agent_thread_message(self.task, "Hello!", event="agent_message")
+
+        row = self._row_for(self.author_client, self.task)
+        self.assertEqual(row["activity_kind"], "message")
+        self.assertEqual(row["snippet"], "Hello!")
+        self.assertIsNone(row["latest_author"])
+        self.assertTrue(row["is_unread"])
+
+    def test_mention_shows_as_mention_with_snippet(self):
+        self._post_message(self.author_client, "cc @[Bob](peer@example.com) please look")
+        row = self._row_for(self.peer_client, self.task)
+        self.assertEqual(row["activity_kind"], "mention")
+        self.assertEqual(row["snippet"], "cc @[Bob](peer@example.com) please look")
+        self.assertEqual(row["latest_author"]["id"], self.author.id)
+
+    def test_awaiting_input_projects_from_the_run_awaiting_notification(self):
+        self._awaiting_input()
+        row = self._row_for(self.author_client, self.task)
+        self.assertEqual(row["activity_kind"], "awaiting_input")
+        self.assertTrue(row["is_unread"])
+        # Only the task's creator is being waited on.
+        self.assertEqual(self._rows(self.peer_client), [])
+
+    def test_completed_run_replaces_awaiting_input_activity(self):
+        run = TaskRun.objects.create(team=self.team, task=self.task, status=TaskRun.Status.IN_PROGRESS)
+        with patch("products.tasks.backend.push_dispatcher._enqueue"):
+            notify_task_run_awaiting_input(run)
+            notify_task_run_completed(run)
+
+        row = self._row_for(self.author_client, self.task)
+        self.assertEqual(row["activity_kind"], "completed")
+        self.assertTrue(row["is_unread"])
+
+    def test_completed_turn_is_unread_for_the_task_creator(self):
+        run = TaskRun.objects.create(
+            team=self.team,
+            task=self.task,
+            state={"mode": "interactive"},
+            status=TaskRun.Status.IN_PROGRESS,
+        )
+        with patch("products.tasks.backend.push_dispatcher._enqueue"):
+            notify_task_run_turn_completed(run)
+
+        row = self._row_for(self.author_client, self.task)
+        self.assertEqual(row["activity_kind"], "completed")
+        self.assertTrue(row["is_unread"])
+
+    def test_multiple_signals_collapse_to_one_row_with_the_newest_winning(self):
+        self._post_message(self.author_client, "cc @[Bob](peer@example.com)")
+        self._post_message(self.peer_client, "on it")
+        row = self._row_for(self.peer_client, self.task)
+        self.assertEqual(row["activity_kind"], "message")
+        self.assertEqual(row["snippet"], "on it")
+
+    def test_out_of_order_projection_does_not_move_the_row_backwards(self):
+        self._awaiting_input()
+        latest = self._row_for(self.author_client, self.task)["activity_at"]
+        # A retried write replaying an older event must not overwrite newer activity.
+        TaskActivity.record(
+            team_id=self.team.id,
+            user_id=self.author.id,
+            task_id=self.task.id,
+            kind=TaskActivity.Kind.CREATED,
+            activity_at=django_timezone.now() - timedelta(hours=1),
+        )
+        row = self._row_for(self.author_client, self.task)
+        self.assertEqual(row["activity_kind"], "awaiting_input")
+        self.assertEqual(row["activity_at"], latest)
+
+    @parameterized.expand(
+        [
+            ("own_task_creation", None),
+            ("own_reply", "just thinking out loud"),
+        ]
+    )
+    def test_activity_the_user_caused_themselves_is_never_unread(self, _name, own_message):
+        if own_message is not None:
+            self._post_message(self.author_client, own_message)
+        page = self.author_client.get(self._activity_url()).json()
+        self.assertEqual(page["unread_count"], 0)
+        self.assertFalse(page["results"][0]["is_unread"])
+
+    @parameterized.expand(
+        [
+            ("mention", lambda self: self._post_message(self.author_client, "@[Bob](peer@example.com) ping")),
+            ("awaiting_input", lambda self: self._awaiting_input()),
+        ]
+    )
+    def test_activity_someone_else_caused_is_unread(self, name, trigger):
+        trigger(self)
+        client = self.peer_client if name == "mention" else self.author_client
+        page = client.get(self._activity_url()).json()
+        self.assertEqual(page["unread_count"], 1)
+        self.assertTrue(self._row_for(client, self.task)["is_unread"])
+
+    def test_mark_read_clears_only_the_named_tasks(self):
+        second = Task.objects.create(
+            team=self.team,
+            created_by=self.author,
+            channel=self.channel,
+            title="Second",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        self._awaiting_input()
+        self._awaiting_input(second)
+        self.assertEqual(self.author_client.get(self._activity_url()).json()["unread_count"], 2)
+
+        row = self._row_for(self.author_client, self.task)
+        body = self._mark_read(
+            self.author_client,
+            [{"task_id": str(self.task.id), "seen_before": row["activity_at"]}],
+        )
+        self.assertEqual(body, {"marked_read": 1, "unread_count": 1})
+        self.assertFalse(self._row_for(self.author_client, self.task)["is_unread"])
+        self.assertTrue(self._row_for(self.author_client, second)["is_unread"])
+
+    def test_reading_the_thread_does_not_mutate_activity(self):
+        self._awaiting_input()
+        self.assertTrue(self._row_for(self.author_client, self.task)["is_unread"])
+        self.assertEqual(self.author_client.get(self._thread_url()).status_code, status.HTTP_200_OK)
+        self.assertTrue(self._row_for(self.author_client, self.task)["is_unread"])
+
+    def test_mark_read_does_not_clear_newer_activity(self):
+        self._awaiting_input()
+        listed = self._row_for(self.author_client, self.task)
+        TaskActivity.record(
+            team_id=self.team.id,
+            user_id=self.author.id,
+            task_id=self.task.id,
+            kind=TaskActivity.Kind.MENTION,
+            activity_at=django_timezone.now() + timedelta(seconds=1),
+        )
+
+        body = self._mark_read(
+            self.author_client,
+            [{"task_id": str(self.task.id), "seen_before": listed["activity_at"]}],
+        )
+
+        self.assertEqual(body["marked_read"], 0)
+        self.assertTrue(self._row_for(self.author_client, self.task)["is_unread"])
+
+    def test_replaying_the_same_activity_preserves_read_state(self):
+        self._awaiting_input()
+        listed = self._row_for(self.author_client, self.task)
+        self._mark_read(
+            self.author_client,
+            [{"task_id": str(self.task.id), "seen_before": listed["activity_at"]}],
+        )
+
+        TaskActivity.record(
+            team_id=self.team.id,
+            user_id=self.author.id,
+            task_id=self.task.id,
+            kind=TaskActivity.Kind.AWAITING_INPUT,
+            activity_at=datetime.fromisoformat(listed["activity_at"]),
+        )
+
+        self.assertFalse(self._row_for(self.author_client, self.task)["is_unread"])
+
+    def test_unread_count_covers_the_whole_feed_not_just_the_page(self):
+        for index in range(2):
+            task = Task.objects.create(
+                team=self.team,
+                created_by=self.author,
+                channel=self.channel,
+                title=f"Extra {index}",
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+            self._awaiting_input(task)
+        self._awaiting_input()
+        page = self.author_client.get(self._activity_url(), {"limit": 1}).json()
+        self.assertEqual(len(page["results"]), 1)
+        self.assertEqual(page["unread_count"], 3)
+
+    def test_newest_activity_first_and_limit_applies(self):
+        second = Task.objects.create(
+            team=self.team,
+            created_by=self.author,
+            channel=self.channel,
+            title="Second",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        # A fresh message makes `second` the most recently active task.
+        self._post_message(self.author_client, "kickoff", task=second)
+        rows = self._rows(self.author_client)
+        self.assertEqual([row["task_id"] for row in rows], [str(second.id), str(self.task.id)])
+        first_page = self.author_client.get(self._activity_url(), {"limit": 1}).json()
+        self.assertEqual([row["task_id"] for row in first_page["results"]], [str(second.id)])
+        second_page = self.author_client.get(
+            self._activity_url(),
+            {
+                "limit": 1,
+                "before": first_page["next_before"],
+                "before_id": first_page["next_before_id"],
+            },
+        ).json()
+        self.assertEqual([row["task_id"] for row in second_page["results"]], [str(self.task.id)])
+        self.assertIsNone(second_page["next_before"])
+        self.assertIsNone(second_page["next_before_id"])
+
+    def test_mark_read_rejects_an_empty_task_list(self):
+        response = self.author_client.post(self._activity_url() + "mark_read/", {"activities": []}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
+    def test_activity_projection_failure_does_not_fail_message_creation(self):
+        with patch.object(TaskActivity, "record", side_effect=RuntimeError("projection unavailable")):
+            response = self.author_client.post(self._thread_url(), {"content": "still persisted"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(
+            TaskThreadMessage.objects.for_team(self.team.id).filter(task=self.task, content="still persisted").count(),
+            1,
+        )
 
 
 class ChannelFeedMessageAPITestCase(TestCase):

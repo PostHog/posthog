@@ -1,6 +1,8 @@
 import uuid
 from typing import Any, NoReturn, cast, get_args
+from urllib.parse import urlparse
 
+from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
@@ -179,23 +181,69 @@ class SynthesisConfigSerializer(serializers.Serializer):
 
 
 class DeliveryTargetSerializer(serializers.Serializer):
-    """A single delivery destination. MVP supports Slack only."""
+    """A single delivery destination: a Slack channel or an HTTP webhook URL."""
 
     type = serializers.ChoiceField(
-        choices=[("slack", "Slack")],
-        help_text="Destination channel type. MVP supports 'slack' only.",
+        choices=[("slack", "Slack"), ("webhook", "Webhook")],
+        help_text="Destination type: 'slack' posts to a Slack channel; 'webhook' POSTs a JSON payload to a URL.",
     )
     integration_id = serializers.IntegerField(
-        help_text="ID of the Slack Integration on this team used to deliver the summary.",
+        required=False,
+        help_text="ID of the Slack Integration on this team used to deliver. Required when type is 'slack'.",
     )
     channel = serializers.CharField(
-        help_text="Slack channel ID or name the summary is posted to.",
+        required=False,
+        help_text="Slack channel ID or name the summary is posted to. Required when type is 'slack'.",
     )
+    url = serializers.URLField(
+        required=False,
+        # HTTPS only: the report can carry session-derived content, so we don't POST it over cleartext
+        # where an on-path attacker could read or tamper with it. (The default URLField also accepts
+        # ftp:// and other schemes we'd never POST to.)
+        validators=[URLValidator(schemes=["https"])],
+        help_text=(
+            "HTTPS endpoint the summary is POSTed to as JSON. Required when type is 'webhook'. "
+            "Redacted to scheme+host in responses for users without editor access to the scanner."
+        ),
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # Field-level `required` can't depend on a sibling field, so enforce the per-type shape here:
+        # slack needs an integration + channel, webhook needs a URL.
+        if attrs["type"] == "slack":
+            if not attrs.get("integration_id") or not attrs.get("channel"):
+                raise serializers.ValidationError("Slack delivery targets require integration_id and channel.")
+        elif attrs["type"] == "webhook":
+            url = attrs.get("url")
+            if not url:
+                raise serializers.ValidationError("Webhook delivery targets require a url.")
+            # Reject `user:pass@host` userinfo: it's almost never intentional, and it would smuggle a
+            # credential into the URL that the viewer-facing redaction can't safely surface.
+            if urlparse(url).username or urlparse(url).password:
+                raise serializers.ValidationError("Webhook URLs must not embed credentials (user:pass@).")
+        return attrs
 
 
 # Alerts ride the scanner's sweep, so each enabled alert adds evaluation work to every sweep tick —
 # cap the fan-out one scanner can accumulate.
 MAX_ENABLED_ALERTS_PER_SCANNER = 10
+
+# Each delivery target provisions one enabled HogFunction that POSTs to its destination on every run,
+# so cap the list to stop a single action from being turned into a webhook fan-out to many hosts.
+MAX_DELIVERY_TARGETS = 5
+
+
+def _redact_webhook_url(url: str) -> str:
+    # Show the scheme + host so a viewer can see *where* it delivers, but drop everything a credential
+    # can hide in: the path, the query, AND any `user:pass@` userinfo (which `netloc` would carry, so
+    # rebuild the authority from hostname/port only). IPv6 hosts keep their brackets. Falls back to a
+    # fully-opaque marker if the URL can't be parsed.
+    parsed = urlparse(url)
+    if parsed.scheme and parsed.hostname:
+        host = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+        authority = f"{host}:{parsed.port}" if parsed.port else host
+        return f"{parsed.scheme}://{authority}/…"
+    return "(hidden)"
 
 
 class VisionActionSerializer(serializers.ModelSerializer):
@@ -318,13 +366,16 @@ class VisionActionSerializer(serializers.ModelSerializer):
         return value
 
     def validate_delivery_config(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        # IDOR guard: every referenced integration must belong to the team.
+        # DeliveryTargetSerializer has validated each target's per-type shape (and URL well-formedness).
+        # Cap the list: each target provisions an enabled HogFunction that POSTs on every run, so an
+        # unbounded list would turn one action into a webhook fan-out to many hosts.
+        if len(value) > MAX_DELIVERY_TARGETS:
+            raise serializers.ValidationError(f"An action can have at most {MAX_DELIVERY_TARGETS} delivery targets.")
+        # The remaining check needs DB access: every referenced Slack integration must belong to the team.
         team = self.context["get_team"]()
         for target in value:
             if target.get("type") != "slack":
-                raise serializers.ValidationError("Only 'slack' delivery targets are supported.")
-            # DeliveryTargetSerializer guarantees integration_id is present and an int — subscript so
-            # mypy sees a concrete value, not Optional, for the id lookup.
+                continue
             integration_id = target["integration_id"]
             if not Integration.objects.filter(team=team, id=integration_id, kind="slack").exists():
                 raise serializers.ValidationError(f"Slack integration {integration_id} not found in this team.")
@@ -337,6 +388,29 @@ class VisionActionSerializer(serializers.ModelSerializer):
         self._validate_alert(attrs)
         self._validate_scanner_access(attrs)
         return attrs
+
+    def to_representation(self, instance: VisionAction) -> dict[str, Any]:
+        data = cast(dict[str, Any], super().to_representation(instance))
+        # A webhook URL can carry a bearer token, and read access to an action only requires viewer
+        # access to its scanner while configuring delivery requires editor. So redact the URL to its
+        # host for anyone who can't already edit the action — a viewer must not be able to lift a
+        # credentialed URL an editor configured. Editors (and non-request contexts like Temporal) see
+        # it in full so the edit form can round-trip it.
+        if not self._can_edit(instance):
+            data["delivery_config"] = [
+                {**target, "url": _redact_webhook_url(target["url"])}
+                if target.get("type") == "webhook" and target.get("url")
+                else target
+                for target in data.get("delivery_config") or []
+            ]
+        return data
+
+    def _can_edit(self, instance: VisionAction) -> bool:
+        view = self.context.get("view")
+        if view is None:
+            # No request context (Temporal, admin) — not a viewer to guard against.
+            return True
+        return view.user_access_control.check_access_level_for_object(instance.scanner, "editor")
 
     def _validate_scanner_access(self, attrs: dict[str, Any]) -> None:
         # The engine reads observations as the action's CREATOR (fail-closed run-time gate in

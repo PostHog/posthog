@@ -41,13 +41,16 @@ fn main() {
     let model = HandoffModel {
         pods: 2,
         routers: 2,
+        late_routers: 0,
         partitions: 1,
         variant,
         writes: 2,
         reads: 1,
         crashes,
         rejoins: 0,
+        router_joins: 0,
         zombie_window,
+        cancels: 0,
         probes: false,
     };
     println!("exploring {:?} at http://localhost:3000 …", args.scenario);

@@ -34,14 +34,16 @@ OutputFn = Callable[[str], object] | None
 POLL_INTERVAL_SECONDS = 10
 MAX_POLL_SECONDS = 30 * 60  # default per-turn budget; callers with longer turns pass max_poll_seconds
 MAX_CONSECUTIVE_STORAGE_ERRORS = 3
-# Continuous log silence required before salvaging a dropped-finalization turn — one SSE read window
-# (SSE_READ_TIMEOUT_SECONDS). The null-cost finalization fingerprint (_ended_on_pending_finalization)
-# is the real safety gate; this floor only rules out salvaging a turn caught mid-stream. It must sit
-# well below the 1800s poll budget: a floor near the budget would only salvage turns that fell silent
-# in the first few minutes and reject a turn that does real work late and *then* drops end_turn — the
-# exact case this path exists to recover. The relay's true continuous-silence ceiling is
-# 6 × SSE_READ_TIMEOUT_SECONDS = 1800s, which can't be fully observed inside the 1800s budget; keying
-# salvage off a real terminal signal instead of the poll deadline stays the layer-2 follow-up.
+# Turn-relevant log silence required before salvaging a dropped-finalization turn, sized to one SSE
+# read window (SSE_READ_TIMEOUT_SECONDS): if the turn produced no real output for a whole read window,
+# a live stream would have. The poll loop measures this silence over turn-relevant lines only, because
+# the relay keeps appending transient side-channels (network audits, credential refreshes, stdout)
+# after a turn goes quiet; counting those would keep resetting the timer so the floor never clears and
+# a finished-but-noisy turn is never salvaged (the observed dominant failure mode). The null-cost
+# finalization fingerprint (_ended_on_pending_finalization) is the real safety gate; this floor only
+# rules out salvaging a turn caught mid-stream. It must stay well below the per-turn poll budget (the
+# Signals scout passes 900s): a floor near the budget would salvage only turns that fell silent early
+# and reject one that works late and then drops end_turn, the exact case this path exists to recover.
 STALE_TURN_SALVAGE_SECONDS = 300
 
 # Notification method the sandbox agent emits on a terminal failure. The agent
@@ -269,9 +271,16 @@ async def poll_for_turn(
                 raise
             continue
         consecutive_storage_errors = 0
-        # Track the timings
+        # Advance the silence marker only on turn-relevant growth. Transient relay side-channels
+        # (network audits, credential refreshes, stdout) keep arriving after a turn goes quiet, so
+        # counting them here would keep resetting the marker and STALE_TURN_SALVAGE_SECONDS would
+        # never clear, starving the dropped-finalization salvage of the silence window it needs. This
+        # mirrors the side-channel discounting the tail check already does in
+        # _ended_on_pending_finalization.
         if total_lines > skip_lines:
-            last_new_lines_at = elapsed
+            new_lines = (full_log or "").strip().split("\n")[skip_lines:]
+            if (total_lines - skip_lines) - _transient_growth(new_lines) > 0:
+                last_new_lines_at = elapsed
         stale_seconds = elapsed - last_new_lines_at
         # Warn once per minute of silence (not every poll) so stalls surface without flooding logs.
         if stale_seconds >= 60 and stale_seconds % 60 < POLL_INTERVAL_SECONDS:

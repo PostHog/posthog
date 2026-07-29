@@ -85,9 +85,12 @@ You typically run phrocs via `hogli start` rather than directly.
 | `esc`  | Exit copy, search, and filter modes                     |
 | `↵`    | Send keystrokes to the process (output pane)            |
 | `?`    | Toggle full help                                        |
-| `q`    | Quit                                                    |
+| `q`    | Quit (docker containers keep running; see below)        |
 
 Mouse clicks switch focus; mouse wheel scrolls the output pane.
+
+Quitting stops the processes phrocs supervises, but the docker compose containers keep running: `docker compose up` runs detached (`-d`), and the compose stack is deliberately shared across worktrees.
+To fully tear it down, run `hogli docker:services:down` (or `hogli docker:services:remove` to also wipe volumes).
 
 ### Copy mode
 
