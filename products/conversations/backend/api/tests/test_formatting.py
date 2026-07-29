@@ -39,6 +39,19 @@ class TestSlackFormatting(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("channel_broadcast", "hey <!channel> look", "hey &lt;!channel&gt; look"),
+            ("user_mention", "ping <@U12345>", "ping &lt;@U12345&gt;"),
+            ("disguised_link", "<https://evil.com|posthog.com>", "&lt;https://evil.com|posthog.com&gt;"),
+            ("ampersand", "a & b", "a &amp; b"),
+            ("md_link_still_converts", "[docs](https://posthog.com)", "<https://posthog.com|docs>"),
+            ("blockquote_preserved", "> quoted", "> quoted"),
+        ]
+    )
+    def test_outbound_mrkdwn_escapes_control_sequences(self, _name: str, content: str, expected: str) -> None:
+        assert content_to_slack_mrkdwn(content) == expected
+
+    @parameterized.expand(
+        [
             ("alias_thumbsup", ":+1:", "\U0001f44d"),
             ("direct_lookup_fire", ":fire:", "\U0001f525"),
             ("explicit_none_shipit", ":shipit:", ":shipit:"),
