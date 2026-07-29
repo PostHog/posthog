@@ -194,7 +194,9 @@ function WizardSyncSurface({
     const endMs = endedAt ? new Date(endedAt).getTime() : NaN
     const now = useNow(!Number.isNaN(endMs))
     const elapsedSeconds = startedAt ? elapsedSecondsFrom(startedAt, Number.isNaN(endMs) ? now : endMs) : 0
-    const minimized = dismissedKey === runKey
+    // Input-required overrides minimize: the user who tucked the widget away mid-run is exactly the
+    // one who will miss the prompt. The server clearing pending_input restores their choice.
+    const minimized = dismissedKey === runKey && !progress.pendingInput
     const isTerminal = progress.phase === 'completed' || progress.phase === 'error'
     // Only cloud runs can zombie like this: their handle is persisted browser state that outlives the
     // run, where a local run is gated by the session detector's own liveness poll.
