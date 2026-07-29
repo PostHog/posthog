@@ -31207,11 +31207,327 @@ export namespace Schemas {
       ServiceName: 'service_name',
     } as const;
 
-    export type FeatureFlagFilters = { [key: string]: unknown };
-
     export type FeatureFlagSurveys = { [key: string]: unknown };
 
     export type FeatureFlagFeatures = { [key: string]: unknown };
+
+    /**
+     * * `person` - person
+     * * `cohort` - cohort
+     * * `group` - group
+     * * `flag` - flag
+     */
+    export type FlagPropertyTypeEnum = typeof FlagPropertyTypeEnum[keyof typeof FlagPropertyTypeEnum];
+
+
+    export const FlagPropertyTypeEnum = {
+      Person: 'person',
+      Cohort: 'cohort',
+      Group: 'group',
+      Flag: 'flag',
+    } as const;
+
+    /**
+     * * `exact` - exact
+     * * `flag_evaluates_to` - flag_evaluates_to
+     * * `gt` - gt
+     * * `gte` - gte
+     * * `icontains` - icontains
+     * * `icontains_multi` - icontains_multi
+     * * `in` - in
+     * * `is_date_after` - is_date_after
+     * * `is_date_before` - is_date_before
+     * * `is_date_exact` - is_date_exact
+     * * `is_not` - is_not
+     * * `is_not_set` - is_not_set
+     * * `is_set` - is_set
+     * * `lt` - lt
+     * * `lte` - lte
+     * * `not_icontains` - not_icontains
+     * * `not_icontains_multi` - not_icontains_multi
+     * * `not_in` - not_in
+     * * `not_regex` - not_regex
+     * * `regex` - regex
+     * * `semver_caret` - semver_caret
+     * * `semver_eq` - semver_eq
+     * * `semver_gt` - semver_gt
+     * * `semver_gte` - semver_gte
+     * * `semver_lt` - semver_lt
+     * * `semver_lte` - semver_lte
+     * * `semver_neq` - semver_neq
+     * * `semver_tilde` - semver_tilde
+     * * `semver_wildcard` - semver_wildcard
+     */
+    export type FlagPropertyOperatorEnum = typeof FlagPropertyOperatorEnum[keyof typeof FlagPropertyOperatorEnum];
+
+
+    export const FlagPropertyOperatorEnum = {
+      Exact: 'exact',
+      FlagEvaluatesTo: 'flag_evaluates_to',
+      Gt: 'gt',
+      Gte: 'gte',
+      Icontains: 'icontains',
+      IcontainsMulti: 'icontains_multi',
+      In: 'in',
+      IsDateAfter: 'is_date_after',
+      IsDateBefore: 'is_date_before',
+      IsDateExact: 'is_date_exact',
+      IsNot: 'is_not',
+      IsNotSet: 'is_not_set',
+      IsSet: 'is_set',
+      Lt: 'lt',
+      Lte: 'lte',
+      NotIcontains: 'not_icontains',
+      NotIcontainsMulti: 'not_icontains_multi',
+      NotIn: 'not_in',
+      NotRegex: 'not_regex',
+      Regex: 'regex',
+      SemverCaret: 'semver_caret',
+      SemverEq: 'semver_eq',
+      SemverGt: 'semver_gt',
+      SemverGte: 'semver_gte',
+      SemverLt: 'semver_lt',
+      SemverLte: 'semver_lte',
+      SemverNeq: 'semver_neq',
+      SemverTilde: 'semver_tilde',
+      SemverWildcard: 'semver_wildcard',
+    } as const;
+
+    /**
+     * DRF drops keys without a declared field silently; this makes the drop observable.
+     *
+     * During an audit run an `unknown_keys_sink` in the serializer context collects them;
+     * otherwise non-legacy unknown keys are logged so we learn whether junk keys happen in
+     * the wild before enforcement flips on.
+     */
+    export interface FlagProperty {
+      /** Property key used in this feature flag condition. Numbers are normalized to strings. */
+      key: string;
+      /** Comparison value for the property filter. Valid shapes depend on the operator. */
+      value?: unknown;
+      /** Property filter type. One of 'person', 'cohort', 'group', or 'flag'.
+       *
+       * * `person` - person
+       * * `cohort` - cohort
+       * * `group` - group
+       * * `flag` - flag */
+      type: FlagPropertyTypeEnum;
+      /** Operator used to compare the property value. Null means exact match.
+       *
+       * * `exact` - exact
+       * * `flag_evaluates_to` - flag_evaluates_to
+       * * `gt` - gt
+       * * `gte` - gte
+       * * `icontains` - icontains
+       * * `icontains_multi` - icontains_multi
+       * * `in` - in
+       * * `is_date_after` - is_date_after
+       * * `is_date_before` - is_date_before
+       * * `is_date_exact` - is_date_exact
+       * * `is_not` - is_not
+       * * `is_not_set` - is_not_set
+       * * `is_set` - is_set
+       * * `lt` - lt
+       * * `lte` - lte
+       * * `not_icontains` - not_icontains
+       * * `not_icontains_multi` - not_icontains_multi
+       * * `not_in` - not_in
+       * * `not_regex` - not_regex
+       * * `regex` - regex
+       * * `semver_caret` - semver_caret
+       * * `semver_eq` - semver_eq
+       * * `semver_gt` - semver_gt
+       * * `semver_gte` - semver_gte
+       * * `semver_lt` - semver_lt
+       * * `semver_lte` - semver_lte
+       * * `semver_neq` - semver_neq
+       * * `semver_tilde` - semver_tilde
+       * * `semver_wildcard` - semver_wildcard */
+      operator?: FlagPropertyOperatorEnum | null;
+      /**
+         * Group type index when using group-based filters.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      group_type_index?: number | null;
+      /**
+         * Whether the property condition is negated.
+         * @nullable
+         */
+      negation?: boolean | null;
+      /**
+         * Display-only label for this property filter, shown in the UI.
+         * @nullable
+         */
+      label?: string | null;
+      /**
+         * Display name of the referenced cohort. Injected on read and echoed back by clients.
+         * @nullable
+         */
+      cohort_name?: string | null;
+      /** Display names for group keys, keyed by group key. Injected on read and echoed back by clients. */
+      group_key_names?: unknown;
+    }
+
+    /**
+     * DRF drops keys without a declared field silently; this makes the drop observable.
+     *
+     * During an audit run an `unknown_keys_sink` in the serializer context collects them;
+     * otherwise non-legacy unknown keys are logged so we learn whether junk keys happen in
+     * the wild before enforcement flips on.
+     */
+    export interface FlagConditionGroup {
+      /**
+         * Property conditions for this release condition group.
+         * @nullable
+         */
+      properties?: FlagProperty[] | null;
+      /**
+         * Rollout percentage for this release condition group, between 0 and 100.
+         * @minimum 0
+         * @maximum 100
+         * @nullable
+         */
+      rollout_percentage?: number | null;
+      /**
+         * Variant key override for multivariate flags.
+         * @nullable
+         */
+      variant?: string | null;
+      /**
+         * Group type index for this condition set. Null means person-level aggregation; absent falls back to the flag-level value.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      aggregation_group_type_index?: number | null;
+      /**
+         * Display-only description for this condition group, shown in the UI.
+         * @nullable
+         */
+      description?: string | null;
+      /** Opaque UI ordering key for this condition group (string or number). Preserved as-is. */
+      sort_key?: unknown;
+      /**
+         * Set when an experiment froze exposure by narrowing this group to a snapshot cohort.
+         * @nullable
+         */
+      exposure_frozen?: boolean | null;
+      /**
+         * ID of the snapshot cohort this group was narrowed to when experiment exposure was frozen.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      exposure_frozen_cohort?: number | null;
+    }
+
+    /**
+     * DRF drops keys without a declared field silently; this makes the drop observable.
+     *
+     * During an audit run an `unknown_keys_sink` in the serializer context collects them;
+     * otherwise non-legacy unknown keys are logged so we learn whether junk keys happen in
+     * the wild before enforcement flips on.
+     */
+    export interface FlagMultivariateVariant {
+      /**
+         * Unique key for this variant. Letters, numbers, hyphens, underscores, dots, and slashes; at most 400 characters.
+         * @maxLength 400
+         * @pattern ^[a-zA-Z0-9_./-]+$
+         */
+      key: string;
+      /**
+         * Human-readable name for this variant.
+         * @nullable
+         */
+      name?: string | null;
+      /**
+         * Variant rollout percentage, between 0 and 100.
+         * @minimum 0
+         * @maximum 100
+         */
+      rollout_percentage: number;
+      /**
+         * Display-only description for this variant, shown in the UI.
+         * @nullable
+         */
+      description?: string | null;
+    }
+
+    /**
+     * DRF drops keys without a declared field silently; this makes the drop observable.
+     *
+     * During an audit run an `unknown_keys_sink` in the serializer context collects them;
+     * otherwise non-legacy unknown keys are logged so we learn whether junk keys happen in
+     * the wild before enforcement flips on.
+     */
+    export interface FlagMultivariate {
+      /** Variant definitions for multivariate feature flags. */
+      variants: FlagMultivariateVariant[];
+    }
+
+    /**
+     * DRF drops keys without a declared field silently; this makes the drop observable.
+     *
+     * During an audit run an `unknown_keys_sink` in the serializer context collects them;
+     * otherwise non-legacy unknown keys are logged so we learn whether junk keys happen in
+     * the wild before enforcement flips on.
+     */
+    export interface FlagHoldout {
+      /**
+         * ID of the experiment holdout this flag belongs to.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      id: number;
+      /**
+         * Percentage of users held out from the flag, between 0 and 100.
+         * @minimum 0
+         * @maximum 100
+         */
+      exclusion_percentage: number;
+    }
+
+    /**
+     * Payloads keyed by variant key (multivariate flags) or 'true' (boolean flags). Values are stored as JSON-encoded strings; non-string JSON values are normalized on write.
+     * @nullable
+     */
+    export type FeatureFlagFiltersPayloads = { [key: string]: unknown } | null;
+
+    /**
+     * Feature flag targeting configuration: release condition groups, multivariate variants, and payloads.
+     */
+    export interface FeatureFlagFilters {
+      /** Release condition groups for the feature flag. */
+      groups?: FlagConditionGroup[];
+      /** Multivariate configuration for variant-based rollouts. */
+      multivariate?: FlagMultivariate | null;
+      /**
+         * Group type index for group-based feature flags. Null means person-level aggregation.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         * @nullable
+         */
+      aggregation_group_type_index?: number | null;
+      /**
+         * Payloads keyed by variant key (multivariate flags) or 'true' (boolean flags). Values are stored as JSON-encoded strings; non-string JSON values are normalized on write.
+         * @nullable
+         */
+      payloads?: FeatureFlagFiltersPayloads;
+      /**
+         * Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.
+         * @nullable
+         */
+      feature_enrollment?: boolean | null;
+      /** Experiment holdout configuration for this flag. */
+      holdout?: FlagHoldout | null;
+      /**
+         * When true, condition evaluation stops at the first matching condition set rather than continuing to evaluate subsequent groups.
+         * @nullable
+         */
+      early_exit?: boolean | null;
+    }
 
     export interface FeatureFlagExperimentSetMetadata {
       /** ID of the experiment linked to this flag. */
@@ -31251,6 +31567,7 @@ export namespace Schemas {
       name?: string;
       /** @maxLength 400 */
       key: string;
+      /** Feature flag targeting configuration: release condition groups, multivariate variants, and payloads. */
       filters?: FeatureFlagFilters;
       deleted?: boolean;
       active?: boolean;
@@ -31357,53 +31674,13 @@ export namespace Schemas {
       properties: FeatureFlagConditionPropertyAnalysis[];
     }
 
-    export interface FeatureFlagMultivariateVariantSchema {
-      /** Unique key for this variant. */
-      key: string;
-      /** Human-readable name for this variant. */
-      name?: string;
-      /** Variant rollout percentage. */
-      rollout_percentage: number;
-    }
-
-    export interface FeatureFlagMultivariateSchema {
-      /** Variant definitions for multivariate feature flags. */
-      variants: FeatureFlagMultivariateVariantSchema[];
-    }
-
-    /**
-     * Optional payload values keyed by variant key.
-     */
-    export type FeatureFlagFiltersSchemaPayloads = {[key: string]: string};
-
-    export interface FeatureFlagFiltersSchema {
-      /** Release condition groups for the feature flag. */
-      groups?: FeatureFlagConditionGroupSchema[];
-      /** Multivariate configuration for variant-based rollouts. */
-      multivariate?: FeatureFlagMultivariateSchema | null;
-      /**
-         * Group type index for group-based feature flags.
-         * @nullable
-         */
-      aggregation_group_type_index?: number | null;
-      /** Optional payload values keyed by variant key. */
-      payloads?: FeatureFlagFiltersSchemaPayloads;
-      /**
-         * Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.
-         * @nullable
-         */
-      feature_enrollment?: boolean | null;
-      /** When true, condition evaluation stops at the first matching condition set rather than continuing to evaluate subsequent groups. */
-      early_exit?: boolean;
-    }
-
     export interface FeatureFlagCreateRequestSchema {
       /** Feature flag key. */
       key?: string;
       /** Feature flag description (stored in the `name` field for backwards compatibility). */
       name?: string;
       /** Feature flag targeting configuration. */
-      filters?: FeatureFlagFiltersSchema;
+      filters?: FeatureFlagFilters;
       /** Whether the feature flag is active. */
       active?: boolean;
       /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
@@ -31433,6 +31710,46 @@ export namespace Schemas {
        * * `distinct_id` - User ID (default)
        * * `device_id` - Device ID */
       bucketing_identifier?: BucketingIdentifierEnum | null;
+    }
+
+    /**
+     * Optional payload values keyed by variant key.
+     */
+    export type FeatureFlagFiltersSchemaPayloads = {[key: string]: string};
+
+    export interface FeatureFlagMultivariateVariantSchema {
+      /** Unique key for this variant. */
+      key: string;
+      /** Human-readable name for this variant. */
+      name?: string;
+      /** Variant rollout percentage. */
+      rollout_percentage: number;
+    }
+
+    export interface FeatureFlagMultivariateSchema {
+      /** Variant definitions for multivariate feature flags. */
+      variants: FeatureFlagMultivariateVariantSchema[];
+    }
+
+    export interface FeatureFlagFiltersSchema {
+      /** Release condition groups for the feature flag. */
+      groups?: FeatureFlagConditionGroupSchema[];
+      /** Multivariate configuration for variant-based rollouts. */
+      multivariate?: FeatureFlagMultivariateSchema | null;
+      /**
+         * Group type index for group-based feature flags.
+         * @nullable
+         */
+      aggregation_group_type_index?: number | null;
+      /** Optional payload values keyed by variant key. */
+      payloads?: FeatureFlagFiltersSchemaPayloads;
+      /**
+         * Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.
+         * @nullable
+         */
+      feature_enrollment?: boolean | null;
+      /** When true, condition evaluation stops at the first matching condition set rather than continuing to evaluate subsequent groups. */
+      early_exit?: boolean;
     }
 
     export interface FeatureFlagRolloutSummary {
@@ -49113,7 +49430,7 @@ export namespace Schemas {
       /** Feature flag description (stored in the `name` field for backwards compatibility). */
       name?: string;
       /** Feature flag targeting configuration. */
-      filters?: FeatureFlagFiltersSchema;
+      filters?: FeatureFlagFilters;
       /** Whether the feature flag is active. */
       active?: boolean;
       /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
