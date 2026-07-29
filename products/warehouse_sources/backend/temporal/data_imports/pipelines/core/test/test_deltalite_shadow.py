@@ -50,11 +50,9 @@ def test_compare_content_mismatch_is_detected_with_pk_diagnostics():
     assert not is_match
     assert diag["reason"] == "content_mismatch"
     assert diag["only_in_real"] == 1 and diag["only_in_shadow"] == 1
-    # A HASH of the diverging PK is reported (one diverging row), never the raw value or payload.
-    import hashlib
-
-    expected_hash = hashlib.sha256(b"c").hexdigest()[:12]
-    assert diag["diverging_pk_hashes"] == [expected_hash]
+    # A keyed digest of the diverging PK is reported (one diverging row), never the raw value or payload.
+    assert diag["diverging_pk_hashes"] == [deltalite_shadow._pk_digest(["c"])]
+    assert "c" not in diag["diverging_pk_hashes"]
 
 
 def test_compare_row_count_mismatch_is_detected():
@@ -183,6 +181,7 @@ async def test_never_raises_and_cleans_up_on_internal_error():
         override_settings(
             DATA_WAREHOUSE_DELTALITE_SHADOW_SAMPLE_RATE=1.0,
             DATA_WAREHOUSE_DELTALITE_SHADOW_MAX_AFFECTED_BYTES=0,
+            DATA_WAREHOUSE_DELTALITE_SHADOW_MAX_AFFECTED_ROWS=0,
         ),
         patch.object(deltalite_shadow, "_DELTALITE_AVAILABLE", True),
         patch.object(deltalite_shadow, "DELTALITE_SHADOW_TOTAL", metric),
@@ -195,6 +194,29 @@ async def test_never_raises_and_cleans_up_on_internal_error():
 
     metric.labels.assert_called_once_with(outcome="error")
     purge.assert_awaited_once()  # cleanup happened despite the error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "stats",
+    [
+        pytest.param(None, id="size_estimate_unavailable_fails_closed"),
+        pytest.param((1, 20_000_001), id="row_count_over_cap"),
+    ],
+)
+async def test_shadow_skips_oversized_or_unknown_batch_before_materializing(stats):
+    # Unknown estimate must fail closed and an over-cap row count must skip — either way the shadow
+    # never materializes the slice into worker memory, so _read_affected is not reached.
+    metric = MagicMock()
+    with (
+        patch.object(deltalite_shadow, "_DELTALITE_AVAILABLE", True),
+        patch.object(deltalite_shadow, "DELTALITE_SHADOW_TOTAL", metric),
+        patch.object(deltalite_shadow, "_affected_at_rest_stats", return_value=stats),
+        patch.object(deltalite_shadow, "_read_affected") as read,
+    ):
+        await deltalite_shadow.run_shadow_comparison(**_kwargs())
+    metric.labels.assert_called_once_with(outcome="skipped")
+    read.assert_not_called()
 
 
 # --------------------------------------------------------------------------------------

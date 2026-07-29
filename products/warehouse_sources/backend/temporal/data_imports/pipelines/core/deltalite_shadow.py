@@ -27,6 +27,7 @@ the wheel is published + pinned by the ``build-deltalite`` workflow at rollout t
 
 from __future__ import annotations
 
+import hmac
 import random
 import asyncio
 import hashlib
@@ -44,9 +45,7 @@ from structlog.types import FilteringBoundLogger
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
-    _purge_s3_prefix,
-)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import _purge_s3_prefix
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
     DELTALITE_SHADOW_DURATION_SECONDS,
     DELTALITE_SHADOW_TOTAL,
@@ -128,6 +127,17 @@ def _record(outcome: str) -> None:
     DELTALITE_SHADOW_TOTAL.labels(outcome=outcome).inc()
 
 
+def _pk_digest(row: Sequence[Any]) -> str:
+    """Keyed, truncated digest of one primary-key tuple, safe to log.
+
+    HMAC-SHA256 with the server secret so a low-entropy key (a small integer ID, an email) can't be
+    recovered by brute-forcing the hash from log access; the key is stable across runs/processes so the
+    same PK always maps to the same digest for cross-run correlation.
+    """
+    payload = "\x1f".join(map(str, row)).encode()
+    return hmac.new(settings.SECRET_KEY.encode(), payload, hashlib.sha256).hexdigest()[:12]
+
+
 def _affected_partition_values(data: pa.Table, partition_key: str | None) -> list[str] | None:
     """Distinct partition values in the batch, or None when the table is unpartitioned (= whole table)."""
     if partition_key is None or partition_key not in data.column_names:
@@ -135,28 +145,43 @@ def _affected_partition_values(data: pa.Table, partition_key: str | None) -> lis
     return [v.as_py() for v in pc.unique(data[partition_key])]
 
 
-def _affected_at_rest_bytes(uri: str, storage_options: dict[str, str], version: int, affected: list[str] | None) -> int:
-    """Compressed on-S3 size of the affected partitions at ``version``, from Delta add-action stats.
+def _affected_at_rest_stats(
+    uri: str, storage_options: dict[str, str], version: int, affected: list[str] | None
+) -> tuple[int, int] | None:
+    """Compressed on-S3 size and row count of the affected partitions at ``version``, from Delta stats.
 
-    Metadata only — no data is read. Used to skip oversized batches cheaply. Returns 0 (i.e. "unknown,
-    don't skip") if the stats can't be read.
+    Metadata only — no data is read. Used to skip oversized batches cheaply before anything is
+    materialized. Returns ``(compressed_bytes, rows)``, or ``None`` when the stats can't be read so the
+    caller can fail closed (skip) rather than materialize an unbounded slice into worker memory.
+
+    ``rows`` bounds the *uncompressed* working set the way ``compressed_bytes`` can't: a highly
+    compressible partition is tiny on S3 but explodes once decompressed into the Arrow comparison, so
+    a small at-rest size alone doesn't prove the batch is safe to shadow.
     """
     try:
         dt = deltalake.DeltaTable(uri, version=version, storage_options=storage_options)
         # get_add_actions returns an arro3 Table; read columns via its own API and sum in Python
         # (a table has a few hundred files at most, so this is cheap and avoids arrow-compute typing).
         adds = dt.get_add_actions(flatten=True)
+        if "size_bytes" not in adds.column_names or "num_records" not in adds.column_names:
+            return None
         sizes = adds["size_bytes"].to_pylist()
+        records = adds["num_records"].to_pylist()
         if affected is None:
-            return sum(int(s or 0) for s in sizes)
+            return sum(int(s or 0) for s in sizes), sum(int(r or 0) for r in records)
         part_col_name = f"partition.{PARTITION_KEY}"
         if part_col_name not in adds.column_names:
-            return 0
+            # Partitioned read requested but the partition column is absent from the stats — we can't
+            # scope the estimate, so treat it as unknown and let the caller fail closed.
+            return None
         parts = adds[part_col_name].to_pylist()
         affected_set = {str(a) for a in affected}
-        return sum(int(s or 0) for s, p in zip(sizes, parts) if str(p) in affected_set)
+        return (
+            sum(int(s or 0) for s, p in zip(sizes, parts) if str(p) in affected_set),
+            sum(int(r or 0) for r, p in zip(records, parts) if str(p) in affected_set),
+        )
     except Exception:
-        return 0
+        return None
 
 
 def _read_affected(
@@ -259,12 +284,12 @@ def _compare(real: pa.Table, shadow: pa.Table, primary_keys: Sequence[str]) -> t
             "shadow_rows": shadow_n,
             "only_in_real": only_real,
             "only_in_shadow": only_shadow,
-            # Hashes of the diverging rows' primary keys — never the raw values. A warehouse PK can
-            # itself be sensitive (e.g. a table keyed by email), so nothing that could be a PK value
-            # is logged; the hash is enough to count distinct diverging keys and correlate runs.
-            "diverging_pk_hashes": [
-                hashlib.sha256("\x1f".join(map(str, row)).encode()).hexdigest()[:12] for row in diverging
-            ],
+            # Keyed HMACs of the diverging rows' primary keys — never the raw values. A warehouse PK can
+            # itself be sensitive (e.g. a table keyed by email or a small integer ID); a plain hash of a
+            # low-entropy key is trivially reversible by anyone with log access, so the HMAC is keyed with
+            # the server secret to defeat enumeration while still letting us count distinct diverging keys
+            # and correlate them across runs (the key is stable server-side).
+            "diverging_pk_hashes": [_pk_digest(row) for row in diverging],
         }
     finally:
         con.close()
@@ -309,15 +334,28 @@ async def run_shadow_comparison(
 
     try:
         with DELTALITE_SHADOW_DURATION_SECONDS.time():
-            cap = settings.DATA_WAREHOUSE_DELTALITE_SHADOW_MAX_AFFECTED_BYTES
-            if cap and cap > 0:
-                affected_bytes = await asyncio.to_thread(
-                    _affected_at_rest_bytes, uri, storage_options, version_before, affected
-                )
-                if affected_bytes > cap:
+            byte_cap = settings.DATA_WAREHOUSE_DELTALITE_SHADOW_MAX_AFFECTED_BYTES
+            row_cap = settings.DATA_WAREHOUSE_DELTALITE_SHADOW_MAX_AFFECTED_ROWS
+            if (byte_cap and byte_cap > 0) or (row_cap and row_cap > 0):
+                stats = await asyncio.to_thread(_affected_at_rest_stats, uri, storage_options, version_before, affected)
+                if stats is None:
+                    # Fail closed: without a size estimate we can't bound the working set the seed +
+                    # comparison will materialize, and the shadow OOMing kills every co-tenant activity
+                    # on the pod. A missed sample is free; an OOM is not.
+                    _record("skipped")
+                    await logger.adebug("deltalite shadow: affected-partition size unknown; skipping (fail closed)")
+                    return
+                affected_bytes, affected_rows = stats
+                if byte_cap and byte_cap > 0 and affected_bytes > byte_cap:
                     _record("skipped")
                     await logger.adebug(
-                        f"deltalite shadow: affected partitions {affected_bytes}B over cap {cap}B; skipping"
+                        f"deltalite shadow: affected partitions {affected_bytes}B over cap {byte_cap}B; skipping"
+                    )
+                    return
+                if row_cap and row_cap > 0 and affected_rows > row_cap:
+                    _record("skipped")
+                    await logger.adebug(
+                        f"deltalite shadow: affected partitions {affected_rows} rows over cap {row_cap}; skipping"
                     )
                     return
 

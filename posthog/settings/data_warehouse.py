@@ -93,6 +93,14 @@ DATA_WAREHOUSE_DELTALITE_SHADOW_SAMPLE_RATE = get_from_env(
 DATA_WAREHOUSE_DELTALITE_SHADOW_MAX_AFFECTED_BYTES = get_from_env(
     "DATA_WAREHOUSE_DELTALITE_SHADOW_MAX_AFFECTED_BYTES", 2_000_000_000, type_cast=int
 )
+# Also skip when the affected partitions hold more than this many rows. The byte cap above is measured
+# on the *compressed* at-rest size, which a highly compressible partition understates badly — a small
+# on-S3 slice can explode into a huge Arrow working set once the seed + comparison decompress it. Rows
+# bound that uncompressed set directly. When the row/byte estimate can't be read at all, the shadow
+# fails closed (skips) rather than materializing an unbounded slice. 0 disables the cap.
+DATA_WAREHOUSE_DELTALITE_SHADOW_MAX_AFFECTED_ROWS = get_from_env(
+    "DATA_WAREHOUSE_DELTALITE_SHADOW_MAX_AFFECTED_ROWS", 20_000_000, type_cast=int
+)
 
 GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL")
 GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY")
