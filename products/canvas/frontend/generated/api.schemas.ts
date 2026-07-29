@@ -566,7 +566,61 @@ export interface CanvasValidateResponseApi {
     diagnostics: CanvasDiagnosticApi[]
 }
 
+/**
+ * One entry of a canvas's source-version history (metadata only —
+ * fetch a version's files via `source?version_id=`).
+ */
+export interface CanvasVersionApi {
+    /** The version's id. */
+    id: string
+    /**
+     * The version this one was based on (null for the first publish).
+     * @nullable
+     */
+    parent_version_id: string | null
+    /**
+     * Short description recorded with the publish.
+     * @nullable
+     */
+    prompt: string | null
+    /**
+     * Task that published the version, when one did.
+     * @nullable
+     */
+    task_id: string | null
+    readonly created_by: UserBasicApi | null
+    /** When the version was published. */
+    created_at: string
+}
+
+export interface PaginatedCanvasVersionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CanvasVersionApi[]
+}
+
 export type CanvasesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type CanvasesSourceRetrieveParams = {
+    /**
+     * Read this historical source version instead of the head (for version browsing).
+     */
+    version_id?: string
+}
+
+export type CanvasesVersionsRetrieveParams = {
     /**
      * Number of results to return per page.
      */

@@ -11,6 +11,7 @@ import {
     CanvasesPublishCreateBody,
     CanvasesPublishCreateParams,
     CanvasesSourceRetrieveParams,
+    CanvasesSourceRetrieveQueryParams,
     CanvasesValidateCreateBody,
     CanvasesValidateCreateParams,
 } from '@/generated/canvas/api'
@@ -147,9 +148,9 @@ const canvasPublishCreate = (): ToolBase<typeof CanvasPublishCreateSchema, Schem
     },
 })
 
-const CanvasSourceRetrieveSchema = CanvasesSourceRetrieveParams.omit({ project_id: true }).extend({
-    id: CanvasesSourceRetrieveParams.shape['id'].describe('ID of the canvas whose source to read.'),
-})
+const CanvasSourceRetrieveSchema = CanvasesSourceRetrieveParams.omit({ project_id: true })
+    .extend(CanvasesSourceRetrieveQueryParams.shape)
+    .extend({ id: CanvasesSourceRetrieveParams.shape['id'].describe('ID of the canvas whose source to read.') })
 
 const canvasSourceRetrieve = (): ToolBase<typeof CanvasSourceRetrieveSchema, Schemas.CanvasSourceResponse> => ({
     name: 'canvas-source-retrieve',
@@ -159,6 +160,9 @@ const canvasSourceRetrieve = (): ToolBase<typeof CanvasSourceRetrieveSchema, Sch
         const result = await context.api.request<Schemas.CanvasSourceResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/${encodeURIComponent(String(params.id))}/source/`,
+            query: {
+                version_id: params.version_id,
+            },
         })
         return result
     },

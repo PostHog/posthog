@@ -297,6 +297,20 @@ class TestCanvasRevertAndBuilds(CanvasAPIBaseTest):
         assert response.json()["source_version_id"] == v1
         assert str(Canvas.objects.unscoped().get(id=canvas_id).current_source_version_id) == v1
 
+    def test_versions_history_and_versioned_source(self):
+        canvas_id, v1, v2 = self._published_canvas()
+        versions = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/versions/").json()
+        assert [v["id"] for v in versions] == [v2, v1]
+        assert versions[1]["parent_version_id"] is None
+
+        old = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/source/?version_id={v1}").json()
+        assert "return null" in old["project"]["files"]["src/canvas.tsx"]
+        # The head pointer is reported regardless of which version was read.
+        assert old["current_version_id"] == v2
+
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/source/?version_id={uuid4()}")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_revert_rejects_foreign_version(self):
         canvas_id, *_ = self._published_canvas()
         response = self.client.post(

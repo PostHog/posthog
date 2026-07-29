@@ -336,7 +336,7 @@ export interface LoopContextTargetWriteApi {
     /** Id of the channel (context) this loop is attached to. */
     channel_id: string
     /**
-     * Context (channel) name, used to file runs into its feed.
+     * Display name of the context, shown in the loop's publish prompt.
      * @maxLength 128
      */
     name: string

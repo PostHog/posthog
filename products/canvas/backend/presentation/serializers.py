@@ -203,6 +203,20 @@ class CanvasSummarySerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(help_text="When the canvas was created.")
 
 
+class CanvasVersionSerializer(serializers.Serializer):
+    """One entry of a canvas's source-version history (metadata only —
+    fetch a version's files via `source?version_id=`)."""
+
+    id = serializers.UUIDField(help_text="The version's id.")
+    parent_version_id = serializers.UUIDField(
+        allow_null=True, help_text="The version this one was based on (null for the first publish)."
+    )
+    prompt = serializers.CharField(allow_null=True, help_text="Short description recorded with the publish.")
+    task_id = serializers.UUIDField(allow_null=True, help_text="Task that published the version, when one did.")
+    created_by = UserBasicSerializer(read_only=True, allow_null=True)
+    created_at = serializers.DateTimeField(help_text="When the version was published.")
+
+
 class CanvasSourceResponseSerializer(serializers.Serializer):
     """A canvas's source project plus the version pointer edits must be based on."""
 

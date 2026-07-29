@@ -6,7 +6,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -38,6 +38,7 @@ from products.canvas.backend.presentation.serializers import (
     CanvasUpdateSerializer,
     CanvasValidateRequestSerializer,
     CanvasValidateResponseSerializer,
+    CanvasVersionSerializer,
 )
 from products.canvas.backend.source import apply_source_edits, has_errors, validate_source_project
 from products.tasks.backend.facade import api as tasks_facade
@@ -45,6 +46,8 @@ from products.tasks.backend.facade import api as tasks_facade
 # The canvas's build lifecycle returns this many recent builds (the published
 # build is unioned in even when it has aged past the window).
 BUILDS_WINDOW = 20
+# Version-history window for the client's undo/revert browser.
+VERSIONS_WINDOW = 100
 
 
 def _capacity_response() -> Response:
@@ -90,7 +93,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Canvas.objects.unscoped().select_related("created_by")
     serializer_class = CanvasSerializer
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
-    scope_object_read_actions = ["list", "retrieve", "source", "builds", "validate"]
+    scope_object_read_actions = ["list", "retrieve", "source", "versions", "builds", "validate"]
     scope_object_write_actions = [
         "create",
         "partial_update",
@@ -184,6 +187,14 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         operation_id="canvases_source_retrieve",
         responses={200: CanvasSourceResponseSerializer},
         request=None,
+        parameters=[
+            OpenApiParameter(
+                name="version_id",
+                type=str,
+                required=False,
+                description="Read this historical source version instead of the head (for version browsing).",
+            )
+        ],
     )
     @action(methods=["GET"], detail=True)
     def source(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -192,10 +203,22 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         Always call this before editing: edit the returned files, then publish
         the complete project passing the returned version id as
         `expected_current_version_id` so concurrent edits are not overwritten.
+        `?version_id=` reads a historical version instead of the head.
         """
         canvas = self.get_object()
+        requested_version_id = request.query_params.get("version_id")
         try:
-            project, current_version_id = build_service.current_source_project(canvas)
+            if requested_version_id:
+                version = (
+                    CanvasSourceVersion.objects.for_team(self.team_id)
+                    .filter(pk=requested_version_id, canvas_id=canvas.id)
+                    .first()
+                )
+                if version is None:
+                    return Response({"detail": "Version not found for this canvas."}, status=status.HTTP_404_NOT_FOUND)
+                project = build_service.read_source_project(version)
+            else:
+                project, _ = build_service.current_source_project(canvas)
         except ObjectStorageError:
             return Response(
                 {"detail": "The canvas's source is temporarily unavailable."},
@@ -204,9 +227,21 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         response = {
             "canvas": CanvasSummarySerializer(canvas).data,
             "project": project,
-            "current_version_id": current_version_id,
+            "current_version_id": (str(canvas.current_source_version_id) if canvas.current_source_version_id else None),
         }
         return Response(response)
+
+    @extend_schema(
+        operation_id="canvases_versions_retrieve",
+        responses={200: CanvasVersionSerializer(many=True)},
+        request=None,
+    )
+    @action(methods=["GET"], detail=True)
+    def versions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """The canvas's source-version history, newest first (metadata only)."""
+        canvas = self.get_object()
+        versions = canvas.source_versions.select_related("created_by").order_by("-created_at")[:VERSIONS_WINDOW]
+        return Response(CanvasVersionSerializer(versions, many=True).data)
 
     @extend_schema(
         operation_id="canvases_validate_create",
