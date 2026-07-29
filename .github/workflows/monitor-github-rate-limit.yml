@@ -79,10 +79,10 @@ jobs:
                       const script = require('./.github/scripts/monitor-github-rate-limit.js')
                       await script({ github, context, core }, { source: 'github_token' })
 
-            # The setup-action offload bucket (posthog-devex-general) is a
-            # separate 15k installation bucket from GITHUB_TOKEN. Mint its token
-            # and poll /rate_limit through it so its core budget is observable as
-            # its own series. /rate_limit reads don't consume the budget they
+            # The setup-action offload bucket (posthog-devex-general) is its own
+            # 15k/hr installation bucket, separate from the per-repo GITHUB_TOKEN
+            # core bucket (30k/hr). Mint its token and poll /rate_limit through it
+            # so its core budget is observable as its own series. /rate_limit reads don't consume the budget they
             # report, so this doesn't distort the measurement. No-ops until the
             # org secret exists (continue-on-error mint + empty-token guard).
             - name: Mint posthog-devex-general token
