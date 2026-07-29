@@ -5,6 +5,8 @@ from datetime import datetime
 import pytest
 from unittest import mock
 
+from posthog.temporal.common.errors import is_non_reportable
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
@@ -153,11 +155,14 @@ async def test_source_classified_retryable_error_logged_as_warning_not_exception
     logger.adebug = mock.AsyncMock()
 
     with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
-        with pytest.raises(Exception, match="retryable"):
+        with pytest.raises(Exception, match="retryable") as excinfo:
             await module._handle_import_error(mock.MagicMock(), logger, error)
 
     logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()
+    # The warning log alone doesn't keep this out of error tracking: the Temporal activity
+    # interceptor captures whatever escapes the activity unless the error is flagged non-reportable.
+    assert is_non_reportable(excinfo.value)
 
 
 @pytest.mark.asyncio
@@ -195,8 +200,9 @@ async def test_rest_client_retryable_error_logged_as_warning_without_source_opt_
     # RESTClientRetryableError only escapes the shared REST engine's tenacity retry loop once its
     # own attempts (rate limits, transient 5xx, connection resets/timeouts) are exhausted. It must
     # be honored by type even when the source's get_retryable_errors doesn't list the message, so
-    # every REST-based source gets this benign, self-recovering failure logged as a warning instead
-    # of minting error-tracking noise.
+    # every REST-based source gets this benign, self-recovering failure logged as a warning and
+    # exempted from interceptor capture instead of minting error-tracking noise. The message embeds
+    # the per-request URL path, so a capture here mints a new issue per URL, not one per condition.
     error = RESTClientRetryableError("HTTP 429 for https://api.example.com/v3/orders/")
     source = mock.MagicMock(spec=SimpleSource)
     source.get_non_retryable_errors.return_value = {}
@@ -208,11 +214,12 @@ async def test_rest_client_retryable_error_logged_as_warning_without_source_opt_
     logger.adebug = mock.AsyncMock()
 
     with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
-        with pytest.raises(RESTClientRetryableError):
+        with pytest.raises(RESTClientRetryableError) as excinfo:
             await module._handle_import_error(mock.MagicMock(), logger, error)
 
     logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()
+    assert is_non_reportable(excinfo.value)
 
 
 @pytest.mark.asyncio

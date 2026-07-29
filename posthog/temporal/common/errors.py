@@ -1,4 +1,5 @@
 import traceback
+from typing import TypeVar
 
 from temporalio.exceptions import ApplicationError, FailureError
 
@@ -9,6 +10,40 @@ class NonReportableError(Exception):
     the same way it skips cancellations and egress backpressure. Subclass it for a failure that is
     always caused by the customer's config or the upstream API (never a PostHog defect) and that
     retrying can't resolve, so a tracked exception would only be noise."""
+
+
+class NonReportableRetryableError(Exception):
+    """Marker for the case NonReportableError deliberately excludes: a transient upstream condition
+    (a rate limit whose in-process retry budget ran out, a 5xx blip) that must fail the activity so
+    Temporal retries it, but that clears on its own and so is only noise in error tracking.
+
+    A sibling of NonReportableError rather than a subclass, because that marker is scoped to
+    failures retrying can never resolve and callers branch on that distinction. Subclass this when
+    the condition is knowable from the exception type; when it is classified at the catch site
+    instead (matching an arbitrary upstream exception against a source's retryable-message list),
+    flag the instance with mark_non_reportable."""
+
+
+_NON_REPORTABLE_ATTR = "_posthog_non_reportable"
+
+ExceptionT = TypeVar("ExceptionT", bound=BaseException)
+
+
+def mark_non_reportable(error: ExceptionT) -> ExceptionT:
+    """Flag an exception instance so the activity interceptor re-raises it without capturing it.
+
+    For a failure whose reportability is decided by the code that catches it rather than by its
+    type. Returns the error so it can be flagged inline at the ``raise`` site."""
+    setattr(error, _NON_REPORTABLE_ATTR, True)
+    return error
+
+
+def is_non_reportable(error: BaseException) -> bool:
+    """Whether an exception escaping an activity must be kept out of error tracking, either by
+    marker class or because it was flagged with mark_non_reportable."""
+    if isinstance(error, NonReportableError | NonReportableRetryableError):
+        return True
+    return getattr(error, _NON_REPORTABLE_ATTR, False) is True
 
 
 # Bound error strings so a multi-MB str(e) (ClickHouse 5xx body, Playwright HTML dump)

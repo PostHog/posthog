@@ -16,7 +16,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.exceptions_capture import bind_exception_context
-from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.errors import NonReportableError, NonReportableRetryableError, mark_non_reportable
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
@@ -168,15 +168,28 @@ class _MarkedNonReportableError(NonReportableError):
     pass
 
 
+class _MarkedNonReportableRetryableError(NonReportableRetryableError):
+    pass
+
+
+@dataclass
+class NonReportableInputs:
+    kind: str
+
+
 @activity.defn
-async def non_reportable_activity(inputs: OptionallyFailingInputs) -> None:
-    raise _MarkedNonReportableError("expected upstream condition; job fails but no error-tracking capture")
+async def non_reportable_activity(inputs: NonReportableInputs) -> None:
+    if inputs.kind == "marker_class":
+        raise _MarkedNonReportableError("expected upstream condition; job fails but no error-tracking capture")
+    if inputs.kind == "retryable_marker_class":
+        raise _MarkedNonReportableRetryableError("upstream rate limit outlasted the client's own retries")
+    raise mark_non_reportable(ValueError("upstream error the caller classified as retryable by message"))
 
 
 @workflow.defn
 class NonReportableActivityWorkflow:
     @workflow.run
-    async def run(self, inputs: OptionallyFailingInputs) -> None:
+    async def run(self, inputs: NonReportableInputs) -> None:
         await workflow.execute_activity(
             non_reportable_activity,
             inputs,
@@ -386,11 +399,17 @@ async def test_worker_shutting_down_is_not_captured(temporal_client: Client):
         mock_ph_capture.assert_not_called()
 
 
+@pytest.mark.parametrize("kind", ["marker_class", "retryable_marker_class", "instance_flag"])
 @pytest.mark.asyncio
-async def test_non_reportable_error_is_not_captured(temporal_client: Client):
-    """A NonReportableError (an expected customer/upstream condition, e.g. a REST source served a
-    login page instead of JSON) still fails the activity, but the interceptor must re-raise it
-    without reporting it to error tracking."""
+async def test_non_reportable_error_is_not_captured(kind: str, temporal_client: Client):
+    """A non-reportable error still fails the activity, but the interceptor must re-raise it
+    without reporting it to error tracking. That holds for all three ways an error is exempted:
+    NonReportableError (a condition retrying can't resolve, e.g. a REST source serving a login page
+    instead of JSON), NonReportableRetryableError (a transient condition Temporal's retry does
+    resolve, e.g. an upstream rate limit), and an instance flagged with mark_non_reportable (a
+    failure the catching code classified as retryable). Logging such a failure at warning level
+    instead of exception level does not exempt it, because this interceptor is what decides
+    whether an exception escaping an activity is captured."""
     task_queue = "TEST-TASK-QUEUE"
     workflow_id = str(uuid.uuid4())
 
@@ -406,7 +425,7 @@ async def test_non_reportable_error_is_not_captured(temporal_client: Client):
             with pytest.raises(WorkflowFailureError):
                 await temporal_client.execute_workflow(
                     "NonReportableActivityWorkflow",
-                    OptionallyFailingInputs(fail=True),
+                    NonReportableInputs(kind=kind),
                     id=workflow_id,
                     task_queue=task_queue,
                     retry_policy=RetryPolicy(maximum_attempts=1),

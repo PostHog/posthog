@@ -203,8 +203,9 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         A source that exhausts its own retries (rate limits, transient 5xx) and re-raises still
         lets Temporal retry the whole activity, so the failure is transient and self-recovering.
-        Matching errors are logged at `warning` rather than `exception`, keeping benign,
-        recoverable failures out of error tracking as noise.
+        Matching errors are logged at `warning` rather than `exception` and marked non-reportable,
+        which is what keeps these benign, recoverable failures out of error tracking: the Temporal
+        activity interceptor captures anything escaping an activity that isn't marked.
 
         Each entry is a partial error message matched against `str(error)`.
         """

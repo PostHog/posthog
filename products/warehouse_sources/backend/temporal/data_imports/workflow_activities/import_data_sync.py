@@ -13,6 +13,7 @@ from temporalio import activity
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.activity_context import current_activity_attempt
+from posthog.temporal.common.errors import mark_non_reportable
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
@@ -325,9 +326,11 @@ async def _handle_import_error(
 
     Errors the source classifies as retryable (rate limits, transient 5xx) reach us only after
     the source's own retries are exhausted. Temporal retries the whole activity and the error is
-    transient and self-recovering, so we log at ``warning`` rather than ``exception`` to keep
-    this benign, recoverable failure out of error tracking. ``RESTClientRetryableError`` gets the
-    same treatment by type, since every REST-based source hits that condition already.
+    transient and self-recovering, so we log at ``warning`` rather than ``exception`` and flag the
+    error with ``mark_non_reportable`` before re-raising. Both parts are needed to keep it out of
+    error tracking: the log level alone doesn't stop the Temporal activity interceptor from
+    capturing whatever escapes the activity. ``RESTClientRetryableError`` gets the same treatment by
+    type, and carries the exemption on the class itself.
 
     Everything else is logged as an exception and re-raised so Temporal retries it as usual.
     """
@@ -353,11 +356,12 @@ async def _handle_import_error(
         )
 
     # RESTClientRetryableError only escapes the shared REST engine's own tenacity retry loop once
-    # that budget (rate limits, transient 5xx, connection resets/timeouts) is exhausted — the same
-    # "reaches us only after internal retries exhaust" contract as get_retryable_errors below.
-    # Honor it by type so every REST-based source gets this benign, self-recovering failure logged
-    # as a warning, rather than depending on each source separately listing "HTTP 429"/"HTTP 5xx"
-    # in get_retryable_errors.
+    # that budget (rate limits, transient 5xx, connection resets/timeouts) is exhausted, which is
+    # the same "reaches us only after internal retries exhaust" contract as get_retryable_errors
+    # below. Honor it by type so every REST-based source gets this benign, self-recovering failure
+    # logged as a warning, rather than depending on each source separately listing "HTTP 429" or
+    # "HTTP 5xx" in get_retryable_errors. The interceptor exemption rides on the class itself, so
+    # there is nothing to flag here.
     if isinstance(error, RESTClientRetryableError):
         await logger.awarning(error_msg)
         await logger.adebug("REST client exhausted its retries - re-raising for Temporal retry")
@@ -373,7 +377,10 @@ async def _handle_import_error(
     if any(match in error_msg for match in retryable_errors):
         await logger.awarning(error_msg)
         await logger.adebug("Source-classified retryable error - re-raising for Temporal retry")
-        raise error
+        # The source classifies these by message, so the exception can be any type its client
+        # library raises. Flag the instance instead of relying on a marker class, so the activity
+        # interceptor honors the exemption these sources' get_retryable_errors already documents.
+        raise mark_non_reportable(error)
 
     await logger.aexception(error_msg)
     await logger.adebug("Error encountered during import_data_activity - re-raising")

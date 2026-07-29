@@ -17,7 +17,7 @@ from requests.exceptions import (
 )
 from tenacity import RetryCallState, retry, retry_if_exception_type
 
-from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.errors import NonReportableError, NonReportableRetryableError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 
@@ -30,7 +30,17 @@ from .utils import resolve_request_url
 logger = logging.getLogger(__name__)
 
 
-class RESTClientRetryableError(Exception):
+class RESTClientRetryableError(NonReportableRetryableError):
+    """A response worth re-issuing: a rate limit, a transient 5xx, a dropped connection, or a 200
+    whose body isn't the shape we expect.
+
+    It escapes this module only once the tenacity retry below has exhausted its own attempts, at
+    which point Temporal retries the whole activity and the condition clears on its own. Subclasses
+    NonReportableRetryableError so the activity interceptor re-raises it for that retry without
+    turning every attempt into a tracked exception. The message embeds the per-request URL path, so
+    capturing it would mint a fresh error-tracking issue per URL rather than one per condition.
+    """
+
     def __init__(self, message: str, retry_after: Optional[float] = None) -> None:
         super().__init__(message)
         self.retry_after = retry_after
