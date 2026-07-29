@@ -22,7 +22,7 @@ from posthog.api.team import TeamSerializer, TeamViewSet
 PROJECT_ONLY_SERIALIZER_FIELDS = {"product_description", "is_pending_deletion"}
 
 # Actions that legitimately exist only on the project surface (operate on the Project, not the Team).
-PROJECT_ONLY_ACTIONS = {"change_organization"}
+PROJECT_ONLY_ACTIONS = {"change_organization", "default_release_conditions", "default_evaluation_contexts"}
 
 
 def _serializer_field_names(serializer_class) -> set[str]:

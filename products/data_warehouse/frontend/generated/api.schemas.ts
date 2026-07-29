@@ -1137,6 +1137,11 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly user_access_level?: string | null
 }
 
+export interface SavedQueryResumeApi {
+    /** False when the query's materialization was not suspended. */
+    resumed: boolean
+}
+
 export interface DataWarehouseSavedQueryDraftApi {
     readonly id: string
     readonly created_at: string
@@ -2503,6 +2508,11 @@ export interface CredentialApi {
  * * `Meltwater` - Meltwater
  * * `UserCom` - UserCom
  * * `Latitude` - Latitude
+ * * `Workato` - Workato
+ * * `SideShift` - SideShift
+ * * `DuckLake` - DuckLake
+ * * `Starburst` - Starburst
+ * * `Easybill` - Easybill
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3757,6 +3767,11 @@ export const ExternalDataSourceTypeEnumApi = {
     Meltwater: 'Meltwater',
     UserCom: 'UserCom',
     Latitude: 'Latitude',
+    Workato: 'Workato',
+    SideShift: 'SideShift',
+    DuckLake: 'DuckLake',
+    Starburst: 'Starburst',
+    Easybill: 'Easybill',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

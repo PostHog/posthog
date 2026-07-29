@@ -217,7 +217,7 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     (`reviewer/status_comment.py`) is posted at kickoff, edited with stage progress, and rewritten with the
     outcome: the full found counts, what was published, and — when the urgency threshold held findings back —
     whose threshold it was (the author's / the requester's / the default, from `resolved_from`) plus a
-    "View them in PostHog" deep link to the exact report (`/project/<team>/code_review?review=<report id>`,
+    "View them in PostHog" deep link to the exact report (`/project/<team>/code-review?review=<report id>`,
     a **permanent public contract** — the frontend URL sync and `report_deep_link` must keep agreeing on it).
 
 ---
@@ -467,17 +467,22 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
 - **Prod label trigger** (settings, `posthog/settings/access.py`) — `REVIEWHOG_TRIGGER_TOKEN` (shared secret),
   `REVIEWHOG_TEAM_ID` (the run team), `REVIEWHOG_RUN_USER_ID` (optional; falls back to the integration creator).
 
-**Triggers.** Four entry points drive the same `ReviewPRWorkflow`: the `run_review` CLI (manual / eval), the
+**Triggers.** Five entry points drive the same `ReviewPRWorkflow`: the `run_review` CLI (manual / eval), the
 `reviewhog` **label** on a `PostHog/posthog` PR (a thin GitHub Action → `POST /api/review_hog/trigger`), a **UI**
-"Review this PR" field in the Code review scene (session-authed, any installation-accessible PR), and an **inbox**
-trigger (a `TaskRun` receiver auto-reviews self-driving Signals implementations). See [DECISIONS.md](./DECISIONS.md)
-for each trigger's auth / scope / identity rules.
+"Review this PR" field in the Code review scene (any installation-accessible PR), an **inbox** trigger (a
+`TaskRun` receiver auto-reviews self-driving Signals implementations), and **MCP tools**
+(`review-hog-reviews-{trigger,list,get}`, defined in `products/review_hog/mcp/tools.yaml` and gated on the
+`review-hog` feature flag) that drive the same reviews viewset with a personal API key or OAuth token. The UI and
+MCP paths are one surface: the viewset carries the grantable `review_hog` scope (`review_hog:read` for list /
+retrieve / perspective_stats, `review_hog:write` for trigger) rather than INTERNAL, and the trigger action keeps
+the `REVIEWHOG_TEAM_ID` dogfood gate and its synchronous URL / App-access / fork / open-state checks regardless of
+caller. See [DECISIONS.md](./DECISIONS.md) for each trigger's auth / scope / identity rules.
 
 **Review surfaces (Code review scene).** The reviews API's `scope=mine` ("For you") matches reports where the
 viewer is the **acting user OR the PR's author** — `author_login` compared case-insensitively against the
 viewer's linked GitHub login (`User.get_github_login()`, the reverse of the author→user mapping the reviewer
 runs under; no linked login → acting-user match only). `scope=everyone` is the whole project; `retrieve` is
-project-wide so any listed review opens. A specific report is linkable at `/code_review?review=<report id>`
+project-wide so any listed review opens. A specific report is linkable at `/code-review?review=<report id>`
 (mirrored to/from the drawer by `reviewHogSettingsLogic`'s URL sync; the status comment's held-back link
 targets it, so the param is a permanent contract). The drawer buckets a review's findings into published vs
 below-threshold by the detail's stored `run_urgency_threshold` — the viewer's current setting is only the

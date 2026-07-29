@@ -140,12 +140,13 @@ def otel_log_mirror_processor(
         # service.name filter would miss it.
         _ensure_provider(service_name)
 
+        from opentelemetry import trace  # noqa: PLC0415
         from opentelemetry.sdk._logs import LogRecord  # noqa: PLC0415
         from opentelemetry.sdk.resources import Resource  # noqa: PLC0415
         from opentelemetry.trace import TraceFlags  # noqa: PLC0415
 
         resource = Resource.create({"service.name": service_name})
-        trace_flags = TraceFlags(TraceFlags.DEFAULT)
+        default_trace_flags = TraceFlags(TraceFlags.DEFAULT)
     except Exception:
         # Telemetry setup must never break worker startup; degrade to a no-op.
         return _passthrough
@@ -169,13 +170,20 @@ def otel_log_mirror_processor(
             attributes = _scalar_attributes(event_dict, allowlist)
             attributes.update(_exception_type(event_dict))
             timestamp = time.time_ns()
-            # Zero trace/span ids: the OTLP encoder serializes them as bytes and crashes on the default None.
+            # Correlate the record with the active trace (parented off the incoming traceparent) when one
+            # is in scope. Fall back to 0, never None: the OTLP encoder serializes these as bytes and
+            # crashes on None, and it treats 0 as "unset" so an uncorrelated record still ships cleanly.
+            span_context = trace.get_current_span().get_span_context()
+            if span_context.is_valid:
+                trace_id, span_id, trace_flags = span_context.trace_id, span_context.span_id, span_context.trace_flags
+            else:
+                trace_id, span_id, trace_flags = 0, 0, default_trace_flags
             provider.get_logger(service_name, version="1").emit(
                 LogRecord(
                     timestamp=timestamp,
                     observed_timestamp=timestamp,
-                    trace_id=0,
-                    span_id=0,
+                    trace_id=trace_id,
+                    span_id=span_id,
                     trace_flags=trace_flags,
                     severity_text=severity_text,
                     severity_number=severity_number,

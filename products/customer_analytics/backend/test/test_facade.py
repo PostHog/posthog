@@ -1,3 +1,4 @@
+from typing import cast
 from uuid import uuid4
 
 import pytest
@@ -5,6 +6,8 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
+from django.db import models
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -341,10 +344,8 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
 
     def _create(self, **kwargs) -> contracts.AccountView:
         return facade.create_account_for_view(
-            team_id=self.team.id,
             team=self.team,
             input=self._create_account_input(**kwargs),
-            organization_id=self.organization.id,
             user=self.user,
             was_impersonated=False,
         )
@@ -803,3 +804,56 @@ class TestCustomPropertySourceFacade(TeamScopedTestMixin, BaseTest):
 
         with pytest.raises(facade.CustomPropertyValueSourceManaged):
             facade.set_custom_property_value(self.team.id, account.id, self.definition.id, 42)
+
+
+class AccountUpdateWriteTest(TeamScopedTestMixin, BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(
+            email="mgr@example.com", password=None, first_name="Mgr", is_email_verified=True
+        )
+
+    def test_update_account_replaces_properties_wholesale(self):
+        account = create_account(
+            team_id=self.team.pk,
+            created_by=self.user,
+            name="Acme",
+            _properties={"csm": {"id": self.user.id, "email": self.user.email}},
+        )
+        facade.update_account(account, properties={"stripe_customer_id": "cus_123"})
+        account.refresh_from_db()
+        assert account.properties.csm is None
+        assert account.properties.stripe_customer_id == "cus_123"
+
+    def test_update_account_leaves_properties_untouched_when_not_passed(self):
+        account = create_account(
+            team_id=self.team.pk,
+            created_by=self.user,
+            name="Acme",
+            _properties={"stripe_customer_id": "cus_123"},
+        )
+
+        facade.update_account(account, name="Renamed")
+
+        account.refresh_from_db()
+        assert account.name == "Renamed"
+        assert account.properties.stripe_customer_id == "cus_123"
+
+    def test_update_account_updates_name_and_external_id(self):
+        account = create_account(team_id=self.team.pk, created_by=self.user, name="Old")
+        facade.update_account(account, name="New", external_id="acme-1")
+        account.refresh_from_db()
+        assert account.name == "New"
+        assert account.external_id == "acme-1"
+
+
+class AccountCapToFieldLengthTest(SimpleTestCase):
+    @parameterized.expand([("name",), ("external_id",)])
+    def test_caps_value_to_field_max_length(self, field_name):
+        max_length = cast(models.CharField, Account._meta.get_field(field_name)).max_length
+        assert max_length is not None
+        result = facade._cap_to_field_length(field_name, "x" * (max_length + 50))
+        assert result == "x" * max_length
+
+    def test_leaves_value_within_limit_unchanged(self):
+        assert facade._cap_to_field_length("name", "Acme") == "Acme"

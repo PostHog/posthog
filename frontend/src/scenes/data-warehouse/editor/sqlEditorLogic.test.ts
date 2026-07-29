@@ -24,7 +24,12 @@ import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/type
 
 import { editorSceneLogic } from './editorSceneLogic'
 import { OutputTab } from './outputPaneLogic'
-import { activeTabMatchesUrlTarget, getDisplayTypeToSaveInsight, sqlEditorLogic } from './sqlEditorLogic'
+import {
+    activeTabMatchesUrlTarget,
+    getDisplayTypeToSaveInsight,
+    sqlEditorLogic,
+    MANAGED_WAREHOUSE_SOURCE_PREFIX,
+} from './sqlEditorLogic'
 import { SQLEditorMode } from './sqlEditorModes'
 
 // endpointLogic uses permanentlyMount() with a keyed logic, which crashes in
@@ -744,6 +749,40 @@ describe('sqlEditorLogic', () => {
             expect(editorRootLogic.values.updateInsightButtonEnabled).toEqual(false)
         })
 
+        it('applies filters from the URL hash on top of the opened insight so view-mode filter edits can be saved', async () => {
+            // The insight scene's Edit button carries unsaved view-mode filter edits via
+            // urls.sqlEditor({ insightShortId, filters }) — they must land in sourceQuery
+            // (not the saved insight's filters) with the tab still bound to the insight,
+            // so Update insight is enabled and persists them.
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic.mount()
+
+            const filters: HogQLFilters = { dateRange: { date_from: '-30d', date_to: null } }
+            router.actions.push(urls.sqlEditor({ insightShortId: MOCK_INSIGHT_SHORT_ID, filters }))
+
+            await expectLogic(logic)
+                .toDispatchActions(['editInsight', 'createTab', 'updateTab'])
+                .toMatchValues({
+                    editingInsight: partial({
+                        short_id: MOCK_INSIGHT_SHORT_ID,
+                    }),
+                    sourceQuery: partial({
+                        source: partial({
+                            query: (MOCK_INSIGHT_QUERY.source as HogQLQuery).query,
+                            filters: partial({ dateRange: partial({ date_from: '-30d' }) }),
+                        }),
+                    }),
+                })
+
+            expect(editorRootLogic.values.updateInsightButtonEnabled).toEqual(true)
+        })
+
         it('enables Update insight as soon as sourceQuery diverges from the saved insight, even when dataVisualizationLogic mirror lags behind', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
@@ -876,6 +915,90 @@ describe('sqlEditorLogic', () => {
                     queryInput: null,
                     sourceQuery: partial({ display: ChartDisplayType.Auto }),
                 })
+        })
+    })
+
+    describe('edit_metric URL parameter', () => {
+        it('binds the update target to the server-loaded metric query, ignoring URL-supplied open_query', async () => {
+            // Guards against re-binding the "Update metric" button to attacker-controlled
+            // open_query SQL: a crafted link must not overwrite a teammate's metric.
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/data_catalog/metrics/my_metric/': [
+                        200,
+                        {
+                            name: 'my_metric',
+                            definition: { kind: NodeKind.HogQLQuery, query: 'SELECT count() FROM events' },
+                        },
+                    ],
+                },
+            })
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), {
+                source: 'metric',
+                edit_metric: 'my_metric',
+                open_query: 'SELECT * FROM sensitive_table',
+            })
+
+            await expectLogic(logic)
+                .toDispatchActions(['createTab', 'setQueryInput'])
+                .toNotHaveDispatchedActions(['runQuery'])
+                .toMatchValues({
+                    queryInput: 'SELECT count() FROM events',
+                    editingMetricName: 'my_metric',
+                })
+        })
+
+        it('opens an unbound tab when the metric cannot be loaded', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/data_catalog/metrics/missing_metric/': [404],
+                },
+            })
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), { source: 'metric', edit_metric: 'missing_metric' })
+
+            await expectLogic(logic).toDispatchActions(['createTab']).toMatchValues({ editingMetricName: null })
+        })
+
+        it('does not request or bind a traversal-shaped edit_metric name', async () => {
+            // edit_metric is interpolated into the request path unencoded, so a "../"-shaped
+            // name must be rejected before it can reach another project's metric.
+            const retrieveMock = jest.fn(() => [200, { name: 'x', definition: { query: 'SELECT 1' } }])
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/data_catalog/metrics/:name/': retrieveMock,
+                },
+            })
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), {
+                source: 'metric',
+                edit_metric: '../../../1/data_catalog/metrics/other',
+            })
+
+            await expectLogic(logic).toDispatchActions(['createTab']).toMatchValues({ editingMetricName: null })
+            expect(retrieveMock).not.toHaveBeenCalled()
         })
     })
 
@@ -1426,6 +1549,105 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.sendRawQueryEnabled).toEqual(true)
             expect(logic.values.sourceQuery.source.connectionId).toEqual('conn-123')
             expect(String(router.values.hashParams.raw)).toEqual('1')
+        })
+
+        it('defaults to raw SQL mode for the managed warehouse connection', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/external_data_sources/connections/': [
+                        200,
+                        [
+                            {
+                                id: 'managed-conn-1',
+                                prefix: MANAGED_WAREHOUSE_SOURCE_PREFIX,
+                                engine: 'duckdb',
+                                source_type: 'Postgres',
+                                access_method: 'direct',
+                                supports_hogql: true,
+                            },
+                        ],
+                    ],
+                    '/api/environments/:team_id/external_data_sources/': [
+                        200,
+                        {
+                            results: [
+                                {
+                                    id: 'managed-conn-1',
+                                    source_id: 'src-managed-1',
+                                    prefix: MANAGED_WAREHOUSE_SOURCE_PREFIX,
+                                    source_type: 'Postgres',
+                                    access_method: 'direct',
+                                    engine: 'duckdb',
+                                } as any,
+                            ],
+                        },
+                    ],
+                },
+            })
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'managed-conn-1' })
+
+            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+            await expectLogic(logic).toDispatchActions(['setSendRawQuery'])
+
+            expect(logic.values.selectedConnectionSupportsHogQL).toEqual(true)
+            expect(logic.values.sourceQuery.source.sendRawQuery).toEqual(true)
+            expect(logic.values.sendRawQueryEnabled).toEqual(true)
+        })
+
+        it('does not force raw SQL mode for a user-managed Postgres direct connection', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/external_data_sources/connections/': [
+                        200,
+                        [
+                            {
+                                id: 'user-conn-1',
+                                prefix: 'my_postgres',
+                                engine: 'postgres',
+                                source_type: 'Postgres',
+                                access_method: 'direct',
+                                supports_hogql: true,
+                            },
+                        ],
+                    ],
+                    '/api/environments/:team_id/external_data_sources/': [
+                        200,
+                        {
+                            results: [
+                                {
+                                    id: 'user-conn-1',
+                                    source_id: 'src-user-1',
+                                    prefix: 'my_postgres',
+                                    source_type: 'Postgres',
+                                    access_method: 'direct',
+                                    engine: 'postgres',
+                                } as any,
+                            ],
+                        },
+                    ],
+                },
+            })
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'user-conn-1' })
+
+            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+
+            expect(logic.values.selectedConnectionSupportsHogQL).toEqual(true)
+            expect(logic.values.sourceQuery.source.sendRawQuery).toBeUndefined()
+            expect(logic.values.sendRawQueryEnabled).toEqual(false)
         })
 
         it('forces raw SQL mode when the selected connection does not support HogQL', async () => {

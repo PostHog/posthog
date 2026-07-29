@@ -14,6 +14,7 @@ from parameterized import parameterized
 from posthog.models import ActivityLog
 from posthog.models.activity_logging.activity_log import Detail
 
+from products.data_modeling.backend.facade.api import mark_node_suspended, suspension_state
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import (
     DAG,
@@ -1935,6 +1936,42 @@ class TestSavedQuery(APIBaseTest):
         self.assertIn("Running", returned_statuses)
         self.assertIn("Cancelled", returned_statuses)
 
+    def test_resume_clears_suspension_for_every_node_of_the_query(self):
+        # Key access is the point of this surface: the node-level resume is on an INTERNAL viewset,
+        # which no API key can reach.
+        api_key = self.create_personal_api_key_with_scopes(["warehouse_view:write"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="suspended_view",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            created_by=self.user,
+        )
+        # One saved query can back several nodes when it landed in duplicate DAGs.
+        nodes = [
+            Node.objects.create(
+                team=self.team,
+                dag=DAG.objects.create(team=self.team, name=f"dag_{i}"),
+                saved_query=saved_query,
+                type=NodeType.MAT_VIEW,
+            )
+            for i in range(2)
+        ]
+        for node in nodes:
+            mark_node_suspended(node, engine="clickhouse", reason="boom", job_id=str(uuid.uuid4()))
+            node.save()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/resume/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"resumed": True})
+        for node in nodes:
+            node.refresh_from_db()
+            self.assertEqual(suspension_state(node), {})
+
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_materialize_and_revert_are_rate_limited(self, _rate_limit_enabled_mock):
         api_key = self.create_personal_api_key_with_scopes(["warehouse_view:write"])
@@ -2037,6 +2074,25 @@ class TestSavedQueryRunV2Aware(APIBaseTest):
         self.assertEqual(response.status_code, 200, response.content)
         mock_trigger.assert_not_called()
         mock_client.start_workflow.assert_not_called()
+
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    @patch("products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids")
+    def test_materialize_on_v2_schedule_starts_initial_run(self, mock_v2_dags, mock_sync_connect):
+        saved_query, dag, _node = self._make_saved_query_with_node("v2_matview")
+        mock_v2_dags.return_value = {str(dag.id)}
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/materialize",
+            )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        mock_client.start_workflow.assert_called_once()
+        self.assertEqual(mock_client.start_workflow.call_args[0][0], "data-modeling-materialize-view")
+        saved_query.refresh_from_db()
+        self.assertTrue(saved_query.is_materialized)
 
     @patch("products.data_warehouse.backend.presentation.views.saved_query.trigger_saved_query_schedule")
     @patch("products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids")

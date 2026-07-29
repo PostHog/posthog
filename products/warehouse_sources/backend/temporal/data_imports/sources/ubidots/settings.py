@@ -32,10 +32,13 @@ class UbidotsEndpointConfig:
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
 
 
-# The `values` stream fans out per variable: v2.0 lists the variables, then v1.6
-# /variables/{id}/values pages through each variable's time-series dots (newest first).
+# The `values` stream fans out per variable: v2.0 lists the variables, then the Data API pages
+# through each variable's time-series dots. The Data API is versioned separately from the entity
+# API — the legacy "v1" source version reads dots from the v1.6 paginated per-variable endpoint,
+# while the "v2.0" source version reads them from the v2.0 `data/series` batch endpoint.
 VALUES_ENDPOINT = "values"
 VALUES_PATH_TEMPLATE = "/api/v1.6/variables/{variable_id}/values"
+DATA_SERIES_PATH = "/api/v2.0/data/series/"
 
 UBIDOTS_ENDPOINTS: dict[str, UbidotsEndpointConfig] = {
     "devices": UbidotsEndpointConfig(name="devices", path="/api/v2.0/devices/"),

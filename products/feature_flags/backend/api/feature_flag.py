@@ -1857,9 +1857,11 @@ class FeatureFlagSerializer(
     @approval_gate(["feature_flag.enable", "feature_flag.disable", "feature_flag.update"])
     def update(self, instance: FeatureFlag, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
-        # This is a workaround to ensure update works when called from a scheduled task.
-        if request and not hasattr(request, "data"):
-            request.data = {}
+        # Service-layer callers may carry no body, and an endpoint that declares no request schema
+        # can hand us a non-dict one (e.g. a JSON array posted to /experiments/:id/launch/).
+        request_data = getattr(request, "data", None) if request else None
+        if not isinstance(request_data, dict):
+            request_data = {}
 
         validated_data["last_modified_by"] = request.user
         # Prevent DRF from attempting to set reverse FK relation directly
@@ -2001,7 +2003,7 @@ class FeatureFlagSerializer(
                 k: v for k, v in previous_filters.items() if k not in ("holdout_groups", "super_groups")
             }
 
-        version = request.data.get("version", -1)
+        version = request_data.get("version", -1)
 
         try:
             with transaction.atomic():
@@ -2013,7 +2015,11 @@ class FeatureFlagSerializer(
 
                 # NOW check for conflicts after all transformations
                 if version != -1 and version != locked_version:
-                    original_flag = request.data.get("original_flag", {})
+                    # Not a serializer field, so the client controls its type; the conflict helpers
+                    # index into it by field name and would raise on a list or string.
+                    original_flag = request_data.get("original_flag")
+                    if not isinstance(original_flag, dict):
+                        original_flag = {}
                     conflicting_changes = self._get_conflicting_changes(
                         locked_instance,
                         validated_data,

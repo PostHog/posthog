@@ -27,7 +27,7 @@ from products.tasks.backend.temporal.constants import (
     STEERING_PROTOCOL_QUERY_TIMEOUT,
     STEERING_PROTOCOL_VERSION,
 )
-from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
+from products.tasks.backend.temporal.process_task.workflow import PendingFollowup, ProcessTaskInput
 from products.tasks.backend.temporal.slack_relay.activities import RelaySlackMessageInput
 
 if TYPE_CHECKING:
@@ -198,6 +198,7 @@ async def execute_task_processing_workflow_async(
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
     prewarmed: bool = False,
     workflow_id_prefix: Optional[str] = None,
+    initial_message: PendingFollowup | None = None,
 ) -> None:
     """
     Start the task processing workflow asynchronously. Fire-and-forget.
@@ -229,6 +230,7 @@ async def execute_task_processing_workflow_async(
             slack_thread_context=slack_context_dict,
             posthog_mcp_scopes=posthog_mcp_scopes,
             prewarmed=prewarmed,
+            initial_message=initial_message,
         )
 
         logger.info(
@@ -282,6 +284,7 @@ def execute_task_processing_workflow(
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
     prewarmed: bool = False,
     workflow_id_prefix: Optional[str] = None,
+    initial_message: PendingFollowup | None = None,
 ) -> None:
     """
     Start the task processing workflow synchronously. Fire-and-forget.
@@ -312,6 +315,7 @@ def execute_task_processing_workflow(
             slack_thread_context=slack_context_dict,
             posthog_mcp_scopes=posthog_mcp_scopes,
             prewarmed=prewarmed,
+            initial_message=initial_message,
         )
 
         logger.info(

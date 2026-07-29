@@ -6,6 +6,7 @@ import type {
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import {
+    applyColumnDisplayToSelect,
     buildAccountColumnGroups,
     customPropertyAlias,
     relationshipAlias,
@@ -119,5 +120,22 @@ describe('accountsColumnConfigLogic column groups and translation', () => {
             'name',
             `accounts.relationships.values.\`${csm.id}\` AS csm`,
         ])
+    })
+
+    it('applyColumnDisplayToSelect swaps only configured custom property columns to the history join', () => {
+        const id = '11111111-2222-3333-4444-555555555555'
+        const scalar = `accounts.custom_properties.values.\`${id}\` AS ${customPropertyAlias(id)}`
+        const other = 'accounts.tags.names AS tag_names'
+
+        expect(applyColumnDisplayToSelect([scalar, other], {})).toEqual([scalar, other])
+        expect(applyColumnDisplayToSelect([scalar, other], { [id]: { mode: 'sparkline', window_days: 7 } })).toEqual([
+            `accounts.custom_properties_history.values.\`${id}\` AS ${customPropertyAlias(id)}`,
+            other,
+        ])
+        expect(
+            applyColumnDisplayToSelect([scalar], {
+                '99999999-0000-1111-2222-333333333333': { mode: 'trend', window_days: 30 },
+            })
+        ).toEqual([scalar])
     })
 })
