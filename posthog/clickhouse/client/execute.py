@@ -4,7 +4,7 @@ import types
 import logging
 import threading
 import traceback
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from enum import StrEnum
 from functools import lru_cache
@@ -26,6 +26,7 @@ from posthog.clickhouse.client.connection import (
     get_default_clickhouse_workload_type,
 )
 from posthog.clickhouse.client.escape import substitute_params
+from posthog.clickhouse.client.limit import get_llm_analytics_rate_limiter
 from posthog.clickhouse.client.tracing import trace_clickhouse_query_decorator
 from posthog.clickhouse.query_tagging import (
     Feature,
@@ -255,6 +256,23 @@ class ClickHouseExternalTable(TypedDict):
     data: list[dict[str, Any]]
 
 
+@contextmanager
+def _llm_analytics_concurrency_slot(ch_user: ClickHouseUser, team_id: Optional[int]) -> Iterator[None]:
+    """Hold one of AI observability's ClickHouse slots, and nothing for every other user.
+
+    Acquired here rather than at the call sites because the ch_user routing above is tag-based and
+    so applies to every query this product issues, including ones that reach ClickHouse through
+    shared helpers like query_ai_events and TraceQueryRunner. A budget that call sites had to opt
+    into would cover only some of them, and would silently miss whatever gets added next.
+    """
+    if ch_user != ClickHouseUser.LLM_ANALYTICS:
+        yield
+        return
+
+    with get_llm_analytics_rate_limiter().run(team_id=team_id):
+        yield
+
+
 @patchable
 @trace_clickhouse_query_decorator
 def sync_execute(
@@ -399,6 +417,11 @@ def sync_execute(
         ch_user = ClickHouseUser.ENDPOINTS
     elif tags.product == Product.BILLING:
         ch_user = ClickHouseUser.BILLING
+    elif tags.product == Product.LLM_ANALYTICS and tags.kind == "temporal" and ch_user == ClickHouseUser.DEFAULT:
+        # Temporal only, because the interactive AI observability API shares this product tag and
+        # belongs on APP rather than behind a batch concurrency budget. Callers that named a user
+        # keep it, so HogQL's own metadata lookups don't spend the budget meant for real queries.
+        ch_user = ClickHouseUser.LLM_ANALYTICS
 
     # To humans and bots reading this, you might be tempted to add a catch-all tag to avoid
     # hitting this error. Please don't do this. This error is to let us know about queries
@@ -465,7 +488,10 @@ def sync_execute(
             access_method=tags.access_method or "other",
             chargeable=str(tags.chargeable or "0"),
         ).inc()
-        with sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client:
+        with (
+            _llm_analytics_concurrency_slot(ch_user, team_id),
+            sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client,
+        ):
             result = client.execute(
                 prepared_sql,
                 params=prepared_args,
