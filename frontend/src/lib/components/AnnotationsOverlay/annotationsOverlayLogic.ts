@@ -82,6 +82,7 @@ function hasPersonPropertyFiltersOrBreakdown(
 export interface annotationsOverlayLogicValues {
     annotations: AnnotationType[] // annotationsModel
     annotationsLoading: boolean // annotationsModel
+    rawDashboards: Record<string, DashboardBasicType | DashboardType<QueryBasedInsightModel>> // dashboardsModel
     featureFlags: FeatureFlagsSet // featureFlagLogic
     insightId: number | null // insightLogic
     savedInsight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> // insightLogic
@@ -163,7 +164,9 @@ export interface annotationsOverlayLogicMeta {
             dashboardId: number | undefined,
             savedInsight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>,
             properties: PropertyGroupFilter | AnyPropertyFilter[] | null | undefined,
-            breakdownFilter: BreakdownFilter | null | undefined
+            breakdownFilter: BreakdownFilter | null | undefined,
+            rawDashboards: any,
+            arg: string[] | null
         ) => DatedAnnotationType[]
         groupedAnnotations: (
             relevantAnnotations: DatedAnnotationType[],
