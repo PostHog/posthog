@@ -458,8 +458,12 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
     client env vars configured; without them the trigger is skipped (load still succeeds).
     """
     if export_signal.cdc_write_mode == "scd2_append" or export_signal.sync_type == "cdc":
-        # CDC streams append forever and the registration metadata resolves schema.table
-        # (the snapshot table), not any _cdc companion this tick may have prepared.
+        # CDC finals land once per flush tick, so registering each one would copy a full
+        # prepared generation into DuckLake continuously. An `incremental_merge` tick does
+        # advance schema.table, so this leaves CDC schemas out of per-generation
+        # registration entirely — a deliberate gap until that cadence is worked out.
+        # scd2_append writes go to the _cdc companion, which the registration's staleness
+        # check discards anyway.
         return
 
     try:
