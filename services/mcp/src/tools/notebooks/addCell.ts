@@ -44,13 +44,13 @@ export const NotebooksAddCellSchema = z
             .regex(COMPONENT_TAG_REGEX)
             .optional()
             .describe(
-                "Component cells: the notebook component to insert, e.g. 'Query' (charts and event tables via its query prop), 'Image', 'Embed', 'Latex', 'FeatureFlag', 'Survey', 'Experiment', 'Person', 'Cohort', 'Recording', 'RecordingPlaylist'. Executable cells are not allowed here — use cell_type sql/python."
+                "Component cells: the notebook component to insert, e.g. 'Query' (product analytics charts and event tables via its query prop), 'Image', 'Embed', 'Latex', 'FeatureFlag', 'Survey', 'Experiment', 'Person', 'Cohort', 'Recording', 'RecordingPlaylist'. Executable cells are not allowed here — use cell_type sql/python."
             ),
         props: z
             .record(z.string(), z.unknown())
             .optional()
             .describe(
-                'Component cells: the props for the tag, matching what the notebook UI stores for that component. For Query: {"query": {"kind": "InsightVizNode", "source": <TrendsQuery|FunnelsQuery|RetentionQuery|PathsQuery|StickinessQuery|LifecycleQuery>}} for insights, {"query": {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT …"}}} for SQL charts, or {"query": {"kind": "DataTableNode", "source": {"kind": "EventsQuery", …}}} for event tables.'
+                'Component cells: the props for the tag, matching what the notebook UI stores for that component. For Query: {"query": {"kind": "InsightVizNode", "source": <TrendsQuery|FunnelsQuery|RetentionQuery|PathsQuery|StickinessQuery|LifecycleQuery>}} for insights, or {"query": {"kind": "DataTableNode", "source": {"kind": "EventsQuery", …}}} for event tables. HogQLQuery sources are not accepted here — use cell_type sql, which charts its result too.'
             ),
         dataframe_name: z
             .string()
@@ -121,6 +121,25 @@ async function runAndWriteBack(
     return shapeRunForModel(outcome)
 }
 
+/**
+ * A `<Query>` whose source is HogQL is the legacy SQL cell. It renders a result table or chart but
+ * does not run through the sandbox, so it names no dataframe other cells can reference and keeps no
+ * run history. SQLV2 (cell_type 'sql') supersedes it and charts its result the same way, so SQL
+ * authored over MCP must land there. The editor's insert menu makes the same choice behind the
+ * revamped-py-notebooks flag that gates this tool.
+ */
+function hasHogQLQuerySource(props: Record<string, unknown> | undefined): boolean {
+    const query = props?.query
+    if (!query || typeof query !== 'object') {
+        return false
+    }
+    const { kind, source } = query as { kind?: unknown; source?: unknown }
+    if (kind === 'HogQLQuery') {
+        return true
+    }
+    return !!source && typeof source === 'object' && (source as { kind?: unknown }).kind === 'HogQLQuery'
+}
+
 export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResult>['handler'] = async (
     context: Context,
     params: z.infer<typeof NotebooksAddCellSchema>
@@ -143,6 +162,11 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
         if (['SQLV2', 'PythonV2', 'Python', 'DuckSQL', 'HogQLSQL'].includes(params.tag_name)) {
             throw new Error(
                 `Use cell_type 'sql' or 'python' for executable cells instead of tag_name ${params.tag_name}.`
+            )
+        }
+        if (hasHogQLQuerySource(params.props)) {
+            throw new Error(
+                "Use cell_type 'sql' for SQL instead of a component with a HogQLQuery source. A sql cell runs the query, names a dataframe other cells can reference, and charts its result."
             )
         }
     }
