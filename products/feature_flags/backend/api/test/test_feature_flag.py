@@ -2892,6 +2892,34 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         conflicts = serializer._get_conflicting_changes(feature_flag, validated_data, original_flag)
         self.assertEqual(conflicts, ["name", "filters"])
 
+    @parameterized.expand(
+        [
+            ("list", ["active"]),
+            ("string", "active"),
+            ("number", 1),
+        ]
+    )
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
+    def test_updating_feature_flag_with_non_dict_original_flag(
+        self, _name, original_flag, mock_report_user_action
+    ) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={"name": "original name", "key": "a-flag-with-a-bad-original-flag"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        # A stale version enters the conflict branch, where original_flag is indexed by field name.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}",
+            data={"active": False, "version": 999, "original_flag": original_flag},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(FeatureFlag.objects.get(id=flag_id).active)
+
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_updating_feature_flag_treats_null_version_as_zero(self, mock_report_user_action):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:

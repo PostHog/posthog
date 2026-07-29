@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 
 import { useComponentPanelState } from './componentPanelContext'
+import { NotebookComponentRunStatusContext } from './componentRunStatus'
 import { NotebookComponentShell } from './NotebookComponentShell'
 import { createMarkdownNotebookRegistry } from './registry'
 
@@ -99,5 +100,47 @@ describe('NotebookComponentShell', () => {
         fireEvent.click(filtersButton)
 
         expect(toggleComponentPanel).toHaveBeenCalledWith('filters')
+    })
+
+    it('marks the block with the run status the host resolves for it', () => {
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Probe',
+                label: 'Probe',
+                category: 'Test',
+                ViewComponent: () => <div>Results</div>,
+            },
+        ])
+
+        const { container } = render(
+            <NotebookComponentRunStatusContext.Provider value={() => 'stale'}>
+                <NotebookComponentShell
+                    node={{
+                        id: 'probe-node',
+                        type: 'component',
+                        tagName: 'Probe',
+                        props: {},
+                    }}
+                    mode="edit"
+                    componentPanels={{ filters: false, results: true }}
+                    persistComponentPanelVisibility={false}
+                    isSelected={false}
+                    registry={registry}
+                    toggleComponentPanel={jest.fn()}
+                    setLocalComponentPanels={jest.fn()}
+                    rememberComponentPanels={jest.fn()}
+                    setBlockRef={jest.fn()}
+                    updateNode={jest.fn()}
+                    deleteNode={jest.fn()}
+                    deleteSelectedNotebookBlocks={jest.fn(() => false)}
+                    insertParagraphAfterNode={jest.fn()}
+                    moveFocusToAdjacentNode={jest.fn(() => false)}
+                />
+            </NotebookComponentRunStatusContext.Provider>
+        )
+
+        const shell = container.querySelector('.MarkdownNotebook__component-shell') as HTMLElement
+
+        expect(shell.classList.contains('MarkdownNotebook__component-shell--status-stale')).toBe(true)
     })
 })

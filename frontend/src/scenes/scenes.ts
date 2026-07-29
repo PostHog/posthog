@@ -658,6 +658,9 @@ export const redirects: Record<
     '/annotations/:id': ({ id }) => urls.annotation(id),
     '/batch_exports/:id': ({ id }) => urls.batchExport(id),
     '/batch_exports': urls.destinations(),
+    // The scene lives at /code-review (hyphen); catch the old underscore variant, keeping the
+    // ?review= / ?reviews_scope= deep links that PR status comments bake in
+    '/code_review': (_params, searchParams, hashParams) => combineUrl(urls.codeReview(), searchParams, hashParams).url,
     '/comments': () => urls.comments(),
     '/dashboards': urls.dashboards(),
     '/data-management': urls.eventDefinitions(),

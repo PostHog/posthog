@@ -132,6 +132,57 @@ class TestBackfillReadiness(BaseTest):
         self.assertIsNotNone(participation.stamped_at)
         self.assertEqual(run.status, CohortBackfillRunStatus.AWAITING_BOUNDARY)
 
+    def test_superseded_participation_is_never_resurrected(self) -> None:
+        cohort, run = self._cohort_and_run()
+        participation = CohortBackfillRunCohort.objects.for_team(self.team.id).get(run=run)
+        CohortBackfillRunCohort.objects.for_team(self.team.id).filter(id=participation.id).update(
+            superseded_at=timezone.now()
+        )
+
+        # A -> B -> A: edit the behavioral window away and back so the cohort's current hash matches
+        # the pinned one again. The up-front guard must still refuse the terminal participation.
+        cohort.filters = self._filters(30)
+        cohort.save(update_fields=["filters"])
+        cohort.filters = self._filters(7)
+        cohort.save(update_fields=["filters"])
+        cohort.refresh_from_db()
+        participation.refresh_from_db()
+        self.assertEqual(cohort.behavioral_filters_shape_hash, participation.behavioral_filters_shape_hash)
+
+        self.assertFalse(stamp_events_readiness(run, cohort.id))
+
+        cohort.refresh_from_db()
+        participation.refresh_from_db()
+        self.assertIsNone(cohort.last_backfill_events_at)
+        self.assertIsNone(participation.stamped_at)
+
+    def test_supersession_racing_the_stamp_rolls_the_cohort_back(self) -> None:
+        cohort, run = self._cohort_and_run()
+        participation = CohortBackfillRunCohort.objects.for_team(self.team.id).get(run=run)
+        superseded: list[bool] = []
+
+        def supersede_after_the_cohort_stamp(execute, sql, params, many, context):
+            result = execute(sql, params, many, context)
+            if not superseded and sql.startswith('UPDATE "posthog_cohort" '):
+                superseded.append(True)
+                CohortBackfillRunCohort.objects.for_team(self.team.id).filter(id=participation.id).update(
+                    superseded_at=timezone.now()
+                )
+            return result
+
+        # A supersession commits after the cohort stamp but before the participation CAS ratifies
+        # it. The stamp is this transaction's own write, so it has to be taken back.
+        with connection.execute_wrapper(supersede_after_the_cohort_stamp):
+            self.assertFalse(stamp_events_readiness(run, cohort.id))
+
+        cohort.refresh_from_db()
+        participation.refresh_from_db()
+        self.assertIsNone(cohort.last_backfill_events_at)
+        self.assertIsNone(participation.stamped_at)
+        # The rollback must leave the participation terminal — the finalizer reads superseded_at to
+        # decide the run's outcome, so clearing it here would make the run reconcile forever.
+        self.assertIsNotNone(participation.superseded_at)
+
     def test_ensure_shape_hash_only_fills_null_column(self) -> None:
         cohort, _ = self._cohort_and_run()
         Cohort.objects.filter(id=cohort.id).update(
