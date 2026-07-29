@@ -738,6 +738,53 @@ class TestInsightQueryScreenshotWidth(SimpleTestCase):
         assert image_exporter._insight_query_screenshot_width(query) == expected
 
 
+class TestInsightQueryWantsLegend(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "two_series_gets_legend",
+                {
+                    "kind": "InsightVizNode",
+                    "source": {"kind": "TrendsQuery", "series": [{"event": "a"}, {"event": "b"}]},
+                },
+                True,
+            ),
+            (
+                "breakdown_gets_legend",
+                {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [{"event": "a"}],
+                        "breakdownFilter": {"breakdown": "$browser"},
+                    },
+                },
+                True,
+            ),
+            (
+                "single_series_skipped",
+                {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [{"event": "a"}]}},
+                False,
+            ),
+            (
+                "explicit_false_respected",
+                {
+                    "kind": "InsightVizNode",
+                    "source": {
+                        "kind": "TrendsQuery",
+                        "series": [{"event": "a"}, {"event": "b"}],
+                        "trendsFilter": {"showLegend": False},
+                    },
+                },
+                False,
+            ),
+            ("non_insight_kind", {"kind": "DataTableNode"}, False),
+        ]
+    )
+    def test_legend_defaulting(self, _name: str, query: dict, expected: bool) -> None:
+        assert image_exporter._insight_query_wants_legend(query) == expected
+
+
 class TestBuildCdpEndpoint(SimpleTestCase):
     @parameterized.expand(
         [

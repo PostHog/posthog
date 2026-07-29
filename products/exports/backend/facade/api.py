@@ -106,6 +106,12 @@ def render_png_export(
     if asset.exception:
         return asset, None
     content = asset.content
-    if content is None and asset.content_location:
+    if not content and asset.content_location:
         content = object_storage.read_bytes(asset.content_location)
-    return asset, bytes(content) if content is not None else None
+    if not content:
+        # A workflow that reports success but stores nothing would otherwise return no bytes
+        # and no exception, leaving callers unable to tell it apart from a successful render.
+        asset.exception = "Export produced no content"
+        asset.save(update_fields=["exception"])
+        return asset, None
+    return asset, bytes(content)
