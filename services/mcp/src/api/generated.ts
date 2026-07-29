@@ -16950,7 +16950,25 @@ export namespace Schemas {
 
     export type DatabaseSchemaBatchExportTableFields = {[key: string]: DatabaseSchemaField};
 
+    export type DatabaseSchemaTableCertificationStatus = typeof DatabaseSchemaTableCertificationStatus[keyof typeof DatabaseSchemaTableCertificationStatus];
+
+
+    export const DatabaseSchemaTableCertificationStatus = {
+      Certified: 'certified',
+      Deprecated: 'deprecated',
+    } as const;
+
+    export interface DatabaseSchemaTableCertification {
+      certified_at?: string | null;
+      certified_by?: string | null;
+      notes?: string | null;
+      /** Settled data catalog trust mark: 'certified' (prefer this source) or 'deprecated' (avoid it). */
+      status: DatabaseSchemaTableCertificationStatus;
+    }
+
     export interface DatabaseSchemaBatchExportTable {
+      /** Present only when the table or view carries a settled data catalog certification. */
+      certification?: DatabaseSchemaTableCertification | null;
       fields: DatabaseSchemaBatchExportTableFields;
       id: string;
       name: string;
@@ -16979,6 +16997,8 @@ export namespace Schemas {
     }
 
     export interface DatabaseSchemaDataWarehouseTable {
+      /** Present only when the table or view carries a settled data catalog certification. */
+      certification?: DatabaseSchemaTableCertification | null;
       fields: DatabaseSchemaDataWarehouseTableFields;
       /** Absent for a dual-mode source's virtual tables, which have no synced S3 backing. */
       format?: string | null;
@@ -16997,6 +17017,8 @@ export namespace Schemas {
     export type DatabaseSchemaEndpointTableFields = {[key: string]: DatabaseSchemaField};
 
     export interface DatabaseSchemaEndpointTable {
+      /** Present only when the table or view carries a settled data catalog certification. */
+      certification?: DatabaseSchemaTableCertification | null;
       fields: DatabaseSchemaEndpointTableFields;
       id: string;
       name: string;
@@ -17021,6 +17043,8 @@ export namespace Schemas {
     } as const;
 
     export interface DatabaseSchemaManagedViewTable {
+      /** Present only when the table or view carries a settled data catalog certification. */
+      certification?: DatabaseSchemaTableCertification | null;
       fields: DatabaseSchemaManagedViewTableFields;
       id: string;
       kind: DatabaseSchemaManagedViewTableKind;
@@ -17034,6 +17058,8 @@ export namespace Schemas {
     export type DatabaseSchemaMaterializedViewTableFields = {[key: string]: DatabaseSchemaField};
 
     export interface DatabaseSchemaMaterializedViewTable {
+      /** Present only when the table or view carries a settled data catalog certification. */
+      certification?: DatabaseSchemaTableCertification | null;
       fields: DatabaseSchemaMaterializedViewTableFields;
       id: string;
       last_run_at?: string | null;
@@ -17047,6 +17073,8 @@ export namespace Schemas {
     export type DatabaseSchemaPostHogTableFields = {[key: string]: DatabaseSchemaField};
 
     export interface DatabaseSchemaPostHogTable {
+      /** Present only when the table or view carries a settled data catalog certification. */
+      certification?: DatabaseSchemaTableCertification | null;
       fields: DatabaseSchemaPostHogTableFields;
       id: string;
       name: string;
@@ -17057,6 +17085,8 @@ export namespace Schemas {
     export type DatabaseSchemaSystemTableFields = {[key: string]: DatabaseSchemaField};
 
     export interface DatabaseSchemaSystemTable {
+      /** Present only when the table or view carries a settled data catalog certification. */
+      certification?: DatabaseSchemaTableCertification | null;
       fields: DatabaseSchemaSystemTableFields;
       id: string;
       name: string;
@@ -17067,6 +17097,8 @@ export namespace Schemas {
     export type DatabaseSchemaViewTableFields = {[key: string]: DatabaseSchemaField};
 
     export interface DatabaseSchemaViewTable {
+      /** Present only when the table or view carries a settled data catalog certification. */
+      certification?: DatabaseSchemaTableCertification | null;
       fields: DatabaseSchemaViewTableFields;
       id: string;
       name: string;
@@ -23103,10 +23135,11 @@ export namespace Schemas {
          */
       suggested_reviewers?: SuggestedReviewer[];
       /**
-         * The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field to leave the report's existing charts untouched.
+         * The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field (or send null) to leave the report's existing charts untouched, and send an empty list to take them all down.
          * @maxItems 20
+         * @nullable
          */
-      charts?: ReportChart[];
+      charts?: ReportChart[] | null;
     }
 
     export interface EditReportResponse {
@@ -23118,8 +23151,11 @@ export namespace Schemas {
       note_appended: boolean;
       /** Whether the report's suggested reviewers were replaced. */
       reviewers_set: boolean;
-      /** How many charts the report now shows, or 0 if charts were untouched. */
-      charts_set: number;
+      /**
+         * How many charts the report now shows, or null if the edit left its charts as they were (the field omitted, or a re-send of what was already stored). 0 means the edit took the report's charts down.
+         * @nullable
+         */
+      charts_set: number | null;
     }
 
     export type EffectiveMembershipLevelEnum = typeof EffectiveMembershipLevelEnum[keyof typeof EffectiveMembershipLevelEnum];
