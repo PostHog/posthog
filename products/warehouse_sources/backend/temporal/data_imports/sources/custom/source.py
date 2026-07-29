@@ -910,7 +910,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         API layer can redact them. This rebuilds the full config the REST
         engine consumes.
         """
-        raw = config.manifest_json
+        raw: Any = config.manifest_json
         # `manifest_json` is declared as a JSON string, but the create/validate API can hand us an
         # already-parsed object when a client submits the manifest as JSON rather than a JSON-encoded
         # string. Accept both — deep-copy the object so the in-place secret injection below never
