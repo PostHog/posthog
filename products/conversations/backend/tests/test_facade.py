@@ -1,10 +1,21 @@
+from datetime import timedelta
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
-from products.conversations.backend.facade.api import SupportMessageSendError, post_support_message
+from posthog.models import Team
+
+from products.conversations.backend.facade.api import (
+    SupportMessageSendError,
+    list_account_tickets,
+    post_support_message,
+)
+from products.conversations.backend.models.ticket import Ticket
 
 CLIENT = "products.conversations.backend.facade.api.get_slack_client"
 
@@ -74,3 +85,42 @@ class TestPostSupportMessage(BaseTest):
             post_support_message(self.team.pk, "C1", "hi")
         assert ctx.exception.code == expected_code
         assert ctx.exception.retry_after == expected_retry_after
+
+
+class TestListAccountTickets(BaseTest):
+    def _create_ticket(self, *, team: Team, organization_id: str | None, number: int, last_message_at=None) -> Ticket:
+        return Ticket.objects.create(
+            team=team,
+            ticket_number=number,
+            widget_session_id=f"s{number}",
+            distinct_id=f"d{number}",
+            organization_id=organization_id,
+            last_message_at=last_message_at,
+        )
+
+    def test_returns_only_tickets_for_this_team_and_org(self):
+        other_team = Team.objects.create(organization=self.organization)
+        mine = self._create_ticket(team=self.team, organization_id="acct-1", number=1)
+        self._create_ticket(team=self.team, organization_id="acct-2", number=2)
+        self._create_ticket(team=other_team, organization_id="acct-1", number=1)
+
+        result = list_account_tickets(self.team.pk, "acct-1")
+
+        assert [t.id for t in result] == [str(mine.id)]
+        assert result[0].deep_link.endswith(f"/project/{self.team.pk}/support/tickets/1")
+
+    def test_orders_by_last_message_activity_with_nulls_last(self):
+        older = timezone.now() - timedelta(hours=1)
+        newer = timezone.now()
+        self._create_ticket(team=self.team, organization_id="acct-1", number=1, last_message_at=older)
+        self._create_ticket(team=self.team, organization_id="acct-1", number=2, last_message_at=newer)
+        self._create_ticket(team=self.team, organization_id="acct-1", number=3, last_message_at=None)
+
+        result = list_account_tickets(self.team.pk, "acct-1")
+
+        assert [t.ticket_number for t in result] == [2, 1, 3]
+
+    def test_empty_organization_id_matches_nothing(self):
+        self._create_ticket(team=self.team, organization_id="acct-1", number=1)
+
+        assert list_account_tickets(self.team.pk, "") == []

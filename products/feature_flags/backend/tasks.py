@@ -76,7 +76,13 @@ def sync_cross_region_flags_task() -> None:
     sync_cross_region_flags()
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
+# Pinned: products.cohorts dispatches this by name (a static import would close a product-dependency
+# cycle), so a module move must not silently rename the registration out from under that caller.
+@shared_task(
+    name="products.feature_flags.backend.tasks.update_team_service_flags_cache",
+    ignore_result=True,
+    queue=CeleryQueue.FEATURE_FLAGS.value,
+)
 @skip_team_scope_audit
 def update_team_service_flags_cache(team_id: int) -> None:
     """

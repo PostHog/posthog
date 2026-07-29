@@ -594,9 +594,9 @@ def _process_backfill_batch(
 
 
 def _duckgres_schema_name(team_id: int) -> str:
-    # Resolves to posthog_data_imports_<table_suffix> when the team has set one
-    # (DuckgresServerTeam.table_suffix — the same suffix that names its
-    # events/persons tables), else the legacy posthog_data_imports_team_<id>.
+    # Resolves to posthog_data_imports_<schema> from the team's duckgres control-plane
+    # row (the same identifier that names its events/persons tables), else the legacy
+    # posthog_data_imports_team_<id>.
     return duckgres_data_imports_schema(team_id)
 
 

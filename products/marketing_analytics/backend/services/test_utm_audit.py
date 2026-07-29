@@ -52,7 +52,7 @@ class TestCrossReference:
 
     def test_campaign_with_source_mismatch(self):
         campaigns = [Campaign("Brand Campaign", "789", "google", 200.0, 80, 2000)]
-        utm_events = {("brand campaign", "adwords"): 30}
+        utm_events = {("brand campaign", "newsletter"): 30}
 
         results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
 
@@ -61,6 +61,48 @@ class TestCrossReference:
         assert len(results[0].issues) == 1
         assert results[0].issues[0].field == "utm_source"
         assert results[0].issues[0].severity == UtmIssueSeverity.WARNING
+
+    @pytest.mark.parametrize(
+        "campaign_source,utm_source",
+        [
+            ("meta", "facebook"),
+            ("meta", "fb"),
+            ("meta", "instagram"),
+            ("google", "adwords"),
+            ("google", "google_maps"),
+        ],
+    )
+    def test_default_alias_counts_as_exact_match(self, campaign_source, utm_source):
+        campaigns = [Campaign("Spring Sale", "123", campaign_source, 100.0, 50, 1000)]
+        utm_events = {("spring sale", utm_source): 42}
+
+        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
+
+        assert len(results) == 1
+        assert results[0].has_utm_events is True
+        assert results[0].event_count == 42
+        assert len(results[0].issues) == 0
+
+    def test_custom_mapping_wins_over_default_alias(self):
+        # Team remapped 'facebook' to google, so it must not count for the meta campaign.
+        campaigns = [
+            Campaign("Spring Sale", "1", "meta", 100.0, 50, 1000),
+            Campaign("Spring Sale", "2", "google", 100.0, 50, 1000),
+        ]
+        utm_events = {("spring sale", "facebook"): 42}
+        mappings = TeamMappings(
+            source_to_integration={"facebook": "google"},
+            campaign_aliases={},
+            field_preferences={},
+        )
+
+        results = _cross_reference(campaigns, utm_events, mappings, _build_known_sources(mappings))
+
+        google = next(r for r in results if r.source_name == "google")
+        meta = next(r for r in results if r.source_name == "meta")
+        assert google.has_utm_events is True
+        assert google.event_count == 42
+        assert meta.has_utm_events is False
 
     def test_case_insensitive_matching(self):
         campaigns = [Campaign("WINTER Sale", "101", "Google", 150.0, 60, 1500)]
@@ -418,7 +460,7 @@ class TestBuildAllUtmEvents:
 
     def test_campaign_auto_source_none(self):
         campaigns = [Campaign("brand", "1", "google", 0, 0, 0)]
-        utm_events = {("brand", "adwords"): 30}
+        utm_events = {("brand", "newsletter"): 30}
 
         result = _build_all_utm_events(campaigns, utm_events, NO_MAPPINGS)
 
@@ -426,6 +468,16 @@ class TestBuildAllUtmEvents:
         assert result[0].campaign_match == "auto"
         assert result[0].source_match == "none"
         assert result[0].matched_campaign == "brand"
+
+    def test_default_alias_source_auto(self):
+        campaigns = [Campaign("brand", "1", "meta", 0, 0, 0)]
+        utm_events = {("brand", "facebook"): 30}
+
+        result = _build_all_utm_events(campaigns, utm_events, NO_MAPPINGS)
+
+        assert len(result) == 1
+        assert result[0].campaign_match == "auto"
+        assert result[0].source_match == "auto"
 
     def test_source_auto_campaign_none(self):
         campaigns = [Campaign("brand", "1", "google", 0, 0, 0)]

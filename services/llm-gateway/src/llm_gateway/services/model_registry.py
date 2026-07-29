@@ -6,7 +6,12 @@ from typing import ClassVar, Final
 
 from llm_gateway.cloudflare import CLOUDFLARE_ALLOWED_MODELS, is_cloudflare_configured
 from llm_gateway.config import get_settings
-from llm_gateway.modal import MODAL_ALLOWED_MODELS, is_modal_configured
+from llm_gateway.modal import (
+    MODAL_ALLOWED_MODELS,
+    MODAL_EXCLUSIVE_MODELS,
+    is_modal_configured,
+    is_modal_model_configured,
+)
 from llm_gateway.products.config import get_product_config
 from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostService
 
@@ -143,6 +148,14 @@ class ModelRegistryService:
                     supports_vision=False,
                 )
             )
+        for model_id in MODAL_EXCLUSIVE_MODELS:
+            if not is_modal_model_configured(model_id, get_settings()):
+                continue
+            if allowed_models is not None and not _model_matches_allowlist(model_id, allowed_models):
+                continue
+            model = self.get_model(model_id)
+            if model is not None:
+                models.append(model)
         return models
 
     def is_model_available(self, model_id: str, product: str) -> bool:
@@ -158,6 +171,9 @@ class ModelRegistryService:
         # on the CF allowlist + a configured backend (Cloudflare or Modal) instead.
         if _model_matches_allowlist(model_id, CLOUDFLARE_ALLOWED_MODELS):
             return _glm_backend_configured(model_id)
+
+        if _model_matches_allowlist(model_id, MODAL_ALLOWED_MODELS):
+            return is_modal_model_configured(model_id, get_settings())
 
         model = self.get_model(model_id)
         if model is None:

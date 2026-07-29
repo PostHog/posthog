@@ -3,7 +3,6 @@ import { useRef, useState } from 'react'
 
 import {
     IconCopy,
-    IconLock,
     IconThumbsDown,
     IconThumbsDownFilled,
     IconThumbsUp,
@@ -17,6 +16,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import type { AiReplyFeedbackRating, ChatMessage, MessageDeliveryStatus } from '../../types'
 import { SupportMarkdown, SupportRichContentPreview } from '../Editor'
+import { TeamOnlyBadge } from './TeamOnlyBadge'
 
 export interface MessageProps {
     message: ChatMessage
@@ -24,6 +24,7 @@ export interface MessageProps {
     deliveryStatus?: MessageDeliveryStatus
     showAiReplyFeedback?: boolean
     aiReplyFeedbackRating?: AiReplyFeedbackRating | null
+    aiReplyFeedbackDisabledReason?: string
     onSubmitAiReplyFeedback?: (rating: AiReplyFeedbackRating, feedbackText?: string) => void
 }
 
@@ -33,6 +34,7 @@ export function Message({
     deliveryStatus,
     showAiReplyFeedback = false,
     aiReplyFeedbackRating = null,
+    aiReplyFeedbackDisabledReason,
     onSubmitAiReplyFeedback,
 }: MessageProps): JSX.Element {
     const profileType = message.authorType === 'AI' ? 'bot' : 'person'
@@ -48,14 +50,14 @@ export function Message({
         !!onSubmitAiReplyFeedback
 
     function submitRating(rating: AiReplyFeedbackRating): void {
-        if (aiReplyFeedbackRating || !onSubmitAiReplyFeedback) {
+        if (aiReplyFeedbackDisabledReason || aiReplyFeedbackRating || !onSubmitAiReplyFeedback) {
             return
         }
         onSubmitAiReplyFeedback(rating)
     }
 
     function submitBadFeedbackText(): void {
-        if (!feedbackText.trim() || !onSubmitAiReplyFeedback) {
+        if (aiReplyFeedbackDisabledReason || !feedbackText.trim() || !onSubmitAiReplyFeedback) {
             return
         }
         onSubmitAiReplyFeedback('bad', feedbackText.trim())
@@ -64,7 +66,7 @@ export function Message({
 
     return (
         <div className={`flex ${isCustomer ? 'mr-10' : 'flex-row-reverse ml-10'} mb-4`}>
-            <div className="flex gap-2">
+            <div className="flex gap-2 min-w-0">
                 <div className="flex flex-col min-w-0 items-start">
                     <div className="flex items-center justify-between w-full gap-2 mb-1">
                         <ProfilePicture
@@ -75,14 +77,7 @@ export function Message({
                             showName={true}
                         />
                         <div className="flex items-center gap-1.5">
-                            {isPrivate && (
-                                <Tooltip title="Only visible to your team">
-                                    <span className="inline-flex items-center gap-0.5 text-xs text-warning-dark bg-warning-highlight px-1.5 py-0.5 rounded">
-                                        <IconLock className="text-xs" />
-                                        Private note
-                                    </span>
-                                </Tooltip>
-                            )}
+                            {isPrivate && <TeamOnlyBadge label="Private note" />}
                             <span className="text-xs text-muted-alt">
                                 <TZLabel time={message.createdAt} />
                             </span>
@@ -110,13 +105,18 @@ export function Message({
                                     </Tooltip>
                                 </div>
                             )}
+                            {/* Every message here is untrusted: customers write them, imports carry them,
+                                and agents generate them from customer text. An inline remote image would
+                                fetch on open, leaking the reader's IP or probing hosts their browser can
+                                reach. PostHog-hosted images (attachments included) still render inline;
+                                anything else becomes a click-to-open link. */}
                             {message.richContent ? (
                                 <SupportRichContentPreview
                                     content={message.richContent as JSONContent}
                                     className="text-sm"
                                 />
                             ) : (
-                                <SupportMarkdown className="text-sm" disableImages={message.fromZendesk}>
+                                <SupportMarkdown className="text-sm" disableImages>
                                     {message.content}
                                 </SupportMarkdown>
                             )}
@@ -137,7 +137,8 @@ export function Message({
                                             size="xsmall"
                                             tooltip="Good reply"
                                             disabledReason={
-                                                aiReplyFeedbackRating ? 'Feedback already recorded' : undefined
+                                                aiReplyFeedbackDisabledReason ??
+                                                (aiReplyFeedbackRating ? 'Feedback already recorded' : undefined)
                                             }
                                             onClick={() => submitRating('good')}
                                             data-attr="ai-reply-feedback-good"
@@ -156,7 +157,8 @@ export function Message({
                                             size="xsmall"
                                             tooltip="Bad reply"
                                             disabledReason={
-                                                aiReplyFeedbackRating ? 'Feedback already recorded' : undefined
+                                                aiReplyFeedbackDisabledReason ??
+                                                (aiReplyFeedbackRating ? 'Feedback already recorded' : undefined)
                                             }
                                             onClick={() => submitRating('bad')}
                                             data-attr="ai-reply-feedback-bad"
@@ -172,6 +174,7 @@ export function Message({
                                             value={feedbackText}
                                             onChange={setFeedbackText}
                                             onPressEnter={submitBadFeedbackText}
+                                            disabledReason={aiReplyFeedbackDisabledReason}
                                             autoFocus
                                         />
                                         <LemonButton
@@ -179,7 +182,8 @@ export function Message({
                                             size="small"
                                             onClick={submitBadFeedbackText}
                                             disabledReason={
-                                                !feedbackText.trim() ? 'Please type a few words' : undefined
+                                                aiReplyFeedbackDisabledReason ??
+                                                (!feedbackText.trim() ? 'Please type a few words' : undefined)
                                             }
                                         >
                                             Submit
