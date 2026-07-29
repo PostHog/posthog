@@ -26,12 +26,16 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     jit_not_enabled:
         'We could not find an account with your email address and your organization does not support automatic enrollment. Please contact your administrator for an invite.',
     saml_sso_enforced:
-        'Your organization requires SAML SSO authentication. Please enter your email address to access your account.',
-    google_sso_enforced: 'Your organization does not allow this authentication method. Please log in with Google.',
-    github_sso_enforced: 'Your organization does not allow this authentication method. Please log in with GitHub.',
-    gitlab_sso_enforced: 'Your organization does not allow this authentication method. Please log in with GitLab.',
+        'Your organization requires SAML SSO authentication. Please enter your email address to access your account. If you have not joined the organization yet, ask your administrator for an invite.',
+    google_sso_enforced:
+        'Your organization does not allow this authentication method. Please log in with Google. If you have not joined the organization yet, ask your administrator for an invite.',
+    github_sso_enforced:
+        'Your organization does not allow this authentication method. Please log in with GitHub. If you have not joined the organization yet, ask your administrator for an invite.',
+    gitlab_sso_enforced:
+        'Your organization does not allow this authentication method. Please log in with GitLab. If you have not joined the organization yet, ask your administrator for an invite.',
     // our catch-all case, so the message is generic
-    sso_enforced: "Please log in with your organization's required SSO method.",
+    sso_enforced:
+        "Please log in with your organization's required SSO method. If you have not joined the organization yet, ask your administrator for an invite.",
     oauth_cancelled: "Sign in was cancelled. Please try again when you're ready.",
     invalid_invite:
         'This invite link is no longer valid. It may have expired or been revoked. Please ask your administrator for a new invite.',

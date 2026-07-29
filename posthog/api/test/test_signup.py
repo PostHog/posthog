@@ -903,35 +903,39 @@ class TestSignupAPI(APIBaseTest):
                 OrganizationMembership.Level.MEMBER,
             )
 
+    @parameterized.expand([("self_hosted", False), ("cloud", True)])
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
-    def test_cannot_social_signup_with_allowed_but_jit_provisioning_disabled(self, mock_sso_providers, mock_request):
-        mock_sso_providers.return_value = {"google-oauth2": True}
-        new_org = Organization.objects.create(name="Test org")
-        OrganizationDomain.objects.create(
-            domain="posthog.net",
-            verified_at=timezone.now(),
-            jit_provisioning_enabled=False,
-            organization=new_org,
-        )  # note `jit_provisioning_enabled=False`
+    def test_cannot_social_signup_with_allowed_but_jit_provisioning_disabled(
+        self, _name, cloud, mock_sso_providers, mock_request
+    ):
+        with self.is_cloud(cloud):
+            mock_sso_providers.return_value = {"google-oauth2": True}
+            new_org = Organization.objects.create(name="Test org")
+            OrganizationDomain.objects.create(
+                domain="posthog.net",
+                verified_at=timezone.now(),
+                jit_provisioning_enabled=False,
+                organization=new_org,
+            )  # note `jit_provisioning_enabled=False`
 
-        response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
-        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+            response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+            self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
-        url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
-        url += f"?code=2&state={response.client.session['google-oauth2_state']}"
-        mock_request.return_value.json.return_value = {
-            "access_token": "123",
-            "email": "alice@posthog.net",
-            "sub": "123",
-        }
+            url = reverse("social:complete", kwargs={"backend": "google-oauth2"})
+            url += f"?code=2&state={response.client.session['google-oauth2_state']}"
+            mock_request.return_value.json.return_value = {
+                "access_token": "123",
+                "email": "alice@posthog.net",
+                "sub": "123",
+            }
 
-        response = self.client.get(url, follow=True)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
-        self.assertRedirects(
-            response, "/login?error_code=jit_not_enabled"
-        )  # show the user an error; operation not permitted
+            response = self.client.get(url, follow=True)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)  # because `follow=True`
+            # Even on Cloud, where new orgs can always be created, don't funnel the user into creating an empty org
+            self.assertRedirects(response, "/login?error_code=jit_not_enabled")
+            self.assertFalse(User.objects.filter(email="alice@posthog.net").exists())
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")

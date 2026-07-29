@@ -1014,13 +1014,16 @@ def social_create_user(
                 email_len=len(email),
             )
 
+            # There's a claimed and verified domain for the user's email address domain, but JIT provisioning is not
+            # enabled. To avoid confusion don't offer to create a new org (very likely they won't want this) and tell
+            # them to ask their administrator for an invite instead. This is checked before `get_can_create_org` because
+            # that always allows org creation on Cloud, which would otherwise swallow this case.
+            if email and OrganizationDomain.objects.get_verified_for_email_address(email):
+                return redirect("/login?error_code=jit_not_enabled")
+
             if not get_can_create_org(request.user):
-                if email and OrganizationDomain.objects.get_verified_for_email_address(email):
-                    # There's a claimed and verified domain for the user's email address domain, but JIT provisioning is not enabled. To avoid confusion
-                    # don't let the user create a new org (very likely they won't want this) and show an appropriate error response.
-                    return redirect("/login?error_code=jit_not_enabled")
-                else:
-                    return redirect("/login?error_code=no_new_organizations")
+                return redirect("/login?error_code=no_new_organizations")
+
             strategy.session_set("email", email)
             organization_name = strategy.session_get("organization_name")
             next_url = strategy.session_get("next")
