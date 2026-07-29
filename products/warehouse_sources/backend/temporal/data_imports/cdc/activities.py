@@ -18,6 +18,7 @@ import datetime as dt
 import dataclasses
 from collections.abc import Callable
 
+from django.conf import settings
 from django.db import close_old_connections
 
 import psycopg
@@ -44,6 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters impor
     get_cdc_adapter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+    CDC_SEQ_COLUMN,
     ChangeEventBatcher,
     build_scd2_table,
     deduplicate_table,
@@ -51,6 +53,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     enrich_toast_omitted_rows,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import mark_cdc_broken
+from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import CDCBufferWriter
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
     MAX_FRIENDLY_MESSAGE_LENGTH,
     CDCErrorCategory,
@@ -212,6 +215,11 @@ class CDCExtractActivity:
         self.all_table_names: set[str] = set()
         # Wall-clock start, set in run(); drives cdc_extraction_duration_seconds.
         self._run_started_at: float | None = None
+        # Shadow buffered-ingress state (CDC_BUFFER_SHADOW_WRITE). Writer is lazy so
+        # runs with shadow off never touch S3 setup; the per-schema file index keeps
+        # same-position-range batches (a split transaction) from overwriting each other.
+        self._shadow_buffer_writer: CDCBufferWriter | None = None
+        self._shadow_file_index: dict[str, int] = {}
 
     # ------------------------------------------------------------------
     # Logger helpers
@@ -580,6 +588,48 @@ class CDCExtractActivity:
         }
 
     # ------------------------------------------------------------------
+    # Shadow buffered ingress
+    # ------------------------------------------------------------------
+    def _maybe_shadow_write_buffer(self, schema: ExternalDataSchema, table_name: str, table: pa.Table) -> None:
+        """Shadow-write one micro-batch to the S3 change buffer (CDC_BUFFER_SHADOW_WRITE).
+
+        Validation-only while the legacy path stays authoritative: failures are
+        swallowed (metric + log) so shadow can never fail an extraction, and the
+        slot-advance rules are untouched — gaps in the buffer are expected and
+        surfaced by the validate_cdc_buffer command, not guarded against here.
+        """
+        if not settings.CDC_BUFFER_SHADOW_WRITE:
+            return
+        if table.num_rows == 0 or CDC_SEQ_COLUMN not in table.column_names:
+            return
+
+        try:
+            if self._shadow_buffer_writer is None:
+                self._shadow_buffer_writer = CDCBufferWriter(self.log)
+
+            file_index = self._shadow_file_index.get(table_name, 0)
+            result = self._shadow_buffer_writer.write_batch(
+                team_id=self.inputs.team_id,
+                schema_id=str(schema.id),
+                table=table,
+                file_index=file_index,
+            )
+            self._shadow_file_index[table_name] = file_index + 1
+
+            metrics.get_shadow_buffer_files_written_metric(self.inputs.team_id, str(self.inputs.source_id)).add(1)
+            self._schema_log(schema).debug(
+                "cdc_shadow_buffer_written",
+                table=table_name,
+                s3_path=result.s3_path,
+                rows=result.row_count,
+                start_seq=result.start_seq,
+                end_seq=result.end_seq,
+            )
+        except Exception:
+            metrics.get_shadow_buffer_write_errors_metric(self.inputs.team_id, str(self.inputs.source_id)).add(1)
+            self._schema_log(schema).warning("cdc_shadow_buffer_write_failed", table=table_name, exc_info=True)
+
+    # ------------------------------------------------------------------
     # Per-flush processing
     # ------------------------------------------------------------------
     def _process_flush(
@@ -614,6 +664,12 @@ class CDCExtractActivity:
             # nulls standing in for omitted columns.
             enriched_table = enrich_toast_omitted_rows(raw_table, key_columns)
             enriched_table = enrich_delete_rows(enriched_table, key_columns)
+
+            # Shadow buffered ingress: persist the raw (pre-dedup/SCD2) stream, then
+            # strip the seq column so the legacy write path stays byte-identical.
+            self._maybe_shadow_write_buffer(schema, table_name, enriched_table)
+            if CDC_SEQ_COLUMN in enriched_table.column_names:
+                enriched_table = enriched_table.drop_columns([CDC_SEQ_COLUMN])
 
             # Consolidated shares the snapshot's canonical folder; the `_cdc` companion is
             # CDC-only and stays self-consistent with its `name`-keyed snapshot seed.
@@ -1023,7 +1079,9 @@ class CDCExtractActivity:
         """
         assert self._run_started_at is not None
         event_name_to_schema_name = self._build_event_name_map()
-        self.batcher = ChangeEventBatcher()
+        self.batcher = ChangeEventBatcher(
+            position_to_seq=self.adapter.position_to_seq if self.adapter is not None else None
+        )
         on_row = self._make_read_heartbeat()
 
         limit = CDC_MAX_CHANGES_PER_READ

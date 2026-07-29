@@ -7,6 +7,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from django.db.utils import OperationalError
+from django.test import override_settings
 
 import pyarrow as pa
 import psycopg.errors
@@ -26,12 +27,14 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.activities imp
     cdc_extract_activity,
     cleanup_orphan_slots_activity,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory, cdc_error_info
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BatchQueue,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.position import PgLSN
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
 
@@ -203,6 +206,9 @@ def _setup_mocks(
     mock_adapter.create_reader.return_value = mock_reader
     mock_adapter.is_slot_invalidation_error.return_value = False
     mock_adapter.classify_error.return_value = None  # default: unrecognized -> unknown/retryable
+    # Real converter, not a MagicMock return: the batcher feeds its output into a
+    # typed pa.array, which would reject a MagicMock in every streaming test.
+    mock_adapter.position_to_seq.side_effect = lambda position: PgLSN.deserialize(position).value
     mock_get_adapter.return_value = mock_adapter
 
     mock_s3 = MagicMock()
@@ -549,6 +555,90 @@ class TestBuildEventNameMap:
         activity_obj.cdc_schemas = [schema]
 
         assert activity_obj._build_event_name_map().get(wal_event_name) == expected_canonical
+
+
+class TestShadowBufferWrite:
+    """Shadow buffered-ingress writes (CDC_BUFFER_SHADOW_WRITE) around _process_flush."""
+
+    def _run(self, MockBufferWriter, events, shadow_on: bool):
+        with (
+            patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections"),
+            patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob") as MockJob,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource"
+            ) as MockSourceModel,
+            patch.object(CDCExtractActivity, "_get_cdc_schemas") as mock_get_schemas,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter"
+            ) as mock_get_adapter,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter"
+            ) as MockS3Writer,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer"
+            ) as MockProducer,
+            patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity") as mock_activity,
+            override_settings(CDC_BUFFER_SHADOW_WRITE=shadow_on),
+        ):
+            source = _make_source()
+            schema = _make_schema("users", cdc_mode="streaming", source=source)
+            mock_reader, mock_s3, mock_producer, _mock_job = _setup_mocks(
+                mock_activity,
+                MockProducer,
+                MockS3Writer,
+                mock_get_adapter,
+                mock_get_schemas,
+                MockSourceModel,
+                MockJob,
+                MagicMock(),
+                source,
+                [schema],
+                events,
+            )
+            cdc_extract_activity(CDCExtractInput(team_id=1, source_id=source.id))
+        return schema, mock_reader, mock_s3, mock_producer
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_shadow_off_by_default_writes_nothing(self, MockBufferWriter):
+        events = [_make_event(op="I", position="0/100")]
+        _schema, _reader, mock_s3, _producer = self._run(MockBufferWriter, events, shadow_on=False)
+
+        MockBufferWriter.assert_not_called()
+        # Legacy lane stays byte-identical: no seq column reaches the S3 writer.
+        legacy_table = mock_s3.write_batch.call_args[0][0]
+        assert CDC_SEQ_COLUMN not in legacy_table.column_names
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_shadow_on_writes_raw_stream_with_seq(self, MockBufferWriter):
+        events = [
+            _make_event(op="I", position="0/100", columns={"id": 1, "name": "Alice"}),
+            _make_event(op="U", position="0/200", columns={"id": 1, "name": "Bob"}),
+        ]
+        schema, _reader, mock_s3, mock_producer = self._run(MockBufferWriter, events, shadow_on=True)
+
+        buffer_call = MockBufferWriter.return_value.write_batch.call_args
+        assert buffer_call.kwargs["team_id"] == 1
+        assert buffer_call.kwargs["schema_id"] == str(schema.id)
+        assert buffer_call.kwargs["file_index"] == 0
+        shadow_table = buffer_call.kwargs["table"]
+        assert shadow_table.column(CDC_SEQ_COLUMN).to_pylist() == [0x100, 0x200]
+        # Raw stream: one row per change event, before dedup collapses the PK.
+        assert shadow_table.num_rows == 2
+
+        legacy_table = mock_s3.write_batch.call_args[0][0]
+        assert CDC_SEQ_COLUMN not in legacy_table.column_names
+        mock_producer.send_batch_notification.assert_called_once()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.CDCBufferWriter")
+    def test_shadow_failure_never_fails_extraction(self, MockBufferWriter):
+        MockBufferWriter.return_value.write_batch.side_effect = Exception("s3 down")
+        events = [_make_event(op="I", position="0/100")]
+        _schema, mock_reader, mock_s3, mock_producer = self._run(MockBufferWriter, events, shadow_on=True)
+
+        # Legacy lane completed despite the shadow failure — including slot advance.
+        mock_s3.write_batch.assert_called_once()
+        mock_producer.send_batch_notification.assert_called_once()
+        mock_reader.confirm_position.assert_called_once_with("0/100")
 
 
 class TestCDCExtractActivity:

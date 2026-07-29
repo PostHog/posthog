@@ -19,6 +19,11 @@ USE_LOCAL_SETUP = TEST or (DEBUG and len(os.getenv("OBJECT_STORAGE_ENDPOINT", "h
 
 PYARROW_DEBUG_LOGGING = get_from_env("PYARROW_DEBUG_LOGGING", False, type_cast=str_to_bool)
 
+# CDC buffered-ingress shadow mode: extraction also writes each micro-batch as a
+# raw change file to the S3 buffer (cdc_producer/ prefix) while the legacy path
+# stays fully authoritative. Validation-only — nothing consumes the buffer yet.
+CDC_BUFFER_SHADOW_WRITE = get_from_env("CDC_BUFFER_SHADOW_WRITE", False, type_cast=str_to_bool)
+
 # Rollback-only escape hatch: restores the legacy delta-rs unsafe-rename S3 backend,
 # which has no commit-conflict detection. Default (false) keeps conditional-put commits.
 DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME = get_from_env(
