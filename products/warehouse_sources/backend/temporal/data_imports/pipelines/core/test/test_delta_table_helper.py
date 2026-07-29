@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     _delta_merge_spill_kwargs,
     _first_per_pk_table,
     _realign_decimal_buffers,
+    is_transient_delta_maintenance_error,
 )
 
 
@@ -788,6 +789,43 @@ class TestAppendDecimalReconciliation:
             )
 
 
+class TestSchemaEvolutionNullability:
+    """A column added mid-table-lifetime always predates its own addition: every file the
+    table already holds was written without it, so `optimize.compact()` must be able to
+    treat those rows as null for that column. If schema evolution adds the column as NOT
+    NULL — which happens whenever the batch that introduces it has no nulls, since delta-rs
+    takes the new field's nullability straight from the incoming Arrow field — compaction
+    later fails with "Non-nullable column '<name>' is missing from the physical schema"."""
+
+    @pytest.mark.asyncio
+    async def test_compact_survives_a_column_added_by_an_all_non_null_batch(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        deltalake.write_deltalake(delta_path, pa.table({"id": pa.array([1, 2], type=pa.int64())}))
+
+        helper = _make_local_helper(delta_path)
+
+        # The incoming field is non-nullable because every value in *this* batch is
+        # non-null — exactly how upstream Arrow construction infers it, unrelated to
+        # whether the column can appear in prior or future batches.
+        fields: list[pa.Field] = [pa.field("id", pa.int64()), pa.field("status", pa.string(), nullable=False)]
+        batch_schema = pa.schema(fields)
+        batch = pa.table(
+            {"id": pa.array([3, 4], type=pa.int64()), "status": pa.array(["ok", "ok"])}, schema=batch_schema
+        )
+
+        result = await helper.write_to_deltalake(
+            data=batch, write_type="append", should_overwrite_table=False, primary_keys=None
+        )
+        status_field = next(f for f in result.schema().fields if f.name == "status")
+        assert status_field.nullable is True
+
+        await helper.compact_table()
+
+        final = result.to_pyarrow_table()
+        by_id = dict(zip(final.column("id").to_pylist(), final.column("status").to_pylist()))
+        assert by_id == {1: None, 2: None, 3: "ok", 4: "ok"}
+
+
 class TestIncrementalBatchDeduplication:
     """Duplicate PKs in a source batch must never reach the Delta write.
 
@@ -1177,3 +1215,25 @@ class TestIsTableCorrupted:
             result = await helper.is_table_corrupted()
 
         assert result is expected
+
+
+class TestIsTransientDeltaMaintenanceError:
+    @parameterized.expand(
+        [
+            # A concurrent optimize/vacuum losing the race on a file scan: safe to skip and retry.
+            (
+                "optimize_scan_file_not_found",
+                deltalake.exceptions.DeltaError(
+                    "Failed to parse parquet: Optimize selected-file scan failed while scanning data: "
+                    "Object at location .../part-0.parquet not found: 404 Not Found"
+                ),
+                True,
+            ),
+            # Other DeltaErrors are real failures (e.g. a genuinely corrupt log) and must still be captured.
+            ("unrelated_delta_error", deltalake.exceptions.DeltaError("no protocol found in delta log"), False),
+            # Same message shape but not the DeltaError type delta-rs actually raises for it.
+            ("wrong_exception_type", RuntimeError("Optimize selected-file scan failed"), False),
+        ]
+    )
+    def test_matches_only_the_racy_optimize_scan_signature(self, _name: str, error: Exception, expected: bool):
+        assert is_transient_delta_maintenance_error(error) is expected
