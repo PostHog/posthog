@@ -3,10 +3,10 @@ from unittest.mock import MagicMock, patch
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.churnkey.churnkey import ChurnkeyResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.churnkey.source import ChurnkeySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.churnkey import (
     ChurnkeySourceConfig,
 )

@@ -4,7 +4,6 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.settings import (
     ACCOUNTS_PARENT,
     CLOUDFLARE_ENDPOINTS,
@@ -37,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     Endpoint,
     EndpointResource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 CLOUDFLARE_BASE_URL = "https://api.cloudflare.com/client/v4"
 # Cloudflare list pages cap at 50 by default; most endpoints allow more.
