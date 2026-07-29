@@ -195,6 +195,7 @@ def _build_sync_producer(profile: KafkaClusterProfile) -> _KafkaProducer:
         max_request_size=producer_settings.get("max_request_size"),
         compression_type=producer_settings.get("compression_type"),
         producer_settings=producer_settings,
+        profile_name=p.name,
     )
 
 
@@ -212,6 +213,7 @@ def _build_async_producer(
         max_request_size=producer_settings.get("max_request_size"),
         compression_type=producer_settings.get("compression_type"),
         producer_settings=producer_settings,
+        profile_name=p.name,
     )
 
 

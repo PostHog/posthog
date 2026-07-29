@@ -187,6 +187,31 @@ class ResolveProfileTest(TestCase):
         # Code default for warehouse_sources is still present.
         self.assertEqual(profile.producer_settings["acks"], "all")
 
+    # librdkafka reads security.protocol case-insensitively, so a chart can legitimately
+    # set `sasl_ssl`. Everything downstream compares against the uppercase spellings and
+    # would skip SASL setup entirely on anything else.
+    @parameterized.expand(
+        [
+            ("lowercase", "sasl_ssl", "SASL_SSL"),
+            ("mixed_case", "Sasl_Plaintext", "SASL_PLAINTEXT"),
+            ("padded", " SASL_SSL\n", "SASL_SSL"),
+            ("already_canonical", "SSL", "SSL"),
+        ]
+    )
+    def test_security_protocol_is_canonicalized(self, _name, raw, expected):
+        with patch.dict("os.environ", {"KAFKA_CYCLOTRON_SECURITY_PROTOCOL": raw}, clear=True):
+            profile = kafka_settings._resolve_profile("cyclotron")
+        self.assertEqual(profile.security_protocol, expected)
+
+    def test_repr_omits_the_sasl_password(self):
+        with patch.dict(
+            "os.environ",
+            {"KAFKA_CYCLOTRON_SASL_PASSWORD": "a-real-credential"},
+            clear=True,
+        ):
+            profile = kafka_settings._resolve_profile("cyclotron")
+        self.assertNotIn("a-real-credential", repr(profile))
+
 
 class KafkaProfilesMapTest(TestCase):
     def test_contains_an_entry_per_enum_value(self):

@@ -100,23 +100,47 @@ class KafkaClientTestCase(TestCase):
         self.assertEqual(producer.flush(timeout=timeout), 3)
         inner.flush.assert_called_once_with(*expected_call_args)
 
+    # librdkafka reads security.protocol case-insensitively, so a deploy can set
+    # `sasl_ssl`. Skipping the SASL keys for a spelling librdkafka accepts leaves it
+    # on its GSSAPI default, which isn't compiled into the build we ship.
+    @parameterized.expand(
+        [
+            ("canonical", "SASL_PLAINTEXT"),
+            ("lowercase", "sasl_plaintext"),
+        ]
+    )
+    @patch("posthog.kafka_client.client.ConfluentProducer")
+    def test_kafka_sasl_params(self, _name: str, security_protocol: str, mock_producer_class: MagicMock):
+        mock_producer_class.return_value = MagicMock()
+        with override_settings(
+            KAFKA_PROFILES=_make_profiles(
+                security_protocol=security_protocol,
+                sasl_mechanism="<mechanism>",
+                sasl_user="<user>",
+                sasl_password="<password>",
+            )
+        ):
+            _KafkaProducer(test=False)
+        config = mock_producer_class.call_args[0][0]
+        self.assertEqual(config["security.protocol"], security_protocol)
+        self.assertEqual(config["sasl.mechanism"], "<mechanism>")
+        self.assertEqual(config["sasl.username"], "<user>")
+        self.assertEqual(config["sasl.password"], "<password>")
+
     @override_settings(
         KAFKA_PROFILES=_make_profiles(
-            security_protocol="SASL_PLAINTEXT",
-            sasl_mechanism="<mechanism>",
+            security_protocol="SASL_SSL",
             sasl_user="<user>",
             sasl_password="<password>",
         )
     )
     @patch("posthog.kafka_client.client.ConfluentProducer")
-    def test_kafka_sasl_params(self, mock_producer_class: MagicMock):
-        mock_producer_class.return_value = MagicMock()
-        _KafkaProducer(test=False)
-        config = mock_producer_class.call_args[0][0]
-        self.assertEqual(config["security.protocol"], "SASL_PLAINTEXT")
-        self.assertEqual(config["sasl.mechanism"], "<mechanism>")
-        self.assertEqual(config["sasl.username"], "<user>")
-        self.assertEqual(config["sasl.password"], "<password>")
+    def test_kafka_sasl_without_mechanism_raises_pointing_at_the_env_var(self, mock_producer_class: MagicMock):
+        with self.assertRaises(ValueError) as ctx:
+            _KafkaProducer(test=False)
+
+        self.assertIn("KAFKA_DEFAULT_SASL_MECHANISM", str(ctx.exception))
+        mock_producer_class.assert_not_called()
 
     @override_settings(
         KAFKA_PROFILES=_make_profiles(

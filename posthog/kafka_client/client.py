@@ -108,23 +108,42 @@ def _build_sasl_config(
     sasl_mechanism: Optional[str],
     sasl_user: Optional[str],
     sasl_password: Optional[str],
+    profile_name: Optional[str] = None,
 ) -> dict[str, Any]:
     """Return confluent-kafka SASL configuration for the given security protocol.
 
     Empty dict when SASL isn't in use so the keys aren't added to the producer
     config (confluent-kafka rejects SASL keys when the protocol doesn't require
     them).
+
+    The protocol is matched case-insensitively to stay in step with librdkafka,
+    which accepts `sasl_ssl` just as happily as `SASL_SSL`.
     """
-    if security_protocol in [
+    if (security_protocol or "").strip().upper() not in (
         _KafkaSecurityProtocol.SASL_PLAINTEXT,
         _KafkaSecurityProtocol.SASL_SSL,
-    ]:
-        return {
-            "sasl.mechanism": sasl_mechanism,
-            "sasl.username": sasl_user,
-            "sasl.password": sasl_password,
-        }
-    return {}
+    ):
+        return {}
+
+    if not sasl_mechanism:
+        profile = profile_name or "default"
+        env_vars = f"KAFKA_{profile.upper()}_SASL_MECHANISM"
+        if profile != "default":
+            env_vars += " or KAFKA_DEFAULT_SASL_MECHANISM"
+        raise ValueError(
+            f"Kafka profile {profile!r} has security protocol {security_protocol!r} but no SASL mechanism. "
+            f"Set {env_vars}. Without it librdkafka falls back to GSSAPI, "
+            "which isn't compiled into the shipped build."
+        )
+
+    # librdkafka resets a property to its own default when handed a null value,
+    # so an unset username/password has to be left out rather than passed as None.
+    sasl_config = {
+        "sasl.mechanism": sasl_mechanism,
+        "sasl.username": sasl_user,
+        "sasl.password": sasl_password,
+    }
+    return {key: value for key, value in sasl_config.items() if value is not None}
 
 
 # Mapping from our internal setting key names to confluent-kafka config keys.
@@ -187,6 +206,7 @@ class _KafkaProducer:
         acks: int | str = 1,
         enable_idempotence=False,
         producer_settings: Optional[dict[str, Any]] = None,
+        profile_name: Optional[str] = None,
     ):
         hostname = os.environ.get("HOSTNAME", "")
         if "temporal-worker-data-warehouse" in hostname:
@@ -218,6 +238,7 @@ class _KafkaProducer:
         )
 
         self._test = test
+        profile_name = profile_name or default_profile.name
 
         if test:
             self.producer = KafkaProducerForTests()
@@ -245,7 +266,7 @@ class _KafkaProducer:
                 "socket.keepalive.enable": True,
                 # Delivery report callback will be called for all messages
                 "delivery.report.only.error": False,
-                **_build_sasl_config(kafka_security_protocol, sasl_mechanism, sasl_user, sasl_password),
+                **_build_sasl_config(kafka_security_protocol, sasl_mechanism, sasl_user, sasl_password, profile_name),
                 **_convert_kafka_python_settings(resolved_producer_settings),
             }
 
@@ -347,6 +368,7 @@ class _AsyncKafkaProducer:
         compression_type: str | None = None,
         producer_settings: dict[str, Any] | None = None,
         loop: asyncio.AbstractEventLoop | None = None,
+        profile_name: str | None = None,
     ):
         default_profile = settings.KAFKA_PROFILES["default"]
         if kafka_security_protocol is None:
@@ -362,6 +384,7 @@ class _AsyncKafkaProducer:
         resolved_producer_settings: dict[str, Any] = (
             producer_settings if producer_settings is not None else default_profile.producer_settings
         )
+        profile_name = profile_name or default_profile.name
 
         config: dict[str, Any] = {
             "bootstrap.servers": ",".join(kafka_hosts) if isinstance(kafka_hosts, list) else kafka_hosts,
@@ -377,7 +400,7 @@ class _AsyncKafkaProducer:
             "api.version.request": True,
             "broker.version.fallback": "2.8.0",
             "socket.keepalive.enable": True,
-            **_build_sasl_config(kafka_security_protocol, sasl_mechanism, sasl_user, sasl_password),
+            **_build_sasl_config(kafka_security_protocol, sasl_mechanism, sasl_user, sasl_password, profile_name),
             **_convert_kafka_python_settings(resolved_producer_settings),
         }
 

@@ -91,6 +91,20 @@ def _env_for(profile: str, suffix: str) -> Optional[str]:
     return None
 
 
+def _normalize_security_protocol(value: Optional[str]) -> Optional[str]:
+    """Canonicalize a security protocol to librdkafka's uppercase spelling.
+
+    librdkafka matches `security.protocol` case-insensitively, so a deploy may
+    legitimately set `sasl_ssl`. Everything reading `KafkaProfileSettings`
+    compares against the uppercase names, and a lowercase value would slip past
+    those comparisons — the client would skip SASL setup while still asking the
+    broker for a SASL handshake.
+    """
+    if value is None:
+        return None
+    return value.strip().upper()
+
+
 def _env_int(profile: str, suffix: str) -> Optional[int]:
     val = _env_for(profile, suffix)
     return int(val) if val is not None else None
@@ -175,7 +189,9 @@ class KafkaProfileSettings:
     security_protocol: Optional[str]
     sasl_mechanism: Optional[str]
     sasl_user: Optional[str]
-    sasl_password: Optional[str]
+    # Kept out of the repr so the credential can't ride along into logs or the
+    # frame locals captured with an exception.
+    sasl_password: Optional[str] = field(repr=False)
     producer_settings: dict[str, Any] = field(default_factory=dict)
 
 
@@ -187,7 +203,7 @@ def _resolve_profile(profile: str) -> KafkaProfileSettings:
     return KafkaProfileSettings(
         name=profile,
         hosts=_parse_kafka_hosts(hosts_raw),
-        security_protocol=_env_for(profile, "SECURITY_PROTOCOL"),
+        security_protocol=_normalize_security_protocol(_env_for(profile, "SECURITY_PROTOCOL")),
         sasl_mechanism=_env_for(profile, "SASL_MECHANISM"),
         sasl_user=_env_for(profile, "SASL_USER"),
         sasl_password=_env_for(profile, "SASL_PASSWORD"),
