@@ -320,7 +320,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                         .values_list("scope", flat=True)
                         .first()
                     )
-                except (ValueError, ValidationError):
+                except (ValueError, django_exceptions.ValidationError):
                     return None
         candidate_scopes.discard(None)
         if not candidate_scopes & TICKET_COMMENT_SCOPES:
