@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import AsyncIterable, Callable, Iterable
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, NotRequired, Optional, Protocol, TypedDict, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Protocol, TypeVar
 
 from structlog.types import FilteringBoundLogger
 
@@ -103,10 +103,3 @@ class SourceInputs:
     # Effective vendor API version: the source instance's pin resolved through the source's
     # `default_version`. Sources with a versioned vendor API thread it to their request layer.
     api_version: Optional[str] = None
-
-
-class PipelineResult(TypedDict):
-    should_trigger_cdp_producer: bool
-    consumer_manages_job_status: NotRequired[bool]
-    skip_post_import_activities: NotRequired[bool]
-    prepared_queryable_folder: NotRequired[str]

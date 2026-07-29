@@ -1,11 +1,6 @@
 import sys
 import time
-import asyncio
-import threading
-import contextvars
-from collections.abc import AsyncIterable, AsyncIterator, Iterable
-from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Generic, Literal, TypeVar, cast
+from typing import Any, Generic, Literal
 
 import pyarrow as pa
 import deltalake as deltalake
@@ -47,36 +42,29 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.l
     notify_revenue_analytics_that_sync_has_completed,
     supports_partial_data_loading,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
-    sync_engineering_analytics_views,
-    sync_revenue_analytics_views,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
-    DeltaTableHelper,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.person_property_row_sink import (
-    PersonPropertyRowSink,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.table_stats import (
-    record_source_item_stats,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    PipelineResult,
-    ResumableData,
-    SourceResponse,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     _append_debug_column_to_pyarrows_table,
     _handle_null_columns_with_definitions,
     evolve_pyarrow_schema,
     merge_observed_columns_into_schema_metadata,
     normalize_table_column_names,
     observe_and_project_table,
-    setup_partitioning,
     source_uses_delta_write_column_selection,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.async_iterate import async_iterate
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import setup_partitioning
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_row_sink import (
+    PersonPropertyRowSink,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import record_source_item_stats
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
+    sync_engineering_analytics_views,
+    sync_revenue_analytics_views,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
     set_initial_sync_complete,
@@ -84,67 +72,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     validate_schema_and_update_table,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+    ResumableData,
+    SourceResponse,
+)
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
-
-T = TypeVar("T")
-
-# Dedicated thread pool for source iteration so that long-running HTTP calls
-# (e.g. Stripe API pagination) can't starve the default executor which is
-# shared by logging, DB operations, and S3 writes.
-_SOURCE_ITERATOR_EXECUTOR = ThreadPoolExecutor(max_workers=32, thread_name_prefix="source-iter")
-
-
-async def async_iterate(iterable: Iterable[T] | AsyncIterable[T]) -> AsyncIterator[T]:
-    """
-    Normalize a sync or async iterable into an async iterator.
-
-    Async iterables are yielded directly. Sync iterables are wrapped so that
-    each call to `next()` runs in a dedicated thread pool, preventing
-    blocking source HTTP calls from exhausting the default executor.
-    """
-    if isinstance(iterable, AsyncIterable):
-        async for item in iterable:
-            yield cast(T, item)
-        return
-
-    iterator = iter(iterable)
-    lock = threading.Lock()
-    loop = asyncio.get_running_loop()
-    # loop.run_in_executor does not propagate contextvars across the thread
-    # boundary (unlike asyncio.to_thread). Snapshot them once so logs emitted
-    # from inside the source generator keep team_id / workflow_* and reach the
-    # log_entries table via LogMessagesRenderer's produce path.
-    ctx = contextvars.copy_context()
-
-    def _next() -> tuple[bool, T | None]:
-        with lock:
-            try:
-                return (True, next(iterator))
-            except StopIteration:
-                return (False, None)
-
-    def _close() -> None:
-        with lock:
-            if hasattr(iterator, "close") and callable(iterator.close):
-                iterator.close()
-
-    try:
-        while True:
-            has_value, item = await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, ctx.run, _next)  # type: ignore
-            if not has_value:
-                break
-
-            assert item is not None
-            yield item
-    finally:
-        # Use a fresh context snapshot for cleanup. Reusing `ctx` would fail
-        # with RuntimeError if the activity is cancelled mid-_next: the
-        # in-flight _next may still be inside `ctx` on an executor thread,
-        # and Context.run raises when re-entered. A failed _close would skip
-        # iterator.close() and leave DB cursors / connections / tunnels held
-        # open until garbage collection.
-        cleanup_ctx = contextvars.copy_context()
-        await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, cleanup_ctx.run, _close)
 
 
 class PipelineNonDLT(Generic[ResumableData]):
