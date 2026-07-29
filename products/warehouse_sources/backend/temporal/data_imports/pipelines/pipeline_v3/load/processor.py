@@ -1,9 +1,8 @@
+import uuid
 from collections.abc import Callable
 from typing import Any, Literal
 
 from django.db import close_old_connections, transaction
-
-import uuid
 
 import s3fs
 import pyarrow as pa
