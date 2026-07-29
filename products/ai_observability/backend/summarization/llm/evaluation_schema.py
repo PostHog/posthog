@@ -41,3 +41,21 @@ class EvaluationSummaryResponse(BaseModel):
     na_patterns: list[EvaluationPattern]
     recommendations: list[str]
     statistics: EvaluationSummaryStatistics
+
+
+class EvaluationPatternCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(description="Short title for the candidate theme (3-5 words)")
+    description: str = Field(description="Detailed description of the candidate theme")
+    occurrence_count: int = Field(ge=1, description="Exact number of matching runs in this batch")
+    example_reasoning: str = Field(description="Reasoning from one run that demonstrates this candidate theme")
+    example_generation_ids: list[str] = Field(description="List of 1-5 generation IDs that exemplify this theme")
+
+
+class EvaluationSummaryMapResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pass_patterns: list[EvaluationPatternCandidate]
+    fail_patterns: list[EvaluationPatternCandidate]
+    na_patterns: list[EvaluationPatternCandidate]

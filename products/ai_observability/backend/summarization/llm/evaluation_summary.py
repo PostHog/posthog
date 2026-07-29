@@ -1,18 +1,18 @@
 """Evaluation summary generation, routed through the internal Go ai-gateway when
 configured, else the Python LLM gateway.
 
-Large evaluations are summarized as a concurrent map-reduce: a single LLM call over all
-runs takes long enough to trip the ai-gateway's ~30s hard timeout, so runs are split into
-chunks that are summarized concurrently and then merged, keeping every individual call
-well under the cliff. See ``EVALUATION_SUMMARY_CHUNK_SIZE``.
+Large evaluations use a concurrent map-reduce: a single LLM call over all runs takes long
+enough to trip the ai-gateway's ~30s hard timeout, so each chunk extracts counted candidate
+themes and a final call merges them globally. See ``EVALUATION_SUMMARY_CHUNK_SIZE``.
 """
 
 import asyncio
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 
 import structlog
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
+from pydantic import BaseModel
 from rest_framework import exceptions
 
 from posthog.llm.gateway_client import build_async_openai_client
@@ -20,9 +20,11 @@ from posthog.llm.gateway_client import build_async_openai_client
 from ..constants import EVALUATION_SUMMARY_CHUNK_SIZE, SUMMARIZATION_TIMEOUT
 from ..models import OpenAIModel
 from ..utils import load_summarization_template
-from .evaluation_schema import EvaluationSummaryResponse, EvaluationSummaryStatistics
+from .evaluation_schema import EvaluationSummaryMapResponse, EvaluationSummaryResponse, EvaluationSummaryStatistics
 
 logger = structlog.get_logger(__name__)
+
+StructuredResponse = TypeVar("StructuredResponse", bound=BaseModel)
 
 
 def _result_label(result: bool | None) -> str:
@@ -41,7 +43,6 @@ def _compute_statistics(evaluation_runs: list[dict]) -> EvaluationSummaryStatist
 
 
 def _build_runs_prompt(evaluation_runs: list[dict]) -> str:
-    """Format a set of evaluation runs into the user prompt fed to the LLM."""
     runs_text = "\n\n".join(
         f"- Generation ID: {run['generation_id']}\n  Result: {_result_label(run['result'])}\n  Reasoning: {run['reasoning']}"
         for run in evaluation_runs
@@ -69,8 +70,9 @@ async def _run_structured_completion(
     user_prompt: str,
     team_id: int,
     user_distinct_id: str,
-) -> EvaluationSummaryResponse:
-    """Run one structured-output completion and validate it against the response schema."""
+    response_model: type[StructuredResponse],
+    schema_name: str,
+) -> StructuredResponse:
     messages: list[ChatCompletionMessageParam] = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
@@ -86,9 +88,9 @@ async def _run_structured_completion(
             {
                 "type": "json_schema",
                 "json_schema": {
-                    "name": "evaluation_summary",
+                    "name": schema_name,
                     "strict": True,
-                    "schema": EvaluationSummaryResponse.model_json_schema(),
+                    "schema": response_model.model_json_schema(),
                 },
             },
         ),
@@ -99,13 +101,15 @@ async def _run_structured_completion(
         logger.error("evaluation_summary_empty_response", team_id=team_id, model=str(model))
         raise exceptions.APIException("Failed to generate evaluation summary: empty response")
 
-    return EvaluationSummaryResponse.model_validate_json(content)
+    return response_model.model_validate_json(content)
 
 
 async def _merge_summaries(
     client: AsyncOpenAI,
     model: OpenAIModel,
-    partial_summaries: list[EvaluationSummaryResponse],
+    batch_candidates: list[EvaluationSummaryMapResponse],
+    chunk_sizes: list[int],
+    statistics: EvaluationSummaryStatistics,
     filter_type: str,
     evaluation_name: str,
     evaluation_description: str,
@@ -113,7 +117,6 @@ async def _merge_summaries(
     team_id: int,
     user_distinct_id: str,
 ) -> EvaluationSummaryResponse:
-    """Consolidate per-chunk summaries into one final summary via a small LLM call."""
     merge_system_prompt = load_summarization_template(
         "prompts/evaluation_summary_merge.djt",
         {
@@ -125,10 +128,13 @@ async def _merge_summaries(
     )
 
     partials_json = "\n\n".join(
-        f"### Batch {i + 1}\n{summary.model_dump_json(exclude={'statistics'}, indent=2)}"
-        for i, summary in enumerate(partial_summaries)
+        f"### Batch {i + 1} ({chunk_size} runs)\n{summary.model_dump_json(indent=2)}"
+        for i, (summary, chunk_size) in enumerate(zip(batch_candidates, chunk_sizes, strict=True))
     )
-    merge_user_prompt = f"""Here are the {len(partial_summaries)} partial summaries to consolidate:
+    merge_user_prompt = f"""Ground-truth statistics for the complete evaluation:
+{statistics.model_dump_json(indent=2)}
+
+Here are candidate themes from {len(batch_candidates)} batches to consolidate:
 
 {partials_json}"""
 
@@ -139,6 +145,8 @@ async def _merge_summaries(
         user_prompt=merge_user_prompt,
         team_id=team_id,
         user_distinct_id=user_distinct_id,
+        response_model=EvaluationSummaryResponse,
+        schema_name="evaluation_summary",
     )
 
 
@@ -175,20 +183,18 @@ async def summarize_evaluation_runs(
     if not evaluation_runs:
         raise exceptions.ValidationError("No evaluation runs provided")
 
-    system_prompt = load_summarization_template(
-        "prompts/evaluation_summary.djt",
-        {
-            "filter": filter_type,
-            "evaluation_name": evaluation_name,
-            "evaluation_description": evaluation_description,
-            "evaluation_prompt": evaluation_prompt,
-        },
-    )
-
+    statistics = _compute_statistics(evaluation_runs)
+    prompt_context = {
+        "filter": filter_type,
+        "evaluation_name": evaluation_name,
+        "evaluation_description": evaluation_description,
+        "evaluation_prompt": evaluation_prompt,
+    }
     client = build_async_openai_client("llma_eval_summary", ai_product="aio_eval_summary")
 
     try:
         if len(evaluation_runs) <= EVALUATION_SUMMARY_CHUNK_SIZE:
+            system_prompt = load_summarization_template("prompts/evaluation_summary.djt", prompt_context)
             summary = await _run_structured_completion(
                 client=client,
                 model=model,
@@ -196,29 +202,38 @@ async def summarize_evaluation_runs(
                 user_prompt=_build_runs_prompt(evaluation_runs),
                 team_id=team_id,
                 user_distinct_id=user_distinct_id,
+                response_model=EvaluationSummaryResponse,
+                schema_name="evaluation_summary",
             )
         else:
             chunks = [
                 evaluation_runs[i : i + EVALUATION_SUMMARY_CHUNK_SIZE]
                 for i in range(0, len(evaluation_runs), EVALUATION_SUMMARY_CHUNK_SIZE)
             ]
-            partial_summaries = await asyncio.gather(
-                *(
-                    _run_structured_completion(
-                        client=client,
-                        model=model,
-                        system_prompt=system_prompt,
-                        user_prompt=_build_runs_prompt(chunk),
-                        team_id=team_id,
-                        user_distinct_id=user_distinct_id,
+            map_system_prompt = load_summarization_template("prompts/evaluation_summary_map.djt", prompt_context)
+            batch_candidates = list(
+                await asyncio.gather(
+                    *(
+                        _run_structured_completion(
+                            client=client,
+                            model=model,
+                            system_prompt=map_system_prompt,
+                            user_prompt=_build_runs_prompt(chunk),
+                            team_id=team_id,
+                            user_distinct_id=user_distinct_id,
+                            response_model=EvaluationSummaryMapResponse,
+                            schema_name="evaluation_summary_candidates",
+                        )
+                        for chunk in chunks
                     )
-                    for chunk in chunks
                 )
             )
             summary = await _merge_summaries(
                 client=client,
                 model=model,
-                partial_summaries=partial_summaries,
+                batch_candidates=batch_candidates,
+                chunk_sizes=[len(chunk) for chunk in chunks],
+                statistics=statistics,
                 filter_type=filter_type,
                 evaluation_name=evaluation_name,
                 evaluation_description=evaluation_description,
@@ -233,5 +248,5 @@ async def summarize_evaluation_runs(
         raise exceptions.APIException("Failed to generate evaluation summary") from e
 
     # Statistics are ground-truth counts over the full input, not LLM-generated.
-    summary.statistics = _compute_statistics(evaluation_runs)
+    summary.statistics = statistics
     return summary

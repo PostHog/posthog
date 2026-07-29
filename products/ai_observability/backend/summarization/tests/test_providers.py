@@ -201,26 +201,90 @@ class TestSummarizeEvaluationRuns:
             )
 
         mock_builder.assert_called_once_with("llma_eval_summary", ai_product="aio_eval_summary")
-        # timeout moved off the client constructor onto the per-call create()
         assert mock_client.chat.completions.create.call_args.kwargs["timeout"] == SUMMARIZATION_TIMEOUT
         assert result.overall_assessment == "Mostly passing."
 
-    def test_large_run_set_is_chunked_and_merged(self, valid_evaluation_summary_json):
-        # A single call over hundreds of runs trips the ai-gateway's ~30s timeout, so runs
-        # above the chunk size are summarized concurrently and merged. Guards against
-        # regressing to one big call (all runs in a single prompt).
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = valid_evaluation_summary_json
+    def test_large_run_set_preserves_singleton_candidates_for_global_merge(self):
+        def response_with_content(content: str) -> MagicMock:
+            response = MagicMock()
+            response.choices = [MagicMock()]
+            response.choices[0].message.content = content
+            return response
 
-        run_count = EVALUATION_SUMMARY_CHUNK_SIZE * 2 + 1
-        runs = [{"generation_id": f"g{i}", "result": i % 2 == 0, "reasoning": "r"} for i in range(run_count)]
+        candidate_responses = [
+            response_with_content(
+                json.dumps(
+                    {
+                        "pass_patterns": [],
+                        "fail_patterns": [
+                            {
+                                "title": "Missing citations",
+                                "description": "The response makes an unsupported factual claim.",
+                                "occurrence_count": 1,
+                                "example_reasoning": "The factual claim has no citation.",
+                                "example_generation_ids": ["g0"],
+                            }
+                        ],
+                        "na_patterns": [],
+                    }
+                )
+            ),
+            response_with_content(
+                json.dumps(
+                    {
+                        "pass_patterns": [],
+                        "fail_patterns": [
+                            {
+                                "title": "Unsupported claims",
+                                "description": "The response states a fact without evidence.",
+                                "occurrence_count": 1,
+                                "example_reasoning": "No source supports the factual claim.",
+                                "example_generation_ids": ["g50"],
+                            }
+                        ],
+                        "na_patterns": [],
+                    }
+                )
+            ),
+        ]
+        merged_response = response_with_content(
+            json.dumps(
+                {
+                    "overall_assessment": "The only failures were unsupported factual claims.",
+                    "pass_patterns": [],
+                    "fail_patterns": [
+                        {
+                            "title": "Unsupported claims",
+                            "description": "Failing responses made factual claims without supporting evidence.",
+                            "frequency": "common",
+                            "example_reasoning": "The factual claim has no citation.",
+                            "example_generation_ids": ["g0", "g50"],
+                        }
+                    ],
+                    "na_patterns": [],
+                    "recommendations": ["Require citations for factual claims."],
+                    "statistics": {"total_analyzed": 0, "pass_count": 0, "fail_count": 0, "na_count": 0},
+                }
+            )
+        )
+
+        run_count = EVALUATION_SUMMARY_CHUNK_SIZE + 1
+        runs = [
+            {
+                "generation_id": f"g{i}",
+                "result": False if i in {0, EVALUATION_SUMMARY_CHUNK_SIZE} else True,
+                "reasoning": "The factual claim has no citation."
+                if i in {0, EVALUATION_SUMMARY_CHUNK_SIZE}
+                else "Good.",
+            }
+            for i in range(run_count)
+        ]
 
         with patch(
             "products.ai_observability.backend.summarization.llm.evaluation_summary.build_async_openai_client"
         ) as mock_builder:
             mock_client = MagicMock()
-            mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+            mock_client.chat.completions.create = AsyncMock(side_effect=[*candidate_responses, merged_response])
             mock_builder.return_value = mock_client
 
             result = asyncio.run(
@@ -231,8 +295,12 @@ class TestSummarizeEvaluationRuns:
                 )
             )
 
-        # 3 chunk summaries (ceil(101 / 50)) + 1 merge call, none carrying every run.
-        assert mock_client.chat.completions.create.call_count == 4
-        # Statistics are ground truth over the full input, not the merge call's LLM output.
+        assert mock_client.chat.completions.create.call_count == 3
+        merge_user_prompt = mock_client.chat.completions.create.await_args_list[-1].kwargs["messages"][1]["content"]
+        assert merge_user_prompt.count('"occurrence_count": 1') == 2
+        assert '"g0"' in merge_user_prompt
+        assert '"g50"' in merge_user_prompt
+        assert f'"total_analyzed": {run_count}' in merge_user_prompt
         assert result.statistics.total_analyzed == run_count
-        assert result.statistics.pass_count == sum(1 for r in runs if r["result"] is True)
+        assert result.statistics.pass_count == run_count - 2
+        assert result.statistics.fail_count == 2

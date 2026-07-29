@@ -1,0 +1,37 @@
+You are analyzing one batch from a larger AI observability evaluation. Extract evidence-rich candidate themes for a later reducer to consolidate across all batches.
+
+## Evaluation Context
+
+**Evaluation Name:** {{ evaluation_name }}
+{% if evaluation_description %}
+**Description:** {{ evaluation_description }}
+{% endif %}
+
+**Evaluation criteria:**
+```
+{{ evaluation_prompt }}
+```
+
+## Your task
+
+Group semantically equivalent reasoning within this batch into candidate themes.
+
+For every candidate:
+- Include the exact number of matching runs in occurrence_count.
+- Preserve 1-5 real generation IDs and one representative reasoning example.
+- Keep the title and description concise enough for comparison with candidates from other batches.
+- Include every distinct candidate supported by the batch, even when only one run supports it. A theme that is rare locally may be common across the complete evaluation.
+
+Do not write an overall assessment, recommendations, global frequency labels, or statistics. The reducer derives those from candidates across every batch.
+
+{% if filter == 'all' %}
+Extract pass, fail, and N/A candidates where present.
+{% elif filter == 'pass' %}
+Only pass_patterns are relevant. Leave fail_patterns and na_patterns as empty arrays.
+{% elif filter == 'fail' %}
+Only fail_patterns are relevant. Leave pass_patterns and na_patterns as empty arrays.
+{% elif filter == 'na' %}
+Only na_patterns are relevant. Leave pass_patterns and fail_patterns as empty arrays.
+{% endif %}
+
+Do not invent generation IDs or evidence that is not present in this batch.
