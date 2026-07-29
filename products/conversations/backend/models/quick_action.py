@@ -41,10 +41,8 @@ class QuickAction(TeamScopedRootMixin, UUIDModel):
     # {"status": "closed", "priority": "high", "tags": [...], "assignee": {...}}.
     actions = models.JSONField(default=dict, blank=True)
 
-    # --- Workflow (optional) ---
-    # Soft reference to a HogFlow (products/workflows) id (no cross-product FK). The API layer
-    # validates that it resolves to an active workflow for the team. When set, using the quick
-    # action runs the workflow against the ticket in addition to inserting the reply above.
+    # Soft reference to a HogFlow (products/workflows) id, deliberately not a cross-product FK.
+    # The API layer validates that it resolves to an active workflow for the team.
     workflow_id = models.UUIDField(null=True, blank=True)
 
     # "team" quick actions are shared with everyone on the team and "personal" ones are only

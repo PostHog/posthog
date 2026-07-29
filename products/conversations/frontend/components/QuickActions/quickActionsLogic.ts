@@ -307,8 +307,7 @@ export const quickActionsLogic = kea<quickActionsLogicType>([
     }),
 
     listeners(({ actions, values, cache }) => ({
-        // Fetch the workflow list lazily, only once an editor modal opens (the sole place the
-        // workflow picker renders), rather than on every settings-page render.
+        // Load workflows only when an editor modal opens, the sole place the picker renders
         openCreateModal: () => {
             actions.loadWorkflows()
         },
