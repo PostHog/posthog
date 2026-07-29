@@ -587,7 +587,12 @@ jobs:
         # and declaration:false change nothing, and dropping all of products/ from include
         # removes only 891 of 13703 files because imports pull them back in. 32 GB is the next
         # rung on Depot's ladder. Talk to #team-devex before changing.
-        runs-on: depot-ubuntu-24.04-8
+        #
+        # Forks stay on GitHub-hosted: this job runs `pnpm install`, so a fork PR controls
+        # lifecycle scripts, and Depot runners inject shared cache credentials ambiently
+        # (see _rust-build-images.yml, which skips sccache creds for the same reason).
+        # Fork PRs keep the pre-existing OOM flake; internal PRs and master get the fix.
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-8' || 'ubuntu-latest' }}
         # Kea typegen invalidates on changes to any logic plus everything that depends on it.
         # For changes to shared core (TaxonomicFilter, Insight, etc.) the dependent set is large
         # and the cache miss costs ~5min on top of the master baseline (~10min). 15 is too tight.
