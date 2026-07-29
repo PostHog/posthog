@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, events_cache_tests
@@ -29,6 +31,7 @@ from products.marketing_analytics.backend.hogql_queries.conversion_goal_processo
     add_conversion_goal_property_filters,
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 
 def _create_action(**kwargs):
@@ -252,6 +255,59 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
 
         assert processor.get_table_name() == "warehouse_table"
         assert processor.get_date_field() == "event_timestamp"
+
+    def test_data_warehouse_node_empty_utm_falls_back_to_organic(self):
+        csv_path = Path(__file__).parent / "test/external/warehouse_conversions_empty_utm.csv"
+        table, _source, _credential, _df, cleanup_fn = create_data_warehouse_table_from_csv(
+            csv_path,
+            "conversions_empty_utm",
+            {
+                "user_id": "String",
+                "event_timestamp": "DateTime",
+                "campaign_name": "String",
+                "source_name": "String",
+                "revenue": "Int64",
+            },
+            "test_storage_bucket-posthog.marketing_analytics.empty_utm",
+            self.team,
+        )
+        self.addCleanup(cleanup_fn)
+
+        goal = ConversionGoalFilter3(
+            kind="DataWarehouseNode",
+            id=table.name,
+            table_name=table.name,
+            conversion_goal_id="warehouse_empty_utm",
+            conversion_goal_name="Warehouse Empty UTM",
+            math=BaseMathType.TOTAL,
+            distinct_id_field="user_id",
+            id_field="user_id",
+            timestamp_field="event_timestamp",
+            schema_map={
+                "utm_campaign_name": "campaign_name",
+                "utm_source_name": "source_name",
+                "distinct_id_field": "user_id",
+                "timestamp_field": "event_timestamp",
+            },
+        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+
+        additional_conditions: list[ast.Expr] = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["event_timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-01-01")]),
+            ),
+        ]
+        cte_query = processor.generate_cte_query(additional_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        # Schema: [0]=match_key, [1]=campaign, [2]=id, [3]=source, [4]=conversion
+        results = {row[1]: (row[3], row[4]) for row in response.results}
+        assert results == {
+            "organic": ("organic", 1),
+            "summer_sale": ("google", 1),
+        }, f"Empty utm columns must fall back to organic like event goals do, got {response.results}"
 
     # ================================================================
     # 3. MATH TYPE TESTS - TOTAL, DAU, SUM, etc.
@@ -594,6 +650,73 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert total_revenue == 100, (
             f"Expected total revenue of 100 (100+0+missing=0+missing=0), got {total_revenue}. Missing revenue properties should be treated as 0."
         )
+
+    @parameterized.expand(
+        [
+            ("no_currency", None),
+            ("static_currency", {"static": "EUR"}),
+            ("property_currency", {"property": "currency_code"}),
+        ]
+    )
+    def test_sum_math_currency_conversion_matches_across_live_and_precompute_paths(self, _name, currency_config):
+        goal = ConversionGoalFilter1(
+            kind="EventsNode",
+            event="purchase",
+            conversion_goal_id="currency_goal",
+            conversion_goal_name="Currency Goal",
+            math=PropertyMathType.SUM,
+            math_property="revenue",
+            math_property_revenue_currency=currency_config,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+
+        live = processor.get_select_field().to_hogql()
+        precompute = processor._get_conversion_value_expr().to_hogql()
+
+        should_convert = currency_config is not None
+        assert ("convertCurrency" in live) is should_convert
+        assert ("convertCurrency" in precompute) is should_convert
+
+    def test_sum_math_static_currency_uses_the_configured_code_without_a_property_lookup(self):
+        goal = ConversionGoalFilter1(
+            kind="EventsNode",
+            event="purchase",
+            conversion_goal_id="static_goal",
+            conversion_goal_name="Static Goal",
+            math=PropertyMathType.SUM,
+            math_property="revenue",
+            math_property_revenue_currency={"static": "GBP"},
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+
+        live = processor.get_select_field().to_hogql()
+
+        assert "'GBP'" in live
+        assert "upper(" not in live
+
+    def test_sum_math_property_currency_reads_the_property_and_falls_back_to_base_when_missing(self):
+        goal = ConversionGoalFilter1(
+            kind="EventsNode",
+            event="purchase",
+            conversion_goal_id="property_goal",
+            conversion_goal_name="Property Goal",
+            math=PropertyMathType.SUM,
+            math_property="revenue",
+            math_property_revenue_currency={"property": "currency_code"},
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+
+        live = processor.get_select_field().to_hogql()
+
+        assert "upper(" in live
+        assert "currency_code" in live
+        # The guard keeps rows with no currency property (or an empty-string value, which convertCurrency
+        # would null out) in the base currency instead of dropping their revenue
+        assert "isNull(" in live
+        assert "nullIf(" in live
 
     def test_math_type_average_fallback_behavior(self):
         """Test AVERAGE math type fallback behavior - counts events since AVG not implemented - business logic validation"""

@@ -11,6 +11,7 @@ from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.activity_context import current_activity_attempt
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
@@ -31,18 +32,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     report_heartbeat_timeout,
     trim_source_job_inputs,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline import (
-    PipelineNonDLT,
-    PipelineResult,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline import PipelineNonDLT
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource, SimpleSource
@@ -56,6 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     RowFilterValidationError,
     validate_and_coerce_row_filters,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -353,6 +349,16 @@ async def _handle_import_error(
     # on every retry regardless of source — classify it non-retryable by type here rather than
     # relying on each source listing the message in get_non_retryable_errors.
     if isinstance(error, SchemaColumnTypeChangedException):
+        await handle_non_retryable_error(
+            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+        )
+
+    # An OAuth `Integration.access_token`/`refresh_token` that still looks like Fernet ciphertext
+    # (a lost/rotated encryption key, a corrupted row) fails identically on every retry — the
+    # third-party API sees the same garbage credential every time. Classify by type here, shared
+    # across every OAuth-based source, rather than depending on each source's
+    # get_non_retryable_errors to recognise this message.
+    if isinstance(error, UndecryptedIntegrationSecretError):
         await handle_non_retryable_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
