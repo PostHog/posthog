@@ -613,6 +613,19 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             raise
         return s3_table_func, placeholder_context
 
+    def _direct_columns_are_complete(self) -> bool:
+        """Whether this direct table's stored columns are the complete physical schema — i.e. no
+        column-picker restriction (`ExternalDataSchema.enabled_columns`) is in effect. Only then may
+        a direct `SELECT *` pass through literally; otherwise the fields are a subset and the star
+        must expand from them. Reads the schema rows preloaded onto this instance by
+        `_preload_active_external_data_schemas` (every direct-query DB build path calls it before
+        `hogql_definition`); if they aren't preloaded, returns False (safe: expand) rather than issue
+        a query on this hot table-build path."""
+        schema_rows = self.__dict__.get("_active_external_data_schemas")
+        if schema_rows is None:
+            return False
+        return len(schema_rows) > 0 and all(row.enabled_columns is None for row in schema_rows)
+
     def hogql_definition(
         self, modifiers: Optional["HogQLQueryModifiers"] = None
     ) -> (
@@ -783,6 +796,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 clickhouse_table_name=clickhouse_table_name,
                 external_data_source_id=str(self.external_data_source_id),
                 connection_metadata=self.external_data_source.connection_metadata,
+                has_complete_columns=self._direct_columns_are_complete(),
             )
 
         # Replace fields with any redefined fields if they exist
