@@ -3,7 +3,9 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { useMocks } from '~/mocks/jest'
@@ -27,11 +29,18 @@ jest.mock('~/layout/panel-layout/ProjectTree/projectTreeLogic', () => ({
 describe('createExperimentLogic', () => {
     let logic: ReturnType<typeof createExperimentLogic.build>
     let routerPushSpy: jest.SpyInstance
+    let scannerCreateSpy: jest.Mock
+    let scannerRequestBody: Record<string, unknown> | null
 
     beforeEach(() => {
         // Clear persisted state to prevent it from affecting tests
         localStorage.clear()
         sessionStorage.clear()
+        scannerRequestBody = null
+        scannerCreateSpy = jest.fn(async ({ request }: { request: Request }) => {
+            scannerRequestBody = (await request.json()) as Record<string, unknown>
+            return [200, { id: 'scanner-123' }]
+        })
 
         useMocks({
             get: {
@@ -48,16 +57,20 @@ describe('createExperimentLogic', () => {
                     return [
                         200,
                         {
+                            ...body,
                             id: 123,
                             name: body.name,
                             description: body.description,
                             type: body.type || 'product',
                             feature_flag: {
+                                ...body.feature_flag,
                                 id: 456,
+                                key: body.feature_flag_key,
                             },
                         },
                     ]
                 },
+                '/api/projects/:team_id/vision/scanners/': scannerCreateSpy,
             },
             patch: {
                 '/api/environments/:team_id/add_product_intent/': () => [200, {}],
@@ -124,6 +137,99 @@ describe('createExperimentLogic', () => {
                 .toMatchValues({
                     experimentErrors: {},
                 })
+
+            expect(scannerCreateSpy).not.toHaveBeenCalled()
+        })
+
+        it('creates a scanner scoped to enrolled experiment sessions when selected', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REPLAY_VISION], {
+                [FEATURE_FLAGS.REPLAY_VISION]: true,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setCreateReplayVisionScanner(true)
+                logic.actions.setExperiment({
+                    ...NEW_EXPERIMENT,
+                    name: 'Checkout flow',
+                    description: 'Test hypothesis',
+                    feature_flag_key: 'checkout-flow',
+                    feature_flag_config: {
+                        filters: {
+                            multivariate: {
+                                variants: [
+                                    { key: 'control', rollout_percentage: 50 },
+                                    { key: 'new-checkout', rollout_percentage: 50 },
+                                ],
+                            },
+                        },
+                    },
+                    exposure_criteria: {
+                        filterTestAccounts: true,
+                    },
+                })
+                logic.actions.saveExperiment()
+            })
+                .toDispatchActions(['saveExperiment', 'createExperimentSuccess'])
+                .toFinishAllListeners()
+
+            expect(scannerCreateSpy).toHaveBeenCalledTimes(1)
+            expect(scannerRequestBody).toMatchObject({
+                name: 'Checkout flow (#123)',
+                scanner_type: 'summarizer',
+                enabled: true,
+                query: {
+                    filter_test_accounts: true,
+                    events: [
+                        {
+                            id: '$feature_flag_called',
+                            properties: expect.arrayContaining([
+                                expect.objectContaining({
+                                    key: '$feature_flag_response',
+                                    value: ['control', 'new-checkout'],
+                                }),
+                                expect.objectContaining({
+                                    key: '$feature_flag',
+                                    value: ['checkout-flow'],
+                                }),
+                            ]),
+                        },
+                    ],
+                },
+            })
+            expect(lemonToast.success).toHaveBeenCalledWith(
+                'Experiment and Replay Vision scanner created',
+                expect.objectContaining({
+                    button: expect.objectContaining({ label: 'View scanner' }),
+                })
+            )
+        })
+
+        it('keeps the created experiment when scanner creation fails', async () => {
+            scannerCreateSpy.mockResolvedValueOnce([500, { detail: 'Scanner unavailable' }])
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REPLAY_VISION], {
+                [FEATURE_FLAGS.REPLAY_VISION]: true,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setCreateReplayVisionScanner(true)
+                logic.actions.setExperiment({
+                    ...NEW_EXPERIMENT,
+                    name: 'Test Experiment',
+                    description: 'Test hypothesis',
+                    feature_flag_key: 'test-experiment',
+                })
+                logic.actions.saveExperiment()
+            })
+                .toDispatchActions(['saveExperiment', 'createExperimentSuccess', 'saveExperimentSuccess'])
+                .toFinishAllListeners()
+
+            expect(routerPushSpy).toHaveBeenCalledWith('/experiments/123')
+            expect(lemonToast.error).toHaveBeenCalledWith(
+                'Experiment created, but the Replay Vision scanner could not be created.',
+                expect.objectContaining({
+                    button: expect.objectContaining({ label: 'Set up scanner' }),
+                })
+            )
         })
 
         it('refreshes tree items for experiment and feature flag after creation', async () => {

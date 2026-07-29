@@ -1,14 +1,18 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonBanner, LemonCheckbox } from '@posthog/lemon-ui'
+
+import { getReplayVisionEditDisabledReason } from 'products/replay_vision/frontend/utils/accessControl'
 
 import { ExposureCriteriaPanel } from '../../ExperimentForm/ExposureCriteriaPanel'
 import { MetricsPanel } from '../../ExperimentForm/MetricsPanel'
 import { experimentWizardLogic } from '../experimentWizardLogic'
 
 export function AnalyticsStep(): JSX.Element {
-    const { experiment, sharedMetrics } = useValues(experimentWizardLogic)
-    const { setExperiment, setExposureCriteria, setSharedMetrics } = useActions(experimentWizardLogic)
+    const { createReplayVisionScanner, experiment, replayVisionEnabled, sharedMetrics } =
+        useValues(experimentWizardLogic)
+    const { setCreateReplayVisionScanner, setExperiment, setExposureCriteria, setSharedMetrics } =
+        useActions(experimentWizardLogic)
 
     return (
         <div className="space-y-6">
@@ -71,6 +75,26 @@ export function AnalyticsStep(): JSX.Element {
                     />
                 </div>
             </div>
+
+            {replayVisionEnabled && (
+                <LemonCheckbox
+                    bordered
+                    fullWidth
+                    checked={createReplayVisionScanner}
+                    onChange={setCreateReplayVisionScanner}
+                    disabledReason={getReplayVisionEditDisabledReason() ?? undefined}
+                    data-attr="experiment-create-replay-vision-scanner"
+                    label={
+                        <div className="py-1">
+                            <div className="font-semibold">Watch participant behavior with Replay Vision</div>
+                            <div className="font-normal text-sm text-muted">
+                                Create an active scanner that summarizes what participants do after experiment exposure.
+                                You can adjust its prompt, filters, and sampling later.
+                            </div>
+                        </div>
+                    }
+                />
+            )}
 
             <LemonBanner type="info">
                 You can always refine your analytics configuration and metrics after saving.

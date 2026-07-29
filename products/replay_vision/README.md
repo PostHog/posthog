@@ -10,6 +10,10 @@ A sub-product of Session Replay. Users configure named **scanners** that PostHog
 
 **Quota** — succeeded observations write an immutable usage receipt; usage (receipts + in-flight rows) is counted against a monthly per-organization quota, with per-scanner volume estimates summed into a projected-usage prognosis shown at configuration time.
 
+## Experiment-created scanners
+
+The experiment creation wizard offers an opt-in Replay Vision scanner when the `replay-vision` feature flag is enabled. The scanner is an active summarizer whose `RecordingsQuery` uses the experiment's exposure event, enrolled variant filters, custom exposure properties, and test-account setting. Scanner creation runs after the experiment has been persisted and cannot roll back a successfully created experiment.
+
 ## Layout
 
 - `backend/models/` — `ReplayScanner`, `ReplayObservation`, usage receipts, quota grants.
