@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1264_delete_revenue_analytics_user_product_list"),
+        ("posthog", "1271_add_pardot_integration_kind"),
     ]
 
     operations = [
