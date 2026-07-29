@@ -1071,7 +1071,28 @@ class SharePasswordThrottle(SimpleRateThrottle):
         if request.method != "POST":
             return True
 
-        return super().allow_request(request, view)
+        self.key = self.get_cache_key(request, view)
+        if self.key is None:
+            return True
+
+        # A counter incremented in place, rather than SimpleRateThrottle's read-modify-write of a
+        # timestamp list: that reads the history, appends, and writes it back, so submissions
+        # arriving together each observe a below-limit history and overwrite one another. Guessing
+        # in parallel would then slip past the cap this throttle exists to enforce.
+        self.cache.add(self.key, 0, self.duration)
+        try:
+            count = self.cache.incr(self.key)
+        except ValueError:
+            # The window expired between the add and the incr, so this request starts the next one.
+            self.cache.set(self.key, 1, self.duration)
+            count = 1
+
+        return count <= self.num_requests
+
+    def wait(self) -> float:
+        # allow_request keeps a counter rather than the timestamp history SimpleRateThrottle.wait
+        # reads, so retry after the whole window instead.
+        return float(self.duration)
 
     def get_cache_key(self, request: "Request", view: "APIView") -> str:
         # File extensions ("<token>.json") address the same share, so they share a bucket

@@ -1,13 +1,18 @@
 import json
+from types import SimpleNamespace
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
+
 from rest_framework import status
+from rest_framework.test import APIRequestFactory
 
 from posthog.api.test.test_sharing import mock_exporter_template
 from posthog.constants import AvailableFeature
 from posthog.models import SharePassword, SharingConfiguration
+from posthog.rate_limit import SharePasswordThrottle
 
 from products.dashboards.backend.models.dashboard import Dashboard
 
@@ -199,6 +204,24 @@ class TestSharePasswordAPI(APIBaseTest):
 
         self.assertEqual(statuses[0], status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(statuses[-1], status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_attempts_are_counted_atomically(self):
+        # Submissions that arrive together must each consume budget. A read-modify-write throttle
+        # lets them all read the same below-limit state and overwrite each other, so the cap only
+        # holds for strictly serial guessing - which an attacker has no reason to do.
+        SharePassword.create_password(
+            sharing_configuration=self.sharing_config, created_by=self.user, raw_password="secure-test-password"
+        )
+        throttle = SharePasswordThrottle()
+        request = APIRequestFactory().post(f"/shared/{self.sharing_config.access_token}")
+        view = SimpleNamespace(kwargs={"access_token": self.sharing_config.access_token})
+
+        key = throttle.get_cache_key(request, view)  # type: ignore[arg-type]
+        cache.delete(key)
+        for _ in range(3):
+            throttle.allow_request(request, view)  # type: ignore[arg-type]
+
+        self.assertEqual(cache.get(key), 3)
 
     @mock_exporter_template
     def test_head_request_does_not_bypass_password_gate(self):
