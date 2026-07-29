@@ -108,6 +108,7 @@ export interface heatmapsBrowserLogicValues {
     iframeBanner: IFrameBanner | null
     isBrowserUrlAuthorized: boolean
     isBrowserUrlValid: boolean
+    isDisplayUrlAuthorized: boolean
     loading: boolean
     noPageviews: boolean
     replayIframeData: ReplayIframeData | null
@@ -262,6 +263,10 @@ export interface heatmapsBrowserLogicMeta {
             checkUrlIsAuthorized: (url: string) => boolean // authorizedUrlListLogic
         ) => boolean
         isBrowserUrlValid: (dataUrl: string | null) => boolean
+        isDisplayUrlAuthorized: (
+            displayUrl: string | null,
+            checkUrlIsAuthorized: (url: string) => boolean // authorizedUrlListLogic
+        ) => boolean
         viewportRange: (
             heatmapFilters: HeatmapFilters,
             widthOverride: number
@@ -490,6 +495,17 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
                     return false
                 }
                 return checkUrlIsAuthorized(dataUrl)
+            },
+        ],
+        // The display URL is what we embed and what the toolbar is launched against, so it needs
+        // authorizing independently of the data URL (which can be a wildcard, or left unset).
+        isDisplayUrlAuthorized: [
+            (s) => [s.displayUrl, s.checkUrlIsAuthorized],
+            (displayUrl: string | null, checkUrlIsAuthorized: (url: string) => boolean) => {
+                if (!displayUrl) {
+                    return false
+                }
+                return checkUrlIsAuthorized(displayUrl)
             },
         ],
         isBrowserUrlValid: [

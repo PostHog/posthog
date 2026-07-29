@@ -111,6 +111,7 @@ export interface heatmapLogicValues {
     displayUrl: string | null // heatmapsBrowserLogic
     isBrowserUrlAuthorized: boolean // heatmapsBrowserLogic
     isBrowserUrlValid: boolean // heatmapsBrowserLogic
+    isDisplayUrlAuthorized: boolean // heatmapsBrowserLogic
     currentTeamIdStrict: number | string // teamLogic
     blockConsentModals: boolean
     containerWidth: number | null
@@ -272,7 +273,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
     connect(() => ({
         values: [
             heatmapsBrowserLogic,
-            ['dataUrl', 'displayUrl', 'isBrowserUrlAuthorized', 'isBrowserUrlValid'],
+            ['dataUrl', 'displayUrl', 'isBrowserUrlAuthorized', 'isBrowserUrlValid', 'isDisplayUrlAuthorized'],
             teamLogic,
             ['currentTeamIdStrict'],
             featureFlagLogic,

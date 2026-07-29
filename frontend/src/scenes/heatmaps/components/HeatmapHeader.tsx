@@ -24,11 +24,15 @@ export function HeatmapHeader(): JSX.Element {
         type,
         userAccessLevel,
     } = useValues(heatmapLogic)
-    const { iframeBanner, dataUrl, isBrowserUrlAuthorized } = useValues(heatmapsBrowserLogic)
+    const { iframeBanner, dataUrl, isBrowserUrlAuthorized, isDisplayUrlAuthorized } = useValues(heatmapsBrowserLogic)
     const { setPageUrlDraft, applyPageUrlDraft, regenerateScreenshot, changeCaptureMethod } = useActions(heatmapLogic)
 
     const draftIsEmpty = pageUrlDraft.trim() === ''
     const disabledReason = !isPageUrlDraftValid ? 'Enter a valid URL' : draftIsEmpty ? 'Enter a URL' : null
+    // Both URLs need authorizing: the data URL to read heatmap data, the page URL to embed the
+    // page and to launch the toolbar against it.
+    const forbiddenUrl =
+        dataUrl && !isBrowserUrlAuthorized ? dataUrl : displayUrl && !isDisplayUrlAuthorized ? displayUrl : null
 
     return (
         <>
@@ -76,7 +80,7 @@ export function HeatmapHeader(): JSX.Element {
                                 <HeatmapsInvalidURL />
                             )
                         ) : null}
-                        {dataUrl && !isBrowserUrlAuthorized ? <HeatmapsForbiddenURL /> : null}
+                        {forbiddenUrl ? <HeatmapsForbiddenURL url={forbiddenUrl} /> : null}
                     </div>
                     {type === 'screenshot' && screenshotError && (
                         <div className="flex flex-col gap-2">

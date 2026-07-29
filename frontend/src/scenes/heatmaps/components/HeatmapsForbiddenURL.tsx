@@ -28,8 +28,10 @@ function deriveAuthorizationCandidate(dataUrl: string): string | null {
     }
 }
 
-export function HeatmapsForbiddenURL(): JSX.Element {
+/** `url` defaults to the heatmap data URL; pass it when another URL is the unauthorized one. */
+export function HeatmapsForbiddenURL({ url }: { url?: string | null }): JSX.Element {
     const { dataUrl } = useValues(heatmapsBrowserLogic)
+    const forbiddenUrl = url ?? dataUrl
     const logic = authorizedUrlListLogic({
         ...defaultAuthorizedUrlProperties,
         type: AuthorizedUrlListType.TOOLBAR_URLS,
@@ -38,16 +40,16 @@ export function HeatmapsForbiddenURL(): JSX.Element {
     const { addUrl } = useActions(logic)
 
     const { urlToAuthorize, validationError } = useMemo(() => {
-        if (!dataUrl) {
+        if (!forbiddenUrl) {
             return { urlToAuthorize: null, validationError: null }
         }
-        const candidate = deriveAuthorizationCandidate(dataUrl)
+        const candidate = deriveAuthorizationCandidate(forbiddenUrl)
         if (!candidate) {
             return { urlToAuthorize: null, validationError: 'Enter a valid URL to authorize' }
         }
         const error = validateProposedUrl(candidate, authorizedUrls, false, true)
         return { urlToAuthorize: candidate, validationError: error ?? null }
-    }, [dataUrl, authorizedUrls])
+    }, [forbiddenUrl, authorizedUrls])
 
     return (
         <div className="my-2">
@@ -67,7 +69,7 @@ export function HeatmapsForbiddenURL(): JSX.Element {
                         : undefined
                 }
             >
-                {dataUrl} is not an authorized URL.
+                {forbiddenUrl} is not an authorized URL.
                 {validationError ? <> {validationError}.</> : null}
             </LemonBanner>
         </div>

@@ -53,6 +53,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         effectiveWidth,
         scalePercent,
         isHeightCapped,
+        isDisplayUrlAuthorized,
         userAccessLevel,
     } = useValues(logic)
     const {
@@ -156,7 +157,13 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                             : undefined,
                         targetBlank: true,
                         'data-attr': 'heatmaps-open-in-toolbar',
-                        disabledReason: !displayUrl ? 'Select a URL first' : toolbarAccessDisabledReason,
+                        // The toolbar launch is rejected server-side for unauthorized domains, so
+                        // catch it here instead of sending the user to a "Domain not authorized" page.
+                        disabledReason: !displayUrl
+                            ? 'Select a URL first'
+                            : !isDisplayUrlAuthorized
+                              ? 'Add this URL to your authorized URLs first'
+                              : toolbarAccessDisabledReason,
                     }}
                 >
                     You can also open your website using the toolbar and verify results there (useful for auth-protected
