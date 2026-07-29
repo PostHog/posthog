@@ -16,6 +16,7 @@ from posthog.api.organization import OrganizationSerializer, _fetch_member_count
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -290,6 +291,33 @@ class TestOrganizationAPI(APIBaseTest):
         # Verify the value didn't change
         self.organization.refresh_from_db()
         self.assertNotEqual(self.organization.enforce_2fa, True)
+
+    def test_cannot_enable_enforce_verified_domains_when_it_would_block_the_admin(self):
+        # The setting denies access rather than prompting for setup, so an admin outside the verified
+        # domains enabling it would be locked out with no self-service recovery.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [{"key": AvailableFeature.AUTOMATIC_PROVISIONING}]
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_verified_domains": True})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "would_block_self")
+        self.organization.refresh_from_db()
+        self.assertNotEqual(self.organization.enforce_verified_domains, True)
+
+        # Verifying the admin's own domain unblocks it, which also covers the empty allow-list case.
+        OrganizationDomain.objects.create(
+            domain=self.user.email.split("@")[1], organization=self.organization, verified_at=timezone.now()
+        )
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_verified_domains": True})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.enforce_verified_domains)
 
     def test_cannot_update_allow_publicly_shared_resources_without_feature(self):
         """Test that allow_publicly_shared_resources cannot be updated without ORGANIZATION_SECURITY_SETTINGS feature."""

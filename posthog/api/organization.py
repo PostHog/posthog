@@ -35,6 +35,7 @@ from posthog.helpers.email_utils import validate_display_name
 from posthog.models import Organization, User
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.permissions import (
     CREATE_ACTIONS,
@@ -319,6 +320,15 @@ class OrganizationSerializer(
                 raise serializers.ValidationError(
                     "You must upgrade your plan to restrict members to verified domains.",
                     code="payment_required",
+                )
+            # Turning this on denies access rather than prompting for setup, so an admin whose own
+            # email is outside the verified domains would lock themselves out with no way back.
+            if value and not OrganizationDomain.objects.is_domain_verified_for_organization(
+                self.context["request"].user.email, self.instance
+            ):
+                raise serializers.ValidationError(
+                    "Your own email address isn't on a verified domain for this organization, so turning this on would lock you out. Verify the domain of your email address first.",
+                    code="would_block_self",
                 )
         return value
 
