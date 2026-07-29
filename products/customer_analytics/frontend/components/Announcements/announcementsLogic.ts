@@ -17,6 +17,11 @@ import type { AnnouncementApi, AnnouncementChannelApi } from '../../generated/ap
 // system.accounts column, so we extract it and alias it to read the result by name.
 const SLACK_CHANNEL_COLUMN = 'slack_channel_id'
 const ACCOUNT_SEARCH_DEBOUNCE_MS = 300
+// The accounts query defaults to 100 rows; request the runner's max so a filter
+// matching many accounts doesn't silently drop their channels from the preview.
+// ponytail: matches the runner's MAX_SELECT_RETURNED_ROWS ceiling; if a team ever
+// has >50k accounts mapped to bot channels, page instead.
+const ACCOUNT_MATCH_LIMIT = 50000
 
 const channelLabel = (channel: AnnouncementChannelApi): string =>
     channel.customer_name ? `${channel.customer_name} (#${channel.name})` : `#${channel.name}`
@@ -251,6 +256,7 @@ export const announcementsLogic = kea<announcementsLogicType>([
                     const source: AccountsQuery = {
                         kind: NodeKind.AccountsQuery,
                         select: [`JSONExtractString(properties, 'slack_channel_id') AS ${SLACK_CHANNEL_COLUMN}`],
+                        limit: ACCOUNT_MATCH_LIMIT,
                         tags: {
                             ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             name: 'customer_analytics_announcement_channels',

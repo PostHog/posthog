@@ -136,6 +136,8 @@ describe('announcementsLogic', () => {
         const source = mockPerformQuery.mock.calls[0][0]
         expect(source.tagNames).toEqual(['Enterprise'])
         expect(source.select[0]).toContain("JSONExtractString(properties, 'slack_channel_id')")
+        // Request beyond the default 100-row page so a large match set isn't truncated.
+        expect(source.limit).toBe(50000)
 
         // Only member channels whose account matched survive: C3 (member, unmatched)
         // and C2 (matched, non-member) both drop.
