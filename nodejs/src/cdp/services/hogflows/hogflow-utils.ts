@@ -8,10 +8,15 @@ import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
+// The run's position (or the edge it needs next) no longer exists in the flow's graph - the
+// workflow was edited underneath an in-flight run. This is a user action, not a defect: the
+// executor catches it and finishes the run as a graceful exit instead of a failure.
+export class WorkflowChangedError extends Error {}
+
 export const findActionById = (hogFlow: HogFlow, id: string): HogFlowAction => {
     const action = hogFlow.actions.find((action) => action.id === id)
     if (!action) {
-        throw new Error(`Action ${id} not found`)
+        throw new WorkflowChangedError(`Action ${id} not found`)
     }
 
     return action
@@ -41,7 +46,7 @@ export const findNextAction = (hogFlow: HogFlow, currentActionId: string, edgeIn
     }
 
     if (!nextActionId) {
-        throw new Error(`No next action found for action ${currentActionId}`)
+        throw new WorkflowChangedError(`No next action found for action ${currentActionId}`)
     }
 
     return findActionById(hogFlow, nextActionId)

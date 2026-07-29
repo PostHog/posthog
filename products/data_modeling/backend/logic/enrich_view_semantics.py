@@ -31,7 +31,6 @@ from posthog.llm.semantic_enrichment import (
     MAX_PROMPT_CHARS,
     bound_prompt_over_columns,
     collapse_untrusted,
-    enrichment_enabled,
     generate_json_completion,
     get_team_business_context,
     upsert_column_annotation,
@@ -48,7 +47,6 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable,
 
 logger = structlog.get_logger(__name__)
 
-VIEW_ENRICHMENT_FEATURE_FLAG = "data-modeling-semantic-enrichment"
 # Reuse the warehouse gateway product tag — no new llm-gateway config/deploy needed. Telemetry (below)
 # distinguishes the two surfaces, and billing can split later if it ever needs to.
 GATEWAY_PRODUCT: Product = "warehouse_semantic_enrichment"
@@ -157,16 +155,15 @@ def _get_row_sample(saved_query: DataWarehouseSavedQuery) -> list[dict[str, str]
     Only call this for materialized views — running the raw view query for an unmaterialized view is
     unbounded cost. `saved_query.name` is validated to a strict identifier, so it's safe to interpolate.
     """
-    from posthog.api.services.query import process_query_dict  # noqa: PLC0415 — heavy HogQL/query stack
-    from posthog.clickhouse.query_tagging import Feature, Product, tags_context  # noqa: PLC0415
-    from posthog.hogql_queries.query_runner import ExecutionMode  # noqa: PLC0415
+    from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415 — heavy HogQL/query stack
 
-    query = {"kind": "HogQLQuery", "query": f"SELECT * FROM {saved_query.name} LIMIT {ROW_SAMPLE_LIMIT}"}
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context  # noqa: PLC0415
+
+    query = f"SELECT * FROM {saved_query.name} LIMIT {ROW_SAMPLE_LIMIT}"
     try:
         with tags_context(product=Product.WAREHOUSE, feature=Feature.DATA_MODELING):
-            response = process_query_dict(
-                saved_query.team, query, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
-            )
+            # Safe to bypass: it only samples a view the team owns, to generate column descriptions.
+            response = execute_hogql_query(query, team=saved_query.team, bypass_warehouse_access_control=True)
     except Exception as e:
         capture_exception(e)
         return []
@@ -313,8 +310,6 @@ def enrich_view_semantics_sync(team_id: int, saved_query_id: str) -> dict[str, A
         log.info("view_enrichment.skipped", reason=reason)
         return {"status": "skipped", "reason": reason}
 
-    if not enrichment_enabled(team, VIEW_ENRICHMENT_FEATURE_FLAG):
-        return skip("flag_disabled")
     # Respect the org's AI data-processing opt-out: this ships view metadata and core memory to the LLM.
     if team.organization.is_ai_data_processing_approved is not True:
         return skip("ai_data_processing_not_approved")
@@ -446,23 +441,19 @@ def _upsert(saved_query: DataWarehouseSavedQuery, team_id: int, column_name: str
 
 
 def enrichment_gates_pass(saved_query: DataWarehouseSavedQuery) -> bool:
-    """Feature-flag + AI-processing-approval gate shared by the save- and materialization-dispatch paths.
+    """AI-processing-approval gate shared by the save- and materialization-dispatch paths.
 
-    Both paths use this so a team where enrichment is off (or AI processing isn't approved) never enqueues
-    a workflow. The activity re-checks the same gates as the source of truth.
+    Both paths use this so a team that hasn't approved AI processing never enqueues a workflow. The
+    activity re-checks the same gate as the source of truth.
     """
-    team = saved_query.team
-    return (
-        enrichment_enabled(team, VIEW_ENRICHMENT_FEATURE_FLAG)
-        and team.organization.is_ai_data_processing_approved is True
-    )
+    return saved_query.team.organization.is_ai_data_processing_approved is True
 
 
 def view_ready_for_enrichment(saved_query: DataWarehouseSavedQuery) -> bool:
     """The content half of the dispatch decision: enrichable view whose descriptions could have changed.
 
     Not deleted/test/managed, has a query and columns, and its enrichment hash differs from the stored one.
-    The team half (flag + AI consent) is `enrichment_gates_pass`. Split out so a backfill can check the
+    The team half (AI consent) is `enrichment_gates_pass`. Split out so a backfill can check the
     team gate once per team and this once per view.
     """
     if saved_query.deleted or saved_query.is_test or saved_query.managed_viewset_id:

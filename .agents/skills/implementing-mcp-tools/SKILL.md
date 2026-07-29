@@ -144,6 +144,8 @@ tools:
       include: [id, key, name] # keep only these fields (dot-path wildcards supported)
       exclude: [filters.groups.*.properties] # remove these fields
       # include and exclude are mutually exclusive
+      selectable: true # add optional `fields` param so the agent picks a subset of `include` per call
+      # (constrained to the allowlist); omit `fields` to return the full set. Requires `include`.
     feature_flag: my-flag-key # gate this tool behind a PostHog feature flag
     feature_flag_behavior: enable # 'enable' (default) or 'disable'
 ```

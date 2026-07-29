@@ -1,7 +1,7 @@
 # The report contract
 
-How this scout files an anomaly on the **report channel** — `signals-scout-emit-report` to
-author a fresh inbox report, `signals-scout-edit-report` to update one on a recurrence. A
+How this scout files an anomaly on the **report channel** — `scout-emit-report` to
+author a fresh inbox report, `scout-edit-report` to update one on a recurrence. A
 scored, attributed anomaly you'd stand behind is a finished, 1:1 inbox report, not a weak
 signal for the pipeline to cluster — so you author it directly and own its framing end to end.
 
@@ -109,7 +109,7 @@ the durable artifact the human opens.
 ### Suggested reviewers
 
 The single highest-leverage field — it **routes** the report to whoever owns the metric. The
-harness prompt covers resolution in full (resolve via `signals-scout-members-list`, each entry an
+harness prompt covers resolution in full (resolve via `scout-members-list`, each entry an
 object `{github_login}` and/or `{user_uuid}`, and `edit_report` can route an orphaned report). The
 anomaly specifics: cache the owner under a `reviewer:anomaly_detection:<area>` key, and reuse inbox
 precedent (`inbox-reports-list` on the same dashboard/surface, then `inbox-report-artefacts-list`)
@@ -257,7 +257,7 @@ the summary.
 ## Worked example
 
 ```yaml
-# signals-scout-emit-report
+# scout-emit-report
 title: 'Daily signups dropped ~60% vs same-weekday baseline (2026-06-06)'
 actionability: requires_human_input
 actionability_explanation: >

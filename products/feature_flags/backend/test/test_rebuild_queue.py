@@ -43,9 +43,7 @@ def _rebuilds(error=None, skip_write=False, load_error=None):
         patch.object(rebuild_queue, "Team") as team,
         patch.object(rebuild_queue, "_skip_write_if_group_mapping_emptied", return_value=skip_write),
         patch.object(rebuild_queue.flag_definitions_hypercache, "batch_load_fn", new=_load),
-        patch.object(rebuild_queue.flag_definitions_without_cohorts_hypercache, "batch_load_fn", new=_load),
         patch.object(rebuild_queue.flag_definitions_hypercache, "set_cache_value", side_effect=error) as set_cache,
-        patch.object(rebuild_queue.flag_definitions_without_cohorts_hypercache, "set_cache_value", side_effect=error),
     ):
         team.objects.filter.side_effect = lambda id__in: [SimpleNamespace(id=int(t)) for t in id__in]
         yield set_cache

@@ -277,6 +277,18 @@ class CallMCPServerTool(MaxTool):
             )
         # needs_approval is handled earlier via `is_dangerous_operation` + LangGraph
         # interrupt; by the time we reach _call_tool we've already been approved.
+        inst = self._get_installation(server_url)
+        # Basic audit trail for who exercises which installation (especially
+        # shared credentials), mirroring the proxy path. Metadata only —
+        # never arguments or results.
+        logger.info(
+            "mcp_store max tool call",
+            team_id=self._team.id,
+            installation_id=str(inst["id"]),
+            scope=inst.get("scope", "personal"),
+            user_id=self._user.id,
+            tool_name=tool_name,
+        )
         return await client.call_tool(tool_name, arguments or {})
 
     def _validate_server_url(self, server_url: str) -> None:

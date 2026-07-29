@@ -101,6 +101,14 @@ class SharingConfiguration(models.Model):
         }
 
     @classmethod
+    def tokens_active_q(cls) -> models.Q:
+        """Matches shares whose public tokens currently work: enabled, and either unexpired or
+        inside the rotation grace period. This is the exposure question ("does a working link
+        exist?") - distinct from queryset_active_for_resource, which picks the current config row
+        for a resource and ignores grace-period duplicates."""
+        return models.Q(enabled=True) & (models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=timezone.now()))
+
+    @classmethod
     def queryset_active_for_resource(cls, **resource_lookup: Any) -> models.QuerySet["SharingConfiguration"]:
         return cls.objects.filter(**resource_lookup, expires_at__isnull=True).order_by("-created_at")
 
@@ -149,9 +157,7 @@ class SharingConfiguration(models.Model):
     def _lock_resource_for_rotation(self) -> None:
         # Resolve each parent model from its own FK instead of importing it. This keeps the module
         # free of product imports (``user_interviews`` only exposes its webhooks via tach's
-        # ``[[interfaces]]``) and avoids cycling through ``posthog.models.team`` during ``Team``
-        # initialization, since this module is loaded mid-init via product_analytics'
-        # insight_caching_state.
+        # ``[[interfaces]]``).
         for field_name in ("dashboard", "insight", "notebook", "recording", "interviewee_context"):
             fk_value = getattr(self, f"{field_name}_id")
             if not fk_value:

@@ -141,6 +141,15 @@ class EventIngestionRestrictionConfigAdmin(admin.ModelAdmin):
     def has_event_uuids(self, obj):
         return bool(obj.event_uuids)
 
+    def get_changeform_initial_data(self, request):
+        initial = super().get_changeform_initial_data(request)
+        # Allow prefilling the pipelines checkboxes from a comma-separated GET param
+        # (used by the tophog restrictions page)
+        pipelines = initial.get("pipelines")
+        if isinstance(pipelines, str):
+            initial["pipelines"] = [p for p in pipelines.split(",") if p]
+        return initial
+
     def get_form(self, request, obj=None, change=False, **kwargs):
         form = super().get_form(request, obj, change, **kwargs)
         restriction_type_field = form.base_fields.get("restriction_type")

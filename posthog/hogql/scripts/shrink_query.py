@@ -33,14 +33,9 @@ import os
 import sys
 import argparse
 
-import django
-
-# Keep stdout pristine (only the shrunk query, for `$(...)` capture): django setup/settings print chatter there, so point stdout at stderr before django.setup() — early enough that logging config binds to stderr too — and write the result to the saved real stdout.
+# Keep stdout pristine (only the shrunk query, for `$(...)` capture): settings/import chatter can print there, so point stdout at stderr before importing the parser — early enough that logging config binds to stderr too — and write the result to the saved real stdout.
 _REAL_STDOUT = sys.stdout
 sys.stdout = sys.stderr
-
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
-django.setup()
 
 from posthog.hogql.scripts._diagnostic_common import _probe_backend, _safe_parse, _shape_for, shrink_to_shape
 

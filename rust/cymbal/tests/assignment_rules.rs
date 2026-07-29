@@ -5,7 +5,7 @@ use cymbal::{
     modes::processing::ProcessingConfig,
     stages::linking::issue::process_assignment,
     teams::TeamManager,
-    types::exception_properties::ExceptionProperties,
+    types::ProcessedExceptionProperties,
 };
 use serde_json::{json, Value as JsonValue};
 use sqlx::PgPool;
@@ -42,18 +42,17 @@ fn get_test_rule() -> AssignmentRule {
     }
 }
 
-fn test_props() -> ExceptionProperties {
-    // process_assignment calls to_output(), which requires the materialized
-    // search fields to be present, so seed them (empty, since exception_list is empty).
+fn test_props() -> ProcessedExceptionProperties {
     serde_json::from_value(json!({
-        "$exception_list": [],
-        "$exception_types": [],
-        "$exception_values": [],
+        "$exception_list": [{"type": "Error", "value": "test value"}],
+        "$exception_fingerprint": "test value",
+        "$exception_fingerprint_record": [{"type": "manual"}],
+        "$exception_issue_id": Uuid::nil(),
+        "$exception_handled": false,
+        "$exception_types": ["Error"],
+        "$exception_values": ["test value"],
         "$exception_sources": [],
         "$exception_functions": [],
-        "$exception_handled": false,
-        "$exception_fingerprint": "test value",
-        "$exception_proposed_fingerprint": "test value",
         "test_value": "test_value",
     }))
     .unwrap()

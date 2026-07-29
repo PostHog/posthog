@@ -45,7 +45,7 @@ function steps(
 }
 
 function progress(overrides: Partial<InstallationProgress>): InstallationProgress {
-    return { phase: 'running', steps: [], error: null, prUrl: null, isCurrent: true, ...overrides }
+    return { phase: 'running', steps: [], error: null, prUrl: null, prMerged: false, isCurrent: true, ...overrides }
 }
 
 export const Connecting: Story = {
@@ -129,6 +129,39 @@ export const PullRequestReady: Story = {
     },
 }
 
+export const PullRequestMerged: Story = {
+    args: {
+        progress: progress({
+            phase: 'running',
+            prUrl: 'https://github.com/acme-co/web/pull/42',
+            prMerged: true,
+            steps: [
+                { id: 'setup:sandbox', label: 'Set up sandbox', status: 'completed', detail: null },
+                { id: 'setup:clone', label: 'Cloned repository', status: 'completed', detail: null },
+                { id: 'setup:wizard', label: 'Ran PostHog setup wizard', status: 'completed', detail: null },
+                { id: 'setup:agent', label: 'Started agent', status: 'completed', detail: null },
+                { id: 'deliver:pr', label: 'Pull request merged', status: 'completed', detail: null },
+            ],
+        }),
+    },
+}
+
+export const CompletedMerged: Story = {
+    args: {
+        progress: progress({
+            phase: 'completed',
+            prUrl: 'https://github.com/acme-co/web/pull/42',
+            prMerged: true,
+            steps: [
+                { id: 'setup:sandbox', label: 'Set up sandbox', status: 'completed', detail: null },
+                { id: 'setup:clone', label: 'Cloned repository', status: 'completed', detail: null },
+                { id: 'setup:wizard', label: 'Ran PostHog setup wizard', status: 'completed', detail: null },
+                { id: 'deliver:pr', label: 'Pull request merged', status: 'completed', detail: null },
+            ],
+        }),
+    },
+}
+
 export const FailedProvisioning: Story = {
     args: {
         progress: progress({
@@ -155,6 +188,20 @@ export const FailedWizard: Story = {
             phase: 'error',
             steps: steps(['completed', 'completed', 'failed', 'pending']),
             error: { title: 'Installation failed', detail: 'PostHog setup wizard failed with exit code 1.' },
+        }),
+    },
+}
+
+// A run whose stream never delivered any state: no pipeline steps to show, only the recovery CTAs.
+export const LostContact: Story = {
+    args: {
+        progress: progress({
+            phase: 'error',
+            steps: [],
+            error: {
+                title: 'Setup lost contact',
+                detail: 'We stopped hearing back from this run. Run the wizard yourself, or dismiss it and start over.',
+            },
         }),
     },
 }

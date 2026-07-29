@@ -1,7 +1,9 @@
 from datetime import datetime
 from typing import Any, TypeVar, cast
+from urllib.parse import quote
 from uuid import UUID
 
+from django.conf import settings
 from django.db.models import Count, Q, QuerySet
 
 from posthog.models.integration import (
@@ -211,6 +213,38 @@ def get_fingerprint(team_id: int, fingerprint_id: UUID) -> ErrorTrackingIssueFin
     return ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, id=fingerprint_id).first()
 
 
+def get_fingerprint_by_value(team_id: int, fingerprint: str) -> ErrorTrackingIssueFingerprintV2 | None:
+    return ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, fingerprint=fingerprint).first()
+
+
+def get_canonical_fingerprint(team_id: int, issue_id: UUID) -> str | None:
+    """Oldest fingerprint of an issue — the stable one to link by, since merges keep it."""
+    return (
+        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, issue_id=issue_id)
+        .order_by("created_at")
+        .values_list("fingerprint", flat=True)
+        .first()
+    )
+
+
+def build_issue_permalink_path(*, project_id: int, issue_id: UUID | str, fingerprint: str | None) -> str:
+    """Relative app path to an issue for durable surfaces (issue trackers, emails, notifications).
+
+    Prefers the fingerprint redirect URL, which survives issue merges; falls back to the
+    plain issue URL when the issue has no fingerprints.
+    """
+    if fingerprint is None:
+        return f"/project/{project_id}/error_tracking/{issue_id}"
+    return f"/project/{project_id}/error_tracking/fingerprint/{quote(fingerprint, safe='')}"
+
+
+def get_issue_permalink_by_fingerprint(team_id: int, issue_id: UUID) -> str:
+    fingerprint = get_canonical_fingerprint(team_id=team_id, issue_id=issue_id)
+    return settings.SITE_URL + build_issue_permalink_path(
+        project_id=team_id, issue_id=issue_id, fingerprint=fingerprint
+    )
+
+
 def list_external_references(team_id: int) -> QuerySet[ErrorTrackingExternalReference]:
     return ErrorTrackingExternalReference.objects.select_related("integration").filter(issue__team_id=team_id)
 
@@ -242,7 +276,8 @@ def create_external_reference(
     elif integration.kind == Integration.IntegrationKind.GITLAB:
         external_context = GitLabIntegration(integration).create_issue(provider_config)
     elif integration.kind == Integration.IntegrationKind.LINEAR:
-        external_context = LinearIntegration(integration).create_issue(str(team_id), issue.id, provider_config)
+        attachment_url = get_issue_permalink_by_fingerprint(team_id=team_id, issue_id=issue.id)
+        external_context = LinearIntegration(integration).create_issue(attachment_url, provider_config)
     elif integration.kind == Integration.IntegrationKind.JIRA:
         external_context = JiraIntegration(integration).create_issue(provider_config)
     else:
@@ -449,16 +484,19 @@ def create_release(
 ) -> ErrorTrackingRelease:
     release_id = UUIDT()
     resolved_hash_id = hash_id or str(release_id)
-    if release_hash_exists(team_id, resolved_hash_id):
-        raise ErrorTrackingReleaseHashInUseError(resolved_hash_id)
-    return ErrorTrackingRelease.objects.create(
-        id=release_id,
+    release, created = ErrorTrackingRelease.objects.get_or_create(
         team_id=team_id,
         hash_id=resolved_hash_id,
-        metadata=metadata,
-        project=str(project),
-        version=str(version),
+        defaults={
+            "id": release_id,
+            "metadata": metadata,
+            "project": str(project),
+            "version": str(version),
+        },
     )
+    if not created:
+        raise ErrorTrackingReleaseHashInUseError(resolved_hash_id)
+    return release
 
 
 def update_release(

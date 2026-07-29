@@ -6,7 +6,9 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TremendousSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tremendous import (
+    TremendousSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.source import TremendousSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.tremendous.tremendous import (

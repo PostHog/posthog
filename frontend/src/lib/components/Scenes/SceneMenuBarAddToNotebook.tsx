@@ -49,8 +49,7 @@ export function SceneMenuBarAddToNotebook({
     }, [resource])
 
     const openAndAdd = (notebookShortId: string, exists: boolean): void => {
-        const position = notebookSelectButtonProps?.resource ? 'end' : 'start'
-        void openNotebook(notebookShortId, NotebookTarget.Popover, position, (theNotebookLogic) => {
+        void openNotebook(notebookShortId, NotebookTarget.Popover, (theNotebookLogic) => {
             if (!exists && notebookSelectButtonProps?.resource) {
                 theNotebookLogic.actions.insertAfterLastNode([notebookSelectButtonProps.resource])
             }

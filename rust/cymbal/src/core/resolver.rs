@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use sqlx::{postgres::PgPoolOptions, PgPool};
+use sqlx::PgPool;
 use tokio::sync::Mutex;
 
-use crate::core::config::{get_aws_config, ResolverConfig};
+use crate::core::config::{build_pg_pool, get_aws_config, ResolverConfig};
 use crate::core::error::UnhandledError;
 use crate::core::symbolication::symbol::{local::LocalSymbolResolver, SymbolResolver};
 use crate::core::symbolication::symbol_store::{
@@ -31,8 +31,11 @@ use crate::core::symbolication::symbol_store::{
 pub async fn build_symbol_resolver(
     config: &ResolverConfig,
 ) -> Result<Arc<dyn SymbolResolver>, UnhandledError> {
-    let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
-    let posthog_pool = options.connect(&config.database_url).await?;
+    let posthog_pool = build_pg_pool(
+        &config.database_url,
+        config.max_pg_connections,
+        "cymbal_resolution",
+    )?;
     let s3 = aws_sdk_s3::Client::from_conf(get_aws_config(config).await);
     let s3_client: Arc<dyn BlobClient> = Arc::new(S3Client::new(s3));
     s3_client.ping_bucket(&config.object_storage_bucket).await?;
@@ -73,6 +76,7 @@ pub fn build_catalog(
         s3_client.clone(),
         config.object_storage_bucket.clone(),
         config.ss_prefix.clone(),
+        std::time::Duration::from_secs(config.symbol_set_negative_cache_ttl_seconds),
     );
     let smp_caching = Caching::new(smp_saving, ss_cache.clone());
     // We want to fetch each sourcemap from the outside world exactly once,

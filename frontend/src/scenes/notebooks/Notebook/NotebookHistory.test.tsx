@@ -1,19 +1,15 @@
 import { JSONContent } from '@tiptap/core'
-import * as PMCollab from '@tiptap/pm/collab'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, ActivityScope } from '~/types'
 
-import { NotebookEditor, NotebookType } from '../types'
+import { NotebookType } from '../types'
 import { buildMarkdownNotebookContent } from './markdownNotebookV2'
-import { notebookCollabLogic } from './notebookCollabLogic'
 import { MARKDOWN_SYNC_DELAY, SYNC_DELAY, notebookLogic } from './notebookLogic'
 
 // Skip the API-driven query upgrade step inside migrate so the loader doesn't try
@@ -26,15 +22,6 @@ jest.mock('./migrations/migrate', () => {
         migrate: jest.fn(async (notebook) => notebook),
     }
 })
-
-// In tests we don't run a real Tiptap editor with a collab plugin, so sendableSteps
-// can't compute pending steps from a real EditorState. The collab branch of
-// saveNotebook gates on a non-null sendable — return a real-looking step so the
-// branch fires and we can assert on the resulting api.create call shape.
-jest.mock('@tiptap/pm/collab', () => ({
-    ...jest.requireActual('@tiptap/pm/collab'),
-    sendableSteps: jest.fn(),
-}))
 
 const SHORT_ID = 'test-revert'
 
@@ -65,38 +52,14 @@ const cachedNotebook: NotebookType = {
 
 describe('Notebook history revert flow', () => {
     let logic: ReturnType<typeof notebookLogic.build>
-    let editorSetContent: jest.Mock
-    let editorContent: JSONContent | null
-    let apiCreateSpy: jest.SpyInstance
     let apiUpdateSpy: jest.SpyInstance
     let apiMarkdownSaveSpy: jest.SpyInstance
     let apiActivityListLegacySpy: jest.SpyInstance
     let historyLogic: ReturnType<typeof activityLogLogic.build> | null
 
-    // The stub tracks its own content so getJSON() reflects the result of setContent
-    // calls. Otherwise the collab path's wire payload (which is editor.getJSON()) would
-    // appear correct even when the editor never actually transitioned to the historical doc.
-    const stubEditor = (): NotebookEditor =>
-        ({
-            setContent: (content: JSONContent) => {
-                editorContent = content
-                editorSetContent(content)
-            },
-            getJSON: () => editorContent,
-            getText: () => 'historical',
-            getCurrentPosition: () => 0,
-            getMarks: () => [],
-            getAllCommentTexts: () => ({}),
-            getAttributes: () => ({}),
-            findCommentPosition: () => null,
-            removeComment: jest.fn(),
-            setTextSelection: jest.fn(),
-        }) as unknown as NotebookEditor
-
     beforeEach(() => {
         localStorage.clear()
         historyLogic = null
-        editorContent = null
         useMocks({
             get: {
                 [`/api/projects/@current/notebooks/${SHORT_ID}/`]: () => [200, cachedNotebook],
@@ -106,8 +69,6 @@ describe('Notebook history revert flow', () => {
         })
         initKeaTests()
 
-        editorSetContent = jest.fn()
-        apiCreateSpy = jest.spyOn(api, 'create').mockResolvedValue({ ...cachedNotebook, version: 2 })
         apiUpdateSpy = jest
             .spyOn(api.notebooks, 'update')
             .mockResolvedValue({ ...cachedNotebook, version: 2, content: HISTORICAL_DOC })
@@ -124,13 +85,11 @@ describe('Notebook history revert flow', () => {
         logic?.unmount()
         historyLogic?.unmount()
         jest.restoreAllMocks()
-        ;(PMCollab.sendableSteps as jest.Mock).mockReset()
     })
 
-    it('opening preview: setPreviewContent updates editor + reducer, no save dispatched', async () => {
+    it('opening preview: setPreviewContent updates the reducer, no save dispatched', async () => {
         logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook' })
         logic.mount()
-        logic.actions.setEditor(stubEditor())
 
         // user clicks a history entry
         logic.actions.setPreviewContent(HISTORICAL_DOC)
@@ -139,65 +98,59 @@ describe('Notebook history revert flow', () => {
             .delay(SYNC_DELAY + 100)
             .toFinishAllListeners()
 
-        expect(editorSetContent).toHaveBeenCalledWith(HISTORICAL_DOC)
         expect(logic.values.previewContent).toEqual(HISTORICAL_DOC)
+        // the preview renders through the markdown converter
+        expect(logic.values.content).toEqual(buildMarkdownNotebookContent('historical'))
         expect(logic.values.localContent).toBeNull()
         // previewing is non-mutating
-        expect(apiCreateSpy).not.toHaveBeenCalledWith(
-            expect.stringContaining(`/notebooks/${SHORT_ID}/collab/save/`),
-            expect.anything()
-        )
         expect(apiUpdateSpy).not.toHaveBeenCalled()
+        expect(apiMarkdownSaveSpy).not.toHaveBeenCalled()
     })
 
-    it('does not persist editor updates emitted while previewing a historical revision', async () => {
+    it('does not persist content edits made while previewing a historical revision', async () => {
         logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook' })
         logic.mount()
-        logic.actions.setEditor(stubEditor())
 
         logic.actions.setPreviewContent(HISTORICAL_DOC)
-        logic.actions.onEditorUpdate()
+        logic.actions.setLocalContent(buildMarkdownNotebookContent('draft while previewing'))
 
         await expectLogic(logic)
             .delay(SYNC_DELAY + 100)
             .toFinishAllListeners()
 
         expect(logic.values.previewContent).toEqual(HISTORICAL_DOC)
-        expect(logic.values.localContent).toBeNull()
         expect(apiUpdateSpy).not.toHaveBeenCalled()
-        expect(apiCreateSpy).not.toHaveBeenCalledWith(
-            expect.stringContaining(`/notebooks/${SHORT_ID}/collab/save/`),
-            expect.anything()
-        )
+        expect(apiMarkdownSaveSpy).not.toHaveBeenCalled()
     })
 
     it('saves through the pending content debounce after autosave resumes', async () => {
+        const editedContent = buildMarkdownNotebookContent('historical')
         logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook', cachedNotebook })
         logic.mount()
         logic.actions.loadNotebook()
         await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
 
         logic.actions.setAutosavePaused(true)
-        logic.actions.setLocalContent(HISTORICAL_DOC)
+        logic.actions.setLocalContent(editedContent)
         logic.actions.setAutosavePaused(false)
-        expect(apiUpdateSpy).not.toHaveBeenCalled()
+        expect(apiMarkdownSaveSpy).not.toHaveBeenCalled()
 
         await expectLogic(logic)
             .delay(SYNC_DELAY + 100)
             .toFinishAllListeners()
 
-        expect(apiUpdateSpy).toHaveBeenCalledTimes(1)
-        expect(apiUpdateSpy).toHaveBeenCalledWith(
+        expect(apiMarkdownSaveSpy).toHaveBeenCalledTimes(1)
+        expect(apiMarkdownSaveSpy).toHaveBeenCalledWith(
             SHORT_ID,
-            expect.objectContaining({ content: HISTORICAL_DOC, version: 1 })
+            expect.objectContaining({ content: editedContent, version: 1 })
         )
     })
 
-    it('saves legacy to markdown conversion through the versioned notebook update path', async () => {
+    it('persists the legacy to markdown conversion on the first edit', async () => {
         const convertedContent = buildMarkdownNotebookContent(`# Test
 
 converted`)
-        apiUpdateSpy.mockResolvedValueOnce({
+        apiMarkdownSaveSpy.mockResolvedValueOnce({
             ...cachedNotebook,
             version: 2,
             content: convertedContent,
@@ -212,10 +165,10 @@ converted`)
         logic.actions.setLocalContent(convertedContent)
 
         await expectLogic(logic)
-            .delay(SYNC_DELAY + 100)
+            .delay(MARKDOWN_SYNC_DELAY + 100)
             .toFinishAllListeners()
 
-        expect(apiUpdateSpy).toHaveBeenCalledWith(
+        expect(apiMarkdownSaveSpy).toHaveBeenCalledWith(
             SHORT_ID,
             expect.objectContaining({
                 content: convertedContent,
@@ -223,7 +176,7 @@ converted`)
                 version: 1,
             })
         )
-        expect(apiMarkdownSaveSpy).not.toHaveBeenCalled()
+        expect(apiUpdateSpy).not.toHaveBeenCalled()
     })
 
     it('refreshes notebook activity after a save when history is open', async () => {
@@ -239,7 +192,7 @@ converted`)
         logic.actions.setShowHistory(true)
 
         await expectLogic(logic, () => {
-            logic.actions.saveNotebook({ content: HISTORICAL_DOC, title: 'Test' })
+            logic.actions.saveNotebook({ content: buildMarkdownNotebookContent('historical'), title: 'Test' })
         })
             .toDispatchActions(['saveNotebookSuccess'])
             .toFinishAllListeners()
@@ -248,34 +201,7 @@ converted`)
         expect(apiActivityListLegacySpy).toHaveBeenCalledWith({ scope: [ActivityScope.NOTEBOOK], id: SHORT_ID }, 1)
     })
 
-    it('does not enable ProseMirror collaboration for markdown v2 notebooks', async () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.NOTEBOOKS_COLLABORATION], {
-            [FEATURE_FLAGS.NOTEBOOKS_COLLABORATION]: true,
-        })
-        logic = notebookLogic({
-            shortId: SHORT_ID,
-            mode: 'notebook',
-            cachedNotebook: {
-                ...cachedNotebook,
-                content: buildMarkdownNotebookContent('# Markdown v2'),
-            },
-        })
-        logic.mount()
-        logic.actions.loadNotebook()
-        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
-
-        expect(logic.values.collabEnabled).toBe(false)
-    })
-
-    it('renders legacy notebooks as markdown when the markdown flag is enabled without marking them dirty', async () => {
-        featureFlagLogic.actions.setFeatureFlags(
-            [FEATURE_FLAGS.MARKDOWN_NOTEBOOKS, FEATURE_FLAGS.NOTEBOOKS_COLLABORATION],
-            {
-                [FEATURE_FLAGS.MARKDOWN_NOTEBOOKS]: true,
-                [FEATURE_FLAGS.NOTEBOOKS_COLLABORATION]: true,
-            }
-        )
-
+    it('renders legacy notebooks as markdown without marking them dirty', async () => {
         logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook' })
         logic.mount()
         logic.actions.loadNotebook()
@@ -285,13 +211,12 @@ converted`)
         expect(logic.values.content).toEqual(buildMarkdownNotebookContent('current'))
         expect(logic.values.localContent).toBeNull()
         expect(logic.values.syncStatus).toBe('synced')
-        expect(logic.values.collabEnabled).toBe(false)
         expect(logic.values.markdownRealtimeEnabled).toBe(true)
         expect(apiUpdateSpy).not.toHaveBeenCalled()
         expect(apiMarkdownSaveSpy).not.toHaveBeenCalled()
     })
 
-    it('reverts legacy history entries as markdown when the markdown flag is enabled', async () => {
+    it('reverts legacy history entries as markdown', async () => {
         const historicalMarkdownContent = buildMarkdownNotebookContent('historical')
         apiMarkdownSaveSpy.mockResolvedValueOnce({
             ...cachedNotebook,
@@ -299,31 +224,27 @@ converted`)
             content: historicalMarkdownContent,
             text_content: 'historical',
         })
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MARKDOWN_NOTEBOOKS], {
-            [FEATURE_FLAGS.MARKDOWN_NOTEBOOKS]: true,
-        })
 
         logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook' })
         logic.mount()
-        logic.actions.setEditor(stubEditor())
         logic.actions.loadNotebook()
         await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
 
         logic.actions.setPreviewContent(HISTORICAL_DOC)
         expect(logic.values.previewContent).toEqual(HISTORICAL_DOC)
         expect(logic.values.content).toEqual(historicalMarkdownContent)
-        editorSetContent.mockClear()
 
+        // user clicks Revert — mirror the action sequence in NotebookHistoryWarning.onRevert
         const contentToRestore = logic.values.content
         logic.actions.clearPreviewContent()
-        logic.actions.setLocalContent(contentToRestore, true)
+        logic.actions.setLocalContent(contentToRestore)
         logic.actions.setShowHistory(false)
 
         await expectLogic(logic)
             .delay(MARKDOWN_SYNC_DELAY + 100)
             .toFinishAllListeners()
 
-        expect(editorSetContent).toHaveBeenCalledWith(historicalMarkdownContent)
+        expect(logic.values.previewContent).toBeNull()
         expect(apiMarkdownSaveSpy).toHaveBeenCalledWith(
             SHORT_ID,
             expect.objectContaining({
@@ -417,7 +338,7 @@ text`)
             text_content: '',
         }
 
-        apiUpdateSpy.mockResolvedValueOnce({
+        apiMarkdownSaveSpy.mockResolvedValueOnce({
             ...baseNotebook,
             version: 2,
             content: localContent,
@@ -442,35 +363,39 @@ text`)
         expect(logic.values.localContent).toBeNull()
     })
 
-    it('keeps the local markdown draft and adopts fresh server content after a stale save conflict', async () => {
+    it('merges missed remote diffs and retries when a save hits a stale version', async () => {
         const baseMarkdown = `# Markdown v2
 
 Base paragraph`
         const localMarkdown = `# Markdown v2
 
 Base paragraph with local edit`
-        const remoteMarkdown = `# Markdown v2
-
-Remote paragraph
-
-Base paragraph`
         const baseMarkdownNotebook = {
             ...cachedNotebook,
             content: buildMarkdownNotebookContent(baseMarkdown),
             text_content: baseMarkdown,
         }
         const localContent = buildMarkdownNotebookContent(localMarkdown)
+
+        // First save is rejected as stale with no replayable diffs (410): the logic reloads
+        // and keeps the local draft so the editor can merge and retry.
+        apiMarkdownSaveSpy.mockRejectedValueOnce({ status: 410 })
+        const remoteMarkdown = `# Markdown v2
+
+Remote paragraph
+
+Base paragraph`
         const remoteNotebook = {
             ...baseMarkdownNotebook,
             version: 2,
             content: buildMarkdownNotebookContent(remoteMarkdown),
             text_content: remoteMarkdown,
         }
+        jest.spyOn(api.notebooks, 'get')
+            .mockResolvedValueOnce(baseMarkdownNotebook as NotebookType)
+            .mockResolvedValueOnce(remoteNotebook as NotebookType)
 
-        apiUpdateSpy.mockRejectedValueOnce({ code: 'conflict' })
-        jest.spyOn(api.notebooks, 'get').mockResolvedValueOnce(remoteNotebook)
-
-        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook', cachedNotebook: baseMarkdownNotebook })
+        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook' })
         logic.mount()
         logic.actions.loadNotebook()
         await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
@@ -479,132 +404,11 @@ Base paragraph`
         logic.actions.setLocalContent(localContent)
         logic.actions.saveNotebook({ content: localContent, title: 'Test' })
 
-        await expectLogic(logic).toDispatchActions(['saveNotebookSuccess']).toFinishAllListeners()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
 
-        expect(apiUpdateSpy).toHaveBeenCalledWith(
-            SHORT_ID,
-            expect.objectContaining({
-                content: localContent,
-                version: 1,
-            })
-        )
         // The fresh server content flows into the markdown editor's remote-merge path; the local
         // draft is kept so the editor can merge it and retry the save against the new version.
         expect(logic.values.notebook?.content).toEqual(remoteNotebook.content)
         expect(logic.values.localContent).toEqual(localContent)
-        expect(logic.values.conflictWarningVisible).toBe(false)
-    })
-
-    it('shows the conflict warning when fresh server content cannot be loaded after a stale save conflict', async () => {
-        const baseMarkdown = `# Markdown v2
-
-Base paragraph`
-        const localMarkdown = `# Markdown v2
-
-Base paragraph with local edit`
-        const baseMarkdownNotebook = {
-            ...cachedNotebook,
-            content: buildMarkdownNotebookContent(baseMarkdown),
-            text_content: baseMarkdown,
-        }
-        const localContent = buildMarkdownNotebookContent(localMarkdown)
-
-        apiUpdateSpy.mockRejectedValueOnce({ code: 'conflict' })
-        jest.spyOn(api.notebooks, 'get').mockRejectedValueOnce(new Error('Network error'))
-
-        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook', cachedNotebook: baseMarkdownNotebook })
-        logic.mount()
-        logic.actions.loadNotebook()
-        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
-
-        logic.actions.setAutosavePaused(true)
-        logic.actions.setLocalContent(localContent)
-
-        await expectLogic(logic, () => {
-            logic.actions.saveNotebook({ content: localContent, title: 'Test' })
-        })
-            .toDispatchActions(['clearLocalContent', 'showConflictWarning', 'saveNotebookSuccess'])
-            .toFinishAllListeners()
-
-        expect(logic.values.localContent).toBeNull()
-        expect(logic.values.conflictWarningVisible).toBe(true)
-    })
-
-    describe.each([
-        {
-            name: 'non-collab mode dispatches PATCH save with historical content',
-            collab: false,
-            expectedSave: 'patch' as const,
-        },
-        {
-            name: 'collab mode dispatches collab/save POST with historical content',
-            collab: true,
-            expectedSave: 'collab' as const,
-        },
-    ])('reverting to a historical version in $name', ({ collab, expectedSave }) => {
-        it('clears preview, updates editor, and dispatches the right save', async () => {
-            if (collab) {
-                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.NOTEBOOKS_COLLABORATION], {
-                    [FEATURE_FLAGS.NOTEBOOKS_COLLABORATION]: true,
-                })
-                // pretend the editor has a pending step ready to send
-                ;(PMCollab.sendableSteps as jest.Mock).mockReturnValue({
-                    version: 1,
-                    steps: [{ toJSON: () => ({ stepType: 'replace', from: 0, to: 0, slice: { content: [] } }) }],
-                    clientID: 'test-client',
-                })
-            }
-
-            // load the notebook
-            logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook', cachedNotebook })
-            logic.mount()
-            logic.actions.setEditor(stubEditor())
-            if (collab) {
-                notebookCollabLogic({ shortId: SHORT_ID }).actions.bindEditor({
-                    state: { selection: { head: 0 } },
-                    on: jest.fn(),
-                    off: jest.fn(),
-                } as any)
-            }
-            logic.actions.loadNotebook()
-            await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
-
-            // user clicks a history entry
-            logic.actions.setPreviewContent(HISTORICAL_DOC)
-            editorSetContent.mockClear()
-
-            // user clicks Revert — mirror the full action sequence in NotebookHistoryWarning.onRevert.
-            // setShowHistory(false)'s listener fires a second clearPreviewContent, so leaving it out
-            // would skip part of the sequence that runs in production.
-            logic.actions.clearPreviewContent()
-            logic.actions.setLocalContent(HISTORICAL_DOC, true)
-            logic.actions.setShowHistory(false)
-            // wait past debounce
-            await expectLogic(logic)
-                .delay(SYNC_DELAY + 100)
-                .toFinishAllListeners()
-
-            expect(editorSetContent).toHaveBeenCalledWith(HISTORICAL_DOC)
-            expect(logic.values.previewContent).toBeNull()
-            // localContent is cleared by saveNotebook once the save resolves
-            expect(logic.values.localContent).toBeNull()
-
-            if (expectedSave === 'collab') {
-                expect(apiCreateSpy).toHaveBeenCalledWith(
-                    `api/projects/@current/notebooks/${SHORT_ID}/collab/save/`,
-                    expect.objectContaining({ content: HISTORICAL_DOC, client_id: 'test-client' })
-                )
-                expect(apiUpdateSpy).not.toHaveBeenCalled()
-            } else {
-                expect(apiUpdateSpy).toHaveBeenCalledWith(
-                    SHORT_ID,
-                    expect.objectContaining({ content: HISTORICAL_DOC, version: 1 })
-                )
-                expect(apiCreateSpy).not.toHaveBeenCalledWith(
-                    expect.stringContaining(`/notebooks/${SHORT_ID}/collab/save/`),
-                    expect.anything()
-                )
-            }
-        })
     })
 })

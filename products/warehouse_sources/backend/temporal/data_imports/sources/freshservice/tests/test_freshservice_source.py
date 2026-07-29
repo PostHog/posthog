@@ -7,14 +7,16 @@ import structlog
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshservice.freshservice import (
     FreshserviceResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshservice.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshservice.source import FreshserviceSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FreshserviceSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshservice import (
+    FreshserviceSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 PATCH_VALIDATE = "products.warehouse_sources.backend.temporal.data_imports.sources.freshservice.source.validate_freshservice_credentials"
@@ -52,7 +54,6 @@ class TestFreshserviceSource:
         assert config.name.value == "Freshservice"
         assert config.label == "Freshservice"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/freshservice.png"
 
         fields = config.fields

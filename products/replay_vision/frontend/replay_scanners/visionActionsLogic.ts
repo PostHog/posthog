@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
+import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -10,10 +10,16 @@ import {
     visionActionsList,
     visionActionsPartialUpdate,
 } from '../generated/api'
-import { DeliveryTargetTypeEnumApi } from '../generated/api.schemas'
+import {
+    AlertConfigFrequencyEnumApi,
+    DeliveryTargetTypeEnumApi,
+    VisionActionModeEnumApi,
+    VisionAlertDirectionEnumApi,
+    VisionAlertMetricEnumApi,
+    WindowDaysEnumApi,
+} from '../generated/api.schemas'
 import type { VerdictEnumApi, VisionActionApi } from '../generated/api.schemas'
 import { CadenceState, cadenceToRrule, DEFAULT_CADENCE } from './cadence'
-import type { visionActionsLogicType } from './visionActionsLogicType'
 
 export interface VisionActionsLogicProps {
     scannerId: string
@@ -25,13 +31,23 @@ export interface VisionActionForm {
     cadence: CadenceState
     timezone: string
     prompt_guide: string
+    // Which delivery destination the form is editing. Slack uses integration_id + channel; webhook uses url.
+    delivery_type: DeliveryTargetTypeEnumApi
     integration_id: number | null
     channel: string
+    webhook_url: string
     // Targeting ("run this on…") — empty means all of the scanner's observations.
     verdict: VerdictEnumApi[]
     tags: string[]
     min_score: number | null
     max_score: number | null
+    // What the action produces; alerts carry a condition instead of synthesizing a summary.
+    mode: VisionActionModeEnumApi
+    alert_frequency: AlertConfigFrequencyEnumApi
+    alert_metric: VisionAlertMetricEnumApi
+    alert_threshold: number | null
+    alert_direction: VisionAlertDirectionEnumApi
+    alert_window_days: WindowDaysEnumApi
 }
 
 export const NEW_ACTION_FORM = (): VisionActionForm => ({
@@ -39,12 +55,21 @@ export const NEW_ACTION_FORM = (): VisionActionForm => ({
     cadence: { ...DEFAULT_CADENCE },
     timezone: dayjs.tz.guess(),
     prompt_guide: '',
+    delivery_type: DeliveryTargetTypeEnumApi.Slack,
     integration_id: null,
     channel: '',
+    webhook_url: '',
     verdict: [],
     tags: [],
     min_score: null,
     max_score: null,
+    mode: VisionActionModeEnumApi.GroupSummary,
+    // Default alert flavor: notify about every new match ("every time the result is X, tell me").
+    alert_frequency: AlertConfigFrequencyEnumApi.EveryMatch,
+    alert_metric: VisionAlertMetricEnumApi.Count,
+    alert_threshold: 1,
+    alert_direction: VisionAlertDirectionEnumApi.Above,
+    alert_window_days: 1,
 })
 
 // Map the UI form shape to the API body shared by create + partial-update. Kept standalone so the
@@ -66,26 +91,113 @@ export function buildActionBody(form: VisionActionForm, scannerId: string): Para
     if (form.max_score != null) {
         selection.max_score = form.max_score
     }
+    const isAlert = form.mode === VisionActionModeEnumApi.Alert
     return {
         name: form.name.trim(),
         scanner: scannerId,
-        trigger_config: { rrule: cadenceToRrule(form.cadence), timezone: form.timezone },
+        mode: form.mode,
+        // Alerts have no user-facing schedule: the engine checks them on every scanner sweep and
+        // ignores this rrule (kept so the trigger stays well-formed); digests run on the picked days/time.
+        trigger_config: isAlert
+            ? { rrule: 'FREQ=HOURLY', timezone: form.timezone }
+            : { rrule: cadenceToRrule(form.cadence), timezone: form.timezone },
         selection,
-        synthesis_config: { prompt_guide: form.prompt_guide },
-        delivery_config:
-            form.integration_id && form.channel
-                ? [
-                      {
-                          type: DeliveryTargetTypeEnumApi.Slack,
-                          integration_id: form.integration_id,
-                          // Store the `${id}|#${name}` picker composite so the table can show the
-                          // channel name; delivery.py strips it to the bare id for the Slack destination.
-                          channel: form.channel,
-                      },
-                  ]
-                : [],
+        synthesis_config: { prompt_guide: isAlert ? '' : form.prompt_guide },
+        ...(isAlert
+            ? {
+                  alert_config:
+                      form.alert_frequency === AlertConfigFrequencyEnumApi.EveryMatch
+                          ? { frequency: form.alert_frequency, metric: VisionAlertMetricEnumApi.Count }
+                          : {
+                                frequency: form.alert_frequency,
+                                metric: form.alert_metric,
+                                threshold: form.alert_threshold ?? 1,
+                                // Direction is only a user choice for the average score (where "below a
+                                // floor" is the natural case). A count threshold is always "at least" —
+                                // "at most N matches" is a confusing quiet-window alarm — so pin it,
+                                // ignoring any stale below a loaded config might carry.
+                                direction:
+                                    form.alert_metric === VisionAlertMetricEnumApi.AvgScore
+                                        ? form.alert_direction
+                                        : VisionAlertDirectionEnumApi.Above,
+                                window_days: form.alert_window_days,
+                            },
+              }
+            : {}),
+        delivery_config: buildDeliveryConfig(form),
     }
 }
+
+// Map the form's chosen destination to a delivery target, or [] when it's incomplete (no channel
+// picked / no URL) — an empty config leaves the run in-app only, matching the "optional" delivery UX.
+function buildDeliveryConfig(
+    form: VisionActionForm
+): NonNullable<Parameters<typeof visionActionsCreate>[1]['delivery_config']> {
+    if (form.delivery_type === DeliveryTargetTypeEnumApi.Webhook) {
+        return form.webhook_url ? [{ type: DeliveryTargetTypeEnumApi.Webhook, url: form.webhook_url }] : []
+    }
+    return form.integration_id && form.channel
+        ? [
+              {
+                  type: DeliveryTargetTypeEnumApi.Slack,
+                  integration_id: form.integration_id,
+                  // Store the `${id}|#${name}` picker composite so the table can show the channel name;
+                  // delivery.py strips it to the bare id for the Slack destination.
+                  channel: form.channel,
+              },
+          ]
+        : []
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface visionActionsLogicValues {
+    togglingIds: string[]
+    visionActions: VisionActionApi[]
+    visionActionsLoading: boolean
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface visionActionsLogicActions {
+    addAction: (action: VisionActionApi) => {
+        action: VisionActionApi
+    }
+    deleteAction: (id: string) => {
+        id: string
+    }
+    deleteActionSuccess: (id: string) => {
+        id: string
+    }
+    loadActions: () => {
+        value: true
+    }
+    loadActionsFailure: () => {
+        value: true
+    }
+    loadActionsSuccess: (visionActions: VisionActionApi[]) => {
+        visionActions: VisionActionApi[]
+    }
+    revertActionEnabled: (id: string) => {
+        id: string
+    }
+    toggleActionEnabled: (id: string) => {
+        id: string
+    }
+    toggleActionEnabledDone: (id: string) => {
+        id: string
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface visionActionsLogicMeta {
+    key: string
+}
+
+export type visionActionsLogicType = MakeLogicType<
+    visionActionsLogicValues,
+    visionActionsLogicActions,
+    VisionActionsLogicProps,
+    visionActionsLogicMeta
+>
 
 export const visionActionsLogic = kea<visionActionsLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'visionActionsLogic']),
@@ -96,6 +208,7 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
         loadActions: true,
         loadActionsSuccess: (visionActions: VisionActionApi[]) => ({ visionActions }),
         loadActionsFailure: true,
+        addAction: (action: VisionActionApi) => ({ action }),
         toggleActionEnabled: (id: string) => ({ id }),
         revertActionEnabled: (id: string) => ({ id }),
         toggleActionEnabledDone: (id: string) => ({ id }),
@@ -108,6 +221,7 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
             [] as VisionActionApi[],
             {
                 loadActionsSuccess: (_, { visionActions }) => visionActions,
+                addAction: (state, { action }) => [...state, action],
                 deleteActionSuccess: (state, { id }) => state.filter((a) => a.id !== id),
                 // Optimistic flip on toggle; revert mirrors it back on failure.
                 toggleActionEnabled: (state, { id }) =>
@@ -142,9 +256,13 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
             }
             try {
                 const response = await visionActionsList(String(teamId), { scanner: props.scannerId, limit: 100 })
+                // Keep the digest in the shared list — scannerDigestLogic (the Observations-tab card)
+                // reads it from here via is_scanner_digest. The Digests-and-alerts table filters it
+                // out at render time instead, so the card and the table can disagree without this
+                // source hiding the digest from both.
                 actions.loadActionsSuccess(response.results ?? [])
             } catch (error: any) {
-                lemonToast.error(`Failed to load summaries${error.detail ? `: ${error.detail}` : ''}`)
+                lemonToast.error(`Failed to load digests and alerts${error.detail ? `: ${error.detail}` : ''}`)
                 actions.loadActionsFailure()
             }
         },
@@ -162,7 +280,8 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
                 actions.toggleActionEnabledDone(id)
             } catch (error: any) {
                 const verb = action.enabled ? 'enable' : 'disable'
-                lemonToast.error(`Failed to ${verb} summary${error.detail ? `: ${error.detail}` : ''}`)
+                const noun = action.mode === VisionActionModeEnumApi.Alert ? 'alert' : 'digest'
+                lemonToast.error(`Failed to ${verb} ${noun}${error.detail ? `: ${error.detail}` : ''}`)
                 actions.revertActionEnabled(id)
             }
         },
@@ -172,12 +291,16 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
             if (!teamId) {
                 return
             }
+            const noun =
+                values.visionActions.find((a) => a.id === id)?.mode === VisionActionModeEnumApi.Alert
+                    ? 'alert'
+                    : 'digest'
             try {
                 await visionActionsDestroy(String(teamId), id)
                 actions.deleteActionSuccess(id)
-                lemonToast.success('Summary deleted')
+                lemonToast.success(`${noun === 'alert' ? 'Alert' : 'Digest'} deleted`)
             } catch (error: any) {
-                lemonToast.error(`Failed to delete summary${error.detail ? `: ${error.detail}` : ''}`)
+                lemonToast.error(`Failed to delete ${noun}${error.detail ? `: ${error.detail}` : ''}`)
             }
         },
     })),

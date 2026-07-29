@@ -5,7 +5,6 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.algolia import AlgoliaResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.settings import (
     ALGOLIA_ENDPOINTS,
@@ -13,7 +12,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.se
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.source import AlgoliaSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AlgoliaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.algolia import (
+    AlgoliaSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -56,7 +58,6 @@ class TestAlgoliaSource:
         assert config.name.value == "Algolia"
         assert config.label == "Algolia"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/algolia.png"
 
         fields = [f for f in config.fields if isinstance(f, SourceFieldInputConfig)]
@@ -154,7 +155,8 @@ class TestAlgoliaSource:
             application_id="APPID",
             api_key="test-key",
             index_name="my_index",
-            logger=inputs.logger,
+            team_id=99,
+            job_id="job-xyz",
             manager=manager,
         )
 

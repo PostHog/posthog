@@ -4,11 +4,9 @@ const HOUR = 3_600_000
 const DAY = 24 * HOUR
 
 describe('brush geometry', () => {
-    it('defaultFocus picks the most recent lens-width, or the whole window when shorter', () => {
-        // 7-day window, 24h lens → most recent day.
-        expect(defaultFocus(0, 7 * DAY, DAY)).toEqual({ start: 6 * DAY, end: 7 * DAY })
-        // Window already shorter than the lens → no sub-range to pan, focus the whole thing.
-        expect(defaultFocus(0, 6 * HOUR, DAY)).toEqual({ start: 0, end: 6 * HOUR })
+    it('defaultFocus includes the full selected window', () => {
+        expect(defaultFocus(0, 7 * DAY)).toEqual({ start: 0, end: 7 * DAY })
+        expect(defaultFocus(0, 6 * HOUR)).toEqual({ start: 0, end: 6 * HOUR })
     })
 
     it('clampFocus slides a range back inside bounds while preserving its width', () => {

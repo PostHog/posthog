@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { IconPlus } from '@posthog/icons'
 import { LemonDialog, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
+import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
 import { GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { JiraProjectSelectField } from 'lib/integrations/JiraIntegrationHelpers'
@@ -19,6 +20,7 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
+import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { ErrorTrackingExternalReference, ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
@@ -36,7 +38,12 @@ const POSTHOG_HTML_LINE_BREAKS = '\n<br/>\n<br/>\n'
 
 const EXTERNAL_REFERENCE_FORM_BUILDERS: Record<
     ErrorTrackingIntegrationKind,
-    (issue: ErrorTrackingRelationalIssue, integration: ErrorTrackingIntegration, onSubmit: onSubmitFormType) => void
+    (
+        issue: ErrorTrackingRelationalIssue,
+        issueUrl: string,
+        integration: ErrorTrackingIntegration,
+        onSubmit: onSubmitFormType
+    ) => void
 > = {
     github: createGitHubIssueForm,
     gitlab: createGitLabIssueForm,
@@ -45,7 +52,7 @@ const EXTERNAL_REFERENCE_FORM_BUILDERS: Record<
 }
 
 export const ExternalReferences = (): JSX.Element | null => {
-    const { issue, issueLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { issue, issueLoading, issueFingerprints } = useValues(errorTrackingIssueSceneLogic)
     const { createExternalReference } = useActions(errorTrackingIssueSceneLogic)
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
 
@@ -67,7 +74,12 @@ export const ExternalReferences = (): JSX.Element | null => {
         const buildForm = EXTERNAL_REFERENCE_FORM_BUILDERS[integration.kind as ErrorTrackingIntegrationKind]
 
         if (buildForm) {
-            buildForm(issue, integration as ErrorTrackingIntegration, createExternalReference)
+            buildForm(
+                issue,
+                getIssueUrl(issueFingerprints),
+                integration as ErrorTrackingIntegration,
+                createExternalReference
+            )
         }
     }
 
@@ -142,20 +154,28 @@ function SetupIntegrationsButton(): JSX.Element {
     )
 }
 
-function getIssueUrl(): string {
+// Link through the fingerprint redirect page when possible — it resolves to whatever issue the
+// fingerprint belongs to at click time, so external issue links survive merges. Fingerprints are
+// listed oldest-first; the oldest one is the stable, canonical one for an issue.
+function getIssueUrl(fingerprints: ErrorTrackingFingerprint[]): string {
+    const canonicalFingerprint = fingerprints[0]?.fingerprint
+    if (canonicalFingerprint) {
+        return `${window.location.origin}${addProjectIdIfMissing(urls.errorTrackingFingerprint(canonicalFingerprint))}`
+    }
     return `${window.location.origin}${window.location.pathname}`
 }
 
-function getIssueMarkdownBody(issue: ErrorTrackingRelationalIssue): string {
-    return `${issue.description ?? ''}${POSTHOG_HTML_LINE_BREAKS}**PostHog issue:** ${getIssueUrl()}`
+function getIssueMarkdownBody(issue: ErrorTrackingRelationalIssue, issueUrl: string): string {
+    return `${issue.description ?? ''}${POSTHOG_HTML_LINE_BREAKS}**PostHog issue:** ${issueUrl}`
 }
 
-function getIssuePlaintextBody(issue: ErrorTrackingRelationalIssue): string {
-    return `${issue.description ?? ''}\n\nPostHog issue: ${getIssueUrl()}`
+function getIssuePlaintextBody(issue: ErrorTrackingRelationalIssue, issueUrl: string): string {
+    return `${issue.description ?? ''}\n\nPostHog issue: ${issueUrl}`
 }
 
 function createGitHubIssueForm(
     issue: ErrorTrackingRelationalIssue,
+    issueUrl: string,
     integration: ErrorTrackingIntegration,
     onSubmit: onSubmitFormType
 ): void {
@@ -164,7 +184,7 @@ function createGitHubIssueForm(
         shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
-            body: getIssueMarkdownBody(issue),
+            body: getIssueMarkdownBody(issue, issueUrl),
             integrationId: integration.id,
             repositories: [],
         },
@@ -192,6 +212,7 @@ function createGitHubIssueForm(
 
 function createGitLabIssueForm(
     issue: ErrorTrackingRelationalIssue,
+    issueUrl: string,
     integration: ErrorTrackingIntegration,
     onSubmit: onSubmitFormType
 ): void {
@@ -200,7 +221,7 @@ function createGitLabIssueForm(
         shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
-            body: getIssueMarkdownBody(issue),
+            body: getIssueMarkdownBody(issue, issueUrl),
             integrationId: integration.id,
         },
         content: (
@@ -224,6 +245,7 @@ function createGitLabIssueForm(
 
 function createLinearIssueForm(
     issue: ErrorTrackingRelationalIssue,
+    _issueUrl: string,
     integration: ErrorTrackingIntegration,
     onSubmit: onSubmitFormType
 ): void {
@@ -259,6 +281,7 @@ function createLinearIssueForm(
 
 function createJiraIssueForm(
     issue: ErrorTrackingRelationalIssue,
+    issueUrl: string,
     integration: ErrorTrackingIntegration,
     onSubmit: onSubmitFormType
 ): void {
@@ -267,7 +290,7 @@ function createJiraIssueForm(
         shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
-            description: getIssuePlaintextBody(issue),
+            description: getIssuePlaintextBody(issue, issueUrl),
             integrationId: integration.id,
             projectKeys: [],
         },

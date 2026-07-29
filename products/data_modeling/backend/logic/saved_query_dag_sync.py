@@ -7,6 +7,8 @@ from posthog.hogql.database.models import SavedQuery as HogQLSavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 
+from products.data_modeling.backend.logic.node_suspension import clear_suspension_if_query_changed
+from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.modeling import UnknownParentError, get_parents_from_model_query
@@ -108,6 +110,7 @@ def sync_saved_query_to_dag(
     extra_properties: dict | None = None,  # TODO(andrew): remove this after backfill
     dag: DAG | None = None,
     allow_managed: bool = False,
+    reconcile: bool = True,
 ) -> Node | None:
     """
     Create or update Node and Edges for a SavedQuery.
@@ -184,6 +187,11 @@ def sync_saved_query_to_dag(
 
     # name is included in update_fields because Node.save() auto-syncs it from saved_query
     target.save(update_fields=["name", "type", "properties"])
+    # After the save, so it reads fresh state under a row lock rather than riding along on the
+    # whole-blob write above.
+    clear_suspension_if_query_changed(target, saved_query.query)
+    if reconcile:
+        maybe_reconcile_dag(dag)
     return target
 
 
@@ -220,9 +228,17 @@ def delete_node_from_dag(saved_query: "DataWarehouseSavedQuery") -> None:
     deps = get_dependent_saved_queries(saved_query)
     if deps:
         raise HasDependentsError("Node cannot be deleted because it has dependents")
-    Node.objects.filter(team=saved_query.team, saved_query=saved_query).delete()
+    nodes = Node.objects.filter(team=saved_query.team, saved_query=saved_query).select_related("dag", "dag__team")
+    dags = {node.dag for node in nodes if node.dag is not None}
+    nodes.delete()
+    for dag in dags:
+        maybe_reconcile_dag(dag)
 
 
 def update_node_type(saved_query: "DataWarehouseSavedQuery", type: NodeType) -> None:
     """Update a Node's type to MAT_VIEW when materialized."""
-    Node.objects.filter(team=saved_query.team, saved_query=saved_query).update(type=type)
+    nodes = Node.objects.filter(team=saved_query.team, saved_query=saved_query).select_related("dag", "dag__team")
+    dags = {node.dag for node in nodes if node.dag is not None}
+    nodes.update(type=type)
+    for dag in dags:
+        maybe_reconcile_dag(dag)

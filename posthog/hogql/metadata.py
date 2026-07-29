@@ -73,6 +73,11 @@ def get_hogql_metadata(
             database=database,
             modifiers=query_modifiers,
             enable_select_queries=True,
+            # A resolved direct-connection source prints with its engine dialect (below), so the
+            # context must be marked direct — otherwise the ClickHouse printer's direct-table guard
+            # fires and metadata/autocomplete reports a false "can only be queried through its direct
+            # connection" error for a query that actually runs fine.
+            is_direct_query=source is not None,
             debug=query.debug or False,
             globals=query.globals,
         )

@@ -5,12 +5,16 @@ import { LemonTable, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { TZLabel } from 'lib/components/TZLabel'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { _MetricEventSampleApi } from 'products/metrics/frontend/generated/api.schemas'
 import { traceUrl } from 'products/tracing/frontend/traceLinks'
 
 import { type MetricsAggregateRow, type MetricsPanelTab, metricsSamplesLogic } from './metricsSamplesLogic'
+import { metricsUsageTrackingLogic } from './metricsUsageTrackingLogic'
 import { metricsViewerLogic } from './metricsViewerLogic'
 
 function SampleAttributes({ sample }: { sample: _MetricEventSampleApi }): JSX.Element {
@@ -34,6 +38,11 @@ function SampleAttributes({ sample }: { sample: _MetricEventSampleApi }): JSX.El
 function SamplesTab(): JSX.Element {
     const { samples, samplesLoading } = useValues(metricsSamplesLogic)
     const { hasMetricName } = useValues(metricsViewerLogic)
+    const { sampleRowExpanded, tracePivotClicked } = useActions(metricsUsageTrackingLogic)
+    const tracingDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Tracing,
+        AccessControlLevel.Viewer
+    )
 
     return (
         <LemonTable
@@ -48,6 +57,7 @@ function SamplesTab(): JSX.Element {
             }
             expandable={{
                 expandedRowRender: (sample) => <SampleAttributes sample={sample} />,
+                onRowExpand: (sample) => sampleRowExpanded(sample),
             }}
             columns={[
                 {
@@ -75,7 +85,7 @@ function SamplesTab(): JSX.Element {
                     title: 'Trace',
                     key: 'trace',
                     render: (_, sample) =>
-                        sample.trace_id ? (
+                        sample.trace_id && !tracingDisabledReason ? (
                             <Tooltip title="Open the trace this emission was recorded in">
                                 <Link
                                     to={traceUrl({
@@ -84,9 +94,19 @@ function SamplesTab(): JSX.Element {
                                         ts: sample.timestamp,
                                     })}
                                     className="font-mono"
+                                    onClick={() => tracePivotClicked(sample)}
                                 >
-                                    {sample.trace_id.slice(0, 8).toLowerCase()}
+                                    {/* Link doesn't take data-attr; the span gives autocapture a named element. */}
+                                    <span data-attr="metrics-trace-pivot">
+                                        {sample.trace_id.slice(0, 8).toLowerCase()}
+                                    </span>
                                 </Link>
+                            </Tooltip>
+                        ) : sample.trace_id ? (
+                            <Tooltip title={tracingDisabledReason}>
+                                <span className="font-mono text-secondary cursor-not-allowed">
+                                    {sample.trace_id.slice(0, 8).toLowerCase()}
+                                </span>
                             </Tooltip>
                         ) : (
                             <span className="text-secondary">—</span>
@@ -149,16 +169,36 @@ function AggregatesTab(): JSX.Element {
 export function MetricsSamplesPanel(): JSX.Element {
     const { activeTab } = useValues(metricsSamplesLogic)
     const { setActiveTab } = useActions(metricsSamplesLogic)
+    const metricsViewerDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Metrics,
+        AccessControlLevel.Viewer
+    )
 
     return (
         <div className="border rounded p-2 overflow-y-auto">
             <LemonTabs<MetricsPanelTab>
                 size="small"
                 activeKey={activeTab}
-                onChange={setActiveTab}
+                onChange={(tab) => {
+                    if (!metricsViewerDisabledReason) {
+                        setActiveTab(tab)
+                    }
+                }}
                 tabs={[
-                    { key: 'aggregates', label: 'Aggregates', content: <AggregatesTab /> },
-                    { key: 'samples', label: 'Samples', content: <SamplesTab /> },
+                    {
+                        key: 'aggregates',
+                        label: 'Aggregates',
+                        content: <AggregatesTab />,
+                        'data-attr': 'metrics-samples-panel-tab-aggregates',
+                        disabledReason: metricsViewerDisabledReason ?? undefined,
+                    },
+                    {
+                        key: 'samples',
+                        label: 'Samples',
+                        content: <SamplesTab />,
+                        'data-attr': 'metrics-samples-panel-tab-samples',
+                        disabledReason: metricsViewerDisabledReason ?? undefined,
+                    },
                 ]}
             />
         </div>

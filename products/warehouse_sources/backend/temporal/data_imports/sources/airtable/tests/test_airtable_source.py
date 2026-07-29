@@ -8,7 +8,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.airtable.s
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.airtable.source import AirtableSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AirtableSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.airtable import (
+    AirtableSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -120,6 +122,8 @@ class TestAirtableSource:
         kwargs = mock_airtable_source.call_args.kwargs
         assert kwargs["personal_access_token"] == "pat-token"
         assert kwargs["endpoint"] == "records"
+        assert kwargs["team_id"] == inputs.team_id
+        assert kwargs["job_id"] == inputs.job_id
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2024-01-02T03:04:05.000Z"
 

@@ -6,7 +6,9 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ReplyIoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.replyio import (
+    ReplyIoSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.reply_io import ReplyIoResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.reply_io.source import ReplyIoSource

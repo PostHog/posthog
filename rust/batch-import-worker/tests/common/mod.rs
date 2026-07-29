@@ -5,6 +5,9 @@
 //! hence the crate-wide allow below.
 #![allow(dead_code)]
 
+pub mod harness;
+pub mod mock_export;
+
 use std::io::Write;
 
 use aws_config::BehaviorVersion;

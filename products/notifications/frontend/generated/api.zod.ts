@@ -9,6 +9,17 @@
  */
 import * as zod from 'zod'
 
+export const notificationsArchiveBulkCreateBodyNotificationIdsMax = 500
+
+export const NotificationsArchiveBulkCreateBody = /* @__PURE__ */ zod.object({
+    notification_ids: zod
+        .array(zod.uuid())
+        .max(notificationsArchiveBulkCreateBodyNotificationIdsMax)
+        .describe(
+            'UUIDs of notification events to mark in bulk (max 500). Events the user is not a recipient of are silently skipped.'
+        ),
+})
+
 export const notificationsMarkReadBulkCreateBodyNotificationIdsMax = 500
 
 export const NotificationsMarkReadBulkCreateBody = /* @__PURE__ */ zod.object({

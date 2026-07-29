@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconBolt, IconGear, IconSearch, IconSparkles, IconStar, IconTarget, IconX } from '@posthog/icons'
+import { IconBolt, IconDownload, IconGear, IconSearch, IconSparkles, IconStar, IconTarget, IconX } from '@posthog/icons'
 import { Badge, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
@@ -25,6 +25,8 @@ import { isWebAnalyticsAchievementsEnabled } from './achievements/gating'
 import { webAnalyticsAchievementsLogic } from './achievements/webAnalyticsAchievementsLogic'
 import { webAnalyticsAchievementsPreferencesLogic } from './achievements/webAnalyticsAchievementsPreferencesLogic'
 import { ProductTab, TILE_LABELS, TileId } from './common'
+import { shareNudgeLogic } from './shareNudgeLogic'
+import { exportAllTilesAsCsvZip } from './webAnalyticsExportUtils'
 
 const ANALYTICS_TILES = [
     TileId.OVERVIEW,
@@ -88,10 +90,18 @@ export function WebAnalyticsSceneMenuBar(): JSX.Element | null {
 }
 
 function WebAnalyticsSceneMenuBarInner(): JSX.Element {
-    const { hasSavedFocusMode, hiddenTiles, isFocusModeActive, productTab, shouldFilterTestAccounts, showFocusMode } =
-        useValues(webAnalyticsLogic)
+    const {
+        hasSavedFocusMode,
+        hiddenTiles,
+        isFocusModeActive,
+        productTab,
+        shouldFilterTestAccounts,
+        showFocusMode,
+        tiles,
+    } = useValues(webAnalyticsLogic)
     const { enterFocusMode, exitFocusMode, openFocusModeModal, setShouldFilterTestAccounts, setTileVisibility } =
         useActions(webAnalyticsLogic)
+    const { exportTriggered } = useActions(shareNudgeLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -155,6 +165,17 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
                         Weekly recap
                     </SceneMenuBarItem>
                 )}
+                <SceneMenuBarItem
+                    onClick={() => {
+                        if (exportAllTilesAsCsvZip(tiles)) {
+                            exportTriggered()
+                        }
+                    }}
+                    data-attr="web-analytics-menubar-export-all-csv"
+                >
+                    <IconDownload />
+                    Export all as CSV (.zip)
+                </SceneMenuBarItem>
                 <SceneMenuBarItem
                     onClick={() => window.location.assign(urls.sessionAttributionExplorer())}
                     data-attr="web-analytics-menubar-session-attribution"

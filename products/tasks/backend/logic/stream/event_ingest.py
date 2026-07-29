@@ -2,19 +2,21 @@ from __future__ import annotations
 
 import re
 import json
+import math
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import cast
+from uuid import NAMESPACE_URL, uuid5
 
 from django.conf import settings
 from django.db import InterfaceError, OperationalError, close_old_connections
 
 import structlog
-import posthoganalytics
 from asgiref.sync import sync_to_async
 from jwt import PyJWTError
 
-from products.tasks.backend.constants import STREAM_VIA_PROXY_FEATURE_FLAG
+from posthog.ph_client import ph_scoped_capture
+
 from products.tasks.backend.logic.services.connection_token import (
     SandboxEventIngestTokenPayload,
     validate_sandbox_event_ingest_token,
@@ -27,7 +29,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
     get_task_run_stream_key,
 )
 from products.tasks.backend.models import TaskRun
-from products.tasks.backend.push_dispatcher import notify_task_run_awaiting_input
+from products.tasks.backend.push_dispatcher import notify_task_run_turn_completed
 
 from ee.hogai.sandbox import is_turn_complete
 
@@ -41,6 +43,8 @@ MAX_EVENT_LINE_BYTES = 1_000_000
 MAX_REQUEST_BYTES = 5_000_000
 MAX_EVENTS_PER_REQUEST = 1_000
 STREAM_COMPLETE_CONTROL_TYPE = "_posthog/stream_complete"
+RTK_SAVINGS_SIDE_EFFECT = "rtk-savings"
+RTK_SAVINGS_CAPTURE_LOCK_SECONDS = 60
 
 ASGIMessage = dict[str, object]
 ASGIReceive = Callable[[], Awaitable[ASGIMessage]]
@@ -59,6 +63,10 @@ class EventIngestPayloadTooLarge(Exception):
     def __init__(self, message: str, last_accepted_seq: int = 0):
         super().__init__(message)
         self.last_accepted_seq = last_accepted_seq
+
+
+class EventIngestCaptureError(Exception):
+    pass
 
 
 class EventIngestHTTPError(Exception):
@@ -121,7 +129,7 @@ async def handle_task_run_event_ingest(scope: ASGIMessage, receive: ASGIReceive,
     try:
         result = await _ingest_event_lines(
             redis_stream,
-            claims.run_id,
+            claims,
             receive,
         )
     except ClientDisconnected:
@@ -132,6 +140,9 @@ async def handle_task_run_event_ingest(scope: ASGIMessage, receive: ASGIReceive,
         return True
     except EventIngestPayloadTooLarge as error:
         await _send_json(send, 413, {"error": str(error), "last_accepted_seq": error.last_accepted_seq})
+        return True
+    except EventIngestCaptureError:
+        await _send_json(send, 503, {"error": "Failed to capture RTK savings; retry the request"})
         return True
     except TaskRunStreamSequenceGap as error:
         await _send_json(send, 409, {"error": str(error), "last_accepted_seq": error.last_accepted_seq})
@@ -157,7 +168,7 @@ async def handle_task_run_event_ingest(scope: ASGIMessage, receive: ASGIReceive,
 
 async def _ingest_event_lines(
     redis_stream: TaskRunRedisStream,
-    run_id: str,
+    claims: SandboxEventIngestTokenPayload,
     receive: ASGIReceive,
 ) -> EventIngestResult:
     result = EventIngestResult(last_accepted_seq=await redis_stream.get_last_sequence())
@@ -182,7 +193,13 @@ async def _ingest_event_lines(
 
             sequence = parsed_line.sequence
             event = parsed_line.event
-            stream_id = await redis_stream.write_event_with_sequence(event, sequence)
+            rtk_savings_properties = _parse_rtk_savings_properties(claims, event)
+            stream_id = await redis_stream.write_event_with_sequence(
+                event,
+                sequence,
+                pending_side_effect=RTK_SAVINGS_SIDE_EFFECT if rtk_savings_properties is not None else None,
+            )
+            await _capture_rtk_savings_if_needed(redis_stream, claims, sequence, rtk_savings_properties)
             if stream_id is None:
                 result.duplicate += 1
                 result.last_accepted_seq = max(result.last_accepted_seq, await redis_stream.get_last_sequence())
@@ -190,7 +207,7 @@ async def _ingest_event_lines(
 
             result.accepted += 1
             result.last_accepted_seq = sequence
-            await _heartbeat_workflow_if_needed(redis_stream, run_id, event)
+            await _heartbeat_workflow_if_needed(redis_stream, claims.run_id, event)
     except EventIngestPayloadTooLarge as error:
         if result.last_accepted_seq and error.last_accepted_seq == 0:
             error.last_accepted_seq = result.last_accepted_seq
@@ -200,6 +217,83 @@ async def _ingest_event_lines(
         await redis_stream.mark_complete_after_sequence(completion_line_final_sequence)
 
     return result
+
+
+async def _capture_rtk_savings_if_needed(
+    redis_stream: TaskRunRedisStream,
+    claims: SandboxEventIngestTokenPayload,
+    sequence: int,
+    properties: dict[str, str | int] | None,
+) -> None:
+    if properties is None:
+        return
+    capture_claim = await redis_stream.claim_pending_side_effect(
+        RTK_SAVINGS_SIDE_EFFECT, sequence, RTK_SAVINGS_CAPTURE_LOCK_SECONDS
+    )
+    if capture_claim is None:
+        return
+    if not capture_claim:
+        return
+
+    try:
+        event_uuid = str(uuid5(NAMESPACE_URL, f"posthog-task-rtk-savings:{claims.run_id}:{sequence}"))
+        await sync_to_async(_capture_rtk_savings, thread_sensitive=False)(claims.team_id, event_uuid, properties)
+    except Exception as error:
+        await redis_stream.release_pending_side_effect(RTK_SAVINGS_SIDE_EFFECT, sequence)
+        logger.warning("task_run_rtk_savings_capture_failed", run_id=claims.run_id, exc_info=True)
+        raise EventIngestCaptureError from error
+    await redis_stream.complete_pending_side_effect(RTK_SAVINGS_SIDE_EFFECT, sequence)
+
+
+def _capture_rtk_savings(team_id: int, event_uuid: str, properties: dict[str, str | int]) -> None:
+    with ph_scoped_capture() as capture:
+        capture(
+            distinct_id=f"team_{team_id}",
+            event="rtk savings",
+            properties=properties,
+            uuid=event_uuid,
+        )
+
+
+def _parse_rtk_savings_properties(claims: SandboxEventIngestTokenPayload, event: dict) -> dict[str, str | int] | None:
+    notification = event.get("notification")
+    if not isinstance(notification, dict) or notification.get("method") != "_posthog/rtk_savings":
+        return None
+
+    params = notification.get("params")
+    if not isinstance(params, dict):
+        return None
+
+    counters: dict[str, int] = {}
+    for key in (
+        "cumulative_commands",
+        "cumulative_input_tokens",
+        "cumulative_output_tokens",
+        "cumulative_tokens_saved",
+    ):
+        value = params.get(key)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or (isinstance(value, float) and (not math.isfinite(value) or not value.is_integer()))
+            or value < 0
+        ):
+            return None
+        counters[key] = int(value)
+
+    properties: dict[str, str | int] = {
+        "team_id": claims.team_id,
+        "task_id": claims.task_id,
+        "run_id": claims.run_id,
+        "counter_id": claims.run_id,
+        **counters,
+    }
+    for key in ("runtime_adapter", "model"):
+        value = params.get(key)
+        if isinstance(value, str) and value:
+            properties[key] = value
+
+    return properties
 
 
 async def _iter_request_lines(receive: ASGIReceive) -> AsyncGenerator[str]:
@@ -278,7 +372,7 @@ def _parse_ingest_line(line: str) -> EventIngestEventLine | EventIngestCompleteL
 async def _heartbeat_workflow_if_needed(redis_stream: TaskRunRedisStream, run_id: str, event: dict) -> None:
     if is_turn_complete(event):
         await redis_stream.set_agent_active(False)
-        await _dispatch_awaiting_input_if_interactive(run_id)
+        await _dispatch_turn_completed_if_interactive(run_id)
         return
 
     if _is_session_update(event):
@@ -314,54 +408,24 @@ def _heartbeat_workflow(run_id: str, agent_active: bool) -> None:
     task_run.heartbeat_workflow(agent_active=agent_active)
 
 
-async def _dispatch_awaiting_input_if_interactive(run_id: str) -> None:
-    """Notify when an interactive run finishes a turn and idles for input."""
-    await sync_to_async(_dispatch_awaiting_input_if_interactive_sync, thread_sensitive=True)(run_id)
+async def _dispatch_turn_completed_if_interactive(run_id: str) -> None:
+    await sync_to_async(_dispatch_turn_completed_if_interactive_sync, thread_sensitive=True)(run_id)
 
 
-def _dispatch_awaiting_input_if_interactive_sync(run_id: str) -> None:
+def _dispatch_turn_completed_if_interactive_sync(run_id: str) -> None:
     if not settings.TEST:
         close_old_connections()
 
     try:
         task_run = TaskRun.objects.select_related("task__created_by", "team").get(id=run_id)
     except TaskRun.DoesNotExist:
-        logger.warning("task_run_event_ingest_awaiting_input_run_missing", run_id=run_id)
+        logger.warning("task_run_event_ingest_turn_completed_run_missing", run_id=run_id)
         return
 
     if task_run.mode != "interactive":
         return
 
-    if not _awaiting_input_push_enabled(task_run):
-        return
-
-    notify_task_run_awaiting_input(task_run)
-
-
-def _awaiting_input_push_enabled(task_run: TaskRun) -> bool:
-    """Awaiting-input pushes ship with the proxy-streaming rollout: gate them on the same flag
-    so deploying this code changes nothing until the rollout starts. Local dev disables the
-    analytics SDK, so the flag never evaluates there; DEBUG is the opt-in, mirroring the
-    stream_token endpoint. Fails closed on flag-evaluation errors."""
-    if settings.DEBUG:
-        return True
-    user = task_run.task.created_by
-    if user is None:
-        return False
-    organization_id = str(task_run.team.organization_id)
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                STREAM_VIA_PROXY_FEATURE_FLAG,
-                user.distinct_id or f"user_{user.id}",
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        return False
+    notify_task_run_turn_completed(task_run)
 
 
 def _is_session_update(event: dict) -> bool:

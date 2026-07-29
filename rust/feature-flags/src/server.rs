@@ -217,13 +217,27 @@ pub async fn serve(
     let cohort_membership_provider: Arc<dyn CohortMembershipProvider> =
         if config.realtime_cohort_evaluation_team_ids != TeamIdCollection::None {
             if let Some(pool) = database_pools.behavioral_cohorts_reader.clone() {
-                let realtime = RealtimeCohortMembershipProvider::new(pool);
+                tracing::info!(
+                    cache_ttl_seconds = config.cohort_membership_cache_ttl_seconds,
+                    cache_max_entries = config.cohort_membership_cache_max_entries,
+                    lookup_timeout_ms = config.realtime_cohort_lookup_timeout_ms,
+                    "Realtime cohort evaluation enabled with behavioral cohorts DB"
+                );
+                let realtime = RealtimeCohortMembershipProvider::with_lookup_timeout(
+                    pool,
+                    Duration::from_millis(config.realtime_cohort_lookup_timeout_ms),
+                );
                 Arc::new(CachedCohortMembershipProvider::new(
                     realtime,
                     Some(config.cohort_membership_cache_ttl_seconds),
                     Some(config.cohort_membership_cache_max_entries),
                 ))
             } else {
+                tracing::warn!(
+                    "REALTIME_COHORT_EVALUATION_TEAM_IDS is set but \
+                     BEHAVIORAL_COHORTS_READ_DATABASE_URL is not configured; realtime \
+                     cohort lookups will treat everyone as a non-member"
+                );
                 Arc::new(NoOpCohortMembershipProvider)
             }
         } else {

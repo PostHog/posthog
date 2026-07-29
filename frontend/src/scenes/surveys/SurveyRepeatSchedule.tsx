@@ -5,12 +5,13 @@ import { useActions, useValues } from 'kea'
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonInput, LemonSnack, Link } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { pluralize } from 'lib/utils/strings'
 import { LinkToSurveyFormSection } from 'scenes/surveys/components/LinkToSurveyFormSection'
 import { SURVEY_FORM_INPUT_IDS } from 'scenes/surveys/constants'
-import { doesSurveyRepeatOnEveryEvent } from 'scenes/surveys/utils'
+import { doesSurveyRepeatOnEveryEvent, getRecurringSurveyScheduleInfo } from 'scenes/surveys/utils'
 
 import { Survey, SurveySchedule, SurveyType } from '~/types'
 
@@ -85,6 +86,45 @@ function AlwaysScheduleBanner({
                 <Link onClick={handleWaitPeriodClick}>adding a wait period</Link>
                 &nbsp;or changing its frequency.
             </p>
+        </LemonBanner>
+    )
+}
+
+function SurveyAutoCloseHelper({
+    survey,
+}: {
+    survey: Pick<Survey, 'iteration_count' | 'iteration_frequency_days' | 'start_date' | 'end_date'>
+}): JSX.Element | null {
+    const scheduleInfo = getRecurringSurveyScheduleInfo(survey)
+
+    if (!scheduleInfo) {
+        return null
+    }
+
+    const { autoCloseDate, totalDurationDays } = scheduleInfo
+    const hasCloseDatePassed = autoCloseDate?.isBefore(dayjs()) ?? false
+
+    return (
+        <LemonBanner type={hasCloseDatePassed ? 'warning' : 'info'} className="text-xs">
+            {!autoCloseDate ? (
+                <span>
+                    Once launched, this survey will run for{' '}
+                    <span className="font-semibold">{pluralize(totalDurationDays, 'day')}</span> before it automatically
+                    closes.
+                </span>
+            ) : hasCloseDatePassed ? (
+                <span>
+                    This survey's schedule ended on{' '}
+                    <span className="font-semibold">{autoCloseDate.format('MMMM D, YYYY')}</span>, so it will close
+                    automatically soon.
+                </span>
+            ) : (
+                <span>
+                    This survey will automatically close on{' '}
+                    <span className="font-semibold">{autoCloseDate.format('MMMM D, YYYY')}</span>, after its last
+                    repeat.
+                </span>
+            )}
         </LemonBanner>
     )
 }
@@ -179,6 +219,7 @@ function SurveyIterationOptions(): JSX.Element {
                                                 : `This survey runs for ${survey.iteration_count} iterations of ${pluralize(survey.iteration_frequency_days, 'day')} each, counted from the launch date. Each user can respond once per iteration.`}
                                         </div>
                                     )}
+                                    <SurveyAutoCloseHelper survey={survey} />
                                 </div>
                             ) : undefined,
                         },

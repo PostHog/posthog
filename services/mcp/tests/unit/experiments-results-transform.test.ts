@@ -88,7 +88,7 @@ describe('transformExperimentResults', () => {
         })
     })
 
-    it('reads variants from the linked flag, not the deprecated parameters projection', () => {
+    it('reads variants from the linked flag', () => {
         const experiment = makeExperiment({
             feature_flag: {
                 id: 9,
@@ -97,8 +97,6 @@ describe('transformExperimentResults', () => {
                 active: true,
                 filters: { multivariate: { variants: [{ key: 'control' }, { key: 'test' }] } },
             },
-            // Stale projection echo: must be ignored now that the flag is the source of truth.
-            parameters: { feature_flag_variants: [{ key: 'old-control' }] },
         })
 
         const result = transformExperimentResults({

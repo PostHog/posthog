@@ -12,7 +12,6 @@ import {
     MouseEvent as ReactMouseEvent,
     ReactNode,
     Suspense,
-    lazy,
     useCallback,
     useEffect,
     useId,
@@ -27,9 +26,12 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { downloadFile } from 'lib/utils/dom'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 // Monaco is heavy, so the markdown source editor only loads when the source drawer opens.
-const LazyCodeEditor = lazy(() => import('lib/monaco/CodeEditor').then((module) => ({ default: module.CodeEditor })))
+const LazyCodeEditor = lazyWithRetry(() =>
+    import('lib/monaco/CodeEditor').then((module) => ({ default: module.CodeEditor }))
+)
 
 import { mergeNotebookMarkdownChanges } from './collaboration'
 import {
@@ -74,6 +76,7 @@ import {
     setsEqual,
     textBlocksShareContinuationStyle,
     updateNotebookCodeBlockText,
+    withoutLeadingEmptyTitleGroup,
     writeSystemClipboardText,
 } from './documentModel'
 import {
@@ -176,6 +179,7 @@ import {
     makeEmptyParagraph,
     makeListItemId,
     parseMarkdownNotebook,
+    sanitizeNotebookLinkHref,
     serializeMarkdownNotebook,
 } from './markdown'
 import { NOTEBOOK_AI_WRITING_PLACEHOLDER } from './notebookAI'
@@ -289,6 +293,10 @@ type CommitDocumentOptions = {
     /** Set when the commit applies a remote merge: the notebook version being merged in.
      * Remote caret pings already at this version reflect the change and must not be remapped. */
     remoteMergeVersion?: number
+    /** Structural edits (e.g. a Tab indent) look like text edits to the differ, so they would
+     * otherwise fold into an adjacent typing run and stop being independently undoable. Pass
+     * false to force a discrete undo step. */
+    coalesce?: boolean
 }
 
 type RemoteCaretAnchor = {
@@ -316,6 +324,11 @@ type NotebookHistoryState = {
 }
 
 /** Consecutive single-block edits within this window fold into one undo step. */
+// The editable surfaces whose links are pointer-inert while editing (see MarkdownNotebook.scss);
+// only these get the modifier-click open behavior, everything else keeps native navigation
+const POINTER_INERT_LINK_CONTAINER_SELECTOR =
+    '.MarkdownNotebook__text-block[contenteditable="true"], .MarkdownNotebook__list-block[contenteditable="true"], .MarkdownNotebook__table-cell-content[contenteditable="true"]'
+
 const UNDO_TYPING_GROUP_MS = 1000
 
 /** How many recent local serializations to remember for save-echo detection. Must comfortably
@@ -1089,7 +1102,8 @@ function MarkdownNotebookEditor({
         (
             previousDocument: NotebookDocument,
             nextDocument: NotebookDocument,
-            historyOperations?: NotebookOperation[]
+            historyOperations?: NotebookOperation[],
+            coalesce: boolean = true
         ): void => {
             const inverseOps = historyOperations ?? diffNotebookDocuments(nextDocument, previousDocument)
             if (!inverseOps.length) {
@@ -1098,8 +1112,10 @@ function MarkdownNotebookEditor({
 
             const now = Date.now()
             const onlyOp = inverseOps.length === 1 ? inverseOps[0] : null
+            // A non-coalescing entry stays its own undo step: it never folds into the previous
+            // entry, and a null coalesceNodeId keeps the next typing run from folding into it.
             const coalesceNodeId =
-                onlyOp && (onlyOp.type === 'text' || onlyOp.type === 'replace_block') ? onlyOp.nodeId : null
+                coalesce && onlyOp && (onlyOp.type === 'text' || onlyOp.type === 'replace_block') ? onlyOp.nodeId : null
             const lastEntry = historyRef.current.undo[historyRef.current.undo.length - 1]
             if (
                 coalesceNodeId &&
@@ -1144,7 +1160,12 @@ function MarkdownNotebookEditor({
             const editableDocument = ensureEditableNotebookDocument(nextDocument)
             const previousDocument = documentRef.current
             if (options.addToHistory ?? true) {
-                pushHistoryEntry(previousDocument, editableDocument, options.historyOperations)
+                pushHistoryEntry(
+                    previousDocument,
+                    editableDocument,
+                    options.historyOperations,
+                    options.coalesce ?? true
+                )
             }
             // Rendered remote carets ride along with the text they sit in.
             mapRemoteCaretAnchors(previousDocument, editableDocument, options.remoteMergeVersion)
@@ -1793,12 +1814,17 @@ function MarkdownNotebookEditor({
                 start: offset,
                 end: offset,
             }
-            commitDocument({
-                ...currentDocument,
-                nodes: nodes.map((currentNode) =>
-                    currentNode.id === node.id ? { ...node, items: nextItems } : currentNode
-                ),
-            })
+            commitDocument(
+                {
+                    ...currentDocument,
+                    nodes: nodes.map((currentNode) =>
+                        currentNode.id === node.id ? { ...node, items: nextItems } : currentNode
+                    ),
+                },
+                // A Tab indent must be its own undo step, not folded into the typing run that
+                // preceded it — otherwise Cmd+Z can't undo just the accidental indent.
+                { coalesce: false }
+            )
             return true
         },
         [commitDocument]
@@ -3933,9 +3959,53 @@ function MarkdownNotebookEditor({
         }, 0)
     }
 
+    // Links in editable blocks are pointer-inert so plain clicks place the caret; holding
+    // Cmd/Ctrl re-enables them (see MarkdownNotebook.scss) so they can be opened, matching
+    // the TipTap editor's link mark behavior.
+    useEffect(() => {
+        if (mode !== 'edit') {
+            return
+        }
+
+        const setLinkModifierHeld = (isHeld: boolean): void => {
+            notebookRef.current?.classList.toggle('MarkdownNotebook--link-modifier-held', isHeld)
+        }
+        const handleModifierKeyChange = (event: globalThis.KeyboardEvent): void =>
+            setLinkModifierHeld(event.metaKey || event.ctrlKey)
+        const resetLinkModifier = (): void => setLinkModifierHeld(false)
+
+        window.addEventListener('keydown', handleModifierKeyChange)
+        window.addEventListener('keyup', handleModifierKeyChange)
+        window.addEventListener('blur', resetLinkModifier)
+        return () => {
+            window.removeEventListener('keydown', handleModifierKeyChange)
+            window.removeEventListener('keyup', handleModifierKeyChange)
+            window.removeEventListener('blur', resetLinkModifier)
+            resetLinkModifier()
+        }
+    }, [mode])
+
     const handleCanvasClick = (event: ReactMouseEvent<HTMLDivElement>): void => {
-        const refElement = event.target instanceof Element ? event.target.closest('[data-notebook-ref]') : null
-        const refId = refElement?.getAttribute('data-notebook-ref')
+        if (!(event.target instanceof Element)) {
+            return
+        }
+
+        const linkElement = event.target.closest('a[href]')
+        if (linkElement && linkElement.closest(POINTER_INERT_LINK_CONTAINER_SELECTOR)) {
+            if (event.metaKey || event.ctrlKey) {
+                const href = sanitizeNotebookLinkHref(linkElement.getAttribute('href') ?? '')
+                if (href) {
+                    event.preventDefault()
+                    window.open(href, '_blank', 'noopener')
+                    return
+                }
+            } else {
+                // While editing, a plain click only places the caret, never navigates
+                event.preventDefault()
+            }
+        }
+
+        const refId = event.target.closest('[data-notebook-ref]')?.getAttribute('data-notebook-ref')
         if (refId) {
             focusDiscussionCommentForRef(refId)
         }
@@ -5546,10 +5616,11 @@ function MarkdownNotebookEditor({
         canvasRef.current?.focus()
     }
 
-    const renderedNodeGroups = getMarkdownNotebookVisualGroups(
+    const allNodeGroups = getMarkdownNotebookVisualGroups(
         renderedNodes,
         insertMenu?.detached ? insertMenu.nodeId : undefined
     )
+    const renderedNodeGroups = mode === 'edit' ? allNodeGroups : withoutLeadingEmptyTitleGroup(allNodeGroups)
 
     // The insert menu never takes focus (typing keeps filtering), so the canvas points at the
     // selected option via aria-activedescendant.

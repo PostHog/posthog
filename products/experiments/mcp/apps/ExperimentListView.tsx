@@ -76,9 +76,7 @@ export function ExperimentListView({ data, onExperimentClick }: ExperimentListVi
                                     {variants.map((v) => (
                                         <Badge key={v.key} variant={v.key === 'control' ? 'default' : 'info'}>
                                             {v.key}
-                                            {(v.split_percent ?? v.rollout_percentage) != null
-                                                ? `: ${v.split_percent ?? v.rollout_percentage}%`
-                                                : ''}
+                                            {v.rollout_percentage != null ? `: ${v.rollout_percentage}%` : ''}
                                         </Badge>
                                     ))}
                                 </div>

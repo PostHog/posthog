@@ -205,10 +205,7 @@ function VerifiedDomainsTable(): JSX.Element {
         {
             key: 'integrations',
             title: 'Integrations',
-            render: function Integrations(
-                _,
-                { has_saml, saml_acs_url, saml_entity_id, saml_x509_cert, scim_enabled, has_id_jag }
-            ) {
+            render: function Integrations(_, { has_saml, has_scim, has_id_jag }) {
                 const billingLink = urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])
                 const badges: JSX.Element[] = []
 
@@ -231,16 +228,6 @@ function VerifiedDomainsTable(): JSX.Element {
                             type="success"
                             icon={SAML_ICON}
                             tooltip="SAML is enabled"
-                        />
-                    )
-                } else if (saml_acs_url || saml_entity_id || saml_x509_cert) {
-                    badges.push(
-                        <IntegrationBadge
-                            key="saml"
-                            label="SAML"
-                            type="warning"
-                            icon={SAML_ICON}
-                            tooltip="SAML is partially configured"
                         />
                     )
                 } else {
@@ -266,7 +253,7 @@ function VerifiedDomainsTable(): JSX.Element {
                             to={billingLink}
                         />
                     )
-                } else if (scim_enabled) {
+                } else if (has_scim) {
                     badges.push(
                         <IntegrationBadge
                             key="scim"

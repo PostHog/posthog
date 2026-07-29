@@ -20,6 +20,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
+from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 
 from products.metrics.backend.facade.api import (
@@ -33,12 +34,13 @@ from products.metrics.backend.facade.api import (
 )
 from products.metrics.backend.facade.contracts import (
     MAX_CLAUSES_PER_QUERY,
+    METRICS_FEATURE_FLAG,
     MetricFilter,
     MetricGroupBy,
     MetricQueryClause,
     MetricQueryRequest,
 )
-from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation
+from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation, MetricType
 
 __all__ = ["MetricsViewSet"]
 
@@ -86,6 +88,12 @@ class _MetricClauseSerializer(serializers.Serializer):
         max_length=255,
         help_text="Exact metric name this clause queries.",
     )
+    metricType = serializers.ChoiceField(
+        choices=[t.value for t in MetricType],
+        required=False,
+        allow_null=True,
+        help_text="Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.",
+    )
     aggregation = serializers.ChoiceField(
         choices=["sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"],
         default="sum",
@@ -117,6 +125,12 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         max_length=255,
         required=False,
         help_text="Exact metric name to query (e.g. 'http.server.duration'). Single-clause shorthand — mutually exclusive with 'clauses'.",
+    )
+    metricType = serializers.ChoiceField(
+        choices=[t.value for t in MetricType],
+        required=False,
+        allow_null=True,
+        help_text="Constrain the query to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, rows of every type sharing the name are blended into one aggregate. Get the type from 'metric-names-list'.",
     )
     aggregation = serializers.ChoiceField(
         choices=["sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"],
@@ -176,6 +190,10 @@ class _MetricQueryBodySerializer(serializers.Serializer):
             raise serializers.ValidationError("Provide exactly one of 'metricName' or 'clauses'.")
         if attrs.get("formula") and not has_clauses:
             raise serializers.ValidationError("'formula' requires 'clauses'.")
+        if has_clauses and attrs.get("metricType"):
+            raise serializers.ValidationError(
+                "'metricType' applies to the single-clause shorthand; set it per clause instead."
+            )
         return attrs
 
 
@@ -196,11 +214,13 @@ def _build_clause(data: dict, *, name: str) -> MetricQueryClause:
     else:
         aggregation = MetricAggregation(aggregation_raw)
 
+    metric_type_raw = data.get("metricType")
     return MetricQueryClause(
         name=name,
         metric_name=data["metricName"],
         aggregation=aggregation,
         quantile=quantile,
+        metric_type=MetricType(metric_type_raw) if metric_type_raw else None,
         filters=tuple(
             MetricFilter(key=f["key"], op=FilterOp(f["op"]), value=f["value"], scope=AttributeScope(f["scope"]))
             for f in data.get("filters") or []
@@ -531,6 +551,11 @@ class _MetricSamplesResponseSerializer(serializers.Serializer):
 class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "metrics"
     serializer_class = _FallbackSerializer
+    # Metrics is in private alpha: gate the API behind the `metrics` flag so only
+    # PostHog and directly-added teams can reach it. Added to the mixin's default
+    # permissions (team/org/access-control), not replacing them.
+    posthog_feature_flag = METRICS_FEATURE_FLAG
+    permission_classes = [PostHogFeatureFlagPermission]
 
     @extend_schema(responses={200: _HasMetricsResponseSerializer})
     @action(detail=False, methods=["GET"], required_scopes=["metrics:read"])

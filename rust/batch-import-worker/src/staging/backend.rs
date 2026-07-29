@@ -98,6 +98,16 @@ pub trait StagingBackend: Send + Sync {
         Ok(())
     }
 
+    /// Move the job's staged objects aside for post-mortem instead of deleting
+    /// them, called when a job pauses on a data error. The moved objects must
+    /// never be attachable by a resume (`size`/`read` must not see them) but
+    /// must still be reclaimed by [`cleanup_job`](Self::cleanup_job) and by
+    /// whatever retention backstop the backend has. Backends without a place
+    /// to keep evidence fall back to deletion.
+    async fn quarantine_job(&self) -> Result<(), Error> {
+        self.cleanup_job().await
+    }
+
     /// Consume the decompressed plaintext for `key` and persist it, returning the total
     /// byte size. Must be atomic: on error, no readable staging is left behind.
     async fn stage_part(&self, key: &str, plaintext: PlaintextStream) -> Result<u64, Error>;

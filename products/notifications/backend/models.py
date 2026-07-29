@@ -50,3 +50,26 @@ class NotificationReadState(UUIDModel):
                 name="unique_read_state_per_user",
             ),
         ]
+
+
+class NotificationArchiveState(UUIDModel):
+    notification_event = models.ForeignKey(
+        NotificationEvent,
+        on_delete=models.CASCADE,
+        related_name="archive_states",
+    )
+    user = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.CASCADE,
+        db_constraint=False,
+        related_name="notification_archive_states",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["notification_event", "user"],
+                name="unique_archive_state_per_user",
+            ),
+        ]

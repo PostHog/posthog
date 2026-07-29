@@ -218,6 +218,52 @@ pub struct Config {
     #[envconfig(default = "cohort-stream-cascade")]
     pub kafka_cascade_consumer_group: String,
 
+    /// Consume `cohort_stream_seed_events` and apply backfill day-tiles. Default off.
+    #[envconfig(from = "COHORT_SEED_CONSUMER_ENABLED", default = "false")]
+    pub cohort_seed_consumer_enabled: bool,
+
+    /// The backfill seed-tile topic; must be co-partitioned with `cohort_stream_events`.
+    #[envconfig(default = "cohort_stream_seed_events")]
+    pub cohort_stream_seed_events_topic: String,
+
+    /// Group for the seed follower — separate so backfill lag age is observable on its own.
+    #[envconfig(default = "cohort-stream-seeds")]
+    pub kafka_seed_consumer_group: String,
+
+    /// Apply-fence margin (ms) over `s_chunk`: covers shuffler clock skew, lag spread, and
+    /// producer linger.
+    #[envconfig(from = "COHORT_SEED_FENCE_MARGIN_MS", default = "600000")]
+    pub cohort_seed_fence_margin_ms: i64,
+
+    /// How often the seed consumer probes idle live partitions so a quiet partition's fence can
+    /// still open.
+    #[envconfig(
+        from = "COHORT_SEED_WATERMARK_IDLE_PROBE_INTERVAL_MS",
+        default = "30000"
+    )]
+    pub cohort_seed_watermark_idle_probe_interval_ms: u64,
+
+    /// Permit cross-partition membership-register transfer. Local register writers and transfer
+    /// receivers are always active; only drain-side emission is gated. Enable only after every
+    /// processor pod can apply the additive transfer payload. While off, a cross-partition merge ships
+    /// leaves only and never holds, so it cannot wedge live merge consumption.
+    #[envconfig(from = "COHORT_REGISTER_TRANSFER_ENABLED", default = "false")]
+    pub cohort_register_transfer_enabled: bool,
+
+    /// Admit and drain reconcile controls. Default off; enable only once every downstream consumer
+    /// tolerates completion markers. Register transfer is gated separately by
+    /// `COHORT_REGISTER_TRANSFER_ENABLED`.
+    #[envconfig(from = "COHORT_SEED_RECONCILE_ENABLED", default = "false")]
+    pub cohort_seed_reconcile_enabled: bool,
+
+    /// Maximum Stage 2 rows one partition worker evaluates per reconcile tick.
+    #[envconfig(from = "COHORT_SEED_RECONCILE_SCAN_PAGE", default = "256")]
+    pub cohort_seed_reconcile_scan_page: usize,
+
+    /// Cadence for routing one bounded reconcile-drain tick to each active partition worker.
+    #[envconfig(from = "COHORT_SEED_RECONCILE_TICK_INTERVAL_MS", default = "2000")]
+    pub cohort_seed_reconcile_tick_interval_ms: u64,
+
     /// Stable per-pod identity for `group.instance.id` + `client.id`, enabling static membership.
     /// Read from `POD_NAME`, else `HOSTNAME`. Absent means no static membership.
     #[envconfig(from = "POD_NAME")]
@@ -567,6 +613,16 @@ impl Config {
         Duration::from_millis(self.merge_gc_interval_ms)
     }
 
+    pub fn seed_idle_probe_interval(&self) -> Duration {
+        // Floor at 1s: `tokio::time::interval` panics on a zero period.
+        Duration::from_millis(self.cohort_seed_watermark_idle_probe_interval_ms)
+            .max(Duration::from_secs(1))
+    }
+
+    pub fn reconcile_tick_interval(&self) -> Duration {
+        Duration::from_millis(self.cohort_seed_reconcile_tick_interval_ms)
+    }
+
     pub fn checkpoint_interval(&self) -> Duration {
         Duration::from_millis(self.checkpoint_interval_ms)
     }
@@ -605,11 +661,29 @@ impl Config {
     /// Refuse unsafe durability startup combinations. Pure (no I/O), so unit-testable without a broker.
     ///
     /// Guards:
+    /// - Reconcile scan and tick limits must be non-zero; a zero page would falsely certify an
+    ///   unscanned snapshot, while Tokio rejects a zero timer interval.
     /// - `checkpoint_enabled` requires `durable_restore_enabled`: without it the restored DB is wiped
     ///   on open, silently discarding the restore.
     /// - `durable_restore_enabled` + `cohort_cascade_enabled` requires `durable_restore_single_pod`
     ///   and a pod identity: `pod_identity()` alone is not a single-pod signal (set on every k8s pod).
     pub fn validate_durability_startup(&self) -> anyhow::Result<()> {
+        ensure!(
+            self.cohort_seed_reconcile_scan_page > 0,
+            "COHORT_SEED_RECONCILE_SCAN_PAGE must be greater than zero.",
+        );
+        ensure!(
+            self.cohort_seed_reconcile_tick_interval_ms > 0,
+            "COHORT_SEED_RECONCILE_TICK_INTERVAL_MS must be greater than zero.",
+        );
+
+        if self.cohort_seed_reconcile_enabled && !self.cohort_seed_consumer_enabled {
+            warn!(
+                "COHORT_SEED_RECONCILE_ENABLED without COHORT_SEED_CONSUMER_ENABLED: no reconcile \
+                 controls can be consumed; enable the seed consumer or turn reconcile off.",
+            );
+        }
+
         ensure!(
             !self.checkpoint_enabled || self.durable_restore_enabled,
             "CHECKPOINT_ENABLED requires DURABLE_RESTORE_ENABLED: restoring a checkpoint without \
@@ -634,6 +708,16 @@ impl Config {
                  F3-on-revoke and the post-join↔delete REVOKE race are NOT covered (single-pod \
                  membership sidesteps them); merge column-family *content* resume after an S3 restore \
                  is validated only on this shadow, NOT production multi-pod merge durability.",
+            );
+        }
+
+        // Not a refusal (dev runs with durability off), but a crash then loses applied tiles
+        // that never replay.
+        if self.cohort_seed_consumer_enabled && !self.durable_restore_enabled {
+            warn!(
+                "COHORT_SEED_CONSUMER_ENABLED without DURABLE_RESTORE_ENABLED: a committed seed \
+                 offset does not imply a durably applied tile across restarts; do not stamp \
+                 backfill readiness against this deployment.",
             );
         }
 
@@ -804,6 +888,8 @@ impl Config {
             kafka_producer_topic_metadata_refresh_interval_ms: None,
             kafka_producer_message_max_bytes: None,
             kafka_producer_sticky_partitioning_linger_ms: None,
+            kafka_producer_acks: None,
+            kafka_producer_retries: None,
         }
     }
 
@@ -919,6 +1005,15 @@ mod tests {
             checkpoint_import_window_hours: 24,
             checkpoint_import_attempt_depth: 10,
             checkpoint_import_timeout_secs: 240,
+            cohort_seed_consumer_enabled: false,
+            cohort_stream_seed_events_topic: "cohort_stream_seed_events".to_string(),
+            kafka_seed_consumer_group: "cohort-stream-seeds".to_string(),
+            cohort_seed_fence_margin_ms: 600_000,
+            cohort_seed_watermark_idle_probe_interval_ms: 30_000,
+            cohort_register_transfer_enabled: false,
+            cohort_seed_reconcile_enabled: false,
+            cohort_seed_reconcile_scan_page: 256,
+            cohort_seed_reconcile_tick_interval_ms: 2_000,
         }
     }
 
@@ -933,6 +1028,58 @@ mod tests {
             config.filter_catalog_refresh_jitter(),
             Duration::from_secs(60)
         );
+    }
+
+    #[test]
+    fn reconcile_knobs_default_dark_and_override_from_env() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert!(!defaults.cohort_seed_reconcile_enabled);
+        assert_eq!(defaults.cohort_seed_reconcile_scan_page, 256);
+        assert_eq!(
+            defaults.reconcile_tick_interval(),
+            Duration::from_millis(2_000)
+        );
+
+        let env: std::collections::HashMap<String, String> = [
+            ("COHORT_SEED_RECONCILE_ENABLED", "true"),
+            ("COHORT_SEED_RECONCILE_SCAN_PAGE", "17"),
+            ("COHORT_SEED_RECONCILE_TICK_INTERVAL_MS", "345"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert!(config.cohort_seed_reconcile_enabled);
+        assert_eq!(config.cohort_seed_reconcile_scan_page, 17);
+        assert_eq!(config.reconcile_tick_interval(), Duration::from_millis(345));
+    }
+
+    #[test]
+    fn reconcile_startup_validation_rejects_zero_work_limits() {
+        let mut config = test_config();
+        config.cohort_seed_reconcile_scan_page = 0;
+        assert!(config
+            .validate_durability_startup()
+            .unwrap_err()
+            .to_string()
+            .contains("COHORT_SEED_RECONCILE_SCAN_PAGE"),);
+
+        config.cohort_seed_reconcile_scan_page = 1;
+        config.cohort_seed_reconcile_tick_interval_ms = 0;
+        assert!(config
+            .validate_durability_startup()
+            .unwrap_err()
+            .to_string()
+            .contains("COHORT_SEED_RECONCILE_TICK_INTERVAL_MS"),);
+    }
+
+    #[test]
+    fn reconcile_without_the_seed_consumer_warns_but_starts() {
+        let mut config = test_config();
+        config.cohort_seed_reconcile_enabled = true;
+        config.cohort_seed_consumer_enabled = false;
+
+        assert!(config.validate_durability_startup().is_ok());
     }
 
     #[test]
@@ -1068,6 +1215,22 @@ mod tests {
         assert!(config.store_config().wipe_on_start);
         config.wipe_store_on_start = false;
         assert!(!config.store_config().wipe_on_start);
+    }
+
+    #[test]
+    fn register_transfer_gate_defaults_dark_and_overrides_from_env() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert!(
+            !defaults.cohort_register_transfer_enabled,
+            "register transfer must stay off until the whole fleet can apply the payload",
+        );
+
+        let enabled = Config::init_from_hashmap(&std::collections::HashMap::from([(
+            "COHORT_REGISTER_TRANSFER_ENABLED".to_owned(),
+            "true".to_owned(),
+        )]))
+        .unwrap();
+        assert!(enabled.cohort_register_transfer_enabled);
     }
 
     #[test]

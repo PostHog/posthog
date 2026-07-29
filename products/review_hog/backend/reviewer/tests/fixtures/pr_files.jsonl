@@ -1,0 +1,6 @@
+{"filename":"src/core/processor.py","status":"modified","additions":45,"deletions":3,"changes":[],"is_test":false}
+{"filename":"src/core/config.py","status":"added","additions":120,"deletions":0,"changes":[],"is_test":false}
+{"filename":"src/core/__init__.py","status":"added","additions":0,"deletions":0,"changes":[],"is_test":false}
+{"filename":"src/utils/helpers.py","status":"added","additions":87,"deletions":0,"changes":[],"is_test":false}
+{"filename":"tests/test_processor.py","status":"added","additions":156,"deletions":0,"changes":[],"is_test":true}
+{"filename":"README.md","status":"modified","additions":25,"deletions":5,"changes":[],"is_test":false}

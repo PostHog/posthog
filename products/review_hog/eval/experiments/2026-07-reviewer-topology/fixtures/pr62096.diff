@@ -1,0 +1,502 @@
+
+ee/hogai/chat_agent/toolkit.py
+  @@ -21,8 +21,12 @@
+  +    CreateActionTool,
+       CreateFormTool,
+       CreateNotebookTool,
+  +    DeleteActionTool,
+  +    GetActionTool,
+  +    ListActionsTool,
+       ListDataTool,
+       ListFeatureFlagsTool,
+       ManageMemoriesTool,
+  @@ -32,6 +36,7 @@
+  +    UpdateActionTool,
+   )
+   from ee.hogai.tools.call_mcp_server.tool import CallMCPServerTool
+   from ee.hogai.tools.finalize_plan.tool import FinalizePlanTool
+  @@ -50,6 +55,11 @@
+  +    ListActionsTool,
+  +    GetActionTool,
+  +    CreateActionTool,
+  +    UpdateActionTool,
+  +    DeleteActionTool,
+       TodoWriteTool,
+       SwitchModeTool,
+       CreateFormTool,
+  +10 -0
+
+ee/hogai/tools/__init__.py
+  @@ -7,6 +7,11 @@
+  +    "ListActionsTool": ".actions",
+  +    "GetActionTool": ".actions",
+  +    "CreateActionTool": ".actions",
+  +    "UpdateActionTool": ".actions",
+  +    "DeleteActionTool": ".actions",
+       "CallMCPServerTool": ".call_mcp_server.tool",
+       "CreateFormTool": ".create_form",
+       "CreateInsightTool": ".create_insight",
+  @@ -28,6 +33,11 @@
+  +    "ListActionsTool",
+  +    "GetActionTool",
+  +    "CreateActionTool",
+  +    "UpdateActionTool",
+  +    "DeleteActionTool",
+       "CallMCPServerTool",
+       "CreateFormTool",
+       "ManageMemoriesTool",
+  @@ -65,6 +75,13 @@ def __getattr__(name: str) -> Any:
+  +    from .actions import (
+  +        CreateActionTool as CreateActionTool,
+  +        DeleteActionTool as DeleteActionTool,
+  +        GetActionTool as GetActionTool,
+  +        ListActionsTool as ListActionsTool,
+  +        UpdateActionTool as UpdateActionTool,
+  +    )
+       from .call_mcp_server.tool import CallMCPServerTool as CallMCPServerTool
+       from .create_form import CreateFormTool as CreateFormTool
+       from .create_insight import CreateInsightTool as CreateInsightTool
+  +17 -0
+
+ee/hogai/tools/actions/__init__.py
+  @@ -0,0 +1,9 @@
+  +from .tool import CreateActionTool, DeleteActionTool, GetActionTool, ListActionsTool, UpdateActionTool
+  +
+  +__all__ = [
+  +    "ListActionsTool",
+  +    "GetActionTool",
+  +    "CreateActionTool",
+  +    "UpdateActionTool",
+  +    "DeleteActionTool",
+  +]
+  +9 -0
+
+ee/hogai/tools/actions/core.py
+  @@ -0,0 +1,233 @@
+  +from collections.abc import Iterator
+  +from contextlib import contextmanager
+  +from typing import Optional
+  +
+  +from pydantic import BaseModel, Field
+  +
+  +from posthog.models import Team, User
+  +from posthog.models.activity_logging.utils import activity_storage
+  +from posthog.resource_limits import LimitKey, check_count_limit
+  +
+  +from products.actions.backend.models.action import Action, ActionStepJSON, ActionStepMatching
+  +
+  +# Cap how many actions a single list call can return, so the tool can never blow up
+  +# the agent's context window the way the unbounded REST default could.
+  +MAX_LIST_LIMIT = 100
+  +DEFAULT_LIST_LIMIT = 25
+  +
+  +# Fields an action step accepts. Anything else passed by the LLM is dropped before
+  +# it reaches `Action.steps`, which constructs `ActionStepJSON(**step)` and would
+  +# otherwise raise on an unexpected key.
+  +_STEP_FIELDS = set(ActionStepJSON.__dataclass_fields__)
+  +
+  +
+  +class ActionStepInput(BaseModel):
+  +    """One OR-ed trigger condition of an action. All fields optional; an empty step matches every event."""
+  +
+  +    event: Optional[str] = Field(
+  +        default=None, description="Event name to match (e.g. '$pageview', '$autocapture', or a custom event name)."
+  +    )
+  +    properties: Optional[list[dict]] = Field(
+  +        default=None,
+  +        description="Property filters. Each item: {'key', 'value', 'operator', 'type'} where type is 'event' or 'person'.",
+  +    )
+  +    selector: Optional[str] = Field(
+  +        default=None, description="CSS selector to match the target element (e.g. 'div > button.cta')."
+  +    )
+  +    tag_name: Optional[str] = Field(default=None, description='HTML tag name to match (e.g. "button", "a").')
+  +    text: Optional[str] = Field(default=None, description="Element text content to match.")
+  +    text_matching: Optional[ActionStepMatching] = Field(default=None, description="How to match text.")
+  +    href: Optional[str] = Field(default=None, description="Link href attribute to match.")
+  +    href_matching: Optional[ActionStepMatching] = Field(default=None, description="How to match href.")
+  +    url: Optional[str] = Field(default=None, description="Page URL to match.")
+  +    url_matching: Optional[ActionStepMatching] = Field(
+  +        default=None, description="How to match the URL (default: contains)."
+  +    )
+  +
+  +    def to_step_dict(self) -> dict:
+  +        return {k: v for k, v in self.model_dump(exclude_none=True).items() if k in _STEP_FIELDS}
+  +
+  +
+  +class ListActionsToolArgs(BaseModel):
+  +    search: Optional[str] = Field(
+  +        default=None,
+  +        description="Case-insensitive substring match on the action name. Use this to find a specific action.",
+  +    )
+  +    limit: Optional[int] = Field(
+  +        default=None,
+  +        description=f"Maximum number of actions to return (1-{MAX_LIST_LIMIT}, default {DEFAULT_LIST_LIMIT}).",
+  +    )
+  +    offset: Optional[int] = Field(default=None, description="Number of actions to skip before returning results.")
+  +
+  +
+  +class GetActionToolArgs(BaseModel):
+  +    action_id: int = Field(description="ID of the action to retrieve.")
+  +
+  +
+  +class CreateActionToolArgs(BaseModel):
+  +    name: str = Field(description="Name of the action (must be unique within the project).")
+  +    description: Optional[str] = Field(default=None, description="Human-readable description of the action.")
+  +    steps: Optional[list[ActionStepInput]] = Field(
+  +        default=None,
+  +        description="Trigger conditions. Multiple steps are OR-ed together. Omit for an empty action you'll fill in later.",
+  +    )
+  +
+  +
+  +class UpdateActionToolArgs(BaseModel):
+  +    action_id: int = Field(description="ID of the action to update.")
+  +    name: Optional[str] = Field(default=None, description="New name. Omit to leave unchanged.")
+  +    description: Optional[str] = Field(default=None, description="New description. Omit to leave unchanged.")
+  +    steps: Optional[list[ActionStepInput]] = Field(
+  +        default=None,
+  +        description="Replacement trigger conditions. When provided, REPLACES all existing steps. Omit to leave steps unchanged.",
+  +    )
+  +
+  +
+  +class DeleteActionToolArgs(BaseModel):
+  +    action_id: int = Field(description="ID of the action to delete.")
+  +
+  +
+  +class ActionToolError(ValueError):
+  +    """Raised for user-fixable problems (not found, duplicate name, invalid step). Surfaced as a retryable error."""
+  +
+  +
+  +@contextmanager
+  +def _acting_user(user: User) -> Iterator[None]:
+  +    """Attribute activity-log entries from a direct ORM save to `user` (no request middleware here)."""
+  +    previous = activity_storage.get_user()
+  +    activity_storage.set_user(user)
+  +    try:
+  +        yield
+  ... (133 lines truncated)
+  +233 -0
+
+ee/hogai/tools/actions/test/test_action_tools.py
+  @@ -0,0 +1,177 @@
+  +import uuid
+  +
+  +from posthog.test.base import NonAtomicBaseTest
+  +from unittest.mock import patch
+  +
+  +from parameterized import parameterized
+  +
+  +from posthog.models import Project, Team
+  +
+  +from products.actions.backend.models.action import Action
+  +
+  +from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolRetryableError
+  +from ee.hogai.tools.actions.core import MAX_LIST_LIMIT, ActionStepInput
+  +from ee.hogai.tools.actions.tool import (
+  +    CreateActionTool,
+  +    DeleteActionTool,
+  +    GetActionTool,
+  +    ListActionsTool,
+  +    UpdateActionTool,
+  +)
+  +
+  +
+  +class TestActionTools(NonAtomicBaseTest):
+  +    CLASS_DATA_LEVEL_SETUP = False
+  +
+  +    def setUp(self):
+  +        super().setUp()
+  +        for name in ["Checkout started", "Checkout completed", "Signup", "Pricing viewed"]:
+  +            Action.objects.create(team=self.team, name=name, created_by=self.user)
+  +
+  +        # A separate team in the same org, with its own action, to assert isolation.
+  +        foreign_project = Project.objects.create(
+  +            id=Team.objects.increment_id_sequence(), organization=self.organization
+  +        )
+  +        foreign_team = Team.objects.create(
+  +            id=foreign_project.id,
+  +            project=foreign_project,
+  +            organization=self.organization,
+  +            api_token=str(uuid.uuid4()),
+  +        )
+  +        self.foreign_action = Action.objects.create(team=foreign_team, name="Foreign action", created_by=self.user)
+  +
+  +    def _list_tool(self):
+  +        return ListActionsTool(team=self.team, user=self.user)
+  +
+  +    async def test_list_returns_all_by_default(self):
+  +        content, _ = await self._list_tool()._arun_impl()
+  +        self.assertIn("Showing 4 of 4", content)
+  +        self.assertIn("Checkout started", content)
+  +
+  +    async def test_list_search_is_case_insensitive(self):
+  +        content, _ = await self._list_tool()._arun_impl(search="checkout")
+  +        self.assertIn("Showing 2 of 2", content)
+  +        self.assertIn("Checkout started", content)
+  +        self.assertIn("Checkout completed", content)
+  +        self.assertNotIn("Signup", content)
+  +
+  +    async def test_list_search_no_match(self):
+  +        content, _ = await self._list_tool()._arun_impl(search="nonexistent")
+  +        self.assertIn("No actions found", content)
+  +
+  +    async def test_list_limit_caps_results(self):
+  +        content, _ = await self._list_tool()._arun_impl(limit=2)
+  +        self.assertIn("Showing 2 of 4", content)
+  +
+  +    async def test_list_offset_paginates_without_overlap(self):
+  +        page1, _ = await self._list_tool()._arun_impl(limit=2, offset=0)
+  +        page2, _ = await self._list_tool()._arun_impl(limit=2, offset=2)
+  +        self.assertIn("Checkout completed", page1)
+  +        self.assertIn("Checkout started", page1)
+  +        self.assertIn("Pricing viewed", page2)
+  +        self.assertIn("Signup", page2)
+  +
+  +    async def test_list_limit_is_hard_capped(self):
+  +        # Seed beyond the cap (setUp already created 4) and confirm a huge limit still clamps.
+  +        await Action.objects.abulk_create(
+  +            [Action(team=self.team, name=f"Bulk {i:04d}", created_by=self.user) for i in range(MAX_LIST_LIMIT + 5)]
+  +        )
+  +        content, _ = await self._list_tool()._arun_impl(limit=10_000)
+  +        self.assertIn(f"Showing {MAX_LIST_LIMIT} of {MAX_LIST_LIMIT + 9}", content)
+  +
+  +    async def test_list_offset_beyond_total_explains_offset(self):
+  +        content, _ = await self._list_tool()._arun_impl(offset=100)
+  +        self.assertIn("offset 100", content)
+  +        self.assertIn("lower offset", content)
+  +
+  +    async def test_create_action_with_step(self):
+  +        content, _ = await CreateActionTool(team=self.team, user=self.user)._arun_impl(
+  +            name="New action",
+  +            description="desc",
+  +            steps=[ActionStepInput(event="$pageview", url="/x", url_matching="contains")],
+  +        )
+  +        self.assertIn("Created action", content)
+  +        action = await Action.objects.aget(team=self.team, name="New action")
+  +        self.assertEqual(action.description, "desc")
+  +        assert action.steps_json is not None
+  +        self.assertEqual(len(action.steps_json), 1)
+  +        step = action.steps_json[0]
+  +        self.assertEqual(step["event"], "$pageview")
+  +        self.assertEqual(step["url"], "/x")
+  ... (77 lines truncated)
+  +177 -0
+
+ee/hogai/tools/actions/tool.py
+  @@ -0,0 +1,155 @@
+  +from typing import Literal, Optional
+  +
+  +from pydantic import BaseModel
+  +
+  +from posthog.sync import database_sync_to_async
+  +
+  +from products.actions.backend.models.action import Action
+  +
+  +from ee.hogai.tool import MaxTool
+  +from ee.hogai.tool_errors import MaxToolRetryableError
+  +
+  +from .core import (
+  +    ActionStepInput,
+  +    ActionToolError,
+  +    CreateActionToolArgs,
+  +    DeleteActionToolArgs,
+  +    GetActionToolArgs,
+  +    ListActionsToolArgs,
+  +    UpdateActionToolArgs,
+  +    create_action,
+  +    delete_action,
+  +    format_action_detail,
+  +    get_action_object,
+  +    list_actions,
+  +    update_action,
+  +)
+  +
+  +
+  +async def _fetch_action(tool: MaxTool, action_id: int) -> Action:
+  +    """Fetch an action for a tool's team, mapping a missing action to a retryable error."""
+  +    try:
+  +        return await database_sync_to_async(get_action_object)(tool._team, action_id)
+  +    except ActionToolError as e:
+  +        raise MaxToolRetryableError(str(e))
+  +
+  +
+  +LIST_ACTIONS_DESCRIPTION = """
+  +List the project's actions (reusable event definitions used in insights and funnels).
+  +
+  +Projects can have thousands of actions, so this tool is paginated and capped — always pass `search` when you're
+  +looking for a specific action by name, and use `limit`/`offset` to page rather than trying to fetch everything.
+  +Use this to discover an action's ID before reading its properties (read_taxonomy), updating, or deleting it.
+  +""".strip()
+  +
+  +GET_ACTION_DESCRIPTION = "Get a single action by ID, including its full step (trigger condition) definition."
+  +
+  +CREATE_ACTION_DESCRIPTION = """
+  +Create a new action. An action unifies one or more trigger conditions ("steps", OR-ed together) into a single
+  +reusable event — e.g. a "Signup" action matching a $pageview on /signup OR an $autocapture click on a button.
+  +Steps can match by event name, URL, CSS selector, element text/tag, href, and property filters.
+  +""".strip()
+  +
+  +UPDATE_ACTION_DESCRIPTION = """
+  +Update an existing action's name, description, or steps. Providing `steps` REPLACES all existing steps, so include
+  +the full desired set. Look up the current definition with get_action first if you only want to tweak part of it.
+  +""".strip()
+  +
+  +DELETE_ACTION_DESCRIPTION = "Delete an action by ID. This removes it from insights and funnels that use it."
+  +
+  +
+  +class ListActionsTool(MaxTool):
+  +    name: Literal["list_actions"] = "list_actions"
+  +    description: str = LIST_ACTIONS_DESCRIPTION
+  +    args_schema: type[BaseModel] = ListActionsToolArgs
+  +
+  +    def get_required_resource_access(self):
+  +        return [("action", "viewer")]
+  +
+  +    async def _arun_impl(
+  +        self, search: Optional[str] = None, limit: Optional[int] = None, offset: Optional[int] = None
+  +    ) -> tuple[str, None]:
+  +        result = await database_sync_to_async(list_actions)(self._team, search, limit, offset)
+  +        return result, None
+  +
+  +
+  +class GetActionTool(MaxTool):
+  +    name: Literal["get_action"] = "get_action"
+  +    description: str = GET_ACTION_DESCRIPTION
+  +    args_schema: type[BaseModel] = GetActionToolArgs
+  +
+  +    def get_required_resource_access(self):
+  +        return [("action", "viewer")]
+  +
+  +    async def _arun_impl(self, action_id: int) -> tuple[str, None]:
+  +        action = await _fetch_action(self, action_id)
+  +        await self.check_object_access(action, "viewer", action="read")
+  +        return format_action_detail(action), None
+  +
+  +
+  +class CreateActionTool(MaxTool):
+  +    name: Literal["create_action"] = "create_action"
+  +    description: str = CREATE_ACTION_DESCRIPTION
+  +    args_schema: type[BaseModel] = CreateActionToolArgs
+  +
+  +    def get_required_resource_access(self):
+  +        return [("action", "editor")]
+  +
+  +    async def _arun_impl(
+  +        self, name: str, description: Optional[str] = None, steps: Optional[list[ActionStepInput]] = None
+  +    ) -> tuple[str, None]:
+  ... (55 lines truncated)
+  +155 -0
+
+frontend/src/queries/schema.json
+  @@ -3882,7 +3882,12 @@
+  -                "open_account"
+  +                "open_account",
+  +                "list_actions",
+  +                "get_action",
+  +                "create_action",
+  +                "update_action",
+  +                "delete_action"
+               ],
+               "type": "string"
+           },
+  +6 -1
+
+frontend/src/queries/schema/schema-assistant-messages.ts
+  @@ -522,6 +522,11 @@ export type AssistantTool =
+  +    | 'list_actions'
+  +    | 'get_action'
+  +    | 'create_action'
+  +    | 'update_action'
+  +    | 'delete_action'
+   
+   export enum AgentMode {
+       ProductAnalytics = 'product_analytics',
+  +5 -0
+
+frontend/src/scenes/max/max-constants.tsx
+  @@ -6,14 +6,19 @@ import {
+  +    IconEye,
+       IconGlobe,
+  +    IconList,
+       IconMemory,
+       IconNotebook,
+       IconNotification,
+       IconPeople,
+  +    IconPencil,
+       IconPlug,
+  +    IconPlus,
+       IconSearch,
+       IconShuffle,
+  +    IconTrash,
+   } from '@posthog/icons'
+   
+   import { FEATURE_FLAGS } from 'lib/constants'
+  @@ -168,6 +173,58 @@ function skillStatusFormatter(
+  +    list_actions: {
+  +        name: 'List actions',
+  +        description: 'List actions in the project',
+  +        icon: <IconList />,
+  +        displayFormatter: (toolCall) =>
+  +            skillStatusFormatter(toolCall, {
+  +                completedLabel: 'Listed actions',
+  +                pendingLabel: 'Listing actions',
+  +            }),
+  +    },
+  +    get_action: {
+  +        name: 'Get action',
+  +        description: 'Get action details',
+  +        icon: <IconEye />,
+  +        displayFormatter: (toolCall) =>
+  +            skillStatusFormatter(toolCall, {
+  +                completedLabel: 'Got action',
+  +                pendingLabel: 'Getting action',
+  +            }),
+  +    },
+  +    create_action: {
+  +        name: 'Create action',
+  +        description: 'Create action from trigger conditions',
+  +        icon: <IconPlus />,
+  +        displayFormatter: (toolCall) =>
+  +            skillStatusFormatter(toolCall, {
+  +                completedLabel: 'Created action',
+  +                pendingLabel: 'Creating action',
+  +                nameArgKey: 'name',
+  +            }),
+  +    },
+  +    update_action: {
+  +        name: 'Update action',
+  +        description: 'Update action name, description, or steps',
+  +        icon: <IconPencil />,
+  +        displayFormatter: (toolCall) =>
+  +            skillStatusFormatter(toolCall, {
+  +                completedLabel: 'Updated action',
+  +                pendingLabel: 'Updating action',
+  +                nameArgKey: 'name',
+  +            }),
+  +    },
+  +    delete_action: {
+  +        name: 'Delete action',
+  +        description: 'Delete action by ID',
+  +        icon: <IconTrash />,
+  +        displayFormatter: (toolCall) =>
+  +            skillStatusFormatter(toolCall, {
+  +                completedLabel: 'Deleted action',
+  +                pendingLabel: 'Deleting action',
+  +            }),
+  +    },
+       call_mcp_server: {
+           name: 'Call an MCP server',
+           description: 'Call an MCP server',
+  +57 -0
+
+posthog/schema_enums.py
+  @@ -414,6 +414,11 @@ class AssistantTool(StrEnum):
+  +    LIST_ACTIONS = "list_actions"
+  +    GET_ACTION = "get_action"
+  +    CREATE_ACTION = "create_action"
+  +    UPDATE_ACTION = "update_action"
+  +    DELETE_ACTION = "delete_action"
+   
+   
+   class Compare(StrEnum):
+  +5 -0
+[full diff: rtk git diff --no-compact]

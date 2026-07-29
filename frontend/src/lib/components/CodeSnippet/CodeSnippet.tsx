@@ -13,13 +13,12 @@ import React, { useMemo, useState } from 'react'
 import { IconCollapse, IconCopy, IconExpand } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { themeLogic } from 'lib/logic/themeLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import terraform from './terraformLanguage'
 
-// `common` already registers 16 of our 20 languages — only add the missing ones.
+// `common` already registers most of our languages (including rust, c, and cpp) — only add the missing ones.
 const lowlight = createLowlight(common)
 lowlight.register({ dart, elixir, groovy, http, terraform })
 
@@ -49,6 +48,9 @@ export enum Language {
     CSharp = 'csharp',
     TypeScript = 'typescript',
     HCL = 'terraform',
+    Rust = 'rust',
+    C = 'c',
+    CPlusPlus = 'cpp',
 }
 
 export const getLanguage = (lang: string): Language => {
@@ -101,6 +103,12 @@ export const getLanguage = (lang: string): Language => {
             return Language.Groovy
         case 'hcl':
             return Language.HCL
+        case 'rust':
+            return Language.Rust
+        case 'c':
+            return Language.C
+        case 'cpp':
+            return Language.CPlusPlus
         default:
             return Language.Text
     }
@@ -117,6 +125,8 @@ export interface CodeSnippetProps {
     thing?: string
     /** If set, the snippet becomes expandable when there's more than this number of lines. */
     maxLinesWithoutExpansion?: number
+    /** Called after the snippet contents are copied to the clipboard. Useful for telemetry. */
+    onCopy?: () => void
 }
 
 export const CodeSnippet = React.memo(function CodeSnippet({
@@ -128,6 +138,7 @@ export const CodeSnippet = React.memo(function CodeSnippet({
     actions,
     thing = 'snippet',
     maxLinesWithoutExpansion,
+    onCopy,
 }: CodeSnippetProps): JSX.Element | null {
     const [expanded, setExpanded] = useState(false)
 
@@ -152,6 +163,7 @@ export const CodeSnippet = React.memo(function CodeSnippet({
                         if (text) {
                             e.stopPropagation()
                             void copyToClipboard(text, thing)
+                            onCopy?.()
                         }
                     }}
                     size={compact ? 'small' : 'medium'}

@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
@@ -123,6 +124,32 @@ class TestExternalAccountAPI(APIBaseTest):
         self.assertEqual(
             response.json()["relationships"],
             {"CSM": [{"user_id": self.user.id, "email": self.user.email}]},
+        )
+
+    def test_get_account_returns_custom_properties(self):
+        plan = create_custom_property_definition(team_id=self.team.id, name="Plan", display_type=DisplayType.TEXT)
+        create_custom_property_definition(team_id=self.team.id, name="Seats", display_type=DisplayType.NUMBER)
+        renewal = create_custom_property_definition(
+            team_id=self.team.id, name="Renewal", display_type=DisplayType.DATETIME
+        )
+        CustomPropertyValue.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            account=self.account,
+            definition=plan,
+            value_str="enterprise",
+        )
+        CustomPropertyValue.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            account=self.account,
+            definition=renewal,
+            value_datetime=datetime(2026, 7, 1, 12, 0, tzinfo=UTC),
+        )
+
+        response = self._get()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["custom_properties"],
+            {"Plan": "enterprise", "Seats": None, "Renewal": "2026-07-01T12:00:00+00:00"},
         )
 
     def test_does_not_leak_accounts_from_other_team(self):

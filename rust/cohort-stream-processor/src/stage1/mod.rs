@@ -2,16 +2,17 @@
 //! when a leaf predicate flips. State is keyed by a derived `leaf_state_key`, not `condition_hash`
 //! alone, because the bytecode omits the window and threshold.
 
-pub mod bucket_tz;
 pub mod compressed_history;
 pub mod daily;
-pub mod key;
 pub mod person_record;
-pub mod pick_state;
 pub mod predicate;
 pub mod state;
-pub mod time;
 pub mod transition;
+
+pub use cohort_core::bucket_tz;
+pub use cohort_core::leaf_state::key;
+pub use cohort_core::leaf_state::select as pick_state;
+pub use cohort_core::timestamp as time;
 
 pub use person_record::{
     apply_eval, apply_skip_eval, apply_stale, decide, CatalogFingerprint, Decision, DedupCoords,

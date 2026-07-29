@@ -1,5 +1,4 @@
 import time
-import pickle
 import asyncio
 from collections.abc import AsyncGenerator, Callable
 from typing import Literal, Optional, cast
@@ -157,12 +156,7 @@ class ConversationStreamSerializer:
             return None
 
         return {
-            # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle (internal Redis stream, data is self-generated)
-            self.serialization_key: pickle.dumps(
-                StreamEvent(
-                    event=event,
-                )
-            ),
+            self.serialization_key: StreamEvent(event=event).model_dump_json().encode("utf-8"),
         }
 
     def _to_message_event(self, message: AssistantStreamedMessageUnion) -> MessageEvent:
@@ -201,8 +195,7 @@ class ConversationStreamSerializer:
         )
 
     def deserialize(self, data: dict[bytes, bytes]) -> StreamEvent:
-        # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle (internal Redis stream, data is self-generated)
-        return pickle.loads(data[bytes(self.serialization_key, "utf-8")])
+        return StreamEvent.model_validate_json(data[bytes(self.serialization_key, "utf-8")])
 
 
 class StreamError(Exception):
@@ -322,6 +315,19 @@ class ConversationRedisStream:
                 for _, stream_messages in messages:
                     for stream_id, message in stream_messages:
                         current_id = stream_id
+                        raw = message.get(bytes(self._serializer.serialization_key, "utf-8"))
+                        if raw is not None and raw[:1] == b"\x80":
+                            # Skip a legacy pickle entry (pickle protocol >= 2 starts with 0x80) left in
+                            # an un-expired stream from before the JSON migration. current_id has already
+                            # advanced, so it isn't re-read. Genuinely-corrupt JSON is not skipped here —
+                            # it falls through to deserialize and fails the read as before.
+                            logger.warning(
+                                "Skipping legacy pickle conversation stream entry",
+                                stream_key=self._stream_key,
+                                stream_id=stream_id,
+                            )
+                            continue
+
                         data = self._serializer.deserialize(message)
 
                         latency = time.time() - data.timestamp
@@ -364,16 +370,21 @@ class ConversationRedisStream:
     async def mark_complete(self) -> None:
         await self._write_status(StatusPayload(status="complete"))
 
+    async def _xadd(self, message: dict[str, bytes]) -> None:
+        # XADD then EXPIRE in a single round-trip so the stream always carries a TTL. A bare
+        # EXPIRE before the first XADD is a no-op (the key doesn't exist yet), which left streams
+        # with no TTL and no self-expiry. Refreshing on each write also keeps an actively
+        # streaming conversation alive rather than expiring a fixed window after the first write.
+        pipe = self._redis_client.pipeline(transaction=False)
+        pipe.xadd(self._stream_key, message, maxlen=self._max_length, approximate=True)
+        pipe.expire(self._stream_key, self._timeout)
+        await pipe.execute()
+
     async def _write_status(self, status: StatusPayload) -> None:
         message = self._serializer.dumps(status)
         if message is None:
             return
-        await self._redis_client.xadd(
-            self._stream_key,
-            message,
-            maxlen=self._max_length,
-            approximate=True,
-        )
+        await self._xadd(message)
 
     async def write_to_stream(
         self,
@@ -389,8 +400,6 @@ class ConversationRedisStream:
             emit_completion: Whether to mark the stream as complete
         """
         try:
-            await self._redis_client.expire(self._stream_key, self._timeout)
-
             last_iteration_time = None
             async for chunk in generator:
                 current_time = time.time()
@@ -401,12 +410,7 @@ class ConversationRedisStream:
 
                 message = self._serializer.dumps(chunk)
                 if message is not None:
-                    await self._redis_client.xadd(
-                        self._stream_key,
-                        message,
-                        maxlen=self._max_length,
-                        approximate=True,
-                    )
+                    await self._xadd(message)
                 if callback:
                     callback()
 
@@ -414,5 +418,11 @@ class ConversationRedisStream:
                 await self._write_status(StatusPayload(status="complete"))
 
         except Exception as e:
-            await self._write_status(StatusPayload(status="error", error=str(e)))
-            raise StreamError("Failed to write to stream")
+            # Best-effort error status back to the client. If Redis is itself the
+            # problem this write will fail too, so guard it so the secondary error
+            # can't mask the original one.
+            try:
+                await self._write_status(StatusPayload(status="error", error=str(e)))
+            except Exception:
+                logger.exception("Failed to write error status to stream", stream_key=self._stream_key)
+            raise StreamError("Failed to write to stream") from e

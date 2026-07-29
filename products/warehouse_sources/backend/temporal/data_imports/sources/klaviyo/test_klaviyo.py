@@ -8,7 +8,14 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.klaviyo import (
+    KlaviyoSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo import klaviyo
+from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.constants import (
+    KLAVIYO_API_VERSION_2024_10_15,
+    KLAVIYO_API_VERSION_2026_07_15,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.klaviyo import (
     KlaviyoResumeConfig,
     _build_filter,
@@ -500,3 +507,69 @@ class TestSourceResponseSortMode:
             resumable_source_manager=MagicMock(),
         )
         assert response.sort_mode == expected
+
+
+class TestApiVersionThreadsToRevisionHeader:
+    @parameterized.expand([("2024-10-15",), ("2026-07-15",)])
+    def test_pinned_version_reaches_revision_header(self, api_version: str) -> None:
+        # The resolved pin must reach Klaviyo's `revision` header, or a source pinned to a supported
+        # revision would silently sync against whatever version the request layer hardcodes.
+        captured: dict[str, str] = {}
+
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
+            captured.update(headers)
+            return {"data": [], "links": {"next": None}}
+
+        with patch.object(klaviyo, "_fetch_page", fake_fetch):
+            list(
+                get_rows(
+                    api_key="pk_test",
+                    endpoint="events",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                    api_version=api_version,
+                )
+            )
+
+        assert captured["revision"] == api_version
+
+
+class TestVersionDeprecation:
+    def test_2024_revision_deprecated_with_sunset_and_current_is_not(self) -> None:
+        # The generic in-product warning keys off this metadata; the registry invariant test checks
+        # the set relationships but not the specific sunset date this PR pins.
+        source = KlaviyoSource()
+        deprecation = source.get_version_deprecation("2024-10-15")
+        assert deprecation is not None
+        assert deprecation.sunset_at == date(2026, 10, 15)
+        assert source.get_version_deprecation("2026-07-15") is None
+
+
+class TestValidateCredentialsResolvedPin:
+    @parameterized.expand(
+        [
+            (KLAVIYO_API_VERSION_2024_10_15, KLAVIYO_API_VERSION_2024_10_15),
+            (KLAVIYO_API_VERSION_2026_07_15, KLAVIYO_API_VERSION_2026_07_15),
+            # No pin (pre-creation) resolves to the default the new row is stamped with.
+            (None, KLAVIYO_API_VERSION_2026_07_15),
+        ]
+    )
+    def test_class_probe_threads_resolved_pin(self, pin: str | None, expected: str) -> None:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.source.validate_klaviyo_credentials",
+            return_value=True,
+        ) as mock_validate:
+            KlaviyoSource().validate_credentials(KlaviyoSourceConfig(api_key="pk_test"), 1, api_version=pin)
+
+        assert mock_validate.call_args.args[-1] == expected
+
+    @parameterized.expand([(KLAVIYO_API_VERSION_2024_10_15,), (KLAVIYO_API_VERSION_2026_07_15,)])
+    def test_probe_sends_pin_as_revision_header(self, api_version: str) -> None:
+        # A 2024-10-15-pinned source must validate on the same `revision` header it syncs with.
+        with patch.object(klaviyo, "make_tracked_session") as session_factory:
+            response = MagicMock(status_code=200)
+            session_factory.return_value.get.return_value = response
+            assert klaviyo.validate_credentials("pk_test", api_version) is True
+
+        headers = session_factory.return_value.get.call_args.kwargs["headers"]
+        assert headers["revision"] == api_version

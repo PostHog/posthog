@@ -18,16 +18,22 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import STEP_SCOUT, resolve_agent_runtime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
 from products.signals.backend.scout_harness.limits import DEFAULT_MAX_RUNTIME_S, STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.model_selection import resolve_scout_model
-from products.signals.backend.scout_harness.prompt import SignalScoutRunSummary, build_run_prompt
+from products.signals.backend.scout_harness.prompt import (
+    HARNESS_PROMPT_VERSION,
+    SignalScoutRunSummary,
+    build_run_prompt,
+)
 from products.signals.backend.scout_harness.skill_loader import (
     LoadedSkill,
     load_skill_for_run,
+    resolve_report_channel_variant,
     skill_uses_report_channel,
 )
-from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
+from products.signals.backend.scout_harness.team_limits import github_read_access_for_team, withheld_skills_for_team
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -145,7 +151,7 @@ async def arun_signals_scout(
             extra={"team_id": team_id},
         )
     skill = await database_sync_to_async(load_skill_for_run, thread_sensitive=False)(
-        team, skill_name, version=skill_version
+        team, skill_name, version=skill_version, include_authors=True
     )
     config = await database_sync_to_async(_resolve_config, thread_sensitive=False)(team, skill.name)
 
@@ -224,19 +230,47 @@ async def arun_signals_scout(
         team, skill.name, str(run_id)
     )
 
-    # A runtime pin takes precedence over the scout-model gate and replaces it wholesale —
-    # runtime/model/effort move as a set so a Codex runtime never pairs with a glm model.
-    # Model-only payload entries are deliberately ignored for scout: the gate supplies
+    # The scout-model gate is the per-scout, per-run experiment layer; the `signals-pipeline-models`
+    # runtime pin is the default layer beneath it. When the gate resolves a model for this run it
+    # wins (its unallocated remainder resolves None and falls through to the pin), so a fleet-wide
+    # pin can't silently swallow a configured model trial. Either way the whole
+    # runtime/model/effort triple is taken from one source — a Codex runtime never pairs with a
+    # model it can't serve. Model-only pin entries are still ignored for scout: a pin supplies
     # model+runtime as a pair, and overriding one without the other would mis-route.
     agent_runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(team_id, STEP_SCOUT)
-    if agent_runtime.runtime_adapter:
-        runtime_adapter: str | None = agent_runtime.runtime_adapter
+    if scout_model.model:
+        runtime_adapter: str | None = scout_model.runtime_adapter
+        model: str | None = scout_model.model
+        reasoning_effort: str | None = scout_model.reasoning_effort
+    elif agent_runtime.runtime_adapter:
+        runtime_adapter = agent_runtime.runtime_adapter
         model = agent_runtime.model
-        reasoning_effort: str | None = agent_runtime.reasoning_effort
+        reasoning_effort = agent_runtime.reasoning_effort
     else:
-        runtime_adapter = scout_model.runtime_adapter
-        model = scout_model.model
+        runtime_adapter = None
+        model = None
         reasoning_effort = None
+    # Resolved here rather than inside `_spawn_and_run` so the failure and cancellation paths below
+    # can report the same prompt shape the run actually got: a spawn that raises never returns, so a
+    # value resolved in there would be unavailable to exactly the runs whose shape matters most.
+    # The `gh` guidance is gated on report-channel scouts whose team passes the `github_read_access`
+    # posture in the `signals-scout` flag payload (default on; per-team or fleet-wide `false` is the
+    # kill switch, resolved against the canonical project id) AND a mint preflight, since the prompt
+    # must not name `gh` when the team has no usable installation to mint from (the scout would burn
+    # budget on 401s before falling back). Repo-backed runs (the management command's `--repository`
+    # escape hatch) are excluded too: they take the full-credential provisioning path, and the
+    # section's read-only framing would misdescribe the token they actually hold.
+    github_guidance = (
+        skill_uses_report_channel(skill.allowed_tools)
+        and repository is None
+        and await database_sync_to_async(github_read_access_for_team, thread_sensitive=False)(
+            team.parent_team_id or team.id
+        )
+    )
+    if github_guidance:
+        github_guidance = await database_sync_to_async(
+            tasks_facade.can_mint_readonly_github_token, thread_sensitive=False
+        )(team.id)
     try:
         last_message, task_run_id = await _spawn_and_run(
             team=team,
@@ -247,6 +281,7 @@ async def arun_signals_scout(
             repository=repository,
             verbose=verbose,
             user_id=user_id,
+            github_guidance=github_guidance,
             model=model,
             runtime_adapter=runtime_adapter,
             reasoning_effort=reasoning_effort,
@@ -259,11 +294,14 @@ async def arun_signals_scout(
             team=team,
             config=config,
             skill=skill,
+            github_guidance=github_guidance,
             run_id=run_id,
             task_run_id=task_run_id,
             status=tasks_facade.TaskRunStatus.COMPLETED.value,
             runtime_s=runtime_s,
             emitted_count=emitted_count,
+            model=model,
+            runtime_adapter=runtime_adapter,
         )
         return RunResult(
             run_id=str(run_id),
@@ -307,11 +345,14 @@ async def arun_signals_scout(
             team=team,
             config=config,
             skill=skill,
+            github_guidance=github_guidance,
             run_id=run_id,
             task_run_id=failed_task_run_id,
             status=tasks_facade.TaskRunStatus.FAILED.value,
             runtime_s=runtime_s,
             emitted_count=emitted_count,
+            model=model,
+            runtime_adapter=runtime_adapter,
             error_type=type(exc).__name__,
             error_message=str(exc)[:300],
         )
@@ -349,11 +390,14 @@ async def arun_signals_scout(
             team=team,
             config=config,
             skill=skill,
+            github_guidance=github_guidance,
             run_id=run_id,
             task_run_id=None,
             status=tasks_facade.TaskRunStatus.CANCELLED.value,
             runtime_s=runtime_s,
             emitted_count=None,
+            model=model,
+            runtime_adapter=runtime_adapter,
         )
         raise
 
@@ -368,6 +412,7 @@ async def _spawn_and_run(
     repository: str | None,
     verbose: bool,
     user_id: int,
+    github_guidance: bool,
     model: str | None,
     runtime_adapter: str | None = None,
     reasoning_effort: str | None = None,
@@ -384,6 +429,21 @@ async def _spawn_and_run(
         SIGNALS_SCOUT_SANDBOX_ENV_NAME,
         tasks_facade.SandboxNetworkAccessLevel.TRUSTED,
     )
+    report_channel = skill_uses_report_channel(skill.allowed_tools)
+    # Scout sandboxes never get the write-capable installation token: task creation attaches the
+    # team's GitHub integration to every task, so without this request a repo-less scout run on a
+    # GitHub-connected team is silently provisioned with the FULL token. Requesting read access on
+    # every scout run downscopes that to a read-only mint (or nothing when the mint fails) —
+    # a strict privilege reduction, independent of the prompt-guidance flag below.
+    #
+    # The `gh` guidance in the prompt is gated separately: report-channel scouts only, the
+    # `github_read_access` posture in the `signals-scout` flag payload (default on; per-team or
+    # fleet-wide `false` is the kill switch — resolved against the canonical project id, like
+    # every flag-payload lookup), AND a mint preflight — the prompt must not name `gh` when the
+    # team has no usable installation to mint from (the scout would burn budget on 401s before
+    # falling back). Repo-backed runs (the management command's `--repository` escape hatch) are
+    # excluded too: they take the full-credential provisioning path, and the section's read-only
+    # framing would misdescribe the token they actually hold.
     # `repository` is None on the cadence path — v1 doesn't clone a repo into the
     # sandbox. The kwarg stays wired so the management command can still pass
     # `--repository` for ad-hoc local investigations; productionised repo access
@@ -407,9 +467,8 @@ async def _spawn_and_run(
         # the same posture plus `signal_scout_report:write` — so the MCP server exposes the
         # emit_report/edit_report tools. Every other scout gets plain `signals_scout` and never
         # sees them.
-        posthog_mcp_scopes=(
-            "signals_scout_reports" if skill_uses_report_channel(skill.allowed_tools) else "signals_scout"
-        ),
+        posthog_mcp_scopes=("signals_scout_reports" if report_channel else "signals_scout"),
+        github_read_access=True,
         # `None` keeps the agent-server default; an override pins the whole run on one model
         # (the `scouts-model-selection` gate routes it here). The model the gateway actually serves
         # is tagged on each $ai_generation, so per-run model is queryable in LLM analytics.
@@ -418,7 +477,9 @@ async def _spawn_and_run(
         runtime_adapter=runtime_adapter,
         reasoning_effort=reasoning_effort,
     )
-    prompt = build_run_prompt(skill, run_id=str(run_id), team_id=team.id, started_at=started_at)
+    prompt = build_run_prompt(
+        skill, run_id=str(run_id), team_id=team.id, started_at=started_at, github_read_access=github_guidance
+    )
     logger.info(
         "signals_scout: spawning sandbox",
         extra={
@@ -433,7 +494,7 @@ async def _spawn_and_run(
     async def _create_bridge_row(task_run: TaskRun) -> None:
         # Create the bridge row after the TaskRun exists but BEFORE the agent's first
         # turn runs (via MultiTurnSession's on_task_run_created hook). The scout is
-        # single-turn and may call `signals-scout-emit-signal` during that first turn;
+        # single-turn and may call `scout-emit-signal` during that first turn;
         # the emit endpoint resolves the run by id, so the row must already exist or
         # first-turn emits 404. Creating it here (not after `start()` returns) also keeps
         # the cross-link queryable mid-run and surviving both success and failure exits.
@@ -443,6 +504,10 @@ async def _spawn_and_run(
             team=team,
             config=config,
             skill=skill,
+            model=model,
+            runtime_adapter=runtime_adapter,
+            reasoning_effort=reasoning_effort,
+            github_guidance=github_guidance,
         )
         # Lifecycle start marker. The row + TaskRun now exist and the run has cleared the
         # reap + single-flight guards, so this counts exactly the runs that actually start —
@@ -453,8 +518,11 @@ async def _spawn_and_run(
             team=team,
             config=config,
             skill=skill,
+            github_guidance=github_guidance,
             run_id=run_id,
             task_run_id=str(task_run.id),
+            model=model,
+            runtime_adapter=runtime_adapter,
         )
 
     session, result = await MultiTurnSession.start(
@@ -486,7 +554,7 @@ async def _spawn_and_run(
         # discoverable trace for future-run dedupe. Failure paths skip this on
         # purpose — the bridge row keeps its empty default and the linked TaskRun
         # carries the error context.
-        await database_sync_to_async(_finalize_run_summary, thread_sensitive=False)(
+        await database_sync_to_async(_finalize_run_row, thread_sensitive=False)(
             run_id=run_id,
             team_id=team.parent_team_id or team.id,
             summary=result.summary,
@@ -584,6 +652,7 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
                 task_run.id,
                 "Scout run abandoned: no terminal status past the runtime ceiling "
                 "(worker/sandbox lost before finalize).",
+                error_type="stale_run_reaped",
             )
             if not claimed:
                 continue
@@ -622,7 +691,38 @@ def _create_run_row(
     team: Team,
     config: SignalScoutConfig,
     skill: LoadedSkill,
+    model: str | None = None,
+    runtime_adapter: str | None = None,
+    reasoning_effort: str | None = None,
+    github_guidance: bool = False,
 ) -> SignalScoutRun:
+    # Stamp the routed model triple onto the row's `metadata` so "which model ran this?" is a
+    # column read on the run API, not an analytics-event join. Keys are omitted (not null-valued)
+    # on the default path, so their absence means the agent-server default served the run.
+    metadata: dict[str, Any] = {
+        key: value
+        for key, value in (
+            ("model", model),
+            ("runtime_adapter", runtime_adapter),
+            ("reasoning_effort", reasoning_effort),
+        )
+        if value is not None
+    }
+    # The three dimensions that pin down which instructions this run actually got. All are
+    # point-in-time facts that become unrecoverable later, which is why they are stamped rather
+    # than resolved at read time: the harness prompt has no version history, a skill's
+    # `allowed_tools` can be edited (so an old run's channel can't be re-derived), and a seeded
+    # canonical row flips to `custom` the moment a team edits it, taking every past run's origin
+    # with it. Together they let runs be compared only against runs that got the same prompt
+    # shape, which is what a model or prompt A/B needs to hold constant.
+    metadata["harness_prompt_version"] = HARNESS_PROMPT_VERSION
+    metadata["report_channel"] = resolve_report_channel_variant(skill.allowed_tools)
+    metadata["skill_origin"] = skill.origin
+    # Whether the run got the gh evidence section, which `_spawn_and_run` includes or omits from
+    # the whole prompt based on the team's flag posture and whether a read-only token could be
+    # minted. Both can change between runs, so this is a fourth composition fork rather than a
+    # property of the build.
+    metadata["github_guidance"] = github_guidance
     return SignalScoutRun.objects.unscoped().create(
         id=run_id,
         task_run=task_run,
@@ -630,6 +730,7 @@ def _create_run_row(
         scout_config=config,
         skill_name=skill.name,
         skill_version=skill.version,
+        metadata=metadata,
     )
 
 
@@ -660,8 +761,11 @@ def _capture_run_started(
     team: Team,
     config: SignalScoutConfig,
     skill: LoadedSkill,
+    github_guidance: bool,
     run_id: Any,
     task_run_id: str,
+    model: str | None = None,
+    runtime_adapter: str | None = None,
 ) -> None:
     """Emit the scout-owned run-started analytics event.
 
@@ -672,17 +776,21 @@ def _capture_run_started(
     finalize — an event-derived stall signal with no warehouse lag. Best-effort: a capture
     failure must never block the run.
     """
+    properties: dict[str, Any] = {
+        "skill_name": skill.name,
+        "skill_version": skill.version,
+        "scout_config_id": str(config.id),
+        "run_id": str(run_id),
+        "task_run_id": task_run_id,
+    }
+    _attach_run_shape_props(
+        properties, skill=skill, github_guidance=github_guidance, model=model, runtime_adapter=runtime_adapter
+    )
     try:
         posthoganalytics.capture(
             event="signals_scout_run_started",
             distinct_id=str(team.uuid),
-            properties={
-                "skill_name": skill.name,
-                "skill_version": skill.version,
-                "scout_config_id": str(config.id),
-                "run_id": str(run_id),
-                "task_run_id": task_run_id,
-            },
+            properties=properties,
             groups=groups(team.organization, team),
         )
     except Exception:
@@ -731,16 +839,47 @@ def _capture_run_reaped(
         )
 
 
+def _attach_run_shape_props(
+    properties: dict[str, Any],
+    *,
+    skill: LoadedSkill,
+    github_guidance: bool,
+    model: str | None,
+    runtime_adapter: str | None,
+) -> None:
+    """Attach the dimensions that describe what this run was configured with, to both lifecycle
+    events from one place so the started and finished streams can never drift apart.
+
+    `harness_prompt_version` is always present: it identifies the prompt build the run was given,
+    which is the dimension a prompt A/B has to hold constant, and until it existed nothing recorded
+    which build a run used. Model and runtime adapter are attached only when the
+    `scouts-model-selection` gate (or a runtime pin) routed the run, so their absence means the
+    agent-server default served it. All three make run outcomes (timeout rate, runtime, emit volume)
+    sliceable without joining through $ai_generation.
+    """
+    properties["harness_prompt_version"] = HARNESS_PROMPT_VERSION
+    properties["report_channel"] = resolve_report_channel_variant(skill.allowed_tools)
+    properties["skill_origin"] = skill.origin
+    properties["github_guidance"] = github_guidance
+    if model is not None:
+        properties["model"] = model
+    if runtime_adapter is not None:
+        properties["runtime_adapter"] = runtime_adapter
+
+
 def _capture_run_finished(
     *,
     team: Team,
     config: SignalScoutConfig,
     skill: LoadedSkill,
+    github_guidance: bool,
     run_id: Any,
     task_run_id: str | None,
     status: str,
     runtime_s: float,
     emitted_count: int | None,
+    model: str | None = None,
+    runtime_adapter: str | None = None,
     error_type: str | None = None,
     error_message: str | None = None,
 ) -> None:
@@ -768,6 +907,9 @@ def _capture_run_finished(
         "runtime_seconds": round(runtime_s, 1),
         "emitted_count": emitted_count,
     }
+    _attach_run_shape_props(
+        properties, skill=skill, github_guidance=github_guidance, model=model, runtime_adapter=runtime_adapter
+    )
     # Only attach failure context on failed runs — keeps successful / cancelled events clean
     # rather than carrying explicit-null error fields on every event.
     if error_type is not None:
@@ -787,10 +929,14 @@ def _capture_run_finished(
         )
 
 
-def _finalize_run_summary(*, run_id: Any, team_id: int, summary: str) -> None:
+def _finalize_run_row(*, run_id: Any, team_id: int, summary: str) -> None:
     # Targeted UPDATE rather than `.save()` — the row's other fields are untouched
     # by the agent's close-out, and `update()` skips the full model refresh.
     SignalScoutRun.objects.unscoped().filter(team_id=team_id, id=run_id).update(summary=summary)
+    # Stamped here rather than at each emit/edit site so the flags are computed once, from the
+    # run's settled output, in the same hop that persists the close-out. Best-effort inside, so
+    # a stamp failure never costs the summary write that already landed above.
+    stamp_derived_metadata(run_id=run_id, team_id=team_id)
 
 
 def _step_name(skill: LoadedSkill) -> str:

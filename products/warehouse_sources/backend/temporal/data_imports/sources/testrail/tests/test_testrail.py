@@ -383,8 +383,19 @@ class TestTestrailSourceResponse:
         assert response.primary_keys == ["id"]
         # Fan-out rows never arrive globally time-ordered, so incremental endpoints must commit
         # their watermark only at end of sync (desc); asc would corrupt it on mid-sync restarts.
-        expected_sort = "desc" if TESTRAIL_ENDPOINTS[endpoint].incremental_param else "asc"
-        assert response.sort_mode == expected_sort
+        config = TESTRAIL_ENDPOINTS[endpoint]
+        assert response.sort_mode == ("desc" if config.incremental_param else "asc")
+        # Only endpoints carrying a stable `created_on` partition; the rest stay unpartitioned so a
+        # missing/moving key never becomes a datetime bucket. `created_on` (not the `updated_on`
+        # cursor) keeps partitions from being rewritten on later syncs.
+        if config.partition_key:
+            assert config.partition_key == "created_on"
+            assert response.partition_mode == "datetime"
+            assert response.partition_format == "week"
+            assert response.partition_keys == ["created_on"]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
 
 
 class TestCheckAccess:

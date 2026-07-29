@@ -175,6 +175,7 @@ _MATERIALIZED_PROPERTY_RESULTS = {
     "property_group",
     "map_subscript",
     "json",
+    "json_subcolumn",
 }
 
 _RANGE_REWRITE_RESULTS = {"fired_compare", "fired_if_null", "skipped"}
