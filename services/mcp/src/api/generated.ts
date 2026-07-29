@@ -33943,7 +33943,7 @@ export namespace Schemas {
     export interface HogFunctionPublishRequest {
       /** False (default) previews the publish: returns which config fields would change without changing anything. True applies the staged draft to the live function. */
       confirm?: boolean;
-      /** From the preview response, and required when confirm=true. Expires after 15 minutes, and any draft edit invalidates it (409), so you always publish the exact draft you previewed. */
+      /** From the preview response, and required when confirm=true on an enabled function. Expires after 15 minutes, and any edit to the draft or the live config invalidates it (409), so you always publish the exact draft you previewed. */
       confirm_token?: string;
     }
 

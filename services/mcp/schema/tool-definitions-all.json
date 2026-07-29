@@ -1076,7 +1076,7 @@
         }
     },
     "cdp-functions-partial-update": {
-        "description": "Partially update a function. Can enable/disable the function, change its name, description, source code, inputs, filters, mappings, or masking config. The 'type' field cannot be changed after creation. To delete a function, use the cdp-functions-delete tool instead.\nOn a function that is currently enabled, config edits (hog, inputs_schema, inputs, filters, mappings, masking) are staged for review rather than applied — they show up as 'draft' on the function and do not change what is running. Name, description and enable/disable still apply immediately. Tell the user what you staged and that they need to publish it; publish it yourself only when they ask, with cdp-functions-publish. Discard it with cdp-functions-discard-draft.",
+        "description": "Partially update a function. Can enable/disable the function, change its name, description, source code, inputs, filters, mappings, or masking config. The 'type' field cannot be changed after creation. To delete a function, use the cdp-functions-delete tool instead.\nOn a destination that is currently enabled, config edits (hog, inputs_schema, inputs, filters, mappings, masking) are staged for review rather than applied — they show up as 'draft' on the function and do not change what is running. Name, description and enable/disable still apply immediately, except that enabling a function with staged config is refused until it is published or discarded. Tell the user what you staged and that they need to publish it; publish it yourself only when they ask, with cdp-functions-publish. Discard it with cdp-functions-discard-draft. To try a staged config before publishing, pass the 'draft' you read back from cdp-functions-retrieve as the 'configuration' to cdp-functions-invocations-create.",
         "category": "Functions",
         "feature": "hog_functions",
         "summary": "Update function",
@@ -1090,7 +1090,7 @@
         }
     },
     "cdp-functions-publish": {
-        "description": "Apply the config staged on a function to what is actually running. Two steps, and the first is mandatory: call it without 'confirm' to see which config fields would change and get a 'confirm_token', then call it again with confirm=true and that token. The token expires after 15 minutes and any further edit to the staged config invalidates it (409) — so you always publish exactly what you previewed. Returns 400 when nothing is staged, when the token is missing or expired, or when drafts aren't enabled for the project.",
+        "description": "Apply the config staged on a function to what is actually running. Two steps, and the first is mandatory on an enabled function: call it without 'confirm' to see which config fields would change and get a 'confirm_token', then call it again with confirm=true and that token. The token expires after 15 minutes, and any further edit to either the staged config or the live config invalidates it (409) — so you always publish exactly what you previewed, and never silently overwrite someone else's edit. A disabled function processes nothing, so publishing into one skips the token. Returns 400 when nothing is staged, when the token is missing or expired, or when drafts aren't enabled for the project.",
         "category": "Functions",
         "feature": "hog_functions",
         "summary": "Publish staged changes",

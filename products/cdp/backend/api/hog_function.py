@@ -88,17 +88,23 @@ _INJECTED_UPDATE_FIELDS = frozenset({"team", "type", "template_id"})
 
 DRAFTS_DISABLED_MESSAGE = "Drafts aren't enabled for this project yet."
 REVISIONS_DISABLED_MESSAGE = "Revision history isn't enabled for this project yet."
+ENABLE_WITH_OPEN_DRAFT_MESSAGE = (
+    "This function has config staged for review. Publish or discard it before enabling, so you don't "
+    "turn on config nobody looked at."
+)
 
 # The confirm token makes the publish preview structurally unskippable: only the preview mints it,
-# and it signs the exact draft it previewed — so a valid token proves the caller saw what publishing
-# would change.
+# and it signs both sides of the publish, so a valid token proves the caller saw what publishing
+# would change. Signing the live timestamp too is what stops a publish from silently discarding a
+# concurrent web edit: the draft is a full snapshot, so it overwrites whatever landed since.
 PUBLISH_CONFIRM_TOKEN_MAX_AGE = timedelta(minutes=15)
 _PUBLISH_CONFIRM_SALT = "hogfunction-publish"
 
 
 def _publish_confirm_value(hog_function: HogFunction) -> str:
     draft_updated_at = hog_function.draft_updated_at.isoformat() if hog_function.draft_updated_at else ""
-    return f"{hog_function.id}:{draft_updated_at}"
+    updated_at = hog_function.updated_at.isoformat() if hog_function.updated_at else ""
+    return f"{hog_function.id}:{draft_updated_at}:{updated_at}"
 
 
 def mint_publish_confirm_token(hog_function: HogFunction) -> str:
@@ -132,6 +138,46 @@ def snapshot_hog_function_content(hog_function: HogFunction) -> dict:
     return snapshot
 
 
+def _without(value: Any, keys: tuple[str, ...]) -> Any:
+    return {k: v for k, v in value.items() if k not in keys} if isinstance(value, dict) else value
+
+
+def _inputs_without_derived(inputs: Any) -> Any:
+    if not isinstance(inputs, dict):
+        return inputs
+    return {key: _without(value, ("bytecode", "transpiled", "order")) for key, value in inputs.items()}
+
+
+def comparable_content(content: dict) -> dict:
+    """A config snapshot with the values validation derives from it dropped: filter and input
+    bytecode, transpiled JS, input ordering.
+
+    A background re-save can change those on its own without the config changing at all — most often
+    `refresh_affected_hog_functions` recompiling filter bytecode after an action or cohort edit — so
+    comparing them would version a plain rename.
+    """
+    filter_derived = ("bytecode", "bytecode_error", "transpiled")
+    mappings = content.get("mappings")
+    return {
+        **content,
+        "filters": _without(content.get("filters"), filter_derived),
+        "inputs": _inputs_without_derived(content.get("inputs")),
+        "masking": _without(content.get("masking"), ("bytecode",)),
+        "mappings": [
+            {
+                **mapping,
+                "filters": _without(mapping.get("filters"), filter_derived),
+                "inputs": _inputs_without_derived(mapping.get("inputs")),
+            }
+            if isinstance(mapping, dict)
+            else mapping
+            for mapping in mappings
+        ]
+        if isinstance(mappings, list)
+        else mappings,
+    }
+
+
 def explicit_secret_input_keys(raw_inputs: Any) -> set[str]:
     """Input keys carrying a real value in the request rather than the `{"secret": true}` marker the
     API hands back for secrets — the same test `InputsSerializer` uses to decide whether to recover
@@ -146,10 +192,10 @@ def explicit_secret_input_keys(raw_inputs: Any) -> set[str]:
 
 
 def draft_changed_fields(hog_function: HogFunction) -> list[str]:
-    """Which config fields publishing this draft would change. Both sides are compared
-    secret-free, with staged secrets reported as an `inputs` change."""
-    live = snapshot_hog_function_content(hog_function)
-    draft = hog_function.draft or {}
+    """Which config fields publishing this draft would change. Both sides are compared secret-free
+    and without derived values, with staged secrets reported as an `inputs` change."""
+    live = comparable_content(snapshot_hog_function_content(hog_function))
+    draft = comparable_content(hog_function.draft or {})
     changed = [field for field in DRAFT_CONTENT_FIELDS if draft.get(field) != live.get(field)]
 
     staged_secrets = hog_function.draft_encrypted_inputs or {}
@@ -162,7 +208,8 @@ def draft_changed_fields(hog_function: HogFunction) -> list[str]:
 class StaleHogFunctionUpdateError(exceptions.APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = (
-        "This function's draft changed since you previewed the publish. Preview again to see what's staged now."
+        "This function changed since you previewed the publish, either the draft or the live config. "
+        "Preview again to see where things stand now."
     )
     default_code = "stale_update"
 
@@ -688,8 +735,9 @@ class HogFunctionPublishRequestSerializer(serializers.Serializer):
     confirm_token = serializers.CharField(
         required=False,
         help_text=(
-            "From the preview response, and required when confirm=true. Expires after 15 minutes, and any "
-            "draft edit invalidates it (409), so you always publish the exact draft you previewed."
+            "From the preview response, and required when confirm=true on an enabled function. Expires "
+            "after 15 minutes, and any edit to the draft or the live config invalidates it (409), so you "
+            "always publish the exact draft you previewed."
         ),
     )
 
@@ -1005,12 +1053,17 @@ class HogFunctionViewSet(
 
     def _should_route_to_draft(self, serializer: BaseSerializer, revisions_enabled: bool) -> bool:
         # Guardrail for agent callers (MCP and the surfaces that wrap it; the web builder and raw API
-        # keys are unaffected). An agent editing a function that is running right now stages a draft
-        # for a human to publish instead of changing what workers execute on the spot.
+        # keys are unaffected). An agent editing a destination that is running right now stages a
+        # draft for a human to publish instead of changing what workers execute on the spot.
+        # Destinations only for now: transformations add execution-order semantics, site_* types add
+        # transpiled-JS concerns, and internal_destination rows are written by other products' code
+        # rather than by agents.
         if not revisions_enabled or not self._is_agent_request(self.request):
             return False
         instance = serializer.instance
         if not isinstance(instance, HogFunction) or not instance.enabled:
+            return False
+        if instance.type != HogFunctionType.DESTINATION:
             return False
         return bool(self._sent_content_fields())
 
@@ -1046,11 +1099,11 @@ class HogFunctionViewSet(
 
     def _record_revision(self, instance: HogFunction, before: HogFunction, before_content: dict) -> None:
         """Version and snapshot a live config change. Runs right after the write it describes, in the
-        same transaction. Comparing two *persisted* snapshots (rather than validated_data against the
-        stored row) keeps derived values — compiled bytecode, input ordering — from reading as
-        content changes on a metadata-only save."""
+        same transaction. Comparing two *persisted* snapshots, rather than validated_data against the
+        stored row, keeps a partial payload from reading as a config change; comparing them without
+        derived values keeps a background bytecode recompile from reading as one either."""
         after_content = snapshot_hog_function_content(instance)
-        if after_content == before_content:
+        if comparable_content(after_content) == comparable_content(before_content):
             return
 
         instance.version = (before.version or 0) + 1
@@ -1083,6 +1136,17 @@ class HogFunctionViewSet(
         # extend the row lock.
         revisions_enabled = use_destinations_revisions(self.team)
         route_to_draft = self._should_route_to_draft(serializer, revisions_enabled)
+
+        # Enabling with a draft open would turn on the live config while the reviewed one sits
+        # unpublished. Make the caller resolve the draft first rather than picking for them.
+        if (
+            revisions_enabled
+            and self.request.data.get("enabled") is True
+            and isinstance(serializer.instance, HogFunction)
+            and serializer.instance.draft
+            and not serializer.instance.enabled
+        ):
+            raise exceptions.ValidationError({"enabled": ENABLE_WITH_OPEN_DRAFT_MESSAGE})
 
         with transaction.atomic():
             try:
@@ -1149,15 +1213,19 @@ class HogFunctionViewSet(
                 }
             )
 
-        previewed_value = self._unsign_publish_confirm_token(param_serializer.validated_data.get("confirm_token"))
-
         with transaction.atomic():
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFunction.objects.select_for_update().get(pk=instance.pk)
             if not locked.draft:
                 raise exceptions.ValidationError("This function has no staged draft to publish.")
-            if previewed_value != _publish_confirm_value(locked):
-                raise StaleHogFunctionUpdateError()
+            # A disabled function processes nothing, so publishing into it can't misroute traffic and
+            # doesn't need the preview receipt. The preview is still offered either way.
+            if locked.enabled:
+                previewed_value = self._unsign_publish_confirm_token(
+                    param_serializer.validated_data.get("confirm_token")
+                )
+                if previewed_value != _publish_confirm_value(locked):
+                    raise StaleHogFunctionUpdateError()
 
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFunction.objects.get(pk=instance.pk)

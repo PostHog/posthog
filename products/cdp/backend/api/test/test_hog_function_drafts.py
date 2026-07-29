@@ -90,6 +90,8 @@ class TestHogFunctionDrafts(DraftTestCase):
             # saves what the person just reviewed, so neither routes to a draft.
             ("disabled_function", True, {"enabled": False}, True),
             ("web_caller", False, {}, True),
+            # Only destinations are in the cycle for now. A transformation edit still applies live.
+            ("transformation", True, {"type": "transformation", "hog": "return event"}, True),
             # The flag is the kill switch: off means the pre-draft behavior, edits apply live.
             ("flag_off", True, {}, False),
         ]
@@ -183,16 +185,48 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert response.status_code == expected, response.json()
         assert HogFunction.objects.get(id=function_id).hog == LIVE_HOG
 
-    def test_publish_with_a_token_from_before_the_latest_edit_conflicts(self):
+    @parameterized.expand(
+        [
+            # The draft is a full snapshot, so a token minted before either side moved would publish
+            # over whatever landed since. Both cases have to force a fresh preview.
+            ("draft_moved", True),
+            ("live_moved", False),
+        ]
+    )
+    def test_publish_with_a_token_from_before_the_latest_edit_conflicts(self, _name: str, edit_draft: bool):
         function_id = self._create()
         self._stage(function_id, {"hog": EDITED_HOG})
         stale_token = self._preview_publish(function_id)["confirm_token"]
-        self._stage(function_id, {"hog": "fetch(inputs.url, {'method': 'PATCH'});"})
+        if edit_draft:
+            self._stage(function_id, {"hog": "fetch(inputs.url, {'method': 'PATCH'});"})
+        else:
+            self._live_edit(function_id, {"name": "Renamed in the builder"})
 
         response = self.client.post(self._url(function_id, "/publish"), {"confirm": True, "confirm_token": stale_token})
 
         assert response.status_code == status.HTTP_409_CONFLICT, response.json()
         assert HogFunction.objects.get(id=function_id).hog == LIVE_HOG
+
+    def test_publishing_a_disabled_function_skips_the_confirm_token(self):
+        function_id = self._create()
+        self._stage(function_id, {"hog": EDITED_HOG})
+        self._live_edit(function_id, {"enabled": False})
+
+        # Nothing is running, so there is no traffic to misroute and no receipt to insist on.
+        response = self.client.post(self._url(function_id, "/publish"), {"confirm": True})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert HogFunction.objects.get(id=function_id).hog == EDITED_HOG
+
+    def test_enabling_with_a_draft_open_is_refused(self):
+        function_id = self._create()
+        self._stage(function_id, {"hog": EDITED_HOG})
+        self._live_edit(function_id, {"enabled": False})
+
+        response = self.client.patch(self._url(function_id), {"enabled": True})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert HogFunction.objects.get(id=function_id).enabled is False
 
     def test_discard_draft_clears_the_draft_and_is_idempotent(self):
         function_id = self._create()
@@ -275,6 +309,18 @@ class TestHogFunctionRevisions(DraftTestCase):
 
         with patch(FLAG_PATH, return_value=flag_on):
             self._live_edit(function_id, payload)
+
+        assert not self._revisions(function_id).exists()
+        assert HogFunction.objects.get(id=function_id).version == 1
+
+    def test_recompiled_filter_bytecode_does_not_create_a_revision(self):
+        function_id = self._create()
+        # Stand in for a background re-save that recompiled filter bytecode without the config
+        # changing, which is what refresh_affected_hog_functions does after an action or cohort edit.
+        # queryset.update() so no signal or serializer runs.
+        HogFunction.objects.filter(id=function_id).update(filters={"source": "events", "bytecode": ["_H", 1, 999]})
+
+        self._live_edit(function_id, {"name": "Renamed"})
 
         assert not self._revisions(function_id).exists()
         assert HogFunction.objects.get(id=function_id).version == 1

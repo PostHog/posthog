@@ -1098,7 +1098,7 @@ export const HogFunctionsPublishCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'From the preview response, and required when confirm=true. Expires after 15 minutes, and any draft edit invalidates it (409), so you always publish the exact draft you previewed.'
+            'From the preview response, and required when confirm=true on an enabled function. Expires after 15 minutes, and any edit to the draft or the live config invalidates it (409), so you always publish the exact draft you previewed.'
         ),
 })
 
