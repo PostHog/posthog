@@ -16,7 +16,6 @@ from google.api_core.exceptions import (
 )
 from google.auth.exceptions import RefreshError
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
     BIGQUERY_CREDENTIALS_REJECTED_ERROR,
@@ -59,6 +58,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigquery import (
     BigQueryDatasetProjectConfig,
     BigQueryKeyFileConfig,

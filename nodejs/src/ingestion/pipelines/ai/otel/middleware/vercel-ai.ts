@@ -5,11 +5,9 @@ import { PluginEvent } from '~/plugin-scaffold'
 import { promotePosthogCustomMetadata } from './custom-metadata'
 import { OtelLibraryMiddleware } from './types'
 
-// Vercel AI SDK attributes to strip after processing. Includes both
-// Vercel-specific ai.* attributes and standard GenAI semantic convention
-// attributes that have already been mapped to $ai_* properties.
+// Provider-specific and standard attributes to strip after processing.
 const STRIP_KEYS = [
-    // Vercel AI SDK specific
+    // Vercel AI SDK and Eve-specific
     'ai.operationId',
     'ai.telemetry.functionId',
     'ai.model.id',
@@ -44,6 +42,7 @@ const STRIP_KEYS = [
     'ai.schema.description',
     'operation.name',
     'resource.name',
+    'eve.session.id',
     // Standard GenAI semantic convention attributes not mapped to $ai_* properties
     'gen_ai.request.max_tokens',
     'gen_ai.response.id',
@@ -52,6 +51,8 @@ const STRIP_KEYS = [
 // Metadata properties to promote to event properties
 const STRING_AI_METADATA_KEYS = ['$ai_session_id', '$ai_prompt_name']
 const AI_PROMPT_VERSION_KEY = '$ai_prompt_version'
+const EVE_MARKER_KEYS = ['eve.version', 'eve.session.id']
+const EVE_TURN_SPAN_NAME = 'ai.eve.turn'
 
 function isNonEmptyString(value: unknown): value is string {
     return typeof value === 'string' && value.length > 0
@@ -59,6 +60,17 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isPromptVersion(value: unknown): value is string | number {
     return isNonEmptyString(value) || (typeof value === 'number' && Number.isInteger(value) && value > 0)
+}
+
+function isEveSpan(props: Record<string, unknown>): boolean {
+    return EVE_MARKER_KEYS.some((key) => props[key] !== undefined)
+}
+
+function isEveTurnSpan(props: Record<string, unknown>): boolean {
+    return (
+        isEveSpan(props) &&
+        (props['$otel_span_name'] === EVE_TURN_SPAN_NAME || props['$ai_span_name'] === EVE_TURN_SPAN_NAME)
+    )
 }
 
 // Vercel AI SDK top-level spans (ai.generateText/ai.streamText/ai.*Object) record
@@ -105,6 +117,12 @@ function process(event: PluginEvent, next: () => void): void {
         return next()
     }
     const props = event.properties
+    const eveSpan = isEveSpan(props)
+
+    // Eve's Workflow parent is filtered before ingestion, so the turn must become the logical trace root.
+    if (isEveTurnSpan(props)) {
+        delete props['$ai_parent_id']
+    }
 
     // Capture opId before next() since STRIP_KEYS deletes it afterward
     const opId = props['ai.operationId']
@@ -284,8 +302,15 @@ function process(event: PluginEvent, next: () => void): void {
     delete props['ai.response.finishReason']
     delete props['gen_ai.response.finish_reasons']
 
+    if (eveSpan) {
+        const eveSessionId = props['eve.session.id']
+        if (props['$ai_session_id'] === undefined && isNonEmptyString(eveSessionId)) {
+            props['$ai_session_id'] = eveSessionId
+        }
+    }
+
     props['$ai_lib'] = 'opentelemetry/vercel-ai'
-    props['$ai_framework'] ??= 'vercel'
+    props['$ai_framework'] ??= eveSpan ? 'eve' : 'vercel'
 
     if (props['$ai_reasoning_tokens'] === undefined && aiSdkV7ReasoningTokens !== undefined) {
         props['$ai_reasoning_tokens'] = aiSdkV7ReasoningTokens
@@ -311,7 +336,7 @@ function process(event: PluginEvent, next: () => void): void {
     }
 }
 
-const MARKER_KEYS = ['ai.operationId', 'ai.telemetry.functionId']
+const MARKER_KEYS = ['ai.operationId', 'ai.telemetry.functionId', ...EVE_MARKER_KEYS]
 
 export const vercelAi: OtelLibraryMiddleware = {
     name: 'vercel-ai',

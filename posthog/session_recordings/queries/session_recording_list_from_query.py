@@ -22,6 +22,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.insights.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
 from posthog.models import Team, User
+from posthog.session_recordings.models.metadata import ONGOING_SESSION_WINDOW_MINUTES
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.cohort_subquery import CohortPropertyGroupsSubQuery
 from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
@@ -240,7 +241,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                         left=ast.Call(name="max", args=[ast.Field(chain=["s", "_timestamp"])]),
                         right=ast.Constant(
                             # provided in a placeholder, so we can pass now from python to make tests easier 🙈
-                            value=datetime.now(UTC) - timedelta(minutes=5),
+                            value=datetime.now(UTC) - timedelta(minutes=ONGOING_SESSION_WINDOW_MINUTES),
                         ),
                         op=ast.CompareOperationOp.GtEq,
                     ),

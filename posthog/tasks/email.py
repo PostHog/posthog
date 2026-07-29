@@ -36,6 +36,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url
 from posthog.models.messaging import MessagingRecord, get_email_hashes
+from posthog.models.scoping import with_team_scope
 from posthog.models.utils import UUIDT
 from posthog.ph_client import feature_enabled_or_false, get_client, ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
@@ -577,6 +578,76 @@ def send_hog_function_disabled(hog_function_id: str) -> None:
         subject=f"[Alert] Destination '{hog_function.name}' has been disabled in project '{team}' due to high error rate",
         template_name="hog_function_disabled",
         template_context={"hog_function": hog_function, "team": team},
+    )
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    message.send()
+
+
+def _get_project_admins_to_notify_of_email_sending_suspension(team: Team) -> list[OrganizationMembership]:
+    # Admin+ only: they're the ones who can act on the issue (contact support, clean up lists).
+    # Everyone else with project access still sees the persistent in-app banner. No
+    # notification-setting gate — the send is failing until action is taken and members must
+    # not be able to mute this.
+    memberships_to_email = []
+    memberships = OrganizationMembership.objects.prefetch_related("user", "organization").filter(
+        organization_id=team.organization_id
+    )
+    for membership in memberships:
+        team_permissions = UserPermissions(membership.user).team(team)
+        effective_level = team_permissions.effective_membership_level_for_parent_membership(
+            membership.organization, membership
+        )
+        if effective_level is not None and effective_level >= OrganizationMembership.Level.ADMIN:
+            memberships_to_email.append(membership)
+    return memberships_to_email
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@with_team_scope()
+def send_email_sending_suspended(team_id: int, reason: str, suspended_at: str) -> None:
+    """
+    Tell a team's members that staff suspended workflow email sending for their project.
+    Deliberately not gated by notification settings — sends are failing until they act.
+    """
+    if not is_email_available(with_absolute_urls=True):
+        return
+    team = Team.objects.get(id=team_id)
+    memberships_to_email = _get_project_admins_to_notify_of_email_sending_suspension(team)
+    if not memberships_to_email:
+        return
+    message = EmailMessage(
+        campaign_key=f"email_sending_suspended_{team_id}_{suspended_at}",
+        subject=f"[Action required] Email sending has been suspended for project '{team}'",
+        template_name="email_sending_suspended",
+        template_context={
+            "team": team,
+            "reason": reason,
+            "reputation_path": f"/project/{team.id}/workflows/reputation",
+        },
+    )
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@with_team_scope()
+def send_email_sending_unsuspended(team_id: int, unsuspended_at: str) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        return
+    team = Team.objects.get(id=team_id)
+    memberships_to_email = _get_project_admins_to_notify_of_email_sending_suspension(team)
+    if not memberships_to_email:
+        return
+    message = EmailMessage(
+        campaign_key=f"email_sending_unsuspended_{team_id}_{unsuspended_at}",
+        subject=f"Email sending has been re-enabled for project '{team}'",
+        template_name="email_sending_unsuspended",
+        template_context={
+            "team": team,
+            "reputation_path": f"/project/{team.id}/workflows/reputation",
+        },
     )
     for membership in memberships_to_email:
         message.add_user_recipient(membership.user)
