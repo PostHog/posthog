@@ -59,6 +59,51 @@ function sourceLabel(source: string): string {
     return DISPLAY_NAMES[source] || source
 }
 
+// Compose scoped, honest text for a campaign's status pill. The pill label is intentionally
+// terse; this explains what the audit actually found for this specific campaign.
+export function issueTooltip(record: CampaignAuditResult): string {
+    const issue = record.issues[0]
+    if (!issue) {
+        return ''
+    }
+    const platform = sourceLabel(record.source_name)
+    switch (issue.kind) {
+        case 'not_linked':
+            return `No pageviews were found for this campaign. Check that your ${platform} tracking URLs include utm_source and utm_campaign.`
+        case 'missing_source':
+            return `Pageviews reached this campaign but had no utm_source set, so they can't be attributed to ${platform}. Add utm_source=${record.source_name} to your ${platform} tracking URLs.`
+        case 'name_collision': {
+            const shared = issue.shared_with_integrations.map(sourceLabel).join(', ') || 'another integration'
+            return `This campaign's name is also used by ${shared}. Switch to matching on campaign ID so they can be told apart.`
+        }
+        case 'no_tagged_events':
+        case 'unknown_source': {
+            const sources = issue.alternative_sources
+                .map((s) => s.utm_source)
+                .filter(Boolean)
+                .join(', ')
+            if (!sources) {
+                return issue.message
+            }
+            return `Pageviews matched this campaign but were tagged utm_source=${sources}, not '${record.source_name}'. Update your ${platform} tracking URLs to use utm_source=${record.source_name}.`
+        }
+        default:
+            return issue.message
+    }
+}
+
+// Short pill label reflecting the issue kind. The tooltip carries the full explanation.
+export function issueLabel(record: CampaignAuditResult): string {
+    const issue = record.issues[0]
+    if (issue?.severity === 'error') {
+        return 'Not linked'
+    }
+    if (issue?.kind === 'missing_source') {
+        return 'Missing source'
+    }
+    return 'Source mismatch'
+}
+
 function formatCurrency(value: number, currency: string = 'USD'): string {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 0 }).format(value)
 }
@@ -201,13 +246,13 @@ function CampaignTabContent(): JSX.Element {
                                         }
                                         const issue = record.issues[0]
                                         return (
-                                            <Tooltip title={issue.message}>
+                                            <Tooltip title={issueTooltip(record)}>
                                                 <span>
                                                     <LemonTag
                                                         type={issue.severity === 'error' ? 'danger' : 'warning'}
                                                         icon={<IconWarning />}
                                                     >
-                                                        {issue.severity === 'error' ? 'Not linked' : 'Source mismatch'}
+                                                        {issueLabel(record)}
                                                     </LemonTag>
                                                 </span>
                                             </Tooltip>

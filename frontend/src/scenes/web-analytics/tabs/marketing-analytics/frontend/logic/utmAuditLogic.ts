@@ -16,10 +16,20 @@ import { similarityScore } from '../components/settings/stringSimilarity'
 import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from './marketingAnalyticsTilesLogic'
 
+export type UtmIssueKind = 'not_linked' | 'name_collision' | 'no_tagged_events' | 'unknown_source' | 'missing_source'
+
+export interface UtmAlternativeSource {
+    utm_source: string
+    event_count: number
+}
+
 export interface UtmIssue {
     field: string
     severity: 'error' | 'warning'
+    kind: UtmIssueKind
     message: string
+    alternative_sources: UtmAlternativeSource[]
+    shared_with_integrations: string[]
 }
 
 export interface CampaignAuditResult {
