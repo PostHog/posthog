@@ -36,6 +36,10 @@ from posthog.session_recordings.queries.utils import (
 )
 from posthog.types import AnyPropertyFilter
 
+# Per-team escape hatch back to the plain PoE path, which is cheaper but misses sessions
+# recorded before a person identified
+HYBRID_QUERY_KILL_SWITCH_FLAG = "disable-hybrid-poe-replay-filtering"
+
 # Person properties eligible for hybrid query optimization
 # These are high-selectivity identity properties where the three-stage query provides value
 HYBRID_QUERY_ELIGIBLE_PROPERTIES = {
@@ -144,16 +148,18 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             limit=limit_expr,
         )
 
-    def _is_hybrid_query_mode_enabled(self) -> bool:
+    def _is_hybrid_query_mode_disabled(self) -> bool:
         """
         Hybrid mode uses a three-stage query to find all sessions for persons matching properties,
         including sessions from before the person was identified.
 
         This solves the "late identification problem" where filtering by person properties
         in standard PoE mode only finds sessions where those properties existed at event time.
+        It is on for every team, so this is only a kill switch for the rare team that needs the
+        cheaper (but incomplete) PoE path back.
         """
         return feature_enabled_or_false(
-            "enable-hybrid-poe-replay-filtering",
+            HYBRID_QUERY_KILL_SWITCH_FLAG,
             str(self._team.id),
             send_feature_flag_events=False,
         )
@@ -163,9 +169,9 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         Determine if hybrid query is appropriate for the given person properties.
 
         Returns:
-            True if at least one property is in the allowlist and feature flag is enabled
+            True if at least one property is in the allowlist and the kill switch is off
         """
-        if not self._is_hybrid_query_mode_enabled():
+        if self._is_hybrid_query_mode_disabled():
             return False
 
         # Don't use hybrid query if there are negative operators
@@ -327,25 +333,40 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         Returns:
             SelectQuery that returns session_ids for persons matching the properties
         """
-        # Detect if we're using fuzzy operators that might match many people
-        has_fuzzy_operators = False
-        for prop in person_properties:
-            if hasattr(prop, "operator") and prop.operator in [
+        has_fuzzy_operators = self._has_fuzzy_operators(person_properties)
+
+        # Exact operators (email="user@example.com") typically match 1-10 people
+        # Fuzzy operators (email icontains "gmail") might match thousands
+        person_id_limit = 1000 if has_fuzzy_operators else 100
+
+        # Build the three-stage query using Pure AST
+        # Stage 1: Find person_ids from persons table
+        persons_query = self._build_persons_query(person_properties, person_id_limit)
+
+        # Stage 2: Find distinct_ids for those person_ids
+        distinct_ids_query = self._build_distinct_ids_query(persons_query)
+
+        # Stage 3: Find sessions for those distinct_ids
+        return self._build_sessions_query(distinct_ids_query)
+
+    @staticmethod
+    def _has_fuzzy_operators(person_properties: list) -> bool:
+        return any(
+            hasattr(prop, "operator")
+            and prop.operator
+            in [
                 PropertyOperator.ICONTAINS,
                 PropertyOperator.NOT_ICONTAINS,
                 PropertyOperator.REGEX,
                 PropertyOperator.NOT_REGEX,
                 PropertyOperator.IS_SET,
                 PropertyOperator.IS_NOT_SET,
-            ]:
-                has_fuzzy_operators = True
-                break
+            ]
+            for prop in person_properties
+        )
 
-        # Exact operators (email="user@example.com") typically match 1-10 people
-        # Fuzzy operators (email icontains "gmail") might match thousands
-        person_id_limit = 1000 if has_fuzzy_operators else 100
-
-        # Track hybrid query usage for monitoring
+    def _capture_hybrid_query_telemetry(self, person_properties: list) -> None:
+        has_fuzzy_operators = self._has_fuzzy_operators(person_properties)
         try:
             from opentelemetry import trace
 
@@ -371,9 +392,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                     "ineligible_property_keys": ineligible_properties,
                     "operators": operators,
                     "has_fuzzy_operators": has_fuzzy_operators,
-                    "person_id_limit": person_id_limit,
                     "date_range_days": (self.query_date_range.date_to() - self.query_date_range.date_from()).days,
-                    "$feature/hybrid-poe-replay-filtering": True,
                 },
             )
 
@@ -383,22 +402,9 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 span.set_attribute("replay.hybrid_query.property_count", len(person_properties))
                 span.set_attribute("replay.hybrid_query.eligible_property_count", len(eligible_properties))
                 span.set_attribute("replay.hybrid_query.has_fuzzy_operators", has_fuzzy_operators)
-                span.set_attribute("replay.hybrid_query.person_id_limit", person_id_limit)
 
         except Exception as e:
             posthoganalytics.capture_exception(e, properties={"context": "hybrid_query_monitoring"})
-
-        # Build the three-stage query using Pure AST
-        # Stage 1: Find person_ids from persons table
-        persons_query = self._build_persons_query(person_properties, person_id_limit)
-
-        # Stage 2: Find distinct_ids for those person_ids
-        distinct_ids_query = self._build_distinct_ids_query(persons_query)
-
-        # Stage 3: Find sessions for those distinct_ids
-        sessions_query = self._build_sessions_query(distinct_ids_query)
-
-        return sessions_query
 
     def _get_queries_for_matching(self, select_expr: ast.Expr, group_by: list[ast.Expr]) -> list[ast.SelectQuery]:
         """
@@ -453,19 +459,23 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 continue
             gathered_exprs.append(property_to_expr(p, team=self._team))
 
-        # Handle person properties with hybrid query mode if enabled and appropriate
-        hybrid_query: Optional[ast.SelectQuery] = None
+        # Handle person properties with hybrid query mode if enabled and appropriate.
+        # Each property gets its own subquery so it takes part in the query's AND/OR operand
+        # the same way a plain PoE predicate would.
+        hybrid_queries: list[ast.SelectQuery] = []
         if self._team.person_on_events_mode and self.person_properties:
-            if self._should_use_hybrid_query(self.person_properties):
-                hybrid_query = self._get_person_id_based_sessions_query(self.person_properties)
-                # Don't add person properties to gathered_exprs - we've handled them via hybrid query
-            else:
-                # Use standard PoE approach (fast but potentially incomplete)
-                # Used for all non-identity properties or when feature flag is off
-                for p in self.person_properties:
-                    if skip_negative_properties and is_negative_prop(p):
-                        continue
+            use_hybrid_query = self._should_use_hybrid_query(self.person_properties)
+            for p in self.person_properties:
+                if skip_negative_properties and is_negative_prop(p):
+                    continue
+                if use_hybrid_query and getattr(p, "key", None) in HYBRID_QUERY_ELIGIBLE_PROPERTIES:
+                    hybrid_queries.append(self._get_person_id_based_sessions_query([p]))
+                else:
+                    # Standard PoE approach: fast, but misses sessions from before the person
+                    # identified. Used for non-identity properties and when the kill switch is on.
                     gathered_exprs.append(property_to_expr(p, team=self._team, scope="event"))
+            if hybrid_queries:
+                self._capture_hybrid_query_telemetry(self.person_properties)
 
         # Positive cohort filters (IN cohort) become events-table predicates here,
         # same shape as a PoE person-property filter. Negative cohort filters (NOT IN
@@ -481,9 +491,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         queries: list[ast.SelectQuery] = []
 
-        # Add hybrid query first if we used it for person properties
-        if hybrid_query:
-            queries.append(hybrid_query)
+        # Add hybrid queries first if we used them for person properties
+        queries.extend(hybrid_queries)
         for expr in gathered_exprs:
             # Increased LIMIT from 10000 to 1000000 to handle cases where:
             # 1. Session recording sampling is enabled (only small % of sessions have recordings)

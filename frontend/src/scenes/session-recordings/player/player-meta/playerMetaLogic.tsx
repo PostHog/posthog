@@ -44,6 +44,13 @@ import { SessionSummaryContent, SummarizationProgress } from './types'
 
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
 
+/** A property this specific recording has a value for, so it's worth offering as something to pin or filter by. */
+export interface AvailableProperty {
+    key: string
+    label: string
+    type: TaxonomicFilterGroupType
+}
+
 // The summary backend filters these out before summarizing, so mirror them here: the
 // "Summarize" button should be disabled when every event would be filtered away (otherwise
 // the user triggers a summary that fails with "This recording has no events to summarize").
@@ -86,6 +93,19 @@ export function hasSummarizableEvents(
 
 function getAllPersonProperties(sessionPlayerMetaData: SessionRecordingType | null): Record<string, any> {
     return sessionPlayerMetaData?.person?.properties ?? {}
+}
+
+/** Every property this recording actually has a value for: session/recording properties merged over the person's. */
+function mergeRecordingProperties(
+    recordingProperties: Record<string, any>,
+    personProperties: Record<string, any>
+): Record<string, any> {
+    const allProperties = { ...recordingProperties, ...personProperties }
+    if (allProperties['$os_name'] && allProperties['$os']) {
+        // we don't need both, prefer $os_name in case mobile sends better value in that field
+        delete allProperties['$os']
+    }
+    return allProperties
 }
 
 function canRenderDirectly(value: any): boolean {
@@ -186,6 +206,7 @@ export interface playerMetaLogicValues {
     summaryBySessionId: Record<string, SessionSummaryContent | null> // sessionSummaryProgressLogic
     summaryIdBySessionId: Record<string, string | null> // sessionSummaryProgressLogic
     allOverviewItems: OverviewItem[]
+    availableProperties: AvailableProperty[]
     currentWindowIndex: number
     displayOverviewItems: OverviewItem[]
     endTime: Dayjs | null
@@ -201,6 +222,7 @@ export interface playerMetaLogicValues {
     sessionSummaryId: string | null
     sessionSummaryLoading: boolean
     sessionSummarySegmentRanges: SeekbarSegmentRange[] | null
+    showAllProperties: boolean
     showFeedbackSurvey: boolean
     snapshotAt: any
     startTime: Dayjs | null
@@ -270,6 +292,9 @@ export interface playerMetaLogicActions {
     setIsPropertyPopoverOpen: (isOpen: boolean) => {
         isOpen: boolean
     }
+    setShowAllProperties: (show: boolean) => {
+        show: boolean
+    }
     setShowFeedbackSurvey: (show: boolean) => {
         show: boolean
     }
@@ -329,7 +354,15 @@ export interface playerMetaLogicMeta {
             recordingPropertiesById: Record<string, SessionRecordingPropertiesType[]>,
             pinnedProperties: string[]
         ) => OverviewItem[]
-        displayOverviewItems: (allOverviewItems: OverviewItem[], pinnedProperties: string[]) => OverviewItem[]
+        availableProperties: (
+            sessionPlayerMetaData: SessionRecordingType | null,
+            recordingPropertiesById: Record<string, SessionRecordingPropertiesType[]>
+        ) => AvailableProperty[]
+        displayOverviewItems: (
+            allOverviewItems: OverviewItem[],
+            pinnedProperties: string[],
+            showAllProperties: boolean
+        ) => OverviewItem[]
         sessionSummarySegmentRanges: (sessionSummary: SessionSummaryContent | null) => SeekbarSegmentRange[] | null
     }
 }
@@ -384,8 +417,16 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         summarizeSession: () => ({}),
         setIsPropertyPopoverOpen: (isOpen: boolean) => ({ isOpen }),
         setShowFeedbackSurvey: (show: boolean) => ({ show }),
+        setShowAllProperties: (show: boolean) => ({ show }),
     }),
     reducers(() => ({
+        showAllProperties: [
+            false,
+            { persist: true },
+            {
+                setShowAllProperties: (_, { show }) => show,
+            },
+        ],
         showFeedbackSurvey: [
             false,
             {
@@ -603,12 +644,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     : {}
                 const personProperties = getAllPersonProperties(sessionPlayerMetaData)
 
-                // Combine both recording and person properties
-                const allProperties = { ...recordingProperties, ...personProperties }
-                if (allProperties['$os_name'] && allProperties['$os']) {
-                    // we don't need both, prefer $os_name in case mobile sends better value in that field
-                    delete allProperties['$os']
-                }
+                const allProperties = mergeRecordingProperties(recordingProperties, personProperties)
 
                 const allPropertyKeys = new Set(Object.keys(allProperties))
 
@@ -669,24 +705,52 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 return items
             },
         ],
+        availableProperties: [
+            (s) => [s.sessionPlayerMetaData, s.recordingPropertiesById],
+            (
+                sessionPlayerMetaData: SessionRecordingType | null,
+                recordingPropertiesById: Record<string, Record<string, any>>
+            ): AvailableProperty[] => {
+                const recordingProperties = sessionPlayerMetaData?.id
+                    ? recordingPropertiesById[sessionPlayerMetaData.id] || {}
+                    : {}
+                const allProperties = mergeRecordingProperties(
+                    recordingProperties,
+                    getAllPersonProperties(sessionPlayerMetaData)
+                )
+                return Object.keys(allProperties)
+                    .filter(
+                        (property) =>
+                            // shown in the Country title rather than on their own
+                            property !== '$geoip_subdivision_1_name' &&
+                            property !== '$geoip_city_name' &&
+                            !recordingPropertyKeys.includes(property as any)
+                    )
+                    .map((property) => {
+                        const { label, type } = getPropertyDisplayInfo(property, recordingProperties)
+                        return { key: property, label, type }
+                    })
+                    .sort((a, b) => a.label.localeCompare(b.label))
+            },
+        ],
         displayOverviewItems: [
-            (s) => [s.allOverviewItems, s.pinnedProperties],
-            (allOverviewItems: OverviewItem[], pinnedProperties: string[]) => {
-                // Filter to show only pinned properties and sort by pinned order
-                const pinnedItems = allOverviewItems.filter((item) => {
-                    const key = item.type === 'property' ? item.property : item.label
-                    return pinnedProperties.includes(String(key))
-                })
+            (s) => [s.allOverviewItems, s.pinnedProperties, s.showAllProperties],
+            (allOverviewItems: OverviewItem[], pinnedProperties: string[], showAllProperties: boolean) => {
+                const keyOf = (item: OverviewItem): string =>
+                    String(item.type === 'property' ? item.property : item.label)
 
                 // Sort by the order in pinnedProperties array
                 // without this pins jump around as they load in
-                return pinnedItems.sort((a, b) => {
-                    const aKey = a.type === 'property' ? a.property : a.label
-                    const bKey = b.type === 'property' ? b.property : b.label
-                    const aIndex = pinnedProperties.indexOf(String(aKey))
-                    const bIndex = pinnedProperties.indexOf(String(bKey))
-                    return aIndex - bIndex
-                })
+                const pinnedItems = allOverviewItems
+                    .filter((item) => pinnedProperties.includes(keyOf(item)))
+                    .sort((a, b) => pinnedProperties.indexOf(keyOf(a)) - pinnedProperties.indexOf(keyOf(b)))
+
+                if (!showAllProperties) {
+                    return pinnedItems
+                }
+
+                // pinned stay on top so they don't move when the rest is revealed
+                return [...pinnedItems, ...allOverviewItems.filter((item) => !pinnedProperties.includes(keyOf(item)))]
             },
         ],
         sessionSummarySegmentRanges: [

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGear } from '@posthog/icons'
+import { IconCollapse, IconExpand, IconGear } from '@posthog/icons'
 
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { SettingsSnapshot } from 'lib/components/SettingsSnapshot'
@@ -79,8 +79,10 @@ export function PlayerSidebarOverviewGrid({
 } = {}): JSX.Element {
     const { logicProps: contextLogicProps } = useValues(sessionRecordingPlayerLogic)
     const logicProps = logicPropsOverride || contextLogicProps
-    const { displayOverviewItems, loading, isPropertyPopoverOpen, snapshotAt } = useValues(playerMetaLogic(logicProps))
-    const { setIsPropertyPopoverOpen } = useActions(playerMetaLogic(logicProps))
+    const { displayOverviewItems, loading, isPropertyPopoverOpen, showAllProperties, snapshotAt } = useValues(
+        playerMetaLogic(logicProps)
+    )
+    const { setIsPropertyPopoverOpen, setShowAllProperties } = useActions(playerMetaLogic(logicProps))
     const { togglePropertyFilter } = useActions(sessionRecordingsPlaylistLogic)
     const { filters } = useValues(sessionRecordingsPlaylistLogic)
 
@@ -96,7 +98,7 @@ export function PlayerSidebarOverviewGrid({
                         <Popover
                             visible={isPropertyPopoverOpen}
                             onClickOutside={() => setIsPropertyPopoverOpen(false)}
-                            overlay={<PlayerSidebarEditPinnedPropertiesPopover />}
+                            overlay={<PlayerSidebarEditPinnedPropertiesPopover logicPropsOverride={logicProps} />}
                             placement="bottom"
                         >
                             <LemonButton
@@ -109,6 +111,20 @@ export function PlayerSidebarOverviewGrid({
                                 Edit pinned overview properties
                             </LemonButton>
                         </Popover>
+                        <LemonButton
+                            icon={showAllProperties ? <IconCollapse /> : <IconExpand />}
+                            onClick={() => setShowAllProperties(!showAllProperties)}
+                            fullWidth
+                            size="small"
+                            type="secondary"
+                            tooltip={
+                                showAllProperties
+                                    ? undefined
+                                    : 'See every property this recording has, so you know what you can filter by'
+                            }
+                        >
+                            {showAllProperties ? 'Show pinned only' : 'Show all properties'}
+                        </LemonButton>
                         {displayOverviewItems.map((item) => {
                             const isFilterable =
                                 item.type === 'property' &&
@@ -127,7 +143,7 @@ export function PlayerSidebarOverviewGrid({
 
                             return (
                                 <OverviewGridItem
-                                    key={item.label}
+                                    key={item.type === 'property' ? `property-${item.property}` : item.label}
                                     description={item.valueTooltip}
                                     label={item.label}
                                     icon={item.icon}

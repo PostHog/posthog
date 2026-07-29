@@ -3,6 +3,7 @@ import { HttpResponse } from 'msw'
 
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { OverviewItem } from 'scenes/session-recordings/components/OverviewGrid'
 import { hasSummarizableEvents, playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -65,6 +66,24 @@ describe('playerMetaLogic', () => {
             })
                 .toDispatchActions(['loadRecordingMetaSuccess', 'loadPropertiesForSessionsSuccess'])
                 .toMatchValues({ loading: false })
+        })
+    })
+
+    describe('showing every property the recording has', () => {
+        const propertyKeysIn = (items: OverviewItem[]): string[] =>
+            items.filter((item) => item.type === 'property').map((item) => item.property)
+
+        it('hides unpinned properties until asked for all of them', async () => {
+            await expectLogic(logic, () => {
+                sessionRecordingDataCoordinatorLogic(playerProps).actions.loadRecordingMeta()
+            }).toDispatchActions(['loadRecordingMetaSuccess'])
+
+            // the recording's own person property is discoverable even though it isn't pinned
+            expect(logic.values.availableProperties.map((p) => p.key)).toContain('$initial_os')
+            expect(propertyKeysIn(logic.values.displayOverviewItems)).not.toContain('$initial_os')
+
+            logic.actions.setShowAllProperties(true)
+            expect(propertyKeysIn(logic.values.displayOverviewItems)).toContain('$initial_os')
         })
     })
 

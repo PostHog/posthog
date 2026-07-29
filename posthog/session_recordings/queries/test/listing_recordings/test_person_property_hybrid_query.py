@@ -11,7 +11,10 @@ from posthog.schema import PersonPropertyFilter, PropertyOperator, RecordingsQue
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
-from posthog.session_recordings.queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
+from posthog.session_recordings.queries.sub_queries.events_subquery import (
+    HYBRID_QUERY_KILL_SWITCH_FLAG,
+    ReplayFiltersEventsSubQuery,
+)
 from posthog.session_recordings.queries.test.listing_recordings.test_utils import (
     assert_query_matches_session_ids,
     create_event,
@@ -40,11 +43,26 @@ class TestPersonPropertyHybridQuery(ClickhouseTestMixin, APIBaseTest):
     def an_hour_ago(self):
         return (now() - relativedelta(hours=1)).replace(microsecond=0, second=0)
 
-    def test_hybrid_query_disabled_by_default(self) -> None:
+    def test_kill_switch_falls_back_to_poe_path(self) -> None:
         with freeze_time("2021-08-21T20:00:00.000Z"):
             anonymous_id = "anonymous_user_123"
             identified_id = "identified_user_123"
+            session_id_before = "session_before_identification_123"
             session_id_after = "session_after_identification"
+
+            produce_replay_summary(
+                distinct_id=anonymous_id,
+                session_id=session_id_before,
+                first_timestamp=self.an_hour_ago - relativedelta(minutes=10),
+                team_id=self.team.id,
+            )
+            create_event(
+                anonymous_id,
+                self.an_hour_ago - relativedelta(minutes=10),
+                team=self.team,
+                event_name="$pageview",
+                properties={"$session_id": session_id_before},
+            )
 
             create_person(
                 team=self.team,
@@ -66,22 +84,25 @@ class TestPersonPropertyHybridQuery(ClickhouseTestMixin, APIBaseTest):
                 properties={"$session_id": session_id_after},
             )
 
-            self._assert_query_matches_session_ids(
-                {
-                    "properties": [
-                        {
-                            "key": "email",
-                            "value": "user@example.com",
-                            "type": "person",
-                            "operator": "exact",
-                        }
-                    ]
-                },
-                [session_id_after],
-            )
+            with patch(
+                "posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: key == HYBRID_QUERY_KILL_SWITCH_FLAG,
+            ):
+                self._assert_query_matches_session_ids(
+                    {
+                        "properties": [
+                            {
+                                "key": "email",
+                                "value": "user@example.com",
+                                "type": "person",
+                                "operator": "exact",
+                            }
+                        ]
+                    },
+                    [session_id_after],
+                )
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_hybrid_query_enabled_finds_sessions(self, mock_feature_enabled) -> None:
+    def test_finds_sessions_from_before_identification_by_default(self) -> None:
         with freeze_time("2021-08-21T20:00:00.000Z"):
             anonymous_id = "anonymous_user_456"
             identified_id = "identified_user_456"
@@ -136,8 +157,7 @@ class TestPersonPropertyHybridQuery(ClickhouseTestMixin, APIBaseTest):
                 [session_id_before, session_id_after],
             )
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_hybrid_query_finds_all_person_sessions(self, mock_feature_enabled) -> None:
+    def test_hybrid_query_finds_all_person_sessions(self) -> None:
         with freeze_time("2021-08-21T20:00:00.000Z"):
             distinct_id_1 = "distinct_1"
             distinct_id_2 = "distinct_2"
@@ -208,12 +228,7 @@ class TestPersonPropertyHybridQuery(ClickhouseTestMixin, APIBaseTest):
                 [session_id_1, session_id_2, session_id_3],
             )
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_hybrid_query_skips_negative_operators(self, mock_feature_enabled) -> None:
-        """
-        Test that _should_use_hybrid_query returns False when person property filters
-        have negative operators, even when the feature flag is enabled.
-        """
+    def test_hybrid_query_skips_negative_operators(self) -> None:
         # Test with IS_NOT operator
         query_with_is_not = RecordingsQuery(
             properties=[
