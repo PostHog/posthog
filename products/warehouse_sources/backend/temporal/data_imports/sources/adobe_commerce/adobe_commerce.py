@@ -37,6 +37,12 @@ MAX_DOWNLOAD_SECONDS = 600
 # A server that returns a non-empty page forever (or omits/inflates `total_count`) would otherwise
 # pin the activity until its timeout. At 100-200 rows a page this is far beyond any real catalog.
 MAX_PAGES = 100_000
+# Bound the loop's wall clock too, so a store that stays under `MAX_PAGES` by dribbling pages can't
+# hold an import worker for the activity's week-long timeout. Magento's searchCriteria collections
+# always carry `total_count`, so a real store terminates well before either bound — only a
+# pathological one hits them, and resuming would just hand it more worker time, so both are
+# non-retryable (see `PAGINATION_LIMIT_ERROR` in `get_non_retryable_errors`).
+MAX_PAGINATION_SECONDS = 24 * 60 * 60
 
 # Magento's admin token TTL is configurable (`oauth/access_token_lifetime/admin`) and defaults to
 # 4 hours; the response carries no expiry, so assume the default and re-mint well before it.
@@ -62,6 +68,7 @@ MAGENTO_DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 HOST_NOT_ALLOWED_ERROR = "Adobe Commerce store URL is not allowed"
 INCOMPLETE_CREDENTIALS_ERROR = "Adobe Commerce credentials are incomplete"
 HTTPS_REQUIRED_ERROR = "Adobe Commerce store URL must use HTTPS"
+PAGINATION_LIMIT_ERROR = "Adobe Commerce pagination did not terminate"
 
 # A store code is a Magento code: letters, digits and underscores, starting with a letter.
 _STORE_CODE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*$")
@@ -472,10 +479,13 @@ def get_rows(
     if resume is not None:
         logger.debug(f"Adobe Commerce: resuming {endpoint} from page {page}")
 
+    loop_deadline = time.monotonic() + MAX_PAGINATION_SECONDS
     while True:
         if page > MAX_PAGES:
+            raise AdobeCommercePaginationLimitError(f"{PAGINATION_LIMIT_ERROR}: {endpoint} exceeded {MAX_PAGES} pages")
+        if time.monotonic() > loop_deadline:
             raise AdobeCommercePaginationLimitError(
-                f"Adobe Commerce pagination for {endpoint} exceeded {MAX_PAGES} pages without terminating"
+                f"{PAGINATION_LIMIT_ERROR}: {endpoint} exceeded the {MAX_PAGINATION_SECONDS}s pagination budget"
             )
 
         params = build_search_criteria(config, page, cursor_field, cursor_value)

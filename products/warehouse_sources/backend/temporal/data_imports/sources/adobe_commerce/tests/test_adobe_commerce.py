@@ -535,6 +535,21 @@ class TestGetRows:
         with pytest.raises(AdobeCommercePaginationLimitError):
             _collect(_FakeResumableManager(), session, monkeypatch, "orders")
 
+    def test_pagination_wall_clock_is_bounded(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # A store that dribbles full pages without `total_count` stays under MAX_PAGES but would run
+        # to the activity timeout, so the loop's wall-clock budget must stop it independently.
+        clock = {"now": 0.0}
+
+        def fake_monotonic() -> float:
+            clock["now"] += 1.0
+            return clock["now"]
+
+        monkeypatch.setattr(adobe_commerce.time, "monotonic", fake_monotonic)
+        monkeypatch.setattr(adobe_commerce, "MAX_PAGINATION_SECONDS", 0)
+        session = _FakeSession(lambda key: _make_response(200, {"items": [{"entity_id": 1}]}))
+        with pytest.raises(AdobeCommercePaginationLimitError):
+            _collect(_FakeResumableManager(), session, monkeypatch, "orders")
+
     def test_internal_host_is_refused_at_sync_time(self, monkeypatch: pytest.MonkeyPatch) -> None:
         session = _FakeSession({})
         monkeypatch.setattr(adobe_commerce, "_make_session", lambda credentials, capture=True, retry=None: session)

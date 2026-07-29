@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_comm
     HOST_NOT_ALLOWED_ERROR,
     HTTPS_REQUIRED_ERROR,
     INCOMPLETE_CREDENTIALS_ERROR,
+    PAGINATION_LIMIT_ERROR,
     AdobeCommerceCredentials,
     AdobeCommerceResumeConfig,
     adobe_commerce_source,
@@ -167,6 +168,7 @@ class AdobeCommerceSource(ResumableSource[AdobeCommerceSourceConfig, AdobeCommer
             HOST_NOT_ALLOWED_ERROR: "The Adobe Commerce store URL is not allowed. Use your store's public URL.",
             HTTPS_REQUIRED_ERROR: "The Adobe Commerce store URL must use HTTPS so your credentials aren't sent in the clear. Update the store URL and reconnect.",
             INCOMPLETE_CREDENTIALS_ERROR: "Adobe Commerce credentials are incomplete. Please re-enter them and reconnect.",
+            PAGINATION_LIMIT_ERROR: "Adobe Commerce kept returning pages without signalling the end of the collection. This usually means the store's REST API is misconfigured — check the store URL and store code.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
