@@ -1,4 +1,9 @@
-import { addProjectIdIfMissing, ensureRoutablePathname, stripTrailingSlash } from 'lib/utils/kea-router'
+import {
+    addProjectIdIfMissing,
+    ensureRoutablePathname,
+    getProjectSwitchTargetUrl,
+    stripTrailingSlash,
+} from 'lib/utils/kea-router'
 
 describe('router-utils', () => {
     it('does not redirect account URLs to a project URL', () => {
@@ -85,6 +90,31 @@ describe('router-utils', () => {
             const result = ensureRoutablePathname(input)
             expect(result).toEqual(expected)
             expect(() => decodeURI(result)).not.toThrow()
+        })
+    })
+
+    describe('getProjectSwitchTargetUrl', () => {
+        // Org-, instance- and user-level paths used to get a `/project/<id>` prefix they can't
+        // have (e.g. `/project/2/organization`), which has no route and rendered NotFound.
+        it.each([
+            ['/organization/billing/overview'],
+            ['/organization/billing'],
+            ['/instance/status'],
+            ['/me/settings'],
+            ['/account/two_factor'],
+        ])('sends %s to the new project root', (path) => {
+            expect(getProjectSwitchTargetUrl(path, 2, 1, 5)).toEqual('/project/2')
+            // Same project, different team — the other branch of the helper, broken the same way
+            expect(getProjectSwitchTargetUrl(path, 2, 1, 1)).toEqual('/project/2')
+        })
+
+        it.each([
+            ['/insights/abc123', 1, 5, '/project/2/insights'],
+            ['/insights/abc123', 1, 1, '/project/2/insights/abc123'],
+            ['/settings/organization', 1, 5, '/project/2/settings/organization'],
+            ['/onboarding/product-analytics', 1, 5, '/project/2'],
+        ])('keeps project-level %s working', (path, currentProjectId, newProjectId, expected) => {
+            expect(getProjectSwitchTargetUrl(path, 2, currentProjectId, newProjectId)).toEqual(expected)
         })
     })
 })

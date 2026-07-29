@@ -125,6 +125,13 @@ export function getProjectSwitchTargetUrl(
     let route = removeProjectIdIfPresent(currentPath)
     route = removeFlagIdIfPresent(route)
 
+    // Org-, instance- and user-level pages can't carry a project ID, and the switch only takes
+    // effect through the project-prefixed URL — so land on the new project's root instead of
+    // building a `/project/<id>/organization/...` URL that has no route.
+    if (isPathWithoutProjectId(route)) {
+        return `/project/${newTeamId}`
+    }
+
     // Extract the resource path (first part after removing project ID)
     const resourcePath = route.split('/')[1]
 

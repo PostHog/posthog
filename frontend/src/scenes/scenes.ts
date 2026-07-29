@@ -706,6 +706,8 @@ export const redirects: Record<
     '/me/settings': urls.settings('user'),
     '/new': urls.newTab(),
     '/live-debugger': urls.liveDebugger(),
+    // Bare /organization has no scene of its own — send stale links to org settings rather than a 404
+    '/organization': urls.settings('organization'),
     '/organization/members': urls.settings('organization'),
     '/organization/settings': urls.settings('organization'),
     '/pipeline': urls.sources(),
