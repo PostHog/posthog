@@ -80,7 +80,7 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _seed_document_embeddings(self) -> list[DocumentEmbeddingRow]:
         # Truncate model-specific tables
         for model_name in self.models.keys():
-            table_name = f"distributed_posthog_document_embeddings_{model_name.replace('-', '_')}"
+            table_name = f"sharded_posthog_document_embeddings_{model_name.replace('-', '_')}"
             sync_execute(f"TRUNCATE TABLE {table_name}", flush=False, team_id=self.team.pk)
 
         fixtures: list[TestDocumentEmbeddingsQueryRunner.DocumentEmbeddingRow] = []
@@ -132,10 +132,11 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
                     row_index += 1
 
-        # Insert into model-specific tables
+        # Insert into local (sharded) tables directly to avoid distributed table async
+        # write buffering that can cause flaky test failures.
         for model_name, rows in rows_by_model.items():
             if rows:
-                table_name = f"distributed_posthog_document_embeddings_{model_name.replace('-', '_')}"
+                table_name = f"sharded_posthog_document_embeddings_{model_name.replace('-', '_')}"
                 sync_execute(
                     f"""
                     INSERT INTO {table_name} (
