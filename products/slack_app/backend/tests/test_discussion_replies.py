@@ -6,7 +6,8 @@ from posthog.models.integration import Integration
 
 from products.slack_app.backend.discussion_replies import try_ingest_discussion_reply
 
-RESOLVE = "products.slack_app.backend.discussion_replies.resolve_slack_user"
+# The Slack profile lookup happens inside the ingest Celery task (eager in tests).
+RESOLVE = "posthog.tasks.comment_slack_sync.resolve_slack_user"
 
 
 class TestIngestDiscussionReply(APIBaseTest):
@@ -41,7 +42,10 @@ class TestIngestDiscussionReply(APIBaseTest):
     def _ingest(self, event: dict) -> bool:
         return try_ingest_discussion_reply(event, [self.integration], event["channel"], event.get("thread_ts"), "T1")
 
-    @patch(RESOLVE, return_value={"name": "Stranger", "email": "stranger@example.com", "avatar": "http://a"})
+    @patch(
+        RESOLVE,
+        return_value={"name": "Stranger", "email": "stranger@example.com", "avatar": "http://a", "team_id": "T_EXT"},
+    )
     def test_ingests_reply_anchored_on_thread_root(self, _resolve):
         handled = self._ingest(self._event())
 
@@ -52,15 +56,39 @@ class TestIngestDiscussionReply(APIBaseTest):
         assert reply.created_by_id is None  # stranger isn't an org member
         assert reply.item_context["from_slack"] is True
         assert reply.item_context["slack_author_name"] == "Stranger"
+        # External participants' email / Slack user id must not leak through the comments API.
+        assert "slack_author_email" not in reply.item_context
+        assert "slack_user_id" not in reply.item_context
 
     @patch(RESOLVE)
-    def test_maps_slack_user_to_posthog_account_by_email(self, mock_resolve):
-        mock_resolve.return_value = {"name": "Member", "email": self.user.email, "avatar": None}
+    def test_maps_workspace_member_to_posthog_account_by_email(self, mock_resolve):
+        mock_resolve.return_value = {"name": "Member", "email": self.user.email, "avatar": None, "team_id": "T1"}
 
         self._ingest(self._event())
 
         reply = Comment.objects.get(source_comment=self.root)
         assert reply.created_by_id == self.user.id
+
+    @patch(RESOLVE)
+    def test_external_workspace_author_is_never_attributed(self, mock_resolve):
+        # Slack Connect: the author's profile email matches an org member, but they belong to a
+        # different workspace whose admin controls that email — attributing would allow
+        # impersonation, so the comment stays author-less.
+        mock_resolve.return_value = {"name": "Imposter", "email": self.user.email, "avatar": None, "team_id": "T_EXT"}
+
+        self._ingest(self._event())
+
+        reply = Comment.objects.get(source_comment=self.root)
+        assert reply.created_by_id is None
+        assert reply.item_context["slack_author_name"] == "Imposter"
+
+    @patch(RESOLVE, return_value={"name": "X", "email": None, "avatar": None, "team_id": "T1"})
+    def test_duplicate_event_delivery_creates_one_comment(self, _resolve):
+        # Slack delivers at-least-once; the message ts is the idempotency key.
+        assert self._ingest(self._event()) is True
+        assert self._ingest(self._event()) is True
+
+        assert Comment.objects.filter(source_comment=self.root).count() == 1
 
     def test_returns_false_for_unmirrored_thread(self):
         handled = self._ingest(self._event(thread_ts="999.9"))
@@ -68,9 +96,29 @@ class TestIngestDiscussionReply(APIBaseTest):
         assert handled is False
         assert not Comment.objects.filter(source_comment=self.root).exists()
 
-    @patch(RESOLVE, return_value={"name": "X", "email": None, "avatar": None})
+    @patch("products.slack_app.backend.discussion_replies.SlackThreadTaskMapping")
+    def test_agent_task_thread_takes_precedence(self, mock_mapping):
+        # A mirrored thread where someone also @-mentioned the coding agent: followups belong
+        # to the agent pipeline, not the discussion.
+        mock_mapping.objects.filter.return_value.exists.return_value = True
+
+        handled = self._ingest(self._event())
+
+        assert handled is False
+        assert not Comment.objects.filter(source_comment=self.root).exists()
+
+    @patch(RESOLVE, return_value={"name": "X", "email": None, "avatar": None, "team_id": "T1"})
     def test_empty_message_handled_without_creating_comment(self, _resolve):
         handled = self._ingest(self._event(text="", blocks=None))
 
         assert handled is True
+        assert not Comment.objects.filter(source_comment=self.root).exists()
+
+    @patch("posthog.tasks.comment_slack_sync.posthoganalytics.feature_enabled", return_value=False)
+    @patch(RESOLVE, return_value={"name": "X", "email": None, "avatar": None, "team_id": "T1"})
+    def test_kill_switch_stops_ingestion(self, _resolve, _flag):
+        # Turning the flag explicitly off halts inbound sync on existing mirrors too.
+        handled = self._ingest(self._event())
+
+        assert handled is True  # still claimed as a discussion thread — just not written
         assert not Comment.objects.filter(source_comment=self.root).exists()

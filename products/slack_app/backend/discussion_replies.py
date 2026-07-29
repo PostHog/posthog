@@ -2,17 +2,20 @@
 
 The outbound half (PostHog discussion -> Slack thread) lives in posthog/helpers/slack_thread_mirror.py
 and the send_to_slack action. This is the inbound half: when someone replies in a Slack thread that a
-discussion is mirrored to, save their message as a reply Comment on that discussion.
+discussion is mirrored to, save their message as a reply Comment on that discussion. Only the routing
+decision happens here, on the webhook request thread — the Slack profile lookup and comment write run
+in a Celery task so the events endpoint can ack within Slack's deadline and failures get retries.
 """
 
 from typing import Any
 
 import structlog
 
-from posthog.comment.formatting import slack_to_content_and_rich_content
-from posthog.helpers.slack_identity import resolve_posthog_user_for_slack, resolve_slack_user
-from posthog.models.comment import Comment, CommentSlackThread
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.comment import CommentSlackThread
+from posthog.models.integration import Integration
+from posthog.tasks.comment_slack_sync import ingest_slack_discussion_reply
+
+from products.slack_app.backend.models import SlackThreadTaskMapping
 
 logger = structlog.get_logger(__name__)
 
@@ -24,7 +27,7 @@ def try_ingest_discussion_reply(
     thread_ts: str | None,
     slack_team_id: str,
 ) -> bool:
-    """Save a Slack thread reply as a discussion comment if the thread is mirrored.
+    """Enqueue a Slack thread reply for ingestion as a discussion comment if the thread is mirrored.
 
     Returns True when the reply belonged to a mirrored discussion (so the caller stops treating
     it as coding-agent work), False when the thread isn't a mirrored discussion.
@@ -41,45 +44,30 @@ def try_ingest_discussion_reply(
     mirror = (
         CommentSlackThread.objects.unscoped()
         .filter(integration_id__in=candidate_ids, slack_channel_id=channel, slack_thread_ts=thread_ts)
-        .select_related("integration__team")
+        .only("id")
         .first()
     )
     if mirror is None:
         return False
 
-    integration = mirror.integration
-    team = integration.team
-    slack_user_id = str(event.get("user") or "")
-    user_info = resolve_slack_user(SlackIntegration(integration).client, slack_user_id)
-    posthog_user = resolve_posthog_user_for_slack(user_info.get("email"), team)
+    # A thread can be both a mirrored discussion and an agent-task thread (someone @-mentioned the
+    # agent in it). The agent followup pipeline takes precedence — claiming the reply here would
+    # silently swallow instructions meant for the agent.
+    if SlackThreadTaskMapping.objects.filter(
+        integration_id__in=candidate_ids, channel=channel, thread_ts=thread_ts
+    ).exists():
+        return False
 
-    content, rich_content = slack_to_content_and_rich_content(event.get("text", ""), event.get("blocks"))
-    if not content and not rich_content:
-        return True
-
-    Comment.objects.create(
-        team=team,
-        scope=mirror.scope,
-        item_id=mirror.item_id,
-        # The reply hangs off the mirrored thread's root comment (None only for whole-item mirrors).
-        source_comment_id=mirror.source_comment_id,
-        content=content,
-        rich_content=rich_content,
-        # Slack users without a matching PostHog account stay author-less; their identity rides in item_context.
-        created_by=posthog_user,
-        item_context={
-            "from_slack": True,
-            "slack_user_id": slack_user_id,
-            "slack_author_name": user_info["name"],
-            "slack_author_email": user_info.get("email"),
-            "slack_author_avatar": user_info.get("avatar"),
-        },
+    ingest_slack_discussion_reply.delay(
+        comment_slack_thread_id=str(mirror.id),
+        slack_user_id=str(event.get("user") or ""),
+        text=str(event.get("text") or ""),
+        blocks=event.get("blocks") if isinstance(event.get("blocks"), list) else None,
+        message_ts=str(event.get("ts") or ""),
     )
     logger.info(
-        "slack_discussion_reply_ingested",
-        team_id=team.id,
-        scope=mirror.scope,
-        item_id=mirror.item_id,
+        "slack_discussion_reply_enqueued",
+        comment_slack_thread_id=str(mirror.id),
         slack_team_id=slack_team_id,
     )
     return True
