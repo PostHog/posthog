@@ -26,6 +26,8 @@ interface ExperimentFlagKeyInputProps {
     onSelectExistingFlag: (key: string) => void
     showReuseFlag: boolean
     onToggleReuseFlag: (show: boolean) => void
+    /** True when the selected flag is literally the source experiment's flag, not just a flag with the same key. */
+    reusesSourceFlag: boolean
 }
 
 export function ExperimentFlagKeyInput({
@@ -41,13 +43,14 @@ export function ExperimentFlagKeyInput({
     onSelectExistingFlag,
     showReuseFlag,
     onToggleReuseFlag,
+    reusesSourceFlag,
 }: ExperimentFlagKeyInputProps): JSX.Element {
     const resetAnalysisLink = (
         <Link to="https://posthog.com/docs/experiments/managing-lifecycle" target="_blank">
             Reset analysis
         </Link>
     )
-    const isOngoing = isLaunched(sourceExperiment) && !hasEnded(sourceExperiment)
+    const sourceIsStillRunning = isLaunched(sourceExperiment) && !hasEnded(sourceExperiment)
 
     return (
         <>
@@ -62,25 +65,28 @@ export function ExperimentFlagKeyInput({
                 {flagKey && (
                     <div className="text-xs text-muted mt-1">
                         {isExistingFlag
-                            ? flagKey === sourceExperiment.feature_flag?.key
+                            ? reusesSourceFlag
                                 ? 'This experiment will reuse the same flag as the original'
                                 : 'This experiment will use an existing flag'
-                            : 'A new flag will be created with this key'}
+                            : 'A new flag will be created with this key. This is the recommended option.'}
                     </div>
                 )}
-                {isExistingFlag &&
-                    (isOngoing ? (
-                        <LemonBanner type="warning" className="mt-2">
-                            This experiment has not ended yet. Reusing its flag in a new experiment will cause data
-                            contamination, since both will count the same exposures and events. To re-run this
-                            experiment, use {resetAnalysisLink} instead.
-                        </LemonBanner>
-                    ) : (
-                        <LemonBanner type="info" className="mt-2">
-                            Each experiment should have its own flag to avoid data contamination. To re-run an
-                            experiment with the same flag, use {resetAnalysisLink} instead.
-                        </LemonBanner>
-                    ))}
+                {isExistingFlag && (
+                    <LemonBanner type="warning" className="mt-2">
+                        <p className="font-semibold mb-1">Reusing a flag has side effects</p>
+                        <p className="mb-1">
+                            Anyone this flag has already assigned a variant to keeps that variant, so the new experiment
+                            won't randomize them again. Only users the flag hasn't seen yet get a fresh assignment.
+                        </p>
+                        <p className="mb-0">
+                            {reusesSourceFlag && sourceIsStillRunning
+                                ? `${sourceExperiment.name} is still running, so both experiments will count the same exposures and their results will mix. `
+                                : 'If another experiment uses this flag, both will count the same exposures and their results will mix. '}
+                            Use a new flag key unless you need this. To re-run an experiment on its existing flag, use{' '}
+                            {resetAnalysisLink} on that experiment instead.
+                        </p>
+                    </LemonBanner>
+                )}
             </div>
 
             {!showReuseFlag ? (

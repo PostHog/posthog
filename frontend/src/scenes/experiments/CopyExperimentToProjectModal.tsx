@@ -228,6 +228,8 @@ export function CopyExperimentToProjectModal({
                             onSelectExistingFlag={selectExistingFlag}
                             showReuseFlag={showReuseFlag}
                             onToggleReuseFlag={setShowReuseFlag}
+                            // A flag in the destination project is always a separate flag, even when the key matches
+                            reusesSourceFlag={false}
                         />
                     </>
                 )}

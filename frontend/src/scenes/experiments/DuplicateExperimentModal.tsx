@@ -88,7 +88,9 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
         >
             <div className="space-y-4">
                 <div className="text-muted max-w-xl">
-                    Create a new experiment using the configuration from <strong>{experiment.name}</strong>.
+                    Create a new experiment using the configuration from <strong>{experiment.name}</strong>. The copy
+                    starts as a draft with its own new feature flag, so you can duplicate an experiment that's still
+                    running.
                 </div>
 
                 <div>
@@ -115,6 +117,7 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
                     onSelectExistingFlag={selectExistingFlag}
                     showReuseFlag={showReuseFlag}
                     onToggleReuseFlag={setShowReuseFlag}
+                    reusesSourceFlag={isExistingFlag && flagKey === experiment.feature_flag?.key}
                 />
             </div>
         </LemonModal>
