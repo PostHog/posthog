@@ -31,6 +31,7 @@ from posthog.api import (
     uploaded_media,
     user,
 )
+from posthog.api.canvas_artifacts import canvas_artifact
 from posthog.api.github_callback.views import github_oauth_callback, github_setup_callback
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.raycast_metadata import RAYCAST_METADATA_PATH, RaycastClientMetadataView
@@ -742,6 +743,9 @@ if settings.TEST:
 # Redirect the legacy `/sign-up` path to the canonical `/signup` route. Works across
 # app./us./eu. subdomains because only the path changes; the host is preserved by the
 # relative redirect.
+urlpatterns.append(
+    re_path(r"^canvas-artifacts/(?P<token>[^/]+)/(?P<artifact_path>.+)$", canvas_artifact, name="canvas-artifact")
+)
 urlpatterns.append(
     opt_slash_path("sign-up", RedirectView.as_view(url="/signup", permanent=True, query_string=True)),
 )

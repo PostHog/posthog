@@ -1,0 +1,221 @@
+import os
+import hashlib
+import tempfile
+from pathlib import Path
+from typing import Any
+
+from unittest.mock import patch
+
+from django.test import SimpleTestCase
+
+from posthog.api.file_system.canvas_build_service import run_cloud_builder, validate_builder_output
+from posthog.api.file_system.canvas_source import synthetic_source_project, validate_source_project
+from posthog.api.file_system.file_system import CanvasSourceProjectSerializer
+
+
+class TestCanvasCloudBuilder(SimpleTestCase):
+    def test_legacy_canvas_build_mounts_react_and_injects_the_runtime_bridge(self) -> None:
+        payload = synthetic_source_project(
+            {"code": 'import React from "react"; export default function Canvas() { return <div>Hello</div> }'}
+        )
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        validate_builder_output(result)
+        javascript = "\n".join(file["content"] for file in result["files"] if file["path"].endswith(".js"))
+        html = next(file["content"] for file in result["files"] if file["path"] == "index.html")
+        self.assertIn("createRoot", javascript)
+        self.assertIn("canvas-runtime", html)
+
+    def test_publication_validation_allows_relative_worker_and_asset_imports(self) -> None:
+        payload = synthetic_source_project(
+            {
+                "code": 'import workerUrl from "./sum.worker.ts?worker"; import image from "../assets/pixel.png"; void workerUrl; void image',
+            }
+        )
+        payload["files"]["src/sum.worker.ts"] = 'self.postMessage("ready")'
+        payload["assets"] = {
+            "assets/pixel.png": {"encoding": "base64", "contentType": "image/png", "content": "iVBORw0KGgo="}
+        }
+
+        diagnostics = validate_source_project(payload)
+
+        self.assertNotIn("import_not_allowed", [item["code"] for item in diagnostics])
+
+    def _project(self, source: str) -> dict[str, Any]:
+        return {
+            "schemaVersion": 1,
+            "files": {
+                "index.html": '<div id="root"></div><script type="module" src="/src/main.ts"></script>',
+                "src/main.ts": source,
+            },
+            "entryHtml": "index.html",
+            "dependencies": {},
+            "canvasSdkVersion": "0.1.0",
+        }
+
+    def test_builds_vanilla_typescript_with_the_shared_contract(self) -> None:
+        result = run_cloud_builder(self._project('document.querySelector("#root")!.textContent = "Hello"'))
+
+        files, manifest, diagnostics = validate_builder_output(result)
+        self.assertEqual(diagnostics, [])
+        self.assertEqual(manifest["entryHtml"], "index.html")
+        self.assertFalse(manifest["capabilities"]["posthog"]["inlineQueries"])
+        self.assertTrue(any(file["path"].endswith(".js") for file in files))
+
+    def test_freezes_declared_capabilities_into_manifest(self) -> None:
+        project = self._project('document.body.textContent = "Hello"')
+        project["capabilities"] = {
+            "posthog": {"insights": ["abc"], "inlineQueries": False, "captureEvents": ["canvas viewed"]},
+            "network": {"origins": []},
+        }
+
+        _, manifest, _ = validate_builder_output(run_cloud_builder(project))
+
+        self.assertEqual(manifest["capabilities"], project["capabilities"])
+
+    def test_rejects_unbounded_capabilities(self) -> None:
+        project = self._project("")
+        project["capabilities"] = {
+            "posthog": {"insights": ["x"] * 101, "inlineQueries": False, "captureEvents": []},
+            "network": {"origins": []},
+        }
+
+        serializer = CanvasSourceProjectSerializer(data=project)
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("capabilities", serializer.errors)
+
+    def test_rejects_undeclared_package_imports(self) -> None:
+        result = run_cloud_builder(self._project('import React from "react"; void React'))
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["diagnostics"][0]["code"], "import_not_declared")
+
+    def test_builds_binary_assets_and_module_workers(self) -> None:
+        payload = self._project(
+            'import image from "../assets/pixel.png"; import workerUrl from "./worker.ts?worker"; '
+            'document.body.dataset.image = image; new Worker(workerUrl, { type: "module" })'
+        )
+        payload["files"]["src/worker.ts"] = 'self.postMessage("ready")'
+        payload["assets"] = {
+            "assets/pixel.png": {
+                "encoding": "base64",
+                "contentType": "image/png",
+                "content": "iVBORw0KGgo=",
+            },
+            "assets/module.wasm": {
+                "encoding": "base64",
+                "contentType": "application/wasm",
+                "content": "AGFzbQEAAAA=",
+            },
+        }
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        javascript = next(file["content"] for file in result["files"] if file["path"].endswith(".js"))
+        self.assertIn("new Blob", javascript)
+        self.assertIn("data:image/png;base64", javascript)
+
+    def test_bundles_worker_imports_into_the_blob(self) -> None:
+        payload = self._project('import workerUrl from "./worker.ts?worker"; new Worker(workerUrl, { type: "module" })')
+        payload["files"]["src/worker.ts"] = 'import { answer } from "./worker-lib"; self.postMessage(answer)'
+        payload["files"]["src/worker-lib.ts"] = "export const answer = 42"
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        javascript = next(file["content"] for file in result["files"] if file["path"].endswith(".js"))
+        self.assertNotIn("worker-lib", javascript)
+        self.assertIn("42", javascript)
+
+    def test_runtime_bundles_pinned_dependencies_without_network_access(self) -> None:
+        payload = {**self._project('import dayjs from "dayjs"; void dayjs'), "dependencies": {"dayjs": "1.11.13"}}
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        html = next(file["content"] for file in result["files"] if file["path"] == "index.html")
+        self.assertIn("script-src 'self'", html)
+        self.assertNotIn("esm.sh", html)
+        javascript = next(file["content"] for file in result["files"] if file["path"].endswith(".js"))
+        self.assertNotIn('from"dayjs"', javascript)
+
+    def test_source_contract_rejects_active_or_malformed_assets(self) -> None:
+        for content, content_type in (("%%%", "image/png"), ("PGgxLz4=", "text/html")):
+            payload = self._project("")
+            payload["assets"] = {
+                "assets/file.bin": {
+                    "encoding": "base64",
+                    "contentType": content_type,
+                    "content": content,
+                }
+            }
+
+            serializer = CanvasSourceProjectSerializer(data=payload)
+
+            self.assertFalse(serializer.is_valid())
+            self.assertIn("assets", serializer.errors)
+
+    def test_rejects_artifact_content_that_does_not_match_manifest(self) -> None:
+        result = {
+            "contractVersion": 1,
+            "status": "ready",
+            "diagnostics": [],
+            "files": [
+                {
+                    "path": "index.html",
+                    "content": "tampered",
+                    "contentHash": hashlib.sha256(b"safe").hexdigest(),
+                    "sizeBytes": 4,
+                }
+            ],
+            "manifest": {"entryHtml": "index.html", "assets": []},
+        }
+
+        with self.assertRaisesMessage(ValueError, "integrity"):
+            validate_builder_output(result)
+
+    def test_rejects_manifest_hash_that_does_not_match_emitted_file(self) -> None:
+        content = "safe"
+        digest = hashlib.sha256(content.encode()).hexdigest()
+        result = {
+            "contractVersion": 1,
+            "status": "ready",
+            "diagnostics": [],
+            "files": [{"path": "index.html", "content": content, "contentHash": digest, "sizeBytes": 4}],
+            "manifest": {
+                "entryHtml": "index.html",
+                "assets": [{"path": "index.html", "contentHash": "0" * 64, "sizeBytes": 4}],
+            },
+        }
+
+        with self.assertRaisesMessage(ValueError, "manifest metadata"):
+            validate_builder_output(result)
+
+    @patch("posthog.api.file_system.canvas_build_service.subprocess.run")
+    def test_builder_has_bounded_process_resources(self, run: Any) -> None:
+        run.return_value.returncode = 0
+        run.return_value.stdout = '{"contractVersion":1,"status":"failed","diagnostics":[]}'
+
+        run_cloud_builder({"files": {}})
+
+        args, kwargs = run.call_args
+        self.assertEqual(args[0][1], "--max-old-space-size=256")
+        self.assertEqual(kwargs["timeout"], 45)
+        self.assertEqual(kwargs["env"], {"PATH": "/usr/local/bin:/usr/bin:/bin", "NODE_ENV": "production"})
+
+    def test_runs_the_node_binary_resolved_from_the_worker_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            stub = Path(directory) / "node"
+            stub.write_text(
+                '#!/bin/sh\ncat > /dev/null\nprintf \'{"contractVersion":1,"status":"failed","diagnostics":[{"code":"stub_builder"}]}\'\n'
+            )
+            stub.chmod(0o755)
+
+            with patch.dict(os.environ, {"PATH": directory}):
+                result = run_cloud_builder({"files": {}})
+
+        self.assertEqual(result["diagnostics"][0]["code"], "stub_builder")

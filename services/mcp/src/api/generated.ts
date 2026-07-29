@@ -12067,6 +12067,22 @@ export namespace Schemas {
     }
 
     /**
+     * * `queued` - queued
+     * * `building` - building
+     * * `ready` - ready
+     * * `failed` - failed
+     */
+    export type BuildStatusEnum = typeof BuildStatusEnum[keyof typeof BuildStatusEnum];
+
+
+    export const BuildStatusEnum = {
+      Queued: 'queued',
+      Building: 'building',
+      Ready: 'ready',
+      Failed: 'failed',
+    } as const;
+
+    /**
      * * `fully_rolled_out` - fully_rolled_out
      * * `not_rolled_out` - not_rolled_out
      * * `partial` - partial
@@ -12694,10 +12710,10 @@ export namespace Schemas {
      * * `error` - error
      * * `warning` - warning
      */
-    export type UtmIssueSeverityEnum = typeof UtmIssueSeverityEnum[keyof typeof UtmIssueSeverityEnum];
+    export type DiagnosticSeverityEnum = typeof DiagnosticSeverityEnum[keyof typeof DiagnosticSeverityEnum];
 
 
-    export const UtmIssueSeverityEnum = {
+    export const DiagnosticSeverityEnum = {
       Error: 'error',
       Warning: 'warning',
     } as const;
@@ -12709,7 +12725,7 @@ export namespace Schemas {
        *
        * * `error` - error
        * * `warning` - warning */
-      severity: UtmIssueSeverityEnum;
+      severity: DiagnosticSeverityEnum;
       /** Human-readable description of the issue */
       message: string;
     }
@@ -12787,6 +12803,141 @@ export namespace Schemas {
     }
 
     /**
+     * One emitted file of a built canvas artifact.
+     */
+    export interface CanvasArtifactAsset {
+      /** Artifact-relative path of the emitted file. */
+      path: string;
+      /** Hex SHA-256 of the file content. */
+      contentHash: string;
+      /** Size of the file in bytes. */
+      sizeBytes: number;
+    }
+
+    /**
+     * Exact dependency versions the artifact was built against.
+     */
+    export type CanvasArtifactManifestDependencies = {[key: string]: string};
+
+    /**
+     * Declared PostHog/network capabilities the artifact is held to at runtime.
+     */
+    export type CanvasArtifactManifestCapabilities = { [key: string]: unknown };
+
+    /**
+     * The manifest frozen into a ready build: entry, assets, versions, capabilities.
+     */
+    export interface CanvasArtifactManifest {
+      /** The artifact's entry HTML file. */
+      entryHtml: string;
+      /** Every emitted artifact file with its content hash. */
+      assets: CanvasArtifactAsset[];
+      /** Exact dependency versions the artifact was built against. */
+      dependencies: CanvasArtifactManifestDependencies;
+      /** Version of the `ph` canvas SDK the artifact targets. */
+      canvasSdkVersion: string;
+      /**
+         * Path of the runtime-mounted React component, for legacy-tier artifacts.
+         * @nullable
+         */
+      legacyComponentPath?: string | null;
+      /**
+         * The runtime-mounted component source, for legacy-tier artifacts.
+         * @nullable
+         */
+      legacyCode?: string | null;
+      /** Declared PostHog/network capabilities the artifact is held to at runtime. */
+      capabilities: CanvasArtifactManifestCapabilities;
+    }
+
+    /**
+     * One structured validation/build diagnostic for a canvas source project.
+     */
+    export interface CanvasDiagnostic {
+      /** 'error' blocks publishing; 'warning' is advisory and does not block.
+       *
+       * * `error` - error
+       * * `warning` - warning */
+      severity: DiagnosticSeverityEnum;
+      /** Stable machine-readable diagnostic code, e.g. 'import_not_allowed' or 'unsupported_file'. */
+      code: string;
+      /** Human-readable description of the problem and how to fix it. */
+      message: string;
+      /** Project-relative path of the file the diagnostic points at, when file-specific. */
+      path?: string;
+      /** 1-based line number within `path`, when the diagnostic points at a specific line. */
+      line?: number;
+    }
+
+    /**
+     * Lifecycle record of one build of a canvas source version.
+     */
+    export interface CanvasBuild {
+      /** The build's id. */
+      id: string;
+      /** The source version this build compiled. */
+      source_version_id: string;
+      /** Build lifecycle state. A failed build never replaces the last-known-good artifact.
+       *
+       * * `queued` - queued
+       * * `building` - building
+       * * `ready` - ready
+       * * `failed` - failed */
+      build_status: BuildStatusEnum;
+      /** Structured diagnostics recorded by the build (errors explain a failed status). */
+      diagnostics: CanvasDiagnostic[];
+      /** The frozen artifact manifest — present once the build is ready. */
+      manifest?: CanvasArtifactManifest | null;
+      /**
+         * Hex SHA-256 over the manifest — the artifact's integrity anchor. Null until ready.
+         * @nullable
+         */
+      integrity: string | null;
+      /**
+         * Short-lived URL for the ready build's entry HTML. Null until ready or when artifact delivery is unavailable.
+         * @nullable
+         */
+      artifact_url: string | null;
+      /** Pinned builds are retained for the lifetime of the canvas. */
+      pinned: boolean;
+      /** When the build was queued. */
+      created_at: string;
+      /**
+         * When the build reached a terminal state.
+         * @nullable
+         */
+      finished_at: string | null;
+    }
+
+    /**
+     * A canvas's build lifecycle: live pointers plus its most recent builds.
+     */
+    export interface CanvasBuildsResponse {
+      /**
+         * Id of the canvas's live build (the last successful, still-eligible one). Null until a build completes.
+         * @nullable
+         */
+      published_build_id: string | null;
+      /**
+         * Id of the source-version row the canvas's head points at.
+         * @nullable
+         */
+      current_source_version_id: string | null;
+      /** Most recent builds, newest first (capped at 20). */
+      builds: CanvasBuild[];
+    }
+
+    /**
+     * Payload for creating a new, empty canvas in a channel.
+     */
+    export interface CanvasCreate {
+      /** Display name for the canvas. Slashes are replaced with spaces. */
+      name: string;
+      /** Desktop file-system id of the channel (folder) to create the canvas in. */
+      channel_id: string;
+    }
+
+    /**
      * 409 body for a guarded canvas publish based on a stale version.
      */
     export interface CanvasPublishConflict {
@@ -12799,6 +12950,227 @@ export namespace Schemas {
          * @nullable
          */
       current_version_id: string | null;
+    }
+
+    /**
+     * * `base64` - base64
+     */
+    export type EncodingEnum = typeof EncodingEnum[keyof typeof EncodingEnum];
+
+
+    export const EncodingEnum = {
+      Base64: 'base64',
+    } as const;
+
+    /**
+     * * `image/png` - image/png
+     * * `image/jpeg` - image/jpeg
+     * * `image/gif` - image/gif
+     * * `image/webp` - image/webp
+     * * `image/svg+xml` - image/svg+xml
+     * * `font/woff` - font/woff
+     * * `font/woff2` - font/woff2
+     * * `application/wasm` - application/wasm
+     * * `application/octet-stream` - application/octet-stream
+     */
+    export type ContentTypeEnum = typeof ContentTypeEnum[keyof typeof ContentTypeEnum];
+
+
+    export const ContentTypeEnum = {
+      ImagePng: 'image/png',
+      ImageJpeg: 'image/jpeg',
+      ImageGif: 'image/gif',
+      ImageWebp: 'image/webp',
+      ImageSvgXml: 'image/svg+xml',
+      FontWoff: 'font/woff',
+      FontWoff2: 'font/woff2',
+      ApplicationWasm: 'application/wasm',
+      ApplicationOctetStream: 'application/octet-stream',
+    } as const;
+
+    export interface CanvasSourceAsset {
+      encoding: EncodingEnum;
+      contentType: ContentTypeEnum;
+      /**
+         * @maxLength 2796204
+         * @pattern ^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$
+         */
+      content: string;
+    }
+
+    /**
+     * One per-file edit: set a file's content, or delete it.
+     */
+    export interface CanvasSourceEditOperation {
+      /** Project-relative path of the file to write or delete (e.g. "src/canvas.tsx"). */
+      path: string;
+      /**
+         * The file's complete new content. Null (or omitted) deletes the file.
+         * @nullable
+         */
+      content?: string | null;
+    }
+
+    /**
+     * Payload for publishing per-file edits against the canvas's current source.
+     */
+    export interface CanvasSourceEdit {
+      /** Edits applied in order to the canvas's current source project. */
+      operations: CanvasSourceEditOperation[];
+      /** Short description of the change, stored on the appended version history entry. */
+      prompt?: string;
+      /** Optional new display name for the canvas (rewrites the leaf segment of its path). */
+      name?: string;
+      /**
+         * Required optimistic-concurrency guard: the current_version_id the edits are based on (null when the canvas has never been published). Diff edits against a moved head are rejected with 409 version_conflict — they cannot be published unguarded.
+         * @nullable
+         */
+      expected_current_version_id: string | null;
+    }
+
+    /**
+     * 400 body for a publish whose source project failed validation.
+     */
+    export interface CanvasSourceInvalid {
+      /** Human-readable summary of why the project was rejected. */
+      detail: string;
+      /** Always "invalid_source_project". */
+      code: string;
+      /** The validation diagnostics, including at least one error. */
+      diagnostics: CanvasDiagnostic[];
+    }
+
+    /**
+     * Project files keyed by relative path (forward slashes, no '..'). Until the canvas build service ships, only "index.html" and "src/canvas.tsx" (the single React component the canvas mounts) are supported.
+     */
+    export type CanvasSourceProjectFiles = {[key: string]: string};
+
+    /**
+     * Optional base64-encoded binary assets keyed by safe project-relative paths.
+     */
+    export type CanvasSourceProjectAssets = {[key: string]: CanvasSourceAsset};
+
+    /**
+     * Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions.
+     */
+    export type CanvasSourceProjectDependencies = {[key: string]: string};
+
+    /**
+     * A canvas's multi-file source project — the canonical write format for canvas source.
+     *
+     * Until the canvas build service ships, projects are constrained to the
+     * legacy-compatible shape: `index.html` (a fixed synthetic shell) plus
+     * `src/canvas.tsx` (the single React component the runtime mounts).
+     */
+    export interface CanvasSourceProject {
+      /** Source-project schema version. Currently always 1. */
+      schemaVersion: number;
+      /** Project files keyed by relative path (forward slashes, no '..'). Until the canvas build service ships, only "index.html" and "src/canvas.tsx" (the single React component the canvas mounts) are supported. */
+      files: CanvasSourceProjectFiles;
+      /** Optional base64-encoded binary assets keyed by safe project-relative paths. */
+      assets?: CanvasSourceProjectAssets;
+      /** The project's entry HTML file. Currently always "index.html". */
+      entryHtml: string;
+      /** Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions. */
+      dependencies?: CanvasSourceProjectDependencies;
+      /** Version of the host-injected `ph` canvas SDK the project targets. */
+      canvasSdkVersion?: string;
+    }
+
+    /**
+     * Payload for publishing a complete canvas source project.
+     */
+    export interface CanvasSourcePublish {
+      /** The complete source project to publish. */
+      project: CanvasSourceProject;
+      /** Short description of the change, stored on the appended version history entry. */
+      prompt?: string;
+      /** Optional new display name for the canvas (rewrites the leaf segment of its path). */
+      name?: string;
+      /**
+         * Optimistic-concurrency guard: the current_version_id the publisher based its edits on (null when it read a canvas with no versions yet). When the canvas has since moved past it the publish is rejected with a 409 version_conflict instead of overwriting the newer head. Omit to publish unguarded.
+         * @nullable
+         */
+      expected_current_version_id?: string | null;
+    }
+
+    /**
+     * Identity and version pointers for one canvas (a desktop 'dashboard' entry).
+     */
+    export interface CanvasSummary {
+      /** The canvas's desktop file-system id. */
+      id: string;
+      /** Display name of the canvas (the leaf segment of its path). */
+      name: string;
+      /**
+         * File-system id of the channel (folder) the canvas belongs to, when recorded.
+         * @nullable
+         */
+      channel_id: string | null;
+      /**
+         * Id of the live source version — pass as expected_current_version_id on publish. Null before the first publish.
+         * @nullable
+         */
+      current_version_id: string | null;
+      /** Number of source versions in the canvas's history. */
+      version_count: number;
+      /** When the canvas was created. */
+      created_at: string;
+      /**
+         * Id of the normalized source-version row the canvas's head points at (null before the lifecycle recorded one).
+         * @nullable
+         */
+      current_source_version_id?: string | null;
+      /**
+         * Id of the canvas's live (last successful, still-eligible) build. Null until a build completes.
+         * @nullable
+         */
+      published_build_id?: string | null;
+    }
+
+    /**
+     * Result of a successful source-project publish.
+     */
+    export interface CanvasSourcePublishResponse {
+      /** The canvas after the publish, including the new version pointer. */
+      canvas: CanvasSummary;
+      /** Id of the source version this publish created. */
+      current_version_id: string;
+      /** Advisory (warning-severity) diagnostics recorded for the published project. */
+      diagnostics: CanvasDiagnostic[];
+    }
+
+    /**
+     * A canvas's source project plus the version pointer edits must be based on.
+     */
+    export interface CanvasSourceResponse {
+      /** Identity and version pointers for the canvas. */
+      canvas: CanvasSummary;
+      /** The canvas's source project. Legacy single-file canvases are presented as a synthetic project. */
+      project: CanvasSourceProject;
+      /**
+         * The live source version this project reflects — pass as expected_current_version_id when publishing an edit. Null before the first publish.
+         * @nullable
+         */
+      current_version_id: string | null;
+    }
+
+    /**
+     * Payload for validating a candidate source project without publishing it.
+     */
+    export interface CanvasValidateRequest {
+      /** The candidate source project to validate. */
+      project: CanvasSourceProject;
+    }
+
+    /**
+     * Validation outcome for a candidate source project.
+     */
+    export interface CanvasValidateResponse {
+      /** True when the project has no error-severity diagnostics. */
+      valid: boolean;
+      /** Structured diagnostics; errors block publishing, warnings are advisory. */
+      diagnostics: CanvasDiagnostic[];
     }
 
     /**
@@ -47259,23 +47631,6 @@ export namespace Schemas {
     }
 
     /**
-     * Payload for publishing a freeform canvas's React source via the agent.
-     */
-    export interface PatchedCanvasPublish {
-      /** The complete single-file React source for the canvas. */
-      code?: string;
-      /** Short description of the change, stored on the appended version history entry. */
-      prompt?: string;
-      /** Optional new display name for the canvas (rewrites the leaf segment of its path). */
-      name?: string;
-      /**
-         * Optimistic-concurrency guard: the currentVersionId the publisher based its edits on (null when it read a canvas with no versions yet). When provided and the canvas has since moved past it (a concurrent publish, or a user's undo) the publish is rejected with a 409 version_conflict instead of overwriting the newer head. Omit to publish unguarded.
-         * @nullable
-         */
-      expected_current_version_id?: string | null;
-    }
-
-    /**
      * Request body for creating (resolve-or-create) or renaming a public channel.
      */
     export interface PatchedChannelWrite {
@@ -74467,6 +74822,17 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type DesktopFileSystemCanvasesListParams = {
+    /**
+     * Only return canvases inside this channel (desktop folder id).
+     */
+    channel_id?: string;
     /**
      * A search term.
      */

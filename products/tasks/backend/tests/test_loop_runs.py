@@ -772,12 +772,26 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
     @parameterized.expand(
         [
             ("update_context_only", {"update_context": True}, [FOLDER_ID], ["desktop-file-system-instructions"]),
-            ("canvas_only", {"canvas_id": CANVAS_ID}, [CANVAS_ID], ["desktop-file-system-canvas-partial-update"]),
+            (
+                "canvas_only",
+                {"canvas_id": CANVAS_ID},
+                [CANVAS_ID],
+                [
+                    "desktop-file-system-canvas-source-retrieve",
+                    "desktop-file-system-canvas-publish-create",
+                    "expected_current_version_id",
+                ],
+            ),
             (
                 "both",
                 {"update_context": True, "canvas_id": CANVAS_ID},
                 [FOLDER_ID, CANVAS_ID],
-                ["desktop-file-system-instructions", "desktop-file-system-canvas-partial-update"],
+                [
+                    "desktop-file-system-instructions",
+                    "desktop-file-system-canvas-source-retrieve",
+                    "desktop-file-system-canvas-publish-create",
+                    "expected_current_version_id",
+                ],
             ),
         ]
     )

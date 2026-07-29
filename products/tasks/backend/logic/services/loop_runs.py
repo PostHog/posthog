@@ -154,9 +154,11 @@ def render_context_target_block(context_target: dict | None) -> str:
         )
     if outputs["canvas_id"]:
         lines.append(
-            f"- Update its canvas: publish the complete single-file React source with the "
-            f"`desktop-file-system-canvas-partial-update` tool (id: {outputs['canvas_id']}). Send the "
-            f"whole file each time; partial edits are not supported."
+            f"- Update its canvas (id: {outputs['canvas_id']}): read the current source project and "
+            f"`current_version_id` with `desktop-file-system-canvas-source-retrieve`, then publish the "
+            f"complete project with `desktop-file-system-canvas-publish-create`, passing the version you "
+            f"read as `expected_current_version_id`. Follow the `building-canvases` skill; do not use the "
+            f"legacy single-file partial-update tool."
         )
     return "\n".join(lines)
 
