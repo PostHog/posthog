@@ -862,6 +862,26 @@ describe('sessionRecordingPlayerLogic', () => {
                 expect(logic.values.hasLateFullSnapshot).toBe(expectedHasLate)
             }
         )
+
+        it('does not report a leading unplayable span when the store holds an earlier screen than the segments show', () => {
+            // markFetched publishes a source's full-snapshot refs as soon as its bytes land, while
+            // segments only catch up once the processing pass finishes, so the segments can briefly
+            // start in a window that has no screen of its own while the store already holds one from
+            // another window. The warning latches on its first true, which would pin a lost-opening
+            // claim on a recording whose opening we have.
+            const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
+            dataLogic.actions.loadSnapshotSourcesSuccess([SOURCE_A, SOURCE_B] as any)
+            markLoaded(dataLogic.cache.store, 0, [fs(START), inc(START + 1000)])
+            markLoaded(dataLogic.cache.store, 1, [w2fs(LATE_FS_TS)])
+            dataLogic.actions.storeUpdated()
+            sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actions.setProcessedSnapshots([
+                w2inc(START),
+                w2fs(LATE_FS_TS),
+            ])
+
+            expect(logic.values.leadingUnplayableMs).toBe(0)
+            expect(logic.values.hasLateFullSnapshot).toBe(false)
+        })
     })
 
     describe('delete session recording', () => {

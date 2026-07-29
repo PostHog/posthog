@@ -138,9 +138,9 @@ export function Seekbar(): JSX.Element {
                     />
                     {hasLateFullSnapshot && endTimeMs > 0 ? (
                         <Tooltip
-                            title={`The first ${humanFriendlyDuration(leadingUnplayableMs / 1000, {
+                            title={`Playback starts ${humanFriendlyDuration(leadingUnplayableMs / 1000, {
                                 maxUnits: 2,
-                            })} can't be played — the initial screen snapshot arrived late`}
+                            })} in. There's no snapshot of the screen before that point.`}
                             placement="top"
                         >
                             <div

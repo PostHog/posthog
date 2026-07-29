@@ -95,6 +95,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         endReached,
         hasLateFullSnapshot,
         leadingUnplayableMs,
+        firstFullSnapshotOffsetMs,
     } = useValues(sessionRecordingPlayerLogic)
 
     const {
@@ -162,6 +163,9 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                     viewedSessionRecording: sessionRecordingId,
                     recordingStartTime: sessionPlayerData?.start,
                     leadingUnplayableMs,
+                    // Equal to leadingUnplayableMs when the recording really has no earlier screen
+                    // capture; anything smaller means we warned over data we do hold.
+                    firstFullSnapshotOffsetMs,
                 })
             }
         },
@@ -344,14 +348,11 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                             <div className="flex w-full h-full">
                                 <div className="flex flex-col flex-1 w-full relative">
                                     {hasLateFullSnapshot && !hidePlayerElements ? (
-                                        <LemonBanner
-                                            type="warning"
-                                            dismissKey={`late-full-snapshot-${sessionRecordingId}`}
-                                        >
-                                            The first{' '}
-                                            {humanFriendlyDuration(leadingUnplayableMs / 1000, { maxUnits: 2 })} of this
-                                            recording can't be shown — the initial snapshot of the screen arrived late,
-                                            so playback starts from the first frame we can render.{' '}
+                                        <LemonBanner type="warning" dismissKey="late-full-snapshot">
+                                            Playback starts{' '}
+                                            {humanFriendlyDuration(leadingUnplayableMs / 1000, { maxUnits: 2 })} in.
+                                            PostHog didn't receive a snapshot of the screen before that point, so the
+                                            start of this recording can't be rendered.{' '}
                                             <Link to="https://posthog.com/docs/session-replay/troubleshooting">
                                                 Learn more
                                             </Link>

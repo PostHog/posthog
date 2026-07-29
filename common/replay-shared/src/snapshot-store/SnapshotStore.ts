@@ -189,6 +189,25 @@ export class SnapshotStore {
         return this.getUnloadedIndicesInRange(startIndex, endIndex).length === 0
     }
 
+    /**
+     * Timestamp of the earliest loaded FullSnapshot in any window, or null if there is none.
+     * Window-blind on purpose: it answers "when was the first screen captured for this recording",
+     * which is the only basis for saying the opening screen never reached us. findNearestFullSnapshot
+     * cannot answer that — coming back empty for a window only means the player has to step over that
+     * window, which is also true of a recording whose opening events belong to a window that never renders.
+     */
+    earliestFullSnapshotTimestamp(): number | null {
+        let earliest: number | null = null
+        for (const entry of this.entries) {
+            for (const fullSnapshot of entry.fullSnapshots) {
+                if (earliest === null || fullSnapshot.timestamp < earliest) {
+                    earliest = fullSnapshot.timestamp
+                }
+            }
+        }
+        return earliest
+    }
+
     // Allocation-free existence check for the load planner's recovery scan.
     hasFullSnapshotAfter(ts: number, windowId?: number): boolean {
         for (const entry of this.entries) {

@@ -578,6 +578,7 @@ export interface sessionRecordingPlayerLogicValues {
     endReached: boolean
     errorCount: number
     explorerMode: SessionRecordingPlayerExplorerProps | null
+    firstFullSnapshotOffsetMs: number | null
     forceShowPlayerChrome: boolean
     fromRRWebPlayerTime: (time?: number | undefined) => number | undefined
     hasLateFullSnapshot: boolean
@@ -1060,9 +1061,15 @@ export interface sessionRecordingPlayerLogicMeta {
             sessionPlayerData: SessionPlayerData,
             storeVersion: number
         ) => (timestamp: number) => SeekRenderability
+        firstFullSnapshotOffsetMs: (
+            sessionPlayerData: SessionPlayerData,
+            snapshotStore: SnapshotStore,
+            storeVersion: number
+        ) => number | null
         leadingUnplayableMs: (
             sessionPlayerData: SessionPlayerData,
-            seekRenderability: (timestamp: number) => SeekRenderability
+            seekRenderability: (timestamp: number) => SeekRenderability,
+            firstFullSnapshotOffsetMs: number | null
         ) => number
         hasLateFullSnapshot: (leadingUnplayableMs: number) => boolean
         isWaitingForIngestion: (
@@ -1816,18 +1823,38 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
 
-        // The leading span playback can't render — when the initial full snapshot was lost or arrived
-        // late, this is the offset from start to the FullSnapshot the player clamps the playhead to.
-        // Derived from seekRenderability so the scrubber marker matches where playback actually starts,
-        // window-aware and excluding the no-full-snapshot-anywhere case (handled by the unplayable takeover).
-        // The `clampToFullSnapshot` verdict already requires the data before the recovery point to be
-        // loaded (and so can't later flip to `renderable`), so it gates itself — surfacing the marker as
-        // soon as playback would clamp rather than waiting for the whole recording to finish loading.
-        leadingUnplayableMs: [
-            (s) => [s.sessionPlayerData, s.seekRenderability],
+        // Offset from start of the first screen this recording captured, in any window; null while the
+        // store holds no FullSnapshot yet. This is what separates an opening that never reached us from
+        // a playhead stepping over a window that has no snapshot of its own.
+        firstFullSnapshotOffsetMs: [
+            (s) => [s.sessionPlayerData, s.snapshotStore, s.storeVersion],
             (
                 sessionPlayerData: SessionPlayerData,
-                seekRenderability: (timestamp: number) => SeekRenderability
+                snapshotStore: SnapshotStore,
+                _storeVersion: number
+            ): number | null => {
+                const start = sessionPlayerData.start?.valueOf()
+                const earliest = snapshotStore.earliestFullSnapshotTimestamp()
+                if (start == null || earliest == null) {
+                    return null
+                }
+                return earliest - start
+            },
+        ],
+
+        // The leading span playback can't render: the offset from start to the FullSnapshot the player
+        // clamps the playhead to, when the recording captured no screen at all before that point.
+        // Derived from seekRenderability so the scrubber marker matches where playback actually starts,
+        // and excluding the no-full-snapshot-anywhere case (handled by the unplayable takeover).
+        // The `clampToFullSnapshot` verdict already requires the data before the recovery point to be
+        // loaded (and so can't later flip to `renderable`), so it gates itself, surfacing the marker as
+        // soon as playback would clamp rather than waiting for the whole recording to finish loading.
+        leadingUnplayableMs: [
+            (s) => [s.sessionPlayerData, s.seekRenderability, s.firstFullSnapshotOffsetMs],
+            (
+                sessionPlayerData: SessionPlayerData,
+                seekRenderability: (timestamp: number) => SeekRenderability,
+                firstFullSnapshotOffsetMs: number | null
             ): number => {
                 const start = sessionPlayerData.start?.valueOf()
                 if (start == null) {
@@ -1838,7 +1865,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     return 0
                 }
                 const renderability = seekRenderability(firstWindowSegment.startTimestamp)
-                return renderability.kind === 'clampToFullSnapshot' ? Math.max(0, renderability.timestamp - start) : 0
+                if (renderability.kind !== 'clampToFullSnapshot') {
+                    return 0
+                }
+                // The clamp target is only "where the player recovers", which is a window-scoped answer.
+                // Claiming the opening screen is missing needs the recording-wide one: if a screen was
+                // captured before the clamp target, the recording has its opening and the player is
+                // stepping over a window that has no snapshot of its own, which is not worth warning about.
+                if (firstFullSnapshotOffsetMs !== null && start + firstFullSnapshotOffsetMs < renderability.timestamp) {
+                    return 0
+                }
+                return Math.max(0, renderability.timestamp - start)
             },
         ],
 
