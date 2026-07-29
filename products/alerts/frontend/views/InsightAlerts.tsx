@@ -64,6 +64,7 @@ function AlertRowMenu({ alert, deleting, onDelete }: AlertRowMenuProps): JSX.Ele
                 </DropdownMenuItem>
                 <DropdownMenuItem
                     variant="destructive"
+                    className="[&_.quill-button]:text-destructive-foreground"
                     data-attr="insight-alert-row-delete"
                     disabled={deleting}
                     onClick={onDelete}
