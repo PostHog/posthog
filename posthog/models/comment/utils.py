@@ -55,7 +55,7 @@ SCOPE_DISPLAY_NAMES: dict[str, str] = {
     "Survey": "a survey",
     "Experiment": "an experiment",
     "ErrorTracking": "an error tracking issue",
-    "SupportTicket": "a support ticket",
+    "Ticket": "a support ticket",
 }
 
 
