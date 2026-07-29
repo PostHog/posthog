@@ -2,10 +2,12 @@ from datetime import datetime
 
 import pytest
 
+from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
     SignalFinding,
     _render_signal_for_research,
     build_initial_research_prompt,
+    build_report_presentation_prompt,
     build_signal_investigation_prompt,
 )
 from products.signals.backend.temporal.types import SignalData
@@ -129,3 +131,37 @@ class TestBuildInitialResearchPrompt:
         if not has_previous_finding:
             assert "There is no previous finding for this signal" in initial_prompt
             assert "There is no previous finding for this signal" in followup_prompt
+
+
+def _make_chart() -> ReportChart:
+    return ReportChart(
+        chart_id="signups-drop",
+        title="Daily signups",
+        query={
+            "kind": "InsightVizNode",
+            "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "user_signed_up"}]},
+        },
+    )
+
+
+class TestBuildReportPresentationPrompt:
+    # A team that isn't opted in must never be steered to author charts: the guidance section is
+    # what tells the agent to use the (always-present, optional) `charts` schema field, so it is the
+    # thing that has to stay out of the prompt on the fleet-wide path.
+    def test_chart_guidance_only_rendered_when_enabled(self):
+        off = build_report_presentation_prompt(2, charts_enabled=False)
+        on = build_report_presentation_prompt(2, charts_enabled=True)
+        assert "Attaching charts" not in off
+        assert "Attaching charts" in on
+        # The schema field is always present regardless of the gate — the gate steers whether the
+        # agent is told to use it, not whether it exists.
+        assert '"charts"' in off
+        assert '"charts"' in on
+
+    def test_previous_charts_context_only_rendered_when_enabled(self):
+        chart = _make_chart()
+        on = build_report_presentation_prompt(1, previous_charts=[chart], charts_enabled=True)
+        off = build_report_presentation_prompt(1, previous_charts=[chart], charts_enabled=False)
+        assert "Charts this report already shows" in on
+        assert "signups-drop" in on
+        assert "Charts this report already shows" not in off

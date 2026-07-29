@@ -47,13 +47,7 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewers,
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalScoutRun
-from products.signals.backend.report_charts import (
-    MAX_REPORT_CHARTS,
-    MAX_REPORT_CHARTS_QUERY_CHARS,
-    ChartSize,
-    ReportChart,
-    chart_batch_query_chars,
-)
+from products.signals.backend.report_charts import ChartSize, ReportChart, chart_batch_error
 from products.signals.backend.report_generation.resolve_reviewers import get_org_member_github_logins_by_user_uuid
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.scout_harness.prompt import SELF_IMPROVEMENT_REPORT_TITLE_PREFIX
@@ -235,8 +229,6 @@ def _build_charts(charts: list[ReportChartInput] | None) -> list[ReportChart]:
     """
     if not charts:
         return []
-    if len(charts) > MAX_REPORT_CHARTS:
-        raise InvalidScoutReportError(f"a report accepts at most {MAX_REPORT_CHARTS} charts ({len(charts)})")
     built: list[ReportChart] = []
     seen: set[str] = set()
     for chart in charts:
@@ -254,12 +246,8 @@ def _build_charts(charts: list[ReportChartInput] | None) -> list[ReportChart]:
             raise InvalidScoutReportError(f"duplicate chart_id {content.chart_id!r} in the same call")
         seen.add(content.chart_id)
         built.append(content)
-    total_query_chars = chart_batch_query_chars(built)
-    if total_query_chars > MAX_REPORT_CHARTS_QUERY_CHARS:
-        raise InvalidScoutReportError(
-            f"the charts' queries total {total_query_chars} characters, the limit is "
-            f"{MAX_REPORT_CHARTS_QUERY_CHARS} across one report"
-        )
+    if batch_error := chart_batch_error(built):
+        raise InvalidScoutReportError(batch_error)
     return built
 
 

@@ -51,12 +51,7 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutRun
-from products.signals.backend.report_charts import (
-    MAX_REPORT_CHARTS,
-    MAX_REPORT_CHARTS_QUERY_CHARS,
-    ReportChart,
-    chart_batch_query_chars,
-)
+from products.signals.backend.report_charts import ReportChart, chart_batch_error
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGHT, SOURCE_PRODUCT, SOURCE_TYPE
 
@@ -158,10 +153,8 @@ def create_scout_report(
     `signal_count`/`total_weight`; it just stays invisible with no indexed evidence.
     """
     _validate_create_inputs(title, summary, signals)
-    if len(charts) > MAX_REPORT_CHARTS:
-        raise InvalidScoutReportError(f"a report accepts at most {MAX_REPORT_CHARTS} charts ({len(charts)})")
-    if chart_batch_query_chars(charts) > MAX_REPORT_CHARTS_QUERY_CHARS:
-        raise InvalidScoutReportError(f"the charts' queries exceed {MAX_REPORT_CHARTS_QUERY_CHARS} characters in total")
+    if batch_error := chart_batch_error(charts):
+        raise InvalidScoutReportError(batch_error)
     # Defense-in-depth: refuse to author against a run another team owns, so the tally write below
     # can't corrupt a foreign team's `emitted_report_ids`. The harness tool already gates this with
     # `_assert_team_owns_run`; this guards a future direct caller that bypasses it (mirrors `emit`).
@@ -390,10 +383,8 @@ def set_report_charts(
     if not charts:
         return False
     _validate_report_id(report_id)
-    if len(charts) > MAX_REPORT_CHARTS:
-        raise InvalidScoutReportError(f"a report accepts at most {MAX_REPORT_CHARTS} charts ({len(charts)})")
-    if chart_batch_query_chars(charts) > MAX_REPORT_CHARTS_QUERY_CHARS:
-        raise InvalidScoutReportError(f"the charts' queries exceed {MAX_REPORT_CHARTS_QUERY_CHARS} characters in total")
+    if batch_error := chart_batch_error(charts):
+        raise InvalidScoutReportError(batch_error)
     payload = [chart.model_dump(mode="json") for chart in charts]
 
     with transaction.atomic():

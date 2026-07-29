@@ -275,3 +275,18 @@ class ReportChart(BaseModel):
 def chart_batch_query_chars(charts: Sequence[ReportChart]) -> int:
     """Serialized size of a set of charts' queries, for `MAX_REPORT_CHARTS_QUERY_CHARS`."""
     return sum(len(json.dumps(chart.query)) for chart in charts)
+
+
+def chart_batch_error(charts: Sequence[ReportChart]) -> str | None:
+    """Why a set of charts can't be stored together, or None if it can.
+
+    A `ReportChart` field validator already vets each chart's shape; this is the whole-set bound
+    that no single chart can enforce — the count cap and the combined query-size budget. Both are
+    decided from the payload alone, so a caller writing charts from any authoring surface (a scout
+    tool, the research pipeline) shares one contract rather than restating these two checks.
+    """
+    if len(charts) > MAX_REPORT_CHARTS:
+        return f"a report accepts at most {MAX_REPORT_CHARTS} charts ({len(charts)})"
+    if chart_batch_query_chars(charts) > MAX_REPORT_CHARTS_QUERY_CHARS:
+        return f"the charts' queries exceed {MAX_REPORT_CHARTS_QUERY_CHARS} characters in total"
+    return None
