@@ -2256,6 +2256,14 @@ snapshots:
         hash: v1.k794b7964.c47193f52f4bee5394b5366fe7f77e3ce8686c4d54691538f8b977a9137cc916.2DnCcDgPakh32tzyI1rUrw1HuPsVdemKnwQbCtr71Vs
     exporter-interview--shared-link--wide--light:
         hash: v1.k794b7964.939486068c7a4e78a11e5935353c3ec3053409ffd0748a8791ca53b09354e9b1.n75MvjKUHChadX4HGhCUI67Z20X8Luv8IwFAez8je9U
+    exporter-other--adhoc-query-export--dark:
+        hash: v1.k794b7964.65aacbd6eb834b689ee6f07df03f0c16e81f279cc947adf3937e332d236f3bbb.uGoBlMm6Q-qAO5X2fXsqzJWWO47pHBvuRSLLbXd1KMQ
+    exporter-other--adhoc-query-export--light:
+        hash: v1.k794b7964.0a466b43158cfb24975196be7f97faed138d5dc68b6b3ca22b35f6465e6a65da.AfbtQH3MFWP7Ffo9iuZ24GGF4c2TOfmGPa_SfX1HjBE
+    exporter-other--adhoc-query-export-with-legend--dark:
+        hash: v1.k794b7964.48f1141d1c6ae35e845e5cdef0df00b6b98c8eba93ab7a93ece32785a441e9a3.KfvlvXhs2Y8nD-vrUaBafwNAzcTEX4ERYtJ4-L3lCvk
+    exporter-other--adhoc-query-export-with-legend--light:
+        hash: v1.k794b7964.545d1e6a388a3d45948309b410f23bb2ff1672a75449e30478bee7ee38964faf.LXP7c7jgg0WWhgdAMxCG7oAD1eET6kQinvPwn_HeFLA
     exporter-other--event-table-insight--dark:
         hash: v1.k794b7964.b49f709fd4150d9aa62e5e72280c1a01d36b8ce9a73151d49cdc903394406476.HroHAic6d-U6xImox3yNijT04GTbLpTRTwvaxN46Frg
     exporter-other--event-table-insight--light:
