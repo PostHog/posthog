@@ -1161,6 +1161,50 @@ class ExperimentMetricMutationResponseSerializer(serializers.Serializer):
     secondary_metrics_ordered_uuids = serializers.ListField(child=serializers.CharField(), allow_null=True)
 
 
+class ExperimentSharedMetricLinkSerializer(serializers.Serializer):
+    saved_metric_id = serializers.IntegerField(help_text="The shared metric to link to this experiment.")
+    section = serializers.ChoiceField(choices=["primary", "secondary"], help_text=_SECTION_HELP_TEXT)
+
+
+# Declared as an inline schema rather than a nested serializer: the metadata's own "type"
+# key would generate a TypeEnum component that collides with other enums repo-wide.
+@extend_schema_field(
+    {
+        "type": "object",
+        "properties": {
+            "type": {"type": "string", "enum": ["primary", "secondary"]},
+            "breakdowns": {"type": "array", "items": {"type": "object"}},
+        },
+    }
+)
+class SharedMetricLinkMetadataField(serializers.JSONField):
+    pass
+
+
+class ExperimentSharedMetricLinkPatchSerializer(serializers.Serializer):
+    metadata = SharedMetricLinkMetadataField(
+        help_text=(
+            "Link metadata to merge, such as breakdowns, or a 'type' of 'primary'/'secondary' to move "
+            "the shared metric between sections. Keys you omit are preserved."
+        )
+    )
+
+
+class ExperimentSharedMetricLinkResponseSerializer(serializers.Serializer):
+    """What a per-link write returns — the link set plus both ordering arrays.
+
+    Unlike the metric collections, a client is never the source of truth for which shared
+    metrics are linked, so returning the resolved set is safe. It still never returns the
+    whole experiment.
+    """
+
+    saved_metrics = ExperimentToSavedMetricSerializer(
+        many=True, read_only=True, help_text="The experiment's shared-metric links after the write."
+    )
+    primary_metrics_ordered_uuids = serializers.ListField(child=serializers.CharField(), allow_null=True)
+    secondary_metrics_ordered_uuids = serializers.ListField(child=serializers.CharField(), allow_null=True)
+
+
 class CopyExperimentToProjectSerializer(serializers.Serializer):
     target_team_id = serializers.IntegerField(help_text="The team ID to copy the experiment to.")
     feature_flag_key = serializers.CharField(

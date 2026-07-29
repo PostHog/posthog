@@ -68,6 +68,9 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentMetricWriteSerializer,
     ExperimentSerializer,
     ExperimentSessionContextResponseSerializer,
+    ExperimentSharedMetricLinkPatchSerializer,
+    ExperimentSharedMetricLinkResponseSerializer,
+    ExperimentSharedMetricLinkSerializer,
     ExperimentWriteSerializer,
     RecalculateMetricsRequestSerializer,
     RunningTimeCalculationInputSerializer,
@@ -1296,6 +1299,95 @@ class EnterpriseExperimentsViewSet(
                 }
             ).data,
             status=status_code,
+        )
+
+    # --- per-link shared-metric writes ----------------------------------------
+    # Same reasoning as the per-metric routes above, for experiment↔shared-metric
+    # links. Addressing one link means a client no longer rewrites the whole
+    # saved_metrics_ids array to add or remove a single shared metric.
+
+    @validated_request(
+        request_serializer=ExperimentSharedMetricLinkSerializer,
+        responses={200: OpenApiResponse(response=ExperimentSharedMetricLinkResponseSerializer)},
+        summary="Link a shared metric to an experiment",
+        description=(
+            "Links one shared metric into the experiment's primary or secondary section, or moves it "
+            "if it is already linked. Other links are left untouched, so this is safe from a client "
+            "whose local copy of the experiment is out of date."
+        ),
+    )
+    @action(methods=["POST"], detail=True, url_path="shared_metrics", required_scopes=["experiment:write"])
+    def shared_metrics(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        experiment: Experiment = self.get_object()
+        data = request.validated_data
+        updated = ExperimentService(team=self.team, user=request.user).link_shared_metric(
+            experiment.id,
+            saved_metric_id=data["saved_metric_id"],
+            metric_type=data["section"],
+            serializer_context=self.get_serializer_context(),
+        )
+        return self._shared_metric_link_response(updated)
+
+    @extend_schema(
+        methods=["PATCH"],
+        request=ExperimentSharedMetricLinkPatchSerializer,
+        responses={200: OpenApiResponse(response=ExperimentSharedMetricLinkResponseSerializer)},
+        summary="Update a shared metric's link metadata",
+        description=(
+            "Shallow-merges metadata onto one experiment↔shared-metric link — breakdowns, or a 'type' "
+            "of 'primary'/'secondary' to move it between sections. Keys you omit are preserved and "
+            "other links are untouched."
+        ),
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        request=None,
+        responses={200: OpenApiResponse(response=ExperimentSharedMetricLinkResponseSerializer)},
+        summary="Unlink a shared metric from an experiment",
+        description=(
+            "Removes one experiment↔shared-metric link. Any stale inline copy of that shared metric "
+            "left in the metric arrays is cleaned up server-side, so the client does not have to "
+            "rewrite them."
+        ),
+    )
+    @action(
+        methods=["PATCH", "DELETE"],
+        detail=True,
+        url_path=r"shared_metrics/(?P<saved_metric_id>[0-9]+)",
+        required_scopes=["experiment:write"],
+    )
+    def shared_metrics_detail(self, request: Request, saved_metric_id: str, *args: Any, **kwargs: Any) -> Response:
+        experiment: Experiment = self.get_object()
+        service = ExperimentService(team=self.team, user=request.user)
+
+        if request.method == "DELETE":
+            updated = service.unlink_shared_metric(
+                experiment.id,
+                saved_metric_id=int(saved_metric_id),
+                serializer_context=self.get_serializer_context(),
+            )
+            return self._shared_metric_link_response(updated)
+
+        request_serializer = ExperimentSharedMetricLinkPatchSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+        updated = service.patch_shared_metric_link(
+            experiment.id,
+            saved_metric_id=int(saved_metric_id),
+            metadata=request_serializer.validated_data["metadata"],
+            serializer_context=self.get_serializer_context(),
+        )
+        return self._shared_metric_link_response(updated)
+
+    def _shared_metric_link_response(self, experiment: Experiment) -> Response:
+        return Response(
+            ExperimentSharedMetricLinkResponseSerializer(
+                {
+                    "saved_metrics": experiment.experimenttosavedmetric_set.select_related("saved_metric").all(),
+                    "primary_metrics_ordered_uuids": experiment.primary_metrics_ordered_uuids,
+                    "secondary_metrics_ordered_uuids": experiment.secondary_metrics_ordered_uuids,
+                },
+                context=self.get_serializer_context(),
+            ).data
         )
 
     @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["experiment:read"])

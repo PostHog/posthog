@@ -3039,6 +3039,36 @@ export const ExperimentsRecalculateTimeseriesCreateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
+ * Links one shared metric into the experiment's primary or secondary section, or moves it if it is already linked. Other links are left untouched, so this is safe from a client whose local copy of the experiment is out of date.
+ * @summary Link a shared metric to an experiment
+ */
+export const ExperimentsSharedMetricsCreateBody = /* @__PURE__ */ zod.object({
+    saved_metric_id: zod.number().describe('The shared metric to link to this experiment.'),
+    section: zod
+        .enum(['primary', 'secondary'])
+        .describe('\* `primary` - primary\n\* `secondary` - secondary')
+        .describe(
+            "Which metric section to write: 'primary' or 'secondary'.\n\n\* `primary` - primary\n\* `secondary` - secondary"
+        ),
+})
+
+/**
+ * Shallow-merges metadata onto one experiment↔shared-metric link — breakdowns, or a 'type' of 'primary'/'secondary' to move it between sections. Keys you omit are preserved and other links are untouched.
+ * @summary Update a shared metric's link metadata
+ */
+export const ExperimentsSharedMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    metadata: zod
+        .object({
+            type: zod.enum(['primary', 'secondary']).optional(),
+            breakdowns: zod.array(zod.looseObject({})).optional(),
+        })
+        .optional()
+        .describe(
+            "Link metadata to merge, such as breakdowns, or a 'type' of 'primary'\/'secondary' to move the shared metric between sections. Keys you omit are preserved."
+        ),
+})
+
+/**
  * Ship a variant and (optionally) end the experiment.
  *
  * Updates the feature flag so the selected variant gets 100% of the variant

@@ -2113,6 +2113,55 @@ export interface ExperimentMetricsRecalculationApi {
     estimated_rows_total?: number | null
 }
 
+export interface ExperimentSharedMetricLinkApi {
+    /** The shared metric to link to this experiment. */
+    saved_metric_id: number
+    /** Which metric section to write: 'primary' or 'secondary'.
+     *
+     * * `primary` - primary
+     * * `secondary` - secondary */
+    section: SectionEnumApi
+}
+
+/**
+ * What a per-link write returns — the link set plus both ordering arrays.
+ *
+ * Unlike the metric collections, a client is never the source of truth for which shared
+ * metrics are linked, so returning the resolved set is safe. It still never returns the
+ * whole experiment.
+ */
+export interface ExperimentSharedMetricLinkResponseApi {
+    /** The experiment's shared-metric links after the write. */
+    readonly saved_metrics: readonly ExperimentToSavedMetricApi[]
+    /** @nullable */
+    primary_metrics_ordered_uuids: string[] | null
+    /** @nullable */
+    secondary_metrics_ordered_uuids: string[] | null
+}
+
+export type PatchedExperimentSharedMetricLinkPatchApiMetadataType =
+    (typeof PatchedExperimentSharedMetricLinkPatchApiMetadataType)[keyof typeof PatchedExperimentSharedMetricLinkPatchApiMetadataType]
+
+export const PatchedExperimentSharedMetricLinkPatchApiMetadataType = {
+    Primary: 'primary',
+    Secondary: 'secondary',
+} as const
+
+export type PatchedExperimentSharedMetricLinkPatchApiMetadataBreakdownsItem = { [key: string]: unknown }
+
+/**
+ * Link metadata to merge, such as breakdowns, or a 'type' of 'primary'/'secondary' to move the shared metric between sections. Keys you omit are preserved.
+ */
+export type PatchedExperimentSharedMetricLinkPatchApiMetadata = {
+    type?: PatchedExperimentSharedMetricLinkPatchApiMetadataType
+    breakdowns?: PatchedExperimentSharedMetricLinkPatchApiMetadataBreakdownsItem[]
+}
+
+export interface PatchedExperimentSharedMetricLinkPatchApi {
+    /** Link metadata to merge, such as breakdowns, or a 'type' of 'primary'/'secondary' to move the shared metric between sections. Keys you omit are preserved. */
+    metadata?: PatchedExperimentSharedMetricLinkPatchApiMetadata
+}
+
 export interface ShipVariantApi {
     /** The conclusion of the experiment.
      *

@@ -8939,3 +8939,128 @@ class TestExperimentPerMetricWrites(_HoistFlagConfigClientMixin, APILicensedTest
             ),
             "Per-metric writes must SELECT ... FOR UPDATE the experiment row.",
         )
+
+
+class TestExperimentSharedMetricLinks(_HoistFlagConfigClientMixin, APILicensedTest):
+    """Linking a shared metric used to mean rewriting the whole saved_metrics_ids array,
+    so a stale client dropped links it never saw. These cover the per-link writes."""
+
+    def _create_experiment(self) -> int:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "Shared metric links", "feature_flag_key": "shared-metric-links"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        return response.json()["id"]
+
+    def _create_shared_metric(self, name: str, uuid: str) -> ExperimentSavedMetric:
+        return ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name=name,
+            query={
+                "kind": "ExperimentMetric",
+                "uuid": uuid,
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "shared_event"},
+            },
+        )
+
+    def _link(self, experiment_id: int, saved_metric_id: int, section: str = "primary") -> dict[str, Any]:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/shared_metrics/",
+            {"saved_metric_id": saved_metric_id, "section": section},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        return response.json()
+
+    def test_linking_one_shared_metric_leaves_the_others(self):
+        experiment_id = self._create_experiment()
+        first = self._create_shared_metric("First", "shared-uuid-1")
+        second = self._create_shared_metric("Second", "shared-uuid-2")
+
+        self._link(experiment_id, first.id)
+        body = self._link(experiment_id, second.id, section="secondary")
+
+        linked = {link["saved_metric"]: link["metadata"]["type"] for link in body["saved_metrics"]}
+        self.assertEqual(linked, {first.id: "primary", second.id: "secondary"})
+        self.assertEqual(body["primary_metrics_ordered_uuids"], ["shared-uuid-1"])
+        self.assertEqual(body["secondary_metrics_ordered_uuids"], ["shared-uuid-2"])
+
+    def test_unlinking_one_shared_metric_leaves_the_others(self):
+        experiment_id = self._create_experiment()
+        first = self._create_shared_metric("First", "shared-uuid-1")
+        second = self._create_shared_metric("Second", "shared-uuid-2")
+        self._link(experiment_id, first.id)
+        self._link(experiment_id, second.id)
+
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/shared_metrics/{first.id}/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual([link["saved_metric"] for link in response.json()["saved_metrics"]], [second.id])
+        self.assertEqual(response.json()["primary_metrics_ordered_uuids"], ["shared-uuid-2"])
+
+    def test_patching_link_metadata_merges_and_can_move_sections(self):
+        experiment_id = self._create_experiment()
+        shared = self._create_shared_metric("First", "shared-uuid-1")
+        self._link(experiment_id, shared.id)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/shared_metrics/{shared.id}/",
+            {"metadata": {"breakdowns": [{"property": "$browser"}]}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        metadata = response.json()["saved_metrics"][0]["metadata"]
+        # The breakdown lands and the section it was linked into is preserved.
+        self.assertEqual(metadata["breakdowns"], [{"property": "$browser"}])
+        self.assertEqual(metadata["type"], "primary")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/shared_metrics/{shared.id}/",
+            {"metadata": {"type": "secondary"}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        metadata = response.json()["saved_metrics"][0]["metadata"]
+        self.assertEqual(metadata["type"], "secondary")
+        self.assertEqual(metadata["breakdowns"], [{"property": "$browser"}])
+        self.assertEqual(response.json()["primary_metrics_ordered_uuids"], [])
+        self.assertEqual(response.json()["secondary_metrics_ordered_uuids"], ["shared-uuid-1"])
+
+    def test_writing_an_unlinked_shared_metric_is_not_found(self):
+        experiment_id = self._create_experiment()
+        shared = self._create_shared_metric("Unlinked", "shared-uuid-1")
+
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/shared_metrics/{shared.id}/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.json())
+
+    @parameterized.expand([("metrics", "primary"), ("metrics_secondary", "secondary")])
+    def test_unlinking_cleans_up_an_orphaned_inline_copy(self, field: str, section: str):
+        # Some experiments carry an inline entry flagged isSharedMetric with no link behind it.
+        # The client used to strip these by rewriting the whole array; the server does it now.
+        experiment_id = self._create_experiment()
+        orphan_id = 46275
+        experiment = Experiment.objects.get(pk=experiment_id)
+        setattr(
+            experiment,
+            field,
+            [
+                {
+                    "kind": "ExperimentMetric",
+                    "uuid": "orphan-uuid",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "shared_event"},
+                    "isSharedMetric": True,
+                    "sharedMetricId": orphan_id,
+                }
+            ],
+        )
+        setattr(experiment, f"{section}_metrics_ordered_uuids", ["orphan-uuid"])
+        experiment.save()
+
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/shared_metrics/{orphan_id}/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(getattr(Experiment.objects.get(pk=experiment_id), field), [])

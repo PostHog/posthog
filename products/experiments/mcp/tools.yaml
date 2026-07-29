@@ -1257,6 +1257,18 @@ tools:
     experiments-flag-cleanup-task-retrieve:
         operation: experiments_flag_cleanup_task_retrieve
         enabled: false
+    experiments-metrics-create:
+        operation: experiments_metrics_create
+        enabled: false
+    experiments-metrics-destroy:
+        operation: experiments_metrics_destroy
+        enabled: false
+    experiments-metrics-order-update:
+        operation: experiments_metrics_order_update
+        enabled: false
+    experiments-metrics-partial-update:
+        operation: experiments_metrics_partial_update
+        enabled: false
     experiments-prompt-templates-retrieve:
         operation: experiments_prompt_templates_retrieve
         enabled: false
@@ -1265,6 +1277,15 @@ tools:
         enabled: false
     experiments-session-context-retrieve:
         operation: experiments_session_context_retrieve
+        enabled: false
+    experiments-shared-metrics-create:
+        operation: experiments_shared_metrics_create
+        enabled: false
+    experiments-shared-metrics-destroy:
+        operation: experiments_shared_metrics_destroy
+        enabled: false
+    experiments-shared-metrics-partial-update:
+        operation: experiments_shared_metrics_partial_update
         enabled: false
     experiments-update:
         operation: experiments_update
