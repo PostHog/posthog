@@ -154,6 +154,7 @@ import { OrganizationSecuritySettings } from './organization/OrganizationSecurit
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
 import { OrganizationVariables } from './organization/OrgVariables'
+import { EnforceLoginWithVerifiedDomain } from './organization/VerifiedDomains/EnforceLoginWithVerifiedDomain'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectMove } from './project/ProjectMove'
@@ -1722,6 +1723,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/settings/sso',
                 component: <VerifiedDomains />,
                 keywords: ['sso', 'saml', 'single sign-on', 'domain verification', 'enforce'],
+            },
+            {
+                id: 'enforce-login-with-verified-domain',
+                title: 'Domain enforcement',
+                component: <EnforceLoginWithVerifiedDomain />,
+                keywords: ['sso', 'verified domain', 'restrict', 'membership', 'invites'],
             },
         ],
     },
