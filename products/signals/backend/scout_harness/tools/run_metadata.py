@@ -104,20 +104,27 @@ def _validate_storable_string(key: str, value: str) -> None:
         )
 
 
-def record_run_metadata(*, run_id: Any, updates: Mapping[str, Any]) -> dict[str, Any]:
+def record_run_metadata(*, team_id: int, run_id: Any, updates: Mapping[str, Any]) -> dict[str, Any]:
     """Merge `updates` into the run's `metadata["self_reported"]` and return the merged map.
 
-    The caller (the viewset) has already resolved the run team-scoped and asserted it is
-    in progress, so this only guards the row still existing at write time. Runs under
+    The caller (the viewset) has already asserted the run is in progress; this re-anchors
+    the write to `team_id` via the fail-closed `for_team` manager so the tenant boundary
+    is enforced by the write itself, not a caller invariant — a foreign-team `run_id`
+    matches no row and reads as "run no longer exists". `team_id` must be the canonical
+    (parent) team id, which is how every caller in this package resolves runs. Runs under
     `select_for_update` so the read-modify-write on the JSON column can't lose a
     concurrent write (mirrors `emit._record_emit`); the merged result is capped the same
     way as a single payload so repeated calls can't grow the map past
-    `MAX_SELF_REPORTED_KEYS`. Uses the unscoped `all_teams` manager because ownership was
-    validated by the caller, matching the other run-row writers in this package.
+    `MAX_SELF_REPORTED_KEYS`.
     """
     validate_self_reported_updates(updates)
     with transaction.atomic():
-        run = SignalScoutRun.all_teams.select_for_update(of=("self",)).filter(pk=run_id).first()
+        run = (
+            SignalScoutRun.objects.for_team(team_id, canonical=True)
+            .select_for_update(of=("self",))
+            .filter(pk=run_id)
+            .first()
+        )
         if run is None:
             raise InvalidRunMetadataError(f"run {run_id} no longer exists")
         metadata = dict(run.metadata or {})

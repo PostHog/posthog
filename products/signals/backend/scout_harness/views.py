@@ -888,7 +888,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 {"status": f"Metadata can only be recorded on in-progress runs (current: {run.task_run.status})."}
             )
         try:
-            merged = record_run_metadata(run_id=run.id, updates=request.validated_data["metadata"])
+            # `run.team_id` is canonical: the lookup above filtered on `_canonical_team_id`.
+            merged = record_run_metadata(team_id=run.team_id, run_id=run.id, updates=request.validated_data["metadata"])
         except InvalidRunMetadataError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
         return Response(
