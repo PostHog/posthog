@@ -261,7 +261,7 @@ class EmailConnectView(APIView):
                         {
                             "error": "This domain couldn't be set up for sending. "
                             "It may still be attached to an earlier setup attempt. "
-                            "Contact support and we'll reset it for you."
+                            "Contact support and we'll look into it."
                         },
                         status=400,
                     )
