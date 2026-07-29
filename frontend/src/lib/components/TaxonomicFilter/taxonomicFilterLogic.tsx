@@ -57,6 +57,7 @@ import {
     getMCPPropertyFilterOptions,
     includesMCPAnalyticsEvents,
 } from 'lib/components/TaxonomicFilter/utils/mcpProperties'
+import { replayPropertyValuesEndpoint } from 'lib/components/TaxonomicFilter/utils/replayPropertyValues'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
@@ -1862,10 +1863,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (option: Record<string, any>) => option.key,
                         valuesEndpoint: (key) => {
                             if (key === 'visited_page') {
-                                // The filter matches replay's own all_urls, so suggestions must come
-                                // from there too — $pageview events miss mobile, SPA and custom
-                                // pageview setups entirely.
-                                return `api/environments/${teamId}/session_recordings/property_values/?key=visited_page`
+                                return replayPropertyValuesEndpoint(teamId, key)
                             }
                         },
                         getPopoverHeader: () => 'Replay',
