@@ -863,6 +863,250 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
         })
     })
 
+    // The two live prod-eu waits that depend on the poll today, rebuilt here from the exact bytecode
+    // Django compiles for them, and compressed so their condition flips a few seconds out instead of
+    // days. Each is run twice: once as it exists now (polling, no plan) and once as it will exist
+    // (scheduled, no polling), and both must actually reach the step after the wait.
+    describe('wait_until_condition: production waits, with and without the poll', () => {
+        const PROD_WAITS = [
+            {
+                name: 'trial reminder — fires a day before a stored expiry',
+                condition: [
+                    '_H',
+                    1,
+                    33,
+                    86400,
+                    32,
+                    'trial_reminder_days',
+                    32,
+                    'properties',
+                    32,
+                    'person',
+                    1,
+                    3,
+                    2,
+                    'toInt',
+                    1,
+                    33,
+                    1,
+                    2,
+                    'coalesce',
+                    2,
+                    8,
+                    32,
+                    'trial_expiration_at',
+                    32,
+                    'properties',
+                    32,
+                    'person',
+                    1,
+                    3,
+                    2,
+                    'toDateTime',
+                    1,
+                    2,
+                    'toUnixTimestamp',
+                    1,
+                    7,
+                    2,
+                    'now',
+                    0,
+                    2,
+                    'toUnixTimestamp',
+                    1,
+                    14,
+                ],
+                timer: [
+                    '_H',
+                    1,
+                    33,
+                    86400,
+                    32,
+                    'trial_reminder_days',
+                    32,
+                    'properties',
+                    32,
+                    'person',
+                    1,
+                    3,
+                    2,
+                    'toInt',
+                    1,
+                    33,
+                    1,
+                    2,
+                    'coalesce',
+                    2,
+                    8,
+                    32,
+                    'trial_expiration_at',
+                    32,
+                    'properties',
+                    32,
+                    'person',
+                    1,
+                    3,
+                    2,
+                    'toDateTime',
+                    1,
+                    2,
+                    'toUnixTimestamp',
+                    1,
+                    7,
+                    2,
+                    'fromUnixTimestamp',
+                    1,
+                ],
+                // Expiry one day and three seconds out with the default one day of notice, so the
+                // condition flips three seconds from now — the real shape, on a testable horizon.
+                properties: () => ({ trial_expiration_at: DateTime.utc().plus({ days: 1, seconds: 3 }).toISO()! }),
+            },
+            {
+                name: 'coupon nudge — fires 14 days after last activity',
+                condition: [
+                    '_H',
+                    1,
+                    33,
+                    14,
+                    32,
+                    'day',
+                    32,
+                    'last_seen_at',
+                    32,
+                    'properties',
+                    32,
+                    'person',
+                    1,
+                    3,
+                    2,
+                    'toDateTime',
+                    1,
+                    2,
+                    'now',
+                    0,
+                    2,
+                    'dateDiff',
+                    3,
+                    14,
+                ],
+                timer: [
+                    '_H',
+                    1,
+                    32,
+                    'day',
+                    33,
+                    14,
+                    32,
+                    'last_seen_at',
+                    32,
+                    'properties',
+                    32,
+                    'person',
+                    1,
+                    3,
+                    2,
+                    'toDateTime',
+                    1,
+                    2,
+                    'dateAdd',
+                    3,
+                ],
+                properties: () => ({ last_seen_at: DateTime.utc().minus({ days: 14 }).plus({ seconds: 3 }).toISO()! }),
+            },
+        ]
+
+        const personRow = (properties: Record<string, string>): any => ({
+            id: '1',
+            uuid: 'uuid',
+            team_id: team.id,
+            properties,
+            properties_last_updated_at: {},
+            properties_last_operation: null,
+            created_at: DateTime.utc(),
+            version: 1,
+            is_identified: true,
+            is_user_id: null,
+            last_seen_at: null,
+            distinct_id: 'distinct_id',
+        })
+
+        const parkedSeconds = async (): Promise<number> => {
+            let seconds = 0
+            await waitForExpect(async () => {
+                const parked = (await queryCyclotronJobs()).filter(
+                    (j: any) => j.status === 'available' && new Date(j.scheduled) > new Date()
+                )
+                expect(parked.length).toBe(1)
+                seconds = (new Date(parked[0].scheduled).getTime() - Date.now()) / 1000
+            }, 5000)
+            return seconds
+        }
+
+        const buildWait = async (w: (typeof PROD_WAITS)[number], wakePlan: any): Promise<void> => {
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    wait_condition: {
+                        type: 'wait_until_condition',
+                        config: {
+                            condition: { filters: { bytecode: w.condition, properties: [{ type: 'hogql' }] } },
+                            max_wait_duration: '20d',
+                            ...(wakePlan ? { wake_plan: wakePlan } : {}),
+                        },
+                    },
+                    function_1: fetchAction('https://example.com/wait-satisfied'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'wait_condition', type: 'continue' },
+                    { from: 'wait_condition', to: 'function_1', type: 'branch', index: 0 },
+                    { from: 'wait_condition', to: 'exit', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([personRow(w.properties())])
+        }
+
+        it.each(PROD_WAITS.map((w) => [w.name, w] as const))('today, polling advances it: %s', async (_name, w) => {
+            // Baseline. No plan, so the wait re-parks on the cap and only a re-check can advance it.
+            await buildWait(w, null)
+            await triggerWorkflow(createGlobals())
+
+            // Parked, nothing run yet: the condition was false when the run arrived.
+            expect(await parkedSeconds()).toBeGreaterThan(9 * 60)
+            expect(mockFetch).not.toHaveBeenCalled()
+
+            // Let the condition come true, then stand in for the next poll re-check.
+            await new Promise((r) => setTimeout(r, 3500))
+            await cyclotronPool.query(
+                `UPDATE cyclotron_jobs SET scheduled = NOW() WHERE ${statusColumn} = 'available' AND scheduled > NOW()`
+            )
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledWith('https://example.com/wait-satisfied', expect.anything())
+            }, 10000)
+        })
+
+        it.each(PROD_WAITS.map((w) => [w.name, w] as const))(
+            'after the change, it fires on its own with no poll: %s',
+            async (_name, w) => {
+                // The same wait carrying the plan Django will derive for it. Nothing here pulls the job
+                // forward — if it runs, the engine scheduled it to the right instant and woke itself.
+                await buildWait(w, { streams: ['person'], timers: [w.timer] })
+                await triggerWorkflow(createGlobals())
+
+                // Parked seconds out rather than on the cap: scheduled, not polled.
+                const seconds = await parkedSeconds()
+                expect(seconds).toBeLessThan(60)
+                expect(mockFetch).not.toHaveBeenCalled()
+
+                await waitForExpect(() => {
+                    expect(mockFetch).toHaveBeenCalledWith('https://example.com/wait-satisfied', expect.anything())
+                }, 15000)
+            }
+        )
+    })
+
     describe('wait_until_condition: wake plan parks to the computed instant', () => {
         // Verbatim output of the save-time analyzer for team 84676's live condition
         // (`now() >= trial_expiration_at - coalesce(trial_reminder_days, 1) days`) — the flow that
