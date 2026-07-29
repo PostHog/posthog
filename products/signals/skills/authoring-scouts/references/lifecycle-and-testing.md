@@ -25,6 +25,8 @@ Slowing it = a larger `run_interval_minutes`.
 Dry-running it = `emit=false`.
 All three via `posthog:scout-config-update` (get the `id` from `-config-list`), or set at creation time in the nested `config` object passed to `posthog:scout-create-prepare`.
 
+A scout can also be paused automatically: if it times out before finishing on many consecutive runs, the coordinator auto-pauses it (`auto_paused_at` / `auto_paused_reason` on the config, both read-only) and stops dispatching it, so a broken scout doesn't burn run budget indefinitely. This is separate from `enabled` — the config still reads `enabled=true`. Any `posthog:scout-config-update` edit resumes it and resets the streak; if it keeps timing out it pauses again.
+
 ## Path A — per-team (skills store)
 
 The common path for a user customizing scouts for their own project.

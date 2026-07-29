@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
-from django.db.models import F
+from django.db import transaction
 from django.utils import timezone
 
 import posthoganalytics
@@ -943,42 +943,56 @@ def _capture_run_finished(
 
 
 def _auto_pause_reason(consecutive_timeouts: int) -> str:
+    # "before finishing" rather than "without producing a report": a timed-out turn can have
+    # emitted findings via its tools and then hung before finalizing, so the run isn't guaranteed
+    # to be empty — what it always failed to do is finish.
     return (
-        f"Paused automatically after {consecutive_timeouts} runs in a row timed out without "
-        "producing a report. Resume the scout once the underlying issue is resolved."
+        f"Paused automatically after {consecutive_timeouts} runs in a row timed out before "
+        "finishing. Resume the scout once the underlying issue is resolved."
     )
 
 
-def _update_circuit_breaker(config_pk: Any, *, timed_out: bool) -> tuple[bool, int]:
+def _update_circuit_breaker(config_pk: Any, team_id: int, *, timed_out: bool) -> tuple[bool, int]:
     """Advance or reset the config's consecutive-timeout streak; return (paused_now, streak).
 
     Sync DB helper. Writes via `.update()` (never `save()`) so this per-run bookkeeping bypasses
-    `ModelActivityMixin` and never emits an activity signal. Keyed on the config pk rather than the
-    in-memory row so a stale `last_run_at`/edit read on the passed object can't clobber the write.
+    `ModelActivityMixin` and never emits an activity signal (the user-driven resume in the config
+    serializer is the audited transition, not this).
+
+    Read-modify-write under `select_for_update()` in one transaction so overlapping outcomes for
+    the same scout can't corrupt the streak: without the row lock a completion's reset could
+    interleave with a timeout's increment/pause, either erasing a threshold-crossing timeout or
+    re-pausing a just-reset config with a stale count. Scoped through `objects.for_team(team_id)`
+    (not `all_teams`) so a mismatched `config_pk` can't mutate another team's scheduling state from
+    this Temporal-activity context.
     """
-    if not timed_out:
-        # Reset only when the streak is non-zero, so a healthy scout doesn't take a write every run.
-        SignalScoutConfig.all_teams.filter(pk=config_pk, consecutive_timeout_failures__gt=0).update(
-            consecutive_timeout_failures=0
+    with transaction.atomic():
+        row = (
+            SignalScoutConfig.objects.for_team(team_id)
+            .select_for_update()
+            .filter(pk=config_pk)
+            .values_list("consecutive_timeout_failures", "auto_paused_at")
+            .first()
         )
-        return (False, 0)
-    # Atomic increment so an overlapping write can't lose a count, then read back the settled value.
-    SignalScoutConfig.all_teams.filter(pk=config_pk).update(
-        consecutive_timeout_failures=F("consecutive_timeout_failures") + 1
-    )
-    count = (
-        SignalScoutConfig.all_teams.filter(pk=config_pk).values_list("consecutive_timeout_failures", flat=True).first()
-        or 0
-    )
-    if count < CONSECUTIVE_TIMEOUT_PAUSE_THRESHOLD:
-        return (False, count)
-    # Trip once. The `auto_paused_at__isnull=True` guard makes this idempotent: an already-paused
-    # config isn't re-stamped, so `auto_paused_at` marks the first trip and the event fires once.
-    paused = SignalScoutConfig.all_teams.filter(pk=config_pk, auto_paused_at__isnull=True).update(
-        auto_paused_at=timezone.now(),
-        auto_paused_reason=_auto_pause_reason(count),
-    )
-    return (bool(paused), count)
+        if row is None:
+            return (False, 0)
+        current, already_paused = row
+        if not timed_out:
+            # A non-timeout outcome clears the streak. Write only when non-zero so a healthy scout
+            # doesn't take a write every run.
+            if current:
+                SignalScoutConfig.objects.for_team(team_id).filter(pk=config_pk).update(consecutive_timeout_failures=0)
+            return (False, 0)
+        new_count = (current or 0) + 1
+        fields: dict[str, Any] = {"consecutive_timeout_failures": new_count}
+        # Trip on the freshly-read count while holding the lock, and only when not already paused,
+        # so `auto_paused_at` marks the first trip and the event fires exactly once.
+        paused_now = new_count >= CONSECUTIVE_TIMEOUT_PAUSE_THRESHOLD and already_paused is None
+        if paused_now:
+            fields["auto_paused_at"] = timezone.now()
+            fields["auto_paused_reason"] = _auto_pause_reason(new_count)
+        SignalScoutConfig.objects.for_team(team_id).filter(pk=config_pk).update(**fields)
+        return (paused_now, new_count)
 
 
 def _capture_config_auto_paused(
@@ -1013,7 +1027,7 @@ async def _record_circuit_breaker_outcome(
     finished run into a failed one, so any error is logged and swallowed."""
     try:
         paused_now, count = await database_sync_to_async(_update_circuit_breaker, thread_sensitive=False)(
-            config.pk, timed_out=timed_out
+            config.pk, config.team_id, timed_out=timed_out
         )
     except Exception:
         logger.exception(

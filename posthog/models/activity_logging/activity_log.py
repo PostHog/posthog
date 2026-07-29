@@ -397,10 +397,11 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     # never spams the audit log.
     "SignalScoutConfig": [
         "last_run_at",
-        # Circuit-breaker bookkeeping written by the runner per outcome, not user intent.
+        # Circuit-breaker streak counter written by the runner per outcome, not user intent.
+        # `auto_paused_at`/`auto_paused_reason` are intentionally NOT excluded: the runner writes
+        # them via `.update()` (no signal), so the only save that changes them is a user-driven
+        # resume through the config serializer, which we want in the audit log.
         "consecutive_timeout_failures",
-        "auto_paused_at",
-        "auto_paused_reason",
     ],
 }
 
@@ -760,11 +761,10 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Run bookkeeping, not user intent — keep it out of change detection even when it
         # rides along with a real change (belt-and-suspenders with signal_exclusions above).
         "last_run_at",
-        # Circuit-breaker bookkeeping, same rationale: written by the runner per outcome, so it
-        # must not surface as a config change even when a user edit clears the pause alongside it.
+        # Circuit-breaker streak counter, same rationale. `auto_paused_at`/`auto_paused_reason`
+        # stay in change detection so a user-driven resume is recorded (the runner mutates them
+        # via `.update()`, which never reaches this diff).
         "consecutive_timeout_failures",
-        "auto_paused_at",
-        "auto_paused_reason",
         # Reverse relations auto-managed by FK creates, not user-initiated config changes.
         "runs",
     ],

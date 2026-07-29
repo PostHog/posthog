@@ -1162,8 +1162,10 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # stamps `auto_paused_at`, and the coordinator then stops dispatching this config until a
     # human clears the pause (editing the config via the API resets both). This is what stops one
     # wedged tenant from re-dispatching doomed 15-minute sandbox runs every tick forever. The
-    # runner writes these via `.update()` (no `save()`), so they never emit an activity signal;
-    # they're bookkeeping, not user intent, and are excluded from change detection regardless.
+    # runner writes these via `.update()` (no `save()`), so its writes never emit an activity
+    # signal. `consecutive_timeout_failures` is pure bookkeeping and excluded from change
+    # detection; `auto_paused_at`/`auto_paused_reason` are not, so the one save that touches them
+    # (a user-driven resume through the config serializer) is recorded in the audit log.
     consecutive_timeout_failures = models.PositiveIntegerField(default=0, db_default=0)
     auto_paused_at = models.DateTimeField(null=True, blank=True)
     # Human-readable why, surfaced on the config API/UI so a paused scout explains itself rather

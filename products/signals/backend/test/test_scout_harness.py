@@ -1687,7 +1687,7 @@ class TestCircuitBreaker(BaseTest):
 
     def test_timeout_increments_streak_below_threshold(self) -> None:
         config = self._config()
-        paused, count = _update_circuit_breaker(config.pk, timed_out=True)
+        paused, count = _update_circuit_breaker(config.pk, config.team_id, timed_out=True)
         assert (paused, count) == (False, 1)
         config.refresh_from_db()
         assert config.consecutive_timeout_failures == 1
@@ -1695,14 +1695,14 @@ class TestCircuitBreaker(BaseTest):
 
     def test_non_timeout_outcome_resets_streak(self) -> None:
         config = self._config(consecutive_timeout_failures=5)
-        paused, count = _update_circuit_breaker(config.pk, timed_out=False)
+        paused, count = _update_circuit_breaker(config.pk, config.team_id, timed_out=False)
         assert (paused, count) == (False, 0)
         config.refresh_from_db()
         assert config.consecutive_timeout_failures == 0
 
     def test_crossing_threshold_pauses_once(self) -> None:
         config = self._config(consecutive_timeout_failures=CONSECUTIVE_TIMEOUT_PAUSE_THRESHOLD - 1)
-        paused, count = _update_circuit_breaker(config.pk, timed_out=True)
+        paused, count = _update_circuit_breaker(config.pk, config.team_id, timed_out=True)
         assert paused is True
         assert count == CONSECUTIVE_TIMEOUT_PAUSE_THRESHOLD
         config.refresh_from_db()
@@ -1711,7 +1711,7 @@ class TestCircuitBreaker(BaseTest):
 
         # Already paused: a further timeout must not re-trip (so no duplicate auto-paused event).
         first_paused_at = config.auto_paused_at
-        paused_again, _ = _update_circuit_breaker(config.pk, timed_out=True)
+        paused_again, _ = _update_circuit_breaker(config.pk, config.team_id, timed_out=True)
         assert paused_again is False
         config.refresh_from_db()
         assert config.auto_paused_at == first_paused_at
