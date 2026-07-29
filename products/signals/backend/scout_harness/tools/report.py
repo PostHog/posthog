@@ -161,7 +161,11 @@ class EditReportResult:
     updated_fields: list[str]
     note_appended: bool
     reviewers_set: bool = False
-    charts_set: int = 0
+    # How many charts the report now shows, or None when the edit left its charts as they were (the
+    # field omitted, or a re-send of what was already stored). Nullable rather than 0-for-untouched
+    # because taking a report's charts down is itself a real outcome, and 0 would otherwise mean both
+    # "cleared" and "never touched".
+    charts_set: int | None = None
     # The report's effective title after the edit (the rewritten title, or the stored one for a
     # note/reviewer-only edit) — telemetry-only, so the edited lifecycle event can classify the report
     # (`_report_classification_props`) even when the edit didn't touch the title.
@@ -175,8 +179,12 @@ class EditReportResult:
         rewritten to its current value, or the charts a previous call stored. Everything an edit sets in
         motion downstream (the run tally, the work-log link, the Slack delivery, the lifecycle events)
         keys off this, so a call that changed nothing stays silent instead of telling the team their
-        report moved."""
-        return bool(self.updated_fields or self.note_appended or self.reviewers_set or self.charts_set)
+        report moved.
+
+        `charts_set` is checked against None, not truthiness: an edit that took the report's charts
+        down reports 0, and reading that as "nothing happened" would keep the retraction off the run
+        tally and out of both event streams."""
+        return bool(self.updated_fields or self.note_appended or self.reviewers_set) or self.charts_set is not None
 
 
 def _surfaced(status: SignalReport.Status) -> bool:
@@ -246,6 +254,20 @@ def _build_charts(charts: list[ReportChartInput] | None) -> list[ReportChart]:
     if batch_error := chart_batch_error(built):
         raise InvalidScoutReportError(batch_error)
     return built
+
+
+def _build_edit_charts(charts: list[ReportChartInput] | None) -> list[ReportChart] | None:
+    """The charts an edit should write, or None when the edit supplied no `charts` at all.
+
+    An edit has a third state emit does not: leaving the report's existing charts alone. So `None`
+    (the field omitted, or sent as null) means "don't touch them", while an explicit empty list is a
+    real instruction to clear them — the same way an empty `summary` would be a real rewrite rather
+    than a no-op. `_build_charts` collapses both to `[]` because emit only ever authors a fresh set,
+    which is why the distinction is drawn here instead of widening that contract.
+    """
+    if charts is None:
+        return None
+    return _build_charts(charts)
 
 
 def _normalize_repository(repository: str | None) -> str | None:
@@ -856,7 +878,9 @@ def _capture_report_edited(
     # Charts are a valid *sole* input to an edit, so the same reasoning applies: two chart-only edits to
     # one report in a run carry no updated_fields and no title/summary/note, and would hash identically —
     # ingestion would collapse the second and the team would never see that chart land. Key on the charts
-    # too, only when charts were set, so every other edit keeps its existing uuid.
+    # too, only when charts were set, so every other edit keeps its existing uuid. An edit that clears
+    # the charts is keyed on its empty list for the same reason: it is a distinct instruction from the
+    # edit that set them, and hashing it identically would drop the clear.
     #
     # The key is the charts' *content*, not just their ids: re-sending an id under a newer window is how a
     # scout refreshes a chart, so keying on ids alone would collapse exactly the refresh the team wants to
@@ -866,12 +890,12 @@ def _capture_report_edited(
     # arrive in says nothing, so sorting is what makes a retry hash the same. Charts render in the
     # order they were sent, so a reorder is a real change to what the report shows, and sorting them
     # here would hash it identically to the edit before it and let ingestion drop it.
-    if charts:
+    if charts is not None:
         parts.append(json.dumps([_chart_event_key(c) for c in charts], separators=(",", ":")))
     return _ReportForward(
         event_name=CUSTOMER_REPORT_EDITED_EVENT,
         distinct_id=f"signals_scout:{run.skill_name}",
-        event_uuid=_report_event_uuid(*parts, charted=bool(charts)),
+        event_uuid=_report_event_uuid(*parts, charted=charts is not None),
         properties=properties,
     )
 
@@ -1126,7 +1150,7 @@ def _do_edit_report(
     summary: str | None,
     append_note: str | None,
     suggested_reviewers: list[ReviewerInput] | None,
-    charts: list[ReportChart],
+    charts: list[ReportChart] | None,
 ) -> EditReportResult:
     """Fully-sync edit core (no LLM step). The async/sync entrypoints both funnel here — directly in
     the sync path, via `database_sync_to_async` in the async path. Reviewer resolution does a DB read
@@ -1182,9 +1206,10 @@ def _do_edit_report(
                 team_id=team.id, report_id=report_id, note=append_note, attribution=attribution, author=run.skill_name
             )
             note_appended = True
-        # Replace the report's charts, the way a summary rewrite replaces the summary. Supplying
-        # none leaves the existing ones alone, so an edit that only appends a note keeps them.
-        if charts:
+        # Replace the report's charts, the way a summary rewrite replaces the summary. Omitting the
+        # field leaves the existing ones alone, so an edit that only appends a note keeps them; an
+        # explicit empty list takes them down.
+        if charts is not None:
             charts_changed = set_report_charts(
                 team_id=team.id,
                 report_id=report_id,
@@ -1197,6 +1222,7 @@ def _do_edit_report(
     # draft PR. Fired outside any txn since it spawns a Task — mirrors emit's post-commit hand-off.
     if reviewers_set:
         async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=report_id)
+    charts_set = len(charts) if charts is not None and charts_changed else None
     logger.info(
         "signals_scout.edit_report: edited",
         extra={
@@ -1205,7 +1231,7 @@ def _do_edit_report(
             "fields": updated_fields,
             "note": note_appended,
             "reviewers_set": reviewers_set,
-            "charts_set": len(charts),
+            "charts_set": charts_set,
         },
     )
     # Resolve the report's effective title for the edited event's classification — the rewritten title
@@ -1227,7 +1253,7 @@ def _do_edit_report(
         updated_fields=updated_fields,
         note_appended=note_appended,
         reviewers_set=reviewers_set,
-        charts_set=len(charts) if charts_changed else 0,
+        charts_set=charts_set,
         report_title=report_title,
     )
     # Record the edit on the run tally only when something actually changed — a no-op edit (e.g. a
@@ -1256,7 +1282,9 @@ def _validate_edit_inputs(
     team: Team, run: SignalScoutRun, title, summary, append_note, suggested_reviewers, charts
 ) -> None:
     _assert_team_owns_run(team, run)
-    if title is None and summary is None and append_note is None and not suggested_reviewers and not charts:
+    # `charts` is checked against None rather than falsiness: an explicit empty list clears the
+    # report's charts, so a clear-only edit is a real edit and must not be rejected as an empty one.
+    if title is None and summary is None and append_note is None and not suggested_reviewers and charts is None:
         raise InvalidScoutReportError(
             "edit_report needs at least one of title, summary, append_note, suggested_reviewers, charts"
         )
@@ -1285,7 +1313,7 @@ async def edit_report(
         summary=summary,
         append_note=append_note,
         suggested_reviewers=suggested_reviewers,
-        charts=_build_charts(charts),
+        charts=_build_edit_charts(charts),
     )
     forward = await database_sync_to_async(_capture_report_edited, thread_sensitive=False)(
         team=team,
@@ -1322,7 +1350,7 @@ def edit_report_sync(
         summary=summary,
         append_note=append_note,
         suggested_reviewers=suggested_reviewers,
-        charts=_build_charts(charts),
+        charts=_build_edit_charts(charts),
     )
     forward = _capture_report_edited(
         team=team,
