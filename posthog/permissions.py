@@ -244,16 +244,11 @@ class VerifiedDomainEnforcementPermission(BasePermission):
     Deny members whose email is outside the target organization's verified domains, when that
     organization has `enforce_verified_domains` on.
 
-    Checked against the URL-resolved organization, never `user.current_organization` — the current
-    organization is a UI preference that routing doesn't validate, so a member of several
+    Checked against the URL-resolved organization, never `user.current_organization`, because the
+    current organization is a UI preference the API doesn't validate: a member of several
     organizations could otherwise reach an enforcing one by leaving another current. Appended to
-    every `TeamAndOrgViewSetMixin` view in `get_permissions`, this holds for every user-bound
-    authenticator (session, personal API key, OAuth, JWT) regardless of the view's own
-    `authentication_classes`.
-
-    Free while the setting is off: it runs after the membership permission, so `view.team` (loaded
-    with its organization via `select_related`) or `view.organization` is already resolved, and the
-    predicate short-circuits on the organization's own flag before touching the domains table.
+    every `TeamAndOrgViewSetMixin` view in `get_permissions`, so it holds for every user-bound
+    authenticator regardless of a view's own `authentication_classes`.
     """
 
     def has_permission(self, request: Request, view) -> bool:
