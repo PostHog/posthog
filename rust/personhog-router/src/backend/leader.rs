@@ -116,9 +116,14 @@ impl LeaderBackend {
             return Ok(channel.clone());
         }
 
+        // The connect deadline matters independently of the request
+        // timeout: dialing a pod whose IP has been unassigned black-holes
+        // at TCP connect (no RST ever arrives), and the request timeout
+        // only starts once a connection exists.
         let channel = Channel::from_shared(address.clone())
             .map_err(|e| Status::internal(format!("invalid leader address: {e}")))?
             .timeout(self.config.timeout)
+            .connect_timeout(self.config.timeout)
             .tcp_nodelay(true)
             .connect_lazy();
         self.channels.insert(address, channel.clone());
