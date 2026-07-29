@@ -189,7 +189,6 @@ registerAsyncFunction('postHogCreateAccount', {
     execute: async (args, context, result) => {
         const [opts] = args as [Record<string, any> | undefined]
         const externalId = opts?.external_id
-        const name = opts?.name
 
         if (!externalId || typeof externalId !== 'string') {
             throw new Error("[HogFunction] - postHogCreateAccount call missing 'external_id' property")
@@ -211,7 +210,7 @@ registerAsyncFunction('postHogCreateAccount', {
             type: 'fetch',
             url: `${context.siteUrl}/api/customer_analytics/external/account`,
             method: 'POST',
-            body: JSON.stringify({ external_id: externalId, ...(name ? { name } : {}) }),
+            body: JSON.stringify({ external_id: externalId }),
             headers,
         })
     },
@@ -233,7 +232,7 @@ registerAsyncFunction('postHogCreateAccount', {
             body: {
                 id: 'mock-account-id',
                 external_id: args[0]?.external_id ?? 'mock-external-id',
-                name: args[0]?.name ?? 'Mock Account',
+                name: 'Mock Account',
                 properties: {},
                 tags: [],
                 relationships: {},

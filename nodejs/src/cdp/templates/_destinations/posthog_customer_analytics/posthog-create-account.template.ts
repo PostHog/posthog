@@ -8,7 +8,8 @@ export const template: HogFunctionTemplate = {
     type: 'destination',
     id: 'template-posthog-create-account',
     name: 'Create account',
-    description: 'Create a Customer analytics account for the triggering event’s group, if one does not exist.',
+    description:
+        'Create a Customer analytics account for the triggering event’s group, if one does not exist. The account name comes from the group’s name property.',
     icon_url: '/static/posthog-icon.svg',
     category: ['Custom'],
     code_language: 'hog',
@@ -20,8 +21,7 @@ if (empty(inputs.external_id)) {
 }
 
 let response := postHogCreateAccount({
-  'external_id': inputs.external_id,
-  'name': (not empty(inputs.name)) ? inputs.name : inputs.external_id
+  'external_id': inputs.external_id
 })
 
 if (response.status >= 400) {
@@ -44,14 +44,6 @@ return response.body
             required: true,
             description:
                 'The external ID for the account — the group key the account is linked to. Defaults to the triggering event’s group of the configured account group type.',
-        },
-        {
-            key: 'name',
-            type: 'string',
-            label: 'Account name',
-            secret: false,
-            required: false,
-            description: 'Name for the new account. Falls back to the external ID when empty.',
         },
     ],
 }

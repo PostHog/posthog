@@ -4,7 +4,6 @@ import { GroupType, GroupTypeIndex } from '~/types'
 
 import { getRegisteredActionNodeCategories } from './actionNodeRegistry'
 import {
-    buildAccountCreateInputs,
     buildAccountExternalIdInputs,
     buildAccountOutputSuggestions,
     customPropertyResultPath,
@@ -159,20 +158,6 @@ describe('customer analytics action registry', () => {
 
         it('returns undefined when the configured index has no matching group type', () => {
             expect(buildAccountExternalIdInputs(3, groupTypesMap([0, 'organization']))).toBeUndefined()
-        })
-    })
-
-    describe('buildAccountCreateInputs', () => {
-        it('defaults external_id to the group key and name to the group name property', () => {
-            const inputs = buildAccountCreateInputs(2, groupTypesMap([0, 'project'], [2, 'organization']))
-            expect(inputs).toEqual({
-                external_id: { value: '{groups.`organization`.id}' },
-                name: { value: '{groups.`organization`.properties.name}' },
-            })
-        })
-
-        it('returns undefined when the account group type is not configured', () => {
-            expect(buildAccountCreateInputs(null, groupTypesMap([0, 'organization']))).toBeUndefined()
         })
     })
 })

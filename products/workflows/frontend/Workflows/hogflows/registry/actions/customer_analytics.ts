@@ -13,10 +13,10 @@ import { OutputMappingSuggestion } from 'products/workflows/frontend/Workflows/h
 import { registerActionNodeCategory } from 'products/workflows/frontend/Workflows/hogflows/registry/actions/actionNodeRegistry'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 
-const accountGroupTypeName = (
+export const buildAccountExternalIdInputs = (
     accountGroupTypeIndex: number | null | undefined,
     groupTypes: Map<GroupTypeIndex, GroupType>
-): string | undefined => {
+): Record<string, CyclotronInputType> | undefined => {
     if (accountGroupTypeIndex === null || accountGroupTypeIndex === undefined) {
         return undefined
     }
@@ -27,42 +27,12 @@ const accountGroupTypeName = (
     // Backtick-quote the group type as an identifier. Bracket access (`groups["x"]`) compiles the index as a
     // separate global lookup and fails at runtime; backtick quoting escapes any name (delimiters, spaces, backticks
     // via doubling) without breaking out of the Hog expression.
-    return groupType.replace(/`/g, '``')
-}
-
-export const buildAccountExternalIdInputs = (
-    accountGroupTypeIndex: number | null | undefined,
-    groupTypes: Map<GroupTypeIndex, GroupType>
-): Record<string, CyclotronInputType> | undefined => {
-    const quotedGroupType = accountGroupTypeName(accountGroupTypeIndex, groupTypes)
-    if (!quotedGroupType) {
-        return undefined
-    }
+    const quotedGroupType = groupType.replace(/`/g, '``')
     return { external_id: { value: `{groups.\`${quotedGroupType}\`.id}` } }
-}
-
-export const buildAccountCreateInputs = (
-    accountGroupTypeIndex: number | null | undefined,
-    groupTypes: Map<GroupTypeIndex, GroupType>
-): Record<string, CyclotronInputType> | undefined => {
-    const quotedGroupType = accountGroupTypeName(accountGroupTypeIndex, groupTypes)
-    if (!quotedGroupType) {
-        return undefined
-    }
-    return {
-        external_id: { value: `{groups.\`${quotedGroupType}\`.id}` },
-        name: { value: `{groups.\`${quotedGroupType}\`.properties.name}` },
-    }
 }
 
 const getAccountExternalIdDefaultInputs = (): Record<string, CyclotronInputType> | undefined =>
     buildAccountExternalIdInputs(
-        teamLogic.findMounted()?.values.currentTeam?.customer_analytics_config?.account_group_type_index,
-        groupsModel.findMounted()?.values.groupTypes ?? new Map()
-    )
-
-const getAccountCreateDefaultInputs = (): Record<string, CyclotronInputType> | undefined =>
-    buildAccountCreateInputs(
         teamLogic.findMounted()?.values.currentTeam?.customer_analytics_config?.account_group_type_index,
         groupsModel.findMounted()?.values.groupTypes ?? new Map()
     )
@@ -133,7 +103,7 @@ registerActionNodeCategory({
             name: 'Create account',
             description: "Create a Customer analytics account for the event's group, if one doesn't exist yet.",
             config: { template_id: 'template-posthog-create-account', inputs: {} },
-            getDefaultInputs: getAccountCreateDefaultInputs,
+            getDefaultInputs: getAccountExternalIdDefaultInputs,
             output_variable: { key: 'account', result_path: null, label: 'Account' },
         },
         {

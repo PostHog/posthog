@@ -22,7 +22,7 @@ describe('posthog customer analytics account templates', () => {
         {
             name: 'create account',
             template: createAccountTemplate,
-            inputs: { external_id: 'acme-1', name: 'Acme' },
+            inputs: { external_id: 'acme-1' },
             failurePrefix: 'Failed to create account (400):',
             // A 200 means the account already existed — creation is a no-op.
             successLog: 'Account acme-1 already exists — skipped creation',
@@ -123,11 +123,11 @@ describe('posthog customer analytics account templates', () => {
             await tester.beforeEach()
         })
 
-        it('logs the created line on 201 and falls back to external_id as name in the body', async () => {
-            let response = await tester.invoke({ external_id: 'acme-1', name: '' })
+        it('logs the created line on 201', async () => {
+            let response = await tester.invoke({ external_id: 'acme-1' })
 
             const body = parseJSON((response.invocation.queueParameters as any).body)
-            expect(body).toEqual({ external_id: 'acme-1', name: 'acme-1' })
+            expect(body).toEqual({ external_id: 'acme-1' })
 
             response = await tester.invokeFetchResponse(response.invocation, {
                 status: 201,

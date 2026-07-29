@@ -265,14 +265,46 @@ class ExternalAccountUpdateSerializer(serializers.Serializer):
 class ExternalAccountCreateSerializer(serializers.Serializer):
     external_id = serializers.CharField(
         max_length=400,
-        help_text="External ID (group key) for the account. An account with this ID already existing is a no-op.",
+        help_text=(
+            "External ID (group key) for the account. An account with this ID already existing is a no-op. "
+            "The account name is derived from the matching group's `name` property, falling back to this ID."
+        ),
     )
-    name = serializers.CharField(
-        max_length=400,
-        required=False,
-        allow_blank=True,
-        help_text="Account name. Falls back to the external ID when omitted or blank.",
+
+
+class ExternalAccountAssignmentSerializer(serializers.Serializer):
+    user_id = serializers.IntegerField(help_text="PostHog user id of the assigned user.")
+    email = serializers.CharField(help_text="Email address of the assigned user.")
+
+
+class ExternalAccountSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Account UUID.")
+    external_id = serializers.CharField(
+        allow_null=True, help_text="External account key — the group key the account is linked to."
     )
+    name = serializers.CharField(help_text="Human-readable account name.")
+    properties = serializers.DictField(
+        child=serializers.JSONField(help_text="Property value: a string, a role-assignment object, or null."),
+        help_text="Typed account properties: role assignments (csm, account_executive, account_owner) and external-system ids.",
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(), help_text="Tag names on the account, sorted alphabetically."
+    )
+    relationships = serializers.DictField(
+        child=ExternalAccountAssignmentSerializer(many=True),
+        help_text=(
+            "Active relationship assignments keyed by definition name (e.g. 'CSM'). "
+            "Definitions with no active assignment are omitted."
+        ),
+    )
+    custom_properties = serializers.DictField(
+        child=serializers.JSONField(help_text="The property's active scalar value, or null when unset."),
+        help_text="Every team custom property definition keyed by name, with the account's active value or null.",
+    )
+
+
+class ExternalAccountErrorSerializer(serializers.Serializer):
+    error = serializers.CharField(help_text="What went wrong with the request.")
 
 
 class ExternalAccountView(APIView):
@@ -305,7 +337,19 @@ class ExternalAccountView(APIView):
 
         return Response(_external_account_body(account))
 
-    @extend_schema(request=ExternalAccountCreateSerializer, responses={201: OpenApiTypes.OBJECT})
+    @extend_schema(
+        request=ExternalAccountCreateSerializer,
+        responses={
+            201: OpenApiResponse(response=ExternalAccountSerializer, description="Account created."),
+            200: OpenApiResponse(
+                response=ExternalAccountSerializer, description="Account already existed — creation skipped."
+            ),
+            400: OpenApiResponse(response=ExternalAccountErrorSerializer, description="Invalid request body."),
+            401: OpenApiResponse(
+                response=ExternalAccountErrorSerializer, description="Missing or invalid Bearer token."
+            ),
+        },
+    )
     def post(self, request: Request) -> Response:
         team, error = _authenticate_team(request)
         if error:
@@ -326,7 +370,6 @@ class ExternalAccountView(APIView):
             account, created = facade.create_external_account(
                 team,
                 external_id=external_id,
-                name=(data.get("name") or "").strip() or None,
                 workflow_id=_workflow_id_from_request(request),
             )
         except facade.AccountConflictError:

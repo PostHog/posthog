@@ -34,6 +34,7 @@ from pydantic import ValidationError as PydanticValidationError
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Integration, OrganizationMembership, Tag
 from posthog.models.activity_logging.activity_log import AuditableScope, Detail, Trigger, changes_between, log_activity
+from posthog.models.group.util import get_group_by_key
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
@@ -378,18 +379,36 @@ def get_external_account(team_id: int, external_id: str) -> contracts.ExternalAc
     return _to_external_account(account)
 
 
+def _account_name_from_group(team: Team, external_id: str) -> str:
+    """Resolve the new account's name from its group's ``name`` property, falling back to the
+    group key. The name is cosmetic, so a failed lookup must not fail account creation."""
+    group_type_index = team.customer_analytics_config.account_group_type_index
+    if group_type_index is None:
+        return external_id
+    try:
+        group = get_group_by_key(team.pk, group_type_index, external_id)
+    except Exception as e:
+        capture_exception(e, {"team_id": team.pk, "external_id": external_id})
+        return external_id
+    name = (group.group_properties or {}).get("name") if group is not None else None
+    return str(name) if name else external_id
+
+
 def create_external_account(
-    team: Team, *, external_id: str, name: str | None, workflow_id: str | None = None
+    team: Team, *, external_id: str, workflow_id: str | None = None
 ) -> tuple[contracts.ExternalAccount, bool]:
     """Get-or-create an account by external id for the external API. Returns the account and
-    whether it was created; an existing account is returned untouched. Attribution goes to the
+    whether it was created; an existing account is returned untouched. The name comes from the
+    matching group's ``name`` property (fallback: the external id). Attribution goes to the
     originating workflow (activity-log trigger) — there is no acting user on this path.
     Raises ``AccountPropertiesValidationError`` / ``AccountConflictError`` (concurrent create)."""
     existing = _get_external_account_by_external_id(team.pk, external_id)
     if existing is not None:
         return _to_external_account(existing), False
     trigger = Trigger(job_type="hog_flow", job_id=workflow_id, payload={}) if workflow_id else None
-    account = create_account(team=team, name=name or external_id, external_id=external_id, trigger=trigger)
+    account = create_account(
+        team=team, name=_account_name_from_group(team, external_id), external_id=external_id, trigger=trigger
+    )
     return _to_external_account(account), True
 
 
