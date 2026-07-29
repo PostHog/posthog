@@ -331,10 +331,13 @@ def _post_slack_user_ephemeral(
     """
     # Runs inside the Slack webhook request path, so bound the call the same way
     # ``_count_session_thread_messages`` does: a slow or rate-limited Slack response
-    # must not eat into the window we have to acknowledge the event.
-    slack.client.timeout = SLACK_FEEDBACK_TIMEOUT_SECONDS
+    # must not eat into the window we have to acknowledge the event. ``SlackIntegration.client``
+    # builds a fresh WebClient on every access, so the client has to be held in a local
+    # for the timeout to apply to the instance that makes the request.
+    client = slack.client
+    client.timeout = SLACK_FEEDBACK_TIMEOUT_SECONDS
     try:
-        slack.client.chat_postEphemeral(channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
+        client.chat_postEphemeral(channel=channel, user=slack_user_id, thread_ts=thread_ts, text=text)
     except Exception:
         logger.warning("slack_user_ephemeral_failed", channel=channel, slack_user_id=slack_user_id)
         return False

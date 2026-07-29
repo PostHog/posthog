@@ -1,16 +1,16 @@
 import json
-from typing import Any
+from typing import Any, cast
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.client import RequestFactory
 
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
-from posthog.models.integration import Integration
+from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -1364,3 +1364,37 @@ class TestQueueWorkflowDispatch(TestCase):
         # Dispatch adds no reaction — the queue workflow reacts only on
         # messages that actually wait behind another one.
         mock_slack.return_value.client.reactions_add.assert_not_called()
+
+
+class TestPostSlackUserEphemeral(SimpleTestCase):
+    def test_request_timeout_applies_to_the_client_that_makes_the_call(self):
+        # ``SlackIntegration.client`` builds a fresh WebClient on every access, so setting
+        # the timeout on one access and calling on another leaves the request on the SDK
+        # default. Nothing about the app's behavior changes when that happens, so only an
+        # assertion on the client instance catches it.
+        from products.slack_app.backend.api import SLACK_FEEDBACK_TIMEOUT_SECONDS, _post_slack_user_ephemeral
+
+        built_clients: list[MagicMock] = []
+
+        class _NewClientPerAccess:
+            @property
+            def client(self) -> MagicMock:
+                built_clients.append(MagicMock())
+                return built_clients[-1]
+
+        posted = _post_slack_user_ephemeral(cast(SlackIntegration, _NewClientPerAccess()), "C001", "U123", None, "nope")
+
+        assert posted is True
+        assert len(built_clients) == 1
+        assert built_clients[0].timeout == SLACK_FEEDBACK_TIMEOUT_SECONDS
+        built_clients[0].chat_postEphemeral.assert_called_once()
+
+    def test_failed_delivery_is_reported_as_not_replied(self):
+        # The drop analytics distinguish "we told them why" from silence, so a Slack
+        # rejection must not be reported as a reply.
+        from products.slack_app.backend.api import _post_slack_user_ephemeral
+
+        slack = MagicMock()
+        slack.client.chat_postEphemeral.side_effect = Exception("ratelimited")
+
+        assert _post_slack_user_ephemeral(slack, "C001", "U123", None, "nope") is False
