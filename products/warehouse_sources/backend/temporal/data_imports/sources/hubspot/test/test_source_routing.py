@@ -3,7 +3,7 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import (
     DEFAULT_PROPS,
     HUBSPOT_API_VERSION_2026_03,
