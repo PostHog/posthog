@@ -25,6 +25,7 @@ the safety judge first, then calls into this flow via a Temporal activity if the
   - priority assessment when actionable
   - final report title
   - very short factual summary
+  - optional charts (see below), when the team is opted in
     The repository used for research is tracked separately via the `repo_selection` artefact.
 - `fixtures/analyze_report_funnel_research_output.json`
   Saved previous research output used by local `update` testing.
@@ -68,6 +69,41 @@ title/summary fields, then passes it to `run_multi_turn_research()`.
 This module is intentionally prompt-orchestration only.
 Production persistence is handled outside `run_multi_turn_research()`, in the caller activity,
 so this module stays isolated from report DB writes.
+
+### Charts
+
+The presentation step can also author `charts` — query nodes the inbox draws on the report body,
+so a finding about a metric move is visible next to the sentence describing it. They are the same
+`SignalReport.charts` the scout channel writes (schema + bounds in `report_charts.py`), authored in
+the same structured response as the title/summary so the summary can place one with a
+`[label](chart:<id>)` markdown link. This is the pipeline counterpart of the scout `emit_report`
+charts path.
+
+- **Opt-in.** Gated per team by the `signals-report-charts` flag (`_team_report_charts_enabled` in
+  the caller activity; on in DEBUG). When off, both the chart guidance and the `charts` field itself
+  are dropped from the presentation prompt (chart-free schema), and the caller drops anything the
+  model returns anyway — so an un-opted team is never shown or steered toward charts on the delicate
+  fleet-wide path.
+- **Replace, not append.** `charts` is the report's whole set. On a re-research the previous charts
+  are shown back as context (loaded from `SignalReport.charts` by `_load_previous_research`); the run
+  keeps, refreshes, or drops them and the caller replaces the column with the result.
+- **Persistence is atomic with the prose.** `run_agentic_report_activity` only _resolves_ the charts
+  payload (`_resolve_report_charts_payload`) and returns it on `RunAgenticReportOutput.charts`; the
+  column is written by the transition activity that also writes the title/summary
+  (`mark_report_ready_activity` / `mark_report_pending_input_activity`), inside the same
+  `transition_to` transaction. So charts and the prose they illustrate land together — a failed run
+  or the not-actionable reset (neither writes the new prose) leaves the charts alone by construction,
+  with no separate-transaction window. The resolver yields three outcomes: a valid non-empty set
+  (replace the column); `None` when the team isn't opted in **or** the run authored no charts (leave
+  the column alone — the presentation field is optional, so an omitted key and a deliberate "drop
+  everything" both arrive empty and are indistinguishable, and wiping user-visible charts on that
+  ambiguity is the worse failure, so the pipeline never auto-clears to zero; a human can clear from
+  the inbox); and `[]` when the set busts the whole-set caps (clear, so a stale set can't sit under
+  the new summary).
+- **Not safety-judged.** The pipeline's safety judge screens the input signals before research runs,
+  so it never sees research-authored charts — the same as it never sees research-authored
+  title/summary. Charts are agent output derived from already-screened signals, consistent with that
+  model. (This differs from the scout emit path, where charts and prose are judged together.)
 
 The caller activity passes `has_business_knowledge=True` when the team's business knowledge
 product is both feature-flagged on and has at least one READY source (via
@@ -129,7 +165,8 @@ and optional thought chunks.
   summary/title describe what the report is about;
   actionability/priority explain what to do and how urgent it is.
 - If you change the output shape of `ReportResearchOutput`,
-  update `fixtures/analyze_report_funnel_research_output.json` too.
+  update `fixtures/analyze_report_funnel_research_output.json` and
+  `fixtures/insight_scene_logic_mode_property_bug.json` too.
 - Keep persistence out of `run_multi_turn_research()`.
   If production needs new report artefacts or state transitions, do that in the caller activity/workflow.
 - If you change how local debug commands exercise this flow,
