@@ -2184,7 +2184,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
     })),
-    listeners(({ values, actions, props }) => {
+    listeners(({ values, actions, props, cache }) => {
         let animationTimeout: ReturnType<typeof setTimeout> | null = null
         return {
             onEdgesChange: ({ edges }) => {
@@ -2225,13 +2225,43 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 }
                 const record = parseInvocationOutputRecord(event.invocation)
                 const nextActionId = typeof record?.nextActionId === 'string' ? record.nextActionId : null
-                const fromActionId =
+                if (!nextActionId) {
+                    return
+                }
+                // One invocation can traverse several edges (a trigger-start call executes the whole
+                // synchronous chain); the executed actions appear only in the result's logs, in order.
+                const executedActions = (Array.isArray(record?.logs) ? record.logs : [])
+                    .map((log) => {
+                        const message = (log as { message?: unknown })?.message
+                        const match =
+                            typeof message === 'string' ? message.match(/Executing action \[Action:([^\]]+)\]/) : null
+                        return match ? match[1] : null
+                    })
+                    .filter((id): id is string => id !== null)
+                const startActionId =
                     typeof args.current_action_id === 'string'
                         ? args.current_action_id
                         : values.nodes.find((node) => node.data.type === 'trigger')?.id
-                if (nextActionId && fromActionId) {
-                    actions.setAnimatingEdgePair(fromActionId, nextActionId)
+                // Consecutive dedupe: the start node often re-appears as the first executed action.
+                const chain = [startActionId, ...executedActions, nextActionId].filter(
+                    (id, i, all): id is string => !!id && id !== all[i - 1]
+                )
+                if (chain.length < 2) {
+                    return
                 }
+                actions.setAnimatingEdgePair(chain[0], chain[1])
+                // Walk the remaining hops on a stagger; a fresh test run replaces any walk in flight.
+                cache.disposables.add(() => {
+                    const timers = chain.slice(2).map((to, i) =>
+                        setTimeout(
+                            () => {
+                                actions.setAnimatingEdgePair(chain[i + 1], to)
+                            },
+                            (i + 1) * 900
+                        )
+                    )
+                    return () => timers.forEach(clearTimeout)
+                }, 'agentTestHopWalk')
             },
 
             resetFlowFromHogFlow: ({ hogFlow }) => {

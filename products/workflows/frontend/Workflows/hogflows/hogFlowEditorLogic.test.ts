@@ -686,7 +686,7 @@ describe('hogFlowEditorLogic', () => {
                 'branch->exit',
             ],
             [
-                'falls back to the trigger node when no current_action_id',
+                'falls back to the trigger node when no current_action_id and no logs',
                 { id: 'test-flow' },
                 { nextActionId: 'branch' },
                 {},
@@ -711,6 +711,32 @@ describe('hogFlowEditorLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.animatingEdgePair).toEqual(expectedPair)
+        })
+
+        // A trigger-start call executes the whole synchronous chain in one invocation, so the
+        // animation walks every traversed edge in sequence, not just the last hop.
+        it('walks the executed chain hop by hop for a trigger-start call', () => {
+            jest.useFakeTimers()
+            try {
+                toolStreamEventsLogic.actions.emitToolEvent(
+                    testRunEvent(
+                        { id: 'test-flow' },
+                        {
+                            nextActionId: 'exit',
+                            logs: [
+                                { level: 'debug', message: 'Executing action [Action:branch]' },
+                                { level: 'info', message: 'Workflow moved to action [Action:exit]' },
+                            ],
+                        }
+                    )
+                )
+
+                expect(logic.values.animatingEdgePair).toBe('trigger->branch')
+                jest.advanceTimersByTime(900)
+                expect(logic.values.animatingEdgePair).toBe('branch->exit')
+            } finally {
+                jest.useRealTimers()
+            }
         })
     })
 })
