@@ -585,6 +585,7 @@ export const commentsLogic = kea<commentsLogicType>([
                     // channel right away. Replies/tasks never mirror from here. The comment is created
                     // regardless; the Slack post is best-effort with its own toast.
                     const slackChannelId = values.composerSlackChannel?.split('|')[0]
+                    const slackChannelName = values.composerSlackChannel?.split('|')[1]?.replace(/^#/, '') ?? ''
                     if (
                         values.composerSendToSlack &&
                         !isReply &&
@@ -600,6 +601,7 @@ export const commentsLogic = kea<commentsLogicType>([
                             await commentsSendToSlackCreate(String(values.currentProjectId), newComment.id, {
                                 integration_id: values.composerSlackIntegrationId,
                                 channel_id: slackChannelId,
+                                channel_name: slackChannelName,
                             })
                             sentToSlack = true
                             lemonToast.success('Discussion sent to Slack')
