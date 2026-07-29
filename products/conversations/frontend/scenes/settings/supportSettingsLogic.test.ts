@@ -60,8 +60,6 @@ describe('supportSettingsLogic', () => {
             errorToastSpy.mockRestore()
         })
 
-        // Two failure shapes reach this listener: the view's custom {error} responses and
-        // DRF serializer-validation errors, which surface as {detail}. Both must be shown.
         it.each<[string, Record<string, string>]>([
             ['view {error} shape', { error: 'This domain is already in use by another organization.' }],
             [
