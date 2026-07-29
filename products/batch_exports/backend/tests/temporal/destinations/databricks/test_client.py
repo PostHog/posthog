@@ -58,9 +58,7 @@ def mock_cursor(client: DatabricksClient) -> MagicMock:
 @pytest.fixture
 def fast_backoff(monkeypatch):
     """Speed up the connect-retry backoff so tests don't actually sleep."""
-    monkeypatch.setattr(
-        "products.batch_exports.backend.temporal.destinations.databricks_batch_export.time.sleep", AsyncMock()
-    )
+    monkeypatch.setattr("products.batch_exports.backend.temporal.utils.asyncio.sleep", AsyncMock())
 
 
 @dataclasses.dataclass
