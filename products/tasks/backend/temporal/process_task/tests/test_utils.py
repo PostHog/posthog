@@ -1069,6 +1069,42 @@ class TestGetRelayedMcpServerNames(TestCase):
         assert get_relayed_mcp_server_names(task_run, {"grafana"}) == ["Playwright", "internal-cli"]
 
 
+@patch(
+    "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
+    return_value="test-jwt-key",
+)
+@patch(
+    "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url",
+    return_value="https://us.posthog.com",
+)
+class TestBuildSandboxEnvironmentVariablesGateway(TestCase):
+    def _build(self):
+        return build_sandbox_environment_variables(github_token=None, access_token="tok", team_id=1)
+
+    @override_settings(
+        SANDBOX_AI_GATEWAY_URL="https://ai-gateway.us.posthog.com",
+        SANDBOX_AI_GATEWAY_PRODUCTS="signals_scout,signals_research",
+    )
+    def test_both_settings_inject_both_vars(self, _api, _jwt):
+        env = self._build()
+        self.assertEqual(env["AI_GATEWAY_URL"], "https://ai-gateway.us.posthog.com")
+        self.assertEqual(env["AI_GATEWAY_PRODUCTS"], "signals_scout,signals_research")
+
+    @override_settings(SANDBOX_AI_GATEWAY_URL="https://ai-gateway.us.posthog.com", SANDBOX_AI_GATEWAY_PRODUCTS=None)
+    def test_url_without_products_injects_neither(self, _api, _jwt):
+        # A URL with no product allowlist would route every sandbox caller, so a
+        # half-config must inject nothing.
+        env = self._build()
+        self.assertNotIn("AI_GATEWAY_URL", env)
+        self.assertNotIn("AI_GATEWAY_PRODUCTS", env)
+
+    @override_settings(SANDBOX_AI_GATEWAY_URL=None, SANDBOX_AI_GATEWAY_PRODUCTS="signals_scout")
+    def test_products_without_url_injects_neither(self, _api, _jwt):
+        env = self._build()
+        self.assertNotIn("AI_GATEWAY_URL", env)
+        self.assertNotIn("AI_GATEWAY_PRODUCTS", env)
+
+
 class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
     @patch(
         "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",

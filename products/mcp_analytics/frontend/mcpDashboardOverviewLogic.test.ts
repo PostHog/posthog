@@ -326,7 +326,7 @@ describe('mcpDashboardOverviewLogic', () => {
             expect(pickNotableSessions([])).toEqual([])
         })
 
-        it('picks one session per rule, then tops up with the busiest, capped and deduped', () => {
+        it('picks one session per rule', () => {
             const rows: SessionRow[] = [
                 session({
                     session_id: 'A',
@@ -369,17 +369,47 @@ describe('mcpDashboardOverviewLogic', () => {
                     distinct_tools: 2,
                 }),
             ]
-            const picked = pickNotableSessions(rows)
-            expect(picked.map((p) => ({ id: p.session.session_id, rule: p.rule }))).toEqual([
+            // A is the busiest, but it is already listed under worst_error_rate, so no high_activity row.
+            expect(pickNotableSessions(rows).map((p) => ({ id: p.session.session_id, rule: p.rule }))).toEqual([
                 { id: 'A', rule: 'worst_error_rate' },
                 { id: 'B', rule: 'all_fail' },
                 { id: 'C', rule: 'most_exploratory' },
                 { id: 'D', rule: 'exemplar' },
-                { id: 'E', rule: 'high_activity' },
             ])
-            // never more than the cap, never the same session twice
-            expect(picked).toHaveLength(5)
-            expect(new Set(picked.map((p) => p.session.session_id)).size).toBe(5)
+        })
+
+        it('lists a session that satisfies two rules once, under the first that matched', () => {
+            const rows: SessionRow[] = [
+                session({ session_id: 'both', tool_calls: 50, distinct_tools: 8, duration_seconds: 100 }),
+                session({ session_id: 'filler-a', tool_calls: 2, distinct_tools: 1 }),
+                session({ session_id: 'filler-b', tool_calls: 2, distinct_tools: 1 }),
+            ]
+            // 'both' is the most exploratory session and the volume outlier. Two rows would mean a
+            // duplicate session_id, which is the table's React key.
+            expect(pickNotableSessions(rows).map((p) => ({ id: p.session.session_id, rule: p.rule }))).toEqual([
+                { id: 'both', rule: 'most_exploratory' },
+            ])
+        })
+
+        it('returns nothing when every session is small, rather than reaching for a filler row', () => {
+            const rows: SessionRow[] = [
+                session({ session_id: 'errored', tool_calls: 2, errors: 1, error_rate_pct: 50, distinct_tools: 2 }),
+                session({ session_id: 'clean', tool_calls: 2, distinct_tools: 2 }),
+            ]
+            expect(pickNotableSessions(rows)).toEqual([])
+        })
+
+        it('flags a genuine volume outlier and leaves unremarkable sessions out entirely', () => {
+            const rows: SessionRow[] = [
+                session({ session_id: 'firehose', tool_calls: 40, distinct_tools: 2, duration_seconds: 100 }),
+                session({ session_id: 'explorer', tool_calls: 4, distinct_tools: 6, duration_seconds: 10 }),
+                session({ session_id: 'single-a', tool_calls: 1, distinct_tools: 1 }),
+                session({ session_id: 'single-b', tool_calls: 1, distinct_tools: 1 }),
+            ]
+            expect(pickNotableSessions(rows).map((p) => ({ id: p.session.session_id, rule: p.rule }))).toEqual([
+                { id: 'explorer', rule: 'most_exploratory' },
+                { id: 'firehose', rule: 'high_activity' },
+            ])
         })
     })
 
@@ -421,6 +451,22 @@ describe('mcpDashboardOverviewLogic', () => {
                 sparklineLabels: [],
                 goodDirection: 'up',
             })
+        })
+
+        // A bare dateTrunc returns a typed DateTime that the query API stamps with the project's UTC
+        // offset, which the client reads back as an instant and converts, shifting the bucket away
+        // from the wall-clock keys it joins and compares against (an empty activity chart and a
+        // skewed KPI split on any non-UTC project). Pins the toString on all three bucketed queries.
+        it('renders every bucketed query with a stringified dateTrunc', async () => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const bucketed = mockApi.query.mock.calls
+                .map((call) => (call[0] as any).query)
+                .filter((query: string | undefined): query is string => !!query?.includes('dateTrunc('))
+            expect(bucketed).toHaveLength(3)
+            expect(bucketed.filter((query) => !query.includes('toString(dateTrunc('))).toEqual([])
         })
 
         it('reloads every tile when the date filter changes', async () => {

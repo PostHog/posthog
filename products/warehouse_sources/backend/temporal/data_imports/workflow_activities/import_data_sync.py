@@ -49,6 +49,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_context import bind_job_context
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
+    RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
@@ -330,7 +331,8 @@ async def _handle_import_error(
     Errors the source classifies as retryable (rate limits, transient 5xx) reach us only after
     the source's own retries are exhausted. Temporal retries the whole activity and the error is
     transient and self-recovering, so we log at ``warning`` rather than ``exception`` to keep
-    this benign, recoverable failure out of error tracking.
+    this benign, recoverable failure out of error tracking. ``RESTClientRetryableError`` gets the
+    same treatment by type, since every REST-based source hits that condition already.
 
     Everything else is logged as an exception and re-raised so Temporal retries it as usual.
     """
@@ -354,6 +356,17 @@ async def _handle_import_error(
         await handle_non_retryable_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
+
+    # RESTClientRetryableError only escapes the shared REST engine's own tenacity retry loop once
+    # that budget (rate limits, transient 5xx, connection resets/timeouts) is exhausted — the same
+    # "reaches us only after internal retries exhaust" contract as get_retryable_errors below.
+    # Honor it by type so every REST-based source gets this benign, self-recovering failure logged
+    # as a warning, rather than depending on each source separately listing "HTTP 429"/"HTTP 5xx"
+    # in get_retryable_errors.
+    if isinstance(error, RESTClientRetryableError):
+        await logger.awarning(error_msg)
+        await logger.adebug("REST client exhausted its retries - re-raising for Temporal retry")
+        raise error
 
     non_retryable_errors = source_cls.get_non_retryable_errors()
     if any(match in error_msg for match in non_retryable_errors):

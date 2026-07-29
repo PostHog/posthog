@@ -11,6 +11,14 @@ pub enum CaptureMode {
     Events,
     Recordings,
     Ai,
+    /// Analytics ingestion dedicated to historical backfills (the
+    /// batch-import-worker). Like `Events` for the batch/event paths, but with
+    /// three differences: it never applies the global rate limiter, it drops any
+    /// batch not flagged `historical_migration: true`, and it does not register
+    /// the AI or OTEL routes (those handlers hardcode `historical_migration:
+    /// false` and would bypass both gates). See `applies_global_rate_limit`,
+    /// `requires_historical_migration`, and the router's per-mode arm.
+    Import,
 }
 
 impl CaptureMode {
@@ -19,7 +27,26 @@ impl CaptureMode {
             CaptureMode::Events => "events",
             CaptureMode::Recordings => "recordings",
             CaptureMode::Ai => "ai",
+            CaptureMode::Import => "import",
         }
+    }
+
+    /// Whether this mode subjects incoming events to the per-(token,
+    /// distinct_id) global rate limiter. `Import` opts out: historical
+    /// backfills are internal traffic that must not be throttled.
+    ///
+    /// Note this is necessary but not sufficient: only the analytics processing
+    /// paths (legacy `events::analytics` and `v1::analytics`) actually consult
+    /// the limiter, so `Recordings` never rate-limits despite returning `true`
+    /// here. The predicate gates the two analytics paths; other paths ignore it.
+    pub fn applies_global_rate_limit(&self) -> bool {
+        !matches!(self, CaptureMode::Import)
+    }
+
+    /// Whether this mode drops any batch not marked `historical_migration:
+    /// true`. Only `Import` does — it exclusively ingests historical data.
+    pub fn requires_historical_migration(&self) -> bool {
+        matches!(self, CaptureMode::Import)
     }
 }
 
@@ -31,6 +58,7 @@ impl std::str::FromStr for CaptureMode {
             "events" => Ok(CaptureMode::Events),
             "recordings" => Ok(CaptureMode::Recordings),
             "ai" => Ok(CaptureMode::Ai),
+            "import" => Ok(CaptureMode::Import),
             _ => Err(format!("Unknown Capture Type: {s}")),
         }
     }
@@ -402,9 +430,9 @@ pub struct Config {
 
     // --- Ingestion warnings emitter (fire-and-forget, best-effort) ---
     // Warnings are emitted as `$$client_ingestion_warning` events onto the
-    // existing `client_ingestion_warning` topic on the main event cluster
-    // (see `KAFKA_CLIENT_INGESTION_WARNING_TOPIC`), so the producer reuses the
-    // main cluster's hosts/TLS — but it gets its OWN dedicated
+    // existing `client_ingestion_warning` topic, by default on the main event
+    // cluster: absent the warnings-cluster overrides below, the producer
+    // reuses the main cluster's hosts/TLS — but it gets its OWN dedicated
     // `common_kafka::config::KafkaConfig` (below) with fire-and-forget
     // acks/retries and a small queue, so a saturated or slow warnings topic
     // can never behave like — or contend with — the main event producer.
@@ -427,6 +455,22 @@ pub struct Config {
     // the main event producer allows.
     #[envconfig(default = "1048576")]
     pub capture_ingestion_warnings_kafka_message_max_bytes: u32,
+
+    // Warnings-cluster overrides, same shape as the traces/metrics overrides in
+    // `KafkaConfig` below. When unset, each reuses the corresponding `kafka_*`
+    // value: `kafka_client_ingestion_warning_topic`, `kafka_hosts`, `kafka_tls`.
+    //
+    // The emitter runs in the v1 analytics handler but its destination has
+    // always been read from the v0 `KAFKA_*` block. Retiring that block would
+    // silently fall these back to their envconfig defaults (an empty topic and
+    // TLS off), which is wrong in every environment, so the emitter owns its own
+    // names here. Setting them in charts makes the fallback dead config. TLS is
+    // separate from `kafka_hosts` because pointing the emitter at a cluster whose
+    // TLS requirement differs from the main one otherwise fails the producer's
+    // startup metadata fetch, which disables it for the pod's life.
+    pub capture_ingestion_warnings_kafka_topic: Option<String>,
+    pub capture_ingestion_warnings_kafka_hosts: Option<String>,
+    pub capture_ingestion_warnings_kafka_tls: Option<bool>,
 }
 
 #[derive(Envconfig, Clone)]
@@ -556,7 +600,7 @@ pub struct KafkaConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{AiRouting, AiSinkMode, Config};
+    use super::{AiRouting, AiSinkMode, CaptureMode, Config};
     use std::collections::HashMap;
     use std::str::FromStr;
 
@@ -648,6 +692,54 @@ mod tests {
                 .as_deref(),
             Some("tok_a,tok_b")
         );
+    }
+
+    #[test]
+    fn capture_mode_from_str_and_tag_roundtrip() {
+        // Locks the CAPTURE_MODE env contract, including the new `import` mode
+        // and case/whitespace handling, plus the tag used as a metric label.
+        let ok = [
+            ("events", CaptureMode::Events, "events"),
+            ("Recordings", CaptureMode::Recordings, "recordings"),
+            (" ai ", CaptureMode::Ai, "ai"),
+            ("import", CaptureMode::Import, "import"),
+            ("IMPORT", CaptureMode::Import, "import"),
+        ];
+        for (input, expected, tag) in ok {
+            let parsed = CaptureMode::from_str(input).unwrap();
+            assert_eq!(parsed, expected, "input={input}");
+            assert_eq!(parsed.as_tag(), tag, "input={input}");
+        }
+
+        for bad in ["", "imports", "backfill", "historical"] {
+            assert!(
+                CaptureMode::from_str(bad).is_err(),
+                "expected err for {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn capture_mode_import_policy_differs_from_events() {
+        // The whole point of Import mode: it skips the global rate limiter and
+        // drops non-historical batches, while every other mode does neither.
+        assert!(!CaptureMode::Import.applies_global_rate_limit());
+        assert!(CaptureMode::Import.requires_historical_migration());
+
+        for mode in [
+            CaptureMode::Events,
+            CaptureMode::Recordings,
+            CaptureMode::Ai,
+        ] {
+            assert!(
+                mode.applies_global_rate_limit(),
+                "{mode:?} should apply GRL"
+            );
+            assert!(
+                !mode.requires_historical_migration(),
+                "{mode:?} should not require historical_migration"
+            );
+        }
     }
 
     #[test]
