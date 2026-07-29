@@ -886,7 +886,9 @@ class DockerSandbox(SandboxBase):
         if result.exit_code != 0:
             logger.warning(f"Agent-server process failed to launch in sandbox {self.id}: {result.stderr}")
             return False
-        return self._wait_for_health_check(max_attempts=20)
+        # 30s: cold boots on a loaded host regularly exceed 10s, and a too-short window
+        # makes the Temporal retry race the still-booting server for the port.
+        return self._wait_for_health_check(max_attempts=60)
 
     def _install_gh_guard(self) -> None:
         """Install the gh PATH shim at runtime so it's present regardless of image age.
@@ -995,6 +997,13 @@ class DockerSandbox(SandboxBase):
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
+
+        # A previous attempt of the Temporal activity may have launched a server whose
+        # boot outlived that attempt's health window. Launching again would crash with
+        # EADDRINUSE against the now-live server (and truncate its log), so reuse it.
+        if wait_for_health and self._wait_for_health_check(max_attempts=1):
+            logger.info(f"Agent-server already healthy on port {self._host_port}; skipping relaunch")
+            return
 
         if not wait_for_health:
             result = self.execute(command, timeout_seconds=30)
