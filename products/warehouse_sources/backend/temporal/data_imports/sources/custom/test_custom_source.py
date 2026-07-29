@@ -646,11 +646,17 @@ class TestCustomSourceOAuth2IntegrationWiring(BaseTest):
         fresh = CustomOAuth2Integration.objects.for_team(self.team.pk).get(pk=integration.pk)
         assert fresh.sensitive_config["refresh_token"] == "rotated-RT"
 
-    def test_validate_credentials_missing_integration_returns_clear_error(self):
-        # A dangling / foreign auth_oauth2_integration_id must surface a clear message, not crash.
+    @parameterized.expand(
+        [
+            ("dangling", "11111111-1111-1111-1111-111111111111"),
+            ("malformed", "not-a-uuid"),
+        ]
+    )
+    def test_validate_credentials_missing_integration_returns_clear_error(self, _name: str, integration_id: str):
+        # A dangling / foreign / malformed auth_oauth2_integration_id must surface a clear message, not crash.
         config = CustomSourceConfig(
             manifest_json=json.dumps(self._oauth2_manifest()),
-            auth_oauth2_integration_id="11111111-1111-1111-1111-111111111111",
+            auth_oauth2_integration_id=integration_id,
         )
 
         ok, err = CustomSource().validate_credentials(config, team_id=self.team.pk)

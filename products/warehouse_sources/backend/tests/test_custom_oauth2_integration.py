@@ -237,6 +237,13 @@ class TestCustomOAuth2Integration(BaseTest):
         with self.assertRaises(CustomOAuth2Integration.DoesNotExist):
             get_custom_oauth2_integration(str(other_integration.pk), self.team.pk)
 
+    @parameterized.expand([("not-a-uuid",), ("",), ("123",)])
+    def test_malformed_id_raises_does_not_exist(self, integration_id: str):
+        # The id comes from a client-supplied source config, so a non-UUID must land in the not-found
+        # path callers handle — not escape as UUIDField's ValidationError (an unhandled 500).
+        with self.assertRaises(CustomOAuth2Integration.DoesNotExist):
+            get_custom_oauth2_integration(integration_id, self.team.pk)
+
     def test_admin_get_queryset_reads_outside_team_scope(self):
         # Django admin runs outside request/team scope, so the model's fail-closed default manager would
         # raise TeamScopeError the moment the changelist evaluates the queryset. The admin's get_queryset()

@@ -2,6 +2,7 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Optional
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import models, transaction
 from django.db.models import Q
 
@@ -212,6 +213,15 @@ def get_custom_oauth2_integration(integration_id: str, team_id: int) -> CustomOA
     """Load a custom OAuth2 integration for a team, outside request context (Temporal activities).
 
     Uses `for_team()` — the prescribed fail-closed escape hatch — so a caller can never read another
-    team's credentials by id. Raises `CustomOAuth2Integration.DoesNotExist` when the id isn't this team's.
+    team's credentials by id. Raises `CustomOAuth2Integration.DoesNotExist` when the id isn't this team's,
+    or isn't a well-formed UUID.
     """
-    return CustomOAuth2Integration.objects.for_team(team_id).get(id=integration_id)
+    try:
+        return CustomOAuth2Integration.objects.for_team(team_id).get(id=integration_id)
+    except (DjangoValidationError, ValueError) as exc:
+        # The id reaches us straight from a client-supplied source config, so it may not be a UUID at
+        # all. A malformed id is a pointer to nothing — collapse it into the not-found path callers
+        # already handle rather than letting UUIDField's ValidationError escape as a 500.
+        raise CustomOAuth2Integration.DoesNotExist(
+            f"CustomOAuth2Integration matching query does not exist: malformed id {integration_id!r}"
+        ) from exc
