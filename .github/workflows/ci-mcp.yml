@@ -20,6 +20,8 @@ permissions:
     pull-requests: read
 
 env:
+    # Manual cache-bust knob. Keep in sync with SCHEMA_CACHE_EPOCH in ci-backend.yml, which saves these caches on master pushes.
+    SCHEMA_CACHE_EPOCH: v1
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 jobs:
@@ -32,6 +34,7 @@ jobs:
         if: >-
             github.event_name != 'pull_request'
             || github.event.pull_request.draft != true
+            || startsWith(github.head_ref, 'trunk-merge/')
             || !contains(github.event.pull_request.labels.*.name, 'no-ci')
         name: Determine need to run MCP checks
         outputs:
@@ -275,7 +278,7 @@ jobs:
         # non-pytest Python change, so they're the expensive half of this workflow.
         # Build and unit tests still run on drafts; the `MCP Tests Pass` aggregator
         # treats skipped as success, and the ready-for-review run is the merge gate.
-        if: needs.changes.outputs.mcp == 'true' && github.event.pull_request.draft != true
+        if: needs.changes.outputs.mcp == 'true' && (github.event.pull_request.draft != true || startsWith(github.head_ref, 'trunk-merge/'))
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -435,11 +438,26 @@ jobs:
                   # The fetch-depth:1000 checkout + base-ref fetch above ensure the
                   # full ancestry needed to find the divergence point is available.
                   MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
-                  if [ -n "$MERGE_BASE" ]; then
-                      echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
-                  else
+                  if [ -z "$MERGE_BASE" ]; then
                       echo "key=" >> $GITHUB_OUTPUT
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
                       echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
+                      exit 0
+                  fi
+                  echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                  # Shared migration-set key. Must match ci-backend.yml's save-side computation byte for byte or it never hits.
+                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
+                      | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
+                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
+                      | LC_ALL=C sort) || true
+                  PG_IMAGE=$(git show "${MERGE_BASE}:docker-compose.base.yml" 2>/dev/null \
+                      | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
+                  if [ -z "$MIG_FILES" ]; then
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
+                      echo "::notice::no migration files matched — restore will fall back to the SHA schema key"
+                  else
+                      MIG_HASH=$(printf '%s\n%s' "$MIG_FILES" "$PG_IMAGE" | sha256sum | cut -c1-40)
+                      echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
 
             - name: Restore schema cache from master
@@ -447,7 +465,10 @@ jobs:
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
-                  key: ${{ steps.schema-key.outputs.key }}
+                  # Prefer the shared content key; fall back to the exact merge-base SHA key.
+                  key: ${{ steps.schema-key.outputs.migrations_key || steps.schema-key.outputs.key }}
+                  restore-keys: |
+                      ${{ steps.schema-key.outputs.key }}
 
             - name: Prime posthog from cached schema
               # No-op on cache miss; manage.py migrate below falls back to a full migrate.

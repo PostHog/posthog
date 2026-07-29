@@ -39,7 +39,7 @@ env:
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
     # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so it can't drift
     # between the merge-base (PR) and HEAD (push) key computations below.
-    # ci-e2e-playwright.yml restores by the same key — keep its copy in sync when bumping.
+    # ci-e2e-playwright.yml, ci-dagster.yml, and ci-mcp.yml restore by the same key; keep their copies in sync when bumping.
     SCHEMA_CACHE_EPOCH: v1
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -89,6 +89,7 @@ jobs:
         if: >-
             github.event_name != 'pull_request'
             || github.event.pull_request.draft != true
+            || startsWith(github.head_ref, 'trunk-merge/')
             || !contains(github.event.pull_request.labels.*.name, 'no-ci')
         name: Determine need to run backend and migration checks
         # Set job outputs to values from filter step
@@ -518,9 +519,12 @@ jobs:
         # which build_django_matrix falls back to
         # when select-tests is skipped (empty MODE). The run-ci-backend label
         # forces the full matrices on a draft.
+        # Trunk's merge-queue branches open as draft PRs, but their run IS the
+        # merge gate, so they must never get the narrowed selection.
         if: |
             github.event_name == 'pull_request' &&
             github.event.pull_request.draft == true &&
+            !startsWith(github.head_ref, 'trunk-merge/') &&
             !contains(github.event.pull_request.labels.*.name, 'run-ci-backend') &&
             needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
@@ -755,6 +759,7 @@ jobs:
         if: >-
             !cancelled() &&
             (github.event.pull_request.draft != true ||
+             startsWith(github.head_ref, 'trunk-merge/') ||
              contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) &&
             needs.turbo-discover.result == 'success' &&
             needs.build-product-test-matrix.result == 'success' &&
@@ -1800,7 +1805,7 @@ jobs:
                   retention-days: 90
 
             - name: Save schema to Actions cache for PR shards
-              # Kept for fallback and for other workflows that still restore by merge-base SHA.
+              # Kept as the exact merge-base key that every consumer's restore-keys falls back to.
               if: github.event_name == 'push'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
@@ -2176,7 +2181,13 @@ jobs:
                   RUN_POE: ${{ needs.select-tests.outputs.run_poe }}
                   RUN_TEMPORAL: ${{ needs.select-tests.outputs.run_temporal }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
-                  IS_DRAFT: ${{ github.event.pull_request.draft }}
+                  # A trunk-merge/** PR opens as a draft but is the merge gate, and
+                  # select-tests deliberately does not run for it. Reporting it as a
+                  # draft here would turn that empty MODE into "skip" and build an
+                  # empty matrix, so the queue would merge having run no Django tests
+                  # at all. Not-draft makes the empty MODE fall through to the full
+                  # matrix, which is what the queue has to run.
+                  IS_DRAFT: ${{ github.event.pull_request.draft && !startsWith(github.head_ref, 'trunk-merge/') }}
                   FORCE_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') }}
                   # The new-events-schema variants double the matrix, so they only run on
                   # PRs opted in via the test-new-events-schema label and on manual dispatch.

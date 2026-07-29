@@ -186,6 +186,21 @@ class TestBuildQuery:
         assert "ORDER BY `created_at` ASC" in query
         assert params == {}
 
+    def test_incremental_casts_date_last_value_through_todate32(self):
+        # A `Date` cursor can come back from storage as a raw day-count integer
+        # (ClickHouse's own on-disk representation), which `greater(Date, UInt16)`
+        # rejects when bound directly. toDate32 accepts both an integer day-count
+        # and a date string, so the comparison always type-checks.
+        query, _ = _build_query(
+            database="default",
+            table_name="events",
+            columns=self._cols(("id", "Int64"), ("day", "Date")),
+            should_use_incremental_field=True,
+            incremental_field="day",
+            incremental_field_type=IncrementalFieldType.Date,
+        )
+        assert "WHERE `day` > toDate32(%(last_value)s)" in query
+
     def test_incremental_quotes_field_with_special_chars(self):
         query, _ = _build_query(
             database="my-db",
@@ -952,6 +967,27 @@ class TestGetSchemas:
         assert events_cols["id"] == ("UInt64", False)
         assert events_cols["name"] == ("Nullable(String)", True)
 
+    def test_discovery_query_excludes_alias_and_ephemeral_columns(self):
+        # A native `SELECT *` skips ALIAS/EPHEMERAL columns, but our `SELECT *` expands to an
+        # explicit column list — an included ALIAS whose expression can't resolve breaks the whole
+        # query with UNKNOWN_IDENTIFIER (code 47). The filter must stay in the discovery query.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+
+        mock_client = self._make_mock_client([("events", "id", "UInt64")])
+        with patch.object(ch_module, "_get_client", return_value=mock_client):
+            ch_module.get_schemas(
+                host="localhost",
+                port=8443,
+                database="default",
+                user="default",
+                password="",
+                secure=True,
+                verify=True,
+            )
+
+        queries = [str(call.args[0]) for call in mock_client.query.call_args_list]
+        assert any("default_kind NOT IN ('ALIAS', 'EPHEMERAL')" in q for q in queries)
+
     def test_excludes_materialized_view_inner_tables(self):
         from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
 
@@ -1157,6 +1193,20 @@ class TestGetIncrementalRowCount:
         assert "`created_at` > %(last_value)s" in args[0]
         assert kwargs["parameters"] == {"last_value": "2024-01-01"}
         assert kwargs["settings"] == {"max_execution_time": 30}
+
+    def test_casts_date_last_value_through_todate32(self):
+        client = MagicMock()
+        result = MagicMock()
+        result.result_rows = [(7,)]
+        client.query.return_value = result
+
+        count = _get_incremental_row_count(
+            client, "db", "t", "day", 20657, self._logger(), incremental_field_type=IncrementalFieldType.Date
+        )
+        assert count == 7
+
+        args, _ = client.query.call_args
+        assert "`day` > toDate32(%(last_value)s)" in args[0]
 
     def test_returns_none_on_error(self):
         client = MagicMock()

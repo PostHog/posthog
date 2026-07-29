@@ -361,6 +361,41 @@ class TestGetTaskProcessingContextActivity:
         assert sandbox_args[0] == SANDBOX_EVENT_INGEST_FEATURE_FLAG
 
     @pytest.mark.django_db(transaction=True)
+    def test_pi_runtime_enables_event_ingest_without_bypassing_persistent_upload_rollout(
+        self, activity_environment, test_task
+    ):
+        test_task.runtime = Task.Runtime.PI
+        test_task.save(update_fields=["runtime"])
+        task_run = test_task.create_run()
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=False,
+        ):
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.sandbox_event_ingest_enabled is True
+        assert result.agent_proxy_keep_stream_open is False
+
+    @pytest.mark.django_db(transaction=True)
+    def test_pi_runtime_respects_persistent_event_streaming_kill_switches(self, activity_environment, test_task):
+        test_task.runtime = Task.Runtime.PI
+        test_task.save(update_fields=["runtime"])
+        task_run = test_task.create_run(
+            extra_state={
+                "sandbox_event_ingest_enabled": False,
+                "agent_proxy_keep_stream_open": False,
+            }
+        )
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+
+        result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.sandbox_event_ingest_enabled is False
+        assert result.agent_proxy_keep_stream_open is False
+
+    @pytest.mark.django_db(transaction=True)
     def test_pr_loop_enabled_for_signal_report_origin_ignores_flag(self, activity_environment, test_task):
         # Signals implementation PRs are bot-authored and always opt into the PR
         # follow-up loop ("babysitting"), independent of the org-level `tasks-pr-loop`
@@ -994,22 +1029,21 @@ class TestGetTaskProcessingContextActivity:
         assert result.ci_prompt == custom_prompt
 
     @pytest.mark.django_db(transaction=True)
-    def test_get_task_processing_context_exposes_runtime_metadata(self, activity_environment, test_task):
-        task_run = test_task.create_run(
-            extra_state={
-                "runtime_adapter": "codex",
-                "provider": "openai",
-                "model": "gpt-5.3-codex",
-                "reasoning_effort": "high",
-                "initial_permission_mode": "plan",
-            }
-        )
+    def test_get_task_processing_context_creates_native_pi_session(self, activity_environment, test_task):
+        test_task.runtime = Task.Runtime.PI
+        test_task.save(update_fields=["runtime"])
+        task_run = test_task.create_run()
 
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
         result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
-        assert result.runtime_adapter == "codex"
-        assert result.provider == "openai"
-        assert result.model == "gpt-5.3-codex"
-        assert result.reasoning_effort == "high"
-        assert result.initial_permission_mode == "plan"
+        task_run.refresh_from_db()
+        assert task_run.active_task_session is not None
+        assert task_run.active_task_session.object_storage_key is None
+        assert task_run.active_task_session.team_id == test_task.team_id
+        assert result.task_runtime == "pi"
+        assert result.runtime_adapter is None
+        assert result.provider is None
+        assert result.model is None
+        assert result.reasoning_effort is None
+        assert result.initial_permission_mode is None

@@ -1372,17 +1372,17 @@ async fn old_owner_retains_partition_through_warming() {
     cancel.cancel();
 }
 
-/// When the routing table sees a handoff `Delete` event (because
-/// cleanup_stale_handoffs deleted a stuck handoff), the router must drain
-/// its stash back to the current routing-table owner. This proves the
-/// `EventType::Delete` branch of `watch_handoffs_loop` works.
+/// A handoff toward a dead new owner is cancelled by the coordinator's
+/// own replacement path: the planner reaffirms the partition to its live
+/// current owner, and the router resolves the stash through its ordinary
+/// Complete handling — draining home.
 ///
 /// Verified by manually injecting and deleting a handoff via the store —
 /// avoids the flakiness of relying on a blocking pod's lease to expire,
 /// which is brittle because the pod's cancellation can't preempt a stuck
 /// `warm_partition`.
 #[tokio::test]
-async fn handoff_delete_drains_stash_to_current_owner() {
+async fn a_dead_new_owner_handoff_is_reaffirmed_to_the_current_owner() {
     use personhog_coordination::types::{HandoffPhase, HandoffState};
 
     let store = test_store("delete-drains-stash").await;
@@ -1452,14 +1452,16 @@ async fn handoff_delete_drains_stash_to_current_owner() {
         .filter(|e| matches!(e, common::CutoverEvent::StashDrained { .. }))
         .count();
 
-    // Now delete the handoff to simulate cleanup_stale_handoffs firing.
-    store.delete_handoff(0).await.unwrap();
+    // No deletion is injected: the coordinator's own reconcile tick
+    // detects the dead new owner, wakes the planner, and the planner
+    // cancels the handoff by replacement — a reaffirm Complete toward
+    // the live current owner, since the placement needs no move.
 
     // Wait for the drain *count* to grow past `drains_before`. An
     // event-existence check would race the bootstrap drains: those
     // already record `StashDrained{partition: 0, target: writer-0}`,
     // so any "does an event matching this exist" predicate would
-    // return true immediately without waiting for the Delete-driven
+    // return true immediately without waiting for the reaffirm-driven
     // drain to fire.
     let check_router = Arc::clone(&router.events);
     wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
@@ -1817,7 +1819,7 @@ async fn late_joining_router_during_warming_begins_stash() {
 /// (routers ack the freeze), and Draining treats an absent old owner as
 /// vacuously drained. The handoff advances Freezing → Draining → Warming
 /// → Complete on the live new owner and is cleaned up by completion, not
-/// by `cleanup_stale_handoffs`.
+/// by cancellation.
 #[tokio::test]
 async fn dead_old_owner_in_freezing_advances_to_completion() {
     use personhog_coordination::types::{HandoffPhase, HandoffState};
@@ -1937,7 +1939,7 @@ async fn late_joining_router_during_freezing_acks_and_stashes() {
 /// the post-freeze state — the router has already begun stashing and the
 /// freeze quorum has been collected.
 #[tokio::test]
-async fn handoff_delete_during_warming_drains_to_current_owner() {
+async fn a_dead_new_owner_handoff_in_warming_is_reaffirmed() {
     use personhog_coordination::types::{HandoffPhase, HandoffState};
 
     let store = test_store("delete-during-warming").await;
@@ -2007,10 +2009,10 @@ async fn handoff_delete_during_warming_drains_to_current_owner() {
         .filter(|e| matches!(e, common::CutoverEvent::StashDrained { .. }))
         .count();
 
-    // Delete the Warming handoff. The Delete branch must drain the stash
-    // back to the current routing-table owner (writer-0), independent of
-    // the phase the handoff was in when deleted.
-    store.delete_handoff(0).await.unwrap();
+    // No deletion is injected: the coordinator detects the dead new
+    // owner and cancels by replacement — a reaffirm Complete toward the
+    // current owner (writer-0), independent of the phase the doomed
+    // handoff was in.
 
     let check_router = Arc::clone(&router.events);
     wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
@@ -2224,9 +2226,9 @@ async fn draining_old_owner_blocks_phase_advance() {
     cancel.cancel();
 }
 
-/// `cleanup_stale_handoffs` judges only the new owner; the old owner's
-/// state — Draining, or even fully deregistered — must never cause a
-/// handoff deletion. A `Draining` old owner mid-handoff is the most
+/// The dead-new-owner cancellation trigger judges only the new owner; the
+/// old owner's state — Draining, or even fully deregistered — must never
+/// cancel a handoff. A `Draining` old owner mid-handoff is the most
 /// failure-prone shape: it still owes the protocol a `DrainedAck`, and
 /// deleting its handoff record would strand the drain. Regression test
 /// for cleanup wrongly keying off old-owner liveness.
@@ -2831,7 +2833,7 @@ async fn late_joining_router_during_draining_begins_stash_no_ack() {
 /// `watch_handoffs_loop` is phase-agnostic, so this exercises the same
 /// code path; the test confirms the recovery is uniform across phases.
 #[tokio::test]
-async fn handoff_delete_during_draining_drains_to_current_owner() {
+async fn a_dead_new_owner_handoff_in_draining_is_reaffirmed() {
     use personhog_coordination::types::{HandoffPhase, HandoffState};
 
     let store = test_store("delete-during-draining").await;
@@ -2899,10 +2901,10 @@ async fn handoff_delete_during_draining_drains_to_current_owner() {
         .filter(|e| matches!(e, common::CutoverEvent::StashDrained { .. }))
         .count();
 
-    // Delete the Draining handoff. The Delete branch must drain the
-    // stash back to the current routing-table owner (writer-0),
-    // independent of the phase the handoff was in when deleted.
-    store.delete_handoff(0).await.unwrap();
+    // No deletion is injected: the coordinator detects the dead new
+    // owner and cancels by replacement — a reaffirm Complete toward the
+    // current owner (writer-0), independent of the phase the doomed
+    // handoff was in.
 
     // Wait for the drain *count* to grow past `drains_before`.
     // Bootstrap drains for partition 0 already exist (each initial

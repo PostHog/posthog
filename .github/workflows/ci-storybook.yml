@@ -34,6 +34,7 @@ jobs:
         if: >-
             github.event_name != 'pull_request'
             || github.event.pull_request.draft != true
+            || startsWith(github.head_ref, 'trunk-merge/')
             || !contains(github.event.pull_request.labels.*.name, 'no-ci')
         name: Determine need to run storybook checks
         # Set job outputs to values from filter step
@@ -812,10 +813,13 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: [changes, build-storybook]
+        # Trunk's merge-queue branches open as draft PRs, but their run IS the
+        # merge gate, so they must never get the narrowed selection.
         if: |
             !cancelled() && needs.changes.outputs.frontend == 'true'
             && github.event_name == 'pull_request'
             && github.event.pull_request.draft == true
+            && !startsWith(github.head_ref, 'trunk-merge/')
             && !contains(github.event.pull_request.labels.*.name, 'run-ci-frontend')
         outputs:
             mode: ${{ steps.classify.outputs.mode }}

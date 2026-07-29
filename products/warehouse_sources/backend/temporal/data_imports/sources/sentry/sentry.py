@@ -11,7 +11,6 @@ from requests import Request, Response
 from requests.exceptions import HTTPError, JSONDecodeError, RequestException
 from tenacity import RetryCallState, retry, retry_if_exception_type, retry_if_result, stop_after_attempt
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
     coerce_datetime_to_utc,
 )
@@ -31,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     IncrementalConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.settings import (
     ALLOWED_SENTRY_API_BASE_URLS,
     DEFAULT_SENTRY_API_BASE_URL,
