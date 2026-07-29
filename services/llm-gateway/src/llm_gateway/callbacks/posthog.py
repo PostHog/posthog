@@ -20,6 +20,7 @@ from llm_gateway.request_context import (
     get_posthog_properties,
     get_product,
     get_time_to_first_token,
+    get_traceparent_trace_id,
 )
 
 logger = structlog.get_logger(__name__)
@@ -188,9 +189,10 @@ class PostHogCallback(InstrumentedCallback):
         auth_user = get_auth_user()
         product = get_product()
 
-        # Anthropic's metadata.user_id is co-opted as a trace id by Claude Code
-        # (see _normalize_trace_id), and Claude Code sends a JSON blob there.
-        trace_id = _normalize_trace_id(metadata.get("user_id"))
+        # metadata.user_id carries Claude Code's session blob — constant for a
+        # whole task, so hashing it (_normalize_trace_id) collapses every turn
+        # into one trace. A per-turn traceparent therefore takes precedence.
+        trace_id = get_traceparent_trace_id() or _normalize_trace_id(metadata.get("user_id"))
         if auth_user is None:
             distinct_id = end_user_id or str(uuid4())
         else:
@@ -312,9 +314,7 @@ class PostHogCallback(InstrumentedCallback):
         auth_user = get_auth_user()
         product = get_product()
 
-        # Anthropic's metadata.user_id is co-opted as a trace id by Claude Code
-        # (see _normalize_trace_id), and Claude Code sends a JSON blob there.
-        trace_id = _normalize_trace_id(metadata.get("user_id"))
+        trace_id = get_traceparent_trace_id() or _normalize_trace_id(metadata.get("user_id"))
         if auth_user is None:
             distinct_id = end_user_id or str(uuid4())
         else:

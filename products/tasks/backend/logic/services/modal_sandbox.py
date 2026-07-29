@@ -68,6 +68,7 @@ from products.tasks.backend.logic.services.agentsh import (
     read_gh_guard_script,
 )
 from products.tasks.backend.logic.services.local_packages import (
+    LocalPackage,
     get_local_package_runtime_dependencies,
     get_local_posthog_code_packages,
 )
@@ -135,6 +136,21 @@ SESSION_INIT_PROBE_HOSTS = (
     "api.anthropic.com",
     "mcp.posthog.com",
 )
+
+
+def _session_init_probe_hosts() -> list[str]:
+    """Hosts the startup-failure egress probe checks. Both gateway settings
+    are included: routed products call SANDBOX_AI_GATEWAY_URL, everything
+    else SANDBOX_LLM_GATEWAY_URL, and a block on either is this probe's
+    reason to exist.
+    """
+    hosts = list(SESSION_INIT_PROBE_HOSTS)
+    for setting_name in ("SANDBOX_LLM_GATEWAY_URL", "SANDBOX_AI_GATEWAY_URL"):
+        gateway_host = _hostname_from_url(getattr(settings, setting_name, None))
+        if gateway_host and gateway_host not in hosts:
+            hosts.insert(0, gateway_host)
+    return hosts
+
 
 # Modal region mapping based on cloud deployment
 MODAL_REGION_BY_DEPLOYMENT: dict[str | None, str] = {
@@ -301,6 +317,31 @@ def _merge_runtime_dependency_specs(name: str, existing: str, candidate: str) ->
     return f"{existing} {candidate}"
 
 
+def _local_package_bin_link_commands(packages: tuple[LocalPackage, ...]) -> list[str]:
+    commands: list[str] = []
+    bin_root = "/scripts/node_modules/.bin"
+
+    for package in packages:
+        manifest = json.loads((package.source_path / "package.json").read_text())
+        package_name = manifest.get("name")
+        package_bin = manifest.get("bin", {})
+        if not isinstance(package_name, str):
+            continue
+        if isinstance(package_bin, str):
+            package_bin = {package_name.rsplit("/", 1)[-1]: package_bin}
+        if not isinstance(package_bin, dict):
+            continue
+
+        for executable, target in package_bin.items():
+            if not isinstance(executable, str) or not isinstance(target, str):
+                continue
+            target_path = f"../{package_name}/{target.removeprefix('./')}"
+            executable_path = f"{bin_root}/{executable}"
+            commands.append(f"ln -sfn {shlex.quote(target_path)} {shlex.quote(executable_path)}")
+
+    return commands
+
+
 def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) -> modal.Image:
     """Overlay each local package's built `dist/` dir onto the installed package
     via add_local_dir(copy=False). No-op unless `template` bundles the agent-server
@@ -344,6 +385,10 @@ def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) 
             "--omit=dev --no-audit --no-fund"
         )
         image = image.run_commands(install_command)
+
+    bin_link_commands = _local_package_bin_link_commands(packages)
+    if bin_link_commands:
+        image = image.run_commands(*bin_link_commands)
 
     for package in packages:
         image = image.add_local_dir(
@@ -945,6 +990,7 @@ class ModalSandbox(SandboxBase):
         auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
+        agent_runtime: str | None = None,
         runtime_adapter: str | None = None,
         provider: str | None = None,
         model: str | None = None,
@@ -956,6 +1002,7 @@ class ModalSandbox(SandboxBase):
         relay_mcp_servers_arg: str = "",
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
+        task_run_session_token: str | None = None,
         event_ingest_url: str | None = None,
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
@@ -964,6 +1011,8 @@ class ModalSandbox(SandboxBase):
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
+            agent_runtime=agent_runtime,
+            sandbox_id=self.id,
             runtime_adapter=runtime_adapter,
             provider=provider,
             model=model,
@@ -972,6 +1021,7 @@ class ModalSandbox(SandboxBase):
             fast_mode=fast_mode,
             initial_permission_mode=initial_permission_mode,
             event_ingest_token=event_ingest_token,
+            task_run_session_token=task_run_session_token,
             event_ingest_url=event_ingest_url,
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             rtk_enabled=rtk_enabled,
@@ -1055,10 +1105,7 @@ class ModalSandbox(SandboxBase):
         return diagnostics
 
     def _probe_session_init_egress(self) -> str:
-        hosts = list(SESSION_INIT_PROBE_HOSTS)
-        gateway_host = _hostname_from_url(getattr(settings, "SANDBOX_LLM_GATEWAY_URL", None))
-        if gateway_host and gateway_host not in hosts:
-            hosts.insert(0, gateway_host)
+        hosts = _session_init_probe_hosts()
         checks = "; ".join(
             f"printf '%s ' {shlex.quote(host)}; "
             f"curl -sS --max-time 3 -o /dev/null -w 'http_code=%{{http_code}}\\n' https://{host}/ 2>/dev/null || echo FAILED"
@@ -1076,6 +1123,7 @@ class ModalSandbox(SandboxBase):
         auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
+        agent_runtime: str | None = None,
         runtime_adapter: str | None = None,
         provider: str | None = None,
         model: str | None = None,
@@ -1087,6 +1135,7 @@ class ModalSandbox(SandboxBase):
         relayed_mcp_servers: list[str] | None = None,
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
+        task_run_session_token: str | None = None,
         event_ingest_url: str | None = None,
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
@@ -1131,6 +1180,9 @@ class ModalSandbox(SandboxBase):
         if relayed_mcp_servers:
             relay_mcp_servers_arg = f" --relayMcpServers {shlex.quote(json.dumps(relayed_mcp_servers))}"
 
+        if agent_runtime == "pi" and not self.agent_server_supports_pi_runtime():
+            raise RuntimeError("Installed sandbox agent-server does not support the Pi runtime")
+
         if auto_publish and not self.agent_server_supports_auto_publish():
             logger.warning(f"Installed agent-server in sandbox {self.id} predates --autoPublish; starting review-first")
             auto_publish = False
@@ -1152,6 +1204,7 @@ class ModalSandbox(SandboxBase):
             auto_publish,
             interaction_origin,
             branch,
+            agent_runtime,
             runtime_adapter,
             provider,
             model,
@@ -1163,6 +1216,7 @@ class ModalSandbox(SandboxBase):
             relay_mcp_servers_arg=relay_mcp_servers_arg,
             allowed_domains=allowed_domains,
             event_ingest_token=event_ingest_token,
+            task_run_session_token=task_run_session_token,
             event_ingest_url=event_ingest_url,
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
