@@ -21,13 +21,14 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
-    DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     build_pyarrow_decimal_type,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     Column,
     Table,
@@ -40,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ValidatedRowFilter,
     render_named_conditions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
 
 # ClickHouse default ports
@@ -361,11 +363,18 @@ def get_schemas(
             params["names"] = tuple(names)
             names_filter = "AND table IN %(names)s"
 
+        # Skip ALIAS and EPHEMERAL columns. A native `SELECT *` never touches them, but our
+        # `SELECT *` expands to an explicit column list — so an ALIAS whose defining expression no
+        # longer resolves on the server (a dropped/renamed underlying column, or one the connecting
+        # user can't read) fails the whole query with UNKNOWN_IDENTIFIER (code 47), and EPHEMERAL
+        # columns aren't selectable at all. Ordinary, DEFAULT and MATERIALIZED columns hold real,
+        # selectable data and are kept.
         result = client.query(
             f"""
             SELECT table, name, type
             FROM system.columns
             WHERE database = %(database)s {names_filter}
+              AND default_kind NOT IN ('ALIAS', 'EPHEMERAL')
             ORDER BY table ASC, position ASC
             """,
             parameters=params,
@@ -972,6 +981,7 @@ def _get_incremental_row_count(
     incremental_field: str,
     last_value: Any,
     logger: FilteringBoundLogger,
+    incremental_field_type: Optional[IncrementalFieldType] = None,
 ) -> int | None:
     """Count rows the incremental sync will actually pull.
 
@@ -982,7 +992,8 @@ def _get_incremental_row_count(
     back to the total-table count.
     """
     quoted_field = _quote_identifier(incremental_field)
-    query = f"SELECT count() FROM {_qualified_table(database, table_name)} WHERE {quoted_field} > %(last_value)s"
+    last_value_expr = _last_value_expr(incremental_field_type)
+    query = f"SELECT count() FROM {_qualified_table(database, table_name)} WHERE {quoted_field} > {last_value_expr}"
     try:
         result = client.query(
             query,
@@ -1138,6 +1149,21 @@ def _project_columns(
     return projected or columns
 
 
+def _last_value_expr(incremental_field_type: Optional[IncrementalFieldType]) -> str:
+    """SQL expression binding the `last_value` parameter for the incremental cursor.
+
+    The stored cursor for a `Date` column can arrive as a raw day-count integer
+    (ClickHouse's own on-disk representation) rather than a date/string, e.g. after a
+    round-trip through JSON. Comparing that integer directly against a `Date` column
+    fails with "Illegal types of arguments (Date, UInt16) of function greater". Casting
+    through `toDate32` accepts both a day-count integer and a date string, so the
+    comparison always type-checks regardless of which shape the cursor is in.
+    """
+    if incremental_field_type == IncrementalFieldType.Date:
+        return "toDate32(%(last_value)s)"
+    return "%(last_value)s"
+
+
 def _build_query(
     *,
     database: str,
@@ -1145,6 +1171,7 @@ def _build_query(
     columns: list[ClickHouseColumn],
     should_use_incremental_field: bool,
     incremental_field: Optional[str],
+    incremental_field_type: Optional[IncrementalFieldType] = None,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
 ) -> tuple[str, dict[str, Any]]:
     """Build the data extraction query and its bound parameters.
@@ -1170,7 +1197,7 @@ def _build_query(
         raise ValueError("incremental_field can't be None when should_use_incremental_field is True")
 
     quoted_field = _quote_identifier(incremental_field)
-    conditions = [f"{quoted_field} > %(last_value)s", *filter_conditions]
+    conditions = [f"{quoted_field} > {_last_value_expr(incremental_field_type)}", *filter_conditions]
     query = f"SELECT {select_list} FROM {qualified} WHERE {' AND '.join(conditions)} ORDER BY {quoted_field} ASC"
     return query, filter_params
 
@@ -1300,6 +1327,7 @@ def clickhouse_source(
                     incremental_field,
                     db_incremental_field_last_value,
                     logger,
+                    incremental_field_type=incremental_field_type,
                 )
                 if incremental_count is not None:
                     rows_to_sync = incremental_count
@@ -1341,6 +1369,7 @@ def clickhouse_source(
                     columns=projected_columns,
                     should_use_incremental_field=should_use_incremental_field,
                     incremental_field=incremental_field,
+                    incremental_field_type=incremental_field_type,
                     row_filters=row_filters,
                 )
 
