@@ -8,7 +8,6 @@ from typing import Any, Optional
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.settings import (
     ADOBE_ANALYTICS_ENDPOINTS,
     DEFAULT_REPORT_DIMENSION,
@@ -19,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_anal
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 # Adobe IMS issues the access token for OAuth Server-to-Server credentials. JWT ("Service
 # Account") credentials were retired on 2025-06-30, so this is the only server-side grant left.
