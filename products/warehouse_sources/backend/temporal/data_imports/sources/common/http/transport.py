@@ -14,6 +14,7 @@ want the metering — they only need to mount the tracked adapter:
 
 from __future__ import annotations
 
+import math
 import time
 from collections.abc import Mapping
 from typing import Any
@@ -51,6 +52,11 @@ class BoundedRetry(Retry):
             try:
                 seconds = float(retry_after)
             except ValueError:
+                return 0.0
+            # `float()` accepts "NaN"/"Infinity"; a non-finite delay would slip past
+            # `min()`/`max()` (which don't order NaN) and reach `time.sleep`, raising
+            # ValueError. Treat non-finite values as "no delay".
+            if not math.isfinite(seconds):
                 return 0.0
             return max(seconds, 0.0)
 

@@ -118,6 +118,11 @@ def test_make_tracked_session_merges_headers():
         ("0.129", 0.129),
         (" 1.5 ", 1.5),
         ("not-a-number", 0.0),
+        # Non-finite values `float()` accepts but `time.sleep` rejects — must
+        # collapse to no delay rather than reach the sleep call.
+        ("NaN", 0.0),
+        ("Infinity", 0.0),
+        ("-Infinity", 0.0),
     ],
 )
 def test_lenient_retry_after_parses_fractional_seconds_without_raising(header_value, expected):
