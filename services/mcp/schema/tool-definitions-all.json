@@ -1321,6 +1321,34 @@
             "readOnlyHint": true
         }
     },
+    "conversations-response-targets-get": {
+        "description": "Read the team's response-target ladder: the ordered priority groups (label + ticket tags) that `order_by=response_target` on conversations-tickets-list sorts and groups by. Returns the saved custom ladder, or customized:false when the team follows the built-in example groups. Group order is priority order (first = highest); tickets whose tags match no group rank with the first group; within a group, tickets order by SLA deadline. Read this before any edit with conversations-response-targets-update, since updates replace the whole list.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "summary": "Read the team's response-target priority groups.",
+        "title": "Get response target groups",
+        "required_scopes": ["project:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "conversations-response-targets-update": {
+        "description": "Replace or reset the team's response-target ladder — the ordered priority groups (label + ticket tags) that `order_by=response_target` on conversations-tickets-list sorts and groups by. Pass the COMPLETE ordered list (highest priority first; read the current ladder with conversations-response-targets-get first, and include every group to keep), or groups:null to reset to the built-in examples. Unless confirm:true, returns a PREVIEW without saving — surface it to the user, then re-run with confirm:true. Rules: labels unique, tag matching is exact, a tag may appear in only one group, tickets matching no group rank with the FIRST group, and other conversations settings are left untouched.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "summary": "Replace or reset the team's response-target priority groups, with a preview step.",
+        "title": "Update response target groups",
+        "required_scopes": ["project:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "conversations-tickets-list": {
         "description": "List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved), priority (low, medium, high, critical), channel_source (widget, email, slack), assignee, date range, and search. Results are paginated and ordered by updated_at descending by default. Returns ticket metadata including status, priority, message counts, and timestamps.",
         "category": "Conversations",
