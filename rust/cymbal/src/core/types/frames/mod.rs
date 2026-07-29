@@ -34,14 +34,10 @@ pub(crate) fn record_frame_resolution_failure(
     err: &dyn std::fmt::Display,
 ) {
     metrics::counter!(FRAME_NOT_RESOLVED, "lang" => lang, "reason" => reason).increment(1);
-    match reason {
-        "network_error" | "invalid_data" | "symbol_not_found" => {
-            tracing::warn!(lang = lang, reason = reason, error = %err, "frame resolution failed");
-        }
-        _ => {
-            tracing::debug!(lang = lang, reason = reason, error = %err, "frame resolution failed");
-        }
-    }
+    // Debug, not warn: these are almost always customer misconfiguration (a release shipped
+    // without sourcemaps, an expired CDN URL), and they fire once per unresolved frame — a
+    // single bad release would warn-storm the logs. The counter above carries the signal.
+    tracing::debug!(lang = lang, reason = reason, error = %err, "frame resolution failed");
 }
 
 pub mod releases;

@@ -32,6 +32,7 @@ class WizardSessionDTO:
     tasks: tuple[WizardTaskDTO, ...]
     event_plan: dict[str, Any] | None
     error: dict[str, Any] | None
+    pending_input: dict[str, Any] | None
     created_at: datetime
     updated_at: datetime
     is_stale: bool
@@ -49,6 +50,7 @@ class UpsertWizardSessionRequest:
     tasks: tuple[WizardTaskDTO, ...]
     event_plan: dict[str, Any] | None = None
     error: dict[str, Any] | None = None
+    pending_input: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -62,3 +64,4 @@ class UpsertWizardSessionInput:
     tasks: tuple[WizardTaskDTO, ...]
     event_plan: dict[str, Any] | None
     error: dict[str, Any] | None
+    pending_input: dict[str, Any] | None

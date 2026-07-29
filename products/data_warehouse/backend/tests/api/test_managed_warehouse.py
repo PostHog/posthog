@@ -2,7 +2,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
@@ -30,153 +30,6 @@ def _onboarding_side_effects():
     ):
         yield SimpleNamespace(task=mock_task, ensure=mock_ensure)
     cp_teams.clear_cache()
-
-
-@patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
-def test_configure_project_reader_creates_a_missing_team_row_before_rotating_credentials(
-    mock_request: MagicMock,
-) -> None:
-    organization_id = uuid4()
-    mock_request.side_effect = [
-        Response({"teams": []}, status=200),
-        Response({"team_id": 42}, status=200),
-        Response({"username": "posthog_team_42", "password": "reader-password"}, status=200),
-    ]
-
-    credentials = managed_warehouse.configure_project_reader(
-        organization_id=organization_id,
-        team_id=42,
-        table_suffix="prod",
-        password="caller-managed-password-with-32-characters",
-    )
-
-    assert credentials == {"username": "posthog_team_42", "password": "reader-password"}
-    assert mock_request.call_args_list == [
-        call("GET", organization_id, "/teams", require_enabled=False),
-        call(
-            "POST",
-            organization_id,
-            "/teams",
-            json_body={
-                "team_id": 42,
-                "schema_name": "team_42",
-                "enabled": True,
-                "events_table_name": "events_prod",
-                "persons_table_name": "persons_prod",
-                "schema_data_imports_name": "posthog_data_imports_prod",
-            },
-            require_enabled=False,
-        ),
-        call(
-            "PUT",
-            organization_id,
-            "/teams/42/project-reader",
-            json_body={"password": "caller-managed-password-with-32-characters"},
-            require_enabled=False,
-        ),
-    ]
-
-
-@patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
-def test_configure_project_reader_never_rewrites_an_existing_team_row(mock_request: MagicMock) -> None:
-    # The Duckgres org-team row also drives external-writer discovery (viaduck/millpond), and rows
-    # can be hand-set (break-glass edits, legacy layouts like the dogfood devex/team-2 rows).
-    # Credential setup must therefore never POST over an existing row.
-    organization_id = uuid4()
-    mock_request.side_effect = [
-        Response(
-            {"teams": [{"team_id": 42, "schema_name": "devex", "enabled": True, "events_table_name": "events"}]},
-            status=200,
-        ),
-        Response({"username": "posthog_team_42", "password": "reader-password"}, status=200),
-    ]
-
-    credentials = managed_warehouse.configure_project_reader(
-        organization_id=organization_id,
-        team_id=42,
-        table_suffix="prod",
-        password="caller-managed-password-with-32-characters",
-    )
-
-    assert credentials == {"username": "posthog_team_42", "password": "reader-password"}
-    assert mock_request.call_args_list == [
-        call("GET", organization_id, "/teams", require_enabled=False),
-        call(
-            "PUT",
-            organization_id,
-            "/teams/42/project-reader",
-            json_body={"password": "caller-managed-password-with-32-characters"},
-            require_enabled=False,
-        ),
-    ]
-
-
-@patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
-def test_configure_project_reader_refuses_a_disabled_team_row(mock_request: MagicMock) -> None:
-    # `enabled` is an operator-facing serving hold; credential setup must not silently lift it.
-    mock_request.return_value = Response(
-        {"teams": [{"team_id": 42, "schema_name": "team_42", "enabled": False}]}, status=200
-    )
-
-    with pytest.raises(RuntimeError, match="disabled"):
-        managed_warehouse.configure_project_reader(
-            organization_id=uuid4(),
-            team_id=42,
-            table_suffix="prod",
-            password="caller-managed-password-with-32-characters",
-        )
-
-    assert len(mock_request.call_args_list) == 1
-
-
-@patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
-def test_project_reader_namespaces_mirror_the_duckgres_team_row(mock_request: MagicMock) -> None:
-    # Must match the Duckgres policy derivation: a non-NULL legacy override always grants
-    # posthog.<name> — including overrides that spell the derived default (team 2's
-    # events_table_name="events" -> posthog.events); NULL overrides grant nothing extra.
-    mock_request.return_value = Response(
-        {
-            "teams": [
-                {
-                    "team_id": 2,
-                    "schema_name": "team_2",
-                    "enabled": True,
-                    "events_table_name": "events",
-                    "persons_table_name": "persons",
-                    "schema_data_imports_name": "posthog_data_imports_team_2",
-                }
-            ]
-        },
-        status=200,
-    )
-
-    namespaces = managed_warehouse.project_reader_namespaces(organization_id=uuid4(), team_id=2)
-
-    assert namespaces == (
-        {"team_2", "posthog_data_imports_team_2", "shadow_2_models"},
-        {("posthog", "events"), ("posthog", "persons")},
-    )
-
-
-@patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
-def test_project_reader_namespaces_derive_imports_and_skip_absent_overrides(mock_request: MagicMock) -> None:
-    mock_request.return_value = Response(
-        {"teams": [{"team_id": 7, "schema_name": "team_7", "enabled": True}]}, status=200
-    )
-
-    namespaces = managed_warehouse.project_reader_namespaces(organization_id=uuid4(), team_id=7)
-
-    assert namespaces == ({"team_7", "team_7_data_imports", "shadow_7_models"}, set())
-
-
-@patch("products.data_warehouse.backend.presentation.views.managed_warehouse._request")
-def test_project_reader_namespaces_fail_closed_without_an_enabled_row(mock_request: MagicMock) -> None:
-    mock_request.return_value = Response(
-        {"teams": [{"team_id": 7, "schema_name": "team_7", "enabled": False}]}, status=200
-    )
-
-    assert managed_warehouse.project_reader_namespaces(organization_id=uuid4(), team_id=7) is None
-    assert managed_warehouse.project_reader_namespaces(organization_id=uuid4(), team_id=8) is None
 
 
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse.posthoganalytics.feature_enabled")
@@ -656,8 +509,8 @@ def test_onboard_team_creates_duckgres_row_with_legacy_names(
 
     # duckgres team row created via the org-teams upsert WITH the legacy table names the
     # duckling DAG actually writes today (posthog.events_<suffix> + posthog_data_imports_<suffix>).
-    # A row without them grants the project reader only nonexistent derived schemas — the
-    # empty-SQL-editor-sidebar bug the EU placeholder rows hit.
+    # A row without them describes the derived layout no data lands in yet — the EU
+    # placeholder-row bug.
     assert mock_request.call_args_list[0].args == ("GET", org.id, "/teams")
     method, org_id, path = mock_request.call_args_list[1].args
     assert (method, org_id, path) == ("POST", org.id, "/teams")
