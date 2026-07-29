@@ -4,7 +4,7 @@ use health::HealthRegistry;
 use moka::future::{Cache, CacheBuilder};
 use rdkafka::producer::FutureProducer;
 use sqlx::PgPool;
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 use tokio::{sync::Semaphore, task::JoinHandle};
 use tracing::info;
 use uuid::Uuid;
@@ -53,9 +53,6 @@ pub struct AppContext {
     // Error-tracking rate limiter. `None` when disabled (the default), in which
     // case `RateLimitingStage` is a pass-through no-op.
     pub rate_limiter: Option<Arc<RedisRateLimiter>>,
-    // Team allowlist for the rate limiter: `None` = all teams, `Some(set)` = only
-    // these. Parsed from ERROR_TRACKING_RATE_LIMITER_ENABLED_TEAM_IDS.
-    pub rate_limiter_enabled_team_ids: Option<HashSet<i32>>,
     // Shared `(team_id, fingerprint) -> issue_id` mapping cache. Lives on AppContext so
     // it persists across requests — only the stable mapping is cached, never the Issue
     // itself, so suppression / reopen always see current PG state (see `IssueLinker`).
@@ -186,8 +183,6 @@ impl AppContext {
             build_remote_resolution(config).await?;
 
         let rate_limiter = build_rate_limiter(config).await?;
-        let rate_limiter_enabled_team_ids =
-            parse_team_id_allowlist(&config.error_tracking_rate_limiter_enabled_team_ids);
 
         Ok(Self {
             health_registry,
@@ -202,7 +197,6 @@ impl AppContext {
             team_manager,
             issue_buckets_redis_client,
             rate_limiter,
-            rate_limiter_enabled_team_ids,
             symbol_resolver,
             issue_cache,
             remote_resolution,
@@ -244,20 +238,6 @@ async fn build_rate_limiter(
         config.error_tracking_rate_limiter_key_prefix.clone(),
         config.error_tracking_rate_limiter_bucket_ttl_seconds,
     ))))
-}
-
-/// Parse a comma-separated team-id allowlist. `None` (empty input) means the
-/// rate limiter applies to all teams; `Some(set)` restricts it to those teams.
-fn parse_team_id_allowlist(value: &str) -> Option<HashSet<i32>> {
-    if value.is_empty() {
-        return None;
-    }
-    Some(
-        value
-            .split(',')
-            .filter_map(|s| s.trim().parse::<i32>().ok())
-            .collect(),
-    )
 }
 
 async fn build_remote_resolution(

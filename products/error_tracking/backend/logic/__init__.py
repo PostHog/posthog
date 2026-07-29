@@ -376,6 +376,25 @@ def build_external_issue_url(reference: ErrorTrackingExternalReference) -> str:
     return ""
 
 
+def default_per_issue_rate_limit() -> int | None:
+    """The fallback per-issue limit cymbal applies to teams that never set one. `None` when
+    the deployment has the fallback switched off."""
+    value = settings.ERROR_TRACKING_DEFAULT_PER_ISSUE_RATE_LIMIT
+    return value if value > 0 else None
+
+
+def default_per_issue_rate_limit_bucket_minutes() -> int:
+    return settings.ERROR_TRACKING_DEFAULT_PER_ISSUE_RATE_LIMIT_BUCKET_MINUTES
+
+
+def effective_per_issue_rate_limit(value: int | None) -> int | None:
+    """Resolve a stored per-issue limit the way cymbal does: unset falls back to the
+    deployment default, and 0 is the team explicitly opting out."""
+    if value is None:
+        return default_per_issue_rate_limit()
+    return value if value > 0 else None
+
+
 def get_or_create_settings(team_id: int) -> ErrorTrackingSettings:
     settings, _ = ErrorTrackingSettings.objects.get_or_create(team_id=team_id)
     return settings

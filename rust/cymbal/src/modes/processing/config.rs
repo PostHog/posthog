@@ -168,13 +168,17 @@ pub struct ProcessingConfig {
     )]
     pub error_tracking_rate_limiter_bucket_ttl_seconds: u64,
 
-    // Comma separated list of team IDs the error-tracking rate limiter applies to.
-    // If empty, it applies to all teams (that have limits configured).
+    // Fallback per-issue limit for teams that have never configured one, so a single
+    // runaway issue is capped out of the box. A team opts out by saving 0. Set to 0 to
+    // turn the fallback off for the whole deployment.
+    #[envconfig(from = "ERROR_TRACKING_DEFAULT_PER_ISSUE_RATE_LIMIT", default = "10000")]
+    pub error_tracking_default_per_issue_rate_limit: i32,
+
     #[envconfig(
-        from = "ERROR_TRACKING_CYMBAL_RATE_LIMITER_ENABLED_TEAM_IDS",
-        default = ""
+        from = "ERROR_TRACKING_DEFAULT_PER_ISSUE_RATE_LIMIT_BUCKET_MINUTES",
+        default = "60"
     )]
-    pub error_tracking_rate_limiter_enabled_team_ids: String,
+    pub error_tracking_default_per_issue_rate_limit_bucket_minutes: i32,
 
     // Comma separated list of team IDs that can receive spike alerts.
     // If empty, all teams can receive alerts

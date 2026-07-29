@@ -97,6 +97,9 @@ class ErrorTrackingSettings:
     project_rate_limit_bucket_size_minutes: int | None
     per_issue_rate_limit_value: int | None
     per_issue_rate_limit_bucket_size_minutes: int | None
+    # The fallback applied when the team hasn't set a per-issue limit of its own.
+    default_per_issue_rate_limit_value: int | None
+    default_per_issue_rate_limit_bucket_size_minutes: int
 
 
 @dataclass(frozen=True)

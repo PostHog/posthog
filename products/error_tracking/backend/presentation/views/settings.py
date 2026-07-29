@@ -22,16 +22,28 @@ class ErrorTrackingSettingsSerializer(serializers.Serializer):
         help_text="Bucket window over which the project-wide rate limit applies, in minutes.",
     )
     per_issue_rate_limit_value = serializers.IntegerField(
-        min_value=1,
+        min_value=0,
         allow_null=True,
         required=False,
-        help_text="Maximum number of exception events ingested per bucket for each individual issue. Null removes the limit.",
+        help_text=(
+            "Maximum number of exception events ingested per bucket for each individual issue. "
+            "Null falls back to default_per_issue_rate_limit_value; 0 removes the limit."
+        ),
     )
     per_issue_rate_limit_bucket_size_minutes = serializers.IntegerField(
         min_value=1,
         allow_null=True,
         required=False,
         help_text="Bucket window over which the per-issue rate limit applies, in minutes.",
+    )
+    default_per_issue_rate_limit_value = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="Per-issue limit applied when the project hasn't set one of its own. Null if there is no fallback.",
+    )
+    default_per_issue_rate_limit_bucket_size_minutes = serializers.IntegerField(
+        read_only=True,
+        help_text="Bucket window the fallback per-issue limit applies over, in minutes.",
     )
 
 

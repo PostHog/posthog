@@ -13,12 +13,17 @@ import { urls } from 'scenes/urls'
 
 import { errorTrackingEditAccessDisabledReason } from '../../../utils'
 import { issueRateLimitConfigLogic } from './issueRateLimitConfigLogic'
-import { BUCKET_OPTIONS } from './rateLimitConfigLogic'
+import { BUCKET_OPTIONS, DEFAULT_BUCKET_MINUTES, getBucketOption } from './rateLimitConfigLogic'
 import { RateLimitHistoryChart } from './RateLimitHistoryChart'
 import { formatTotalDuration, RateLimitSimulationChart } from './RateLimitSimulationChart'
 
+// "1 hour" reads as "per hour", but "15 minutes" needs its number.
+function perWindowLabel(bucketMinutes: number | null | undefined): string {
+    return getBucketOption(bucketMinutes ?? DEFAULT_BUCKET_MINUTES).label.replace(/^1 /, '')
+}
+
 export function IssueRateLimitSettings(): JSX.Element {
-    const { configLoading } = useValues(issueRateLimitConfigLogic)
+    const { configLoading, config, defaultLimit } = useValues(issueRateLimitConfigLogic)
 
     if (configLoading) {
         return (
@@ -36,6 +41,10 @@ export function IssueRateLimitSettings(): JSX.Element {
                 <p className="text-muted-foreground">
                     This limit applies to each issue per window. Once an issue exceeds the configured rate, further
                     exceptions for it are dropped at ingestion.
+                    {defaultLimit !== null &&
+                        ` Projects without a limit of their own use a default of ${defaultLimit.toLocaleString()} per ${perWindowLabel(
+                            config?.default_per_issue_rate_limit_bucket_size_minutes
+                        )}.`}
                 </p>
             </div>
 
@@ -57,7 +66,7 @@ export function IssueRateLimitSettings(): JSX.Element {
 }
 
 function ConfigColumn(): JSX.Element {
-    const { configFormChanged, isConfigFormSubmitting } = useValues(issueRateLimitConfigLogic)
+    const { configFormChanged, isConfigFormSubmitting, defaultLimit } = useValues(issueRateLimitConfigLogic)
 
     return (
         <div className="space-y-3">
@@ -65,10 +74,10 @@ function ConfigColumn(): JSX.Element {
                 {({ value, onChange }) => (
                     <LemonInput
                         type="number"
-                        min={1}
+                        min={0}
                         value={value ?? undefined}
                         onChange={(v) => onChange(v ?? null)}
-                        placeholder="Unlimited"
+                        placeholder={defaultLimit !== null ? defaultLimit.toLocaleString() : 'Unlimited'}
                         fullWidth
                         data-attr="issue-rate-limit-value"
                     />
@@ -87,7 +96,11 @@ function ConfigColumn(): JSX.Element {
                 )}
             </LemonField>
 
-            <p className="text-muted-foreground text-xs">Leave the value empty for no limit.</p>
+            <p className="text-muted-foreground text-xs">
+                {defaultLimit !== null
+                    ? 'Leave the value empty to keep the default. Enter 0 for no limit.'
+                    : 'Leave the value empty for no limit.'}
+            </p>
 
             <div className="flex justify-start pt-2">
                 <LemonButton
@@ -193,11 +206,12 @@ function PreviewColumn(): JSX.Element {
         selectedIssueHistoryLoading,
         chartMode,
         configForm,
+        effectiveLimit,
         topIssues,
     } = useValues(issueRateLimitConfigLogic)
     const { setChartMode, refreshChart } = useActions(issueRateLimitConfigLogic)
 
-    const limit = configForm.per_issue_rate_limit_value
+    const limit = effectiveLimit
     const bucketMinutes = configForm.per_issue_rate_limit_bucket_size_minutes
     const chartLoading = chartMode === 'history' ? selectedIssueHistoryLoading : selectedIssueVolumeLoading
 

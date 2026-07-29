@@ -124,14 +124,7 @@ impl Stage for RateLimitingStage {
         // and recorded as "bypassed" instead of being offered to the limiter below.
         let (bypassed, bypass_outcomes) = self.apply_bypass(&settings, &items).await;
 
-        let mut outcomes = apply_rate_limits(
-            &limiter,
-            &settings,
-            self.ctx.rate_limiter_enabled_team_ids.as_ref(),
-            &mut items,
-            &bypassed,
-        )
-        .await;
+        let mut outcomes = apply_rate_limits(&limiter, &settings, &mut items, &bypassed).await;
         for (key, count) in bypass_outcomes {
             *outcomes.entry(key).or_insert(0) += count;
         }
@@ -157,7 +150,6 @@ fn mark_rate_checked(batch: Batch<LinkedPipelineItem>) -> Batch<RateCheckedPipel
 async fn apply_rate_limits(
     limiter: &RedisRateLimiter,
     settings: &HashMap<i32, RateLimitSettings>,
-    enabled_teams: Option<&HashSet<i32>>,
     items: &mut [LinkedPipelineItem],
     bypassed: &HashSet<usize>,
 ) -> HashMap<OutcomeKey, u32> {
@@ -176,16 +168,13 @@ async fn apply_rate_limits(
         }
     }
 
-    // Keep only the groups we charge (allowlisted, opted in, ≥1 enabled limit) and
-    // resolve their bucket params up front; the admits fan out below.
+    // Keep only the groups we charge (≥1 enabled limit) and resolve their bucket params
+    // up front; the admits fan out below.
     let chargeable = groups
         .into_iter()
         .filter_map(|((team_id, issue_id), indices)| {
-            // Allowlist: when set, only listed teams are rate-limited.
-            if enabled_teams.is_some_and(|allowed| !allowed.contains(&team_id)) {
-                return None;
-            }
-            // no settings row → team not opted in
+            // Settings are loaded with deployment defaults applied, so a missing entry
+            // means the load failed — fail open rather than guess at a limit.
             let team_settings = settings.get(&team_id)?;
             // per-issue limit needs an issue to key on
             let per_issue = team_settings.per_issue();
@@ -279,14 +268,9 @@ impl RateLimitingStage {
         settings: &HashMap<i32, RateLimitSettings>,
         items: &[LinkedPipelineItem],
     ) -> (HashSet<usize>, HashMap<OutcomeKey, u32>) {
-        let enabled_teams = self.ctx.rate_limiter_enabled_team_ids.as_ref();
-
-        // A team's events can only be "bypassed" if the team is actually rate-limited:
-        // allowlisted (when an allowlist is set) and with at least one configured limit.
+        // A team's events can only be "bypassed" if the team is actually rate-limited,
+        // i.e. it has at least one limit in effect.
         let is_rate_limited = |team_id: i32| -> bool {
-            if enabled_teams.is_some_and(|allowed| !allowed.contains(&team_id)) {
-                return false;
-            }
             settings
                 .get(&team_id)
                 .is_some_and(|s| s.per_issue().is_some() || s.project().is_some())
@@ -695,7 +679,7 @@ mod tests {
         let mut cfg = HashMap::new();
         cfg.insert(1, settings(Some(1), Some(1)));
 
-        let outcomes = apply_rate_limits(&limiter, &cfg, None, &mut items, &HashSet::new()).await;
+        let outcomes = apply_rate_limits(&limiter, &cfg, &mut items, &HashSet::new()).await;
 
         // Redis errored, so the whole group is kept (fail open): nothing is
         // flipped to Err, and no allowed/limited outcomes are tallied.
@@ -714,7 +698,7 @@ mod tests {
         let mut cfg = HashMap::new();
         cfg.insert(7, settings(Some(100), Some(100)));
 
-        apply_rate_limits(&limiter, &cfg, None, &mut items, &HashSet::new()).await;
+        apply_rate_limits(&limiter, &cfg, &mut items, &HashSet::new()).await;
 
         assert!(items[0].is_ok()); // kept
         assert!(matches!(items[1], Err(EventError::RateLimitedProject(7))));
@@ -736,7 +720,7 @@ mod tests {
         let mut cfg = HashMap::new();
         cfg.insert(7, settings(Some(100), Some(100)));
 
-        let outcomes = apply_rate_limits(&limiter, &cfg, None, &mut items, &HashSet::new()).await;
+        let outcomes = apply_rate_limits(&limiter, &cfg, &mut items, &HashSet::new()).await;
 
         // Per-issue tallies are keyed by the individual issue id — one bucket per
         // issue — so each gets its own bare-UUID `app_source_id` like Node.js.
@@ -761,22 +745,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn skips_team_without_settings_without_touching_redis() {
+    async fn skips_team_whose_settings_failed_to_load() {
         let runner = Arc::new(FakeScriptRunner::returning(vec![0, 0]));
         let limiter = limiter_with(runner.clone());
         let mut items: Vec<LinkedPipelineItem> =
             (0..3).map(|_| event(42, Some(Uuid::now_v7()))).collect();
-        let cfg = HashMap::new(); // team 42 has no settings row
+        // Settings arrive with deployment defaults already applied, so a team missing
+        // from the map is one whose load errored.
+        let cfg = HashMap::new();
 
-        let outcomes = apply_rate_limits(&limiter, &cfg, None, &mut items, &HashSet::new()).await;
+        let outcomes = apply_rate_limits(&limiter, &cfg, &mut items, &HashSet::new()).await;
 
-        assert!(items.iter().all(|item| item.is_ok())); // opted-out team untouched
+        assert!(items.iter().all(|item| item.is_ok())); // fail open, events untouched
         assert_eq!(runner.call_count(), 0); // and we never hit redis for it
         assert!(outcomes.is_empty());
     }
 
     #[tokio::test]
-    async fn only_rate_limits_allowlisted_teams() {
+    async fn rate_limits_every_team_with_a_limit_in_effect() {
         // Redis admits nothing, so any team that IS rate-limited loses its events.
         let runner = Arc::new(FakeScriptRunner::returning(vec![0, 0]));
         let limiter = limiter_with(runner.clone());
@@ -784,14 +770,14 @@ mod tests {
         let mut items: Vec<LinkedPipelineItem> = vec![event(1, Some(issue)), event(2, Some(issue))];
         let mut cfg = HashMap::new();
         cfg.insert(1, settings(Some(1), Some(1)));
-        cfg.insert(2, settings(Some(1), Some(1)));
-        let allowed: HashSet<i32> = [1].into_iter().collect();
+        // Team 2 never set a limit, so it carries the default the loader filled in.
+        cfg.insert(2, settings(Some(10_000), None));
 
-        apply_rate_limits(&limiter, &cfg, Some(&allowed), &mut items, &HashSet::new()).await;
+        apply_rate_limits(&limiter, &cfg, &mut items, &HashSet::new()).await;
 
-        assert!(items[0].is_err()); // team 1 is allowlisted -> rate-limited
-        assert!(items[1].is_ok()); // team 2 is not -> untouched despite having settings
-        assert_eq!(runner.call_count(), 1); // only the allowlisted team hit redis
+        assert!(items[0].is_err());
+        assert!(items[1].is_err()); // no allowlist to sit behind any more
+        assert_eq!(runner.call_count(), 2);
     }
 
     fn decision(issue: u32, team: u32) -> RateLimitDecision {
@@ -871,7 +857,7 @@ mod tests {
         cfg.insert(7, settings(Some(100), Some(100)));
         let bypassed: HashSet<usize> = [0, 1].into_iter().collect();
 
-        apply_rate_limits(&limiter, &cfg, None, &mut items, &bypassed).await;
+        apply_rate_limits(&limiter, &cfg, &mut items, &bypassed).await;
 
         // Bypassed indices are always kept.
         assert!(items[0].is_ok());

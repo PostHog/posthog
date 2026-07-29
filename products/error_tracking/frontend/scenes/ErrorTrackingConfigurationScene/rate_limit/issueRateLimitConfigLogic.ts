@@ -53,6 +53,8 @@ export interface issueRateLimitConfigLogicValues {
     configFormTouches: Record<string, boolean>
     configFormValidationErrors: DeepPartialMap<IssueRateLimitConfigForm, ValidationErrorType>
     configLoading: boolean
+    defaultLimit: number | null
+    effectiveLimit: number | null
     hasLoadedConfig: boolean
     isConfigFormSubmitting: boolean
     isConfigFormValid: boolean
@@ -241,6 +243,8 @@ export interface issueRateLimitConfigLogicActions {
 export interface issueRateLimitConfigLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         selectedIssue: (topIssues: TopIssue[], selectedIssueId: string | null) => TopIssue | null
+        defaultLimit: (config: ErrorTrackingSettings | null) => number | null
+        effectiveLimit: (configForm: IssueRateLimitConfigForm, defaultLimit: number | null) => number | null
     }
 }
 
@@ -444,8 +448,8 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
             defaults: DEFAULT_CONFIG,
             errors: ({ per_issue_rate_limit_value }) => ({
                 per_issue_rate_limit_value:
-                    per_issue_rate_limit_value !== null && per_issue_rate_limit_value < 1
-                        ? 'Rate limit must be at least 1'
+                    per_issue_rate_limit_value !== null && per_issue_rate_limit_value < 0
+                        ? 'Rate limit cannot be negative'
                         : undefined,
             }),
             submit: async ({ per_issue_rate_limit_value, per_issue_rate_limit_bucket_size_minutes }) => {
@@ -468,13 +472,33 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
             (s) => [s.topIssues, s.selectedIssueId],
             (issues: TopIssue[], selectedId: string | null) => issues.find((i) => i.issue_id === selectedId) ?? null,
         ],
+        defaultLimit: [
+            (s) => [s.config],
+            (config: ErrorTrackingSettings | null) => config?.default_per_issue_rate_limit_value ?? null,
+        ],
+        // What ingestion actually enforces: an empty field falls back to the default, 0 turns
+        // the limit off entirely.
+        effectiveLimit: [
+            (s) => [s.configForm, s.defaultLimit],
+            (configForm: IssueRateLimitConfigForm, defaultLimit: number | null) => {
+                const value = configForm.per_issue_rate_limit_value
+                if (value === null) {
+                    return defaultLimit
+                }
+                return value > 0 ? value : null
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
         loadConfigSuccess: ({ config }) => {
-            const bucket = getBucketOption(
-                config?.per_issue_rate_limit_bucket_size_minutes ?? DEFAULT_BUCKET_MINUTES
-            ).minutes
+            // With no limit of their own the team is on the default, so show the window that
+            // default applies over rather than whatever bucket size happens to be stored.
+            const storedBucket =
+                config?.per_issue_rate_limit_value === null
+                    ? config?.default_per_issue_rate_limit_bucket_size_minutes
+                    : config?.per_issue_rate_limit_bucket_size_minutes
+            const bucket = getBucketOption(storedBucket ?? DEFAULT_BUCKET_MINUTES).minutes
             const limit = config?.per_issue_rate_limit_value ?? null
             if (config) {
                 actions.resetConfigForm({

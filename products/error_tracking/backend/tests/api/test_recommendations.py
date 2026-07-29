@@ -5,6 +5,7 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 from rest_framework import status
@@ -303,17 +304,19 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
     def test_alerts_is_completed_false_when_empty(self):
         self.assertFalse(AlertsRecommendation().is_completed({"alerts": []}))
 
-    def test_rate_limits_recommendation_with_no_settings(self):
+    @override_settings(ERROR_TRACKING_DEFAULT_PER_ISSUE_RATE_LIMIT=10000)
+    def test_rate_limits_recommendation_counts_the_per_issue_default_as_in_effect(self):
         meta = RateLimitsRecommendation().compute(self.team)
         by_key = {r["key"]: r["enabled"] for r in meta["rate_limits"]}
         self.assertFalse(by_key["project"])
-        self.assertFalse(by_key["per_issue"])
+        self.assertTrue(by_key["per_issue"])
 
-    def test_rate_limits_recommendation_detects_set_limits(self):
+    @override_settings(ERROR_TRACKING_DEFAULT_PER_ISSUE_RATE_LIMIT=10000)
+    def test_rate_limits_recommendation_detects_per_issue_opt_out(self):
         ErrorTrackingSettings.objects.create(
             team=self.team,
             project_rate_limit_value=1000,
-            per_issue_rate_limit_value=None,
+            per_issue_rate_limit_value=0,
         )
         meta = RateLimitsRecommendation().compute(self.team)
         by_key = {r["key"]: r["enabled"] for r in meta["rate_limits"]}

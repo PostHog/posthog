@@ -9,7 +9,7 @@ use crate::{
     modes::processing::config::ProcessingConfig,
     modes::processing::rules::assignment::AssignmentRule,
     modes::processing::rules::bypass::BypassRule, modes::processing::rules::grouping::GroupingRule,
-    modes::processing::rules::rate_limit::RateLimitSettings,
+    modes::processing::rules::rate_limit::{RateLimitDefaults, RateLimitSettings},
     modes::processing::rules::spike::SpikeDetectionConfig,
     modes::processing::rules::suppression::SuppressionRule,
 };
@@ -24,6 +24,9 @@ pub struct TeamManager {
     pub group_type_indices: Cache<TeamId, Vec<GroupType>>,
     pub spike_detection_configs: Cache<TeamId, Option<SpikeDetectionConfig>>,
     pub rate_limit_settings: Cache<TeamId, Option<RateLimitSettings>>,
+    // Fallback limits for teams that never configured their own. `rate_limit_settings`
+    // caches raw DB state; these are layered on top when the settings are handed out.
+    rate_limit_defaults: RateLimitDefaults,
 }
 
 impl TeamManager {
@@ -89,6 +92,7 @@ impl TeamManager {
             group_type_indices,
             spike_detection_configs,
             rate_limit_settings,
+            rate_limit_defaults: RateLimitDefaults::from_config(config),
         }
     }
 
@@ -273,9 +277,10 @@ impl TeamManager {
         Ok(settings)
     }
 
-    /// Batch-load rate-limit settings for the teams in a request. Teams with no
-    /// settings row (opted out) or a load error are omitted from the map, so the
-    /// rate-limiting stage simply skips them.
+    /// Batch-load rate-limit settings for the teams in a request, with the deployment
+    /// defaults filled in — a team with no settings row still gets the default per-issue
+    /// cap. Teams whose settings failed to load are omitted so the rate-limiting stage
+    /// skips them rather than dropping their events on a transient DB error.
     pub async fn get_rate_limit_settings(
         &self,
         pool: &sqlx::PgPool,
@@ -299,10 +304,10 @@ impl TeamManager {
         let mut result = HashMap::new();
         for (team_id, task) in tasks {
             match task.await.expect("Task was not cancelled") {
-                Ok(Some(settings)) => {
-                    result.insert(team_id, settings);
+                Ok(settings) => {
+                    let settings = settings.unwrap_or_default();
+                    result.insert(team_id, settings.with_defaults(&self.rate_limit_defaults));
                 }
-                Ok(None) => {}
                 Err(e) => {
                     warn!("Failed to load rate limit settings for team {team_id}: {e}");
                 }

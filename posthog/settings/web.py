@@ -1041,6 +1041,16 @@ ERROR_TRACKING_WEEKLY_DIGEST_ORG_IDS = get_list(get_from_env("ERROR_TRACKING_WEE
 # "*" for all
 ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS = get_list(get_from_env("ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS", ""))
 
+# Fallback per-issue exception rate limit for teams that never configured one, so a single
+# runaway issue is capped out of the box. Cymbal reads the same two env vars to enforce it —
+# keep the values in sync. 0 turns the fallback off.
+ERROR_TRACKING_DEFAULT_PER_ISSUE_RATE_LIMIT: int = get_from_env(
+    "ERROR_TRACKING_DEFAULT_PER_ISSUE_RATE_LIMIT", 10000, type_cast=int
+)
+ERROR_TRACKING_DEFAULT_PER_ISSUE_RATE_LIMIT_BUCKET_MINUTES: int = get_from_env(
+    "ERROR_TRACKING_DEFAULT_PER_ISSUE_RATE_LIMIT_BUCKET_MINUTES", 60, type_cast=int
+)
+
 # webhook secret used initially for ET weekly digest workflow webhook but feel free to adopt it
 WORKFLOWS_WEBHOOK_SECRET = get_from_env("WORKFLOWS_WEBHOOK_SECRET", "")
 

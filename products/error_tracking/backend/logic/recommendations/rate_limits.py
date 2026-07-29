@@ -1,12 +1,25 @@
-from typing import Any
+from collections.abc import Callable
+from typing import Any, NamedTuple
 
+from products.error_tracking.backend.logic import effective_per_issue_rate_limit
 from products.error_tracking.backend.models import ErrorTrackingSettings
 
 from .base import Recommendation
 
-RATE_LIMITS: list[dict[str, str]] = [
-    {"key": "project", "field": "project_rate_limit_value"},
-    {"key": "per_issue", "field": "per_issue_rate_limit_value"},
+
+class RateLimit(NamedTuple):
+    key: str
+    field: str
+    # Answers "is this project's exception volume actually capped", which for the per-issue
+    # limit includes the fallback teams get without configuring anything.
+    in_effect: Callable[[int | None], bool]
+
+
+RATE_LIMITS: list[RateLimit] = [
+    RateLimit("project", "project_rate_limit_value", lambda value: value is not None and value > 0),
+    RateLimit(
+        "per_issue", "per_issue_rate_limit_value", lambda value: effective_per_issue_rate_limit(value) is not None
+    ),
 ]
 
 
@@ -19,7 +32,7 @@ class RateLimitsRecommendation(Recommendation):
         return bool(rate_limits) and all(r.get("enabled") for r in rate_limits)
 
     def compute_batch(self, team_ids: list[int]) -> dict[int, dict[str, Any]]:
-        fields = [rate_limit["field"] for rate_limit in RATE_LIMITS]
+        fields = [rate_limit.field for rate_limit in RATE_LIMITS]
         settings_by_team = {
             row["team_id"]: row
             for row in ErrorTrackingSettings.objects.filter(team_id__in=team_ids).values("team_id", *fields)
@@ -31,8 +44,8 @@ class RateLimitsRecommendation(Recommendation):
         return {
             "rate_limits": [
                 {
-                    "key": rate_limit["key"],
-                    "enabled": settings is not None and settings.get(rate_limit["field"]) is not None,
+                    "key": rate_limit.key,
+                    "enabled": rate_limit.in_effect((settings or {}).get(rate_limit.field)),
                 }
                 for rate_limit in RATE_LIMITS
             ]

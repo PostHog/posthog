@@ -1,5 +1,7 @@
 from posthog.test.base import APIBaseTest
 
+from django.test import override_settings
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -23,11 +25,23 @@ class TestErrorTrackingSettingsAPI(APIBaseTest):
         )
         return value
 
+    @override_settings(ERROR_TRACKING_DEFAULT_PER_ISSUE_RATE_LIMIT=10000)
     def test_retrieve_settings_with_session_auth(self):
         response = self.client.get(f"{self._base_url()}/retrieve_settings/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("project_rate_limit_value", response.json())
-        self.assertIn("per_issue_rate_limit_value", response.json())
+        self.assertIsNone(response.json()["per_issue_rate_limit_value"])
+        # The UI needs the fallback to explain what applies while the project has no limit of its own.
+        self.assertEqual(response.json()["default_per_issue_rate_limit_value"], 10000)
+
+    def test_per_issue_limit_can_be_set_to_zero_to_opt_out_of_the_default(self):
+        response = self.client.patch(
+            f"{self._base_url()}/update_settings/",
+            {"per_issue_rate_limit_value": 0},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(ErrorTrackingSettings.objects.get(team=self.team).per_issue_rate_limit_value, 0)
 
     def test_update_settings_with_session_auth(self):
         response = self.client.patch(
