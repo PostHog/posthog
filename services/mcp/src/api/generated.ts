@@ -27909,6 +27909,26 @@ export namespace Schemas {
     }
 
     /**
+     * Request body for the batch session-context endpoint.
+     */
+    export interface ExperimentSessionContextsRequest {
+      /**
+         * IDs of the session recordings to resolve experiment context for, at most 20 per request. Duplicates are ignored.
+         * @minItems 1
+         * @maxItems 20
+         */
+      session_ids: string[];
+    }
+
+    /**
+     * Experiment/variant context for a batch of session recordings.
+     */
+    export interface ExperimentSessionContextsResponse {
+      /** Per-session experiment context, in the order the session IDs were requested. Sessions whose recording metadata doesn't exist yet (still ingesting, or unknown to this project) are omitted, as are recordings you don't have access to and sessions beyond the batch's recording-day budget (only the most recent days are computed). Fetch omitted sessions individually via the single-session endpoint. */
+      results: ExperimentSessionContextResponse[];
+    }
+
+    /**
      * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
      */
     export interface ExperimentWrite {
@@ -39936,6 +39956,9 @@ export namespace Schemas {
      * * `permission_response` - permission_response
      * * `set_config_option` - set_config_option
      * * `mcp_response` - mcp_response
+     * * `pi/rpc` - pi/rpc
+     * * `queue_get` - queue_get
+     * * `queue_clear` - queue_clear
      */
     export type MethodEnum = typeof MethodEnum[keyof typeof MethodEnum];
 
@@ -39947,6 +39970,9 @@ export namespace Schemas {
       PermissionResponse: 'permission_response',
       SetConfigOption: 'set_config_option',
       McpResponse: 'mcp_response',
+      PiRpc: 'pi/rpc',
+      QueueGet: 'queue_get',
+      QueueClear: 'queue_clear',
     } as const;
 
     /**
@@ -47111,6 +47137,34 @@ export namespace Schemas {
     }
 
     /**
+     * The in-flight `wizard_ask` question. Typed rather than a free-form dict so the shape the
+     * widget renders is enforced at the edge instead of trusted from the producer.
+     */
+    export interface PendingInput {
+      /**
+         * Identifier the wizard mints for this question. Changes when a new question is asked.
+         * @maxLength 255
+         */
+      id: string;
+      /** UTC timestamp when the wizard asked. Defaults to the session's update time when absent. */
+      asked_at?: string;
+      /**
+         * How many questions this single ask covers.
+         * @minimum 1
+         * @maximum 100
+         */
+      question_count?: number;
+      /** Whether the answer is a secret. Sensitive questions never carry prompt text. */
+      sensitive?: boolean;
+      /**
+         * The question text shown to the user. Always empty for sensitive questions.
+         * @maxItems 10
+         * @items.maxLength 2000
+         */
+      prompts?: string[];
+    }
+
+    /**
      * * `idle` - IDLE
      * * `running` - RUNNING
      * * `completed` - COMPLETED
@@ -47164,6 +47218,8 @@ export namespace Schemas {
      * Output: serialises a WizardSessionDTO returned by the facade.
      */
     export interface WizardSessionDTO {
+      /** The question the wizard is currently blocked on, or null when nothing is pending. */
+      pending_input: PendingInput | null;
       session_id: string;
       team_id: number;
       workflow_id: string;
@@ -62318,10 +62374,28 @@ export namespace Schemas {
       started: boolean;
     }
 
+    export type SignalScoutRunDetailMetadataDerived = {
+      has_emit_report: boolean;
+      has_edit_report: boolean;
+      has_self_improvement: boolean;
+      has_chart: boolean;
+      has_self_validation: boolean;
+    };
+
     /**
-     * Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field.
+     * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got the GitHub evidence section) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when routing overrode the agent-server default: `model`, `runtime_adapter`, and `reasoning_effort`. The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
      */
-    export type SignalScoutRunDetailMetadata = {[key: string]: string};
+    export type SignalScoutRunDetailMetadata = {
+      harness_prompt_version?: string;
+      report_channel?: string;
+      skill_origin?: string;
+      github_guidance?: boolean;
+      model?: string;
+      runtime_adapter?: string;
+      reasoning_effort?: string;
+      derived?: SignalScoutRunDetailMetadataDerived;
+      [key: string]: unknown;
+     };
 
     /**
      * Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
@@ -62388,14 +62462,32 @@ export namespace Schemas {
       emitted_report_ids: string[];
       /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
       edited_report_ids: string[];
-      /** Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field. */
+      /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got the GitHub evidence section) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when routing overrode the agent-server default: `model`, `runtime_adapter`, and `reasoning_effort`. The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
       metadata: SignalScoutRunDetailMetadata;
     }
 
+    export type SignalScoutRunSummaryMetadataDerived = {
+      has_emit_report: boolean;
+      has_edit_report: boolean;
+      has_self_improvement: boolean;
+      has_chart: boolean;
+      has_self_validation: boolean;
+    };
+
     /**
-     * Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field.
+     * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got the GitHub evidence section) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when routing overrode the agent-server default: `model`, `runtime_adapter`, and `reasoning_effort`. The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
      */
-    export type SignalScoutRunSummaryMetadata = {[key: string]: string};
+    export type SignalScoutRunSummaryMetadata = {
+      harness_prompt_version?: string;
+      report_channel?: string;
+      skill_origin?: string;
+      github_guidance?: boolean;
+      model?: string;
+      runtime_adapter?: string;
+      reasoning_effort?: string;
+      derived?: SignalScoutRunSummaryMetadataDerived;
+      [key: string]: unknown;
+     };
 
     /**
      * Lightweight projection of a `SignalScoutRun` row used by `search-recent-runs`.
@@ -62462,7 +62554,7 @@ export namespace Schemas {
       emitted_report_ids: string[];
       /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
       edited_report_ids: string[];
-      /** Scout-owned per-run context stamped at run start. Known keys today: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. Empty object when the run rode the default model, or for runs predating the field. */
+      /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got the GitHub evidence section) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when routing overrode the agent-server default: `model`, `runtime_adapter`, and `reasoning_effort`. The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
       metadata: SignalScoutRunSummaryMetadata;
     }
 
@@ -67220,6 +67312,30 @@ export namespace Schemas {
     }
 
     /**
+     * A support ticket linked to an account, sourced from the conversations product (read-only).
+     */
+    export interface SupportTicket {
+      /** UUID of the support ticket. */
+      readonly id: string;
+      /** Human-readable ticket number. */
+      readonly ticket_number: number;
+      /** Current status of the ticket (e.g. 'new', 'open'). */
+      readonly status: string;
+      /**
+         * When the most recent message was sent on this ticket.
+         * @nullable
+         */
+      readonly last_message_at: string | null;
+      /**
+         * Truncated preview of the most recent message.
+         * @nullable
+         */
+      readonly last_message_text: string | null;
+      /** Absolute URL to open this ticket in the app. */
+      readonly deep_link: string;
+    }
+
+    /**
      * Event counts keyed by event name (survey shown, survey dismissed, survey sent).
      */
     export type SurveyGlobalStatsResponseStats = { [key: string]: unknown };
@@ -68532,18 +68648,16 @@ export namespace Schemas {
        * * `close` - close
        * * `permission_response` - permission_response
        * * `set_config_option` - set_config_option
-       * * `mcp_response` - mcp_response */
+       * * `mcp_response` - mcp_response
+       * * `pi/rpc` - pi/rpc
+       * * `queue_get` - queue_get
+       * * `queue_clear` - queue_clear */
       method: MethodEnum;
       /** Parameters for the command */
       params?: TaskRunCommandRequestParams;
       /** Optional JSON-RPC request ID (string or number) */
       id?: unknown;
     }
-
-    /**
-     * Command result on success
-     */
-    export type TaskRunCommandResponseResult = { [key: string]: unknown };
 
     /**
      * Error details on failure
@@ -68559,7 +68673,7 @@ export namespace Schemas {
       /** Request ID echoed back (string or number) */
       id?: unknown;
       /** Command result on success */
-      result?: TaskRunCommandResponseResult;
+      result?: unknown;
       /** Error details on failure */
       error?: TaskRunCommandResponseError;
     }
@@ -68862,6 +68976,28 @@ export namespace Schemas {
          * @items.maxLength 128
          */
       pending_user_artifact_ids?: string[];
+    }
+
+    export interface TaskSessionResponse {
+      /** Task session identifier */
+      id: string;
+      /**
+         * Temporary URL for downloading the session
+         * @nullable
+         */
+      download_url: string | null;
+      /**
+         * SHA-256 digest of the current session content
+         * @nullable
+         */
+      content_sha256: string | null;
+    }
+
+    export interface TaskSessionSyncResponse {
+      /** Task session identifier */
+      id: string;
+      /** SHA-256 digest of the uploaded session content */
+      content_sha256: string;
     }
 
     export interface TaskStagedArtifactFinalizeUpload {
@@ -69805,6 +69941,8 @@ export namespace Schemas {
      * Input: validates the JSON the wizard CLI posts. team_id is derived from URL.
      */
     export interface UpsertWizardSessionRequest {
+      /** Populated while the wizard is blocked on a question in the terminal. Null/absent means no input is pending; a push without it clears the previous prompt. */
+      pending_input?: PendingInput | null;
       /**
          * Stable identifier the wizard mints for this run (format: '{workflow_id}-{skill_id}-{started_at_iso}'). Reposting with the same session_id upserts the existing row.
          * @maxLength 255
