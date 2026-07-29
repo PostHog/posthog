@@ -16,6 +16,7 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -122,6 +123,7 @@ import {
     defaultSurveyAppearance,
     defaultSurveyFieldValues,
 } from './constants'
+import { surveyEventLibsLogic } from './surveyEventLibsLogic'
 import { getSurveyStatus, surveysLogic } from './surveysLogic'
 import type { SurveyDataState } from './surveysLogic'
 import { SurveyFeatureWarning, getSurveyWarnings } from './surveyVersionRequirements'
@@ -640,6 +642,7 @@ export interface surveyLogicValues {
     enabledFlags: FeatureFlagsSet // enabledFlagLogic
     dataProcessingAccepted: boolean // maxGlobalLogic
     propertyDefinitionsByType: (type: string, groupTypeIndex?: number | null) => PropertyDefinition[] // propertyDefinitionsModel
+    nonClientSideLibsByEvent: Record<string, string[]> // surveyEventLibsLogic
     data: SurveyDataState // surveysLogic
     teamSdkVersions: TeamSdkVersions // surveysLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
@@ -738,6 +741,7 @@ export interface surveyLogicValues {
     surveyShufflingQuestionsAvailable: boolean
     surveyTouched: boolean
     surveyTouches: Record<string, boolean>
+    surveyTriggerEventNames: string[]
     surveyUsesAdaptiveLimit: boolean
     surveyUsesLimit: boolean
     surveyValidationErrors: DeepPartialMap<NewSurvey | Survey, ValidationErrorType>
@@ -809,6 +813,9 @@ export interface surveyLogicActions {
     reportSurveyViewed: (survey: Survey) => {
         survey: Survey
     } // eventUsageLogic
+    loadEventLibs: (eventNames: string[]) => {
+        eventNames: string[]
+    } // surveyEventLibsLogic
     loadSurveys: () => any // surveysLogic
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
     archiveResponse: (responseUuid: string) => {
@@ -1357,6 +1364,7 @@ export interface surveyLogicActions {
 export interface surveyLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        surveyTriggerEventNames: (survey: NewSurvey | Survey) => string[]
         enrichedConsolidatedSurveyResults: (
             consolidatedSurveyResults: any,
             personNames: Record<string, string>
@@ -1488,6 +1496,8 @@ export const surveyLogic = kea<surveyLogicType>([
             ],
             teamLogic,
             ['addProductIntent'],
+            surveyEventLibsLogic,
+            ['loadEventLibs'],
         ],
         values: [
             enabledFlagLogic,
@@ -1502,6 +1512,8 @@ export const surveyLogic = kea<surveyLogicType>([
             ['propertyDefinitionsByType'],
             maxGlobalLogic,
             ['dataProcessingAccepted'],
+            surveyEventLibsLogic,
+            ['nonClientSideLibsByEvent'],
         ],
     })),
     actions({
@@ -2805,6 +2817,16 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
     }),
     selectors({
+        surveyTriggerEventNames: [
+            (s) => [s.survey],
+            (survey: Survey | NewSurvey): string[] => [
+                ...new Set(
+                    [...(survey.conditions?.events?.values ?? []), ...(survey.conditions?.cancelEvents?.values ?? [])]
+                        .map((event) => event?.name)
+                        .filter((name): name is string => !!name)
+                ),
+            ],
+        ],
         enrichedConsolidatedSurveyResults: [
             (s) => [s.consolidatedSurveyResults, s.personNames],
             (results: ConsolidatedSurveyResults, personNames: Record<string, string>): ConsolidatedSurveyResults => {
@@ -4115,6 +4137,13 @@ export const surveyLogic = kea<surveyLogicType>([
             router.values.hashParams,
             { replace: true },
         ],
+    })),
+    subscriptions(({ actions }) => ({
+        surveyTriggerEventNames: (eventNames: string[]) => {
+            if (eventNames.length > 0) {
+                actions.loadEventLibs(eventNames)
+            }
+        },
     })),
     afterMount(({ props, actions, values }) => {
         // Preserve any in-memory edits when re-mounting on the same survey id (e.g.

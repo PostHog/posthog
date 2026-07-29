@@ -1,7 +1,14 @@
 import { useActions, useValues } from 'kea'
 
 import { IconInfo, IconX } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonSegmentedButton, LemonSnack } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCheckbox,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSnack,
+} from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -23,6 +30,7 @@ import {
     convertArrayToPropertyFilters,
     convertPropertyFiltersToArray,
     getEventPropertyFilterCount,
+    getServerSideOnlyEventWarning,
     useExcludedObjectProperties,
 } from '../../SurveyEventTrigger'
 import { surveyLogic } from '../../surveyLogic'
@@ -40,7 +48,7 @@ const FREQUENCY_OPTIONS: { value: string; days: number | undefined; label: strin
 ]
 
 export function WhenStep(): JSX.Element {
-    const { survey } = useValues(surveyLogic)
+    const { survey, nonClientSideLibsByEvent } = useValues(surveyLogic)
     const { setSurveyValue } = useActions(surveyLogic)
     const { recommendedFrequency } = useValues(surveyWizardLogic({ id: survey.id || 'new' }))
 
@@ -225,6 +233,7 @@ export function WhenStep(): JSX.Element {
                                 </div>
                                 {triggerEvents.map((event) => {
                                     const propertyFilterCount = getEventPropertyFilterCount(event.propertyFilters)
+                                    const nonClientSideLibs = nonClientSideLibsByEvent[event.name]
 
                                     return (
                                         <WizardPanel key={event.name} className="bg-bg-light">
@@ -250,6 +259,11 @@ export function WhenStep(): JSX.Element {
                                                     type="tertiary"
                                                 />
                                             </div>
+                                            {!!nonClientSideLibs?.length && (
+                                                <LemonBanner type="warning" className="mb-3">
+                                                    {getServerSideOnlyEventWarning(event.name, nonClientSideLibs)}
+                                                </LemonBanner>
+                                            )}
                                             <PropertyFilters
                                                 propertyFilters={convertPropertyFiltersToArray(event.propertyFilters)}
                                                 onChange={(filters: AnyPropertyFilter[]) =>

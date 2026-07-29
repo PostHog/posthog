@@ -67,6 +67,27 @@ describe('Survey event trigger property filters', () => {
         return logic
     }
 
+    it('warns when the trigger event is only ever captured server-side', async () => {
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': () => [200, { results: [[['posthog-python']]] }],
+            },
+        })
+        mountSurveyWithTriggerEvent()
+
+        render(
+            <Provider>
+                <BindLogic logic={surveyLogic} props={{ id: 'new' }}>
+                    <SurveyEventTrigger />
+                </BindLogic>
+            </Provider>
+        )
+
+        expect(
+            await screen.findByText(/Recent signed_up events have only been captured by posthog-python/)
+        ).toBeInTheDocument()
+    })
+
     it('shows event property filters expanded by default in the full editor', async () => {
         mountSurveyWithTriggerEvent()
 

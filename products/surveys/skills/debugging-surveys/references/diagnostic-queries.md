@@ -57,3 +57,16 @@ WHERE event = 'survey shown' AND timestamp >= toDateTime('<WINDOW_START>')
 GROUP BY survey_id HAVING shown_before > 0 OR shown_after > 0
 ORDER BY shown_before DESC
 ```
+
+## Which SDKs capture the trigger event (is it server-side only?)
+
+```sql
+SELECT properties.$lib AS lib, count() AS events, max(timestamp) AS last_seen
+FROM events
+WHERE event = '<TRIGGER_EVENT>' AND timestamp >= now() - INTERVAL 30 DAY
+GROUP BY lib
+ORDER BY events DESC
+```
+
+Only server-side libs (`posthog-python`, `posthog-node`, `posthog-go`, ...) or an empty
+`$lib` ⇒ the client SDK never sees the event, so the trigger can never fire.

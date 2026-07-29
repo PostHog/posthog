@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 import { PropertyMatchType } from 'posthog-js'
 import { useMemo } from 'react'
 
-import { IconX } from '@posthog/icons'
-import { LemonCard, LemonCheckbox, LemonCollapse } from '@posthog/lemon-ui'
+import { IconWarning, IconX } from '@posthog/icons'
+import { LemonBanner, LemonCard, LemonCheckbox, LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -71,6 +71,10 @@ export function convertArrayToPropertyFilters(
     return propertyFilters
 }
 
+export function getServerSideOnlyEventWarning(eventName: string, libs: string[]): string {
+    return `Recent ${eventName} events have only been captured by ${libs.join(', ')}. Triggers only fire for events captured by a browser or mobile SDK, so pick an event your client SDK sends, or target the survey with URL or person properties instead.`
+}
+
 export function getEventPropertyFilterCount(propertyFilters?: SurveyEventsWithProperties['propertyFilters']): number {
     return propertyFilters ? Object.keys(propertyFilters).length : 0
 }
@@ -110,7 +114,7 @@ function SurveyEventSelector({
     addButtonText,
     showRepeatedActivation = false,
 }: SurveyEventSelectorProps): JSX.Element {
-    const { survey, surveyRepeatedActivationAvailable } = useValues(surveyLogic)
+    const { survey, surveyRepeatedActivationAvailable, nonClientSideLibsByEvent } = useValues(surveyLogic)
     const { setSurveyValue } = useActions(surveyLogic)
     const excludedObjectProperties = useExcludedObjectProperties()
 
@@ -163,6 +167,10 @@ function SurveyEventSelector({
                             const propertyFilterCount = getEventPropertyFilterCount(event.propertyFilters)
                             const hasPropertyFilters = propertyFilterCount > 0
                             const panelKey = `${conditionField}-event-${index}`
+                            const nonClientSideLibs = nonClientSideLibsByEvent[event.name]
+                            const serverSideOnlyWarning = nonClientSideLibs?.length
+                                ? getServerSideOnlyEventWarning(event.name, nonClientSideLibs)
+                                : null
 
                             return (
                                 <LemonCollapse
@@ -184,6 +192,11 @@ function SurveyEventSelector({
                                                                 ? `${propertyFilterCount} filter${propertyFilterCount !== 1 ? 's' : ''}`
                                                                 : 'No filters'}
                                                         </span>
+                                                        {serverSideOnlyWarning && (
+                                                            <Tooltip title={serverSideOnlyWarning}>
+                                                                <IconWarning className="text-warning shrink-0" />
+                                                            </Tooltip>
+                                                        )}
                                                     </div>
                                                 ),
                                                 sideAction: {
@@ -194,6 +207,11 @@ function SurveyEventSelector({
                                             },
                                             content: (
                                                 <div className="space-y-2">
+                                                    {serverSideOnlyWarning && (
+                                                        <LemonBanner type="warning">
+                                                            {serverSideOnlyWarning}
+                                                        </LemonBanner>
+                                                    )}
                                                     <PropertyFilters
                                                         propertyFilters={convertPropertyFiltersToArray(
                                                             event.propertyFilters
@@ -257,7 +275,7 @@ export function SurveyEventTrigger(): JSX.Element {
         <SurveyEventSelector
             conditionField="events"
             label="User sends events"
-            info="Triggers fire when the event is captured in the current user session via a PostHog SDK. Property filtering requires posthog-js 1.268+ or posthog-react-native 4.15+."
+            info="Triggers fire when the event is captured in the current user session by a browser or mobile SDK. Events sent from a server-side library, like posthog-node or posthog-python, can't fire a trigger. Property filtering requires posthog-js 1.268+ or posthog-react-native 4.15+."
             emptyTitle="No events selected"
             emptyDescription="Pick events that should trigger this survey."
             showRepeatedActivation
@@ -273,7 +291,7 @@ export function SurveyCancelEventTrigger(): JSX.Element {
         <SurveyEventSelector
             conditionField="cancelEvents"
             label="Cancel survey on events"
-            info="Triggers fire when the event is captured in the current user session via a PostHog SDK. Requires posthog-js 1.299+. Web surveys only."
+            info="Triggers fire when the event is captured in the current user session by posthog-js. Events sent from a server-side library, like posthog-node or posthog-python, can't fire a trigger. Requires posthog-js 1.299+. Web surveys only."
             emptyTitle={`During your ${delaySeconds} second delay...`}
             emptyDescription="If any of these events fire, the survey is cancelled — useful when the user has already completed the action."
             addButtonText="Add cancel event"
