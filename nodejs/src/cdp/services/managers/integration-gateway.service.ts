@@ -55,7 +55,12 @@ export class IntegrationGatewayService {
         }
 
         const body = (await response.json()) as { integrations?: Record<string, IntegrationType | null> }
-        const gatewayResult = body.integrations ?? {}
+        // A 200 with a malformed body must trigger the Postgres fallback, not silently resolve every
+        // id to null (which would surface as "integration not found" for real, connected integrations).
+        if (!body || typeof body.integrations !== 'object' || body.integrations === null) {
+            throw new Error('integration gateway returned a malformed response')
+        }
+        const gatewayResult = body.integrations
 
         const result: Record<string, IntegrationType | null> = {}
         for (const id of ids) {

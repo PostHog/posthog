@@ -53,12 +53,19 @@ export class RefreshManager {
             return row
         }
 
-        const provider = providerFor(row.kind, this.config)
+        const provider = providerFor(row.kind, this.config, row.config)
         if (!provider) {
             logger.warn('[RefreshManager] refresh requested but no provider/credentials configured; skipping', {
                 id: row.id,
                 kind: row.kind,
             })
+            recordRefresh(row.kind, 'skipped')
+            return row
+        }
+
+        // No stored refresh_token => nothing to refresh. Skip (don't mark failed), mirroring Django's
+        // access_token_expired, which returns false when there's no refresh_token.
+        if (typeof row.sensitive_config?.refresh_token !== 'string') {
             recordRefresh(row.kind, 'skipped')
             return row
         }
@@ -83,9 +90,13 @@ export class RefreshManager {
 
         try {
             const updated = await this.refreshLocked(row, provider)
+            await this.releaseLock(lockKey)
             recordRefresh(row.kind, 'refreshed')
             return updated
         } catch (error) {
+            // Deliberately do NOT release the lock on failure: its TTL becomes a per-integration
+            // cooldown so a persistently-failing provider is retried at most once per lock window
+            // rather than on every fetch — a lightweight stand-in for Django's refresh backoff.
             logger.warn('[RefreshManager] token refresh failed', { id: row.id, kind: row.kind, error: String(error) })
             try {
                 await this.repository.markRefreshFailed(row.id)
@@ -97,8 +108,6 @@ export class RefreshManager {
             }
             recordRefresh(row.kind, 'failed')
             return row
-        } finally {
-            await this.releaseLock(lockKey)
         }
     }
 

@@ -83,7 +83,7 @@ function setup(
 describe('RefreshManager', () => {
     it('refreshes an expired token, re-encrypting the new tokens and writing them back', async () => {
         mockTokenResponse(200, { access_token: 'new-access', expires_in: 1800, refresh_token: 'new-refresh' })
-        const { manager, repository, encryptedFields, row } = setup()
+        const { manager, repository, encryptedFields, client, row } = setup()
 
         const result = await manager.refresh(row)
 
@@ -103,6 +103,8 @@ describe('RefreshManager', () => {
         expect(options.body).toContain('grant_type=refresh_token')
         expect(options.body).toContain('refresh_token=old-refresh')
         expect(options.body).toContain('client_id=cid')
+        // On success the lock is released so a later legitimate refresh can proceed.
+        expect(client.del).toHaveBeenCalled()
     })
 
     it('does nothing when the token is still fresh (no HTTP call, no write)', async () => {
@@ -125,28 +127,26 @@ describe('RefreshManager', () => {
 
     it('marks the integration failed and serves the old token when the provider errors', async () => {
         mockTokenResponse(400, { error: 'invalid_grant' })
-        const { manager, repository, encryptedFields, row } = setup()
+        const { manager, repository, encryptedFields, client, row } = setup()
         const result = await manager.refresh(row)
         expect(repository.markRefreshFailed).toHaveBeenCalledWith(1)
         expect(repository.updateAfterRefresh).not.toHaveBeenCalled()
         expect(encryptedFields.decrypt(result.sensitive_config.access_token)).toBe('old-access')
+        // The lock is deliberately NOT released on failure; its TTL is the per-integration cooldown.
+        expect(client.del).not.toHaveBeenCalled()
     })
 
-    it('marks failed when the integration has no stored refresh_token', async () => {
+    it('skips (without marking failed) when the integration has no stored refresh_token', async () => {
         const seed = new EncryptedFields(SALT)
-        const row: IntegrationRow = {
-            id: 1,
-            team_id: 2,
-            kind: 'hubspot',
-            config: { refreshed_at: nowSecs() - 3000, expires_in: 3600 },
-            sensitive_config: { access_token: seed.encrypt('old-access') },
-        }
-        const { manager, repository } = setup({ rowOverrides: { sensitive_config: row.sensitive_config } })
-        // fetchOne re-reads the (also refresh-token-less) row under the lock.
-        ;(repository.fetchOne as jest.Mock).mockResolvedValue(row)
-        await manager.refresh(row)
-        expect(repository.markRefreshFailed).toHaveBeenCalledWith(1)
+        const { manager, repository, client, row } = setup({
+            rowOverrides: { sensitive_config: { access_token: seed.encrypt('old-access') } },
+        })
+        const result = await manager.refresh(row)
+        // No refresh_token => nothing to refresh; mirror Django by skipping, not marking failed.
+        expect(result).toBe(row)
         expect(mockFetch).not.toHaveBeenCalled()
+        expect(repository.markRefreshFailed).not.toHaveBeenCalled()
+        expect(client.set).not.toHaveBeenCalled()
     })
 
     it('skips without touching Redis when the kind has no configured provider', async () => {

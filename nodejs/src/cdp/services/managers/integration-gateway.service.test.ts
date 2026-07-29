@@ -67,6 +67,15 @@ describe('IntegrationGatewayService', () => {
         await expect(new IntegrationGatewayService(config()).fetchMany([1], 42)).rejects.toThrow('503')
     })
 
+    it('throws on a 200 with a malformed body so the manager falls back to Postgres', async () => {
+        mockInternalFetch.mockResolvedValue({
+            status: 200,
+            json: () => Promise.resolve({ unexpected: true }),
+            dump: () => Promise.resolve(),
+        })
+        await expect(new IntegrationGatewayService(config()).fetchMany([1], 42)).rejects.toThrow(/malformed/)
+    })
+
     it.each([
         ['a specific team in the list', '42', 42, true],
         ['a team not in the list', '7', 42, false],
