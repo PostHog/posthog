@@ -6,6 +6,10 @@ from zoneinfo import ZoneInfo
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+
 from posthog.schema import (
     DateRange,
     DistanceFunc,
@@ -32,6 +36,8 @@ def build_document_similarity_query(
     limit: int | None = None,
     offset: int | None = None,
 ) -> DocumentSimilarityQuery:
+    # Date-only bounds, so this relies on `date_to` covering the whole day - seed rows a few
+    # minutes after the origin can land on the following date when the seed straddles midnight.
     date_from = (origin.timestamp - timedelta(days=1)).date().isoformat()
     date_to = (origin.timestamp + timedelta(days=1)).date().isoformat()
 
@@ -78,11 +84,9 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         inserted_at: datetime
 
     def _seed_document_embeddings(self) -> list[DocumentEmbeddingRow]:
-        # Truncate model-specific tables
-        for model_name in self.models.keys():
-            table_name = f"distributed_posthog_document_embeddings_{model_name.replace('-', '_')}"
-            sync_execute(f"TRUNCATE TABLE {table_name}", flush=False, team_id=self.team.pk)
-
+        # No cleanup pass: rows are team-scoped and every test class gets a fresh team, so seeds
+        # can't leak between tests. TRUNCATE on a Distributed table wouldn't help anyway - it only
+        # drops blocks still queued for async forwarding, never rows on the underlying shards.
         fixtures: list[TestDocumentEmbeddingsQueryRunner.DocumentEmbeddingRow] = []
         rows_by_model: dict[str, list[tuple]] = {}
         row_index = 0
@@ -261,3 +265,16 @@ class TestDocumentEmbeddingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             and top_result.document_type == origin_document.document_type
             and top_result.document_id == origin_document.document_id
         )
+
+
+class TestParseRelativeDateTo(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("date_only", "2026-07-30", datetime(2026, 7, 30, 23, 59, 59, 999999, tzinfo=ZoneInfo("UTC"))),
+            ("date_only_unpadded", "2026-7-3", datetime(2026, 7, 3, 23, 59, 59, 999999, tzinfo=ZoneInfo("UTC"))),
+            ("midnight", "2026-07-30T00:00:00", datetime(2026, 7, 30, 0, 0, tzinfo=ZoneInfo("UTC"))),
+            ("explicit_time", "2026-07-30T08:15:00", datetime(2026, 7, 30, 8, 15, tzinfo=ZoneInfo("UTC"))),
+        ]
+    )
+    def test_date_only_bounds_cover_the_whole_day(self, _name: str, date_to: str, expected: datetime) -> None:
+        self.assertEqual(DocumentEmbeddingsQueryRunner.parse_relative_date_to(date_to), expected)
