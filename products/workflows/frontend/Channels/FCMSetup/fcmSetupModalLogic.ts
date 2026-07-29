@@ -8,7 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { IntegrationType } from '~/types'
 
-import { PUSH_IDENTITY_VERIFICATION_DEFAULT, PushIdentityVerificationMode } from '../PushIdentityVerificationField'
+import { PushIdentityVerificationMode, resolvePushIdentityVerification } from '../PushIdentityVerificationField'
 
 export interface FCMSetupModalLogicProps {
     integration?: IntegrationType | null
@@ -134,7 +134,7 @@ export const fcmSetupModalLogic = kea<fcmSetupModalLogicType>([
         fcmIntegration: {
             defaults: {
                 serviceAccountKey: '',
-                identityVerification: PUSH_IDENTITY_VERIFICATION_DEFAULT,
+                identityVerification: resolvePushIdentityVerification(props.integration),
             },
             errors: ({ serviceAccountKey }) => ({
                 serviceAccountKey: serviceAccountKey.trim() ? undefined : 'Service account key is required',

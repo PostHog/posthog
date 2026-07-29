@@ -8,7 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { IntegrationType } from '~/types'
 
-import { PUSH_IDENTITY_VERIFICATION_DEFAULT, PushIdentityVerificationMode } from '../PushIdentityVerificationField'
+import { PushIdentityVerificationMode, resolvePushIdentityVerification } from '../PushIdentityVerificationField'
 
 export interface APNSSetupModalLogicProps {
     integration?: IntegrationType | null
@@ -203,23 +203,29 @@ export const apnsSetupModalLogic = kea<apnsSetupModalLogicType>([
         ],
     }),
     listeners(({ actions }) => ({
-        setSigningKeyFiles: async ({ files }) => {
+        setSigningKeyFiles: async ({ files }, breakpoint) => {
             const file = files[0]
             if (!file) {
                 return
             }
+            let contents: string
             try {
-                const contents = await file.text()
-                if (!contents.includes(PEM_MARKER)) {
-                    actions.setSigningKeyFileError(
-                        "That file doesn't look like a signing key. Upload the .p8 file you downloaded from Apple."
-                    )
-                    return
-                }
-                actions.setApnsIntegrationValue('signingKey', contents.trim())
+                contents = await file.text()
             } catch {
                 actions.setSigningKeyFileError("Couldn't read that file. Try again, or paste the key contents instead.")
+                return
             }
+            // Picking a second file while this read is in flight makes this result stale. Without the
+            // breakpoint whichever read finished last would win, so an earlier file could overwrite the
+            // key while the input shows the newer filename.
+            breakpoint()
+            if (!contents.includes(PEM_MARKER)) {
+                actions.setSigningKeyFileError(
+                    "That file doesn't look like a signing key. Upload the .p8 file you downloaded from Apple."
+                )
+                return
+            }
+            actions.setApnsIntegrationValue('signingKey', contents.trim())
         },
     })),
     forms(({ props, actions, values }) => ({
@@ -230,7 +236,7 @@ export const apnsSetupModalLogic = kea<apnsSetupModalLogicType>([
                 teamId: '',
                 bundleId: '',
                 environment: 'production' as const,
-                identityVerification: PUSH_IDENTITY_VERIFICATION_DEFAULT,
+                identityVerification: resolvePushIdentityVerification(props.integration),
             },
             errors: ({ signingKey, keyId, teamId, bundleId }) => ({
                 signingKey: signingKey.trim() ? undefined : 'Signing key is required',

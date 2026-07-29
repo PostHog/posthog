@@ -2,9 +2,23 @@ import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { IntegrationType } from '~/types'
+
 export type PushIdentityVerificationMode = 'disabled' | 'optional' | 'required'
 
+export const PUSH_IDENTITY_VERIFICATION_MODES: PushIdentityVerificationMode[] = ['disabled', 'optional', 'required']
+
 export const PUSH_IDENTITY_VERIFICATION_DEFAULT: PushIdentityVerificationMode = 'disabled'
+
+/**
+ * Seed the form from what the integration already has. Reconnecting to rotate credentials submits
+ * this field like any other, so defaulting to `disabled` would silently turn verification off for a
+ * channel that had it on — the backend can't tell that apart from someone deliberately disabling it.
+ */
+export function resolvePushIdentityVerification(integration?: IntegrationType | null): PushIdentityVerificationMode {
+    const stored = integration?.config?.push_identity_verification
+    return PUSH_IDENTITY_VERIFICATION_MODES.includes(stored) ? stored : PUSH_IDENTITY_VERIFICATION_DEFAULT
+}
 
 const MODE_HELP: Record<PushIdentityVerificationMode, string> = {
     disabled: 'Any client with your project API key can register a device for any user.',

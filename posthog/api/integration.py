@@ -416,6 +416,22 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         team_id = self.context["team_id"]
         kind = validated_data["kind"]
 
+        # Enabling push identity verification is a security policy change, not a credential upload, so
+        # it needs the same admin bar as editing an integration. Without this a plain member could add
+        # a *new* APNs integration carrying someone else's bundle_id under a different Apple team id —
+        # which sidesteps the overwrite check below, since it creates rather than overwrites — and set
+        # `required` on it. The push endpoint resolves the strictest mode across every integration
+        # matching a bundle_id, so that would start rejecting the real app's device registrations.
+        requested_verification = (validated_data.get("config") or {}).get("push_identity_verification")
+        if (
+            requested_verification
+            and requested_verification != "disabled"
+            and not github_callback_state.has_team_management_access(
+                self.context["request"].user, self.context["get_team"]()
+            )
+        ):
+            raise PermissionDenied("Changing push identity verification requires project admin access.")
+
         # `create` is a POST with upsert semantics: each kind's helper does an `update_or_create`
         # keyed on (team, kind, integration_id), so re-submitting the same resource overwrites the
         # existing integration instead of adding a new one. Adding is allowed for any project

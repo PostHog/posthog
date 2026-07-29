@@ -4967,6 +4967,37 @@ class TestIntegrationMembershipPermissions(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert Integration.objects.filter(id=integration.id).exists()
 
+    def test_member_cannot_enable_push_identity_verification(self):
+        # Creating a *new* APNs integration sidesteps the overwrite check below, because a different
+        # Apple team id makes a different integration_id. But the push endpoint resolves the strictest
+        # verification mode across every integration sharing a bundle_id, so a member could otherwise
+        # set `required` on a lookalike and block the real app's device registrations.
+        Integration.objects.create(
+            team=self.team,
+            kind="apns",
+            integration_id="REALTEAM.com.example.app",
+            config={"bundle_id": "com.example.app", "team_id": "REALTEAM", "key_id": "KEY1"},
+            sensitive_config={},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "apns",
+                "config": {
+                    "signing_key": "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----",
+                    "key_id": "KEY2",
+                    "team_id_apple": "ATTACKER",
+                    "bundle_id": "com.example.app",
+                    "push_identity_verification": "required",
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert not Integration.objects.filter(team=self.team, integration_id="ATTACKER.com.example.app").exists()
+
     def test_member_cannot_overwrite_existing_integration(self):
         # POST is an upsert (update_or_create keyed on team/kind/integration_id), so re-submitting the
         # same resource edits an existing integration. Members may add a new one, but overwriting an

@@ -137,8 +137,14 @@ def preserved_push_config(
             )
         return {CONFIG_PUSH_IDENTITY_VERIFICATION: push_identity_verification}
 
+    # Lock the row for the rest of the caller's transaction. The read and the upsert that follows it
+    # are separate statements, so without this a concurrent write that enables verification could land
+    # in between and then be overwritten by the stale value read here — silently disabling the policy.
     existing = (
-        Integration.objects.filter(team_id=team_id, kind=kind, integration_id=integration_id).only("config").first()
+        Integration.objects.select_for_update()
+        .filter(team_id=team_id, kind=kind, integration_id=integration_id)
+        .only("config")
+        .first()
     )
     existing_mode = (existing.config or {}).get(CONFIG_PUSH_IDENTITY_VERIFICATION) if existing else None
     return {CONFIG_PUSH_IDENTITY_VERIFICATION: existing_mode} if existing_mode else {}
@@ -2259,24 +2265,26 @@ class FirebaseIntegration:
         if not project_id:
             raise ValidationError("Service account key must contain a project_id")
 
-        integration, created = Integration.objects.update_or_create(
-            team_id=team_id,
-            kind="firebase",
-            integration_id=project_id,
-            defaults={
-                "config": {
-                    **preserved_push_config(team_id, "firebase", project_id, push_identity_verification),
-                    "project_id": project_id,
-                    "expires_in": credentials.expiry.timestamp() - int(time.time()),
-                    "refreshed_at": int(time.time()),
+        # Atomic so `preserved_push_config`'s row lock is held through the upsert that follows it.
+        with transaction.atomic():
+            integration, created = Integration.objects.update_or_create(
+                team_id=team_id,
+                kind="firebase",
+                integration_id=project_id,
+                defaults={
+                    "config": {
+                        **preserved_push_config(team_id, "firebase", project_id, push_identity_verification),
+                        "project_id": project_id,
+                        "expires_in": credentials.expiry.timestamp() - int(time.time()),
+                        "refreshed_at": int(time.time()),
+                    },
+                    "sensitive_config": {
+                        "key_info": key_info,
+                        "access_token": credentials.token,
+                    },
+                    "created_by": created_by,
                 },
-                "sensitive_config": {
-                    "key_info": key_info,
-                    "access_token": credentials.token,
-                },
-                "created_by": created_by,
-            },
-        )
+            )
 
         if integration.errors:
             integration.errors = ""
@@ -2366,23 +2374,25 @@ class ApplePushIntegration:
             raise ValidationError("APNS environment must be 'production' or 'sandbox'")
 
         integration_id = f"{team_id_apple}.{bundle_id}"
-        integration, created = Integration.objects.update_or_create(
-            team_id=team_id,
-            kind="apns",
-            integration_id=integration_id,
-            defaults={
-                "config": {
-                    **preserved_push_config(team_id, "apns", integration_id, push_identity_verification),
-                    "team_id": team_id_apple,
-                    "bundle_id": bundle_id,
-                    "key_id": key_id,
-                    "environment": environment,
+        # Atomic so `preserved_push_config`'s row lock is held through the upsert that follows it.
+        with transaction.atomic():
+            integration, created = Integration.objects.update_or_create(
+                team_id=team_id,
+                kind="apns",
+                integration_id=integration_id,
+                defaults={
+                    "config": {
+                        **preserved_push_config(team_id, "apns", integration_id, push_identity_verification),
+                        "team_id": team_id_apple,
+                        "bundle_id": bundle_id,
+                        "key_id": key_id,
+                        "environment": environment,
+                    },
+                    "sensitive_config": {
+                        "signing_key": signing_key,
+                    },
                 },
-                "sensitive_config": {
-                    "signing_key": signing_key,
-                },
-            },
-        )
+            )
 
         if created and created_by is not None:
             integration.created_by = created_by
