@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonMenu, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -11,7 +11,6 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from 'lib/ui/quill'
 import { urls } from 'scenes/urls'
 
 import { AlertState, ProductKey } from '~/queries/schema/schema-general'
@@ -43,36 +42,31 @@ function AlertRowMenu({ alert, deleting, onDelete }: AlertRowMenuProps): JSX.Ele
     const { sendTestDelivery } = useActions(notificationLogic)
 
     return (
-        <DropdownMenu>
-            <DropdownMenuTrigger
-                render={
-                    <LemonButton
-                        type="tertiary"
-                        size="small"
-                        icon={<IconEllipsis />}
-                        aria-label={`More options for ${alert.name}`}
-                    />
-                }
+        <LemonMenu
+            items={[
+                {
+                    label: 'Test delivery',
+                    'data-attr': 'insight-alert-row-send-test',
+                    disabledReason: testDeliveryResultLoading ? 'Sending test delivery…' : null,
+                    onClick: sendTestDelivery,
+                },
+                {
+                    label: 'Delete',
+                    status: 'danger',
+                    'data-attr': 'insight-alert-row-delete',
+                    disabledReason: deleting ? 'Deleting…' : null,
+                    onClick: onDelete,
+                },
+            ]}
+            placement="bottom-end"
+        >
+            <LemonButton
+                type="tertiary"
+                size="small"
+                icon={<IconEllipsis />}
+                aria-label={`More options for ${alert.name}`}
             />
-            <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                    data-attr="insight-alert-row-send-test"
-                    disabled={testDeliveryResultLoading}
-                    onClick={sendTestDelivery}
-                >
-                    Test delivery
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                    variant="destructive"
-                    className="[&_.quill-button]:text-destructive-foreground"
-                    data-attr="insight-alert-row-delete"
-                    disabled={deleting}
-                    onClick={onDelete}
-                >
-                    Delete
-                </DropdownMenuItem>
-            </DropdownMenuContent>
-        </DropdownMenu>
+        </LemonMenu>
     )
 }
 
