@@ -1498,6 +1498,20 @@ export interface EvaluationSummaryResponseApi {
     statistics: EvaluationSummaryStatisticsApi
 }
 
+export interface EvaluationSummaryThrottleResponseApi {
+    /** Error category */
+    type: string
+    /** Machine-readable error code */
+    code: string
+    /** Why the request was throttled */
+    detail: string
+    /**
+     * Related request field, when applicable
+     * @nullable
+     */
+    attr: string | null
+}
+
 export interface LLMModelInfoApi {
     /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
     id: string
@@ -2214,12 +2228,23 @@ export interface LLMPromptLabelSummaryApi {
     version: number
 }
 
+/**
+ * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
+ * @nullable
+ */
+export type LLMPromptListApiConfig = { [key: string]: unknown } | null
+
 export interface LLMPromptListApi {
     readonly id: string
     /** Unique prompt name using letters, numbers, hyphens, and underscores only. */
     readonly name: string
     /** Prompt payload as JSON or string data. */
     readonly prompt: unknown
+    /**
+     * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
+     * @nullable
+     */
+    config?: LLMPromptListApiConfig
     readonly version: number
     /**
      * Optional note describing what changed in this version. Set when the version is published.
@@ -2253,6 +2278,12 @@ export interface PaginatedLLMPromptListListApi {
     results: LLMPromptListApi[]
 }
 
+/**
+ * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
+ * @nullable
+ */
+export type LLMPromptApiConfig = { [key: string]: unknown } | null
+
 export interface LLMPromptApi {
     readonly id: string
     /**
@@ -2262,6 +2293,11 @@ export interface LLMPromptApi {
     name: string
     /** Prompt payload as JSON or string data. */
     prompt: unknown
+    /**
+     * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
+     * @nullable
+     */
+    config?: LLMPromptApiConfig
     readonly version: number
     /**
      * Optional note describing what changed in this version. Set when the version is published.
@@ -2284,11 +2320,22 @@ export interface LLMPromptApi {
     readonly activity_item_id: string
 }
 
+/**
+ * JSON object with model parameters or any agent configuration stored with this version, or null when the version has none. Omitted when 'content=preview' or 'content=none'.
+ * @nullable
+ */
+export type LLMPromptPublicApiConfig = { [key: string]: unknown } | null
+
 export interface LLMPromptPublicApi {
     id: string
     name: string
     /** Full prompt content. Omitted when 'content=preview' or 'content=none'. */
     prompt?: unknown
+    /**
+     * JSON object with model parameters or any agent configuration stored with this version, or null when the version has none. Omitted when 'content=preview' or 'content=none'.
+     * @nullable
+     */
+    config?: LLMPromptPublicApiConfig
     /** First 160 characters of the prompt. Only present when 'content=preview'. */
     prompt_preview?: string
     /** Flat list of markdown headings parsed from the prompt. Useful as a lightweight table of contents. */
@@ -2305,6 +2352,12 @@ export interface LLMPromptPublicApi {
     first_version_created_at: string
 }
 
+/**
+ * JSON object with model parameters or any agent configuration to store with this version. If omitted, the current version's config is carried forward; pass null to clear it. Can be combined with either prompt or edits. Don't store secrets here: config is returned to anyone who can read the prompt.
+ * @nullable
+ */
+export type PatchedLLMPromptPublishApiConfig = { [key: string]: unknown } | null
+
 export interface LLMPromptEditOperationApi {
     /** Text to find in the current prompt. Must match exactly once. */
     old: string
@@ -2317,6 +2370,11 @@ export interface PatchedLLMPromptPublishApi {
     prompt?: unknown
     /** List of find/replace operations to apply to the current prompt version. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with prompt. */
     edits?: LLMPromptEditOperationApi[]
+    /**
+     * JSON object with model parameters or any agent configuration to store with this version. If omitted, the current version's config is carried forward; pass null to clear it. Can be combined with either prompt or edits. Don't store secrets here: config is returned to anyone who can read the prompt.
+     * @nullable
+     */
+    config?: PatchedLLMPromptPublishApiConfig
     /**
      * Latest version you are editing from. Used for optimistic concurrency checks.
      * @minimum 1
@@ -3012,7 +3070,7 @@ export type LlmAnalyticsTranslateCreate200 = { [key: string]: unknown }
 
 export type LlmPromptsListParams = {
     /**
-     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
+     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The config field is only included with 'full'. The outline field is always included.
      *
      * * `full` - full
      * * `preview` - preview
@@ -3070,7 +3128,7 @@ export const LlmPromptsListContent = {
 
 export type LlmPromptsNameRetrieveParams = {
     /**
-     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
+     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The config field is only included with 'full'. The outline field is always included.
      *
      * * `full` - full
      * * `preview` - preview
