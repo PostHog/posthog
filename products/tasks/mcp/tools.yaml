@@ -282,6 +282,9 @@ tools:
     tasks-destroy:
         operation: tasks_destroy
         enabled: false
+    tasks-from-signal-report-create:
+        operation: tasks_from_signal_report_create
+        enabled: false
     tasks-list:
         operation: tasks_list
         enabled: true
