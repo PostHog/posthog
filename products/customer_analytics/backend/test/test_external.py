@@ -391,8 +391,10 @@ class TestExternalAccountAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         log = ActivityLog.objects.get(team_id=self.team.id, scope="Account", activity="created")
         self.assertIsNone(log.user)
-        self.assertEqual(log.detail["trigger"]["job_type"], "hog_flow")
-        self.assertEqual(log.detail["trigger"]["job_id"], workflow_id)
+        detail = log.detail
+        assert detail is not None
+        self.assertEqual(detail["trigger"]["job_type"], "hog_flow")
+        self.assertEqual(detail["trigger"]["job_id"], workflow_id)
 
     def test_post_does_not_see_other_teams_account(self):
         other_team = Team.objects.create(organization=self.organization, name="Other")
