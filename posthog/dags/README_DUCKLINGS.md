@@ -85,9 +85,9 @@ To run the full backfill immediately (without waiting for tomorrow):
    - `skip_ducklake_registration: true` - Export to S3 only
    - `delete_tables: true` - Reset duckling tables first
 
-#### Rewriting one events day with larger Parquet row groups
+#### Rewriting one events day with the default Parquet layout
 
-Select exactly one daily `<team_id>_YYYY-MM-DD` partition in `duckling_events_backfill_job`, then use this Launchpad configuration:
+Events exports use a 512 MiB uncompressed row-group byte target by default. To pin that layout when rewriting a day, select exactly one daily `<team_id>_YYYY-MM-DD` partition in `duckling_events_backfill_job`, then use this Launchpad configuration:
 
 ```yaml
 ops:
@@ -100,7 +100,7 @@ ops:
       delete_tables: false
 ```
 
-The 250,000-row target still applies. ClickHouse closes a row group when either the row or byte target is reached, so wide rows may reach the byte target first. The exporter limits fan-out automatically so `fan-out × events_parquet_row_group_size_bytes` does not exceed the nominal 32 GiB row-group buffer budget. A 512 MiB target therefore allows at most 64 writers. The day's row count and `max_s3_file_fanout` can reduce it further. Encoding and other query memory are not included in the 32 GiB estimate; ClickHouse's `max_memory_usage` remains the hard query limit.
+The 250,000-row cap also applies. ClickHouse closes a row group when either the row or byte target is reached, so wide rows may reach the byte target first. The exporter limits fan-out automatically so `fan-out × events_parquet_row_group_size_bytes` does not exceed the nominal 32 GiB row-group buffer budget. A 512 MiB target therefore allows at most 64 writers. The day's row count and `max_s3_file_fanout` can reduce it further. Encoding and other query memory are not included in the 32 GiB estimate; ClickHouse's `max_memory_usage` remains the hard query limit.
 
 The rewrite is not atomic. The existing DuckLake day is removed before export and registration finish, so queries may temporarily see no rows for that day. After a transient failure, rerun the same daily partition with the same configuration. After a memory or resource failure, lower `max_s3_file_fanout` and rerun. Keep `cleanup_existing_partition_data: true` so the retry clears partial registration and regenerates the day from current ClickHouse data. Do not manually delete the run's S3 objects.
 
@@ -125,7 +125,7 @@ class DucklingBackfillConfig:
     create_tables_if_missing: bool = True     # Auto-create events/persons tables
     delete_tables: bool = False               # DANGER: Drop and recreate tables
     dry_run: bool = False                     # Preview mode, no writes
-    events_parquet_row_group_size_bytes: int = 134_217_728  # Events only; 128 MiB
+    events_parquet_row_group_size_bytes: int = 536_870_912  # Events only; 512 MiB
     target_rows_per_file: int = 5_000_000      # Target rows per exported file
     max_s3_file_fanout: int = 256              # Maximum before the automatic buffer-budget limit
 ```

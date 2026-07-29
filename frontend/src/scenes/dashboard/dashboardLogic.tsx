@@ -134,6 +134,7 @@ import {
     encodeURLFilters,
     encodeURLVariables,
     getDashboardWidgetType,
+    getInsightQueryError,
     getInsightWithRetry,
     isLayoutEditEventSource,
     layoutsByTile,
@@ -3526,8 +3527,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 )
 
                 if (refreshedInsight) {
-                    dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
-                    actions.setRefreshStatus(insight.short_id)
+                    const queryError = getInsightQueryError(refreshedInsight)
+                    if (queryError) {
+                        actions.setRefreshError(insight.short_id, queryError)
+                    } else {
+                        dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
+                        actions.setRefreshStatus(insight.short_id)
+                    }
                 } else {
                     actions.setRefreshError(insight.short_id)
                 }
@@ -3622,21 +3628,27 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         )
 
                         if (refreshedInsight) {
-                            dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
-                            actions.setRefreshStatus(insight.short_id)
-                            tilesRefreshedCount++
-                            if (refreshedInsight.is_cached) {
-                                tilesRefreshedCachedCount++
-                            }
+                            const queryError = getInsightQueryError(refreshedInsight)
+                            if (queryError) {
+                                actions.setRefreshError(insight.short_id, queryError)
+                                tilesErroredCount++
+                            } else {
+                                dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
+                                actions.setRefreshStatus(insight.short_id)
+                                tilesRefreshedCount++
+                                if (refreshedInsight.is_cached) {
+                                    tilesRefreshedCachedCount++
+                                }
 
-                            eventUsageLogic.actions.reportDashboardTileRefreshed(
-                                dashboardId,
-                                tile,
-                                urlFilters,
-                                urlVariables,
-                                Math.floor(performance.now() - insightRefreshStartTime),
-                                false
-                            )
+                                eventUsageLogic.actions.reportDashboardTileRefreshed(
+                                    dashboardId,
+                                    tile,
+                                    urlFilters,
+                                    urlVariables,
+                                    Math.floor(performance.now() - insightRefreshStartTime),
+                                    false
+                                )
+                            }
                         } else {
                             actions.setRefreshError(insight.short_id)
                             tilesErroredCount++
