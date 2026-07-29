@@ -1,11 +1,13 @@
 #![allow(dead_code)]
 
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -416,6 +418,155 @@ impl HandoffHandler for BlockingHandoffHandler {
             .await
             .push(HandoffEvent::Resumed(partition));
         Ok(())
+    }
+}
+
+/// Per-partition gates for `GatedWarmHandler`: a warm parks until its
+/// partition's gate opens, giving tests deterministic control over which
+/// warms are in flight at once. A gate stays open once opened.
+#[derive(Clone, Default)]
+pub struct WarmGates {
+    open: Arc<std::sync::Mutex<HashSet<u32>>>,
+    notify: Arc<Notify>,
+}
+
+impl WarmGates {
+    pub fn open(&self, partition: u32) {
+        self.open.lock().unwrap().insert(partition);
+        self.notify.notify_waiters();
+    }
+
+    async fn wait_open(&self, partition: u32) {
+        loop {
+            let notified = self.notify.notified();
+            if self.open.lock().unwrap().contains(&partition) {
+                return;
+            }
+            notified.await;
+        }
+    }
+}
+
+/// A handoff handler whose warms park on per-partition gates while
+/// recording how many warms run concurrently — in total and for the same
+/// partition. Drives the convergence-lane tests: the gates prove
+/// cross-partition parallelism and the warm-slot bound, and the
+/// same-partition maximum pins single-flight convergence.
+pub struct GatedWarmHandler {
+    pub events: Arc<Mutex<Vec<HandoffEvent>>>,
+    pub gates: WarmGates,
+    pub warms_in_flight: Arc<std::sync::Mutex<HashMap<u32, usize>>>,
+    pub max_concurrent_warms: Arc<AtomicUsize>,
+    pub max_concurrent_same_partition: Arc<AtomicUsize>,
+}
+
+impl GatedWarmHandler {
+    pub fn new() -> Self {
+        Self {
+            events: Arc::new(Mutex::new(Vec::new())),
+            gates: WarmGates::default(),
+            warms_in_flight: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            max_concurrent_warms: Arc::new(AtomicUsize::new(0)),
+            max_concurrent_same_partition: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+}
+
+#[async_trait]
+impl HandoffHandler for GatedWarmHandler {
+    async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Drained(partition));
+        Ok(())
+    }
+
+    async fn warm_partition(&self, partition: u32) -> Result<()> {
+        {
+            let mut in_flight = self.warms_in_flight.lock().unwrap();
+            *in_flight.entry(partition).or_insert(0) += 1;
+            let total: usize = in_flight.values().sum();
+            self.max_concurrent_warms.fetch_max(total, Ordering::SeqCst);
+            self.max_concurrent_same_partition
+                .fetch_max(in_flight[&partition], Ordering::SeqCst);
+        }
+        self.gates.wait_open(partition).await;
+        *self
+            .warms_in_flight
+            .lock()
+            .unwrap()
+            .get_mut(&partition)
+            .unwrap() -= 1;
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Warmed(partition));
+        Ok(())
+    }
+
+    async fn release_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Released(partition));
+        Ok(())
+    }
+
+    async fn resume_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Resumed(partition));
+        Ok(())
+    }
+}
+
+pub struct GatedPodHandles {
+    pub events: Arc<Mutex<Vec<HandoffEvent>>>,
+    pub gates: WarmGates,
+    pub warms_in_flight: Arc<std::sync::Mutex<HashMap<u32, usize>>>,
+    pub max_concurrent_warms: Arc<AtomicUsize>,
+    pub max_concurrent_same_partition: Arc<AtomicUsize>,
+    pub join_handle: JoinHandle<Result<()>>,
+}
+
+/// Start a pod backed by a `GatedWarmHandler` with the given warm
+/// concurrency bound.
+pub fn start_pod_gated(
+    store: Arc<PersonhogStore>,
+    name: &str,
+    warm_concurrency: usize,
+    cancel: CancellationToken,
+) -> GatedPodHandles {
+    let handler = GatedWarmHandler::new();
+    let events = Arc::clone(&handler.events);
+    let gates = handler.gates.clone();
+    let warms_in_flight = Arc::clone(&handler.warms_in_flight);
+    let max_concurrent_warms = Arc::clone(&handler.max_concurrent_warms);
+    let max_concurrent_same_partition = Arc::clone(&handler.max_concurrent_same_partition);
+    let pod = PodHandle::new(
+        store,
+        PodConfig {
+            pod_name: name.to_string(),
+            warm_concurrency,
+            // Parked: event-driven tests assert exact handler-call
+            // sequences a live reconcile pass would duplicate.
+            reconcile_interval: Duration::from_secs(86_400),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+    );
+    let token = cancel.child_token();
+    let join_handle = tokio::spawn(async move { pod.run(token).await });
+    GatedPodHandles {
+        events,
+        gates,
+        warms_in_flight,
+        max_concurrent_warms,
+        max_concurrent_same_partition,
+        join_handle,
     }
 }
 
