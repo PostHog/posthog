@@ -4,12 +4,12 @@
         "aggregation_group_type_index": {
             "anyOf": [
                 {
+                    "type": "null"
+                },
+                {
                     "maximum": 9007199254740991,
                     "minimum": -9007199254740991,
                     "type": "integer"
-                },
-                {
-                    "type": "null"
                 }
             ],
             "description": "Groups aggregation"
@@ -556,10 +556,10 @@
                             "value": {
                                 "anyOf": [
                                     {
-                                        "type": "boolean"
+                                        "type": "string"
                                     },
                                     {
-                                        "type": "string"
+                                        "type": "boolean"
                                     }
                                 ],
                                 "description": "`true`/`false` for boolean flags, or a variant name string for multivariate flags."
@@ -1195,10 +1195,10 @@
                                                 "value": {
                                                     "anyOf": [
                                                         {
-                                                            "type": "boolean"
+                                                            "type": "string"
                                                         },
                                                         {
-                                                            "type": "string"
+                                                            "type": "boolean"
                                                         }
                                                     ],
                                                     "description": "`true`/`false` for boolean flags, or a variant name string for multivariate flags."
@@ -1828,10 +1828,10 @@
                                                 "value": {
                                                     "anyOf": [
                                                         {
-                                                            "type": "boolean"
+                                                            "type": "string"
                                                         },
                                                         {
-                                                            "type": "string"
+                                                            "type": "boolean"
                                                         }
                                                     ],
                                                     "description": "`true`/`false` for boolean flags, or a variant name string for multivariate flags."

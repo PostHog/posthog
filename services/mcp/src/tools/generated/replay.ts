@@ -513,7 +513,7 @@ const AssistantFlagPropertyFilter = z.object({
         )
         .default('flag'),
     value: z
-        .union([z.coerce.boolean(), z.string()])
+        .union([z.string(), z.boolean()])
         .describe('`true`/`false` for boolean flags, or a variant name string for multivariate flags.'),
 })
 

@@ -105,7 +105,7 @@ export function getEntryVarName(entryDefName: string): string {
 // Core conversion
 // ------------------------------------------------------------------
 
-function schemaToZod(schema: JsonSchema, ctx: ConvertContext): string {
+function schemaToZod(schema: JsonSchema, ctx: ConvertContext, strictScalars = false): string {
     // $ref
     if (schema.$ref) {
         const refName = schema.$ref.replace('#/definitions/', '')
@@ -141,7 +141,10 @@ function schemaToZod(schema: JsonSchema, ctx: ConvertContext): string {
         if (variants.length === 1) {
             return schemaToZod(variants[0]!, ctx)
         }
-        const members = variants.map((v) => schemaToZod(v, ctx)).join(', ')
+        const hasStringBranch = variants.some((v) => variantTypes(v, ctx).includes('string'))
+        const members = orderUnionVariants(variants, ctx)
+            .map((v) => schemaToZod(v, ctx, hasStringBranch))
+            .join(', ')
         return `z.union([${members}])`
     }
 
@@ -159,10 +162,12 @@ function schemaToZod(schema: JsonSchema, ctx: ConvertContext): string {
     if (Array.isArray(schema.type)) {
         const types = schema.type.filter((t) => t !== 'null')
         const hasNull = schema.type.includes('null')
-        const base =
-            types.length === 1
-                ? primitiveToZod(types[0]!)
-                : `z.union([${types.map((t) => primitiveToZod(t)).join(', ')}])`
+        const strict = strictScalars || types.includes('string')
+        const ordered = orderUnionVariants(
+            types.map((t) => ({ type: t })),
+            ctx
+        ).map((v) => primitiveToZod(v.type as string, types.length > 1 && strict))
+        const base = ordered.length === 1 ? ordered[0]! : `z.union([${ordered.join(', ')}])`
         return hasNull ? `${base}.nullable()` : base
     }
 
@@ -191,7 +196,7 @@ function schemaToZod(schema: JsonSchema, ctx: ConvertContext): string {
 
     // primitives
     if (schema.type) {
-        const base = primitiveToZod(schema.type as string)
+        const base = primitiveToZod(schema.type as string, strictScalars)
         if (schema.type === 'integer' || schema.type === 'number') {
             return applyNumericConstraints(base, schema)
         }
@@ -200,6 +205,44 @@ function schemaToZod(schema: JsonSchema, ctx: ConvertContext): string {
 
     // Fallback
     return 'z.unknown()'
+}
+
+/**
+ * Zod takes the first union branch that accepts the input, and `z.coerce.*` is
+ * `Number(x)` / `Boolean(x)`, which never reject. A coercing branch placed before a
+ * branch that can reject makes that branch unreachable, so the selective ones sort
+ * first. The sort is stable, leaving string-versus-number order as authored.
+ */
+function orderUnionVariants(variants: JsonSchema[], ctx: ConvertContext): JsonSchema[] {
+    return variants
+        .map((variant, index) => ({ variant, index, rank: unionVariantRank(variant, ctx) }))
+        .sort((a, b) => a.rank - b.rank || a.index - b.index)
+        .map(({ variant }) => variant)
+}
+
+function resolveVariant(variant: JsonSchema, ctx: ConvertContext): JsonSchema | undefined {
+    return variant.$ref ? ctx.root.definitions[variant.$ref.replace('#/definitions/', '')] : variant
+}
+
+function variantTypes(variant: JsonSchema, ctx: ConvertContext): string[] {
+    const resolved = resolveVariant(variant, ctx)
+    return [resolved?.type].flat().filter((t): t is string => typeof t === 'string')
+}
+
+function unionVariantRank(variant: JsonSchema, ctx: ConvertContext): number {
+    const resolved = resolveVariant(variant, ctx)
+    if (!resolved) {
+        return 0
+    }
+    // Objects, arrays, null, enums and literals all reject anything outside their shape
+    if (resolved.properties || resolved.enum || resolved.const !== undefined) {
+        return 0
+    }
+    const types = variantTypes(variant, ctx)
+    if (types.length === 0 || types.some((t) => t === 'object' || t === 'array' || t === 'null')) {
+        return 0
+    }
+    return types.includes('boolean') ? 2 : 1
 }
 
 /** Append `.min(...).max(...)` for numeric schemas. */
@@ -214,17 +257,23 @@ function applyNumericConstraints(expr: string, schema: JsonSchema): string {
     return out
 }
 
-/** Use z.coerce for numbers/booleans — some MCP clients send primitives as strings */
-function primitiveToZod(type: string): string {
+/**
+ * Use z.coerce for numbers/booleans — some MCP clients send primitives as strings.
+ *
+ * `strict` drops the coercion next to a `z.string()` branch, which already matches
+ * every string first. All coercion can do there is misread a sibling type, since
+ * `Number(true)` is `1`.
+ */
+function primitiveToZod(type: string, strict = false): string {
     switch (type) {
         case 'string':
             return 'z.string()'
         case 'number':
-            return 'z.coerce.number()'
+            return strict ? 'z.number()' : 'z.coerce.number()'
         case 'integer':
-            return 'z.coerce.number().int()'
+            return strict ? 'z.number().int()' : 'z.coerce.number().int()'
         case 'boolean':
-            return 'z.coerce.boolean()'
+            return strict ? 'z.boolean()' : 'z.coerce.boolean()'
         case 'null':
             return 'z.null()'
         default:

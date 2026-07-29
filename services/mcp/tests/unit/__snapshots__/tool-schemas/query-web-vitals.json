@@ -123,19 +123,6 @@
                             "value": {
                                 "anyOf": [
                                     {
-                                        "anyOf": [
-                                            {
-                                                "type": "string"
-                                            },
-                                            {
-                                                "type": "number"
-                                            },
-                                            {
-                                                "type": "boolean"
-                                            }
-                                        ]
-                                    },
-                                    {
                                         "items": {
                                             "anyOf": [
                                                 {
@@ -153,6 +140,19 @@
                                     },
                                     {
                                         "type": "null"
+                                    },
+                                    {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
                                     }
                                 ]
                             }
@@ -216,19 +216,6 @@
                             "value": {
                                 "anyOf": [
                                     {
-                                        "anyOf": [
-                                            {
-                                                "type": "string"
-                                            },
-                                            {
-                                                "type": "number"
-                                            },
-                                            {
-                                                "type": "boolean"
-                                            }
-                                        ]
-                                    },
-                                    {
                                         "items": {
                                             "anyOf": [
                                                 {
@@ -246,6 +233,19 @@
                                     },
                                     {
                                         "type": "null"
+                                    },
+                                    {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
                                     }
                                 ]
                             }

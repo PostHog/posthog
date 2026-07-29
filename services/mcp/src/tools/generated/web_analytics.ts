@@ -312,9 +312,9 @@ const PropertyOperator = z.enum([
     'not_icontains_multi',
 ])
 
-const PropertyFilterBaseValue = z.union([z.string(), z.coerce.number(), z.coerce.boolean()])
+const PropertyFilterBaseValue = z.union([z.string(), z.number(), z.boolean()])
 
-const PropertyFilterValue = z.union([PropertyFilterBaseValue, z.array(PropertyFilterBaseValue), z.null()])
+const PropertyFilterValue = z.union([z.array(PropertyFilterBaseValue), z.null(), PropertyFilterBaseValue])
 
 const EventPropertyFilter = z.object({
     key: z.string(),

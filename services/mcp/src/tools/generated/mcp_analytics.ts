@@ -291,9 +291,9 @@ const PropertyOperator = z.enum([
     'not_icontains_multi',
 ])
 
-const PropertyFilterBaseValue = z.union([z.string(), z.coerce.number(), z.coerce.boolean()])
+const PropertyFilterBaseValue = z.union([z.string(), z.number(), z.boolean()])
 
-const PropertyFilterValue = z.union([PropertyFilterBaseValue, z.array(PropertyFilterBaseValue), z.null()])
+const PropertyFilterValue = z.union([z.array(PropertyFilterBaseValue), z.null(), PropertyFilterBaseValue])
 
 const EventPropertyFilter = z.object({
     key: z.string(),
@@ -383,7 +383,7 @@ const LogEntryPropertyFilter = z.object({
 
 const GroupPropertyFilter = z.object({
     group_key_names: z.record(z.string(), z.string()).optional(),
-    group_type_index: z.union([z.coerce.number().int(), z.null()]).optional(),
+    group_type_index: z.union([z.null(), z.coerce.number().int()]).optional(),
     key: z.string(),
     label: z.string().optional(),
     operator: PropertyOperator,
@@ -407,7 +407,7 @@ const FlagPropertyFilter = z.object({
         .describe('Only flag_evaluates_to operator is allowed for flag dependencies')
         .default('flag_evaluates_to'),
     type: z.literal('flag').describe('Feature flag dependency').default('flag'),
-    value: z.union([z.coerce.boolean(), z.string()]).describe('The value can be true, false, or a variant name'),
+    value: z.union([z.string(), z.boolean()]).describe('The value can be true, false, or a variant name'),
 })
 
 const HogQLPropertyFilter = z.object({

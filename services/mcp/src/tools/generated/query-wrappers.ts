@@ -10,7 +10,7 @@ const integer = z.coerce.number().int()
 
 const AssistantGroupMultipleBreakdownFilter = z.object({
     group_type_index: z
-        .union([integer, z.null()])
+        .union([z.null(), integer])
         .describe('Index of the group type from the group mapping.')
         .optional(),
     property: z.string().describe('Property name from the plan to break down by.'),
@@ -324,7 +324,7 @@ const AssistantFlagPropertyFilter = z.object({
         )
         .default('flag'),
     value: z
-        .union([z.coerce.boolean(), z.string()])
+        .union([z.string(), z.boolean()])
         .describe('`true`/`false` for boolean flags, or a variant name string for multivariate flags.'),
 })
 
@@ -602,7 +602,7 @@ const AssistantTrendsFilter = z.object({
 })
 
 const AssistantTrendsQuery = z.object({
-    aggregation_group_type_index: z.union([integer, z.null()]).describe('Groups aggregation').optional(),
+    aggregation_group_type_index: z.union([z.null(), integer]).describe('Groups aggregation').optional(),
     breakdownFilter: AssistantTrendsBreakdownFilter.describe(
         'Breakdowns are used to segment data by property values of maximum three properties. They divide all defined trends series to multiple subseries based on the values of the property. Include breakdowns **only when they are essential to directly answer the user’s question**. You must not add breakdowns if the question can be addressed without additional segmentation. Always use the minimum set of breakdowns needed to answer the question. When using breakdowns, you must:\n- **Identify the property group** and name for each breakdown.\n- **Provide the property name** for each breakdown.\n- **Validate that the property value accurately reflects the intended criteria**. Examples of using breakdowns:\n- page views trend by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown.\n- number of users who have completed onboarding by an organization: you need to find a property such as `organization name` and set it as a breakdown.'
     ).optional(),
@@ -631,7 +631,7 @@ const AssistantFunnelsBreakdownType = z.enum(['person', 'event', 'group', 'sessi
 const AssistantFunnelsBreakdownFilter = z.object({
     breakdown: z.string().describe('The entity property to break down by.'),
     breakdown_group_type_index: z
-        .union([integer, z.null()])
+        .union([z.null(), integer])
         .describe(
             'If `breakdown_type` is `group`, this is the index of the group. Use the index from the group mapping.'
         )
@@ -906,7 +906,7 @@ const AssistantRetentionFilter = z.object({
 })
 
 const AssistantRetentionQuery = z.object({
-    aggregation_group_type_index: z.union([integer, z.null()]).describe('Groups aggregation').optional(),
+    aggregation_group_type_index: z.union([z.null(), integer]).describe('Groups aggregation').optional(),
     dateRange: AssistantDateRangeFilter.describe('Date range for the query').optional(),
     filterTestAccounts: z.coerce
         .boolean()
@@ -994,7 +994,7 @@ const AssistantStickinessFilter = z.object({
 })
 
 const AssistantStickinessQuery = z.object({
-    aggregation_group_type_index: z.union([integer, z.null()]).describe('Groups aggregation').optional(),
+    aggregation_group_type_index: z.union([z.null(), integer]).describe('Groups aggregation').optional(),
     compareFilter: CompareFilter.describe(
         'Compare to date range. When enabled, shows the current and previous period side by side.'
     ).optional(),
@@ -1126,7 +1126,7 @@ const AssistantPathsFilter = z.object({
 })
 
 const AssistantPathsQuery = z.object({
-    aggregation_group_type_index: z.union([integer, z.null()]).describe('Groups aggregation').optional(),
+    aggregation_group_type_index: z.union([z.null(), integer]).describe('Groups aggregation').optional(),
     dateRange: AssistantDateRangeFilter.describe('Date range for the query').optional(),
     filterTestAccounts: z.coerce
         .boolean()
@@ -1185,7 +1185,7 @@ const AssistantLifecycleActionsNode = z.object({
 const AssistantLifecycleSeriesNode = z.union([AssistantLifecycleEventsNode, AssistantLifecycleActionsNode])
 
 const AssistantLifecycleQuery = z.object({
-    aggregation_group_type_index: z.union([integer, z.null()]).describe('Groups aggregation').optional(),
+    aggregation_group_type_index: z.union([z.null(), integer]).describe('Groups aggregation').optional(),
     dateRange: AssistantDateRangeFilter.describe('Date range for the query').optional(),
     filterTestAccounts: z.coerce
         .boolean()

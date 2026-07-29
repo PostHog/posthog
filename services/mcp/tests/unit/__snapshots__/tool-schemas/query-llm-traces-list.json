@@ -544,10 +544,10 @@
                             "value": {
                                 "anyOf": [
                                     {
-                                        "type": "boolean"
+                                        "type": "string"
                                     },
                                     {
-                                        "type": "string"
+                                        "type": "boolean"
                                     }
                                 ],
                                 "description": "`true`/`false` for boolean flags, or a variant name string for multivariate flags."
