@@ -246,20 +246,20 @@ class TestGetPrContextActivity:
                 self._run(ctx)
         assert exc_info.value.non_retryable is False
 
-    @parameterized.expand(
+    # pytest.mark.parametrize (not parameterized.expand) so the test_task_run fixture still injects.
+    @pytest.mark.parametrize(
+        "raised, expected_backoff",
         [
             # GitHub's own 429 with a reset hint: the retry must wait that long.
-            ("rate_limit_with_hint", GitHubRateLimitError("resets at None", retry_after=60), 60),
+            (GitHubRateLimitError("resets at None", retry_after=60), 60),
             # Hand-built rate-limit error with no hint falls back to the ≥1 minute default.
-            ("rate_limit_no_hint", GitHubRateLimitError("rate limited"), DEFAULT_GITHUB_RATE_LIMIT_BACKOFF_SECONDS),
+            (GitHubRateLimitError("rate limited"), DEFAULT_GITHUB_RATE_LIMIT_BACKOFF_SECONDS),
             # Our own egress budget shedding the call carries no reset hint either.
-            ("budget_exhausted", GitHubEgressBudgetExhausted("shed"), DEFAULT_GITHUB_RATE_LIMIT_BACKOFF_SECONDS),
-        ]
+            (GitHubEgressBudgetExhausted("shed"), DEFAULT_GITHUB_RATE_LIMIT_BACKOFF_SECONDS),
+        ],
     )
     @pytest.mark.django_db
-    def test_rate_limit_stays_retryable_uncaptured_and_honors_backoff(
-        self, _name, raised, expected_backoff, test_task_run
-    ):
+    def test_rate_limit_stays_retryable_uncaptured_and_honors_backoff(self, raised, expected_backoff, test_task_run):
         # A rate limit is a normal, recoverable condition: it must retry after the hinted
         # window (not within 1s, which abandons the follow-up run) and must not be captured
         # to error tracking (which mints a noisy issue for something we expect to happen).
