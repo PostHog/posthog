@@ -7,6 +7,14 @@ Authorization header. The bulk account list instead authenticates via a project
 secret API key carrying the ``account:read`` scope, because the team token is
 readable by every project member and must not unlock a team-wide account export.
 
+The team token deliberately grants single-account writes (create, tags,
+relationships, custom property values) without per-user ``account`` scope checks:
+workflow executions have no acting user to authorize, and the token is only
+readable by members of the project whose accounts it writes. Security reviewers
+periodically flag this as a write-permission bypass — it is the accepted model
+for this surface, matching the resource-level scoping note in the product's
+CLAUDE.md.
+
 The view holds only HTTP concerns — Bearer auth, throttles, the feature-flag gate,
 request validation, and mapping facade results to responses. Data access, the
 transactional write, org-membership resolution, tag application, and exception
