@@ -70,9 +70,19 @@ class TestIdentityProviderConfig(BaseTest):
             assert getattr(domain_field, "max_length", None) == getattr(config_field, "max_length", None), field
             assert getattr(domain_field, "db_column", None) == field, field
 
-    def test_deleting_domain_keeps_config(self):
+    def test_deleting_domain_deletes_orphaned_config(self):
         domain = self._create_domain()
         config = self._create_linked_config(domain, saml_entity_id="entity-id")
+
+        domain.delete()
+        assert not IdentityProviderConfig.objects.filter(pk=config.pk).exists()
+
+    def test_deleting_domain_keeps_config_linked_to_another_domain(self):
+        domain = self._create_domain()
+        other_domain = self._create_domain(domain="other.posthog.com")
+        config = self._create_linked_config(domain, saml_entity_id="entity-id")
+        other_domain.identity_provider_config = config
+        other_domain.save()
 
         domain.delete()
         assert IdentityProviderConfig.objects.filter(pk=config.pk).exists()
