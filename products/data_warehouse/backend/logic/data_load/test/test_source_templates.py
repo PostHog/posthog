@@ -11,10 +11,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.data_warehouse.backend.logic.data_load.source_templates import (
-    create_warehouse_templates_for_source,
-    database_operations,
-)
+from products.data_warehouse.backend.logic.data_load.source_templates import customer_io_operations, database_operations
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
@@ -112,6 +109,9 @@ class TestCustomerIOPersonJoin(BaseTest):
         return ExternalDataSchema.objects.create(name=schema_name, team=self.team, source=source, table=table)
 
     def _sync(self, schema: ExternalDataSchema) -> None:
+        # Exercises the source-specific step rather than
+        # `create_warehouse_templates_for_source`, whose `close_old_connections()` tears down the
+        # transaction TestCase runs in. Same reason `database_operations` is called directly above.
         job = ExternalDataJob.objects.create(
             team=self.team,
             pipeline=schema.source,
@@ -119,7 +119,7 @@ class TestCustomerIOPersonJoin(BaseTest):
             status=ExternalDataJob.Status.COMPLETED,
             rows_synced=1,
         )
-        create_warehouse_templates_for_source(self.team.pk, str(job.id))
+        customer_io_operations(self.team.pk, job)
 
     def _person_joins(self):
         return DataWarehouseJoin.objects.filter(team=self.team, joining_table_name="person_distinct_ids")
