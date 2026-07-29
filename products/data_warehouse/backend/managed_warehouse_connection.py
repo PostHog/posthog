@@ -84,7 +84,7 @@ def _source_config(server: DuckgresServer) -> dict[str, object]:
     ).to_dict()
 
 
-def _ensure_managed_source_locked(*, team_id: int, server: DuckgresServer) -> ExternalDataSource | None:
+def _ensure_managed_source_locked(*, team_id: int, server: DuckgresServer) -> ExternalDataSource:
     # Deliberately includes soft-deleted rows: a re-enabled membership revives its
     # tombstoned source.
     existing = _managed_source_queryset(team_id).select_for_update().order_by("-created_at").first()
