@@ -29,7 +29,6 @@ from ee.api.agentic_provisioning.constants import (
 )
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
 from ee.api.agentic_provisioning.regions import region_to_host
-from ee.api.agentic_provisioning.teams import resolve_team_for_existing_user
 from ee.api.agentic_provisioning.wizard import create_wizard_run, link_github_grant_to_team
 
 
@@ -109,100 +108,55 @@ def build_authorize_url(confirmation_secret: str, scopes: list[str], region: str
     return f"{base}/api/agentic/authorize?{params}"
 
 
-def caller_proved_existing_trust(partner: OAuthApplication, user: User, authenticated_user: User | None) -> bool:
-    """True only when the caller proved a prior trust relationship with this user.
-
-    This is what lets a skip-consent partner re-mint silently for an existing user; without
-    it the request falls through to browser consent. The proof differs by auth method:
-
-    - Bearer callers present a single user-scoped access token. That token proves a
-      relationship only with its own user, so it qualifies only when it belongs to the user
-      being re-linked — otherwise any user of the partner could ride another user's live
-      credential to mint a code for that account.
-    - PKCE callers are public: the partner is identified solely by a client_id that anyone
-      can send, so the request carries no proof the caller controls the partner. The "user
-      already holds a live credential" signal proves nothing, so these never qualify.
-    """
-    if partner.provisioning_auth_method == "bearer":
-        return authenticated_user is not None and authenticated_user.id == user.id
-    return False
-
-
 def handle_existing_user(
     request_id: str,
     user: User,
     scopes: list[str],
     *,
     region: str,
-    team_id: int | None,
-    partner: OAuthApplication | None,
+    partner: OAuthApplication,
     code_challenge: str,
     code_challenge_method: str,
-    authenticated_user: User | None,
 ) -> dict[str, Any]:
-    # Account-takeover defense: a partner with skip_existing_user_consent=True may only mint
-    # silently for an *existing* account when the caller proved a prior trust relationship with
-    # that user (see caller_proved_existing_trust). Without proof we fall through to consent,
-    # otherwise any caller could mint a code for an account they don't control. This holds
-    # regardless of whether the user has reviewed their credentials: an unreviewed account is
-    # still a pre-existing account, and the email may belong to a direct signup that never
-    # touched provisioning — silently linking it is the takeover.
-    silent_blocked = (
-        partner is not None
-        and partner.provisioning_skip_existing_user_consent
-        and not caller_proved_existing_trust(partner, user, authenticated_user)
-    )
+    """Send an account request that matched an existing account to browser consent.
 
-    if silent_blocked:
-        assert partner is not None  # implied by silent_blocked
+    Account-takeover defense: no partner may mint silently for an *existing* account, not
+    even one with skip_existing_user_consent=True. A partner proves it controls itself (a
+    verified client secret) or nothing at all (a public client_id), and neither is proof that
+    it controls this email, so the user has to approve the link in a browser. This holds
+    regardless of whether the user has reviewed their credentials: an unreviewed account is
+    still a pre-existing account, and the email may belong to a direct signup that never
+    touched provisioning, so silently linking it is the takeover.
+
+    Consent also picks the project (see agentic_authorize), so nothing the partner sends can
+    select a team for an account it did not create.
+    """
+    if partner.provisioning_skip_existing_user_consent:
         capture_provisioning_event(
             "account_request",
             "silent_blocked_existing_user",
             partner=partner,
         )
 
-    if partner and (not partner.provisioning_skip_existing_user_consent or silent_blocked):
-        if not code_challenge:
-            raise ProvisioningError(
-                "invalid_request", "code_challenge is required for public clients", request_id=request_id
-            )
-        if not scopes_within_ceiling(scopes, partner.ceiling_scopes):
-            raise ProvisioningError(
-                "invalid_scope",
-                "One or more requested scopes exceed the application's allowed scopes",
-                request_id=request_id,
-            )
-        return require_user_consent(
-            request_id,
-            user,
-            scopes,
-            region,
-            partner,
-            code_challenge,
-            code_challenge_method,
-        )
-
-    team = resolve_team_for_existing_user(user, team_id)
-    if team is None:
-        capture_provisioning_event("account_request", "error", error_code="team_resolution_failed")
+    if not code_challenge:
         raise ProvisioningError(
-            "team_resolution_failed", "Could not resolve a project for this user", request_id=request_id
+            "invalid_request", "code_challenge is required for public clients", request_id=request_id
         )
-
-    code = mint_auth_code(
-        user_id=user.id,
-        org_id=str(team.organization_id),
-        team_id=team.id,
-        partner_id=str(partner.id) if partner else "",
-        scopes=scopes,
-        region=region,
-        code_challenge=code_challenge,
-        code_challenge_method=code_challenge_method,
+    if not scopes_within_ceiling(scopes, partner.ceiling_scopes):
+        raise ProvisioningError(
+            "invalid_scope",
+            "One or more requested scopes exceed the application's allowed scopes",
+            request_id=request_id,
+        )
+    return require_user_consent(
+        request_id,
+        user,
+        scopes,
+        region,
+        partner,
+        code_challenge,
+        code_challenge_method,
     )
-
-    capture_provisioning_event("account_request", "existing_user", partner=partner, region=region, team_id=team.id)
-
-    return {"id": request_id, "type": "oauth", "oauth": {"code": code}}
 
 
 def require_user_consent(
@@ -260,10 +214,9 @@ def handle_new_user(
     scopes: list[str],
     *,
     region: str,
-    partner: OAuthApplication | None,
+    partner: OAuthApplication,
     code_challenge: str,
     code_challenge_method: str,
-    authenticated_user: User | None,
 ) -> dict[str, Any]:
     name = data.get("name", "")
     first_name = name.split(" ")[0] if name else ""
@@ -292,11 +245,9 @@ def handle_new_user(
                 existing,
                 scopes,
                 region=region,
-                team_id=None,
                 partner=partner,
                 code_challenge=code_challenge,
                 code_challenge_method=code_challenge_method,
-                authenticated_user=authenticated_user,
             )
         capture_provisioning_event("account_request", "creation_failed", region=region)
         raise ProvisioningError(
@@ -319,7 +270,7 @@ def handle_new_user(
         is_instance_first_user=False,
         is_organization_first_user=True,
         backend_processor="AgenticProvisioning",
-        social_provider=partner.name if partner else "",
+        social_provider=partner.name,
         user_analytics_metadata=user.get_analytics_metadata(),
         org_analytics_metadata=organization.get_analytics_metadata(),
     )
@@ -333,7 +284,7 @@ def handle_new_user(
     wizard_config = configuration.get("wizard")
     wizard_payload: dict[str, Any] | None = None
     wizard_repository: str | None = None
-    if isinstance(wizard_config, dict) and partner is not None:
+    if isinstance(wizard_config, dict):
         wizard_payload = process_wizard_block(partner=partner, user=user, team=team, wizard_config=wizard_config)
         if "error" not in wizard_payload:
             wizard_repository = str(wizard_config.get("repository"))
@@ -354,7 +305,7 @@ def handle_new_user(
         user_id=user.id,
         org_id=str(organization.id),
         team_id=team.id,
-        partner_id=str(partner.id) if partner else "",
+        partner_id=str(partner.id),
         scopes=scopes,
         region=region,
         code_challenge=code_challenge,
