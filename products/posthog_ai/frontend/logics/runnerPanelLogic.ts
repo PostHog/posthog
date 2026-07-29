@@ -1,5 +1,4 @@
 import {
-    BuiltLogic,
     MakeLogicType,
     actions,
     afterMount,
@@ -83,7 +82,7 @@ const storageKey = (panelId: string): string => `posthog_ai_runner_panel_active_
 // full-page run view, the run is handed to an embedded panel so the conversation follows the user.
 // Mounted embedded instances adopt it immediately; otherwise it parks here until one mounts (the
 // side panel opening as part of the same navigation).
-const mountedEmbeddedPanels = new Set<BuiltLogic<runnerPanelLogicType>>()
+const mountedEmbeddedPanels = new Set<runnerPanelLogicType>()
 let pendingRunHandoff: ActiveCreation | null = null
 
 export function clearPendingRunHandoff(): void {
@@ -97,7 +96,7 @@ export function handOffRunToEmbeddedPanel(creation: ActiveCreation): void {
             return
         }
     }
-    const first: BuiltLogic<runnerPanelLogicType> | undefined = mountedEmbeddedPanels.values().next().value
+    const first: runnerPanelLogicType | undefined = mountedEmbeddedPanels.values().next().value
     if (first) {
         first.actions.setActiveCreation(creation)
     } else {

@@ -668,7 +668,7 @@ describe('hogFlowEditorLogic', () => {
 
         beforeEach(() => {
             logic.unmount()
-            logic = hogFlowEditorLogic({ id: 'test-flow' } as any)
+            logic = hogFlowEditorLogic.build({ id: 'test-flow' })
             logic.mount()
             logic.actions.setNodesRaw([
                 makeTestNode('trigger', 'trigger'),
