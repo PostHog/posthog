@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { Button } from 'lib/ui/quill'
+import { Button, SelectTriggerIcon } from 'lib/ui/quill'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
@@ -58,7 +57,7 @@ export function AssigneeFilter(): JSX.Element {
                         placeholder="Any assignee"
                         className="max-w-40 truncate"
                     />
-                    <IconChevronDown className="size-4" />
+                    <SelectTriggerIcon />
                 </Button>
             )}
         </AssigneeSelect>

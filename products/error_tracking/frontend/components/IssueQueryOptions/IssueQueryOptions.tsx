@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconRefresh, IconSort } from '@posthog/icons'
+import { IconRefresh, IconSort } from '@posthog/icons'
 
 import {
     Button,
@@ -11,6 +11,7 @@ import {
     DropdownMenuRadioItem,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
+    SelectTriggerIcon,
     Spinner,
     Tooltip,
     TooltipContent,
@@ -36,7 +37,7 @@ export const IssueSortButton = (): JSX.Element => {
                     >
                         <IconSort className={orderDirection === 'ASC' ? 'rotate-180' : undefined} />
                         {ORDER_BY_OPTIONS[orderBy]}
-                        <IconChevronDown className="size-4" />
+                        <SelectTriggerIcon />
                     </Button>
                 }
             />

@@ -1,11 +1,11 @@
 import { useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconCalendar, IconChevronDown } from '@posthog/icons'
+import { IconCalendar } from '@posthog/icons'
 
 import { dateRangeForSelection, selectionForDateRange } from 'lib/components/DateFilter/dateRangeSelection'
 import { QuillDateFilter } from 'lib/components/DateFilter/QuillDateFilter'
-import { Button, Popover, PopoverContent, PopoverTrigger } from 'lib/ui/quill'
+import { Button, Popover, PopoverContent, PopoverTrigger, SelectTriggerIcon } from 'lib/ui/quill'
 import { dateFilterToText, dateMapping } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -57,7 +57,7 @@ export const DateRangeButton = ({
                 >
                     <IconCalendar />
                     <span className="text-nowrap">{triggerLabel}</span>
-                    <IconChevronDown className="size-4" />
+                    <SelectTriggerIcon />
                 </PopoverTrigger>
                 <PopoverContent
                     align="start"

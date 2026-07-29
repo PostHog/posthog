@@ -2,14 +2,12 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useMemo } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
-
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterHeadless } from 'lib/components/TaxonomicFilter/headless'
 import { MenuFilterEntry } from 'lib/components/TaxonomicFilter/menu'
 import { TaxonomicFilterMenu } from 'lib/components/TaxonomicFilter/menu/TaxonomicFilterMenu'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { Button } from 'lib/ui/quill'
+import { Button, SelectTriggerIcon } from 'lib/ui/quill'
 
 import { DateRangeButton } from '../DateRangeButton'
 import { InternalAccountsToggle } from '../InternalAccountsToggle'
@@ -67,7 +65,7 @@ export function BreakdownsSearchBar(): JSX.Element {
                                 disablePopover
                                 type={TaxonomicFilterGroupType.EventProperties}
                             />
-                            <IconChevronDown className="size-4" />
+                            <SelectTriggerIcon />
                         </Button>
                     )}
                 />
