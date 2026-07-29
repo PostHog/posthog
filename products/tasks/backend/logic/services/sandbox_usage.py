@@ -20,7 +20,7 @@ from typing import ParamSpec, TypeVar
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
