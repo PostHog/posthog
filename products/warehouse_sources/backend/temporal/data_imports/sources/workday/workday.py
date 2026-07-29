@@ -1,4 +1,6 @@
 import re
+import json
+import time
 import dataclasses
 from collections.abc import Iterator
 from typing import Any, Optional
@@ -34,6 +36,19 @@ _TENANT_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
 REQUEST_TIMEOUT: tuple[float, float] = (10.0, 120.0)
 VALIDATE_TIMEOUT = 15
 
+# The tenant host is customer-controlled, so a validation body must never be buffered unbounded:
+# requests reads the whole response into memory by default, and the read timeout only guards idle
+# gaps between reads, not a steady large transfer. A token/probe body is a few KB, so this cap is
+# generous for anything real while refusing an exhaustion attempt outright.
+MAX_VALIDATE_RESPONSE_BYTES = 8 * 1024 * 1024
+RESPONSE_CHUNK_BYTES = 256 * 1024
+# Wall-clock budget for reading one validation body — the per-read timeout can't stop a host that
+# dribbles bytes slowly enough to stay under it while holding a worker open.
+MAX_VALIDATE_DOWNLOAD_SECONDS = 30
+
+RESPONSE_TOO_LARGE_ERROR = "The Workday token endpoint returned an oversized response"
+RESPONSE_TOO_SLOW_ERROR = "The Workday token endpoint response was too slow"
+
 
 class WorkdayHostNotAllowedError(Exception):
     pass
@@ -41,6 +56,31 @@ class WorkdayHostNotAllowedError(Exception):
 
 class WorkdayAuthError(Exception):
     pass
+
+
+def _read_capped_body(response: requests.Response) -> bytes:
+    """Stream a validation body into memory, aborting past the byte or time cap.
+
+    The host is customer-controlled, so the body must never be buffered unbounded (size cap) nor be
+    allowed to hold the worker open by dribbling under the per-read timeout (time cap). Raises
+    `WorkdayAuthError` on either — re-fetching the same request yields the same oversized/slow body.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    deadline = time.monotonic() + MAX_VALIDATE_DOWNLOAD_SECONDS
+    try:
+        for chunk in response.iter_content(chunk_size=RESPONSE_CHUNK_BYTES):
+            if time.monotonic() > deadline:
+                raise WorkdayAuthError(f"{RESPONSE_TOO_SLOW_ERROR} (over {MAX_VALIDATE_DOWNLOAD_SECONDS}s)")
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > MAX_VALIDATE_RESPONSE_BYTES:
+                raise WorkdayAuthError(f"{RESPONSE_TOO_LARGE_ERROR} (over {MAX_VALIDATE_RESPONSE_BYTES} bytes)")
+            chunks.append(chunk)
+    finally:
+        response.close()
+    return b"".join(chunks)
 
 
 @dataclasses.dataclass
@@ -104,21 +144,28 @@ def mint_access_token(
     form body. `allow_redirects=False` keeps the secret pinned to the validated tenant host.
     """
     session = make_tracked_session(redact_values=(client_secret, refresh_token), capture=False)
+    # stream=True so a customer-controlled host can't force us to buffer an unbounded token body;
+    # the body is read under byte/time caps by _read_capped_body.
     response = session.post(
         token_url(hostname, tenant),
         data={"grant_type": "refresh_token", "refresh_token": refresh_token},
         auth=(client_id, client_secret),
         timeout=timeout,
         allow_redirects=False,
+        stream=True,
     )
 
     if response.status_code != 200:
+        response.close()
         raise WorkdayAuthError(f"{TOKEN_ERROR} (HTTP {response.status_code})")
 
+    body = _read_capped_body(response)
     try:
-        token = response.json().get("access_token")
+        token = json.loads(body).get("access_token")
     except ValueError:
         raise WorkdayAuthError("The Workday token endpoint returned a non-JSON response")
+    except AttributeError:
+        raise WorkdayAuthError("The Workday token endpoint returned an unexpected response")
 
     if not isinstance(token, str) or not token:
         raise WorkdayAuthError("The Workday token endpoint returned no access token")
@@ -164,7 +211,11 @@ def validate_credentials(
             timeout=VALIDATE_TIMEOUT,
             # A validated host could 3xx to an internal address; don't follow it (SSRF).
             allow_redirects=False,
+            # stream=True so a customer-controlled host can't force us to buffer an unbounded probe
+            # body — only the status line is inspected below, so the body is never read.
+            stream=True,
         )
+        response.close()
     except requests.exceptions.RequestException as e:
         return False, str(e)
 

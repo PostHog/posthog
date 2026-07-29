@@ -53,25 +53,23 @@ class FakeResumeManager(ResumableSourceManager[WorkdayResumeConfig]):
         self.saved.append(data)
 
 
-def _json_response(payload: Any, *, status_code: int = 200) -> Response:
-    response = Response()
-    response.status_code = status_code
-    response._content = json.dumps(payload).encode()
-    return response
-
-
 def _raw_response(content: bytes, *, status_code: int = 200) -> Response:
     response = Response()
     response.status_code = status_code
     response._content = content
+    # Callers stream these (stream=True + iter_content) and close them; marking the content
+    # consumed makes iter_content replay `_content` and keeps `.close()` a no-op (raw is None).
+    response._content_consumed = True
     return response
 
 
+def _json_response(payload: Any, *, status_code: int = 200) -> Response:
+    return _raw_response(json.dumps(payload).encode(), status_code=status_code)
+
+
 def _redirect_response(location: str = "https://internal.example/") -> Response:
-    response = Response()
-    response.status_code = 302
+    response = _raw_response(b"", status_code=302)
     response.headers["Location"] = location
-    response._content = b""
     return response
 
 
@@ -199,6 +197,21 @@ class TestMintAccessToken:
                 mint_access_token(HOSTNAME, TENANT, "client", "secret", "refresh")
 
         assert expected_fragment in str(excinfo.value)
+
+    def test_oversized_token_body_is_refused(self) -> None:
+        # A customer-controlled host could stream an unbounded token body to exhaust the worker;
+        # the read is capped rather than buffered whole.
+        session = mock.MagicMock()
+        session.post.return_value = _json_response({"access_token": "tok"})
+
+        with (
+            mock.patch(f"{WORKDAY_MODULE}.make_tracked_session", return_value=session),
+            mock.patch(f"{WORKDAY_MODULE}.MAX_VALIDATE_RESPONSE_BYTES", 4),
+        ):
+            with pytest.raises(WorkdayAuthError) as excinfo:
+                mint_access_token(HOSTNAME, TENANT, "client", "secret", "refresh")
+
+        assert "oversized" in str(excinfo.value)
 
 
 class TestValidateCredentials:
