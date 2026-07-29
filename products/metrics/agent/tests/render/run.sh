@@ -8,13 +8,16 @@ cd "$(dirname "$0")"
 AGENT_DIR=$(cd ../.. && pwd)
 PASS=0
 FAIL=0
+UPDATE=0
+[ "${1:-}" = "--update-golden" ] && UPDATE=1
 
 new_case_dir() {
     CASE_DIR=$(mktemp -d)
     cp "$AGENT_DIR/config/config.yaml.tmpl" "$CASE_DIR/"
 }
 
-# run_render <name> [VAR=value ...] — renders and diffs against golden/<name>.yaml
+# run_render <name> [VAR=value ...] — renders and diffs against golden/<name>.yaml.
+# Pass --update-golden as the first script arg to overwrite goldens instead.
 run_render() {
     name=$1
     shift
@@ -25,6 +28,11 @@ run_render() {
         echo "FAIL $name: entrypoint exited non-zero"
         cat "$err"
         FAIL=$((FAIL + 1))
+        return
+    fi
+    if [ "$UPDATE" = "1" ]; then
+        cp "$out" "golden/$name.yaml"
+        echo "updated golden/$name.yaml"
         return
     fi
     if diff -u "golden/$name.yaml" "$out"; then
@@ -60,6 +68,21 @@ expect_failure() {
 
 new_case_dir
 run_render minimal POSTHOG_API_KEY=phc_test SCRAPE_TARGETS=app:9090
+
+# Every render exposes the collector's own metrics on :8888 for self-monitoring.
+if [ "$UPDATE" != "1" ]; then
+    new_case_dir
+    tele=$(env -i PATH="$PATH" CONFIG_DIR="$CASE_DIR" RENDER_ONLY=1 \
+        POSTHOG_API_KEY=phc_test SCRAPE_TARGETS=app:9090 \
+        sh "$AGENT_DIR/entrypoint.sh" 2>/dev/null | grep -c 'port: 8888')
+    if [ "$tele" -ge 1 ]; then
+        echo "PASS self-telemetry-port"
+        PASS=$((PASS + 1))
+    else
+        echo "FAIL self-telemetry-port: rendered config does not expose :8888"
+        FAIL=$((FAIL + 1))
+    fi
+fi
 
 # Comma-separated targets with stray whitespace and an empty entry get trimmed.
 new_case_dir

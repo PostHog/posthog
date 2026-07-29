@@ -129,15 +129,36 @@ exporters:
         compression: gzip
         headers:
             authorization: 'Bearer ${env:POSTHOG_API_KEY}'
+        {{- if .Values.persistence.enabled }}
+        # Persist undelivered batches so a restart during an outage loses nothing.
+        sending_queue:
+            enabled: true
+            storage: file_storage
+        {{- end }}
         retry_on_failure:
             enabled: true
 
 extensions:
     health_check:
         endpoint: 0.0.0.0:13133
+    {{- if .Values.persistence.enabled }}
+    file_storage:
+        directory: /var/lib/posthog-agent
+        create_directory: true
+    {{- end }}
 
 service:
-    extensions: [health_check]
+    # Expose the collector's own metrics (scrape health, queue depth, drops)
+    # on :8888 so the agent is self-observable, the way vmagent exposes its.
+    telemetry:
+        metrics:
+            readers:
+                - pull:
+                      exporter:
+                          prometheus:
+                              host: 0.0.0.0
+                              port: 8888
+    extensions: [health_check{{ if .Values.persistence.enabled }}, file_storage{{ end }}]
     pipelines:
         metrics:
             receivers: [prometheus]

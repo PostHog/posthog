@@ -34,6 +34,11 @@ scrape:
     # (see templates/_helpers.tpl) or every shard will scrape it.
     extraScrapeConfigs: ''
 
+# Extra environment variables passed to the agent container, e.g.
+# {POSTHOG_DEBUG: "1", SCRAPE_JOB_NAME: my-fleet}. See the image README for
+# the full env surface.
+podEnv: {}
+
 # Disk-backed delivery queue: samples scraped while PostHog is unreachable
 # survive pod restarts and deliver on recovery. Without it the queue is
 # in-memory and a restart during an outage drops whatever was buffered.

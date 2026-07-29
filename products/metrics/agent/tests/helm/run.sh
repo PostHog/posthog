@@ -130,6 +130,12 @@ assert_contains sharded-count-env 'name: SHARD_COUNT' "$out"
 static=$(render --set posthog.apiKey=phc_test --set shards=3 -f values/static-targets.yaml)
 assert_contains sharded-static-job-hashmod 'action: hashmod' "$static"
 
+# --- podEnv passthrough: extra agent env vars ---
+out=$(render --set posthog.apiKey=phc_test --set podEnv.POSTHOG_DEBUG=1 --set podEnv.SCRAPE_JOB_NAME=custom)
+assert_contains podenv-debug 'name: POSTHOG_DEBUG' "$out"
+assert_contains podenv-jobname 'name: SCRAPE_JOB_NAME' "$out"
+assert_contains podenv-jobname-value 'value: "custom"' "$out"
+
 # --- persistence: disk-backed delivery queue ---
 out=$(render --set posthog.apiKey=phc_test)
 assert_not_contains default-no-persist-env 'PERSIST_QUEUE' "$out"
@@ -141,6 +147,19 @@ assert_contains persist-pvc 'kind: PersistentVolumeClaim' "$out"
 assert_contains persist-mount 'mountPath: /var/lib/posthog-agent' "$out"
 assert_contains persist-fsgroup 'fsGroup: 10001' "$out"
 assert_contains persist-size 'storage: 10Gi' "$out"
+# The mounted config itself must wire the queue: the chart's full-config
+# override means an unreferenced PERSIST_QUEUE env would silently do nothing.
+assert_contains persist-config-queue 'storage: file_storage' "$out"
+assert_contains persist-config-extension 'file_storage:' "$out"
+
+# Default (no persistence) must not carry the queue wiring.
+out=$(render --set posthog.apiKey=phc_test)
+assert_not_contains default-no-queue 'sending_queue' "$out"
+assert_not_contains default-no-file-storage 'file_storage' "$out"
+
+# Self-telemetry endpoint is exposed for operator monitoring.
+assert_contains telemetry-config 'port: 8888' "$out"
+assert_contains telemetry-port 'containerPort: 8888' "$out"
 
 # Sharded + persistent: each pod gets its own queue via claim templates.
 out=$(render --set posthog.apiKey=phc_test --set persistence.enabled=true --set shards=3)
