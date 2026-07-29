@@ -3,12 +3,18 @@ description: |
     Installs sqlx-cli and adds it to PATH.
     Uses actions/cache to avoid recompiling from source on every run.
     The binary is pinned to a specific version for reproducibility.
+    Callers do not need to install Rust first: a toolchain is only pulled in on a
+    cache miss, when sqlx-cli actually has to be compiled.
 
 inputs:
     version:
         description: 'sqlx-cli version to install (e.g. 0.8.0)'
         required: false
         default: '0.8.0'
+    rust-toolchain:
+        description: 'Rust toolchain to install if none is present and sqlx-cli must be built'
+        required: false
+        default: '1.91.1'
 
 runs:
     using: composite
@@ -19,6 +25,27 @@ runs:
           with:
               path: ${{ runner.temp }}/sqlx-cli
               key: sqlx-cli-${{ inputs.version }}-${{ runner.os }}-${{ runner.arch }}
+
+        - name: Check for an existing Rust toolchain
+          id: existing-cargo
+          if: steps.cache-sqlx-cli.outputs.cache-hit != 'true'
+          shell: bash
+          run: |
+              if command -v cargo >/dev/null 2>&1; then
+                  echo 'present=true' >> "$GITHUB_OUTPUT"
+              else
+                  echo 'present=false' >> "$GITHUB_OUTPUT"
+              fi
+
+        - name: Install Rust
+          # Keep this unretried download out of jobs that don't need it: only a cache
+          # miss requires cargo, and runner images usually ship it already. Skipping
+          # when cargo exists also avoids overriding a toolchain the caller pinned.
+          if: steps.cache-sqlx-cli.outputs.cache-hit != 'true' && steps.existing-cargo.outputs.present != 'true'
+          uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+          with:
+              toolchain: ${{ inputs.rust-toolchain }}
+              components: cargo
 
         - name: Build sqlx-cli on cache miss
           if: steps.cache-sqlx-cli.outputs.cache-hit != 'true'

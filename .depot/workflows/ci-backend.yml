@@ -302,6 +302,7 @@ jobs:
                         - 'tools/hogli-commands/hogli_commands/product_structure.yaml'
                         # Make sure we run if someone is explicitly changing the workflow
                         - .depot/workflows/ci-backend.yml
+                        - .depot/actions/setup-sqlx-cli/**
                         - .github/clickhouse-versions.json
                         # We use docker compose for tests, make sure we rerun on
                         # changes to docker-compose.dev.yml e.g. dependency
@@ -354,6 +355,7 @@ jobs:
                         - 'products/*/manifest.tsx'
                         - rust/feature-flags/src/properties/property_models.rs
                         - .depot/workflows/ci-backend.yml
+                        - .depot/actions/setup-sqlx-cli/**
                         - .github/clickhouse-versions.json
                         - docker-compose.dev.yml
                         - docker-compose.profiles.yml
@@ -837,11 +839,6 @@ jobs:
             - name: Install SAML dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
               run: sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-            - name: Install Rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-              with:
-                  toolchain: 1.91.1
-                  components: cargo
             - name: Install sqlx-cli
               uses: ./.depot/actions/setup-sqlx-cli
             - name: Install Python dependencies
@@ -1083,11 +1080,6 @@ jobs:
                   sudo rm -f /etc/apt/sources.list.d/*twingate*
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-            - name: Install Rust
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-              with:
-                  toolchain: 1.91.1
-                  components: cargo
             - name: Install sqlx-cli
               uses: ./.depot/actions/setup-sqlx-cli
             # First running migrations from master, to simulate the real-world scenario
@@ -1629,12 +1621,6 @@ jobs:
               shell: bash
               run: |
                   sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
-            - name: Install Rust
-              if: needs.changes.outputs.backend == 'true'
-              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-              with:
-                  toolchain: 1.91.1
-                  components: cargo
             - name: Install sqlx-cli
               if: needs.changes.outputs.backend == 'true'
               uses: ./.depot/actions/setup-sqlx-cli
