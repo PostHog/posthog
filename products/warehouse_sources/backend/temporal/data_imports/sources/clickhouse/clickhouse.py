@@ -363,11 +363,18 @@ def get_schemas(
             params["names"] = tuple(names)
             names_filter = "AND table IN %(names)s"
 
+        # Skip ALIAS and EPHEMERAL columns. A native `SELECT *` never touches them, but our
+        # `SELECT *` expands to an explicit column list — so an ALIAS whose defining expression no
+        # longer resolves on the server (a dropped/renamed underlying column, or one the connecting
+        # user can't read) fails the whole query with UNKNOWN_IDENTIFIER (code 47), and EPHEMERAL
+        # columns aren't selectable at all. Ordinary, DEFAULT and MATERIALIZED columns hold real,
+        # selectable data and are kept.
         result = client.query(
             f"""
             SELECT table, name, type
             FROM system.columns
             WHERE database = %(database)s {names_filter}
+              AND default_kind NOT IN ('ALIAS', 'EPHEMERAL')
             ORDER BY table ASC, position ASC
             """,
             parameters=params,
