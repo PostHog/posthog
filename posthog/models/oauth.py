@@ -724,9 +724,15 @@ def normalize_cimd_url(url: str) -> str:
     documents.
     """
     parsed = urlparse(url.strip())
+    try:
+        port = parsed.port
+    except ValueError:
+        # An unparseable port ("h:abc", "h:99999"). Nothing can be served there, so
+        # normalizing it consistently is enough — it just never matches a real fetch.
+        return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}{parsed.path.rstrip('/')}"
     host = (parsed.hostname or "").lower()
-    if parsed.port and parsed.port != 443:
-        host = f"{host}:{parsed.port}"
+    if port and port != 443:
+        host = f"{host}:{port}"
     path = parsed.path.rstrip("/")
     return f"{parsed.scheme.lower()}://{host}{path}"
 

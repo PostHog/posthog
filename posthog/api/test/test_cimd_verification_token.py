@@ -73,6 +73,8 @@ class TestCIMDVerificationTokenViewSet(APIBaseTest):
             ("null_url", {"label": "Null URL", "cimd_url": None}),
             ("http_url", {"label": "Insecure", "cimd_url": "http://app.example.com/cimd.json"}),
             ("url_without_path", {"label": "No path", "cimd_url": "https://app.example.com"}),
+            ("non_numeric_port", {"label": "Bad port", "cimd_url": "https://app.example.com:abc/cimd.json"}),
+            ("out_of_range_port", {"label": "Big port", "cimd_url": "https://app.example.com:99999/cimd.json"}),
         ]
     )
     def test_invalid_payload_rejected(self, _name, payload):

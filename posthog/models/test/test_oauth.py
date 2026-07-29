@@ -574,3 +574,12 @@ class TestNormalizeCimdUrl(SimpleTestCase):
     )
     def test_distinct_documents_stay_distinct(self, _name, other):
         self.assertNotEqual(normalize_cimd_url(other), normalize_cimd_url("https://a.example.com/cimd.json"))
+
+    @parameterized.expand(
+        [
+            ("non_numeric_port", "https://a.example.com:abc/cimd.json"),
+            ("out_of_range_port", "https://a.example.com:99999/cimd.json"),
+        ]
+    )
+    def test_unparseable_port_does_not_raise(self, _name, raw):
+        self.assertEqual(normalize_cimd_url(raw), normalize_cimd_url(raw))

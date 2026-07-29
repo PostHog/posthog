@@ -1,4 +1,5 @@
 from typing import Any
+from urllib.parse import urlparse
 
 from django.core.cache import cache
 from django.views.decorators.debug import sensitive_variables
@@ -68,6 +69,11 @@ class CIMDVerificationTokenSerializer(serializers.ModelSerializer):
         valid, error = validate_cimd_url(value)
         if not valid:
             raise serializers.ValidationError(error)
+        try:
+            # Accessing .port is what validates it; urlparse itself accepts "host:abc".
+            _ = urlparse(value).port
+        except ValueError:
+            raise serializers.ValidationError("CIMD metadata URL has an invalid port.")
         return value
 
 
