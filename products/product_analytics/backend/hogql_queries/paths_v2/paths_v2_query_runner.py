@@ -26,22 +26,22 @@ from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.funnels.utils import (
-    CONVERSION_WINDOW_INTERVAL_BOUNDS,
-    funnel_window_interval_unit_to_sql,
-)
+from posthog.hogql_queries.insights.funnels.utils import CONVERSION_WINDOW_INTERVAL_BOUNDS, conversion_window_to_seconds
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.validation.validation import QueryValidationContext, QueryValidationRule
 
 from products.product_analytics.backend.hogql_queries.paths_v2.path_item import (
+    DEFAULT_COLLAPSE_REPEATS,
+    DEFAULT_GAP_INTERVAL,
+    DEFAULT_GAP_INTERVAL_UNIT,
+    DEFAULT_MAX_ROWS_PER_STEP,
+    DEFAULT_MAX_STEPS,
+    PATHS_V2_OTHER,
     path_item_expr,
     resolve_step_sources,
     source_events_filter_expr,
 )
-
-# Sentinel event marking a per-step "other" bucket row; never a real event name.
-PATHS_V2_OTHER = "$$__posthog_other__$$"
 
 ELEMENT_KIND_NODE = "node"
 ELEMENT_KIND_EDGE = "edge"
@@ -57,7 +57,7 @@ class ValidateGapBounds:
         paths_filter = context.query.pathsV2Filter
         if paths_filter is None or paths_filter.gapInterval is None:
             return
-        unit = paths_filter.gapIntervalUnit or FunnelConversionWindowTimeUnit.MINUTE
+        unit = paths_filter.gapIntervalUnit or DEFAULT_GAP_INTERVAL_UNIT
         lower, upper = CONVERSION_WINDOW_INTERVAL_BOUNDS[unit]
         if not lower <= paths_filter.gapInterval <= upper:
             raise ValidationError(
@@ -101,31 +101,31 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
     def max_steps(self) -> int:
         if self.paths_v2_filter.maxSteps is not None:
             return self.paths_v2_filter.maxSteps
-        return PathsV2Filter.model_fields["maxSteps"].default
+        return DEFAULT_MAX_STEPS
 
     @property
     def max_rows_per_step(self) -> int:
         if self.paths_v2_filter.maxRowsPerStep is not None:
             return self.paths_v2_filter.maxRowsPerStep
-        return PathsV2Filter.model_fields["maxRowsPerStep"].default
+        return DEFAULT_MAX_ROWS_PER_STEP
 
     @property
     def gap_interval(self) -> int:
         if self.paths_v2_filter.gapInterval is not None:
             return self.paths_v2_filter.gapInterval
-        return PathsV2Filter.model_fields["gapInterval"].default
+        return DEFAULT_GAP_INTERVAL
 
     @property
     def gap_interval_unit(self) -> FunnelConversionWindowTimeUnit:
         if self.paths_v2_filter.gapIntervalUnit is not None:
             return self.paths_v2_filter.gapIntervalUnit
-        return PathsV2Filter.model_fields["gapIntervalUnit"].default
+        return DEFAULT_GAP_INTERVAL_UNIT
 
     @property
     def collapse_repeats(self) -> bool:
         if self.paths_v2_filter.collapseRepeats is not None:
             return self.paths_v2_filter.collapseRepeats
-        return PathsV2Filter.model_fields["collapseRepeats"].default
+        return DEFAULT_COLLAPSE_REPEATS
 
     @cached_property
     def query_date_range(self) -> QueryDateRange:
@@ -144,8 +144,11 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
         return node_rows + drop_off_rows + edge_rows
 
     def _gap_expr(self) -> ast.Expr:
-        interval_unit = funnel_window_interval_unit_to_sql(self.gap_interval_unit)
-        return parse_expr(f"INTERVAL {self.gap_interval} {interval_unit}")
+        # Fixed seconds via the funnels realization (month means 31 days), never calendar INTERVAL
+        # arithmetic, so a journey's gap G always equals the emitted funnel's conversion window.
+        return parse_expr(
+            f"toIntervalSecond({conversion_window_to_seconds(self.gap_interval, self.gap_interval_unit)})"
+        )
 
     def _event_base_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         """One row per in-range event matching a step source: (timestamp, actor_id, path_item)."""
@@ -355,7 +358,6 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
                 else:
                     step_for(step_index).rows.append(PathsV2Row(item=item, count=actor_count))
             elif kind == ELEMENT_KIND_EDGE:
-                step_for(step_index)
                 edges.append(
                     PathsV2Edge(
                         stepIndex=step_index - 1,

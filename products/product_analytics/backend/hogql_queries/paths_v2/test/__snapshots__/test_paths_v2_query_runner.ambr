@@ -34,7 +34,7 @@
              (SELECT actor_id AS actor_id,
                      arraySort(x -> x.1, groupArray(tuple(timestamp, path_item))) AS event_tuples,
                      arrayPopBack(arrayPushFront(arrayMap(x -> x.1, event_tuples), NULL)) AS previous_timestamps,
-                     arraySplit((x, previous_timestamp) -> ifNull(ifNull(greater(x.1, plus(previous_timestamp, toIntervalMinute(30))), 0), 1), event_tuples, previous_timestamps) AS journeys,
+                     arraySplit((x, previous_timestamp) -> ifNull(ifNull(greater(x.1, plus(previous_timestamp, toIntervalSecond(1800))), 0), 1), event_tuples, previous_timestamps) AS journeys,
                      arrayMap(journey -> arrayMap(event_tuple -> event_tuple.2, journey), journeys) AS journey_items,
                      arrayMap(journey -> arrayFilter((item, i) -> or(ifNull(equals(i, 1), 0), ifNull(notEquals(item, journey[minus(i, 1)]), isNotNull(item)
                                                                                                      or isNotNull(journey[minus(i, 1)]))), journey, arrayEnumerate(journey)), journey_items) AS collapsed_journeys,
