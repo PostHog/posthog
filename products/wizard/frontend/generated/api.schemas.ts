@@ -73,6 +73,12 @@ export interface WizardTaskDTOApi {
     status: WizardTaskDTOStatusEnumApi
 }
 
+export interface WizardSessionUserDTOApi {
+    id: number
+    first_name: string
+    email: string
+}
+
 /**
  * @nullable
  */
@@ -100,6 +106,8 @@ export interface WizardSessionDTOApi {
     event_plan: WizardSessionDTOApiEventPlan
     /** @nullable */
     error: WizardSessionDTOApiError
+    /** The user who initiated this wizard run (null for runs created before attribution existed). Lets the UI name whose run it is. */
+    created_by: WizardSessionUserDTOApi | null
     created_at: string
     updated_at: string
     is_stale: boolean
