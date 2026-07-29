@@ -6,7 +6,6 @@ from typing import Any, Optional
 from dateutil import parser
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.close.settings import (
     CLOSE_ENDPOINTS,
     CloseEndpointConfig,
@@ -25,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     EndpointResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 CLOSE_BASE_URL = "https://api.close.com/api/v1"
 PAGE_LIMIT = 100

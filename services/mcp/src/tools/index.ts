@@ -20,8 +20,12 @@ import queryInsight from './insights/query'
 import generateAppUrl from './links/generate-app-url'
 import navigateUser from './links/navigate-user'
 import loopsReview from './loops/loopsReview'
-// Notebooks (edit is hand-written — generated CRUD lives in generated/notebooks.ts)
+// Notebooks (edit + cell tools are hand-written — generated CRUD lives in generated/notebooks.ts)
+import notebookAddCell from './notebooks/addCell'
+import notebookCreateMarkdown from './notebooks/createMarkdown'
+import notebookDeleteCell from './notebooks/deleteCell'
 import notebookEdit from './notebooks/edit'
+import notebookUpdateCell from './notebooks/updateCell'
 // Organizations
 import getOrganizations from './organizations/getOrganizations'
 import setActiveOrganization from './organizations/setActive'
@@ -93,6 +97,10 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Notebooks
     'notebook-edit': notebookEdit,
+    'notebooks-add-cell': notebookAddCell,
+    'notebooks-create-markdown': notebookCreateMarkdown,
+    'notebooks-delete-cell': notebookDeleteCell,
+    'notebooks-update-cell': notebookUpdateCell,
 
     // Debug
     'debug-mcp-ui-apps': debugMcpUiApps,

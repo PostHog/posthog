@@ -24,10 +24,6 @@ from posthog.exceptions_capture import capture_exception
 
 from products.data_warehouse.backend.facade.api import reconcile_postgres_schemas
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     SSHTunnelMixin,
@@ -37,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
 )
@@ -645,15 +642,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # an existing column in place, so retrying won't help — the table must be reset and
             # fully re-synced to adopt the new type.
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
-            # Raised by the source Postgres when the incremental query compares an integer column
-            # against a non-integer cursor value, e.g. `WHERE "id" > '1.5'`. `_build_query` renders
-            # the stored `incremental_field_last_value` as a SQL literal, so a fractional/non-integer
-            # cursor produces `InvalidTextRepresentation: invalid input syntax for type integer`.
-            # This is deterministic — every retry re-runs the identical failing query — and signals a
-            # type mismatch between the incremental field and its data. The volatile offending value
-            # (`: "1.5"`) is excluded from the match. Coercing the cursor here would change sync
-            # semantics (risk of skipped/duplicated rows), so stop and ask the user to reset.
+            # Raised by the source Postgres when the incremental query compares an integer/bigint
+            # column against a non-integer cursor value, e.g. `WHERE "id" > '1.5'` or
+            # `WHERE "id" > '2026-04-26T20:58:57.557000'`. `_build_query` renders the stored
+            # `incremental_field_last_value` as a SQL literal, so a fractional/timestamp-shaped
+            # cursor produces `InvalidTextRepresentation: invalid input syntax for type integer` (or
+            # `bigint`, depending on the column's declared width). This is deterministic — every retry
+            # re-runs the identical failing query — and signals a type mismatch between the
+            # incremental field and its data. The volatile offending value is excluded from the match.
+            # Coercing the cursor here would change sync semantics (risk of skipped/duplicated rows),
+            # so stop and ask the user to reset.
             "invalid input syntax for type integer": "PostHog tried to resume this table's incremental sync from a non-integer cursor value against an integer incremental field, which your database rejects. This usually means the incremental field's type doesn't match its data. Please reset and fully re-sync this table, or pick a different incremental field.",
+            "invalid input syntax for type bigint": "PostHog tried to resume this table's incremental sync from a non-integer cursor value against a bigint incremental field, which your database rejects. This usually means the incremental field's type doesn't match its data. Please reset and fully re-sync this table, or pick a different incremental field.",
             # Raised (ObjectNotInPrerequisiteState, SQLSTATE 55000) when a selected materialized view
             # was created `WITH NO DATA` and never refreshed — every SELECT against it fails until the
             # customer runs `REFRESH MATERIALIZED VIEW`. Deterministic and outside our control, so
@@ -716,6 +716,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "sync, then re-enable the sync."
             ),
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `get_rows` already retries a mid-stream drop in-process (reconnect, or fall back to
+        # offset chunking) — see `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` in postgres.py. It only
+        # reaches here once that in-process handling gives up (e.g. a full-table scan can't safely
+        # resume once rows have been yielded, since OFFSET has no stable ORDER BY to resume from).
+        # Temporal then retries the whole activity and the failure is transient and
+        # self-recovering, so classify it here too — otherwise `_handle_import_error` logs it at
+        # `exception` on every occurrence, flooding error tracking with a self-recovering failure
+        # (e.g. a cloud provider terminating a backend for maintenance or failover).
+        return {"terminating connection due to"}
 
     def reconcile_schema_metadata(
         self,
