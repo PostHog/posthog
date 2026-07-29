@@ -26,22 +26,56 @@ import { type BillingProductV2Type } from '~/types'
  * layout/GlobalModals) over the card and returns to the same URL.
  */
 
-/** Null when billing didn't give us a price, so the card can leave the slot empty rather than
- * showing a unit with no number. */
-function priceLabel(usd: number | null): string | null {
-    if (usd === null) {
-        return null
-    }
-    const formatted = Number.isInteger(usd) ? `$${usd}` : `$${usd.toFixed(2)}`
-    return `${formatted} per shipped PR`
-}
+const formatUsd = (usd: number): string => (Number.isInteger(usd) ? `$${usd}` : `$${usd.toFixed(2)}`)
 
 const compact = (value: number): string =>
     Intl.NumberFormat('en', { notation: 'compact', compactDisplay: 'short', maximumFractionDigits: 1 }).format(value)
 
 /**
+ * The headline: what self-driving costs, before the plans that differ only in what happens after
+ * the free PRs run out.
+ *
+ * The numbers are optional on purpose. Billing may not carry the inbox product (an instance without
+ * it in its plans config, or a request that came back thin), and the pricing model is still the
+ * point of this screen, so the copy stands on its own and only the figures drop out.
+ */
+function SelfDrivingPricing({ product }: { product: BillingProductV2Type | null }): JSX.Element {
+    const included = freePrs(product)
+    const perPr = pricePerPrUsd(product)
+
+    return (
+        <div className="w-full flex flex-col gap-3 p-4 rounded-lg border border-accent bg-accent-highlight">
+            <p className="m-0 text-sm font-semibold">You pay for shipped work, nothing else</p>
+            {(included > 0 || perPr !== null) && (
+                <div className="flex flex-wrap items-start gap-x-10 gap-y-3">
+                    {included > 0 && (
+                        <div>
+                            <p className="m-0 text-2xl font-bold leading-tight">{included}</p>
+                            <p className="m-0 text-xs text-muted">
+                                {pluralize(included, 'pull request', undefined, false)} a month, free
+                            </p>
+                        </div>
+                    )}
+                    {perPr !== null && (
+                        <div>
+                            <p className="m-0 text-2xl font-bold leading-tight">{formatUsd(perPr)}</p>
+                            <p className="m-0 text-xs text-muted">per pull request after that</p>
+                        </div>
+                    )}
+                </div>
+            )}
+            <p className="m-0 text-xs text-muted">
+                Scouts, signals, and reports never cost anything. You're charged only when an agent ships a pull request
+                you can review.
+            </p>
+        </div>
+    )
+}
+
+/**
  * Monthly free allowance on the tools the wizard turns on, so the plan reads as the whole platform
- * rather than PRs alone — subscribing activates the full catalog either way.
+ * rather than PRs alone. It sits under both plans because subscribing changes nothing about it:
+ * every tool keeps the same free tier either way.
  */
 function ToolFreeTiers({ products }: { products: BillingProductV2Type[] | undefined }): JSX.Element | null {
     const allowances = (products ?? [])
@@ -57,30 +91,20 @@ function ToolFreeTiers({ products }: { products: BillingProductV2Type[] | undefi
     }
 
     return (
-        <>
-            {allowances.map(({ name, unit, value }) => (
-                <li key={name} className="flex items-center gap-2">
-                    <IconCheck className="size-4 text-success shrink-0" />
-                    <span className="text-sm">
-                        <strong>
-                            {compact(value)} {pluralize(value, unit, undefined, false)}
-                        </strong>{' '}
-                        <span className="text-muted">a month {name.toLowerCase()}, free</span>
-                    </span>
-                </li>
-            ))}
-        </>
-    )
-}
-
-function FreeAllowance({ prs }: { prs: number }): JSX.Element {
-    return (
-        <span>
-            <strong>
-                {prs} {pluralize(prs, 'PR', undefined, false)}
-            </strong>{' '}
-            <span className="text-muted">a month, free</span>
-        </span>
+        <div className="w-full flex flex-col gap-2">
+            <p className="m-0 text-xs text-muted">Every other tool keeps its free tier on both plans:</p>
+            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 m-0 p-0 list-none">
+                {allowances.map(({ name, unit, value }) => (
+                    <li key={name} className="flex items-center gap-2">
+                        <IconCheck className="size-3.5 text-success shrink-0" />
+                        <span className="text-xs text-muted">
+                            <strong className="font-semibold text-default">{name}</strong>: {compact(value)}{' '}
+                            {pluralize(value, unit, undefined, false)} a month
+                        </span>
+                    </li>
+                ))}
+            </ul>
+        </div>
     )
 }
 
@@ -123,7 +147,7 @@ function PlanChoice({
     const subscribing = isLoading || paymentEntryModalOpen
 
     const included = freePrs(inboxProduct)
-    const perPr = priceLabel(pricePerPrUsd(inboxProduct))
+    const perPrUsd = pricePerPrUsd(inboxProduct)
 
     // Reported at the pick, not at payment completion — whether payment then resolves is billing's
     // own funnel (GROW-89).
@@ -139,10 +163,7 @@ function PlanChoice({
 
     return (
         <div className="flex flex-wrap gap-3">
-            <p className="text-sm text-muted m-0 w-full">
-                Watching is free. Scouts, signals, and reports never cost anything – you pay only when an agent ships a
-                pull request.
-            </p>
+            <SelfDrivingPricing product={inboxProduct} />
 
             <div className="flex flex-1 basis-72 flex-col gap-3 p-4 border border-primary rounded-lg">
                 <div className="flex items-baseline justify-between gap-2">
@@ -150,18 +171,26 @@ function PlanChoice({
                     <p className="m-0 text-sm text-muted">$0 / month</p>
                 </div>
                 <ul className="flex flex-col gap-1.5 m-0 p-0 list-none">
-                    {included > 0 && (
-                        <li className="flex items-center gap-2">
-                            <IconCheck className="size-4 text-success shrink-0" />
-                            <span className="text-sm">
-                                <FreeAllowance prs={included} />
-                            </span>
-                        </li>
-                    )}
-                    <ToolFreeTiers products={products} />
+                    <li className="flex items-center gap-2">
+                        <IconCheck className="size-4 text-success shrink-0" />
+                        <span className="text-sm">
+                            {included > 0 ? (
+                                <>
+                                    <strong>{pluralize(included, 'pull request', undefined)}</strong> a month, shipped
+                                    and reviewed
+                                </>
+                            ) : (
+                                'A monthly allowance of shipped pull requests'
+                            )}
+                        </span>
+                    </li>
+                    <li className="flex items-center gap-2">
+                        <IconCheck className="size-4 text-success shrink-0" />
+                        <span className="text-sm">No payment method needed</span>
+                    </li>
                 </ul>
                 <p className="m-0 text-xs text-muted">
-                    Agents pause shipping once you've used those up, instead of charging you.
+                    Agents pause shipping once the free pull requests are used up, instead of charging you.
                 </p>
                 <LemonButton
                     type="secondary"
@@ -181,16 +210,14 @@ function PlanChoice({
                         <p className="m-0 text-base font-semibold">Pay-as-you-go</p>
                         <p className="m-0 text-xs text-muted">Free allowance included</p>
                     </div>
-                    {perPr && <p className="m-0 text-sm text-muted">{perPr}</p>}
+                    {perPrUsd !== null && (
+                        <p className="m-0 text-sm text-muted">{formatUsd(perPrUsd)} per shipped PR</p>
+                    )}
                 </div>
                 <ul className="flex flex-col gap-1.5 m-0 p-0 list-none">
                     <li className="flex items-center gap-2">
                         <IconCheck className="size-4 text-success shrink-0" />
                         <span className="text-sm">Agents keep shipping past the free allowance</span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                        <IconCheck className="size-4 text-success shrink-0" />
-                        <span className="text-sm">Same monthly free tier on every tool</span>
                     </li>
                     <li className="flex items-center gap-2">
                         <IconCheck className="size-4 text-success shrink-0" />
@@ -212,6 +239,8 @@ function PlanChoice({
                     Add payment method
                 </BillingUpgradeCTA>
             </div>
+
+            <ToolFreeTiers products={products} />
         </div>
     )
 }
