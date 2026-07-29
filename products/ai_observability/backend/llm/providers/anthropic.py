@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
     ContextWindowExceededError,
+    ProviderConnectionError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
@@ -196,6 +197,10 @@ class AnthropicAdapter:
             if _is_quota_or_billing_error(e):
                 raise QuotaExceededError(str(e)) from e
             raise RateLimitError(str(e)) from e
+        except anthropic.APIConnectionError as e:
+            # Transient transport failure (connection reset, read timeout). Map to a quiet
+            # retryable error so the caller retries silently instead of spamming error tracking.
+            raise ProviderConnectionError(str(e)) from e
 
     def stream(
         self,
