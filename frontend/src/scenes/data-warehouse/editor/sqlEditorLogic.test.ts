@@ -913,6 +913,90 @@ describe('sqlEditorLogic', () => {
         })
     })
 
+    describe('edit_metric URL parameter', () => {
+        it('binds the update target to the server-loaded metric query, ignoring URL-supplied open_query', async () => {
+            // Guards against re-binding the "Update metric" button to attacker-controlled
+            // open_query SQL: a crafted link must not overwrite a teammate's metric.
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/data_catalog/metrics/my_metric/': [
+                        200,
+                        {
+                            name: 'my_metric',
+                            definition: { kind: NodeKind.HogQLQuery, query: 'SELECT count() FROM events' },
+                        },
+                    ],
+                },
+            })
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), {
+                source: 'metric',
+                edit_metric: 'my_metric',
+                open_query: 'SELECT * FROM sensitive_table',
+            })
+
+            await expectLogic(logic)
+                .toDispatchActions(['createTab', 'setQueryInput'])
+                .toNotHaveDispatchedActions(['runQuery'])
+                .toMatchValues({
+                    queryInput: 'SELECT count() FROM events',
+                    editingMetricName: 'my_metric',
+                })
+        })
+
+        it('opens an unbound tab when the metric cannot be loaded', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/data_catalog/metrics/missing_metric/': [404],
+                },
+            })
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), { source: 'metric', edit_metric: 'missing_metric' })
+
+            await expectLogic(logic).toDispatchActions(['createTab']).toMatchValues({ editingMetricName: null })
+        })
+
+        it('does not request or bind a traversal-shaped edit_metric name', async () => {
+            // edit_metric is interpolated into the request path unencoded, so a "../"-shaped
+            // name must be rejected before it can reach another project's metric.
+            const retrieveMock = jest.fn(() => [200, { name: 'x', definition: { query: 'SELECT 1' } }])
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/data_catalog/metrics/:name/': retrieveMock,
+                },
+            })
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), {
+                source: 'metric',
+                edit_metric: '../../../1/data_catalog/metrics/other',
+            })
+
+            await expectLogic(logic).toDispatchActions(['createTab']).toMatchValues({ editingMetricName: null })
+            expect(retrieveMock).not.toHaveBeenCalled()
+        })
+    })
+
     describe('Update view', () => {
         it('advances the saved baseline after updating so reverting to the original query re-enables Update view', async () => {
             logic = sqlEditorLogic({
