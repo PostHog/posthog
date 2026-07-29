@@ -21,6 +21,12 @@ import structlog
 from celery import shared_task
 from celery.exceptions import MaxRetriesExceededError, Retry
 
+from posthog.comment.formatting import (
+    extract_images_from_rich_content,
+    rich_content_to_html,
+    rich_content_to_markdown,
+    rich_content_to_slack_payload,
+)
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.comment import Comment as CommentModel
@@ -32,12 +38,6 @@ from posthog.storage import object_storage
 
 from products.conversations.backend.cache import NUDGE_DISMISS_TTL, suppress_nudge
 from products.conversations.backend.events import capture_ticket_status_changed
-from products.conversations.backend.formatting import (
-    extract_images_from_rich_content,
-    rich_content_to_html,
-    rich_content_to_markdown,
-    rich_content_to_slack_payload,
-)
 from products.conversations.backend.mailgun import (
     MailgunDomainNotRegistered,
     MailgunNotConfigured,

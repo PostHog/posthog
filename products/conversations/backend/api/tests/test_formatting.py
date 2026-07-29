@@ -2,7 +2,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.conversations.backend.formatting import (
+from posthog.comment.formatting import (
     _slack_emoji_name_to_char,
     _slack_unicode_to_char,
     content_to_slack_mrkdwn,
