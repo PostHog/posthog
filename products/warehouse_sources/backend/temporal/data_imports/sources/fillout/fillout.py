@@ -66,7 +66,9 @@ def _fillout_incremental_window(cursor_path: str) -> IncrementalConfig:
     return {
         "cursor_path": cursor_path,
         "start_param": "afterDate",
-        "initial_value": "1970-01-01T00:00:00Z",
+        # Not `...T00:00:00Z`: Fillout's API rejects an `afterDate` of exactly the Unix epoch
+        # with a 400 "Invalid date", so the first (pre-watermark) sync uses one second past it.
+        "initial_value": "1970-01-01T00:00:01Z",
         "convert": _format_fillout_datetime,
     }
 

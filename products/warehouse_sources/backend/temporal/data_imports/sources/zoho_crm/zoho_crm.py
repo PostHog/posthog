@@ -42,6 +42,12 @@ MAX_PAGE = 2000 // PAGE_SIZE
 MAX_FIELDS_PER_REQUEST = 50
 REQUEST_TIMEOUT_SECONDS = 60
 
+# Shown when the refresh-token exchange is rejected. The raw Zoho `error` code (e.g. `invalid_code`)
+# is kept on the exception for logs but never surfaced to users, who can't act on it.
+REFRESH_TOKEN_REJECTED_MESSAGE = (
+    "Zoho CRM rejected your refresh token. Generate a new one for your self client and reconnect."
+)
+
 
 class ZohoCRMAuthError(Exception):
     pass
@@ -321,8 +327,8 @@ def validate_credentials(
 
     try:
         client.get(f"/crm/{api_version}/settings/modules")
-    except ZohoCRMAuthError as e:
-        return False, str(e)
+    except ZohoCRMAuthError:
+        return False, REFRESH_TOKEN_REJECTED_MESSAGE
     except Exception:
         return False, None
     return True, None

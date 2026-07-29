@@ -376,12 +376,16 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         saveAsInsight,
         saveAsView,
         saveAsEndpoint,
+        saveAsMetric,
+        updateEditingMetric,
+        setEditingMetricName,
         setSourceQuery,
         setSuggestedQueryInput,
         reportAIQueryPromptOpen,
         setEditingInsightName,
         setEditingInsightDescription,
     } = useActions(sqlEditorLogic)
+    const { editingMetricName, metricUpdating } = useValues(sqlEditorLogic)
     const { response, responseError, responseLoading } = useValues(dataNodeLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
 
@@ -418,6 +422,11 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                         return
                     }
 
+                    if (item.action === 'metric') {
+                        saveAsMetric()
+                        return
+                    }
+
                     saveAsView()
                 },
                 accessDisabledReason:
@@ -430,6 +439,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         [
             saveAsEndpoint,
             saveAsInsight,
+            saveAsMetric,
             saveAsMenuItems.secondary,
             saveAsView,
             saveAsViewAccessDisabledReason,
@@ -440,6 +450,11 @@ function SQLEditorSceneTitle(): JSX.Element | null {
     const onPrimarySaveClick = (): void => {
         if (saveAsMenuItems.primary.action === 'endpoint') {
             saveAsEndpoint()
+            return
+        }
+
+        if (saveAsMenuItems.primary.action === 'metric') {
+            saveAsMetric()
             return
         }
 
@@ -639,17 +654,15 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                             </>
                         ) : editingInsight ? (
                             <>
-                                {featureFlags[FEATURE_FLAGS.SQL_EDITOR_QUERY_HISTORY] && (
-                                    <LemonButton
-                                        onClick={() => openHistoryModal()}
-                                        icon={<IconBook />}
-                                        type="secondary"
-                                        size="small"
-                                        data-attr="sql-editor-insight-history-button"
-                                    >
-                                        History
-                                    </LemonButton>
-                                )}
+                                <LemonButton
+                                    onClick={() => openHistoryModal()}
+                                    icon={<IconBook />}
+                                    type="secondary"
+                                    size="small"
+                                    data-attr="sql-editor-insight-history-button"
+                                >
+                                    History
+                                </LemonButton>
                                 <LemonButton
                                     disabledReason={
                                         !isSourceQueryLastRun
@@ -707,6 +720,42 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                     noPadding
                                     aria-label="close"
                                     tooltip={closeObjectTooltip}
+                                />
+                            </>
+                        ) : editingMetricName ? (
+                            <>
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    onClick={() => updateEditingMetric()}
+                                    loading={metricUpdating}
+                                    disabledReason={saveAsDisabledReason}
+                                    data-attr="sql-editor-update-metric"
+                                    sideAction={{
+                                        icon: <IconChevronDown />,
+                                        dropdown: {
+                                            placement: 'bottom-end',
+                                            overlay: (
+                                                <LemonMenuOverlay
+                                                    items={secondarySaveMenuItems.map((item) => ({
+                                                        ...item,
+                                                        disabledReason:
+                                                            saveAsDisabledReason ?? item.accessDisabledReason,
+                                                    }))}
+                                                />
+                                            ),
+                                        },
+                                    }}
+                                >
+                                    Update metric
+                                </LemonButton>
+                                <LemonButton
+                                    onClick={() => setEditingMetricName(null)}
+                                    icon={<IconX />}
+                                    type="tertiary"
+                                    size="small"
+                                    aria-label="Stop editing metric"
+                                    tooltip="Stop editing this metric and start a new query"
                                 />
                             </>
                         ) : (
