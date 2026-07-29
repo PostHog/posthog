@@ -196,13 +196,23 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         run_output = task_run.output if isinstance(task_run.output, dict) else {}
         if run_output.get("pr_url") == pr_url:
             _record_run_pr_merged(task_run)
-        _resolve_signal_reports_for_task(task_run.task_id, pr_url)
+        # Ungated on the pr_url match above: unlike the run-bookkeeping calls, this keys off
+        # task_id (reports_for_task_filter), not output.pr_url, so the same-branch trust rule
+        # doesn't apply — a merged PR resolves its report.
+        _transition_signal_reports_for_task(
+            task_run.task_id, pr_url, SignalReport.Status.RESOLVED, "github_pr_webhook_signal_report_resolved"
+        )
 
     if task_run and action == "closed" and not merged:
         # Same trust rule as the merge branch: only the run that claims this PR URL.
         run_output = task_run.output if isinstance(task_run.output, dict) else {}
         if run_output.get("pr_url") == pr_url:
             _cancel_wizard_run_on_close(task_run)
+        # Ungated for the same reason as the merge branch's resolve call: a closed-unmerged PR
+        # archives (suppresses) its report so it leaves the inbox instead of lingering.
+        _transition_signal_reports_for_task(
+            task_run.task_id, pr_url, SignalReport.Status.SUPPRESSED, "github_pr_webhook_signal_report_archived"
+        )
 
     return HttpResponse(status=200)
 
@@ -429,11 +439,15 @@ def _resolve_external_team(payload: dict) -> Team | None:
     return integration.team if integration else None
 
 
-def _resolve_signal_reports_for_task(task_id: uuid.UUID, pr_url: str) -> None:
-    """Mark signal reports linked to a merged PR's task as resolved.
+def _transition_signal_reports_for_task(
+    task_id: uuid.UUID, pr_url: str, target_status: SignalReport.Status, success_log_event: str
+) -> None:
+    """Transition signal reports linked to a task's PR to ``target_status``.
 
-    Kept tolerant: a single bad transition should not fail the whole webhook,
-    since GitHub retries 5xx responses and we've already acknowledged the PR event.
+    Covers both PR outcomes: a merged PR resolves its reports, a closed-unmerged PR archives
+    (suppresses) them so they leave the inbox instead of lingering as if work were still pending.
+    Kept tolerant: a single bad transition should not fail the whole webhook, since GitHub retries
+    5xx responses and we've already acknowledged the PR event.
     """
     reports = (
         SignalReport.objects.filter(SignalReport.reports_for_task_filter(task_id))
@@ -449,7 +463,7 @@ def _resolve_signal_reports_for_task(task_id: uuid.UUID, pr_url: str) -> None:
 
     for report in reports:
         try:
-            updated_fields = report.transition_to(SignalReport.Status.RESOLVED)
+            updated_fields = report.transition_to(target_status)
         except InvalidStatusTransition:
             logger.warning(
                 "github_pr_webhook_signal_report_invalid_transition",
@@ -460,7 +474,7 @@ def _resolve_signal_reports_for_task(task_id: uuid.UUID, pr_url: str) -> None:
             continue
         report.save(update_fields=updated_fields)
         logger.info(
-            "github_pr_webhook_signal_report_resolved",
+            success_log_event,
             report_id=str(report.id),
             task_id=str(task_id),
             pr_url=pr_url,
