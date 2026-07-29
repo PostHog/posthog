@@ -20,7 +20,7 @@ from posthog.storage.llm_prompt_cache import (
     invalidate_prompt_version_cache,
     llm_prompts_hypercache,
 )
-from posthog.storage.llm_prompt_cache_keys import prompt_latest_cache_key
+from posthog.storage.llm_prompt_cache_keys import prompt_label_cache_key, prompt_latest_cache_key
 from posthog.utils import safe_cache_delete
 
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel
@@ -286,21 +286,36 @@ class TestLLMPromptCache(BaseTest):
 
         self.assertIsNone(result)
 
-    @parameterized.expand([("operational_error", OperationalError), ("interface_error", InterfaceError)])
-    def test_load_fn_reports_and_reraises_transient_db_error_as_dependency_unavailable(self, _name, error_cls):
+    @parameterized.expand(
+        [
+            ("latest_operational_error", OperationalError, None),
+            ("latest_interface_error", InterfaceError, None),
+            ("label_operational_error", OperationalError, "production"),
+        ]
+    )
+    def test_load_fn_reports_and_reraises_transient_db_error_as_dependency_unavailable(self, _name, error_cls, label):
         # HyperCacheDependencyUnavailable is what makes the cache tier return a miss without caching
         # a miss sentinel, so the next read retries instead of serving "not found" for the whole
         # cache_miss_ttl. The tier does not report the error, so the load_fn owns the capture:
         # without it a versioned read over a warm latest entry 404s through an outage silently.
+        #
+        # The label case is here because label resolution is a third DB query on its own branch, so
+        # it has to sit inside the same guard. Landing it outside changes nothing the read-path test
+        # can see, since the wrapper in get_prompt_by_name_from_cache still returns None, so this is
+        # the only place the degrade and the report are pinned down for that branch.
+        if label is None:
+            cache_key = prompt_latest_cache_key(self.team.id, "cached-prompt")
+            db_fn = "_get_latest_prompt_from_db"
+        else:
+            cache_key = prompt_label_cache_key(self.team.id, "cached-prompt", label)
+            db_fn = "_get_labeled_prompt_from_db"
+
         with (
             patch("posthog.utils.capture_exception") as mock_capture,
-            patch(
-                "posthog.storage.llm_prompt_cache._get_latest_prompt_from_db",
-                side_effect=error_cls("query_wait_timeout"),
-            ),
+            patch(f"posthog.storage.llm_prompt_cache.{db_fn}", side_effect=error_cls("query_wait_timeout")),
         ):
             with self.assertRaises(HyperCacheDependencyUnavailable):
-                _load_prompt_cache(prompt_latest_cache_key(self.team.id, "cached-prompt"))
+                _load_prompt_cache(cache_key)
 
         mock_capture.assert_called_once()
 
