@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::str::from_utf8;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -483,7 +484,7 @@ impl Coordinator {
                     for event in resp.events() {
                         if event.event_type() == EventType::Put {
                             let partition = event.kv().and_then(|kv| {
-                                let key = std::str::from_utf8(kv.key()).ok()?;
+                                let key = from_utf8(kv.key()).ok()?;
                                 store::extract_partition_from_ack_key(key)
                             });
 

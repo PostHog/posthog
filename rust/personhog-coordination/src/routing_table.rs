@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::str::from_utf8;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock};
 use std::time::{Duration, Instant};
@@ -807,7 +808,7 @@ impl RoutingTable {
                                 // disposal from durable state and drains it
                                 // to the assignment owner.
                                 let Some(kv) = event.kv() else { continue };
-                                let key = std::str::from_utf8(kv.key()).unwrap_or("");
+                                let key = from_utf8(kv.key()).unwrap_or("");
                                 let Some(partition) = store::extract_partition_from_key(key) else {
                                     continue
                                 };

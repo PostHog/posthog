@@ -414,12 +414,12 @@ impl Stack {
     /// wiring.
     async fn coordinator_router_index(&self) -> Result<usize> {
         let traffic_router = format!("harness-router-{}", self.config.routers - 1);
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + Duration::from_secs(5);
         let holder = loop {
             if let Some(leader) = self.store.get_leader().await? {
                 break leader.holder;
             }
-            if std::time::Instant::now() >= deadline {
+            if Instant::now() >= deadline {
                 bail!("no coordinator elected within 5s; cannot target coordinator chaos");
             }
             tokio::time::sleep(Duration::from_millis(100)).await;

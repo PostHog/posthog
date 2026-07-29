@@ -27,7 +27,7 @@
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use k8s_openapi::api::core::v1::Pod;
@@ -364,7 +364,7 @@ async fn execute(
             // The successor needs the old election lease to lapse (abrupt
             // kills leave it until TTL) plus a campaign; poll generously.
             let deadline = Duration::from_secs(25);
-            let start = std::time::Instant::now();
+            let start = Instant::now();
             let successor = loop {
                 if shutdown.load(Ordering::SeqCst) {
                     return;

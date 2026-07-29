@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::str::from_utf8;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -237,7 +238,7 @@ pub struct PodHandle {
     /// Set when a lease-loss self-fence failed: local serving state may
     /// not reflect lost ownership, so the run supervisor must not retry
     /// in place — only a process restart clears this.
-    fence_poisoned: std::sync::atomic::AtomicBool,
+    fence_poisoned: AtomicBool,
     /// Optional K8s awareness for departure classification during shutdown.
     k8s_awareness: Option<Arc<K8sAwareness>>,
 }
@@ -258,7 +259,7 @@ impl PodHandle {
             fenced_partitions: Mutex::new(HashSet::new()),
             drain_notify: Notify::new(),
             warm_slots,
-            fence_poisoned: std::sync::atomic::AtomicBool::new(false),
+            fence_poisoned: AtomicBool::new(false),
             k8s_awareness,
         }
     }
@@ -405,8 +406,7 @@ impl PodHandle {
                 // authority. Re-acquisition always re-warms, so nothing
                 // is lost but memory. A failed release poisons recovery.
                 if let Err(e) = self.self_fence_locally().await {
-                    self.fence_poisoned
-                        .store(true, std::sync::atomic::Ordering::SeqCst);
+                    self.fence_poisoned.store(true, Ordering::SeqCst);
                     tracing::error!(
                         pod = %self.config.pod_name,
                         error = %e,
@@ -423,10 +423,7 @@ impl PodHandle {
             }
             match lease_err {
                 Some(e) => {
-                    if self
-                        .fence_poisoned
-                        .load(std::sync::atomic::Ordering::SeqCst)
-                    {
+                    if self.fence_poisoned.load(Ordering::SeqCst) {
                         // Serving state may not reflect the lost
                         // ownership; only a process restart clears it.
                         return Err(e);
