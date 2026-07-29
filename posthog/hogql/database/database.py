@@ -2527,16 +2527,17 @@ def _settled_catalog_certifications(
 
     from posthog.hogql.database.schema.information_schema import _can_read_catalog  # noqa: PLC0415
 
-    from products.data_catalog.backend.facade.enums import CertificationStatus  # noqa: PLC0415
-    from products.data_catalog.backend.facade.flags import is_data_catalog_enabled  # noqa: PLC0415
-    from products.data_catalog.backend.facade.models import TableCertification  # noqa: PLC0415
-
     team = context.team
     team_id = context.team_id
-    if team is None or team_id is None or not is_data_catalog_enabled(team) or not _can_read_catalog(context):
-        return {}, {}
 
     try:
+        from products.data_catalog.backend.facade.enums import CertificationStatus  # noqa: PLC0415
+        from products.data_catalog.backend.facade.flags import is_data_catalog_enabled  # noqa: PLC0415
+        from products.data_catalog.backend.facade.models import TableCertification  # noqa: PLC0415
+
+        if team is None or team_id is None or not is_data_catalog_enabled(team) or not _can_read_catalog(context):
+            return {}, {}
+
         by_table_id: dict[str, DatabaseSchemaTableCertification] = {}
         by_saved_query_id: dict[str, DatabaseSchemaTableCertification] = {}
         certifications = (
