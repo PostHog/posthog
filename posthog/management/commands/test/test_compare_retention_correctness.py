@@ -1,13 +1,21 @@
+from datetime import UTC, datetime
+
 from unittest import TestCase
+from unittest.mock import patch
 
 from parameterized import parameterized
 
 from posthog.management.commands.compare_retention_correctness import (
     ProgressState,
     Row,
+    _check_one,
     merge_progress_state,
+    revalidate_mismatches,
     scope_signature,
 )
+from posthog.models import Team
+
+from products.product_analytics.backend.models.insight import Insight
 
 
 def _row(insight_id, status, detail=""):
@@ -80,13 +88,15 @@ class TestProgressStateRoundTrip(TestCase):
         self.assertEqual(ProgressState.from_dict(state.to_dict()), state)
 
     def test_from_dict_tolerates_missing_keys(self):
-        # A state file written before the attributed ERROR_* statuses existed must still load.
+        # A state file written before the attributed ERROR_* statuses or resolved_mismatches
+        # existed must still load.
         restored = ProgressState.from_dict({"cursor": 7, "counts": {"OK": 3, "ERROR": 1}})
         self.assertEqual(restored.cursor, 7)
         self.assertEqual(restored.counts["OK"], 3)
         self.assertEqual(restored.counts["ERROR"], 1)
         self.assertEqual(restored.counts["ERROR_DWH"], 0)
         self.assertEqual(restored.mismatches, [])
+        self.assertEqual(restored.resolved_mismatches, [])
         self.assertFalse(restored.complete)
 
 
@@ -109,3 +119,118 @@ class TestScopeSignature(TestCase):
         self.assertNotEqual(
             scope_signature({"recheck_mismatches": True}), scope_signature({"recheck_mismatches": False})
         )
+
+
+def _mismatch_record(insight_id):
+    return {
+        "id": insight_id,
+        "short_id": f"s{insight_id}",
+        "team_id": 1,
+        "url": f"url{insight_id}",
+        "status": "MISMATCH",
+        "detail": "2 stable cell diff(s)",
+    }
+
+
+class TestRevalidateMismatches(TestCase):
+    @parameterized.expand(
+        [
+            ("recheck_ok", _row(1, "OK"), "OK"),
+            ("references_now_deleted", _row(1, "SKIPPED", "action deleted"), "SKIPPED"),
+            ("insight_gone", None, "SKIPPED"),
+        ]
+    )
+    def test_resolves_when_no_longer_reproducing(self, _name, recheck_row, resolved_status):
+        counts = {"MISMATCH": 1, "OK": 5, "SKIPPED": 0}
+        kept, resolved, new_counts = revalidate_mismatches([_mismatch_record(1)], counts, lambda rec: recheck_row)
+        self.assertEqual(kept, [])
+        self.assertEqual(len(resolved), 1)
+        self.assertIn("resolution", resolved[0])
+        self.assertEqual(new_counts["MISMATCH"], 0)
+        self.assertEqual(new_counts[resolved_status], counts[resolved_status] + 1)
+        # Inputs stay untouched so a crash between revalidation and save can't lose findings.
+        self.assertEqual(counts["MISMATCH"], 1)
+
+    def test_keeps_and_refreshes_still_reproducing_mismatch(self):
+        kept, resolved, new_counts = revalidate_mismatches(
+            [_mismatch_record(1)],
+            {"MISMATCH": 1},
+            lambda rec: _row(1, "MISMATCH", "1 stable cell diff(s), values moved (churn)"),
+        )
+        self.assertEqual(resolved, [])
+        self.assertEqual(new_counts["MISMATCH"], 1)
+        self.assertEqual(kept[0]["detail"], "1 stable cell diff(s), values moved (churn)")
+
+    def test_errored_recheck_keeps_record_untouched(self):
+        record = _mismatch_record(1)
+        kept, resolved, new_counts = revalidate_mismatches([record], {"MISMATCH": 1}, lambda rec: _row(1, "ERROR_DWH"))
+        self.assertEqual(kept, [record])
+        self.assertEqual(resolved, [])
+        self.assertEqual(new_counts["MISMATCH"], 1)
+
+
+def _retention_insight():
+    # Unsaved team; personsOnEventsMode pinned so modifier defaulting needs no DB or flag lookups.
+    team = Team(pk=1, timezone="UTC", modifiers={"personsOnEventsMode": "person_id_no_override_properties_on_events"})
+    return Insight(
+        id=42,
+        short_id="abc123",
+        team=team,
+        query={
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": "RetentionQuery",
+                "dateRange": {"date_to": "2023-04-10T00:00:00.000Z", "explicitDate": False},
+                "retentionFilter": {
+                    "period": "Day",
+                    "targetEntity": {"id": "start", "type": "events"},
+                    "returningEntity": {"id": "start", "type": "events"},
+                    "retentionType": "retention_first_time",
+                    "totalIntervals": 3,
+                },
+            },
+        },
+    )
+
+
+def _retention_results(day0_count):
+    return [
+        {
+            "breakdown_value": None,
+            "label": "Day 0",
+            "date": datetime(2023, 4, 8, tzinfo=UTC),
+            "values": [{"count": day0_count, "label": "Day 0"}, {"count": 1, "label": "Day 1"}],
+        }
+    ]
+
+
+class TestRecheckStabilityClassification(TestCase):
+    def _check_with_fake_variants(self, fake):
+        with patch("posthog.management.commands.compare_retention_correctness._try_variant", side_effect=fake):
+            return _check_one(_retention_insight(), "url", freeze=False, recheck=True)
+
+    def test_replica_alternation_is_classified_as_churn_not_deterministic(self):
+        # Divergent replica part-sets serve different data per QUERY, regardless of variant. A strict
+        # legacy→dwh→legacy→dwh cadence phase-locks each variant onto one state, which used to read
+        # as a value-identical "deterministic" difference. The reversed recheck order must classify
+        # this as churn.
+        states = [_retention_results(16), _retention_results(15)]
+        calls = {"n": 0}
+
+        def alternating_replicas(insight, use_dwh, modifiers, override):
+            result = states[calls["n"] % 2]
+            calls["n"] += 1
+            return result, None
+
+        row = self._check_with_fake_variants(alternating_replicas)
+        self.assertEqual(row.status, "MISMATCH")
+        self.assertIn("values moved between passes (churn", row.detail)
+        self.assertNotIn("value-identical", row.detail)
+
+    def test_true_variant_difference_stays_deterministic(self):
+        def variant_dependent(insight, use_dwh, modifiers, override):
+            return _retention_results(15 if use_dwh else 16), None
+
+        row = self._check_with_fake_variants(variant_dependent)
+        self.assertEqual(row.status, "MISMATCH")
+        self.assertIn("value-identical (deterministic)", row.detail)

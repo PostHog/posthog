@@ -26,7 +26,18 @@ Insights whose referenced actions/cohorts were deleted are SKIPPED up front by `
 instead of erroring on both sides. A first-pass mismatch is re-run once and only the differences
 that reproduce are kept (``--no-recheck-mismatches`` to disable): late-arriving events and person
 merges move *historical* buckets between the two sequential runs, so a single pass can report live
-drift as a parity bug.
+drift as a parity bug. The recheck runs the variants in reversed order (dwh before legacy) so that
+replica part-set divergence — replicas mid-way through applying the same rewrites can serve
+different data for minutes, and a fixed query cadence phase-locks each variant onto one replica
+state — shows up as moved values (churn) rather than masquerading as a value-identical
+deterministic difference.
+
+Mismatches also age: when a sweep run starts (or an already-complete sweep is re-run) with a
+``--state-file``, every previously accumulated mismatch is first re-verified against current data.
+Ones that no longer reproduce move to a ``resolved_mismatches`` list — typically artifacts of data
+that was being rewritten (merge campaigns collapsing re-emitted rows) when the original batch ran —
+and the counts move from MISMATCH to the settled status. Only differences that keep reproducing
+across runs, usually hours apart, stay in the report.
 
 The variant toggle is process-global, so instead of nesting a ``patch`` per call (which would race
 across worker threads) we install one process-wide patch whose return value is read from a
@@ -129,6 +140,9 @@ class ProgressState:
     processed: int = 0  # cumulative insights checked across all runs
     counts: dict[str, int] = dataclasses.field(default_factory=lambda: dict.fromkeys(PROGRESS_STATUSES, 0))
     mismatches: list[dict[str, Any]] = dataclasses.field(default_factory=list)
+    # Mismatches from earlier batches that stopped reproducing when re-verified on a later run
+    # (data settled), annotated with a "resolution" field.
+    resolved_mismatches: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     errors: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     complete: bool = False
     scope: str = ""
@@ -142,6 +156,7 @@ class ProgressState:
             processed=int(data.get("processed", 0)),
             counts={s: int(raw_counts.get(s, 0)) for s in PROGRESS_STATUSES},
             mismatches=list(data.get("mismatches") or []),
+            resolved_mismatches=list(data.get("resolved_mismatches") or []),
             errors=list(data.get("errors") or []),
             complete=bool(data.get("complete", False)),
             scope=str(data.get("scope", "")),
@@ -186,11 +201,55 @@ def merge_progress_state(
         processed=base.processed + len(rows),
         counts=counts,
         mismatches=base.mismatches + [_row_record(r) for r in rows if r.status == "MISMATCH"],
+        resolved_mismatches=base.resolved_mismatches,
         # All attributed variants (ERROR_LEGACY / ERROR_DWH / ERROR_BOTH) accumulate here too.
         errors=base.errors + [_row_record(r) for r in rows if r.status.startswith("ERROR")],
         complete=len(rows) < limit,
         scope=scope or base.scope,
     )
+
+
+def revalidate_mismatches(
+    records: list[dict[str, Any]],
+    counts: dict[str, int],
+    check: Callable[[dict[str, Any]], Optional[Row]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, int]]:
+    """Re-verify previously recorded mismatches against current data. Pure — inputs are not mutated.
+
+    A batch runs minutes to hours after the batch that recorded a mismatch. A difference that was an
+    artifact of data in motion (merges collapsing re-emitted rows while replicas serve divergent part
+    sets) has converged by then and stops reproducing; a genuine query-semantics difference keeps
+    reproducing. Returns (still_mismatched, resolved, adjusted_counts):
+
+    - re-checks OK, or SKIPPED, or the insight is gone → resolved, annotated with a "resolution"
+    - still MISMATCH → kept, with the detail refreshed to the latest verdict
+    - re-check errored → kept untouched (no evidence either way; the next run retries)
+
+    ``adjusted_counts`` moves each resolved record from MISMATCH to its settled status so the sweep
+    totals reflect final verdicts.
+    """
+    kept: list[dict[str, Any]] = []
+    resolved: list[dict[str, Any]] = []
+    new_counts = dict(counts)
+
+    def resolve(rec: dict[str, Any], status: str, resolution: str) -> None:
+        new_counts["MISMATCH"] = max(0, new_counts.get("MISMATCH", 0) - 1)
+        new_counts[status] = new_counts.get(status, 0) + 1
+        resolved.append({**rec, "resolution": resolution})
+
+    for rec in records:
+        row = check(rec)
+        if row is None:
+            resolve(rec, "SKIPPED", "insight no longer exists")
+        elif row.status == "OK":
+            resolve(rec, "OK", "no longer reproduces (data settled)")
+        elif row.status == "SKIPPED":
+            resolve(rec, "SKIPPED", f"now skipped: {row.detail}")
+        elif row.status == "MISMATCH":
+            kept.append({**rec, "detail": row.detail})
+        else:
+            kept.append(rec)
+    return kept, resolved, new_counts
 
 
 def scope_signature(options: dict[str, Any]) -> str:
@@ -279,10 +338,18 @@ def _check_one(insight: Insight, url: str, freeze: bool, recheck: bool) -> Row:
         # Re-run a first-pass mismatch once and keep only the differences that reproduce: live
         # ingest and person merges shift historical buckets between the sequential runs, so an
         # unrepeated diff is drift, not a parity bug. Bounded cost — mismatches only.
+        #
+        # The recheck runs the variants in REVERSED order (dwh first). Consecutive queries can be
+        # served from different replicas whose part sets diverge while data is being rewritten
+        # (e.g. merges collapsing re-emitted person-merge rows), and a fixed legacy→dwh→legacy→dwh
+        # cadence phase-locks each variant onto one replica state — the skew then reproduces
+        # value-identically and reads as a deterministic query bug. Reversing the recheck order
+        # flips which state each variant reads: replica skew surfaces as moved values (churn),
+        # while a genuine query difference still reproduces with identical values.
         rechecked = False
         if recheck and diff.status == "MISMATCH":
-            legacy2, legacy2_exc = _try_variant(insight, False, modifiers, override)
             dwh2, dwh2_exc = _try_variant(insight, True, modifiers, override)
+            legacy2, legacy2_exc = _try_variant(insight, False, modifiers, override)
             if legacy2_exc is None and dwh2_exc is None:
                 assert legacy2 is not None and dwh2 is not None
                 diff = intersect_stable_mismatch(diff, diff_retention_results(legacy2, dwh2, **diff_kwargs))
@@ -396,7 +463,19 @@ class Command(BaseCommand):
             )
 
         prev_state, already_complete = self._load_resume_state(state_file, scope, after_id, options["restart"])
+
+        # Re-verify mismatches recorded by earlier batches before doing new work: enough time has
+        # usually passed for in-motion data (merges, replica divergence) to settle, so artifacts
+        # drop out of the accumulated findings and only reproducing differences stay. Re-running the
+        # command on an already-complete sweep does just this re-verification.
+        if state_file and prev_state is not None and prev_state.mismatches and options["recheck_mismatches"]:
+            prev_state = self._revalidate_previous_mismatches(prev_state, options)
+            prev_state.updated_at = datetime.now(UTC).isoformat()
+            save_progress_state(state_file, prev_state)
+
         if already_complete:
+            assert prev_state is not None  # already_complete implies a loaded checkpoint
+            self._print_cumulative(prev_state)
             return
 
         # Explicit --after-id wins; otherwise resume from the saved checkpoint (None = start from the top).
@@ -454,9 +533,38 @@ class Command(BaseCommand):
                     "Pass --restart to run it again."
                 )
             )
-            self._print_cumulative(prev)
             return prev, True
         return prev, False
+
+    def _revalidate_previous_mismatches(self, state: ProgressState, options: dict[str, Any]) -> ProgressState:
+        self.stdout.write(f"Re-verifying {len(state.mismatches)} previously recorded mismatch(es)…")
+        freeze: bool = options["freeze_window"]
+
+        def check(rec: dict[str, Any]) -> Optional[Row]:
+            insight = (
+                Insight.objects.filter(pk=rec["id"], saved=True, deleted=False, query__source__kind="RetentionQuery")
+                .select_related("team")
+                .first()
+            )
+            if insight is None:
+                return None
+            return _check_one(insight, rec.get("url", ""), freeze, recheck=True)
+
+        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, side_effect=lambda team: _use_dwh_var.get()):
+            kept, resolved, counts = revalidate_mismatches(state.mismatches, state.counts, check)
+
+        for rec in resolved:
+            self.stdout.write(
+                self.style.SUCCESS(f"  RESOLVED {rec['short_id']} (team {rec['team_id']}) — {rec['resolution']}")
+            )
+        if kept:
+            self.stdout.write(self.style.ERROR(f"  {len(kept)} mismatch(es) still reproduce"))
+        return dataclasses.replace(
+            state,
+            mismatches=kept,
+            resolved_mismatches=state.resolved_mismatches + resolved,
+            counts=counts,
+        )
 
     def _handle_empty(
         self,
@@ -582,6 +690,9 @@ class Command(BaseCommand):
     def _print_cumulative(self, state: ProgressState) -> None:
         """List the findings accumulated across the whole sweep so far (capped; the full set is in the file)."""
         self._print_record_list("Accumulated mismatches", state.mismatches, self.style.ERROR)
+        self._print_record_list(
+            "Resolved mismatches (stopped reproducing)", state.resolved_mismatches, self.style.SUCCESS
+        )
         self._print_record_list("Accumulated errors", state.errors, self.style.WARNING)
 
     def _print_record_list(self, heading: str, records: list[dict[str, Any]], style: Callable[[str], str]) -> None:
@@ -593,6 +704,9 @@ class Command(BaseCommand):
             # Attribution matters within the errors list; older state files have no status field.
             label = f"[{rec['status']}] " if rec.get("status", "").startswith("ERROR") else ""
             detail = f" — {rec['detail']}" if rec.get("detail") else ""
-            self.stdout.write(style(f"  {label}{rec['short_id']} (team {rec['team_id']}) {rec['url']}{detail}"))
+            resolution = f" → {rec['resolution']}" if rec.get("resolution") else ""
+            self.stdout.write(
+                style(f"  {label}{rec['short_id']} (team {rec['team_id']}) {rec['url']}{detail}{resolution}")
+            )
         if len(records) > cap:
             self.stdout.write(style(f"  …and {len(records) - cap} more (see state file)"))

@@ -534,6 +534,13 @@ def intersect_stable_mismatch(first: CorrectnessDiff, second: CorrectnessDiff) -
     exact same legacy/dwh values in both passes, while continuously-churning data (person merges,
     late ingest into historical buckets) keeps the same busy cells differing with MOVED values.
     Key-only matching cannot tell those apart; the annotation can.
+
+    The annotation is only trustworthy when the recheck runs the variants in reversed order.
+    Replicas mid-way through the same rewrites (merges collapsing re-emitted rows) serve divergent
+    part sets for minutes, and with a fixed legacy→dwh→legacy→dwh cadence each variant phase-locks
+    onto one replica state — the skew then reproduces value-identically, exactly like a real bug.
+    Reversing the second pass flips which state each variant reads, so replica skew lands in the
+    MOVED-values bucket instead.
     """
     second_by_key = {_cell_key(c): c for c in second.cell_diffs}
     stable_cells = [
@@ -1559,9 +1566,14 @@ class Command(BaseCommand):
         # both passes: a transient diff from live ingest landing outside the trailing window drops
         # out, while a genuine systematic difference survives. Plain runs (no marker/capture) keep the
         # perf protocol and query-log stats untouched. Bounded cost — only runs on a first-pass mismatch.
+        # The recheck runs the variants in REVERSED order (dwh first): consecutive queries can land on
+        # replicas whose part sets diverge while data is being rewritten, and a fixed
+        # legacy→dwh→legacy→dwh cadence phase-locks each variant onto one replica state, making the
+        # skew reproduce value-identically like a real bug. Reversed order flips the states, so
+        # replica skew shows up as moved values (churn) instead.
         if options["recheck_mismatches"] and correctness.status == "MISMATCH":
-            recheck_legacy, recheck_legacy_exc = _attempt_variant(insight, False, modifiers, override)
             recheck_dwh, recheck_dwh_exc = _attempt_variant(insight, True, modifiers, override)
+            recheck_legacy, recheck_legacy_exc = _attempt_variant(insight, False, modifiers, override)
             if recheck_legacy is not None and recheck_dwh is not None:
                 diff2 = diff_retention_results(recheck_legacy.results, recheck_dwh.results, **diff_kwargs)
                 correctness = intersect_stable_mismatch(correctness, diff2)
