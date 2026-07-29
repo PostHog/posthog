@@ -1,6 +1,8 @@
+import uuid
 from collections.abc import Callable
 from typing import Any, Literal
 
+from django.conf import settings
 from django.db import close_old_connections, transaction
 
 import s3fs
@@ -10,6 +12,7 @@ import structlog
 import pyarrow.compute as pc
 import posthoganalytics
 from asgiref.sync import async_to_sync
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.utils import get_machine_id
@@ -29,15 +32,15 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.l
     run_post_load_operations,
     supports_partial_data_loading,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
-    DeltaTableHelper,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
-    append_partition_key_to_table,
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     evolve_pyarrow_schema,
     pyarrow_schema_from_arrow_exportable,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    append_partition_key_to_table,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
     validate_schema_and_update_table,
@@ -316,7 +319,7 @@ async def _handle_partial_data_loading(
     )
 
 
-def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessage) -> None:
+def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessage) -> str | None:
     """Run post-load operations for a final batch whose data was already written to Delta Lake.
 
     The batch data (S3 read, partitioning, Delta Lake write) was already handled when
@@ -325,12 +328,14 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
 
     All async operations are run within a single async_to_sync call to avoid
     event loop lifecycle issues with aiohttp/s3fs clients.
+
+    Returns the prepared queryable_folder, or None if post-load couldn't run.
     """
     # Clear cached S3FileSystem instances to avoid reusing sessions bound to a
     # previously closed event loop (async_to_sync creates/destroys loops).
     s3fs.S3FileSystem.clear_instance_cache()
 
-    async def _run() -> None:
+    async def _run() -> str | None:
         job = await ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").aget(
             id=export_signal.job_id
         )
@@ -351,7 +356,7 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
                 external_data_job_id=export_signal.job_id,
                 batch_index=export_signal.batch_index,
             )
-            return
+            return None
 
         pa_table = read_parquet(export_signal.s3_path)
         internal_schema = HogQLSchema()
@@ -359,21 +364,21 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
         internal_schema.add_pyarrow_table(pa_table)
         table_schema_dict = internal_schema.to_hogql_types()
 
-        await run_post_load_operations(
+        prepared_queryable_folder = await run_post_load_operations(
             job=job,
             schema=schema,
             source=schema.source,
             delta_table_helper=delta_table_helper,
             row_count=export_signal.total_rows or 0,
-            file_uris=delta_table.file_uris(),
             table_schema_dict=table_schema_dict,
             resource_name=export_signal.resource_name,
             logger=logger,
         )
 
         logger.debug("post_load_operations_complete_for_already_processed_batch")
+        return prepared_queryable_folder
 
-    async_to_sync(_run)()
+    return async_to_sync(_run)()
 
 
 def _release_pipeline_lock_for_job(export_signal: ExportSignalMessage) -> None:
@@ -440,6 +445,78 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
         )
 
     _release_pipeline_lock_for_job(export_signal)
+
+
+def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, prepared_queryable_folder: str) -> None:
+    """Fire-and-forget start of `ducklake-register.data-imports` after a V3 final batch lands.
+
+    V2 triggers this as a child workflow after `import_data_activity_sync`, but V3's
+    `external-data-job` ends at extraction — the prepared Parquet generation only exists
+    once this consumer's post-load operations prepare it, so the trigger lives here
+    instead. The child starts only when this consumer's `*_load` deployment has Temporal
+    client env vars configured; without them the trigger is skipped (load still succeeds).
+    """
+    if export_signal.cdc_write_mode == "scd2_append" or export_signal.sync_type == "cdc":
+        # CDC finals land once per flush tick, so registering each one would copy a full
+        # prepared generation into DuckLake continuously. An `incremental_merge` tick does
+        # advance schema.table, so this leaves CDC schemas out of per-generation
+        # registration entirely — a deliberate gap until that cadence is worked out.
+        # scd2_append writes go to the _cdc companion, which the registration's staleness
+        # check discards anyway.
+        return
+
+    try:
+        from posthog.temporal.common.client import async_connect
+        from posthog.temporal.ducklake.ducklake_register_data_imports_workflow import (
+            DuckLakeRegisterDataImportsInputs,
+            DuckLakeRegisterDataImportsWorkflow,
+        )
+
+        # Connect and start inside one event loop: sync_connect() builds the client in
+        # asgiref's loop, and the start would then run on the loop async_to_sync spins up
+        # here. Start is fire-and-forget — we only need the start ack, not the result.
+        async def _start() -> None:
+            temporal = await async_connect()
+            await temporal.start_workflow(
+                DuckLakeRegisterDataImportsWorkflow.run,
+                DuckLakeRegisterDataImportsInputs(
+                    team_id=export_signal.team_id,
+                    job_id=export_signal.job_id,
+                    schema_id=uuid.UUID(export_signal.schema_id),
+                    prepared_queryable_folder=prepared_queryable_folder,
+                ),
+                id=(
+                    f"ducklake-register-data-imports-{export_signal.team_id}-"
+                    f"{export_signal.schema_id}-{export_signal.job_id}"
+                ),
+                task_queue=settings.DUCKLAKE_TASK_QUEUE,
+            )
+
+        async_to_sync(_start)()
+        logger.info(
+            "ducklake_registration_workflow_started",
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+            external_data_job_id=export_signal.job_id,
+        )
+    except WorkflowAlreadyStartedError:
+        # Same job already has a registration in flight (e.g. a V2 child, or a duplicate
+        # final-batch redelivery) — registration is already handled, nothing to do.
+        logger.info(
+            "ducklake_registration_workflow_already_started",
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+            external_data_job_id=export_signal.job_id,
+        )
+    except Exception as e:
+        logger.error(
+            "failed_to_start_ducklake_registration_workflow",
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+            external_data_job_id=export_signal.job_id,
+            exc_info=True,
+        )
+        capture_exception(e)
 
 
 def _promote_staged_cursor(export_signal: ExportSignalMessage) -> None:
@@ -556,12 +633,14 @@ def process_message(
             )
             if verify_ownership is not None:
                 verify_ownership()
-            _run_post_load_for_already_processed_batch(export_signal)
+            prepared_queryable_folder = _run_post_load_for_already_processed_batch(export_signal)
             # Post-load can run minutes (compaction, S3 prep) — re-check before
             # completion promotes the cursor and releases the lock under a new owner.
             if verify_ownership is not None:
                 verify_ownership()
             _mark_job_completed(export_signal)
+            if prepared_queryable_folder:
+                _trigger_ducklake_register_data_imports(export_signal, prepared_queryable_folder)
             return
 
         logger.debug(
@@ -704,17 +783,15 @@ def process_message(
             if verify_ownership is not None:
                 verify_ownership()
 
-            async_to_sync(run_post_load_operations)(
+            prepared_queryable_folder = async_to_sync(run_post_load_operations)(
                 job=job,
                 schema=schema,
                 source=schema.source,
                 delta_table_helper=delta_table_helper,
                 row_count=export_signal.total_rows or 0,
-                file_uris=delta_table.file_uris(),
                 table_schema_dict=internal_schema.to_hogql_types(),
                 resource_name=export_signal.resource_name,
                 logger=logger,
-                cdc_table_mode=export_signal.cdc_table_mode,
                 cdc_write_mode=export_signal.cdc_write_mode,
             )
 
@@ -724,6 +801,9 @@ def process_message(
                 verify_ownership()
 
             _mark_job_completed(export_signal)
+
+            if prepared_queryable_folder:
+                _trigger_ducklake_register_data_imports(export_signal, prepared_queryable_folder)
 
             logger.debug("post_load_operations_complete")
 

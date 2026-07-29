@@ -645,6 +645,7 @@ TARGET_ROWS_PER_FILE = 5_000_000
 MAX_S3_FILE_FANOUT = 256
 
 DEFAULT_PARQUET_ROW_GROUP_SIZE_BYTES = 128 * 1024 * 1024
+DEFAULT_EVENTS_PARQUET_ROW_GROUP_SIZE_BYTES = 512 * 1024 * 1024
 EVENTS_PARQUET_ROW_GROUP_BUFFER_BUDGET_BYTES = 32 * ONE_GB_IN_BYTES
 
 # Parquet writer defaults shared by every export. The byte target sets the nominal size
@@ -828,7 +829,7 @@ class DucklingBackfillConfig(Config):
     delete_tables: bool = False  # Danger: drops and recreates tables, losing all data
     dry_run: bool = False
     events_parquet_row_group_size_bytes: int = pydantic.Field(
-        default=DEFAULT_PARQUET_ROW_GROUP_SIZE_BYTES,
+        default=DEFAULT_EVENTS_PARQUET_ROW_GROUP_SIZE_BYTES,
         gt=0,
         description="Uncompressed byte target for each Parquet row group written by the events export.",
     )

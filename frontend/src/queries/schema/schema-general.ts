@@ -1266,6 +1266,8 @@ export interface ChartSettings {
     pie?: PieChartSettings
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>
+    /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
+    chartStyle?: ChartStyle
 }
 
 export interface ConditionalFormattingRule {
@@ -5078,12 +5080,24 @@ export type DatabaseSchemaTableType =
     | 'managed_view'
     | 'endpoint'
 
+export type DatabaseSchemaTableCertificationStatus = 'certified' | 'deprecated'
+
+export interface DatabaseSchemaTableCertification {
+    /** Settled data catalog trust mark: 'certified' (prefer this source) or 'deprecated' (avoid it). */
+    status: DatabaseSchemaTableCertificationStatus
+    notes?: string
+    certified_by?: string
+    certified_at?: string
+}
+
 export interface DatabaseSchemaTableCommon {
     type: DatabaseSchemaTableType
     id: string
     name: string
     fields: Record<string, DatabaseSchemaField>
     row_count?: number
+    /** Present only when the table or view carries a settled data catalog certification. */
+    certification?: DatabaseSchemaTableCertification
 }
 
 export interface DatabaseSchemaViewTable extends DatabaseSchemaTableCommon {
@@ -8625,6 +8639,7 @@ export enum ProductKey {
     COMMENTS = 'comments',
     CONVERSATIONS = 'conversations',
     CUSTOMER_ANALYTICS = 'customer_analytics',
+    DATA_CATALOG = 'data_catalog',
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
     EARLY_ACCESS_FEATURES = 'early_access_features',

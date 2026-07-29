@@ -210,7 +210,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # has billing disabled (BigQuery sandbox mode), so any query job is rejected before it
             # runs. There's nothing we can do but stop retrying until they enable billing.
             "Billing has not been enabled for this project": "BigQuery billing is not enabled for your Google Cloud project. Enable billing in the Google Cloud console (https://console.cloud.google.com/billing), then resume this source.",
-            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
+            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/core/arrow_utils.py`
             # when an integer column's source type was widened (e.g. `INT64` widened from a
             # narrower numeric type) after the destination table was created with the narrower
             # type. Delta Lake can't widen an existing column in place, so retrying won't help —
@@ -260,6 +260,27 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # source view. Matched on BigQuery's stable wording, not the volatile peak-usage percentage
             # or job id.
             BIGQUERY_RESOURCES_EXCEEDED_ERROR: "BigQuery couldn't run a query for this source because it exceeded the memory allowed for a single query. This is usually caused by heavy sorts or analytic (window) functions over a large table or view. Retrying won't help — please reduce how much data you're syncing (for example add row filters or an incremental field), or simplify the source view, then re-enable the source.",
+            # Raised as a 400 BadRequest from `jobs.getQueryResults` (the poll `_run_destination_query_
+            # with_job_retry` / `_query_result_with_job_retry` in `bigquery.py` do while awaiting a query
+            # job) when the job's result set holds a NaN in a column typed NUMERIC/BIGNUMERIC — that type
+            # can't represent NaN the way FLOAT64 can. This traces back to the source table or view itself
+            # (a computed column doing arithmetic like division by zero) rather than anything our SELECT
+            # constructs, so it's a deterministic property of the customer's data: the same query keeps
+            # producing the same NaN on every retry, and Google's own default job-retry doesn't cover it.
+            # The user must fix the source view/column; retrying just spams error tracking. Matched on
+            # BigQuery's stable wording, not the volatile job id/URL.
+            "Invalid NUMERIC value: NaN": "BigQuery couldn't complete a query for this source because it produced a NaN (not-a-number) value in a column typed NUMERIC, which that type can't represent. This is usually caused by a computed column or view doing arithmetic like division by zero. Please fix the underlying view or column in BigQuery, then re-enable the source.",
+            # Raised as a 400 BadRequest (reason `invalidQuery`) when the table or view being synced
+            # has a column name BigQuery can't resolve to a single source, e.g. "Column name x is
+            # ambiguous". We select each configured column by its own unqualified name (see
+            # `_get_query`/`_bq_select_clause` in `bigquery.py`), so this only happens when the
+            # underlying relation itself has the conflict — a view that joins tables sharing a column
+            # name, or a table/external table with two columns differing only by letter case. It's a
+            # deterministic property of the customer's view/table definition: the same query fails
+            # identically on every retry, so it just hammers BigQuery and spams error tracking. The
+            # user must fix the view or table definition. Matched on BigQuery's stable wording, not
+            # the volatile column name or [row:col] location.
+            "is ambiguous": "BigQuery couldn't run a query for this source because a column name in the table or view being synced is ambiguous. This usually happens when a view joins tables that share a column name, or two columns differ only by letter case. Retrying won't help — please update the view or table definition to remove the naming conflict (for example by aliasing the duplicate column), then reconnect the source.",
         }
 
     def validate_credentials(
