@@ -614,30 +614,38 @@ def mongo_source(
                 db_incremental_field_last_value,
             )
 
-            cursor = read_collection.find(query, batch_size=chunk_size)
+            # Between chunks, the pipeline writes/merges the accumulated Arrow table before pulling
+            # more rows, which can pause consumption of this cursor well past MongoDB's default
+            # 10-minute idle-cursor timeout — the server then kills it, and the next getMore raises
+            # CursorNotFound. no_cursor_timeout disables that server-side expiry; we close the cursor
+            # explicitly in the finally block below so it doesn't linger on the server instead.
+            cursor = read_collection.find(query, batch_size=chunk_size, no_cursor_timeout=True)
 
-            for doc in cursor:
-                # Convert BSON types (ObjectId, Binary, UUID, DatetimeMS) to SQL-safe
-                # values. _process_doc_with_field_logging logs the offending field name
-                # before re-raising, so any exception here fails the sync with precise
-                # diagnostic context rather than silently dropping rows.
-                processed_doc = _process_doc_with_field_logging(doc, collection_name, logger)
+            try:
+                for doc in cursor:
+                    # Convert BSON types (ObjectId, Binary, UUID, DatetimeMS) to SQL-safe
+                    # values. _process_doc_with_field_logging logs the offending field name
+                    # before re-raising, so any exception here fails the sync with precise
+                    # diagnostic context rather than silently dropping rows.
+                    processed_doc = _process_doc_with_field_logging(doc, collection_name, logger)
 
-                # Stringify _id so it's always a scalar string downstream,
-                # regardless of BSON type (ObjectId, UUID Binary, numeric, etc.).
-                result: dict[str, Any] = {
-                    "_id": str(processed_doc["_id"]),
-                }
-                # extract incremental field from the document if it exists
-                if incremental_field:
-                    incremental_value = processed_doc.get(incremental_field, None)
-                    if incremental_value is None:
-                        continue
-                    result[incremental_field] = incremental_value
+                    # Stringify _id so it's always a scalar string downstream,
+                    # regardless of BSON type (ObjectId, UUID Binary, numeric, etc.).
+                    result: dict[str, Any] = {
+                        "_id": str(processed_doc["_id"]),
+                    }
+                    # extract incremental field from the document if it exists
+                    if incremental_field:
+                        incremental_value = processed_doc.get(incremental_field, None)
+                        if incremental_value is None:
+                            continue
+                        result[incremental_field] = incremental_value
 
-                result["data"] = processed_doc
+                    result["data"] = processed_doc
 
-                yield result
+                    yield result
+            finally:
+                cursor.close()
 
     name = NamingConvention.normalize_identifier(collection_name)
 
