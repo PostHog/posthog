@@ -161,18 +161,18 @@ export interface emailSetupModalLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         dnsRecords: (verification: any, savedIntegration: IntegrationType | null) => DnsRecord[]
         domain: (emailSender: EmailSenderFormType) => string
-        domainMailFromSubdomain: (domainSenders: IntegrationType[]) => string | null
-        domainSenders: (
-            integrations: IntegrationType[] | null,
-            domain: string,
-            savedIntegration: IntegrationType | null
-        ) => IntegrationType[]
+        isDomainVerified: (verification: any) => boolean
         duplicateSender: (
             integrations: IntegrationType[] | null,
             emailSender: EmailSenderFormType,
             savedIntegration: IntegrationType | null
         ) => IntegrationType | null
-        isDomainVerified: (verification: any) => boolean
+        domainSenders: (
+            integrations: IntegrationType[] | null,
+            domain: string,
+            savedIntegration: IntegrationType | null
+        ) => IntegrationType[]
+        domainMailFromSubdomain: (domainSenders: IntegrationType[]) => string | null
     }
 }
 
