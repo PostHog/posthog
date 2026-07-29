@@ -13,8 +13,8 @@ Requires the project to capture the `$web_vitals` event (`capture_performance` i
 # Inputs
 
 - `metric` (required): `LCP` (load, ms), `INP` (interactivity, ms), `CLS` (layout stability, unitless), or `FCP` (first paint, ms). One metric per call — run up to four calls for a full audit.
-- `percentile` (required): use `p75` unless the user asks otherwise — the Google bands are defined at p75. `p90`/`p99` show the slow tail.
-- `thresholds` (required): `[good, poor]` boundaries for the chosen metric. Standard Google values:
+- `percentile`: defaults to `p75` — the Google bands are defined at p75. `p90`/`p99` show the slow tail.
+- `thresholds`: `[good, poor]` boundaries for the chosen metric. Defaults to the standard Google values, so pass this only when the user supplies their own:
 
 | Metric | thresholds     |
 | ------ | -------------- |
@@ -38,8 +38,6 @@ Worst LCP pages at p75, last 7 days, marketing site only:
 ```json
 {
   "metric": "LCP",
-  "percentile": "p75",
-  "thresholds": [2500, 4000],
   "properties": [{ "type": "event", "key": "$host", "operator": "exact", "value": ["example.com"] }]
 }
 ```

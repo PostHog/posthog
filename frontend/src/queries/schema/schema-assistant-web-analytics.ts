@@ -191,17 +191,19 @@ export interface AssistantWebVitalsPathBreakdownQuery {
     metric: WebVitalsMetric
 
     /**
-     * Required. Percentile to aggregate each page's samples at. Use `p75`
-     * unless the user asks otherwise — the Google bands are defined at p75.
+     * Percentile to aggregate each page's samples at. Defaults to `p75`, which
+     * is where the Google bands are defined. Only set this when the user asks
+     * for a different percentile.
+     * @default p75
      */
-    percentile: WebVitalsPercentile
+    percentile?: WebVitalsPercentile
 
     /**
-     * Required. `[good, poor]` band boundaries for the chosen metric. Values
-     * below `good` are good, above `poor` are poor, in between need
-     * improvement. Use the standard Google thresholds unless the user supplies
-     * their own: LCP `[2500, 4000]`, INP `[200, 500]`, CLS `[0.1, 0.25]`,
-     * FCP `[1800, 3000]`.
+     * `[good, poor]` band boundaries for the chosen metric. Values below `good`
+     * are good, above `poor` are poor, in between need improvement. Defaults to
+     * the standard Google thresholds for the chosen metric: LCP `[2500, 4000]`,
+     * INP `[200, 500]`, CLS `[0.1, 0.25]`, FCP `[1800, 3000]`. Only set this
+     * when the user supplies their own baselines.
      */
-    thresholds: [number, number]
+    thresholds?: [number, number]
 }

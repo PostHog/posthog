@@ -1,6 +1,7 @@
 from posthog.schema import (
     CachedWebStatsTableQueryResponse,
     WebAnalyticsPreComputeStrategy,
+    WebVitalsMetric,
     WebVitalsMetricBand,
     WebVitalsPathBreakdownQuery,
     WebVitalsPathBreakdownQueryResponse,
@@ -21,10 +22,24 @@ from products.web_analytics.backend.hogql_queries.web_vitals_paths_lazy_precompu
     execute_lazy_precomputed_read,
 )
 
+# Mirrors WEB_VITALS_THRESHOLDS in frontend/src/queries/nodes/WebVitals/definitions.ts
+DEFAULT_THRESHOLDS: dict[WebVitalsMetric, tuple[float, float]] = {
+    WebVitalsMetric.LCP: (2500, 4000),
+    WebVitalsMetric.INP: (200, 500),
+    WebVitalsMetric.CLS: (0.1, 0.25),
+    WebVitalsMetric.FCP: (1800, 3000),
+}
+
 
 class WebVitalsPathBreakdownQueryRunner(WebAnalyticsQueryRunner[WebVitalsPathBreakdownQueryResponse]):
     query: WebVitalsPathBreakdownQuery
     cached_response: CachedWebStatsTableQueryResponse
+
+    @property
+    def resolved_thresholds(self) -> tuple[float, float]:
+        if self.query.thresholds:
+            return (self.query.thresholds[0], self.query.thresholds[1])
+        return DEFAULT_THRESHOLDS[self.query.metric]
 
     def to_query(self):
         return parse_select(
@@ -45,8 +60,8 @@ LIMIT 20 BY band
             timings=self.timings,
             placeholders={
                 "inner_query": self._inner_query(),
-                "good_threshold": ast.Constant(value=self.query.thresholds[0]),
-                "needs_improvements_threshold": ast.Constant(value=self.query.thresholds[1]),
+                "good_threshold": ast.Constant(value=self.resolved_thresholds[0]),
+                "needs_improvements_threshold": ast.Constant(value=self.resolved_thresholds[1]),
             },
         )
 

@@ -7,6 +7,8 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from parameterized import parameterized
+
 from posthog.schema import (
     DateRange,
     EventPropertyFilter,
@@ -61,6 +63,47 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
             runner = WebVitalsPathBreakdownQueryRunner(team=self.team, query=query)
             return runner.calculate()
+
+    @parameterized.expand(
+        [
+            (WebVitalsMetric.LCP, (2500, 4000)),
+            (WebVitalsMetric.INP, (200, 500)),
+            (WebVitalsMetric.CLS, (0.1, 0.25)),
+            (WebVitalsMetric.FCP, (1800, 3000)),
+        ]
+    )
+    def test_omitted_thresholds_fall_back_to_google_defaults(self, metric, expected):
+        query = WebVitalsPathBreakdownQuery(metric=metric, percentile=PropertyMathType.P75, properties=[])
+
+        runner = WebVitalsPathBreakdownQueryRunner(team=self.team, query=query)
+
+        self.assertEqual(expected, runner.resolved_thresholds)
+
+    def test_bands_use_default_thresholds_when_omitted(self):
+        self._create_events(
+            [("user", [("2025-01-10", "/fast", 1000), ("2025-01-10", "/slow", 5000)])],
+            metric=WebVitalsMetric.LCP,
+        )
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            query = WebVitalsPathBreakdownQuery(
+                dateRange=DateRange(date_from="2025-01-08", date_to="2025-01-15"),
+                metric=WebVitalsMetric.LCP,
+                percentile=PropertyMathType.P75,
+                properties=[],
+            )
+            results = WebVitalsPathBreakdownQueryRunner(team=self.team, query=query).calculate().results
+
+        self.assertEqual(
+            [
+                WebVitalsPathBreakdownResult(
+                    good=[WebVitalsPathBreakdownResultItem(path="/fast", value=1000)],
+                    needs_improvements=[],
+                    poor=[WebVitalsPathBreakdownResultItem(path="/slow", value=5000)],
+                )
+            ],
+            results,
+        )
 
     def test_no_crash_when_no_data(self):
         results = self._run_web_vitals_path_breakdown_query(

@@ -9600,11 +9600,12 @@ class AssistantWebVitalsPathBreakdownQuery(BaseModel):
             " (first paint, ms)."
         ),
     )
-    percentile: WebVitalsPercentile = Field(
-        ...,
+    percentile: WebVitalsPercentile | None = Field(
+        default=WebVitalsPercentile.P75,
         description=(
-            "Required. Percentile to aggregate each page's samples at. Use `p75` unless"
-            " the user asks otherwise — the Google bands are defined at p75."
+            "Percentile to aggregate each page's samples at. Defaults to `p75`, which"
+            " is where the Google bands are defined. Only set this when the user asks"
+            " for a different percentile."
         ),
     )
     properties: list[EventPropertyFilter | PersonPropertyFilter] | None = Field(
@@ -9616,14 +9617,14 @@ class AssistantWebVitalsPathBreakdownQuery(BaseModel):
             " isolate mobile."
         ),
     )
-    thresholds: list[float] = Field(
-        ...,
+    thresholds: list[float] | None = Field(
+        default=None,
         description=(
-            "Required. `[good, poor]` band boundaries for the chosen metric. Values"
-            " below `good` are good, above `poor` are poor, in between need"
-            " improvement. Use the standard Google thresholds unless the user supplies"
-            " their own: LCP `[2500, 4000]`, INP `[200, 500]`, CLS `[0.1, 0.25]`, FCP"
-            " `[1800, 3000]`."
+            "`[good, poor]` band boundaries for the chosen metric. Values below `good`"
+            " are good, above `poor` are poor, in between need improvement. Defaults to"
+            " the standard Google thresholds for the chosen metric: LCP `[2500, 4000]`,"
+            " INP `[200, 500]`, CLS `[0.1, 0.25]`, FCP `[1800, 3000]`. Only set this"
+            " when the user supplies their own baselines."
         ),
         max_length=2,
         min_length=2,
@@ -24262,7 +24263,7 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     sampling: WebAnalyticsSampling | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
     tags: QueryLogTags | None = None
-    thresholds: list[float] = Field(..., max_length=2, min_length=2)
+    thresholds: list[float] | None = Field(default=None, max_length=2, min_length=2)
     useSessionsTable: bool | None = None
     useWebAnalyticsPrecompute: bool | None = Field(
         default=None,

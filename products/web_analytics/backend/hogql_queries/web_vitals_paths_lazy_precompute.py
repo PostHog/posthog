@@ -278,8 +278,7 @@ def execute_read_query(
     direct comparison against our UTC `cur_start` / `cur_end` constants.
     """
     pct_index = _PCT_INDEX[runner.query.percentile]
-    good_threshold = float(runner.query.thresholds[0])
-    needs_improvements_threshold = float(runner.query.thresholds[1])
+    good_threshold, needs_improvements_threshold = (float(t) for t in runner.resolved_thresholds)
     state_column = _METRIC_STATE_COLUMN[runner.query.metric]
 
     placeholders: dict[str, ast.Expr] = {
