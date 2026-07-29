@@ -135,6 +135,16 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # and retries forever. Matched on BigQuery's stable "failed to parse view" wording rather
             # than the volatile view/column names.
             "failed to parse view": "BigQuery couldn't read a view it was importing because its definition no longer matches the underlying data — a column it references was renamed or removed (for federated query views, in the upstream database). Please update the view definition (or restore the column), then reconnect the source.",
+            # BigQuery resolves identifiers case-insensitively, so a table or view exposing two
+            # columns whose names differ only by capitalization makes any reference to either one
+            # unresolvable: the query job is rejected as a 400 BadRequest, e.g. "Column name
+            # organization is ambiguous at [1:8]". It's a deterministic property of the customer's
+            # schema — the same query fails identically on every retry, so retrying only hammers
+            # BigQuery and spams error tracking while telling the customer nothing. None of the
+            # other BadRequest keys cover this wording. Matched on BigQuery's stable "is ambiguous"
+            # phrasing rather than the volatile column name (it also covers the "Name <x> is
+            # ambiguous" variant).
+            "is ambiguous": "BigQuery couldn't run a query for this source because one of the column names in it is ambiguous. This usually means the table or view being synced has two columns whose names differ only by capitalization, which BigQuery treats as the same name. Please rename one of them (or update the view definition) so every column name is unique, then re-enable the source.",
             # Raised from the Storage Read API's `create_read_session` (see `get_rows` in
             # `bigquery.py`) when the service account is missing the `bigquery.readsessions.create`
             # permission the Read API requires. The google.api_core PermissionDenied stringifies as

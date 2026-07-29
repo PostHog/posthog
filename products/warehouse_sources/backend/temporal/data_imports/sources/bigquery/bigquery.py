@@ -842,15 +842,23 @@ def _get_rows_to_sync(
 
 _BQ_QUOTER = BacktickIdentifierQuoter()
 
+# Range variable we bind the source table to in `_get_query`. Every projected column and the
+# `ORDER BY` cursor are qualified with it so BigQuery — which resolves identifiers
+# case-insensitively — can only resolve them against the table, never against a select-list
+# alias it considers a case-insensitive duplicate ("Column name <x> is ambiguous"). Deliberately
+# unlikely to collide with a real column name, which would reintroduce the ambiguity it prevents.
+_BQ_SOURCE_ALIAS = "_posthog_source"
+
 
 def _bq_select_clause(
     enabled_columns: list[str] | None,
     primary_keys: list[str] | None,
     incremental_field: str | None,
+    qualifier: str | None = None,
 ) -> str:
     """BigQuery SELECT-list with backtick quoting and identifier allowlist."""
     projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
-    return format_projected_select_clause(projected, _BQ_QUOTER)
+    return format_projected_select_clause(projected, _BQ_QUOTER, qualifier)
 
 
 # Map a column type category onto a BigQuery scalar-parameter type, used as a fallback
@@ -968,8 +976,8 @@ def _get_query(
     primary_keys: list[str] | None = None,
     row_filters: list[ValidatedRowFilter] | None = None,
 ) -> tuple[str, list[bigquery.ScalarQueryParameter]]:
-    select_clause = _bq_select_clause(enabled_columns, primary_keys, incremental_field)
-    table_ref = f"`{bq_table.dataset_id}`.`{bq_table.table_id}`"
+    select_clause = _bq_select_clause(enabled_columns, primary_keys, incremental_field, _BQ_SOURCE_ALIAS)
+    table_ref = f"`{bq_table.dataset_id}`.`{bq_table.table_id}` AS {_BQ_SOURCE_ALIAS}"
     filter_conditions, query_parameters = _bq_row_filter_conditions(row_filters, bq_table)
 
     if should_use_incremental_field:
@@ -991,7 +999,7 @@ def _get_query(
         query = (
             f"SELECT {select_clause} FROM {table_ref} "
             f"WHERE {' AND '.join(conditions)} "
-            f"ORDER BY `{incremental_field}` ASC"
+            f"ORDER BY {_BQ_SOURCE_ALIAS}.`{incremental_field}` ASC"
         )
         return query, query_parameters
 

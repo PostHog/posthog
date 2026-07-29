@@ -388,7 +388,7 @@ def test_bigquery_get_query_projects_enabled_columns():
         enabled_columns=["email"],
         primary_keys=["id"],
     )
-    assert "SELECT `email`, `id` FROM" in query
+    assert query == "SELECT _posthog_source.`email`, _posthog_source.`id` FROM `ds`.`t` AS _posthog_source"
     assert params == []
 
 
@@ -403,9 +403,59 @@ def test_bigquery_get_query_keeps_incremental_field_in_projection():
         enabled_columns=["email"],
         primary_keys=["id"],
     )
-    assert "SELECT `email`, `id`, `updated_at` FROM" in query
+    assert "SELECT _posthog_source.`email`, _posthog_source.`id`, _posthog_source.`updated_at` FROM" in query
     assert "WHERE `updated_at` > 42" in query
+    assert "ORDER BY _posthog_source.`updated_at` ASC" in query
     assert params == []
+
+
+@pytest.mark.parametrize(
+    "enabled_columns,primary_keys,incremental_field,expected_select",
+    [
+        # `enabled_columns` is persisted dlt-normalized (lowercased) whenever the column picker
+        # falls back to the warehouse table's columns, while primary keys come back from
+        # BigQuery in the source's own casing. BigQuery resolves identifiers case-insensitively,
+        # so projecting both spellings makes the ORDER BY cursor unresolvable ("Column name
+        # organization is ambiguous").
+        (
+            ["email", "organization"],
+            ["Organization"],
+            "updated_at",
+            "SELECT _posthog_source.`email`, _posthog_source.`organization`, _posthog_source.`updated_at` FROM",
+        ),
+        # Same namespace mismatch, this time between `enabled_columns` and the incremental field
+        # the ORDER BY is built from.
+        (
+            ["email", "updated_at"],
+            ["id"],
+            "Updated_At",
+            "SELECT _posthog_source.`email`, _posthog_source.`updated_at`, _posthog_source.`id` FROM",
+        ),
+        # dlt normalization also snake_cases, so a camelCase source column and its stored form
+        # collide the same way.
+        (
+            ["updated_at"],
+            ["updatedAt"],
+            "updated_at",
+            "SELECT _posthog_source.`updated_at` FROM",
+        ),
+    ],
+)
+def test_bigquery_get_query_projects_case_differing_columns_once(
+    enabled_columns, primary_keys, incremental_field, expected_select
+):
+    bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
+    query, _ = _get_query(
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=42,
+        bq_table=bq_table,
+        incremental_field=incremental_field,
+        incremental_field_type=IncrementalFieldType.Integer,
+        enabled_columns=enabled_columns,
+        primary_keys=primary_keys,
+    )
+    assert expected_select in query
+    assert f"ORDER BY _posthog_source.`{incremental_field}` ASC" in query
 
 
 def test_bigquery_get_query_binds_row_filters_as_parameters():
@@ -580,7 +630,7 @@ def test_bigquery_get_query_row_filters_compose_with_incremental():
         incremental_field_type=IncrementalFieldType.Integer,
         row_filters=[ValidatedRowFilter(column="age", operator=">", value=21, category=ColumnTypeCategory.INTEGER)],
     )
-    assert "WHERE `updated_at` > 42 AND `age` > @row_filter_0 ORDER BY `updated_at` ASC" in query
+    assert "WHERE `updated_at` > 42 AND `age` > @row_filter_0 ORDER BY _posthog_source.`updated_at` ASC" in query
     assert [(p.name, p.value) for p in params] == [("row_filter_0", 21)]
 
 
@@ -732,6 +782,23 @@ def test_bigquery_unparseable_private_key_is_non_retryable(observed_error):
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     matching = [key for key in non_retryable_errors if key in observed_error]
     assert matching, "Unparseable private key error should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+
+
+@pytest.mark.parametrize(
+    "observed_error",
+    [
+        # A view or external table exposing two columns that differ only by capitalization makes
+        # every reference to either unresolvable, since BigQuery matches identifiers
+        # case-insensitively.
+        "400 Column name organization is ambiguous at [1:8]",
+        "google.api_core.exceptions.BadRequest: 400 Name id is ambiguous inside EXTERNAL_QUERY",
+    ],
+)
+def test_bigquery_ambiguous_column_name_is_non_retryable(observed_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "Ambiguous column name error should be recognised as non-retryable"
     assert all(non_retryable_errors[key] is not None for key in matching)
 
 

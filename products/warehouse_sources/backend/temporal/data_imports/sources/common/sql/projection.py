@@ -50,22 +50,37 @@ def compute_projected_columns(
     primary_keys: list[str] | None = None,
     incremental_field: str | None = None,
 ) -> list[str] | None:
-    """Return ordered column names to project, or `None` for `SELECT *`."""
+    """Return ordered column names to project, or `None` for `SELECT *`.
+
+    Dedupe folds every name through `_normalize_for_match` for the same reason
+    `filter_dwh_columns_by_enabled_columns` does: the three inputs don't share a namespace.
+    `enabled_columns` can be persisted dlt-normalized (the column picker falls back to the
+    warehouse table's snake_cased + lowercased column names when a schema has no
+    `schema_metadata`), while primary keys and the incremental field are read live from the
+    source in its own casing. A raw set-membership test then lets one column into the SELECT
+    list twice under two spellings — which engines that resolve identifiers case-insensitively
+    (BigQuery) reject outright as an ambiguous name. The first spelling seen wins, so the
+    caller's ordering is unchanged.
+    """
     if enabled_columns is None:
         return None
 
     seen: set[str] = set()
     ordered: list[str] = []
+
+    def add(column: str) -> None:
+        key = _normalize_for_match(column)
+        if key in seen:
+            return
+        seen.add(key)
+        ordered.append(column)
+
     for column in enabled_columns:
-        if column not in seen:
-            seen.add(column)
-            ordered.append(column)
+        add(column)
     for column in primary_keys or []:
-        if column not in seen:
-            seen.add(column)
-            ordered.append(column)
-    if incremental_field and incremental_field not in seen:
-        ordered.append(incremental_field)
+        add(column)
+    if incremental_field:
+        add(incremental_field)
 
     if not ordered:
         return None
@@ -76,11 +91,18 @@ def compute_projected_columns(
 def format_projected_select_clause(
     projected_columns: list[str] | None,
     quoter: IdentifierQuoter,
+    qualifier: str | None = None,
 ) -> str:
-    """Render projection as a SELECT-clause fragment. `None` → `"*"`."""
+    """Render projection as a SELECT-clause fragment. `None` → `"*"`.
+
+    `qualifier` is a FROM-clause range variable to prefix every entry with, so the names
+    resolve against that table rather than against select-list aliases. It's a caller-owned
+    constant, never user input, so it's interpolated as-is.
+    """
+    prefix = f"{qualifier}." if qualifier else ""
     if projected_columns is None:
-        return "*"
-    return ", ".join(quoter.quote(column) for column in projected_columns)
+        return f"{prefix}*"
+    return ", ".join(f"{prefix}{quoter.quote(column)}" for column in projected_columns)
 
 
 def filter_columns_by_enabled_columns(

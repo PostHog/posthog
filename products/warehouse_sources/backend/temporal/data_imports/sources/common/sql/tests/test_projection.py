@@ -67,6 +67,31 @@ class TestComputeProjectedColumns:
             ("multi_pk_appended_in_order", ["email"], ["a", "b"], None, ["email", "a", "b"]),
             ("empty_with_no_pk_no_incremental_falls_back", [], None, None, None),
             ("empty_with_only_incremental_keeps_it", [], None, "updated_at", ["updated_at"]),
+            # `enabled_columns` can be persisted dlt-normalized while PKs and the incremental
+            # field are read live from the source in its own casing. Projecting both spellings
+            # puts one column in the SELECT list twice, which BigQuery rejects as an ambiguous
+            # name; the caller's spelling wins.
+            (
+                "pk_differing_only_in_case_is_not_duplicated",
+                ["email", "organization"],
+                ["Organization"],
+                None,
+                ["email", "organization"],
+            ),
+            (
+                "incremental_field_differing_only_in_case_is_not_duplicated",
+                ["email", "updated_at"],
+                None,
+                "Updated_At",
+                ["email", "updated_at"],
+            ),
+            (
+                "pk_differing_only_in_naming_convention_is_not_duplicated",
+                ["updated_at"],
+                ["updatedAt"],
+                None,
+                ["updated_at"],
+            ),
         ]
     )
     def test_compute_projected_columns(
@@ -97,6 +122,17 @@ class TestFormatProjectedSelectClause:
     def test_invalid_identifier_raises(self) -> None:
         with pytest.raises(InvalidIdentifierError):
             format_projected_select_clause(["id", "email; DROP TABLE users"], BacktickIdentifierQuoter())
+
+    @parameterized.expand(
+        [
+            ("star", None, "t.*"),
+            ("columns", ["id", "email"], "t.`id`, t.`email`"),
+        ]
+    )
+    def test_qualifier_prefixes_every_entry(
+        self, _name: str, projected_columns: list[str] | None, expected: str
+    ) -> None:
+        assert format_projected_select_clause(projected_columns, BacktickIdentifierQuoter(), "t") == expected
 
 
 class TestFilterColumnsByEnabledColumns:
