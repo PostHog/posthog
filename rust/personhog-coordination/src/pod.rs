@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::str::from_utf8;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -848,7 +849,7 @@ impl PodHandle {
                             },
                             EventType::Delete => event
                                 .kv()
-                                .and_then(|kv| std::str::from_utf8(kv.key()).ok())
+                                .and_then(|kv| from_utf8(kv.key()).ok())
                                 .and_then(store::extract_partition_from_key),
                         };
                         if let Some(partition) = partition {

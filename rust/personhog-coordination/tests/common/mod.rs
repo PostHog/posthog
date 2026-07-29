@@ -1,13 +1,13 @@
 #![allow(dead_code)]
 
 use std::collections::{HashMap, HashSet};
-use std::future::Future;
+use std::future::{pending, Future};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock};
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use tokio::sync::{Mutex, Notify};
+use tokio::sync::{Mutex, Notify, RwLock};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -63,7 +63,7 @@ where
     F: Fn() -> Fut,
     Fut: Future<Output = bool>,
 {
-    let start = std::time::Instant::now();
+    let start = Instant::now();
     while start.elapsed() < timeout {
         if f().await {
             return;
@@ -263,8 +263,8 @@ pub fn start_pod_slow(
 
 pub struct RouterHandles {
     pub events: Arc<Mutex<Vec<CutoverEvent>>>,
-    pub addresses: Arc<std::sync::RwLock<std::collections::HashMap<String, String>>>,
-    pub table: Arc<tokio::sync::RwLock<std::collections::HashMap<u32, String>>>,
+    pub addresses: Arc<StdRwLock<HashMap<String, String>>>,
+    pub table: Arc<RwLock<HashMap<u32, String>>>,
     pub join_handle: Option<JoinHandle<Result<()>>>,
 }
 
@@ -401,7 +401,7 @@ impl HandoffHandler for BlockingHandoffHandler {
 
     async fn warm_partition(&self, _partition: u32) -> Result<()> {
         // Block forever — simulates a slow warm that never completes
-        std::future::pending().await
+        pending().await
     }
 
     async fn release_partition(&self, partition: u32) -> Result<()> {
@@ -426,7 +426,7 @@ impl HandoffHandler for BlockingHandoffHandler {
 /// warms are in flight at once. A gate stays open once opened.
 #[derive(Clone, Default)]
 pub struct WarmGates {
-    open: Arc<std::sync::Mutex<HashSet<u32>>>,
+    open: Arc<StdMutex<HashSet<u32>>>,
     notify: Arc<Notify>,
 }
 
@@ -455,7 +455,7 @@ impl WarmGates {
 pub struct GatedWarmHandler {
     pub events: Arc<Mutex<Vec<HandoffEvent>>>,
     pub gates: WarmGates,
-    pub warms_in_flight: Arc<std::sync::Mutex<HashMap<u32, usize>>>,
+    pub warms_in_flight: Arc<StdMutex<HashMap<u32, usize>>>,
     pub max_concurrent_warms: Arc<AtomicUsize>,
     pub max_concurrent_same_partition: Arc<AtomicUsize>,
 }
@@ -465,7 +465,7 @@ impl GatedWarmHandler {
         Self {
             events: Arc::new(Mutex::new(Vec::new())),
             gates: WarmGates::default(),
-            warms_in_flight: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            warms_in_flight: Arc::new(StdMutex::new(HashMap::new())),
             max_concurrent_warms: Arc::new(AtomicUsize::new(0)),
             max_concurrent_same_partition: Arc::new(AtomicUsize::new(0)),
         }
@@ -525,7 +525,7 @@ impl HandoffHandler for GatedWarmHandler {
 pub struct GatedPodHandles {
     pub events: Arc<Mutex<Vec<HandoffEvent>>>,
     pub gates: WarmGates,
-    pub warms_in_flight: Arc<std::sync::Mutex<HashMap<u32, usize>>>,
+    pub warms_in_flight: Arc<StdMutex<HashMap<u32, usize>>>,
     pub max_concurrent_warms: Arc<AtomicUsize>,
     pub max_concurrent_same_partition: Arc<AtomicUsize>,
     pub join_handle: JoinHandle<Result<()>>,

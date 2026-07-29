@@ -10,6 +10,8 @@
 mod common;
 
 use std::collections::HashMap;
+use std::future::pending;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -1518,7 +1520,7 @@ impl StashHandler for BlockedDrainHandler {
             partition,
             target: target.to_string(),
         });
-        std::future::pending::<Result<()>>().await
+        pending::<Result<()>>().await
     }
 }
 
@@ -1637,7 +1639,7 @@ impl StashHandler for PartitionOneParker {
         if partition == 0 {
             return Ok(());
         }
-        std::future::pending::<Result<()>>().await
+        pending::<Result<()>>().await
     }
 
     async fn drain_stash(
@@ -1866,13 +1868,13 @@ async fn the_reconcile_pass_reasserts_freeze_acks() {
 /// it for every non-terminal handoff before writing the freeze ack.
 struct FlakyCutoverHandler {
     events: Arc<Mutex<Vec<CutoverEvent>>>,
-    fail: Arc<std::sync::atomic::AtomicBool>,
+    fail: Arc<AtomicBool>,
 }
 
 #[async_trait]
 impl StashHandler for FlakyCutoverHandler {
     async fn begin_stash(&self, partition: u32, new_owner: &str) -> Result<()> {
-        if self.fail.load(std::sync::atomic::Ordering::SeqCst) {
+        if self.fail.load(Ordering::SeqCst) {
             return Err(personhog_coordination::error::Error::invalid_state(
                 "injected begin_stash failure".to_string(),
             ));
@@ -1905,7 +1907,7 @@ async fn start_flaky_router(
     store: &Arc<PersonhogStore>,
     router_name: &str,
     budget: u32,
-) -> (Arc<std::sync::atomic::AtomicBool>, CancellationToken) {
+) -> (Arc<AtomicBool>, CancellationToken) {
     assert!(store
         .create_assignments_and_handoffs(
             &[PartitionAssignment {
@@ -1930,7 +1932,7 @@ async fn start_flaky_router(
             ..RoutingTableConfig::default()
         },
     );
-    let fail = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let fail = Arc::new(AtomicBool::new(false));
     let handler = FlakyCutoverHandler {
         events: Arc::new(Mutex::new(Vec::new())),
         fail: Arc::clone(&fail),
@@ -1969,7 +1971,7 @@ async fn reconcile_failures_within_budget_are_tolerated_and_heal() {
     // the only healer (no new events arrive), and its passes now fail
     // before reaching the ack write, so the ack must stay absent while
     // the run survives the failures.
-    fail.store(true, std::sync::atomic::Ordering::SeqCst);
+    fail.store(true, Ordering::SeqCst);
     let mut raw = etcd_client::Client::connect(["http://localhost:2379"], None)
         .await
         .expect("raw client");
@@ -1995,7 +1997,7 @@ async fn reconcile_failures_within_budget_are_tolerated_and_heal() {
     );
 
     // Recovery: the next successful pass re-asserts the ack.
-    fail.store(false, std::sync::atomic::Ordering::SeqCst);
+    fail.store(false, Ordering::SeqCst);
     wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
         ack_present(Arc::clone(&store))
     })
@@ -2027,7 +2029,7 @@ async fn reconcile_failures_past_the_budget_fail_the_run() {
     })
     .await;
 
-    fail.store(true, std::sync::atomic::Ordering::SeqCst);
+    fail.store(true, Ordering::SeqCst);
 
     // Three failed passes exhaust the budget; the run's teardown
     // deregisters the router.
@@ -2300,8 +2302,7 @@ async fn convergences_for_one_partition_never_interleave() {
     .await;
 
     assert_eq!(
-        pod.max_concurrent_same_partition
-            .load(std::sync::atomic::Ordering::SeqCst),
+        pod.max_concurrent_same_partition.load(Ordering::SeqCst),
         1,
         "convergences for one partition must never overlap"
     );
@@ -2346,8 +2347,7 @@ async fn concurrent_warms_are_bounded_by_warm_concurrency() {
     }
 
     assert_eq!(
-        pod.max_concurrent_warms
-            .load(std::sync::atomic::Ordering::SeqCst),
+        pod.max_concurrent_warms.load(Ordering::SeqCst),
         2,
         "warms in the handler at once must equal the configured bound"
     );
