@@ -282,13 +282,15 @@ class VerifiedDomainEnforcementPermission(BasePermission):
         if not isinstance(user, User):
             return True
 
-        if not OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, organization):
-            return True
-
+        # Impersonating staff are exempt like every other enforcement gate; checked before the
+        # domains query so impersonated requests don't pay for it.
         if is_impersonated_session(request):
             return True
 
-        raise PermissionDenied(detail=VERIFIED_DOMAIN_REQUIRED_ERROR, code="verified_domain_required")
+        if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, organization):
+            raise PermissionDenied(detail=VERIFIED_DOMAIN_REQUIRED_ERROR, code="verified_domain_required")
+
+        return True
 
     def _target_organization(self, view) -> Optional[Organization]:
         # Same resolution as `get_organization_from_view`, but the team's FK first: routing loads
