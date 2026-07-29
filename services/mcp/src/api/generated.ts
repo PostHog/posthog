@@ -8750,6 +8750,13 @@ export namespace Schemas {
       breakdown_results?: BreakdownSimulationResult[];
     }
 
+    export interface AlternativeSource {
+      /** A utm_source value seen on events for this campaign name */
+      utm_source: string;
+      /** Number of pageview events carrying this utm_source */
+      event_count: number;
+    }
+
     /**
      * * `trace` - trace
      * * `generation` - generation
@@ -12712,8 +12719,16 @@ export namespace Schemas {
        * * `error` - error
        * * `warning` - warning */
       severity: UtmIssueSeverityEnum;
+      /** Issue category: not_linked, name_collision, no_tagged_events, or unknown_source */
+      kind: string;
       /** Human-readable description of the issue */
       message: string;
+      /** utm_source values seen for this campaign name instead of the expected one */
+      alternative_sources: AlternativeSource[];
+      /** Other integrations whose campaigns match the same name */
+      shared_with_integrations: string[];
+      /** Ordered remediations, most recommended first: fix_platform_urls, add_source_mapping, or switch_to_id_match */
+      suggested_actions: string[];
     }
 
     export interface CampaignAuditResult {

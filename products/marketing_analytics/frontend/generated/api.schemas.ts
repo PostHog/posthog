@@ -460,6 +460,13 @@ export const UtmIssueSeverityEnumApi = {
     Warning: 'warning',
 } as const
 
+export interface AlternativeSourceApi {
+    /** A utm_source value seen on events for this campaign name */
+    utm_source: string
+    /** Number of pageview events carrying this utm_source */
+    event_count: number
+}
+
 export interface UtmIssueApi {
     /** The UTM field with the issue (e.g. utm_campaign, utm_source) */
     field: string
@@ -468,8 +475,16 @@ export interface UtmIssueApi {
      * * `error` - error
      * * `warning` - warning */
     severity: UtmIssueSeverityEnumApi
+    /** Issue category: not_linked, name_collision, no_tagged_events, or unknown_source */
+    kind: string
     /** Human-readable description of the issue */
     message: string
+    /** utm_source values seen for this campaign name instead of the expected one */
+    alternative_sources: AlternativeSourceApi[]
+    /** Other integrations whose campaigns match the same name */
+    shared_with_integrations: string[]
+    /** Ordered remediations, most recommended first: fix_platform_urls, add_source_mapping, or switch_to_id_match */
+    suggested_actions: string[]
 }
 
 export interface CampaignAuditResultApi {

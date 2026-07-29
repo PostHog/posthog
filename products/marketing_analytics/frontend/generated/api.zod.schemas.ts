@@ -872,13 +872,38 @@ export const UtmIssueSeverityEnumApi = zod
 export type UtmIssueSeverityEnumApi = zod.input<typeof UtmIssueSeverityEnumApi>
 export type UtmIssueSeverityEnumApiOutput = zod.output<typeof UtmIssueSeverityEnumApi>
 
+export const AlternativeSourceApi = zod.object({
+    utm_source: zod.string().describe('A utm_source value seen on events for this campaign name'),
+    event_count: zod.number().describe('Number of pageview events carrying this utm_source'),
+})
+
+export type AlternativeSourceApi = zod.input<typeof AlternativeSourceApi>
+export type AlternativeSourceApiOutput = zod.output<typeof AlternativeSourceApi>
+
 export const UtmIssueApi = zod.object({
     field: zod.string().describe('The UTM field with the issue (e.g. utm_campaign, utm_source)'),
     severity: zod
         .enum(['error', 'warning'])
         .describe('\* `error` - error\n\* `warning` - warning')
         .describe('Issue severity level\n\n\* `error` - error\n\* `warning` - warning'),
+    kind: zod.string().describe('Issue category: not_linked, name_collision, no_tagged_events, or unknown_source'),
     message: zod.string().describe('Human-readable description of the issue'),
+    alternative_sources: zod
+        .array(
+            zod.object({
+                utm_source: zod.string().describe('A utm_source value seen on events for this campaign name'),
+                event_count: zod.number().describe('Number of pageview events carrying this utm_source'),
+            })
+        )
+        .describe('utm_source values seen for this campaign name instead of the expected one'),
+    shared_with_integrations: zod
+        .array(zod.string())
+        .describe('Other integrations whose campaigns match the same name'),
+    suggested_actions: zod
+        .array(zod.string())
+        .describe(
+            'Ordered remediations, most recommended first: fix_platform_urls, add_source_mapping, or switch_to_id_match'
+        ),
 })
 
 export type UtmIssueApi = zod.input<typeof UtmIssueApi>
@@ -901,7 +926,28 @@ export const CampaignAuditResultApi = zod.object({
                     .enum(['error', 'warning'])
                     .describe('\* `error` - error\n\* `warning` - warning')
                     .describe('Issue severity level\n\n\* `error` - error\n\* `warning` - warning'),
+                kind: zod
+                    .string()
+                    .describe('Issue category: not_linked, name_collision, no_tagged_events, or unknown_source'),
                 message: zod.string().describe('Human-readable description of the issue'),
+                alternative_sources: zod
+                    .array(
+                        zod.object({
+                            utm_source: zod
+                                .string()
+                                .describe('A utm_source value seen on events for this campaign name'),
+                            event_count: zod.number().describe('Number of pageview events carrying this utm_source'),
+                        })
+                    )
+                    .describe('utm_source values seen for this campaign name instead of the expected one'),
+                shared_with_integrations: zod
+                    .array(zod.string())
+                    .describe('Other integrations whose campaigns match the same name'),
+                suggested_actions: zod
+                    .array(zod.string())
+                    .describe(
+                        'Ordered remediations, most recommended first: fix_platform_urls, add_source_mapping, or switch_to_id_match'
+                    ),
             })
         )
         .describe('List of detected UTM configuration issues'),
@@ -965,7 +1011,32 @@ export const UtmAuditResponseApi = zod.object({
                                 .enum(['error', 'warning'])
                                 .describe('\* `error` - error\n\* `warning` - warning')
                                 .describe('Issue severity level\n\n\* `error` - error\n\* `warning` - warning'),
+                            kind: zod
+                                .string()
+                                .describe(
+                                    'Issue category: not_linked, name_collision, no_tagged_events, or unknown_source'
+                                ),
                             message: zod.string().describe('Human-readable description of the issue'),
+                            alternative_sources: zod
+                                .array(
+                                    zod.object({
+                                        utm_source: zod
+                                            .string()
+                                            .describe('A utm_source value seen on events for this campaign name'),
+                                        event_count: zod
+                                            .number()
+                                            .describe('Number of pageview events carrying this utm_source'),
+                                    })
+                                )
+                                .describe('utm_source values seen for this campaign name instead of the expected one'),
+                            shared_with_integrations: zod
+                                .array(zod.string())
+                                .describe('Other integrations whose campaigns match the same name'),
+                            suggested_actions: zod
+                                .array(zod.string())
+                                .describe(
+                                    'Ordered remediations, most recommended first: fix_platform_urls, add_source_mapping, or switch_to_id_match'
+                                ),
                         })
                     )
                     .describe('List of detected UTM configuration issues'),
