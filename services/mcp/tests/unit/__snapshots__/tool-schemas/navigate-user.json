@@ -1,0 +1,22 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "params": {
+            "additionalProperties": {
+                "type": "string"
+            },
+            "default": {},
+            "description": "Values for the `{placeholders}` when `url` is a path template; pass {} otherwise.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "url": {
+            "description": "Where to take the user: a full PostHog URL copied verbatim from a tool result (`_posthogUrl`) or from generate-app-url output, or a path template from the generate-app-url catalog (then fill `params`).",
+            "type": "string"
+        }
+    },
+    "required": ["url"],
+    "type": "object"
+}
