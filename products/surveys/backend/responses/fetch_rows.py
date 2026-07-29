@@ -38,7 +38,7 @@ class SurveyResponseRow:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
-def _choice_translation_map(question: dict[str, Any]) -> dict[str, str]:
+def build_choice_translation_map(question: dict[str, Any]) -> dict[str, str]:
     """Map each translated choice back to its base-language choice, matched by position.
 
     Returns translations only — base choices are intentionally NOT seeded here; the consumer
@@ -60,8 +60,15 @@ def _choice_translation_map(question: dict[str, Any]) -> dict[str, str]:
         translated_choices = translation.get("choices")
         if not isinstance(translated_choices, list):
             continue
+        # Positional mapping is only trustworthy when the arrays line up 1:1. If a choice was
+        # added or removed without updating this translation, the lengths diverge and index i no
+        # longer refers to the same option — skip the language and fall back to base-only matching
+        # (translated answers surface as "<other>", the safe pre-fix behavior) rather than risk
+        # folding a response into the wrong choice.
+        if len(translated_choices) != len(base_choices):
+            continue
         for index, choice in enumerate(translated_choices):
-            if index < len(base_choices) and isinstance(choice, str) and isinstance(base_choices[index], str):
+            if isinstance(choice, str) and isinstance(base_choices[index], str):
                 mapping[choice] = base_choices[index]
     return mapping
 
@@ -80,7 +87,7 @@ def resolve_question_metadata(survey: Survey) -> list[dict[str, Any]]:
                 "text": question.get("question") or "",
                 "type": question.get("type") or "open",
                 "choices": question.get("choices"),
-                "choice_translations": _choice_translation_map(question),
+                "choice_translations": build_choice_translation_map(question),
             }
         )
     return resolved

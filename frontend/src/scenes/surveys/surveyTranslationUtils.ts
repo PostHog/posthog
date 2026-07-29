@@ -6,15 +6,24 @@ import { NewSurvey } from './constants'
 // translated choice has to map back to its base-language choice (matched by position) to be
 // recognised as a predefined answer rather than a free-text "Other" response.
 //
-// Keep in sync with the backend twin `_choice_translation_map` in
-// products/surveys/backend/responses/fetch_rows.py — both must agree on the positional mapping
-// and the base-choice-wins seeding order.
+// Keep in sync with the backend twin `build_choice_translation_map` in
+// products/surveys/backend/responses/fetch_rows.py — both must agree on the positional mapping,
+// the length guard, and the base-choice-wins seeding order.
 export function buildChoiceTranslationMap(question: MultipleSurveyQuestion): Map<string, string> {
     const baseChoices = question.choices ?? []
     const map = new Map<string, string>()
 
     for (const translation of Object.values(question.translations ?? {})) {
-        translation.choices?.forEach((choice, index) => {
+        const translatedChoices = translation.choices
+        // Positional mapping is only trustworthy when the arrays line up 1:1. If a choice was
+        // added or removed without updating this translation, the lengths diverge and index i no
+        // longer refers to the same option — skip the language and fall back to base-only matching
+        // (translated answers surface as "Other", the safe pre-fix behavior) rather than risk
+        // folding a response into the wrong choice.
+        if (!translatedChoices || translatedChoices.length !== baseChoices.length) {
+            continue
+        }
+        translatedChoices.forEach((choice, index) => {
             const baseChoice = baseChoices[index]
             if (choice && baseChoice !== undefined) {
                 map.set(choice, baseChoice)
