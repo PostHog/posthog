@@ -83,19 +83,35 @@ class Command(BaseCommand):
                 logger.info("Aborting")
                 return
 
+        # Set the floor in memory first so the re-issued schedules pick it up, but persist the
+        # database interval only after the schedule update succeeds. Persisting first would make a
+        # failed schedule update non-retryable: the row would report 5 minutes (no longer matching
+        # the sub-floor query) while Temporal kept running at the old cadence, and a rerun would
+        # skip it. Skipped schemas (never activated, no schedule) and soft-deleted schemas (schedule
+        # already gone) have nothing to drift, so they are persisted regardless.
         for schema in schemas:
             schema.sync_frequency_interval = SYNC_FREQUENCY_FLOOR
-            # An ops-driven migration, not a user edit — keep it out of the activity feed.
-            schema.save(update_fields=["sync_frequency_interval", "updated_at"], skip_activity_log=True)
 
         skipped, failures = bulk_update_external_data_job_schedules(live_schemas)
+        failed_ids = {schema_id for schema_id, _ in failures}
+
+        persisted = 0
+        for schema in schemas:
+            if str(schema.id) in failed_ids:
+                continue
+            # An ops-driven migration, not a user edit — keep it out of the activity feed.
+            schema.save(update_fields=["sync_frequency_interval", "updated_at"], skip_activity_log=True)
+            persisted += 1
+
         for schema_id, exc in failures:
             logger.exception(
                 "Error updating external data schema schedule", external_data_schema_id=schema_id, exc_info=exc
             )
 
-        # The CDC extraction schedule's interval is derived from the source's fastest CDC schema,
-        # so it must be re-derived now that the schemas were slowed down.
+        # The CDC extraction schedule's interval is derived (from the database) from the source's
+        # fastest CDC schema, so it must be re-derived now that the persisted schemas were slowed
+        # down. A schema whose schedule update failed keeps its sub-floor interval, so the derived
+        # extraction interval stays consistent with what Temporal is actually running.
         extraction_failures = 0
         for source in cdc_sources.values():
             try:
@@ -108,7 +124,8 @@ class Command(BaseCommand):
 
         logger.info(
             "Done!",
-            updated=len(schemas),
+            updated=persisted,
+            not_persisted_after_schedule_failure=len(failures),
             schedules_updated=len(live_schemas) - len(skipped) - len(failures),
             schedules_skipped=len(skipped),
             schedules_failed=len(failures),

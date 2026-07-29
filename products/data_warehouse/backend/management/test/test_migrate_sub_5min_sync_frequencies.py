@@ -73,6 +73,26 @@ def test_bumps_sub_floor_schemas_and_resyncs_schedules(team):
     assert [call.args[0].id for call in mock_extraction.call_args_list] == [cdc_source.id]
 
 
+def test_failed_schedule_update_leaves_interval_retryable(team):
+    source = ExternalDataSource.objects.create(team=team, source_type="Postgres", job_inputs={})
+    failing = _create_schema(source, "public.orders", timedelta(minutes=1))
+    succeeding = _create_schema(source, "public.users", timedelta(minutes=1))
+
+    # bulk_update reports `failing`'s schedule update as a failure; its database interval must stay
+    # sub-floor so a rerun retries it, while `succeeding` is bumped to the floor.
+    failure = (str(failing.id), RuntimeError("boom"))
+    with (
+        mock.patch(f"{COMMAND}.bulk_update_external_data_job_schedules", return_value=([], [failure])),
+        mock.patch(f"{COMMAND}.sync_cdc_extraction_schedule"),
+    ):
+        call_command("migrate_sub_5min_sync_frequencies")
+
+    failing.refresh_from_db()
+    succeeding.refresh_from_db()
+    assert failing.sync_frequency_interval == timedelta(minutes=1)
+    assert succeeding.sync_frequency_interval == timedelta(minutes=5)
+
+
 def test_dry_run_changes_nothing(team):
     source = ExternalDataSource.objects.create(team=team, source_type="Postgres", job_inputs={})
     schema = _create_schema(source, "public.orders", timedelta(minutes=1))
