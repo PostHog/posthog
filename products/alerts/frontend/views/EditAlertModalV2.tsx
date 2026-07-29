@@ -143,7 +143,9 @@ export function EditAlertModalV2({
     const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
     const investigationAgentEnabled = useFeatureFlag('ALERTS_INVESTIGATION_AGENT')
 
-    const { existingHogFunctions, pendingNotifications } = useValues(alertNotificationLogic({ alertId: alertId }))
+    const notificationLogic = alertNotificationLogic({ alertId })
+    const { existingHogFunctions, pendingNotifications, testDeliveryResultLoading } = useValues(notificationLogic)
+    const { sendTestDelivery } = useActions(notificationLogic)
     const hasPendingNotifications = inlineNotificationsEnabled && pendingNotifications.length > 0
 
     const handleClose = useCallback(() => {
@@ -264,6 +266,8 @@ export function EditAlertModalV2({
             onDeleteAlert={deleteAlert}
             onSnoozeAlert={snoozeAlert}
             onClearSnooze={clearSnooze}
+            onSendTestDelivery={sendTestDelivery}
+            testDeliveryLoading={testDeliveryResultLoading}
         />
     )
 

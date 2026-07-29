@@ -1,7 +1,4 @@
-import { useActions, useValues } from 'kea'
-
 import { IconBell } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 
@@ -9,7 +6,6 @@ import { InsightShortId } from '~/types'
 
 import { AlertEditorSection } from 'products/alerts/frontend/components/AlertEditor'
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
-import { alertNotificationLogic } from 'products/alerts/frontend/logic/alertNotificationLogic'
 import { AlertType } from 'products/alerts/frontend/types'
 import { AlertDestinationSelector } from 'products/alerts/frontend/views/AlertDestinationSelector'
 import { InlineAlertNotifications } from 'products/alerts/frontend/views/InlineAlertNotifications'
@@ -31,10 +27,6 @@ export function InsightAlertNotificationSection({
     showSectionTitle = true,
     onSetAlertFormValue,
 }: InsightAlertNotificationSectionProps): JSX.Element {
-    const notificationLogic = alertNotificationLogic({ alertId })
-    const { testDeliveryResultLoading } = useValues(notificationLogic)
-    const { sendTestDelivery } = useActions(notificationLogic)
-
     let destinations: JSX.Element
     if (inlineNotificationsEnabled) {
         destinations = <InlineAlertNotifications alertId={alertId} />
@@ -50,18 +42,6 @@ export function InsightAlertNotificationSection({
 
     const content = (
         <>
-            {alertId ? (
-                <div className="flex justify-end mb-4">
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={sendTestDelivery}
-                        loading={testDeliveryResultLoading}
-                    >
-                        Send test
-                    </LemonButton>
-                </div>
-            ) : null}
             <div className="flex gap-4 items-center">
                 <div>E-mail</div>
                 <div className="flex-auto" data-prevent-wizard-submit>

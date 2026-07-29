@@ -20,6 +20,7 @@ import { AlertStateIndicator } from '../components/AlertDefinition'
 import { AlertsFiltersBar } from '../components/AlertsFiltersBar'
 import { alertIntervalDisplayLabel } from '../logic/alertIntervalHelpers'
 import { alertLogic } from '../logic/alertLogic'
+import { alertNotificationLogic } from '../logic/alertNotificationLogic'
 import { alertsLogic } from '../logic/alertsLogic'
 import { AlertType } from '../types'
 import { EditAlertModal } from './EditAlertModal'
@@ -28,6 +29,50 @@ const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 interface InsightAlertsProps {
     alertId: AlertType['id'] | null
+}
+
+interface AlertRowMenuProps {
+    alert: AlertType
+    deleting: boolean
+    onDelete: () => void
+}
+
+function AlertRowMenu({ alert, deleting, onDelete }: AlertRowMenuProps): JSX.Element {
+    const notificationLogic = alertNotificationLogic({ alertId: alert.id, loadDestinations: false })
+    const { testDeliveryResultLoading } = useValues(notificationLogic)
+    const { sendTestDelivery } = useActions(notificationLogic)
+
+    return (
+        <DropdownMenu>
+            <DropdownMenuTrigger
+                render={
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        icon={<IconEllipsis />}
+                        aria-label={`More options for ${alert.name}`}
+                    />
+                }
+            />
+            <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                    data-attr="insight-alert-row-send-test"
+                    disabled={testDeliveryResultLoading}
+                    onClick={sendTestDelivery}
+                >
+                    Send test
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                    variant="destructive"
+                    data-attr="insight-alert-row-delete"
+                    disabled={deleting}
+                    onClick={onDelete}
+                >
+                    Delete
+                </DropdownMenuItem>
+            </DropdownMenuContent>
+        </DropdownMenu>
+    )
 }
 
 export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
@@ -155,44 +200,26 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
         {
             title: '',
             render: (_, alert) => (
-                <DropdownMenu>
-                    <DropdownMenuTrigger
-                        render={
-                            <LemonButton
-                                type="tertiary"
-                                size="small"
-                                icon={<IconEllipsis />}
-                                aria-label={`More options for ${alert.name}`}
-                            />
-                        }
-                    />
-                    <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                            variant="destructive"
-                            data-attr="insight-alert-row-delete"
-                            disabled={deletingAlertIds.has(alert.id)}
-                            onClick={() => {
-                                LemonDialog.open({
-                                    title: `Delete "${alert.name}"?`,
-                                    description:
-                                        'This alert will be permanently deleted. This action cannot be undone.',
-                                    primaryButton: {
-                                        children: 'Delete',
-                                        type: 'primary',
-                                        status: 'danger',
-                                        onClick: () => deleteAlert(alert),
-                                        'data-attr': 'insight-alert-delete-confirm',
-                                    },
-                                    secondaryButton: {
-                                        children: 'Cancel',
-                                    },
-                                })
-                            }}
-                        >
-                            Delete
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                <AlertRowMenu
+                    alert={alert}
+                    deleting={deletingAlertIds.has(alert.id)}
+                    onDelete={() => {
+                        LemonDialog.open({
+                            title: `Delete "${alert.name}"?`,
+                            description: 'This alert will be permanently deleted. This action cannot be undone.',
+                            primaryButton: {
+                                children: 'Delete',
+                                type: 'primary',
+                                status: 'danger',
+                                onClick: () => deleteAlert(alert),
+                                'data-attr': 'insight-alert-delete-confirm',
+                            },
+                            secondaryButton: {
+                                children: 'Cancel',
+                            },
+                        })
+                    }}
+                />
             ),
         },
     ]
