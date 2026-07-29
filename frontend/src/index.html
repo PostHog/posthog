@@ -5,6 +5,22 @@
         {# head.html first: it carries <meta charset>, which must stay within the first 1024 bytes #}
         {# so the browser's encoding prescan finds it #}
         {% include "head.html" %}
+        {# Server-rendered OpenGraph/Twitter tags for public share links (e.g. task deep-links). #}
+        {# Gated on add_og_tags so normal app loads are unchanged; noindex keeps capability URLs #}
+        {# out of search engines. Values are autoescaped, so titles are safe in attributes. #}
+        {% if add_og_tags %}
+            <meta name="robots" content="noindex" />
+            <meta property="og:site_name" content="PostHog" />
+            <meta property="og:type" content="website" />
+            <meta property="og:title" content="{{ og_title }}" />
+            <meta property="og:description" content="{{ og_description }}" />
+            <meta property="og:url" content="{{ request.build_absolute_uri }}" />
+            <meta property="og:image" content="{{ og_image }}" />
+            <meta name="twitter:card" content="summary" />
+            <meta name="twitter:title" content="{{ og_title }}" />
+            <meta name="twitter:description" content="{{ og_description }}" />
+            <meta name="twitter:image" content="{{ og_image }}" />
+        {% endif %}
         {# Critical CSS for the pre-React shell (background, spinner, boot-failure message), so the #}
         {# page doesn't flash white. Everything visual is scoped to #root:empty and .Preloader — the #}
         {# app never styles <body> background itself, so an unscoped rule here would persist after #}

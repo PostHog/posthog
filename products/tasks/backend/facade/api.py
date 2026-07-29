@@ -156,6 +156,7 @@ __all__ = [
     "get_task_automation",
     "get_task_detail",
     "get_task_id_for_run",
+    "get_task_link_preview",
     "get_task_run",
     "get_task_run_detail",
     "get_task_run_sandbox_connection",
@@ -4934,6 +4935,41 @@ def send_cancel(run_id: str | UUID, *, auth_token: str | None = None):
 
 
 # --- Channels & task threads ---
+
+
+def get_task_link_preview(channel_id: str | UUID, task_id: str | UUID) -> contracts.TaskLinkPreview | None:
+    """Public link-preview data for a ``/code/channel/<channel_id>/tasks/<task_id>`` deep-link.
+
+    Resolved globally by the two unguessable UUIDs (a capability URL, like a shared
+    dashboard), so it is intentionally not team-scoped — link-unfurl requests arrive
+    unauthenticated. Returns ``None`` when either id is malformed, the task is missing or
+    soft-deleted, or the task doesn't belong to the given channel, letting the caller fall
+    back to a generic preview.
+    """
+    try:
+        task_uuid = UUID(str(task_id))
+        channel_uuid = UUID(str(channel_id))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+    task = (
+        Task.objects.filter(id=task_uuid, channel_id=channel_uuid, deleted=False)
+        .select_related("channel", "created_by")
+        .first()
+    )
+    if task is None or task.channel is None or task.channel.deleted:
+        return None
+
+    creator = task.created_by
+    creator_name: str | None = None
+    if creator is not None:
+        creator_name = f"{creator.first_name} {creator.last_name}".strip() or None
+
+    return contracts.TaskLinkPreview(
+        task_title=task.title,
+        channel_name=task.channel.name,
+        creator_name=creator_name,
+    )
 
 
 def normalize_channel_name(name: str) -> str:

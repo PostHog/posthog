@@ -572,6 +572,20 @@ class TaskUserBasicInfo:
 
 
 @dataclass(frozen=True)
+class TaskLinkPreview:
+    """Public-safe fields for an OpenGraph/link-unfurl preview of a task deep-link.
+
+    Deliberately minimal: the task title, its channel name, and the creator's display
+    name. No task body, run output, repository, or team data crosses into an
+    unauthenticated preview.
+    """
+
+    task_title: str
+    channel_name: str
+    creator_name: str | None = None
+
+
+@dataclass(frozen=True)
 class SandboxEnvironmentDTO:
     """A sandbox execution environment."""
 

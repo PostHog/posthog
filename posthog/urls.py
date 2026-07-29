@@ -358,6 +358,40 @@ def home_with_region_redirect(request: HttpRequest, *args: Any, **kwargs: Any) -
     return _login_required_render_home(request, *args, **kwargs)
 
 
+@ensure_csrf_cookie
+def code_channel_task_link(request: HttpRequest, channel_id: Any, task_id: Any) -> HttpResponse:
+    """Public bridge for desktop-app task deep-links (`/code/channel/<channel_id>/tasks/<task_id>`).
+
+    Renders the SPA — whose `CodeChannelLink` scene deep-links into PostHog Desktop — but
+    injects server-rendered OpenGraph/Twitter tags so a pasted link unfurls with the task
+    title, channel, and creator. Unauthenticated on purpose: link-unfurl crawlers are never
+    logged in, and the task is resolved by its two unguessable UUIDs (a capability URL).
+    `noindex` (set in the template) keeps the page out of search engines if a link leaks
+    somewhere crawlable. Falls back to a plain SPA render when the task can't be resolved.
+    """
+    region_redirect = app_region_redirect(request)
+    if region_redirect is not None:
+        return region_redirect
+
+    from products.tasks.backend.facade.api import (  # noqa: PLC0415 — keep the tasks import off the django.setup() path
+        get_task_link_preview,
+    )
+
+    context: dict[str, Any] = {}
+    preview = get_task_link_preview(channel_id, task_id)
+    if preview is not None:
+        description = f"Task in #{preview.channel_name}"
+        if preview.creator_name:
+            description += f", created by {preview.creator_name}"
+        context = {
+            "add_og_tags": True,
+            "og_title": preview.task_title,
+            "og_description": description,
+            "og_image": request.build_absolute_uri("/static/icons/android-chrome-512x512.png"),
+        }
+    return render_template("index.html", request, context=context)
+
+
 _CONNECT_REDIRECT_ALLOWED_KINDS = {"github", "slack", "linear"}
 # Surfaces allowed to start a connect flow and be returned to afterwards (see
 # posthog/api/github_callback/types.py APP_CONNECT_FROM_VALUES, plus Slack).
@@ -642,6 +676,11 @@ urlpatterns = [
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
     ),
     path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
+    # Public bridge for desktop-app task share links — deep-links into PostHog Desktop and
+    # renders OpenGraph tags so pasted links unfurl. Registered ahead of the SPA catch-all,
+    # which is login-gated (link-unfurl crawlers are unauthenticated). The sibling
+    # `/code/canvas/...` and `/code/channel/...` bridges stay on the SPA catch-all/unauth list.
+    path("code/channel/<uuid:channel_id>/tasks/<uuid:task_id>", code_channel_task_link),
     re_path(r"^demo.*", login_required(demo_route)),
     path("", include((oauth2_urls, "oauth2_provider"), namespace="oauth2_provider")),
     # ingestion
