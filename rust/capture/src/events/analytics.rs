@@ -409,6 +409,12 @@ pub async fn process_events(
     //      end state matches, but the pass order differs.
     //   2. Lane assignment is a single `DataType::from_event_name` match in
     //      legacy versus assign-then-reroute in v1.
+    //   3. Events whose person processing was already off: v1 skips its stamps
+    //      entirely (so such an event is never rerouted to overflow) and reports
+    //      it as outcome="already_disabled". Legacy still stamps and reroutes it,
+    //      and still counts it in the metric and log below; only the warning
+    //      excludes it. So legacy's limited count can exceed its warned count,
+    //      where v1's cannot.
     // Both paths consult the same shared limiter for every non-dropped event, so
     // per-key counts are identical regardless of which pipeline serves the key.
     // Import is unaffected by both: the GRL never runs (guard below) and no
