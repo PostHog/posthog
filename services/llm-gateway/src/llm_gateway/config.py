@@ -164,6 +164,8 @@ class Settings(BaseSettings):
     fireworks_api_key: str | None = None
     cloudflare_api_key: str | None = None
     cloudflare_account_id: str | None = None
+    baseten_api_base: str | None = None
+    baseten_api_key: str | None = None
 
     # Modal-hosted GLM inference (OpenAI-compatible vLLM endpoint); auth is a proxy-token pair
     # sent as Modal-Key/Modal-Secret headers. All three must be set for Modal routing.

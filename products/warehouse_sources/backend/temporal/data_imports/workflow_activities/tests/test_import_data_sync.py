@@ -5,7 +5,7 @@ from datetime import datetime
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import SimpleSource

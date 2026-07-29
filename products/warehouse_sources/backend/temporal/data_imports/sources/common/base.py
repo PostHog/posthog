@@ -24,17 +24,17 @@ from posthog.schema import (
     SourceFieldSwitchGroupConfig,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    ResumableData,
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+    ResumableData,
+    SourceInputs,
+    SourceResponse,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import get_config_for_source
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField
 
