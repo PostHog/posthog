@@ -1824,6 +1824,14 @@ class HedgeboxMatrix(Matrix):
                     UNPRIVILEGED_SCOPES
                     | {"llm_gateway:read", "llm_gateway:write", "wizard_session:read", "wizard_session:write"}
                 ),
+                # The wizard can also provision an account rather than logging into one, which
+                # every provisioning endpoint gates on. All four default to False, so without
+                # them account creation fails at authentication with "no provisioning client is
+                # registered" and the flow can't be exercised locally at all.
+                is_provisioning_partner=True,
+                provisioning_active=True,
+                provisioning_can_create_accounts=True,
+                provisioning_can_provision_resources=True,
             )
         except (IntegrityError, ValidationError):
             pass
