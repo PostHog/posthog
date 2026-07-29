@@ -50,7 +50,7 @@ describe('quickActionsLogic', () => {
         initKeaTests()
         logic = quickActionsLogic()
         logic.mount()
-        // The currentTeamId subscription fires a load on mount; settle it so it can't interfere.
+        // The currentTeamId subscription fires a load on mount. Settle it so it can't interfere.
         await expectLogic(logic).toDispatchActions(['loadQuickActionsSuccess'])
     })
 
@@ -162,7 +162,7 @@ describe('quickActionsLogic', () => {
         await firstRequestStarted.promise
         logic.actions.loadQuickActions()
         await expectLogic(logic).toDispatchActions(['loadQuickActionsSuccess'])
-        // The first, superseded request resolves last; its breakpoint must discard it.
+        // The first, superseded request resolves last, so its breakpoint must discard it.
         gate.resolve()
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.quickActions).toEqual([actionB])

@@ -613,7 +613,7 @@ SPECTACULAR_SETTINGS = {
         "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
         "BatchExportRunStatusEnum": "products.batch_exports.backend.models.batch_export.BatchExportRun.Status",
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
-        # Conversations ticket + quick-action priority share one choice set; pin its name so the
+        # Conversations ticket + quick-action priority share one choice set. Pin its name so the
         # quick-action `priority` field doesn't collide with other products' `priority` enums.
         "SupportPriorityEnum": "products.conversations.backend.models.constants.Priority",
         # Conversations' quick-action `visibility` (team/personal) shares the generic `VisibilityEnum`

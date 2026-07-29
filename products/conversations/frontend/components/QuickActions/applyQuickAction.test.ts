@@ -56,7 +56,7 @@ describe('applyQuickAction', () => {
             })
         })
 
-        // The canonical empty TipTap doc has a one-paragraph content array; it must not be treated as
+        // The canonical empty TipTap doc has a one-paragraph content array. It must not be treated as
         // real rich content, or it would render blank and mask the plain-text fallback.
         it('treats an empty rich_content doc as blank and falls back to content', () => {
             const emptyDoc = { type: 'doc', content: [{ type: 'paragraph', content: [] }] }
@@ -75,7 +75,7 @@ describe('applyQuickAction', () => {
         })
     })
 
-    // Regression: the dispatcher inserts a reply when the quick action has one; an actions-only
+    // Regression: the dispatcher inserts a reply when the quick action has one. An actions-only
     // quick action applies its ticket actions without inserting any text.
     describe('applyQuickAction', () => {
         it("inserts a reply quick action's body", () => {

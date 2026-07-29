@@ -18,7 +18,7 @@ class QuickAction(TeamScopedRootMixin, UUIDModel):
     and applies its ticket actions (if any), in any combination."""
 
     # db_constraint=False on the hot-table FKs (team, user) so CreateModel takes no lock
-    # on posthog_team / posthog_user; app-level enforcement is enough here.
+    # on posthog_team / posthog_user. App-level enforcement is enough here.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -41,7 +41,7 @@ class QuickAction(TeamScopedRootMixin, UUIDModel):
     # {"status": "closed", "priority": "high", "tags": [...], "assignee": {...}}.
     actions = models.JSONField(default=dict, blank=True)
 
-    # "team" quick actions are shared with everyone on the team; "personal" ones are only
+    # "team" quick actions are shared with everyone on the team and "personal" ones are only
     # visible to their creator.
     visibility = models.CharField(
         max_length=20, choices=QuickActionVisibility.choices, default=QuickActionVisibility.TEAM

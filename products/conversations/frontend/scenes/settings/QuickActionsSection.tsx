@@ -89,7 +89,7 @@ export function QuickActionsSection(): JSX.Element {
 
     const handleSave = (): void => {
         const richContent = editorRef.current?.getJSON() ?? null
-        // A blank editor still yields a structurally non-empty doc; store an empty reply instead so
+        // A blank editor still yields a structurally non-empty doc. Store an empty reply instead so
         // an actions-only quick action doesn't carry a junk rich_content.
         const hasReply = !!richContent && hasVisibleText(richContent)
         saveQuickAction({

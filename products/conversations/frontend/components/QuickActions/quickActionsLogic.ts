@@ -329,7 +329,7 @@ export const quickActionsLogic = kea<quickActionsLogicType>([
                       )
                     : await conversationsQuickActionsCreate(String(values.currentTeamId), payload)
                 actions.quickActionSaved(saved)
-                // Only close the modal if it's still the one this save came from; otherwise a
+                // Only close the modal if it's still the one this save came from. Otherwise a
                 // stale response would close a modal reopened for another item, discarding input.
                 if (values.modalSessionId === modalSessionAtSave) {
                     actions.closeModal()

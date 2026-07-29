@@ -155,7 +155,7 @@ class QuickActionSerializer(serializers.ModelSerializer):
         # A non-creator can already delete a shared quick action or clear its body, so this isn't
         # locking down the content. It blocks the one route with no signal: flipping team -> personal
         # removes the row from everyone else's picker while it still exists, unreachable, with nothing
-        # to show it happened. Delete is explicit; a silent demotion isn't.
+        # to show it happened. Delete is explicit, a silent demotion isn't.
         if (
             instance is not None
             and attrs.get("visibility") == QuickActionVisibility.PERSONAL
@@ -186,7 +186,7 @@ class QuickActionViewSet(
     # beyond what ticket access already implies.
     scope_object = "ticket"
     scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy"]
-    # `safely_get_queryset` re-filters by team; the fail-closed manager can't run `.all()` at
+    # `safely_get_queryset` re-filters by team, since the fail-closed manager can't run `.all()` at
     # class-definition time (no team context), so start unscoped.
     queryset = QuickAction.objects.unscoped().order_by("-created_at")
     serializer_class = QuickActionSerializer
@@ -203,7 +203,7 @@ class QuickActionViewSet(
         # rewrite `RootTeamMixin.save()` performs on write. Filtering by the raw `self.team_id`
         # would miss quick actions created in a child environment (stored under the parent).
         queryset = QuickAction.objects.for_team(self.team_id).select_related("created_by")
-        # Team quick actions are visible to everyone; personal ones only to their creator.
+        # Team quick actions are visible to everyone, personal ones only to their creator.
         return queryset.filter(
             Q(visibility=QuickActionVisibility.TEAM)
             | Q(visibility=QuickActionVisibility.PERSONAL, created_by=self.request.user)
