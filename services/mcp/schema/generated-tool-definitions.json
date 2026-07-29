@@ -991,7 +991,7 @@
         }
     },
     "cdp-functions-invocations-create": {
-        "description": "Test-invoke a function with a mock event payload. Sends the function configuration and test data to the plugin server for execution and returns logs and status. Use 'mock_async_functions: true' (default) to simulate external calls like fetch() without making real HTTP requests.",
+        "description": "Test-invoke a function with a mock event payload. Sends the function configuration and test data to the plugin server for execution and returns logs and status. Use 'mock_async_functions: true' (default) to simulate external calls like fetch() without making real HTTP requests. To try config that is staged for review, pass the 'draft' from cdp-functions-retrieve as the 'configuration' here.",
         "category": "Functions",
         "feature": "hog_functions",
         "summary": "Test-invoke function",
