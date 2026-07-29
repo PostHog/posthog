@@ -25,7 +25,7 @@ import { schemaGoalLinesToConfigs } from 'products/product_analytics/frontend/in
 
 import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
-import { SqlChartProps } from './SqlChart'
+import { type SqlChartProps } from './SqlChart'
 
 export const MAX_SERIES = 200
 

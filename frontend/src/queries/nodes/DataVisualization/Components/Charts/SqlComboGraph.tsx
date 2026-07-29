@@ -4,7 +4,7 @@ import { TimeSeriesComboChart } from '@posthog/quill-charts'
 
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
-import { SqlChartProps } from './SqlChart'
+import { type SqlChartProps } from './SqlChart'
 import { SqlLineSeriesMeta, buildComboChartConfig } from './sqlLineGraphAdapter'
 import { useSqlChartModel } from './useSqlChartModel'
 

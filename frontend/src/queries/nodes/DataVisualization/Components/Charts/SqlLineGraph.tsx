@@ -5,7 +5,7 @@ import { DefaultTooltip, TimeSeriesLineChart, type PointClickData, type TooltipC
 
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
-import { SqlChartProps } from './SqlChart'
+import { type SqlChartProps } from './SqlChart'
 import { SqlLineSeriesMeta, buildLineChartConfig, formatSqlSeriesValue } from './sqlLineGraphAdapter'
 import { useSqlChartModel } from './useSqlChartModel'
 
