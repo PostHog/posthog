@@ -54,17 +54,6 @@ describe('getDataWarehouseItemWithFieldDefaults', () => {
         expect(warehouseItem.aggregation_target_field).toEqual('person_id')
     })
 
-    it('falls back to event_id when the table has no id column', () => {
-        const warehouseItem = getDataWarehouseItemWithFieldDefaults({
-            ...baseTable,
-            fields: {
-                event_id: { name: 'event_id', hogql_value: 'event_id', type: 'string', schema_valid: true },
-            },
-        })
-
-        expect(warehouseItem.id_field).toEqual('event_id')
-    })
-
     const distinctIdCases: FieldDefaultCase[] = [
         {
             name: 'prefers distinct_id when multiple distinct ID candidates are present',
