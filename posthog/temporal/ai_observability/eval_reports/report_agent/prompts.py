@@ -44,7 +44,7 @@ You build the report incrementally by calling three output tools:
 ## Grounding rule
 
 {grounding_rule}
-
+{sentiment_guidance_section}
 ## Suggested workflow
 
 1. Call `get_summary_metrics()` and `list_all_eval_results()`.
@@ -81,6 +81,7 @@ def build_eval_report_system_prompt(
             f"```\n{report_prompt_guidance.strip()}\n```\n"
         )
 
+    sentiment_guidance_section = ""
     if output_type == "sentiment":
         result_semantics = (
             "Sentiment labels classify the user messages associated with each generation as positive, neutral, or "
@@ -89,6 +90,23 @@ def build_eval_report_system_prompt(
         )
         analysis_outcome = "negative"
         primary_outcome = "positive"
+        sentiment_guidance_section = (
+            "\n## How to analyze sentiment\n\n"
+            "This is a sentiment evaluation. The point of this report is to help the reader understand **who is "
+            "frustrated and why**, grounded in what users actually said.\n\n"
+            "- **Do not read the reasoning field.** Sentiment is produced by a classifier, not a judge, so it has no "
+            "per-result explanation. The reasoning is effectively identical on every result and tells you nothing. "
+            "Skip `get_top_outcome_reasons` for this evaluation.\n"
+            "- **Read what the user said instead.** Sentiment classifies only the **last user message** in each "
+            "generation's input. To understand a negative result, load the generation itself (`sample_generation_details`, "
+            "then `get_generation_detail` or `get_generation_text_repr`) and look at that last user message. That is "
+            "where the frustration is.\n"
+            "- **Lead with the most negative.** When there are many negative results, start with the ones the "
+            "classifier is most confident are negative — the highest `score` — and work down. Sample enough negative "
+            "results to find recurring themes in what users are complaining about, then cite representative examples.\n"
+            "- Ground every claim about frustration in the user's own words. Quote or closely paraphrase the actual "
+            "last user message from real negative generations you cited.\n"
+        )
     elif output_type == "boolean":
         evaluated_unit = "trace" if evaluation_target == "trace" else "generation"
         result_semantics = (
@@ -152,6 +170,7 @@ If a generation cannot be resolved, try another example. If none resolve, report
         evaluation_target=evaluation_target,
         evaluation_prompt_section=prompt_section,
         result_semantics=result_semantics,
+        sentiment_guidance_section=sentiment_guidance_section,
         period_start=period_start,
         period_end=period_end,
         report_prompt_guidance_section=guidance_section,
