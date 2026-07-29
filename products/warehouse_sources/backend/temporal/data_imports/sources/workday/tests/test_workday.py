@@ -59,7 +59,7 @@ def _raw_response(content: bytes, *, status_code: int = 200) -> Response:
     response._content = content
     # Callers stream these (stream=True + iter_content) and close them; marking the content
     # consumed makes iter_content replay `_content` and keeps `.close()` a no-op (raw is None).
-    response._content_consumed = True
+    response._content_consumed = True  # type: ignore[attr-defined]
     return response
 
 
