@@ -262,11 +262,11 @@ export interface heatmapsBrowserLogicMeta {
             dataUrl: string | null,
             checkUrlIsAuthorized: (url: string) => boolean // authorizedUrlListLogic
         ) => boolean
-        isBrowserUrlValid: (dataUrl: string | null) => boolean
         isDisplayUrlAuthorized: (
             displayUrl: string | null,
             checkUrlIsAuthorized: (url: string) => boolean // authorizedUrlListLogic
         ) => boolean
+        isBrowserUrlValid: (dataUrl: string | null) => boolean
         viewportRange: (
             heatmapFilters: HeatmapFilters,
             widthOverride: number
