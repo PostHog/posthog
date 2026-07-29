@@ -48,6 +48,7 @@ class ProvisioningError(Exception):
         resource_id: str = "",
         envelope: Envelope | None = None,
         retry_after: int | None = None,
+        extra: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
@@ -57,6 +58,9 @@ class ProvisioningError(Exception):
         self.resource_id = resource_id
         self.envelope = envelope
         self.retry_after = retry_after
+        # Structured detail merged alongside the error in the typed envelope, for failures
+        # whose whole value is the detail (client_registration reports per-check results).
+        self.extra = extra
 
 
 def provisioning_error_body(error: ProvisioningError, default_envelope: Envelope) -> dict[str, Any]:
@@ -66,6 +70,8 @@ def provisioning_error_body(error: ProvisioningError, default_envelope: Envelope
     body: dict[str, Any]
     if envelope == "typed":
         body = {"type": "error", "error": {"code": error.code, "message": error.message}}
+        if error.extra:
+            body.update(error.extra)
         # "id" appears only when a request_id was threaded through; some call
         # sites carry "" (rendered as "id": "") and others no id at all.
         if error.request_id is not None:
