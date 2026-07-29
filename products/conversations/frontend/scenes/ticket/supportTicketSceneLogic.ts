@@ -450,7 +450,7 @@ export interface supportTicketSceneLogicMeta {
             ticket: Ticket | null,
             currentTeam: TeamPublicType | TeamType | null
         ) => EmailReplyBlockedReason | null
-        sidePanelContext: (ticket: Ticket | null, featureFlags: any) => SidePanelSceneContext | null
+        sidePanelContext: (ticket: Ticket | null, featureFlags: FeatureFlagsSet) => SidePanelSceneContext | null
         replyRecipientDescription: (ticket: Ticket | null) => string
         unsavedTicketChanges: (
             priority: TicketPriority | null,
@@ -856,7 +856,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.ticket, s.featureFlags],
-            (ticket: Ticket | null, featureFlags): SidePanelSceneContext | null =>
+            (ticket: Ticket | null, featureFlags: FeatureFlagsSet): SidePanelSceneContext | null =>
                 ticket?.id && featureFlags[FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC]
                     ? {
                           activity_scope: ActivityScope.TICKET,
