@@ -60,7 +60,7 @@ try:
 
     _DELTALITE_AVAILABLE = True
 except ImportError:  # pragma: no cover - exercised only where the wheel isn't installed
-    deltalite = None
+    deltalite = None  # ty: ignore[invalid-assignment]
     _DELTALITE_AVAILABLE = False
 
 
