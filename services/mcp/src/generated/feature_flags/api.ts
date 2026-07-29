@@ -254,9 +254,7 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                                     'Display names for group keys, keyed by group key. Injected on read and echoed back by clients.'
                                                 ),
                                         })
-                                        .describe(
-                                            'DRF drops keys without a declared field silently; this makes the drop observable.\n\nDuring an audit run an `unknown_keys_sink` in the serializer context collects them;\notherwise non-legacy unknown keys are logged so we learn whether junk keys happen in\nthe wild before enforcement flips on.'
-                                        )
+                                        .describe('A property condition inside a release condition group.')
                                 )
                                 .nullish()
                                 .describe('Property conditions for this release condition group.'),
@@ -300,9 +298,7 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                     'ID of the snapshot cohort this group was narrowed to when experiment exposure was frozen.'
                                 ),
                         })
-                        .describe(
-                            'DRF drops keys without a declared field silently; this makes the drop observable.\n\nDuring an audit run an `unknown_keys_sink` in the serializer context collects them;\notherwise non-legacy unknown keys are logged so we learn whether junk keys happen in\nthe wild before enforcement flips on.'
-                        )
+                        .describe('A release condition group: who the flag rolls out to, at what percentage.')
                 )
                 .optional()
                 .describe('Release condition groups for the feature flag.'),
@@ -343,15 +339,11 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                                     'Display-only description for this variant, shown in the UI.'
                                                 ),
                                         })
-                                        .describe(
-                                            'DRF drops keys without a declared field silently; this makes the drop observable.\n\nDuring an audit run an `unknown_keys_sink` in the serializer context collects them;\notherwise non-legacy unknown keys are logged so we learn whether junk keys happen in\nthe wild before enforcement flips on.'
-                                        )
+                                        .describe('A variant of a multivariate feature flag.')
                                 )
                                 .describe('Variant definitions for multivariate feature flags.'),
                         })
-                        .describe(
-                            'DRF drops keys without a declared field silently; this makes the drop observable.\n\nDuring an audit run an `unknown_keys_sink` in the serializer context collects them;\notherwise non-legacy unknown keys are logged so we learn whether junk keys happen in\nthe wild before enforcement flips on.'
-                        ),
+                        .describe('Multivariate configuration for variant-based rollouts.'),
                     zod.null(),
                 ])
                 .optional()
@@ -389,9 +381,7 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                 .max(featureFlagsCreateBodyFiltersOneHoldoutOneExclusionPercentageMax)
                                 .describe('Percentage of users held out from the flag, between 0 and 100.'),
                         })
-                        .describe(
-                            'DRF drops keys without a declared field silently; this makes the drop observable.\n\nDuring an audit run an `unknown_keys_sink` in the serializer context collects them;\notherwise non-legacy unknown keys are logged so we learn whether junk keys happen in\nthe wild before enforcement flips on.'
-                        ),
+                        .describe('Experiment holdout configuration for a feature flag.'),
                     zod.null(),
                 ])
                 .optional()
@@ -624,9 +614,7 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     'Display names for group keys, keyed by group key. Injected on read and echoed back by clients.'
                                                 ),
                                         })
-                                        .describe(
-                                            'DRF drops keys without a declared field silently; this makes the drop observable.\n\nDuring an audit run an `unknown_keys_sink` in the serializer context collects them;\notherwise non-legacy unknown keys are logged so we learn whether junk keys happen in\nthe wild before enforcement flips on.'
-                                        )
+                                        .describe('A property condition inside a release condition group.')
                                 )
                                 .nullish()
                                 .describe('Property conditions for this release condition group.'),
@@ -670,9 +658,7 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                     'ID of the snapshot cohort this group was narrowed to when experiment exposure was frozen.'
                                 ),
                         })
-                        .describe(
-                            'DRF drops keys without a declared field silently; this makes the drop observable.\n\nDuring an audit run an `unknown_keys_sink` in the serializer context collects them;\notherwise non-legacy unknown keys are logged so we learn whether junk keys happen in\nthe wild before enforcement flips on.'
-                        )
+                        .describe('A release condition group: who the flag rolls out to, at what percentage.')
                 )
                 .optional()
                 .describe('Release condition groups for the feature flag.'),
@@ -715,15 +701,11 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                     'Display-only description for this variant, shown in the UI.'
                                                 ),
                                         })
-                                        .describe(
-                                            'DRF drops keys without a declared field silently; this makes the drop observable.\n\nDuring an audit run an `unknown_keys_sink` in the serializer context collects them;\notherwise non-legacy unknown keys are logged so we learn whether junk keys happen in\nthe wild before enforcement flips on.'
-                                        )
+                                        .describe('A variant of a multivariate feature flag.')
                                 )
                                 .describe('Variant definitions for multivariate feature flags.'),
                         })
-                        .describe(
-                            'DRF drops keys without a declared field silently; this makes the drop observable.\n\nDuring an audit run an `unknown_keys_sink` in the serializer context collects them;\notherwise non-legacy unknown keys are logged so we learn whether junk keys happen in\nthe wild before enforcement flips on.'
-                        ),
+                        .describe('Multivariate configuration for variant-based rollouts.'),
                     zod.null(),
                 ])
                 .optional()
@@ -761,9 +743,7 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 .max(featureFlagsPartialUpdateBodyFiltersOneHoldoutOneExclusionPercentageMax)
                                 .describe('Percentage of users held out from the flag, between 0 and 100.'),
                         })
-                        .describe(
-                            'DRF drops keys without a declared field silently; this makes the drop observable.\n\nDuring an audit run an `unknown_keys_sink` in the serializer context collects them;\notherwise non-legacy unknown keys are logged so we learn whether junk keys happen in\nthe wild before enforcement flips on.'
-                        ),
+                        .describe('Experiment holdout configuration for a feature flag.'),
                     zod.null(),
                 ])
                 .optional()

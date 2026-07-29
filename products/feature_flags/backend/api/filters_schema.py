@@ -249,6 +249,8 @@ class FlagPayloadsField(serializers.DictField):
 
 
 class FlagPropertySerializer(DropsUnknownKeysMixin, serializers.Serializer):
+    """A property condition inside a release condition group."""
+
     unknown_key_level = "property"
 
     key = PropertyKeyField(
@@ -317,6 +319,8 @@ class FlagPropertySerializer(DropsUnknownKeysMixin, serializers.Serializer):
 
 
 class FlagConditionGroupSerializer(DropsUnknownKeysMixin, serializers.Serializer):
+    """A release condition group: who the flag rolls out to, at what percentage."""
+
     unknown_key_level = "group"
 
     # allow_null: Rust reads properties as Option<Vec<PropertyFilter>> with #[serde(default)],
@@ -389,6 +393,8 @@ class FlagConditionGroupSerializer(DropsUnknownKeysMixin, serializers.Serializer
 
 
 class FlagMultivariateVariantSerializer(DropsUnknownKeysMixin, serializers.Serializer):
+    """A variant of a multivariate feature flag."""
+
     unknown_key_level = "variant"
 
     # Charset widened beyond the flag-key rule (#50084 inventory addendum 2): variant keys are
@@ -426,6 +432,8 @@ class FlagMultivariateVariantSerializer(DropsUnknownKeysMixin, serializers.Seria
 
 
 class FlagMultivariateSerializer(DropsUnknownKeysMixin, serializers.Serializer):
+    """Multivariate configuration for variant-based rollouts."""
+
     unknown_key_level = "multivariate"
 
     variants = FlagMultivariateVariantSerializer(
@@ -436,6 +444,8 @@ class FlagMultivariateSerializer(DropsUnknownKeysMixin, serializers.Serializer):
 
 
 class FlagHoldoutSerializer(DropsUnknownKeysMixin, serializers.Serializer):
+    """Experiment holdout configuration for a feature flag."""
+
     unknown_key_level = "holdout"
 
     id = StrictIntegerField(
@@ -451,6 +461,8 @@ class FlagHoldoutSerializer(DropsUnknownKeysMixin, serializers.Serializer):
 
 
 class FeatureFlagFiltersSerializer(DropsUnknownKeysMixin, serializers.Serializer):
+    """Feature flag targeting configuration: release condition groups, multivariate variants, and payloads."""
+
     unknown_key_level = "filters"
 
     groups = FlagConditionGroupSerializer(

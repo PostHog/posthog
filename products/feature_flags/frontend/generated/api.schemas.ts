@@ -434,11 +434,7 @@ export const FlagPropertyOperatorEnumApi = {
 } as const
 
 /**
- * DRF drops keys without a declared field silently; this makes the drop observable.
- *
- * During an audit run an `unknown_keys_sink` in the serializer context collects them;
- * otherwise non-legacy unknown keys are logged so we learn whether junk keys happen in
- * the wild before enforcement flips on.
+ * A property condition inside a release condition group.
  */
 export interface FlagPropertyApi {
     /** Property key used in this feature flag condition. Numbers are normalized to strings. */
@@ -511,11 +507,7 @@ export interface FlagPropertyApi {
 }
 
 /**
- * DRF drops keys without a declared field silently; this makes the drop observable.
- *
- * During an audit run an `unknown_keys_sink` in the serializer context collects them;
- * otherwise non-legacy unknown keys are logged so we learn whether junk keys happen in
- * the wild before enforcement flips on.
+ * A release condition group: who the flag rolls out to, at what percentage.
  */
 export interface FlagConditionGroupApi {
     /**
@@ -564,11 +556,7 @@ export interface FlagConditionGroupApi {
 }
 
 /**
- * DRF drops keys without a declared field silently; this makes the drop observable.
- *
- * During an audit run an `unknown_keys_sink` in the serializer context collects them;
- * otherwise non-legacy unknown keys are logged so we learn whether junk keys happen in
- * the wild before enforcement flips on.
+ * A variant of a multivariate feature flag.
  */
 export interface FlagMultivariateVariantApi {
     /**
@@ -596,11 +584,7 @@ export interface FlagMultivariateVariantApi {
 }
 
 /**
- * DRF drops keys without a declared field silently; this makes the drop observable.
- *
- * During an audit run an `unknown_keys_sink` in the serializer context collects them;
- * otherwise non-legacy unknown keys are logged so we learn whether junk keys happen in
- * the wild before enforcement flips on.
+ * Multivariate configuration for variant-based rollouts.
  */
 export interface FlagMultivariateApi {
     /** Variant definitions for multivariate feature flags. */
@@ -608,11 +592,7 @@ export interface FlagMultivariateApi {
 }
 
 /**
- * DRF drops keys without a declared field silently; this makes the drop observable.
- *
- * During an audit run an `unknown_keys_sink` in the serializer context collects them;
- * otherwise non-legacy unknown keys are logged so we learn whether junk keys happen in
- * the wild before enforcement flips on.
+ * Experiment holdout configuration for a feature flag.
  */
 export interface FlagHoldoutApi {
     /**

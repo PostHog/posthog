@@ -30,45 +30,31 @@ describe('Feature flag filter schemas', () => {
         expect(result.success).toBe(false)
     })
 
-    it("should reject non-'flag_evaluates_to' operators for flag property filters", () => {
+    // Operator/value compatibility is the cross-field validation tier, enforced by the API
+    // (400 with a cross_field.* code), not by the structural schema — Zod can't express those
+    // rules, so the generated schema deliberately accepts these shapes (#50084).
+    it.each([
+        [
+            'flag property with a non-flag_evaluates_to operator',
+            { key: '123', type: 'flag', operator: 'exact', value: true },
+        ],
+        [
+            'semver operator with a non-string value',
+            { key: 'app_version', type: 'person', operator: 'semver_gt', value: 123 },
+        ],
+        [
+            'icontains_multi operator with a non-array value',
+            { key: 'email', type: 'person', operator: 'icontains_multi', value: '@company.com' },
+        ],
+    ])('should pass %s through to server-side cross-field validation', (_name, property) => {
         const result = FeatureFlagsCreateBody.shape.filters.safeParse({
-            groups: [
-                {
-                    properties: [
-                        {
-                            key: '123',
-                            type: 'flag',
-                            operator: 'exact',
-                            value: true,
-                        },
-                    ],
-                },
-            ],
+            groups: [{ properties: [property] }],
         })
 
-        expect(result.success).toBe(false)
+        expect(result.success).toBe(true)
     })
 
-    it('should reject non-string values for semver operators', () => {
-        const result = FeatureFlagsCreateBody.shape.filters.safeParse({
-            groups: [
-                {
-                    properties: [
-                        {
-                            key: 'app_version',
-                            type: 'person',
-                            operator: 'semver_gt',
-                            value: 123,
-                        },
-                    ],
-                },
-            ],
-        })
-
-        expect(result.success).toBe(false)
-    })
-
-    it('should reject non-array values for icontains_multi operators', () => {
+    it('should reject operators outside the supported enum', () => {
         const result = FeatureFlagsCreateBody.shape.filters.safeParse({
             groups: [
                 {
@@ -76,7 +62,7 @@ describe('Feature flag filter schemas', () => {
                         {
                             key: 'email',
                             type: 'person',
-                            operator: 'icontains_multi',
+                            operator: 'bogus_operator',
                             value: '@company.com',
                         },
                     ],

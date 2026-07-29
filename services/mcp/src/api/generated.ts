@@ -31331,11 +31331,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * DRF drops keys without a declared field silently; this makes the drop observable.
-     *
-     * During an audit run an `unknown_keys_sink` in the serializer context collects them;
-     * otherwise non-legacy unknown keys are logged so we learn whether junk keys happen in
-     * the wild before enforcement flips on.
+     * A property condition inside a release condition group.
      */
     export interface FlagProperty {
       /** Property key used in this feature flag condition. Numbers are normalized to strings. */
@@ -31408,11 +31404,7 @@ export namespace Schemas {
     }
 
     /**
-     * DRF drops keys without a declared field silently; this makes the drop observable.
-     *
-     * During an audit run an `unknown_keys_sink` in the serializer context collects them;
-     * otherwise non-legacy unknown keys are logged so we learn whether junk keys happen in
-     * the wild before enforcement flips on.
+     * A release condition group: who the flag rolls out to, at what percentage.
      */
     export interface FlagConditionGroup {
       /**
@@ -31461,11 +31453,7 @@ export namespace Schemas {
     }
 
     /**
-     * DRF drops keys without a declared field silently; this makes the drop observable.
-     *
-     * During an audit run an `unknown_keys_sink` in the serializer context collects them;
-     * otherwise non-legacy unknown keys are logged so we learn whether junk keys happen in
-     * the wild before enforcement flips on.
+     * A variant of a multivariate feature flag.
      */
     export interface FlagMultivariateVariant {
       /**
@@ -31493,11 +31481,7 @@ export namespace Schemas {
     }
 
     /**
-     * DRF drops keys without a declared field silently; this makes the drop observable.
-     *
-     * During an audit run an `unknown_keys_sink` in the serializer context collects them;
-     * otherwise non-legacy unknown keys are logged so we learn whether junk keys happen in
-     * the wild before enforcement flips on.
+     * Multivariate configuration for variant-based rollouts.
      */
     export interface FlagMultivariate {
       /** Variant definitions for multivariate feature flags. */
@@ -31505,11 +31489,7 @@ export namespace Schemas {
     }
 
     /**
-     * DRF drops keys without a declared field silently; this makes the drop observable.
-     *
-     * During an audit run an `unknown_keys_sink` in the serializer context collects them;
-     * otherwise non-legacy unknown keys are logged so we learn whether junk keys happen in
-     * the wild before enforcement flips on.
+     * Experiment holdout configuration for a feature flag.
      */
     export interface FlagHoldout {
       /**
