@@ -216,6 +216,7 @@ export class EmailTrackingService {
         source,
         properties,
         timestamp,
+        instanceIdOverride,
     }: {
         functionId?: string
         invocationId?: string
@@ -226,6 +227,7 @@ export class EmailTrackingService {
         source: 'direct' | 'ses'
         properties?: Record<string, unknown>
         timestamp?: string
+        instanceIdOverride?: string
     }): Promise<void> {
         if (!functionId || !invocationId) {
             logger.error('[EmailTrackingService] trackMetric: Invalid custom ID', {
@@ -262,7 +264,7 @@ export class EmailTrackingService {
                 // Mirror email.service.ts's `parentRunId ?? functionId` so batch-triggered
                 // runs get their webhook metrics attributed to the batch run, not the workflow.
                 app_source_id: parentRunId ?? appSourceId,
-                instance_id: actionId || invocationId,
+                instance_id: instanceIdOverride || actionId || invocationId,
                 metric_name: metricName,
                 metric_kind: 'email',
                 count: 1,
@@ -391,6 +393,7 @@ export class EmailTrackingService {
                     source: 'ses',
                     properties: metric.properties,
                     timestamp: metric.timestamp,
+                    instanceIdOverride: metric.instanceIdOverride,
                 })
             }
 

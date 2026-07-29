@@ -207,6 +207,36 @@ export const resolveClickDestination = (link: string): string => {
     }
 }
 
+// Bounds how much of a URL rides in the app_metrics2 sort key. Long enough to stay recognizable in
+// the UI, short enough that a pathological query-less URL can't bloat the index.
+const MAX_LINK_URL_LENGTH = 200
+
+/**
+ * Collapses a clicked URL to the identity we count by.
+ *
+ * The query string and fragment are dropped because merge tags and per-recipient UTM values make
+ * them differ on every send, which would scatter one link's clicks across thousands of buckets. Two
+ * anchors that genuinely point at the same path stay distinguishable through the link index, which
+ * is carried alongside this value.
+ */
+export const normalizeClickUrl = (link: string): string => {
+    try {
+        const url = new URL(link)
+        return `${url.protocol}//${url.host}${url.pathname}`.replace(/\/$/, '').slice(0, MAX_LINK_URL_LENGTH)
+    } catch {
+        return link.slice(0, MAX_LINK_URL_LENGTH)
+    }
+}
+
+// Separator between the parts of a per-link metric's `instance_id`. The frontend splits on this to
+// recover (action id, link index, url); see LINK_INSTANCE_SEPARATOR in workflowMetricsSummaryLogic.
+// A URL may legitimately contain this character, so parsers must limit themselves to the first two
+// separators and treat the remainder as the URL.
+export const LINK_INSTANCE_SEPARATOR = '|'
+
+export const buildLinkInstanceId = (actionId: string, linkIndex: string, normalizedUrl: string): string =>
+    [actionId, linkIndex, normalizedUrl].join(LINK_INSTANCE_SEPARATOR)
+
 const MAX_SES_FIELD_LENGTH = 1024
 
 // Strip control chars, neutralize rich-log bracket tokens, and cap length.
@@ -449,6 +479,9 @@ export class SesWebhookHandler {
             parentRunId?: string
             distinctId?: string
             metricName: MinimalAppMetric['metric_name']
+            // Replaces the instance_id trackMetric would derive, for metrics keyed by something
+            // other than the action or invocation (see buildLinkInstanceId).
+            instanceIdOverride?: string
             properties?: Record<string, any>
             timestamp?: string
         }[]
@@ -546,6 +579,7 @@ export class SesWebhookHandler {
             parentRunId?: string
             distinctId?: string
             metricName: MinimalAppMetric['metric_name']
+            instanceIdOverride?: string
             properties?: Record<string, any>
             timestamp?: string
         }[] = []
@@ -636,6 +670,28 @@ export class SesWebhookHandler {
                     properties,
                     timestamp,
                 })
+
+                // Per-link companion row for the workflow Metrics tab's link breakdown. Emitted only
+                // when the send came from a workflow step: without an action id the key would fall
+                // back to the invocation id, producing a row per send per link rather than an
+                // aggregate, and the breakdown is per-action anyway. It carries its own metric name
+                // so the existing `email_link_clicked` totals and trends can't double-count it.
+                if (rec.eventType === 'Click' && actionId) {
+                    metrics.push({
+                        functionId,
+                        invocationId,
+                        actionId,
+                        parentRunId,
+                        distinctId,
+                        metricName: 'email_link_clicked_by_link',
+                        instanceIdOverride: buildLinkInstanceId(
+                            actionId,
+                            rec.click.linkTags?.[SES_LINK_INDEX_TAG]?.[0] ?? '',
+                            normalizeClickUrl(resolveClickDestination(rec.click.link))
+                        ),
+                        timestamp,
+                    })
+                }
 
                 // email_bounced stays the catch-all rollup; each bounce additionally emits a
                 // per-type sub-metric (hard + transient + undetermined = email_bounced). AWS's

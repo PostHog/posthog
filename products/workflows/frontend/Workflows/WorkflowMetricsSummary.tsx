@@ -8,9 +8,11 @@ import { getColorVar } from 'lib/colors'
 import { type AppMetricsTimeSeriesResponse } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
+import { type ExpandableConfig } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import {
+    type EmailLinkRow,
     type EmailMetric,
     type EmailMetricRow,
     METRIC_COLORS,
@@ -43,6 +45,7 @@ export function WorkflowMetricsSummary({
         workflowSummaryTrends,
         emailMetricsRows,
         emailTotalsByActionIdLoading,
+        emailLinkTotalsByActionId,
         pushMetricsRows,
         pushTotalsByActionIdLoading,
         conversionRate,
@@ -137,6 +140,43 @@ export function WorkflowMetricsSummary({
                 : []),
         ]
     }, [onSelectAction, onMetricClick, viewMetricsColumn])
+
+    const emailLinkColumns: LemonTableColumns<EmailLinkRow> = useMemo(
+        () => [
+            {
+                title: 'Link',
+                key: 'url',
+                render: (_: unknown, row: EmailLinkRow) => (
+                    <Link to={row.url} target="_blank" className="break-all">
+                        {row.url}
+                    </Link>
+                ),
+            },
+            {
+                title: 'Clicks',
+                key: 'clicks',
+                align: 'right',
+                render: (_: unknown, row: EmailLinkRow) => humanFriendlyNumber(row.clicks),
+            },
+        ],
+        []
+    )
+
+    const emailExpandable: ExpandableConfig<EmailMetricRow> = useMemo(
+        () => ({
+            rowExpandable: (row: EmailMetricRow) => (emailLinkTotalsByActionId[row.id]?.length ?? 0) > 0,
+            expandedRowRender: (row: EmailMetricRow) => (
+                <LemonTable
+                    columns={emailLinkColumns}
+                    dataSource={emailLinkTotalsByActionId[row.id] ?? []}
+                    rowKey={(link) => `${link.linkIndex}:${link.url}`}
+                    size="small"
+                    embedded
+                />
+            ),
+        }),
+        [emailLinkTotalsByActionId, emailLinkColumns]
+    )
 
     const pushColumns: LemonTableColumns<PushMetricRow> = useMemo(() => {
         return [
@@ -297,6 +337,7 @@ export function WorkflowMetricsSummary({
                         loading={emailTotalsByActionIdLoading}
                         rowKey="id"
                         size="small"
+                        expandable={emailExpandable}
                     />
                 </div>
             ) : null}

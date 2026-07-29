@@ -7,6 +7,7 @@ import {
     buildPushMetricRows,
     channelSentLabel,
     detectMessagingChannels,
+    parseEmailLinkTotals,
     subtractSeries,
     withDisplayName,
 } from './workflowMetricsSummaryLogic'
@@ -202,5 +203,42 @@ describe('buildPushMetricRows', () => {
             { id: 'p1', push: 'Reminder', sent: 50, skipped: 20, failed: 3 },
             { id: 'p2', push: 'Promo', sent: 0, skipped: 0, failed: 0 },
         ])
+    })
+})
+
+describe('parseEmailLinkTotals', () => {
+    const totals = (...instanceIds: [string, number][]): Record<string, { total: number; breakdowns: string[] }> =>
+        Object.fromEntries(instanceIds.map(([id, total]) => [id, { total, breakdowns: [id] }]))
+
+    it('groups links under their action, most clicked first', () => {
+        expect(
+            parseEmailLinkTotals(
+                totals(
+                    ['act-1|0|https://example.com/a', 3],
+                    ['act-1|1|https://example.com/b', 9],
+                    ['act-2|0|https://example.com/c', 1]
+                )
+            )
+        ).toEqual({
+            'act-1': [
+                { linkIndex: '1', url: 'https://example.com/b', clicks: 9 },
+                { linkIndex: '0', url: 'https://example.com/a', clicks: 3 },
+            ],
+            'act-2': [{ linkIndex: '0', url: 'https://example.com/c', clicks: 1 }],
+        })
+    })
+
+    it('keeps a url containing the field separator intact', () => {
+        expect(parseEmailLinkTotals(totals(['act-1|0|https://example.com/a|b', 2]))['act-1']).toEqual([
+            { linkIndex: '0', url: 'https://example.com/a|b', clicks: 2 },
+        ])
+    })
+
+    it.each([
+        ['an instance id with no link fields', 'act-1'],
+        ['an instance id missing the url field', 'act-1|0'],
+        ['an empty url', 'act-1|0|'],
+    ])('ignores %s', (_name, instanceId) => {
+        expect(parseEmailLinkTotals(totals([instanceId, 5]))).toEqual({})
     })
 })

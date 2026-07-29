@@ -1,6 +1,6 @@
 import { defaultConfig } from '~/common/config/config'
 
-import { SesWebhookHandler, resolveClickDestination } from './ses'
+import { SesWebhookHandler, normalizeClickUrl, resolveClickDestination } from './ses'
 import { EmailTrackingCodeSigner } from './tracking-code'
 
 // Hardcoded (not imported) so a change to the header constant fails this test.
@@ -125,6 +125,62 @@ describe('SesWebhookHandler', () => {
             $email_to: 'to@example.com',
             $link_url: 'https://example.com/pricing?a=1',
             $link_index: '2',
+        })
+    })
+
+    it('emits a per-link companion metric keyed by action, link index and normalized url', async () => {
+        const body = [
+            {
+                eventType: 'Click',
+                mail: baseMail,
+                click: {
+                    link: 'https://example.com/pricing/?utm_content=hero&uid=abc',
+                    linkTags: { phl: ['3'] },
+                    timestamp: '2025-10-03T12:02:00Z',
+                },
+            },
+        ]
+        const result = await handler.handleWebhook({ body, headers: {} })
+        // The rollup keeps its own name so existing totals and trends can't double-count the
+        // per-link row, and the query string is dropped so per-recipient values don't fragment it.
+        expect(result.metrics?.map((m) => [m.metricName, m.instanceIdOverride])).toEqual([
+            ['email_link_clicked', undefined],
+            ['email_link_clicked_by_link', 'act789|3|https://example.com/pricing'],
+        ])
+    })
+
+    it('skips the per-link metric when the send has no action id', async () => {
+        const noActionInvocation = { functionId: 'abc123', id: 'inv456', teamId: 1 } as const
+        const body = [
+            {
+                eventType: 'Click',
+                mail: {
+                    ...baseMail,
+                    headers: [{ name: TRACKING_CODE_HEADER, value: signer.generate(noActionInvocation) }],
+                    tags: undefined,
+                },
+                click: { link: 'https://example.com/a', timestamp: '2025-10-03T12:02:00Z' },
+            },
+        ]
+        const result = await handler.handleWebhook({ body, headers: {} })
+        // Without an action id the key would fall back to the invocation id, producing one row per
+        // send per link instead of an aggregate.
+        expect(result.metrics?.map((m) => m.metricName)).toEqual(['email_link_clicked'])
+    })
+
+    describe('normalizeClickUrl', () => {
+        it.each([
+            ['drops the query string', 'https://example.com/a?b=1', 'https://example.com/a'],
+            ['drops the fragment', 'https://example.com/a#top', 'https://example.com/a'],
+            ['drops a trailing slash', 'https://example.com/a/', 'https://example.com/a'],
+            ['keeps the path', 'https://example.com/a/b/c', 'https://example.com/a/b/c'],
+            ['passes through an unparseable link', 'mailto:x', 'mailto:x'],
+        ])('%s', (_name, link, expected) => {
+            expect(normalizeClickUrl(link)).toBe(expected)
+        })
+
+        it('caps the length so a long url cannot bloat the metrics sort key', () => {
+            expect(normalizeClickUrl(`https://example.com/${'x'.repeat(500)}`)).toHaveLength(200)
         })
     })
 
