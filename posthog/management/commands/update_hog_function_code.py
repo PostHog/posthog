@@ -1,5 +1,5 @@
 import time
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 from django.core.management.base import BaseCommand
 from django.core.paginator import Paginator
@@ -21,6 +21,7 @@ class _Replacement(TypedDict):
 class _ReplaceOption(TypedDict):
     template_id: str
     replacements: list[_Replacement]
+    type: NotRequired[str]
 
 
 class Command(BaseCommand):
@@ -107,6 +108,25 @@ class Command(BaseCommand):
                     },
                 ],
             },
+            # The curated-list bypass for non-browser $lib was applied to the user agent check as
+            # well as the IP check, so a server-side event that forwards the end user's UA never
+            # gets filtered. Only the IP half of that bypass is warranted; move existing
+            # transformations onto the split gate. Matches only functions created with the bypass,
+            # which are exactly the affected ones.
+            "bot-detection-forwarded-user-agent": {
+                "template_id": "template-bot-detection",
+                "type": "transformation",
+                "replacements": [
+                    {
+                        "from_string": "// PostHog's curated bot UA and IP lists are tuned for browser traffic. Server-side\n// SDKs (posthog-python, posthog-node, ...) send HTTP-client UAs like 'python-httpx'\n// and backend IPs that match those lists but are not bots. Treat anything other than\n// the browser SDKs ($lib in {web, js}) as non-browser and skip the curated checks.\n// Customer-configured customBotPatterns and customIpPrefixes still apply regardless.",
+                        "to_string": "// PostHog's curated bot lists are tuned for browser traffic, so the two halves of this\n// function trust them differently for a server-side SDK (posthog-python, posthog-node, ...).\n// $ip is always stamped from the connecting host, so there it is the customer's backend\n// egressing from a datacenter range that the curated list reads as a bot: only the browser\n// SDKs ($lib in {web, js}) and events with no $lib get the curated IP check. The user agent\n// property is the opposite. Ingestion never stamps it and no server SDK sends its own\n// HTTP-client UA there, so a server-side event that carries one has the end user's UA\n// forwarded deliberately, and it gets the curated UA check whatever $lib says.\n// Customer-configured customBotPatterns and customIpPrefixes still apply regardless.",
+                    },
+                    {
+                        "from_string": "if (is_browser_traffic and inputs.filterKnownBotUserAgents and isKnownBotUserAgent(user_agent)) {",
+                        "to_string": "if (inputs.filterKnownBotUserAgents and isKnownBotUserAgent(user_agent)) {",
+                    },
+                ],
+            },
         }
 
         if not replace_key or replace_key not in replaceOptions:
@@ -116,7 +136,7 @@ class Command(BaseCommand):
         replaceOption = replaceOptions[replace_key]
 
         queryset = HogFunction.objects.filter(
-            type="destination", deleted=False, template_id=replaceOption["template_id"]
+            type=replaceOption.get("type", "destination"), deleted=False, template_id=replaceOption["template_id"]
         )
 
         updated_count = 0
@@ -127,39 +147,39 @@ class Command(BaseCommand):
         if dry_run:
             self.stdout.write(self.style.WARNING("DRY RUN - No changes will be made"))
 
-        self.stdout.write(f"Found {total_found} destinations to process")
+        self.stdout.write(f"Found {total_found} hog functions to process")
 
         for page_num in paginator.page_range:
             page = paginator.page(page_num)
 
             self.stdout.write(
-                f"Processing page {page_num}/{paginator.num_pages} ({len(page.object_list)} destinations)..."
+                f"Processing page {page_num}/{paginator.num_pages} ({len(page.object_list)} hog functions)..."
             )
 
-            for destination in page.object_list:
-                if not destination.hog:
+            for hog_function in page.object_list:
+                if not hog_function.hog:
                     continue
 
-                new_hog = destination.hog
+                new_hog = hog_function.hog
                 for replacement in replaceOption["replacements"]:
                     if replacement["from_string"] in new_hog:
                         new_hog = new_hog.replace(replacement["from_string"], replacement["to_string"])
 
-                if new_hog == destination.hog:
+                if new_hog == hog_function.hog:
                     continue
 
-                # A single destination with uncompilable (e.g. hand-edited) hog must not abort the whole run.
+                # A single function with uncompilable (e.g. hand-edited) hog must not abort the whole run.
                 try:
-                    new_bytecode = compile_hog(new_hog, destination.type)
+                    new_bytecode = compile_hog(new_hog, hog_function.type)
                 except Exception as e:
-                    failed.append((str(destination.id), destination.team_id, destination.enabled, str(e)))
+                    failed.append((str(hog_function.id), hog_function.team_id, hog_function.enabled, str(e)))
                     continue
 
                 updated_count += 1
                 if not dry_run:
-                    destination.hog = new_hog
-                    destination.bytecode = new_bytecode
-                    destination.save(update_fields=["hog", "bytecode"])
+                    hog_function.hog = new_hog
+                    hog_function.bytecode = new_bytecode
+                    hog_function.save(update_fields=["hog", "bytecode"])
 
         # Output summary
         duration = time.time() - start_time
@@ -170,6 +190,6 @@ class Command(BaseCommand):
         )
 
         if failed:
-            self.stdout.write(self.style.WARNING(f"{len(failed)} destination(s) failed to compile and were skipped:"))
+            self.stdout.write(self.style.WARNING(f"{len(failed)} hog function(s) failed to compile and were skipped:"))
             for fn_id, team_id, enabled, error in failed:
                 self.stdout.write(f"  id={fn_id} team={team_id} enabled={enabled} error={error}")

@@ -225,16 +225,32 @@ describe('bot-detection.template', () => {
     })
 
     it.each([
-        ['posthog-python', 'python-httpx'],
-        ['posthog-node', 'axios/1.4.0'],
-        ['posthog-webhook', 'okhttp/4.10.0'],
-        ['posthog-ios', 'CFNetwork/1410.0.3'],
-    ])('should skip PostHog-curated bot UA list when $lib=%s (non-browser SDK)', async (lib, ua) => {
+        ['posthog-python', 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'],
+        ['posthog-node', 'Mozilla/5.0 (compatible; AhrefsBot/7.0; +http://ahrefs.com/robot/)'],
+        ['posthog-webhook', 'GPTBot/1.0'],
+    ])('should filter a forwarded bot user agent when $lib=%s (non-browser SDK)', async (lib, ua) => {
         mockGlobals = tester.createGlobals({
             event: {
                 properties: {
                     $lib: lib,
                     $raw_user_agent: ua,
+                },
+            },
+        })
+
+        const response = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
+
+        expect(response.finished).toBeTruthy()
+        expect(response.error).toBeFalsy()
+        expect(response.execResult).toBeFalsy()
+    })
+
+    it('should not treat the posthog-android device user agent as a bot', async () => {
+        mockGlobals = tester.createGlobals({
+            event: {
+                properties: {
+                    $lib: 'posthog-android',
+                    $raw_user_agent: 'Dalvik/2.1.0 (Linux; U; Android 14; SM-S911B Build/UP1A.231005.007)',
                 },
             },
         })
@@ -252,7 +268,8 @@ describe('bot-detection.template', () => {
                 properties: {
                     $lib: 'posthog-python',
                     $ip: '5.39.1.225',
-                    $raw_user_agent: 'python-httpx',
+                    $raw_user_agent:
+                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                 },
             },
         })
@@ -293,7 +310,8 @@ describe('bot-detection.template', () => {
                 properties: {
                     $lib: 'posthog-python',
                     $ip: '1.2.3.4',
-                    $raw_user_agent: 'python-httpx',
+                    $raw_user_agent:
+                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                 },
             },
         })

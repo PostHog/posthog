@@ -12,10 +12,14 @@ export const template: HogFunctionTemplate = {
     category: ['Custom'],
     code_language: 'hog',
     code: `
-// PostHog's curated bot UA and IP lists are tuned for browser traffic. Server-side
-// SDKs (posthog-python, posthog-node, ...) send HTTP-client UAs like 'python-httpx'
-// and backend IPs that match those lists but are not bots. Treat anything other than
-// the browser SDKs ($lib in {web, js}) as non-browser and skip the curated checks.
+// PostHog's curated bot lists are tuned for browser traffic, so the two halves of this
+// function trust them differently for a server-side SDK (posthog-python, posthog-node, ...).
+// $ip is always stamped from the connecting host, so there it is the customer's backend
+// egressing from a datacenter range that the curated list reads as a bot: only the browser
+// SDKs ($lib in {web, js}) and events with no $lib get the curated IP check. The user agent
+// property is the opposite. Ingestion never stamps it and no server SDK sends its own
+// HTTP-client UA there, so a server-side event that carries one has the end user's UA
+// forwarded deliberately, and it gets the curated UA check whatever $lib says.
 // Customer-configured customBotPatterns and customIpPrefixes still apply regardless.
 let lib := event.properties['$lib']
 let is_browser_traffic := empty(lib) or lib == 'web' or lib == 'js'
@@ -28,7 +32,7 @@ if (empty(user_agent) and inputs.keepUndefinedUseragent == 'No') {
     return null
 }
 
-if (is_browser_traffic and inputs.filterKnownBotUserAgents and isKnownBotUserAgent(user_agent)) {
+if (inputs.filterKnownBotUserAgents and isKnownBotUserAgent(user_agent)) {
     return null
 }
 

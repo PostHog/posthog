@@ -37,6 +37,36 @@ ONE_BRANCH_STALE = (
     "    throw Error('Invalid URL. The URL should match the format: https://<region>.logic.azure.com:443/workflows/<workflowId>/triggers/manual/paths/invoke?...')\n}"
 ) + _SEND_BODY
 
+# The bot-detection code that shipped between the `$lib` bypass landing and the split gate: the
+# curated user agent check is gated on `is_browser_traffic` alongside the curated IP check, so a
+# server-side event forwarding the end user's UA is never filtered.
+BOT_DETECTION_UA_BYPASS_STALE = """
+// PostHog's curated bot UA and IP lists are tuned for browser traffic. Server-side
+// SDKs (posthog-python, posthog-node, ...) send HTTP-client UAs like 'python-httpx'
+// and backend IPs that match those lists but are not bots. Treat anything other than
+// the browser SDKs ($lib in {web, js}) as non-browser and skip the curated checks.
+// Customer-configured customBotPatterns and customIpPrefixes still apply regardless.
+let lib := event.properties['$lib']
+let is_browser_traffic := empty(lib) or lib == 'web' or lib == 'js'
+
+let user_agent := event.properties[inputs.userAgent]
+
+if (is_browser_traffic and inputs.filterKnownBotUserAgents and isKnownBotUserAgent(user_agent)) {
+    return null
+}
+
+let ip := event.properties['$ip']
+if (empty(ip)) {
+    return event
+}
+
+if (is_browser_traffic and inputs.filterKnownBotIps and isKnownBotIp(ip)) {
+    return null
+}
+
+return event
+"""
+
 # Same block but commented out - validation is disabled, so it already accepts any URL and must be left alone.
 COMMENTED_OUT_STALE = (
     "// if (not match(inputs.webhookUrl, '^https://[^/]+.logic.azure.com:443/workflows/[^/]+/triggers/manual/paths/invoke?.*')) {\n"
@@ -134,7 +164,7 @@ class TestUpdateHogFunctionCode(BaseTest):
 
         output = out.getvalue()
         self.assertIn("DRY RUN - No changes will be made", output)
-        self.assertIn("Found 2 destinations to process", output)
+        self.assertIn("Found 2 hog functions to process", output)
         self.assertIn("Updated: 1", output)
         self.assertIn("Update completed", output)
 
@@ -159,7 +189,7 @@ class TestUpdateHogFunctionCode(BaseTest):
         assert "'LinkedIn-Version': '202508'" in self.linkedin_function2.hog
 
         output = out.getvalue()
-        self.assertIn("Found 2 destinations to process", output)
+        self.assertIn("Found 2 hog functions to process", output)
         self.assertIn("Updated: 1", output)
         self.assertIn("Update completed", output)
 
@@ -184,7 +214,7 @@ class TestUpdateHogFunctionCode(BaseTest):
         assert "graph.facebook.com/v25.0/" in self.meta_ads_function2.hog
 
         output = out.getvalue()
-        self.assertIn("Found 2 destinations to process", output)
+        self.assertIn("Found 2 hog functions to process", output)
         self.assertIn("Updated: 1", output)
         self.assertIn("Update completed", output)
 
@@ -233,7 +263,7 @@ class TestUpdateHogFunctionCode(BaseTest):
         assert g_v24.hog == base.replace("{version}", "v24")  # unchanged
 
         output = out.getvalue()
-        self.assertIn("Found 3 destinations to process", output)
+        self.assertIn("Found 3 hog functions to process", output)
         self.assertIn("Updated: 2", output)
 
     @patch("posthog.management.commands.update_hog_function_code.compile_hog")
@@ -269,7 +299,7 @@ class TestUpdateHogFunctionCode(BaseTest):
         assert "graph.facebook.com/v21.0/" in bad_function.hog
 
         output = out.getvalue()
-        self.assertIn("Found 3 destinations to process", output)
+        self.assertIn("Found 3 hog functions to process", output)
         self.assertIn("Updated: 1", output)
         self.assertIn("Failed: 1", output)
         self.assertIn(str(bad_function.id), output)
@@ -307,7 +337,7 @@ class TestUpdateHogFunctionCode(BaseTest):
         assert mock_compile_hog.call_count == 0
 
         output = out.getvalue()
-        self.assertIn("Found 0 destinations to process", output)
+        self.assertIn("Found 0 hog functions to process", output)
         self.assertIn("Updated: 0", output)
 
     def _create_teams_function(self, hog: str) -> HogFunction:
@@ -371,6 +401,29 @@ class TestUpdateHogFunctionCode(BaseTest):
         assert "automations/direct/workflows/...)'" not in function.hog
         self.assertIn("Updated: 1", out.getvalue())
         compile_hog_for_check(function.hog, "destination")
+
+    def test_bot_detection_forwarded_user_agent_migration(self):
+        with patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
+            function = HogFunction.objects.create(
+                team=self.team,
+                name="Filter Bot Events",
+                type="transformation",
+                template_id="template-bot-detection",
+                hog=BOT_DETECTION_UA_BYPASS_STALE,
+                enabled=True,
+            )
+
+        out = StringIO()
+        call_command("update_hog_function_code", replace_key="bot-detection-forwarded-user-agent", stdout=out)
+
+        function.refresh_from_db()
+        # The curated UA list now runs on forwarded user agents whatever $lib says...
+        assert "if (inputs.filterKnownBotUserAgents and isKnownBotUserAgent(user_agent)) {" in function.hog
+        # ...while the curated IP list stays browser-only, since $ip is the customer's backend there.
+        assert "if (is_browser_traffic and inputs.filterKnownBotIps and isKnownBotIp(ip)) {" in function.hog
+        assert "skip the curated checks" not in function.hog
+        # Updated implies the migrated source compiled - the command skips anything that doesn't.
+        self.assertIn("Updated: 1", out.getvalue())
 
     def test_microsoft_teams_migration_leaves_functions_without_the_stale_block_untouched(self):
         function = self._create_teams_function(COMMENTED_OUT_STALE)
