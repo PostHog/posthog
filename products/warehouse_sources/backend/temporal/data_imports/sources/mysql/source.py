@@ -275,12 +275,16 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # its own temp directory (e.g. `/rdsdbdata/tmp/...`) — almost always a large filesort
             # spilling the `ORDER BY <incremental_field>` sort to disk. The server's temp filesystem
             # being full is static customer-side state, so every retry filesorts the same rows and
-            # fails identically. Match the stable `<errno> - <strerror>` fragment: it appears in both
-            # the MariaDB `(OS errno 28 - No space left on device)` and classic MySQL `(errno: 28 -
-            # No space left on device)` renderings, and deliberately excludes a Python `OSError`
-            # (`[Errno 28] No space left on device`) — a full *worker* disk is our own transient
-            # infra problem that must stay retryable, not the customer's server running out of space.
-            "28 - No space left on device": "Your MySQL/MariaDB server ran out of disk space while writing a temporary file for this sync ('No space left on device'). Syncing a large table can spill a big sort to the server's temporary directory. Free up disk space on your database server, add an index on this table's incremental field so the sync avoids the large sort, or switch the table to a full re-sync, then resync.",
+            # fails identically. Match only the errno marker MySQL/MariaDB itself renders in English
+            # (`OS errno 28 -` / `Errcode: 28`), not the trailing OS `strerror(28)` text, which is
+            # locale-dependent and translated on non-English servers (e.g. French renders "No space
+            # left on device" as "Aucun espace disponible sur le périphérique") — matching that text
+            # would leave the sync retrying forever on exactly the servers this entry targets. Also
+            # deliberately excludes a Python `OSError` (`[Errno 28] No space left on device`) — a
+            # full *worker* disk is our own transient infra problem that must stay retryable, not the
+            # customer's server running out of space.
+            "OS errno 28 -": "Your MySQL/MariaDB server ran out of disk space while writing a temporary file for this sync ('No space left on device'). Syncing a large table can spill a big sort to the server's temporary directory. Free up disk space on your database server, add an index on this table's incremental field so the sync avoids the large sort, or switch the table to a full re-sync, then resync.",
+            "Errcode: 28": "Your MySQL/MariaDB server ran out of disk space while writing a temporary file for this sync ('No space left on device'). Syncing a large table can spill a big sort to the server's temporary directory. Free up disk space on your database server, add an index on this table's incremental field so the sync avoids the large sort, or switch the table to a full re-sync, then resync.",
             # pymysql encodes the handshake fields (host, user, password, database) as latin-1;
             # a value carrying a non-latin-1 character — most often an invisible zero-width space
             # (U+200B) pasted in from another app — raises UnicodeEncodeError before any packet is

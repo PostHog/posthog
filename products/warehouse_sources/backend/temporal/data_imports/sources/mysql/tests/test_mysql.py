@@ -1939,10 +1939,14 @@ class TestMySQLSourceNonRetryableErrors:
                     3, "Error writing file '/rdsdbdata/tmp/MYfd=260' (OS errno 28 - No space left on device)"
                 )
             ),
-            # Classic MySQL rendering uses `errno:` with a colon.
-            "(3, \"Error writing file '/tmp/MYXXXXXX' (errno: 28 - No space left on device)\")",
-            # Temporal-wrapped form.
+            # Temporal-wrapped form of the above.
             "InternalError: (3, \"Error writing file '/rdsdbdata/tmp/MYfd=99' (OS errno 28 - No space left on device)\")",
+            # Classic MySQL storage-engine rendering (`Errcode:`, strerror quoted).
+            '(3, "Error writing file \'/tmp/MYXXXXXX\' (Errcode: 28 \\"No space left on device\\")")',
+            # A non-English OS locale translates the trailing strerror(28) text (French shown here),
+            # but the `OS errno 28 -` marker MySQL/MariaDB itself emits is not translated — this must
+            # still match, or the sync retries forever on exactly the servers this entry targets.
+            "(3, \"Error writing file '/rdsdbdata/tmp/MYfd=42' (OS errno 28 - Aucun espace disponible sur le périphérique)\")",
         ],
     )
     def test_out_of_disk_space_is_non_retryable(self, source, error_msg):
