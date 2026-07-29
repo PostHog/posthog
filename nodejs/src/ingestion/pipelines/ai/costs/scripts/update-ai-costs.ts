@@ -61,15 +61,15 @@ const parsePricingNumber = (value: unknown): number | undefined => {
  * promotion is divided back out. Returns 0 for absent, zero, or out-of-range.
  */
 export const parseDiscountRate = (pricing: Record<string, unknown>, context?: string, warn = true): number => {
-    const parsed = parsePricingNumber(pricing.discount)
-    if (parsed === undefined) {
+    if (pricing.discount === undefined || pricing.discount === null) {
         return 0
     }
 
-    // A rate at or above 1 would divide by zero or flip the sign. Negatives read
-    // the raw value because parsePricingNumber clamps them to 0, which would
-    // otherwise be indistinguishable from "no promotion".
-    if (parsed >= 1 || Number(pricing.discount) < 0) {
+    // Present but unusable, at or above 1 (divide by zero or sign flip), or
+    // negative. Negatives read the raw value because parsePricingNumber clamps
+    // them to 0, which is otherwise indistinguishable from "no promotion".
+    const parsed = parsePricingNumber(pricing.discount)
+    if (parsed === undefined || parsed >= 1 || Number(pricing.discount) < 0) {
         if (warn) {
             console.warn(`Ignoring out-of-range discount ${String(pricing.discount)} for ${context ?? 'unknown model'}`)
         }
@@ -366,6 +366,33 @@ export const accumulateModelRow = (built: BuiltModelRow, modelId: string, totals
     uncheckedModels: totals.uncheckedModels + (built.checked ? 0 : 1),
 })
 
+/**
+ * Folds one model's fetched endpoints into the run totals, skipping a model
+ * whose list pricing will not parse.
+ */
+export const foldModelIntoTotals = (
+    modelId: string,
+    modelPricing: Record<string, unknown> | undefined,
+    endpoints: unknown[],
+    totals: RunTotals
+): RunTotals => {
+    const built = buildModelRow(modelId, modelPricing, endpoints)
+    if (!built) {
+        console.warn('Skipping model without valid pricing:', modelId)
+        return totals
+    }
+    return accumulateModelRow(built, modelId, totals)
+}
+
+/**
+ * Orders the price book by model id so a run's output does not inherit
+ * OpenRouter's response order, which would rewrite the whole file on every run.
+ */
+export const finalizeTotals = (totals: RunTotals): RunTotals => ({
+    ...totals,
+    models: [...totals.models].sort((a, b) => a.model.localeCompare(b.model)),
+})
+
 /** Name of the env var carrying the summary path, shared with the workflow that sets it. */
 export const DISCOUNT_SUMMARY_ENV = 'DISCOUNT_SUMMARY_PATH'
 
@@ -393,6 +420,64 @@ export const writeOutputs = (sortedCosts: ModelRow[], discounts: DiscountReportE
     }
 }
 
+/** Reads one model's endpoints payload. Split out so the loop is testable. */
+export type EndpointFetcher = (modelId: string) => Promise<unknown[]>
+
+interface ListedModel {
+    id?: string
+    pricing?: Record<string, unknown>
+}
+
+/**
+ * Walks the catalogue into a finished, ordered set of totals. Takes the endpoint
+ * reader as an argument so every branch here is reachable without a network.
+ */
+export const collectModelRows = async (models: ListedModel[], readEndpoints: EndpointFetcher): Promise<RunTotals> => {
+    let totals: RunTotals = { models: [], discounts: [], uncheckedModels: 0 }
+
+    for (const [modelIndex, model] of models.entries()) {
+        if (!model?.id) {
+            console.warn('Skipping model without id:', model)
+            continue
+        }
+
+        console.log(`Fetching endpoint pricing for ${modelIndex + 1}/${models.length} ${model.id}...`)
+        totals = foldModelIntoTotals(model.id, model.pricing, await readEndpoints(model.id), totals)
+    }
+
+    if (totals.uncheckedModels > 0) {
+        // Alias and meta-router models carry no per-endpoint pricing, so a
+        // handful here is the steady state; aggregated to keep it readable.
+        console.log(
+            `${totals.uncheckedModels} model(s) had no usable endpoint pricing and were not checked for promotions`
+        )
+    }
+
+    return finalizeTotals(totals)
+}
+
+/** Endpoint reader against the live API. Every failure degrades to no endpoints. */
+const readEndpointsFromOpenRouter: EndpointFetcher = async (modelId) => {
+    const encoded = modelId
+        .split('/')
+        .map((segment: string) => encodeURIComponent(segment))
+        .join('/')
+
+    try {
+        // eslint-disable-next-line no-restricted-globals
+        const res = await fetch(`https://openrouter.ai/api/v1/models/${encoded}/endpoints`, {})
+        if (!res.ok) {
+            console.warn(`Failed to fetch endpoint pricing for ${modelId}: ${res.status} ${res.statusText}`)
+            return []
+        }
+        const payload = await res.json()
+        return payload?.data?.endpoints ?? []
+    } catch (error) {
+        console.warn('Error fetching endpoint pricing for model:', modelId, error)
+        return []
+    }
+}
+
 const fetchOpenRouterCosts = async (): Promise<RunTotals> => {
     // eslint-disable-next-line no-restricted-globals
     const res = await fetch('https://openrouter.ai/api/v1/models', {})
@@ -408,71 +493,7 @@ const fetchOpenRouterCosts = async (): Promise<RunTotals> => {
     }
 
     console.log('OpenRouter models:', data.data.length)
-    const models = data.data
-
-    let totals: RunTotals = { models: [], discounts: [], uncheckedModels: 0 }
-
-    for (const [modelIndex, model] of models.entries()) {
-        if (!model?.id) {
-            console.warn('Skipping model without id:', model)
-            continue
-        }
-
-        // Gate before the endpoints request so an unpriceable model costs no
-        // network call; buildModelRow re-derives the cost it validates here.
-        if (!buildDefaultCost(model.pricing, model.id)) {
-            console.warn('Skipping model without valid pricing:', model.id)
-            continue
-        }
-
-        let endpoints: unknown[] = []
-
-        const encodedModelId = model.id
-            .split('/')
-            .map((segment: string) => encodeURIComponent(segment))
-            .join('/')
-
-        try {
-            console.log(`Fetching endpoint pricing for ${modelIndex + 1}/${models.length} ${model.id}...`)
-            // eslint-disable-next-line no-restricted-globals
-            const endpointRes = await fetch(`https://openrouter.ai/api/v1/models/${encodedModelId}/endpoints`, {})
-            if (!endpointRes.ok) {
-                console.warn(
-                    `Failed to fetch endpoint pricing for ${model.id}: ${endpointRes.status} ${endpointRes.statusText}`
-                )
-            } else {
-                let endpointsPayload
-                try {
-                    endpointsPayload = await endpointRes.json()
-                } catch (parseError) {
-                    console.warn('Failed to parse endpoint pricing payload for model:', model.id, parseError)
-                }
-
-                endpoints = endpointsPayload?.data?.endpoints ?? []
-            }
-        } catch (error) {
-            console.warn('Error fetching endpoint pricing for model:', model.id, error)
-        }
-
-        const built = buildModelRow(model.id, model.pricing, endpoints)
-        if (!built) {
-            console.warn('Skipping model without valid pricing:', model.id)
-            continue
-        }
-        totals = accumulateModelRow(built, model.id, totals)
-    }
-
-    const sortedModels = [...totals.models].sort((a, b) => a.model.localeCompare(b.model))
-
-    if (totals.uncheckedModels > 0) {
-        // Alias and meta-router models carry no per-endpoint pricing, so a
-        // handful here is the steady state; aggregated to keep it readable.
-        console.log(
-            `${totals.uncheckedModels} model(s) had no usable endpoint pricing and were not checked for promotions`
-        )
-    }
-
-    return { ...totals, models: sortedModels }
+    return collectModelRows(data.data, readEndpointsFromOpenRouter)
 }
 
 const sortProviderCosts = (models: ModelRow[]): ModelRow[] => {

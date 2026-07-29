@@ -1,6 +1,8 @@
 import fs from 'fs'
 import path from 'path'
 
+import { parseJSON } from '~/common/utils/json-parse'
+
 import {
     type BuiltModelRow,
     DISCOUNT_REPORT_ROW_LIMIT,
@@ -12,7 +14,10 @@ import {
     buildDefaultCost,
     buildModelCost,
     buildModelRow,
+    collectModelRows,
     confirmDiscountAgainstSiblings,
+    finalizeTotals,
+    foldModelIntoTotals,
     parseDiscountRate,
     renderDiscountReport,
     sanitizeReportCell,
@@ -60,6 +65,17 @@ describe('parseDiscountRate()', () => {
     it('warns on a negative rate, which would otherwise look like no promotion', () => {
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
         expect(parseDiscountRate({ discount: -0.5 }, 'x/y')).toBe(0)
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('x/y'))
+    })
+
+    it.each<{ description: string; discount: unknown }>([
+        { description: 'an object', discount: {} },
+        { description: 'an array', discount: ['0.5'] },
+        { description: 'a boolean', discount: true },
+    ])('warns on a present but unusable rate: $description', ({ discount }) => {
+        // Silently reading these as "no promotion" stores the promo price as list.
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+        expect(parseDiscountRate({ discount }, 'x/y')).toBe(0)
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('x/y'))
     })
 
@@ -328,6 +344,22 @@ describe('confirmDiscountAgainstSiblings()', () => {
         ).toBe('unconfirmed')
     })
 
+    it('compares on the prompt price, not the completion price', () => {
+        // Every other fixture sets completion equal to prompt, which cannot tell
+        // the two fields apart.
+        const discounted: EndpointCandidate = {
+            key: 'openai',
+            cost: buildModelCost({ prompt: '0.0000005', completion: '0.000009', discount: 0.5 })!,
+            discount: 0.5,
+        }
+        const sibling: EndpointCandidate = {
+            key: 'azure',
+            cost: buildModelCost({ prompt: '0.000001', completion: '0.000002' })!,
+            discount: 0,
+        }
+        expect(confirmDiscountAgainstSiblings([discounted, sibling])).toBe('confirmed')
+    })
+
     it('confirms on any one matching route when several are discounted', () => {
         expect(
             confirmDiscountAgainstSiblings([
@@ -523,13 +555,111 @@ describe('accumulateModelRow()', () => {
 
     it('leaves the totals it was handed untouched', () => {
         const base = totals()
-        accumulateModelRow(built({ checked: false }), 'a', base)
+        const discount = {
+            model: 'a',
+            endpoints: [{ key: 'openai', discount: 0.5 }],
+            confirmation: 'confirmed' as const,
+        }
+        accumulateModelRow(built({ checked: false, discount }), 'a', base)
         expect(base.models).toHaveLength(0)
+        expect(base.discounts).toHaveLength(0)
         expect(base.uncheckedModels).toBe(0)
     })
 
     it('does not count a row that was checked', () => {
         expect(accumulateModelRow(built({ checked: true }), 'm', totals()).uncheckedModels).toBe(0)
+    })
+})
+
+describe('foldModelIntoTotals()', () => {
+    const listPricing = { prompt: '0.0000005', completion: '0.0000005' }
+    const start = (): RunTotals => ({ models: [], discounts: [], uncheckedModels: 0 })
+
+    it('folds a priced model into the totals', () => {
+        const out = foldModelIntoTotals('a/b', listPricing, [], start())
+        expect(out.models).toHaveLength(1)
+        expect(out.uncheckedModels).toBe(1)
+    })
+
+    it('skips a model whose list pricing will not parse', () => {
+        // Without the skip the price book gains a row whose default is null.
+        jest.spyOn(console, 'warn').mockImplementation(() => {})
+        const out = foldModelIntoTotals('a/b', { prompt: 'nonsense' }, [], start())
+        expect(out.models).toHaveLength(0)
+    })
+
+    it('warns naming the model it skipped', () => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+        foldModelIntoTotals('a/b', undefined, [], start())
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('Skipping'), 'a/b')
+    })
+})
+
+describe('finalizeTotals()', () => {
+    const row = (model: string) => ({ model, cost: { default: cost('0.000001')! } })
+
+    it('orders models by id so output does not follow response order', () => {
+        // Unsorted output rewrites the whole file every run and opens a PR on noise.
+        const out = finalizeTotals({ models: [row('z/z'), row('a/a')], discounts: [], uncheckedModels: 0 })
+        expect(out.models.map((m) => m.model)).toEqual(['a/a', 'z/z'])
+    })
+
+    it('carries the other totals through unchanged', () => {
+        const out = finalizeTotals({ models: [], discounts: [], uncheckedModels: 4 })
+        expect(out.uncheckedModels).toBe(4)
+    })
+})
+
+describe('collectModelRows()', () => {
+    const priced = (id: string) => ({ id, pricing: { prompt: '0.0000005', completion: '0.0000005' } })
+    const noEndpoints = (): Promise<unknown[]> => Promise.resolve([])
+
+    it('orders the price book by model id', () => {
+        // Unsorted output follows OpenRouter's response order, which rewrites the
+        // whole file every run and opens a PR on noise.
+        return collectModelRows([priced('z/z'), priced('a/a')], noEndpoints).then((totals) => {
+            expect(totals.models.map((m) => m.model)).toEqual(['a/a', 'z/z'])
+        })
+    })
+
+    it('skips an entry with no id and keeps going', async () => {
+        jest.spyOn(console, 'warn').mockImplementation(() => {})
+        const totals = await collectModelRows([{}, priced('a/a')], noEndpoints)
+        expect(totals.models.map((m) => m.model)).toEqual(['a/a'])
+    })
+
+    it('skips an entry with no id even when its pricing is valid', async () => {
+        // An id-less entry with parseable pricing is the only input that tells the
+        // id guard apart from the pricing guard below it.
+        jest.spyOn(console, 'warn').mockImplementation(() => {})
+        const totals = await collectModelRows(
+            [{ pricing: { prompt: '0.000001', completion: '0.000001' } }, priced('a/a')],
+            noEndpoints
+        )
+        expect(totals.models.map((m) => m.model)).toEqual(['a/a'])
+    })
+
+    it('counts models whose endpoints came back empty', async () => {
+        const totals = await collectModelRows([priced('a/a'), priced('b/b')], noEndpoints)
+        expect(totals.uncheckedModels).toBe(2)
+    })
+
+    it('collects discounts from the endpoints it is handed', async () => {
+        const totals = await collectModelRows([priced('a/a')], () =>
+            Promise.resolve([endpoint('openai', '0.0000005', 0.5), endpoint('azure', '0.000001')])
+        )
+        expect(totals.discounts).toHaveLength(1)
+        expect(totals.discounts[0].confirmation).toBe('confirmed')
+        expect(totals.models[0].cost.openai.prompt_token).toBe(0.000001)
+    })
+
+    it('reads endpoints once per model, by id', async () => {
+        const seen: string[] = []
+        await collectModelRows([priced('a/a'), priced('b/b')], (id) => {
+            seen.push(id)
+            return Promise.resolve([])
+        })
+        expect(seen).toEqual(['a/a', 'b/b'])
     })
 })
 
@@ -540,24 +670,62 @@ describe('writeOutputs()', () => {
         delete process.env[DISCOUNT_SUMMARY_ENV]
     })
 
+    /** Record both halves of every write, so content is pinned and not just the path. */
+    const captureWrites = (): Array<[string, string]> => {
+        const writes: Array<[string, string]> = []
+        jest.spyOn(fs, 'writeFileSync').mockImplementation(((file: string, body: string) => {
+            writes.push([String(file), String(body)])
+        }) as never)
+        return writes
+    }
+
     it('writes the price book before the summary', () => {
         // Ordering is the protection: the summary only decorates a PR body, so it
         // must never be the write that discards a completed run.
         process.env[DISCOUNT_SUMMARY_ENV] = summaryPath
-        const writes: string[] = []
-        jest.spyOn(fs, 'writeFileSync').mockImplementation(((file: string) => {
-            writes.push(String(file))
-        }) as never)
+        const writes = captureWrites()
 
         writeOutputs([{ model: 'm', cost: { default: cost('0.000001')! } }], [], 0)
 
-        const priceBook = writes.findIndex((f) => f.endsWith('llm-costs.json'))
-        const summary = writes.findIndex((f) => f === summaryPath)
+        const priceBook = writes.findIndex(([f]) => f.endsWith('llm-costs.json'))
+        const summary = writes.findIndex(([f]) => f === summaryPath)
         // Both must actually happen; a missing price-book write would otherwise
         // satisfy a bare index comparison at -1.
         expect(priceBook).toBeGreaterThanOrEqual(0)
         expect(summary).toBeGreaterThanOrEqual(0)
         expect(priceBook).toBeLessThan(summary)
+    })
+
+    it('writes the rows it was handed into the price book', () => {
+        process.env[DISCOUNT_SUMMARY_ENV] = summaryPath
+        const writes = captureWrites()
+        const rows = [{ model: 'm', cost: { default: cost('0.000001')! } }]
+
+        writeOutputs(rows, [], 0)
+
+        const [, body] = writes.find(([f]) => f.endsWith('llm-costs.json'))!
+        expect(parseJSON(body)).toEqual(rows)
+    })
+
+    it('carries the unchecked count into the summary it writes', () => {
+        // The count is produced five hops upstream; this is the hop that hands it
+        // to the report, and without it the body reads as a verified clean run.
+        process.env[DISCOUNT_SUMMARY_ENV] = summaryPath
+        const writes = captureWrites()
+
+        writeOutputs([{ model: 'm', cost: { default: cost('0.000001')! } }], [], 17)
+
+        const [, body] = writes.find(([f]) => f === summaryPath)!
+        expect(body).toContain('17 model(s) could not be checked')
+    })
+
+    it('generates the provider union alongside the price book', () => {
+        process.env[DISCOUNT_SUMMARY_ENV] = summaryPath
+        const writes = captureWrites()
+
+        writeOutputs([{ model: 'm', cost: { default: cost('0.000001')! } }], [], 0)
+
+        expect(writes.some(([f]) => f.endsWith('canonical-providers.ts'))).toBe(true)
     })
 
     it('does not throw when the summary write fails', () => {
@@ -573,14 +741,11 @@ describe('writeOutputs()', () => {
     })
 
     it('writes no summary when the env var is unset', () => {
-        const writes: string[] = []
-        jest.spyOn(fs, 'writeFileSync').mockImplementation(((file: string) => {
-            writes.push(String(file))
-        }) as never)
+        const writes = captureWrites()
 
         writeOutputs([{ model: 'm', cost: { default: cost('0.000001')! } }], [], 0)
 
-        expect(writes.some((f) => f === summaryPath)).toBe(false)
+        expect(writes.some(([f]) => f === summaryPath)).toBe(false)
     })
 })
 
@@ -595,7 +760,9 @@ describe('workflow contract', () => {
         expect(workflow).toContain(`${DISCOUNT_SUMMARY_ENV}=`) // the step that sets it
         // The exact guard and the exact read, so renaming either one fails here.
         expect(workflow).toContain(`[ -f "$${DISCOUNT_SUMMARY_ENV}" ]`)
-        expect(workflow).toContain(`cat "$${DISCOUNT_SUMMARY_ENV}"`)
+        expect(workflow).toContain(`cat "$${DISCOUNT_SUMMARY_ENV}" >> "$body_file"`)
+        // The sink: the assembled body must be what reaches GitHub on both paths.
+        expect(workflow.match(/--body-file "\$body_file"/g) ?? []).toHaveLength(2)
     })
 })
 
