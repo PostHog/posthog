@@ -25,9 +25,10 @@ pub(crate) type BoxError = Box<dyn StdError + Send + Sync>;
 
 /// Returns [`true`] if the IP appears to be a globally reachable IPv4.
 ///
-/// Mirrors the semantics of the still-unstable `Ipv4Addr::is_global`: every range that
-/// is not globally routable is rejected, so we never fetch from localhost or an internal
-/// host. Move to `Ipv4Addr::is_global` once it stabilizes.
+/// Covers every range the still-unstable `Ipv4Addr::is_global` rejects, and is deliberately
+/// *stricter*: we also reject multicast, which std considers globally reachable. So don't
+/// swap in `Ipv4Addr::is_global` when it stabilizes without re-adding that check - this
+/// gates outbound fetches, and loosening it widens our SSRF surface.
 ///
 /// IPv6 is rejected wholesale for now, as our infra does not route it.
 pub fn is_global_ip(ip: &IpAddr) -> bool {
@@ -163,33 +164,51 @@ mod tests {
 
     #[test]
     fn is_global_ip_allows_public_ipv4() {
-        assert!(is_global("8.8.8.8"));
-        assert!(is_global("1.1.1.1"));
-        assert!(is_global("93.184.216.34")); // example.com
+        for ip in [
+            "8.8.8.8",
+            "1.1.1.1",
+            "93.184.216.34", // example.com
+            // The addresses immediately outside each blocked range. These pin the masks down:
+            // a check that was one bit too wide would swallow these and go unnoticed.
+            "100.63.255.255", // just below shared 100.64.0.0/10
+            "100.128.0.0", // just above it
+            "192.0.0.9", // carved out of 192.0.0.0/24 as globally reachable
+            "192.0.0.10", // ditto
+            "192.0.1.1", // just above 192.0.0.0/24
+            "198.17.255.255", // just below benchmarking 198.18.0.0/15
+            "198.20.0.0", // just above it
+            "223.255.255.255", // just below multicast 224.0.0.0/4
+        ] {
+            assert!(is_global(ip), "expected {ip} to be treated as public");
+        }
     }
 
     #[test]
     fn is_global_ip_rejects_internal_ranges() {
-        // Loopback / localhost
-        assert!(!is_global("127.0.0.1"));
-        // Unspecified / "this network"
-        assert!(!is_global("0.0.0.0"));
-        // Private ranges
-        assert!(!is_global("10.0.0.1"));
-        assert!(!is_global("172.16.5.4"));
-        assert!(!is_global("192.168.1.1"));
-        // Shared / carrier-grade NAT (100.64.0.0/10)
-        assert!(!is_global("100.64.0.1"));
-        assert!(!is_global("100.127.255.255"));
-        // Link-local, including the cloud metadata endpoint
-        assert!(!is_global("169.254.0.1"));
-        assert!(!is_global("169.254.169.254"));
-        // Benchmarking (198.18.0.0/15)
-        assert!(!is_global("198.18.0.1"));
-        // Multicast, reserved and broadcast
-        assert!(!is_global("224.0.0.1"));
-        assert!(!is_global("240.0.0.1"));
-        assert!(!is_global("255.255.255.255"));
+        for ip in [
+            "127.0.0.1", // loopback / localhost
+            "0.0.0.0", // unspecified / "this network"
+            "10.0.0.1", // private
+            "172.16.5.4", // private
+            "192.168.1.1", // private
+            "100.64.0.1", // shared / carrier-grade NAT
+            "100.127.255.255",
+            "169.254.0.1", // link-local
+            "169.254.169.254", // the cloud metadata endpoint
+            "192.0.0.1", // IETF protocol assignments
+            "192.0.0.255",
+            "192.0.2.1", // documentation
+            "198.51.100.1", // documentation
+            "203.0.113.1", // documentation
+            "198.18.0.1", // benchmarking
+            "198.19.255.255",
+            "224.0.0.1", // multicast
+            "239.255.255.255", // top of multicast
+            "240.0.0.1", // reserved
+            "255.255.255.255", // broadcast
+        ] {
+            assert!(!is_global(ip), "expected {ip} to be rejected");
+        }
     }
 
     #[test]
