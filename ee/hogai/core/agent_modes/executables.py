@@ -155,7 +155,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         current_token_count = await self._window_manager.calculate_token_count(
             model, langchain_messages, tools=tools, thinking_config=self.THINKING_CONFIG
         )
-        if current_token_count > self._window_manager.get_window_size(self._get_model_name(state)):
+        if current_token_count > self._window_manager.CONVERSATION_WINDOW_SIZE:
             # Exclude the last message if it's the first turn.
             messages_to_summarize = langchain_messages[:-1] if self._is_first_turn(state) else langchain_messages
             summary = await AnthropicConversationSummarizer(
@@ -270,23 +270,12 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             "supermode": supermode_value,
         }
 
-    def _get_model_name(self, state: AssistantState) -> str:
-        """Model this executable will run on. Also decides the conversation window budget, so the
-        two can never disagree about which context limit applies."""
-        if self._has_legacy_summarize_sessions_messages(state.messages):
-            return "claude-sonnet-4-5"
-        return "claude-sonnet-4-6"
-
     def _get_model(self, state: AssistantState, tools: list["MaxTool"]):
-        model_name = self._get_model_name(state)
-
-        is_sonnet_4_5 = model_name == "claude-sonnet-4-5"
-
         gateway_kwargs = self._get_gateway_kwargs()
         is_routing_through_llm_gateway = bool(gateway_kwargs)
 
         base_model = MaxChatAnthropic(
-            model=model_name,
+            model="claude-sonnet-4-6",
             streaming=True,
             stream_usage=True,
             user=self._user,
@@ -295,11 +284,11 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
                 "interleaved-thinking-2025-05-14",
                 "fine-grained-tool-streaming-2025-05-14",
             ],
-            max_tokens=8192 if is_sonnet_4_5 else 16384,
-            thinking=self.THINKING_CONFIG if not is_sonnet_4_5 else {"type": "enabled", "budget_tokens": 1024},
+            max_tokens=16384,
+            thinking=self.THINKING_CONFIG,
             # langchain-anthropic 0.3.x doesn't have a first-class effort field;
             # forward it via model_kwargs so the Anthropic API receives output_config.
-            model_kwargs={"output_config": {"effort": "medium"}} if not is_sonnet_4_5 else {},
+            model_kwargs={"output_config": {"effort": "medium"}},
             conversation_start_dt=state.start_dt,
             billable=True,
             bypass_proxy=is_routing_through_llm_gateway,
@@ -388,28 +377,6 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
     def _process_output_message(self, message: LangchainAIMessage) -> list[AssistantMessage]:
         """Process the output message."""
         return normalize_ai_message(message)
-
-    @staticmethod
-    def _has_legacy_summarize_sessions_messages(messages: Sequence[AssistantMessageUnion]) -> bool:
-        """Detect pre-migration summarize_sessions AssistantMessages with meta.form.
-
-        Before the migration, summarize_sessions returned a ToolMessagesArtifact containing
-        an AssistantMessage with meta.form (the "Open report" button). This AssistantMessage
-        converts to a trailing AIMessage, causing a prefill error with Sonnet 4.6.
-        Sonnet 4.5 handles this gracefully, so we fall back to it for legacy conversations.
-        """
-        for message in messages:
-            if (
-                isinstance(message, AssistantMessage)
-                and message.meta
-                and message.meta.form
-                and any(
-                    option.href and option.href.startswith("/session-summaries/")
-                    for option in message.meta.form.options
-                )
-            ):
-                return True
-        return False
 
 
 class AgentToolsExecutable(BaseAgentLoopExecutable):
