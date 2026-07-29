@@ -51,6 +51,7 @@ export interface notebookNodeStalenessLogicValues {
     lastRunNodeId: string | null
     lastRunStaleDownstreamNodeIds: string[]
     mountedNodeIds: Record<string, true>
+    nodeRunStatuses: Record<string, NotebookNodeRunTerminalStatus>
     staleCount: number
     staleNodeIds: Record<string, true>
 }
@@ -219,6 +220,14 @@ export const notebookNodeStalenessLogic = kea<notebookNodeStalenessLogicType>([
             [] as string[],
             {
                 setLastRun: (_, { downstreamNodeIds }) => downstreamNodeIds,
+            },
+        ],
+        // How each cell's last run ended, so the cell's gutter can show the outcome. Session-local
+        // like the stale flags: a reload falls back to whether the cell has a persisted result.
+        nodeRunStatuses: [
+            {} as Record<string, NotebookNodeRunTerminalStatus>,
+            {
+                nodeRunFinished: (state, { nodeId, status }) => ({ ...state, [nodeId]: status }),
             },
         ],
         mountedNodeIds: [
