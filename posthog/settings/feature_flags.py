@@ -3,6 +3,7 @@ import json
 from contextlib import suppress
 
 from posthog.settings.access import SECRET_KEY
+from posthog.settings.base_variables import TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 # Used mostly by the hobby install to have some feature flags enabled by default
@@ -105,13 +106,17 @@ MAX_FEATURE_FLAG_FILTER_SIZE_BYTES: int = get_from_env(
     type_cast=int,  # 512KB
 )
 
-# Kill switch for feature flag filters validation (#50084). When off, structural and
-# cross-field filters validation on the flag API log violations instead of rejecting them;
-# contextual checks (cohort existence, circular dependencies, size limits) still reject.
-# Break-glass for a bad rollout, not a rollback to pre-enforcement behavior: the procedural
-# checks that predated enforcement were replaced by the gated tiers, so turning this off
-# leaves LESS validation than before enforcement shipped.
-FEATURE_FLAG_FILTERS_ENFORCEMENT: bool = get_from_env("FEATURE_FLAG_FILTERS_ENFORCEMENT", True, type_cast=str_to_bool)
+# Staged rollout switch for feature flag filters validation (#50084). When off (the
+# production default for now), structural and cross-field filters validation on the flag
+# API log violations (`feature_flag_filters_enforcement_bypassed`) instead of rejecting
+# them; contextual checks (cohort existence, circular dependencies, size limits) still
+# reject. Rollout: ship with the default off, compare the bypass-log volume against the
+# audit's per-rule predictions for a few days of live traffic (the audit measured stored
+# data, never request-shaped input), then enable via env var and eventually remove the
+# switch. Note log-only mode is LESS validation than before enforcement shipped — the
+# procedural checks it replaced are gone — so don't linger in it. Defaults on under TEST
+# so the suite validates the enforced behavior.
+FEATURE_FLAG_FILTERS_ENFORCEMENT: bool = get_from_env("FEATURE_FLAG_FILTERS_ENFORCEMENT", TEST, type_cast=str_to_bool)
 
 # Team ID for the local-evaluation canary. Unset disables the canary task.
 FEATURE_FLAGS_CANARY_TEAM_ID: int | None = get_from_env("FEATURE_FLAGS_CANARY_TEAM_ID", optional=True, type_cast=int)

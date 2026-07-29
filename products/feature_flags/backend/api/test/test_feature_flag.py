@@ -8507,6 +8507,34 @@ class TestFeatureFlagFiltersEnforcement(APIBaseTest):
         self.assertEqual(flag.filters["payloads"], {"true": '"hello"'})
         self.assertEqual(flag.filters["groups"][0]["rollout_percentage"], 50)
 
+    def test_patch_groups_absent_preserves_but_empty_list_clears_targeting(self):
+        # Pins the locked #50084 merge asymmetry, which hangs on FeatureFlagFiltersField
+        # redeclaring `groups` without the base serializer's default=list: absent `groups`
+        # must merge as "keep stored targeting", while an explicit [] is clear-targeting.
+        # A refactor restoring the default would silently wipe targeting on partial PATCHes.
+        flag = self._create_flag_via_orm(
+            "clear-targeting-flag", {"groups": [{"properties": [], "rollout_percentage": 50}]}
+        )
+
+        absent = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": {"payloads": {"true": '"kept"'}}},
+            format="json",
+        )
+        self.assertEqual(absent.status_code, status.HTTP_200_OK)
+        flag.refresh_from_db()
+        self.assertEqual(flag.filters["groups"][0]["rollout_percentage"], 50)
+
+        cleared = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": {"groups": []}},
+            format="json",
+        )
+        self.assertEqual(cleared.status_code, status.HTTP_200_OK)
+        flag.refresh_from_db()
+        self.assertEqual(flag.filters["groups"], [])
+        self.assertEqual(flag.filters["payloads"], {"true": '"kept"'})
+
     def test_stored_violating_flag_blocks_filters_edits_only(self):
         stored = {
             "groups": [

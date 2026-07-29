@@ -287,12 +287,6 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                                 .boolean()
                                                 .nullish()
                                                 .describe('Whether the property condition is negated.'),
-                                            label: zod
-                                                .string()
-                                                .nullish()
-                                                .describe(
-                                                    'Display-only label for this property filter, shown in the UI.'
-                                                ),
                                             cohort_name: zod
                                                 .string()
                                                 .nullish()
@@ -304,6 +298,12 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                                 .optional()
                                                 .describe(
                                                     'Display names for group keys, keyed by group key. Injected on read and echoed back by clients.'
+                                                ),
+                                            label: zod
+                                                .string()
+                                                .nullish()
+                                                .describe(
+                                                    'Display-only label for this property filter, shown in the UI.'
                                                 ),
                                         })
                                         .describe('A property condition inside a release condition group.')
@@ -628,12 +628,6 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
                                                     .boolean()
                                                     .nullish()
                                                     .describe('Whether the property condition is negated.'),
-                                                label: zod
-                                                    .string()
-                                                    .nullish()
-                                                    .describe(
-                                                        'Display-only label for this property filter, shown in the UI.'
-                                                    ),
                                                 cohort_name: zod
                                                     .string()
                                                     .nullish()
@@ -645,6 +639,12 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
                                                     .optional()
                                                     .describe(
                                                         'Display names for group keys, keyed by group key. Injected on read and echoed back by clients.'
+                                                    ),
+                                                label: zod
+                                                    .string()
+                                                    .nullish()
+                                                    .describe(
+                                                        'Display-only label for this property filter, shown in the UI.'
                                                     ),
                                             })
                                             .describe('A property condition inside a release condition group.')
@@ -992,12 +992,6 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 .boolean()
                                                 .nullish()
                                                 .describe('Whether the property condition is negated.'),
-                                            label: zod
-                                                .string()
-                                                .nullish()
-                                                .describe(
-                                                    'Display-only label for this property filter, shown in the UI.'
-                                                ),
                                             cohort_name: zod
                                                 .string()
                                                 .nullish()
@@ -1009,6 +1003,12 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 .optional()
                                                 .describe(
                                                     'Display names for group keys, keyed by group key. Injected on read and echoed back by clients.'
+                                                ),
+                                            label: zod
+                                                .string()
+                                                .nullish()
+                                                .describe(
+                                                    'Display-only label for this property filter, shown in the UI.'
                                                 ),
                                         })
                                         .describe('A property condition inside a release condition group.')
@@ -1339,12 +1339,6 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
                                                     .boolean()
                                                     .nullish()
                                                     .describe('Whether the property condition is negated.'),
-                                                label: zod
-                                                    .string()
-                                                    .nullish()
-                                                    .describe(
-                                                        'Display-only label for this property filter, shown in the UI.'
-                                                    ),
                                                 cohort_name: zod
                                                     .string()
                                                     .nullish()
@@ -1356,6 +1350,12 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
                                                     .optional()
                                                     .describe(
                                                         'Display names for group keys, keyed by group key. Injected on read and echoed back by clients.'
+                                                    ),
+                                                label: zod
+                                                    .string()
+                                                    .nullish()
+                                                    .describe(
+                                                        'Display-only label for this property filter, shown in the UI.'
                                                     ),
                                             })
                                             .describe('A property condition inside a release condition group.')
@@ -1727,12 +1727,6 @@ export const FeatureFlagsDashboardCreateBody = /* @__PURE__ */ zod
                                                     .boolean()
                                                     .nullish()
                                                     .describe('Whether the property condition is negated.'),
-                                                label: zod
-                                                    .string()
-                                                    .nullish()
-                                                    .describe(
-                                                        'Display-only label for this property filter, shown in the UI.'
-                                                    ),
                                                 cohort_name: zod
                                                     .string()
                                                     .nullish()
@@ -1744,6 +1738,12 @@ export const FeatureFlagsDashboardCreateBody = /* @__PURE__ */ zod
                                                     .optional()
                                                     .describe(
                                                         'Display names for group keys, keyed by group key. Injected on read and echoed back by clients.'
+                                                    ),
+                                                label: zod
+                                                    .string()
+                                                    .nullish()
+                                                    .describe(
+                                                        'Display-only label for this property filter, shown in the UI.'
                                                     ),
                                             })
                                             .describe('A property condition inside a release condition group.')
@@ -2103,12 +2103,6 @@ export const FeatureFlagsEnrichUsageDashboardCreateBody = /* @__PURE__ */ zod
                                                     .boolean()
                                                     .nullish()
                                                     .describe('Whether the property condition is negated.'),
-                                                label: zod
-                                                    .string()
-                                                    .nullish()
-                                                    .describe(
-                                                        'Display-only label for this property filter, shown in the UI.'
-                                                    ),
                                                 cohort_name: zod
                                                     .string()
                                                     .nullish()
@@ -2120,6 +2114,12 @@ export const FeatureFlagsEnrichUsageDashboardCreateBody = /* @__PURE__ */ zod
                                                     .optional()
                                                     .describe(
                                                         'Display names for group keys, keyed by group key. Injected on read and echoed back by clients.'
+                                                    ),
+                                                label: zod
+                                                    .string()
+                                                    .nullish()
+                                                    .describe(
+                                                        'Display-only label for this property filter, shown in the UI.'
                                                     ),
                                             })
                                             .describe('A property condition inside a release condition group.')

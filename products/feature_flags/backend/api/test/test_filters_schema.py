@@ -12,6 +12,7 @@ from products.feature_flags.backend.api.filters_schema import (
     FlagMultivariateVariantSerializer,
     FlagPropertySerializer,
 )
+from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 
 VALID_PROPERTY: dict[str, Any] = {"key": "email", "type": "person", "operator": "icontains", "value": "@posthog.com"}
 
@@ -261,6 +262,14 @@ class TestFiltersSchema(SimpleTestCase):
         serializer = FeatureFlagFiltersSerializer(data={"payloads": {"true": value}})
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["payloads"] == {"true": expected}
+
+    def test_redacted_payload_sentinel_passes_payload_validation(self) -> None:
+        # Pins the contract merged-state PATCH validation depends on: the sentinel substituted
+        # for stored ciphertext must be a JSON-parseable string, or every filters PATCH on
+        # every encrypted-payloads flag 400s. See the comment on REDACTED_PAYLOAD_VALUE.
+        serializer = FeatureFlagFiltersSerializer(data={"payloads": {"true": REDACTED_PAYLOAD_VALUE}})
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["payloads"] == {"true": REDACTED_PAYLOAD_VALUE}
 
     def test_null_group_properties_normalized_to_empty_list(self) -> None:
         serializer = FlagConditionGroupSerializer(data={"properties": None})

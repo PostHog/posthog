@@ -31390,17 +31390,17 @@ export namespace Schemas {
          */
       negation?: boolean | null;
       /**
-         * Display-only label for this property filter, shown in the UI.
-         * @nullable
-         */
-      label?: string | null;
-      /**
          * Display name of the referenced cohort. Injected on read and echoed back by clients.
          * @nullable
          */
       cohort_name?: string | null;
       /** Display names for group keys, keyed by group key. Injected on read and echoed back by clients. */
       group_key_names?: unknown;
+      /**
+         * Display-only label for this property filter, shown in the UI.
+         * @nullable
+         */
+      label?: string | null;
     }
 
     /**

@@ -288,12 +288,9 @@ class FlagPropertySerializer(DropsUnknownKeysMixin, serializers.Serializer):
     # Display-only passthrough (#50084 inventory addendum): the UI stores these inside filters
     # and Rust round-trips them via its extras map, but this serializer drops undeclared keys,
     # so they must be declared to survive writes. Deliberately permissive: display data.
-    label = StrictCharField(  # type: ignore[assignment]
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        help_text="Display-only label for this property filter, shown in the UI.",
-    )
+    # (`label` is also passthrough but is injected in get_fields — a class attribute named
+    # `label` would shadow DRF's Field.label, the field's own display label, with an
+    # incompatible type.)
     cohort_name = StrictCharField(
         required=False,
         allow_null=True,
@@ -305,6 +302,16 @@ class FlagPropertySerializer(DropsUnknownKeysMixin, serializers.Serializer):
         allow_null=True,
         help_text="Display names for group keys, keyed by group key. Injected on read and echoed back by clients.",
     )
+
+    def get_fields(self) -> dict[str, serializers.Field]:
+        fields = super().get_fields()
+        fields["label"] = StrictCharField(
+            required=False,
+            allow_null=True,
+            allow_blank=True,
+            help_text="Display-only label for this property filter, shown in the UI.",
+        )
+        return fields
 
     def to_internal_value(self, data: Any) -> dict[str, Any]:
         # Canonicalize operator aliases before field validation so everything downstream
