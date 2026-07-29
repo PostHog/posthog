@@ -1,3 +1,5 @@
+import { randomUUID } from 'crypto'
+
 import { EncryptedFields } from '~/common/utils/encryption-utils'
 import { logger } from '~/common/utils/logger'
 import { fetch } from '~/common/utils/request'
@@ -25,6 +27,13 @@ interface TokenResponse {
 
 /** Outcome of one refresh attempt, used for the metric label. */
 type RefreshOutcome = 'refreshed' | 'failed' | 'skipped' | 'backoff' | 'superseded'
+
+const RELEASE_LOCK_IF_OWNER_LUA = `
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('del', KEYS[1])
+end
+return 0
+`
 
 interface RefreshLockedResult {
     row: IntegrationRow
@@ -100,9 +109,9 @@ export class RefreshManager {
         }
 
         const lockKey = `integration-gateway:refresh-lock:${row.id}`
-        let acquired: boolean
+        let lockOwner: string | null
         try {
-            acquired = await this.acquireLock(lockKey)
+            lockOwner = await this.acquireLock(lockKey)
         } catch (error) {
             logger.warn('[RefreshManager] failed to acquire refresh lock; skipping', {
                 id: row.id,
@@ -111,7 +120,7 @@ export class RefreshManager {
             recordRefresh(row.kind, 'skipped')
             return row
         }
-        if (!acquired) {
+        if (!lockOwner) {
             // Another head holds the lock; the current token is still valid (half-life refresh).
             recordRefresh(row.kind, 'locked')
             return row
@@ -132,7 +141,7 @@ export class RefreshManager {
             recordRefresh(row.kind, 'failed')
             return row
         } finally {
-            await this.releaseLock(lockKey)
+            await this.releaseLock(lockKey, lockOwner)
         }
     }
 
@@ -298,27 +307,30 @@ export class RefreshManager {
         }
     }
 
-    private async acquireLock(key: string): Promise<boolean> {
+    private async acquireLock(key: string): Promise<string | null> {
         const client = await this.redisPool.acquire()
         try {
+            const owner = randomUUID()
             const result = (await client.set(
                 key,
-                '1',
+                owner,
                 'EX',
                 this.config.INTEGRATION_GATEWAY_REFRESH_LOCK_TTL_SECONDS,
                 'NX'
             )) as 'OK' | null
-            return result === 'OK'
+            return result === 'OK' ? owner : null
         } finally {
             await this.redisPool.release(client)
         }
     }
 
-    private async releaseLock(key: string): Promise<void> {
+    private async releaseLock(key: string, owner: string): Promise<void> {
         try {
             const client = await this.redisPool.acquire()
             try {
-                await client.del(key)
+                // The lease can expire while an OAuth request is in flight. Only delete the lock
+                // when it is still ours, otherwise we could release a successor head's lease.
+                await client.eval(RELEASE_LOCK_IF_OWNER_LUA, 1, key, owner)
             } finally {
                 await this.redisPool.release(client)
             }

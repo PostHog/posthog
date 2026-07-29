@@ -18,7 +18,7 @@ export function parseRefreshTeams(raw: string): RefreshTeamGate {
     if (parts.includes('*')) {
         return '*'
     }
-    return new Set(parts.map((p) => parseInt(p, 10)).filter((n) => Number.isInteger(n)))
+    return new Set(parts.filter((p) => /^\d+$/.test(p)).map((p) => Number(p)))
 }
 
 /**

@@ -20,9 +20,9 @@ touch an integration.
 
 Runs as its own process: `PLUGIN_SERVER_MODE=integration-gateway` (see `src/servers/integration-gateway-server.ts`).
 
-- **Credential access** — `POST /api/v1/credentials/fetch`. Callers present a short-lived,
-  team-scoped JWT (never the internal API secret); the gateway returns the decrypted integrations
-  for that team in a batch. Wrong-team / missing ids come back `null` (indistinguishable on
+- **Credential access** — `POST /api/v1/credentials/fetch`. A Cilium NetworkPolicy restricts access
+  to approved workloads; the gateway returns the decrypted integrations for the requested team in
+  a batch. Wrong-team / missing ids come back `null` (indistinguishable on
   purpose). Reads are served from a short-TTL in-process cache and every request emits a per-caller
   audit line — the durable "who read which credential, when, on whose behalf" trail. Plaintext
   credentials only ever live in this process's heap.
@@ -39,7 +39,6 @@ Runs as its own process: `PLUGIN_SERVER_MODE=integration-gateway` (see `src/serv
 | File                      | Responsibility                                                              |
 | ------------------------- | --------------------------------------------------------------------------- |
 | `router.ts`               | `POST /api/v1/credentials/fetch` handler                                    |
-| `auth.ts`                 | scoped-JWT verification (fails closed)                                      |
 | `integration.service.ts`  | load → team-scope → JIT-refresh → decrypt → cache                           |
 | `repository.ts`           | `posthog_integration` data access                                           |
 | `cache.ts`                | short-TTL in-process decrypted-credential cache                             |
@@ -48,15 +47,15 @@ Runs as its own process: `PLUGIN_SERVER_MODE=integration-gateway` (see `src/serv
 | `config.ts`               | gateway config + `(kind, team)` refresh gate parsing                        |
 
 Crypto is the shared `EncryptedFields` helper at `common/utils/encryption-utils.ts` (byte-compatible
-with Django's `EncryptedFieldMixin`). The Django side lives in `posthog/integration_gateway_jwt.py`,
-`posthog/settings/integrations.py`, and `posthog/tasks/integrations.py`.
+with Django's `EncryptedFieldMixin`). Django's refresh ownership settings and beat exclusions live
+in `posthog/settings/integrations.py` and `posthog/tasks/integrations.py`.
 
 ## Running locally
 
 Enabled via the hogli capability `nodejs_integration_gateway` (attached to the `product_analytics`,
-`workflows`, and `pipelines` intents). It listens on port `6746`; dev defaults set
-`ENCRYPTION_SALT_KEYS` and `INTEGRATION_GATEWAY_JWT_SECRET=integration-gateway-dev-secret` so the
-flow works out of the box. Standalone: `PLUGIN_SERVER_MODE=integration-gateway HTTP_SERVER_PORT=6746 ./bin/posthog-node`.
+`workflows`, and `pipelines` intents). It listens on port `6747`; dev defaults set
+`ENCRYPTION_SALT_KEYS` so the flow works out of the box. Standalone:
+`PLUGIN_SERVER_MODE=integration-gateway HTTP_SERVER_PORT=6747 ./bin/posthog-node`.
 
 ## Roadmap
 

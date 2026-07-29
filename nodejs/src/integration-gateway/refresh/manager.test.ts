@@ -74,7 +74,7 @@ function setup(
         recordRefreshFailure: jest.fn().mockResolvedValue(true),
     } as unknown as jest.Mocked<IntegrationRepository>
     const lockResult = opts.lockResult === undefined ? 'OK' : opts.lockResult
-    const client = { set: jest.fn().mockResolvedValue(lockResult), del: jest.fn().mockResolvedValue(1) }
+    const client = { set: jest.fn().mockResolvedValue(lockResult), eval: jest.fn().mockResolvedValue(1) }
     const redisPool = {
         acquire: jest.fn().mockResolvedValue(client),
         release: jest.fn().mockResolvedValue(undefined),
@@ -142,7 +142,13 @@ describe('RefreshManager', () => {
         expect(options.body).toContain('refresh_token=old-refresh')
         expect(options.body).toContain('client_id=cid')
         // On success the lock is released so a later legitimate refresh can proceed.
-        expect(client.del).toHaveBeenCalled()
+        const lockOwner = client.set.mock.calls[0][1]
+        expect(client.eval).toHaveBeenCalledWith(
+            expect.stringContaining("redis.call('get'"),
+            1,
+            expect.any(String),
+            lockOwner
+        )
     })
 
     it('discards the refresh when the compare-and-swap loses the race (concurrent reconnect)', async () => {
@@ -201,7 +207,7 @@ describe('RefreshManager', () => {
         expect(repository.updateAfterRefresh).not.toHaveBeenCalled()
         expect(encryptedFields.decrypt(result.sensitive_config.access_token)).toBe('old-access')
         // Lock is always released now (backoff in config is the per-integration cooldown).
-        expect(client.del).toHaveBeenCalled()
+        expect(client.eval).toHaveBeenCalled()
     })
 
     it('does not go terminal on a transient 5xx (grant streak stays reset)', async () => {
