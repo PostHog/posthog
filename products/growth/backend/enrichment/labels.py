@@ -5,7 +5,6 @@ client via `get_llm_client(product="growth")` and pass it in — this module jus
 an archived Harmonic payload plus a prompt config into a stamped verdict.
 """
 
-import re
 import json
 import math
 from collections.abc import Callable
@@ -24,11 +23,6 @@ from products.growth.backend.models import EnrichmentPromptConfig, OrganizationE
 
 UNKNOWN: Literal["unknown"] = "unknown"
 
-# Output schema constraints for EnrichmentPromptConfig.output_fields (see its docstring). Shared
-# by the API's save/run validation (products/growth/backend/api/score_lab.py) and the coercion
-# below - single source of truth so the two can never drift.
-OUTPUT_FIELD_KEY_RE = re.compile(r"^[a-z][a-z0-9_]*$")
-OUTPUT_FIELD_TYPES = ("boolean", "number", "string")
 # Keys the stored output dict uses for provenance (see classify_payload below) -
 # a configured output field can never shadow them.
 RESERVED_OUTPUT_FIELD_KEYS = frozenset({"meta", "inputs"})

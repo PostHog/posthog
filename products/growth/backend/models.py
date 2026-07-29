@@ -149,8 +149,8 @@ class EnrichmentPromptConfig(UUIDModel):
     """A versioned LLM classifier definition for one enrichment label (the "score lab" brains).
 
     Rails are code; brains are rows: the label owner iterates prompt/model/input selection by
-    creating new rows through the score lab scene, without a deploy. A behavior change is always a new
-    row (new version), never an in-place edit - see score_lab.py's save action. `name` is a
+    creating new rows, without a deploy. A behavior change is always a new row (new version),
+    never an in-place edit. `name` is a
     human label for this classifier and nothing reads it as data; the output contract is
     output_fields (see enrichment/labels.py), so renaming a label changes nothing about what the
     classifier does or where its verdicts are stored.
