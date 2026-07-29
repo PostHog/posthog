@@ -187,6 +187,30 @@ export type AccountColumnGroup = {
 
 export type AccountPickerColumnOption = AccountColumnOption & { groupLabel: string; isSelected: boolean }
 
+// Null activeGroup means "All columns": search spans every non-freeform group.
+export function filterColumnOptions(
+    groups: AccountColumnGroup[],
+    activeGroup: AccountColumnGroup | null,
+    search: string,
+    selectColumns: string[]
+): AccountPickerColumnOption[] {
+    if (activeGroup?.isFreeform) {
+        return []
+    }
+    const searchableGroups = activeGroup ? [activeGroup] : groups.filter((group) => !group.isFreeform)
+    const query = search.trim().toLowerCase()
+    const selected = new Set(selectColumns)
+    return searchableGroups.flatMap((group) =>
+        group.options
+            .filter((option) => !query || option.name.toLowerCase().includes(query))
+            .map((option) => ({
+                ...option,
+                groupLabel: group.label,
+                isSelected: selected.has(option.expression),
+            }))
+    )
+}
+
 // Field types that point at joined tables/views (lazy joins, virtual tables,
 // user-defined data warehouse joins, saved queries). Each one surfaces as a
 // dedicated dropdown entry in the column configurator.
@@ -755,7 +779,6 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                     ? null
                     : (accountsColumnGroups.find((group) => group.key === pickerGroupKey) ?? null),
         ],
-        // Null activePickerGroup means "All columns".
         filteredColumnOptions: [
             (s) => [s.accountsColumnGroups, s.activePickerGroup, s.pickerSearch, s.selectColumns],
             (
@@ -763,25 +786,8 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                 activePickerGroup: AccountColumnGroup | null,
                 pickerSearch: string,
                 selectColumns: string[]
-            ): AccountPickerColumnOption[] => {
-                if (activePickerGroup?.isFreeform) {
-                    return []
-                }
-                const searchableGroups = activePickerGroup
-                    ? [activePickerGroup]
-                    : accountsColumnGroups.filter((group) => !group.isFreeform)
-                const query = pickerSearch.trim().toLowerCase()
-                const selected = new Set(selectColumns)
-                return searchableGroups.flatMap((group) =>
-                    group.options
-                        .filter((option) => !query || option.name.toLowerCase().includes(query))
-                        .map((option) => ({
-                            ...option,
-                            groupLabel: group.label,
-                            isSelected: selected.has(option.expression),
-                        }))
-                )
-            },
+            ): AccountPickerColumnOption[] =>
+                filterColumnOptions(accountsColumnGroups, activePickerGroup, pickerSearch, selectColumns),
         ],
         pickerSearchPlaceholder: [
             (s) => [s.activePickerGroup],
