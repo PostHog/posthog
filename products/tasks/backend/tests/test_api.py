@@ -4562,6 +4562,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             team=self.team,
             environment=TaskRun.Environment.LOCAL,
             status=TaskRun.Status.COMPLETED,
+            state={"pr_authorship_mode": "bot"},
         )
 
         response = self.client.post(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/resume_in_cloud/")
