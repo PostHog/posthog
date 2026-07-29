@@ -306,8 +306,14 @@ class DeltaTableHelper:
 
         delta_table_schema = pyarrow_schema_from_arrow_exportable(delta_table.schema())
 
+        # Columns added here always predate their own addition: every file the table already
+        # holds was written without this column, so it must tolerate absent values on those
+        # rows. Forcing nullable regardless of the incoming batch's own nullability (which
+        # reflects only whether *this* batch happened to contain nulls) is what lets a later
+        # `optimize.compact()` read those old files at all — a non-nullable add otherwise fails
+        # compaction with "Non-nullable column '<name>' is missing from the physical schema".
         new_fields = [
-            deltalake.Field.from_arrow(field)
+            deltalake.Field.from_arrow(field.with_nullable(True))
             for field in ensure_delta_compatible_arrow_schema(schema)
             if field.name not in delta_table_schema.names
         ]
