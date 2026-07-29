@@ -54,7 +54,7 @@ export interface quickActionsLogicActions {
     deleteQuickAction: (shortId: string) => {
         shortId: string
     }
-    loadQuickActions: () => any
+    loadQuickActions: (_: void) => void
     loadQuickActionsFailure: (
         error: string,
         errorObject?: any
@@ -64,10 +64,10 @@ export interface quickActionsLogicActions {
     }
     loadQuickActionsSuccess: (
         quickActions: QuickActionApi[],
-        payload?: any
+        payload?: void
     ) => {
         quickActions: QuickActionApi[]
-        payload?: any
+        payload?: void
     }
     openCreateModal: () => {
         value: true
@@ -151,7 +151,7 @@ export const quickActionsLogic = kea<quickActionsLogicType>([
         quickActions: [
             [] as QuickActionApi[],
             {
-                loadQuickActions: async (_, breakpoint) => {
+                loadQuickActions: async (_: void, breakpoint) => {
                     // Page through so teams with more quick actions than the page size still see all.
                     const teamId = String(values.currentTeamId)
                     const pageSize = 100
