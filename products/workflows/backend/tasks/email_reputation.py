@@ -2,11 +2,9 @@ from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
-from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
-import requests
 from celery import shared_task
 from structlog import get_logger
 
@@ -22,7 +20,6 @@ from products.notifications.backend.facade.api import (
     create_notification,
 )
 from products.workflows.backend.models.email_reputation import EmailReputationSnapshot
-from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 
 logger = get_logger(__name__)
 
@@ -33,7 +30,7 @@ SNAPSHOT_LOOKBACK = timedelta(days=2)
 
 # The scan runs hourly but each snapshot must produce side effects exactly once; the marker
 # outlives any realistic evaluator gap. Emails are additionally deduped via MessagingRecord,
-# so a cache eviction can at worst duplicate an in-app notification or Slack message.
+# so a cache eviction can at worst duplicate an in-app notification.
 PROCESSED_MARKER_TTL_SECONDS = int(timedelta(days=7).total_seconds())
 
 REPUTATION_TAB_PATH = "/workflows/reputation"
@@ -46,13 +43,13 @@ def _processed_marker_key(team_id: int, evaluated_at: datetime) -> str:
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 def check_email_reputation_transitions() -> None:
     """
-    Notify on team email reputation state transitions.
+    Notify customers when their team's email reputation state degrades.
 
     Compares each team's two most recent team-scope snapshots (written daily by the Node
-    Temporal evaluator): entering ``warning`` notifies the customer (email + in-app);
-    entering ``critical`` additionally alerts us on Slack, and Slack keeps firing on every
-    new critical snapshot until the team is suspended or recovers — that nag is the manual
-    enforcement queue.
+    Temporal evaluator): entering ``warning`` or ``critical`` notifies the customer by
+    email and in-app notification. Internal alerting is not handled here — the evaluator
+    emits ``workflow_email_reputation_state_changed`` into PostHog's own project, and a
+    workflow with a Slack destination consumes it.
     """
     now = timezone.now()
     # Cross-team by design: this scan covers every sending team, hence unscoped().
@@ -78,11 +75,6 @@ def check_email_reputation_transitions() -> None:
         return
 
     teams_by_id = {team.id: team for team in Team.objects.filter(id__in=degraded_team_ids)}
-    suspended_team_ids = set(
-        TeamWorkflowsConfig.objects.filter(
-            team_id__in=degraded_team_ids, email_sending_suspended_at__isnull=False
-        ).values_list("team_id", flat=True)
-    )
 
     for team_id in degraded_team_ids:
         team = teams_by_id.get(team_id)
@@ -94,7 +86,7 @@ def check_email_reputation_transitions() -> None:
         if cache.get(marker_key):
             continue
         try:
-            _process_team_transition(team, latest, previous, suspended=team_id in suspended_team_ids)
+            _process_team_transition(team, latest, previous)
         except Exception:
             # Per-team isolation: one team failing must not starve the rest of the scan.
             logger.exception("Failed to process email reputation transition", team_id=team_id)
@@ -102,17 +94,13 @@ def check_email_reputation_transitions() -> None:
         cache.set(marker_key, True, PROCESSED_MARKER_TTL_SECONDS)
 
 
-def _process_team_transition(
-    team: Team, latest: Mapping[str, Any], previous: Optional[Mapping[str, Any]], suspended: bool
-) -> None:
+def _process_team_transition(team: Team, latest: Mapping[str, Any], previous: Optional[Mapping[str, Any]]) -> None:
     latest_state = latest["state"]
     previous_state = previous["state"] if previous else None
 
     if latest_state == EmailReputationSnapshot.State.CRITICAL:
         if previous_state != EmailReputationSnapshot.State.CRITICAL:
             _notify_customer(team, latest)
-        if not suspended:
-            _send_slack_critical_alert(team, latest)
     elif latest_state == EmailReputationSnapshot.State.WARNING and previous_state not in (
         EmailReputationSnapshot.State.WARNING,
         EmailReputationSnapshot.State.CRITICAL,
@@ -146,30 +134,3 @@ def _notify_customer(team: Team, snapshot: Mapping[str, Any]) -> None:
             source_url=REPUTATION_TAB_PATH,
         )
     )
-
-
-def _send_slack_critical_alert(team: Team, snapshot: Mapping[str, Any]) -> None:
-    webhook_url = settings.EMAIL_REPUTATION_SLACK_WEBHOOK_URL
-    if not webhook_url:
-        logger.warning("No Slack webhook configured for email reputation alerts", team_id=team.id)
-        return
-
-    admin_url = f"{settings.SITE_URL}/admin/posthog/team/{team.id}/change/"
-    blocks = [
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    f":rotating_light: *Email reputation critical* for team `{team.id}` ({team.name})\n"
-                    f"Hard bounce rate: *{snapshot['bounce_rate']:.2%}* · "
-                    f"Complaint rate: *{snapshot['complaint_rate']:.2%}* · "
-                    f"Emails evaluated: *{snapshot['emails_sent']}*\n"
-                    f"Evaluated at {snapshot['evaluated_at'].isoformat()} — sending is NOT suspended yet.\n"
-                    f"<{admin_url}|Review and suspend in Django admin>"
-                ),
-            },
-        }
-    ]
-    response = requests.post(webhook_url, json={"blocks": blocks}, timeout=10)
-    response.raise_for_status()
