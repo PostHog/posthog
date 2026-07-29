@@ -127,6 +127,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
         totalCount,
         responseTargetCounts,
         loadedOrderBy,
+        loadedPage,
         sorting,
         selectedTicketIds,
         searchQuery,
@@ -192,8 +193,12 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
                 ? buildResponseTargetGroupedRows(tickets, {
                       groups: responseTargetGroups,
                       desc: responseTargetDesc,
-                      isFirstPage: currentPage === 1,
-                      isLastPage: currentPage * SUPPORT_TICKETS_PAGE_SIZE >= totalCount,
+                      // Page bounds come from loadedPage — the page the rendered
+                      // tickets belong to — not the live currentPage, which leads
+                      // during an in-flight page change and would let the trailing
+                      // "zero tickets match" headers fire against stale rows.
+                      isFirstPage: loadedPage === 1,
+                      isLastPage: loadedPage !== null && loadedPage * SUPPORT_TICKETS_PAGE_SIZE >= totalCount,
                       counts: responseTargetCounts,
                   })
                 : tickets,
@@ -202,7 +207,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
             responseTargetDesc,
             responseTargetGroups,
             tickets,
-            currentPage,
+            loadedPage,
             totalCount,
             responseTargetCounts,
         ]
