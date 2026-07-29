@@ -238,7 +238,10 @@ class CommentPagination(pagination.CursorPagination):
 class CommentListQueryParamsSerializer(serializers.Serializer):
     scope = serializers.CharField(
         required=False,
-        help_text="Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay).",
+        help_text=(
+            "Filter by resource type (e.g. Dashboard, FeatureFlag, Insight, Replay). "
+            "Support-ticket scopes (Ticket, conversations_ticket) additionally require ticket API scope access."
+        ),
     )
     item_id = serializers.CharField(required=False, help_text="Filter by the ID of the resource being commented on.")
     search = serializers.CharField(required=False, help_text="Full-text search within comment content.")
@@ -261,6 +264,13 @@ class CommentListQueryParamsSerializer(serializers.Serializer):
     )
 
 
+# Comment scopes that carry support-ticket data: customer-facing ticket messages
+# (conversations_ticket) and internal ticket discussions (Ticket). Reading or writing these
+# through the generic comments API requires ticket access, not just comment access — an API
+# key scoped to comment:read must not be able to read ticket contents.
+TICKET_COMMENT_SCOPES = frozenset({"Ticket", "conversations_ticket"})
+
+
 @extend_schema(extensions={"x-product": "platform_features"})
 class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Comment.objects.all()
@@ -268,6 +278,16 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
     pagination_class = CommentPagination
     scope_object = "comment"
     scope_object_read_actions = ["list", "retrieve", "thread", "count"]
+
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        """Ticket-scoped comments require ticket API scope access instead of comment access."""
+        requested_scope = request.GET.get("scope")
+        if not requested_scope and isinstance(request.data, dict):
+            requested_scope = request.data.get("scope")
+        if requested_scope not in TICKET_COMMENT_SCOPES:
+            return None
+        access = "read" if self.action in self.scope_object_read_actions else "write"
+        return [f"ticket:{access}"]
 
     @extend_schema(parameters=[CommentListQueryParamsSerializer])
     def list(self, request, *args, **kwargs):
@@ -322,9 +342,10 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             if scope == "conversations_ticket":
                 queryset = self._filter_ticket_scoped_queryset(queryset, params.get("item_id"))
         else:
-            # Exclude conversations_ticket comments by default - they use rich content
-            # from SupportEditor and should only be viewed in the conversations product
-            queryset = queryset.exclude(scope="conversations_ticket")
+            # Ticket-carrying comments (customer messages and internal ticket discussions) are
+            # only returned when explicitly requested by scope, where ticket API scope access is
+            # enforced by dangerously_get_required_scopes.
+            queryset = queryset.exclude(scope__in=TICKET_COMMENT_SCOPES)
 
         if params.get("item_id"):
             queryset = queryset.filter(item_id=params.get("item_id"))
