@@ -13,6 +13,11 @@ env:
     CARGO_TERM_COLOR: always
     UV_HTTP_TIMEOUT: 120
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+    # Trunk bills per uploaded test span, and a PR run's spans buy nothing: its flake
+    # verdict is never the one that gates a merge. Uploads are therefore limited to the
+    # runs that decide whether code lands — merge-queue attempts (trunk-merge/** branches)
+    # and master — which is also where a quarantined flake has to be masked to be useful.
+    RUNS_ON_MERGE_QUEUE_OR_MASTER: ${{ github.ref == 'refs/heads/master' || startsWith(github.head_ref, 'trunk-merge/') }}
 
 jobs:
     # Job to decide if we should run rust ci
@@ -473,12 +478,13 @@ jobs:
                   done
 
             # Upload results to Trunk for flaky-test detection. Non-gating (continue-on-error),
-            # so a Trunk outage never fails the job. Runs the token only on internal PRs
-            # and master, never on fork PRs or Dependabot, which have no secret.
+            # so a Trunk outage never fails the job. Never runs on fork PRs or Dependabot, which
+            # have no secret, and RUNS_ON_MERGE_QUEUE_OR_MASTER limits it to the runs that gate a
+            # merge, so a plain PR run uploads nothing.
             # The TRUNK_UPLOAD_ENABLED repo variable is the kill-switch: when it is not 'true'
             # this upload skips.
             - name: Upload test results to Trunk
-              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && env.RUNS_ON_MERGE_QUEUE_OR_MASTER == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               continue-on-error: true
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:

@@ -24,6 +24,11 @@ permissions:
 
 env:
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+    # Trunk bills per uploaded test span, and a PR run's spans buy nothing: its flake
+    # verdict is never the one that gates a merge. Uploads are therefore limited to the
+    # runs that decide whether code lands — merge-queue attempts (trunk-merge/** branches)
+    # and master — which is also where a quarantined flake has to be masked to be useful.
+    RUNS_ON_MERGE_QUEUE_OR_MASTER: ${{ github.ref == 'refs/heads/master' || startsWith(github.head_ref, 'trunk-merge/') }}
 
 jobs:
     changes:
@@ -107,10 +112,13 @@ jobs:
             # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
             # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
             # known flakes; otherwise any real failure reds the job (quarantining needs upload on too).
+            # RUNS_ON_MERGE_QUEUE_OR_MASTER narrows it to the runs that gate a merge: a PR run
+            # skips the gate, so a known flake reds the PR and is only masked on the merge-queue
+            # attempt that lands it.
             - name: Quarantine gate
               id: quarantine_gate
               continue-on-error: true
-              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && env.RUNS_ON_MERGE_QUEUE_OR_MASTER == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
               with:
                   junit-paths: services/llm-gateway/junit.xml
