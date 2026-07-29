@@ -11,7 +11,7 @@ import { SidePanelContentContainer } from '../../SidePanelContentContainer'
 import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { AccessControlDetailContent } from './ResourceAccessControlsV2/AccessControlDetail'
 import { accessControlsLogic } from './ResourceAccessControlsV2/accessControlsLogic'
-import { AccessScope } from './ResourceAccessControlsV2/accessDetailLogic'
+import { AccessScope, parseAccessDetailOptions } from './ResourceAccessControlsV2/accessDetailLogic'
 
 /**
  * Access detail for a single member or role, shown in the side panel instead of taking over the
@@ -22,12 +22,15 @@ export const SidePanelAccessDetail = (): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
     const projectId = `${currentTeam?.id}`
 
-    const [scope, subjectId] = (selectedTabOptions ?? '').split(':')
-    const scopeType: AccessScope = scope === 'role' ? 'role' : 'member'
-
     const logic = accessControlsLogic({ projectId })
-    const { membersData, rolesData, membersDataLoading, rolesDataLoading } = useValues(logic)
+    const { membersData, rolesData, membersDataLoading, rolesDataLoading, panelSubject } = useValues(logic)
     const { loadMembers, loadRoles } = useActions(logic)
+
+    // Panel options only survive until another tab is opened, so fall back to the selection the settings
+    // page holds. Options still win, so deep links land on the right subject.
+    const subject = parseAccessDetailOptions(selectedTabOptions) ?? panelSubject
+    const scopeType: AccessScope = subject?.scopeType ?? 'member'
+    const subjectId = subject?.subjectId
 
     // The panel can outlive the settings page that opened it, so make sure the list it reads from is loaded.
     // Deliberately not using the logic's selected member/role — that state drives the settings page's own

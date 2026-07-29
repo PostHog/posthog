@@ -12,6 +12,7 @@ import { AccessControlDetail } from './AccessControlDetail'
 import { AccessControlFilters } from './AccessControlFilters'
 import { accessControlsLogic } from './accessControlsLogic'
 import { AccessControlTable } from './AccessControlTable'
+import { parseAccessDetailOptions } from './accessDetailLogic'
 import { getEntryId } from './helpers'
 import type { AccessControlsTab, ScopeType } from './types'
 
@@ -33,18 +34,20 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         loading,
         selectedMemberId,
         selectedRoleId,
+        panelSubject,
     } = useValues(logic)
 
-    const { setActiveTab, setSearchText, setFilters } = useActions(logic)
+    const { setActiveTab, setSearchText, setFilters, openAccessDetailPanel } = useActions(logic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { selectedTab, selectedTabOptions, sidePanelOpen } = useValues(sidePanelStateLogic)
 
     const scopeType: ScopeType = activeTab === 'roles' ? 'role' : 'member'
 
     // Highlight the row whose detail is open in the side panel
+    const openSubject = parseAccessDetailOptions(selectedTabOptions) ?? panelSubject
     const openInPanelId =
-        sidePanelOpen && selectedTab === SidePanelTab.AccessDetail && selectedTabOptions?.startsWith(`${scopeType}:`)
-            ? selectedTabOptions.slice(scopeType.length + 1)
+        sidePanelOpen && selectedTab === SidePanelTab.AccessDetail && openSubject?.scopeType === scopeType
+            ? openSubject.subjectId
             : null
 
     // A member or role is being inspected — take over the whole section with their detail page
@@ -95,9 +98,10 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                                 loading={loading}
                                 canEditAny={canEdit}
                                 selectedEntryId={openInPanelId}
-                                onEdit={(entry) =>
+                                onEdit={(entry) => {
+                                    openAccessDetailPanel(scopeType, getEntryId(entry))
                                     openSidePanel(SidePanelTab.AccessDetail, `${scopeType}:${getEntryId(entry)}`)
-                                }
+                                }}
                             />
                         </div>
                     )}

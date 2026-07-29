@@ -30,6 +30,20 @@ export interface AccessDetailLogicProps {
     subjectId: string
 }
 
+export interface AccessDetailSubject {
+    scopeType: AccessScope
+    subjectId: string
+}
+
+/** Parses the side panel's `member:<id>` / `role:<id>` options, used for deep links into the panel. */
+export function parseAccessDetailOptions(options: string | null): AccessDetailSubject | null {
+    const [scope, subjectId] = (options ?? '').split(':')
+    if (!subjectId) {
+        return null
+    }
+    return { scopeType: scope === 'role' ? 'role' : 'member', subjectId }
+}
+
 function endpoint(props: AccessDetailLogicProps, kind: 'objects' | 'properties'): string {
     const base = `api/projects/${props.projectId}`
     if (props.scopeType === 'role') {

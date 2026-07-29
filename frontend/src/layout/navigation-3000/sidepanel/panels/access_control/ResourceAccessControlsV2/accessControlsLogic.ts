@@ -22,6 +22,7 @@ import { accessControlLogic } from '../accessControlLogic'
 import { resourcesAccessControlLogic } from '../resourcesAccessControlLogic'
 import { roleAccessControlLogic } from '../roleAccessControlLogic'
 import type { accessControlsLogicType } from './accessControlsLogicType'
+import { AccessDetailSubject, AccessScope } from './accessDetailLogic'
 import {
     AccessControlFilters,
     AccessControlMemberEntry,
@@ -128,6 +129,7 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         closeMemberDetail: true,
         openRoleDetail: (roleId: string) => ({ roleId }),
         closeRoleDetail: true,
+        openAccessDetailPanel: (scopeType: AccessScope, subjectId: string) => ({ scopeType, subjectId }),
         saveGroupedRules: (params: {
             scopeType: ScopeType
             scopeId: string
@@ -202,6 +204,18 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
             {
                 openRoleDetail: (_, { roleId }) => roleId,
                 closeRoleDetail: () => null,
+                setActiveTab: () => null,
+            },
+        ],
+        /**
+         * Who the access detail side panel is showing. Kept here rather than in the side panel's own
+         * `selectedTabOptions`, which is cleared whenever any other panel tab is opened — switching to
+         * Support and back would otherwise lose the selection.
+         */
+        panelSubject: [
+            null as AccessDetailSubject | null,
+            {
+                openAccessDetailPanel: (_, { scopeType, subjectId }) => ({ scopeType, subjectId }),
                 setActiveTab: () => null,
             },
         ],
