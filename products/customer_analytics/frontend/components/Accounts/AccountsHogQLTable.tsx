@@ -285,11 +285,13 @@ function CustomPropertyHistoryCell({
         // Each sparkline auto-scales to its own range, so the line shows the trend but not the
         // magnitude — every row looks alike without the latest value spelled out next to it.
         return (
-            <div className="flex items-center gap-2 w-40">
+            // `min-w-min` lets the cell outgrow w-40 instead of spilling a long value into the next
+            // column, and the chart keeps a floor so it degrades rather than vanishing.
+            <div className="flex items-center gap-2 w-40 min-w-min">
                 <span className="tabular-nums whitespace-nowrap">{formatValue(latest[1])}</span>
                 <Sparkline
                     type="line"
-                    className="h-8 min-w-0"
+                    className="h-8 min-w-8"
                     data={chartPoints.map(([, value]) => value)}
                     labels={chartPoints.map(([timestamp]) => dayjs.unix(timestamp).format('MMM D, YYYY HH:mm'))}
                     renderTooltipValue={formatValue}
