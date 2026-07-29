@@ -31,23 +31,23 @@ from structlog.types import FilteringBoundLogger
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
     _purge_s3_prefix,
     _realign_decimal_buffers,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    append_partition_key_to_table,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
-    append_partition_key_to_table,
-    normalize_column_name,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
         DeltaTableHelper,
     )
 

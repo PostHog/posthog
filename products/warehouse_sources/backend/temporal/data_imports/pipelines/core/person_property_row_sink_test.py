@@ -8,12 +8,12 @@ import pyarrow as pa
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     PersonPropertySourceProjection,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.person_property_row_sink import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_row_sink import (
     ABANDONED_STAGED_PREFIX_TTL,
     PersonPropertyRowSink,
 )
 
-_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.person_property_row_sink"
+_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_row_sink"
 
 
 def _sink(is_incremental: bool = False) -> PersonPropertyRowSink:

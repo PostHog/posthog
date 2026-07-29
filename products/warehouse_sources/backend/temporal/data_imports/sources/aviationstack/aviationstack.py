@@ -1,7 +1,6 @@
 import dataclasses
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviationstack.settings import (
     AVIATIONSTACK_ENDPOINTS,
 )
@@ -15,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 AVIATIONSTACK_BASE_URL = "https://api.aviationstack.com/v1"
 DEFAULT_PAGE_SIZE = 100
