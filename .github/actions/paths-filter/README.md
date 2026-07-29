@@ -65,6 +65,18 @@ changed:
   - added|modified: ['src/**', '!src/vendor/**']
 ```
 
+## Trunk merge queue: filters scope to the tested PRs
+
+On a `trunk-merge/**` test branch (head ref), the PR's own diff against master also
+carries every dependent PR stacked underneath it in the parallel queue, which would
+stop path filters from skipping anything. Instead of that diff, the action unions the
+changed files of the PRs the branch actually tests, parsed from the
+"Pull Requests Being Tested" section Trunk writes into the queue PR body.
+
+If the body can't be parsed or any file fetch fails, the action falls back to the full
+test-branch diff (today's behavior), so failures over-select jobs rather than under-select.
+Normal PRs are unaffected.
+
 ## Rebuilding after source changes
 
 The action runs the committed `dist/index.js` bundle. After editing anything under `src/`,

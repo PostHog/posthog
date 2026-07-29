@@ -9,6 +9,7 @@ import {File, ChangeStatus} from './file'
 import * as git from './git'
 import {backslashEscape, shellEscape} from './list-format/shell-escape'
 import {csvEscape} from './list-format/csv-escape'
+import {isTrunkMergeRef, parseTestedPrNumbers} from './trunk-merge'
 
 type ExportFormat = 'none' | 'csv' | 'json' | 'shell' | 'escape'
 
@@ -83,7 +84,13 @@ async function getChangedFiles(token: string, base: string, ref: string, initial
       }
       const pr = github.context.payload.pull_request as PullRequest
       if (token) {
-        return await getChangedFilesFromApi(token, pr)
+        if (isTrunkMergeRef(pr.head?.ref)) {
+          const testedPrFiles = await getTrunkMergeTestedPrFiles(token, pr)
+          if (testedPrFiles !== null) {
+            return testedPrFiles
+          }
+        }
+        return await getChangedFilesFromApi(token, pr.number)
       }
       if (github.context.eventName === 'pull_request_target') {
         // pull_request_target is executed in context of base branch and GITHUB_SHA points to last commit in base branch
@@ -164,20 +171,55 @@ async function getChangedFilesFromGit(base: string, head: string, initialFetchDe
   return await git.getChangesSinceMergeBase(base, head, initialFetchDepth)
 }
 
+// On a trunk-merge test branch, returns the union of changed files of the PRs
+// the branch actually tests, so path filters skip jobs only dependent PRs need.
+// Returns null on any parse or fetch problem: the caller MUST then fall back to
+// the full test-branch diff. Over-selection wastes runner minutes; a silent
+// under-selection lets breakage merge to master.
+async function getTrunkMergeTestedPrFiles(token: string, pullRequest: PullRequest): Promise<File[] | null> {
+  const testedPrNumbers = parseTestedPrNumbers(pullRequest.body, github.context.repo)
+  if (testedPrNumbers.length === 0) {
+    core.warning('Could not parse tested PRs from the trunk-merge PR body - using the full test-branch diff')
+    return null
+  }
+  core.info(`Trunk-merge test branch detected - scoping filters to tested PRs: ${testedPrNumbers.join(', ')}`)
+  try {
+    const files: File[] = []
+    const seen = new Set<string>()
+    for (const prNumber of testedPrNumbers) {
+      for (const file of await getChangedFilesFromApi(token, prNumber)) {
+        const key = `${file.status} ${file.filename}`
+        if (!seen.has(key)) {
+          seen.add(key)
+          files.push(file)
+        }
+      }
+    }
+    if (files.length === 0) {
+      core.warning('Tested PRs report no changed files - using the full test-branch diff')
+      return null
+    }
+    return files
+  } catch (error) {
+    core.warning(`Failed to fetch tested PR files (${getErrorMessage(error)}) - using the full test-branch diff`)
+    return null
+  }
+}
+
 // Uses github REST api to get list of files changed in PR
-async function getChangedFilesFromApi(token: string, pullRequest: PullRequest): Promise<File[]> {
-  core.startGroup(`Fetching list of changed files for PR#${pullRequest.number} from Github API`)
+async function getChangedFilesFromApi(token: string, pullNumber: number): Promise<File[]> {
+  core.startGroup(`Fetching list of changed files for PR#${pullNumber} from Github API`)
   try {
     const client = github.getOctokit(token)
     const per_page = 100
     const files: File[] = []
 
-    core.info(`Invoking listFiles(pull_number: ${pullRequest.number}, per_page: ${per_page})`)
+    core.info(`Invoking listFiles(pull_number: ${pullNumber}, per_page: ${per_page})`)
     for await (const response of client.paginate.iterator(
       client.rest.pulls.listFiles.endpoint.merge({
         owner: github.context.repo.owner,
         repo: github.context.repo.repo,
-        pull_number: pullRequest.number,
+        pull_number: pullNumber,
         per_page
       })
     )) {

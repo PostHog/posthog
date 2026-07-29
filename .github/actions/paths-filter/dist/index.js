@@ -42689,6 +42689,7 @@ const file_1 = __nccwpck_require__(3765);
 const git = __importStar(__nccwpck_require__(1243));
 const shell_escape_1 = __nccwpck_require__(6880);
 const csv_escape_1 = __nccwpck_require__(6146);
+const trunk_merge_1 = __nccwpck_require__(9468);
 async function run() {
     try {
         const workingDirectory = core.getInput('working-directory', { required: false });
@@ -42729,7 +42730,7 @@ function getConfigFileContent(configPath) {
     return fs.readFileSync(configPath, { encoding: 'utf8' });
 }
 async function getChangedFiles(token, base, ref, initialFetchDepth) {
-    var _a, _b;
+    var _a, _b, _c;
     // if base is 'HEAD' only local uncommitted changes will be detected
     // This is the simplest case as we don't need to fetch more commits or evaluate current/before refs
     if (base === git.HEAD) {
@@ -42753,7 +42754,13 @@ async function getChangedFiles(token, base, ref, initialFetchDepth) {
             }
             const pr = github.context.payload.pull_request;
             if (token) {
-                return await getChangedFilesFromApi(token, pr);
+                if ((0, trunk_merge_1.isTrunkMergeRef)((_a = pr.head) === null || _a === void 0 ? void 0 : _a.ref)) {
+                    const testedPrFiles = await getTrunkMergeTestedPrFiles(token, pr);
+                    if (testedPrFiles !== null) {
+                        return testedPrFiles;
+                    }
+                }
+                return await getChangedFilesFromApi(token, pr.number);
             }
             if (github.context.eventName === 'pull_request_target') {
                 // pull_request_target is executed in context of base branch and GITHUB_SHA points to last commit in base branch
@@ -42762,8 +42769,8 @@ async function getChangedFiles(token, base, ref, initialFetchDepth) {
                 throw new Error(`'token' input parameter is required if action is triggered by 'pull_request_target' event`);
             }
             core.info('Github token is not available - changes will be detected using git diff');
-            const baseSha = (_a = github.context.payload.pull_request) === null || _a === void 0 ? void 0 : _a.base.sha;
-            const defaultBranch = (_b = github.context.payload.repository) === null || _b === void 0 ? void 0 : _b.default_branch;
+            const baseSha = (_b = github.context.payload.pull_request) === null || _b === void 0 ? void 0 : _b.base.sha;
+            const defaultBranch = (_c = github.context.payload.repository) === null || _c === void 0 ? void 0 : _c.default_branch;
             const currentRef = await git.getCurrentRef();
             return await git.getChanges(base || baseSha || defaultBranch, currentRef);
         }
@@ -42817,18 +42824,53 @@ async function getChangedFilesFromGit(base, head, initialFetchDepth) {
     core.info(`Changes will be detected between ${base} and ${head}`);
     return await git.getChangesSinceMergeBase(base, head, initialFetchDepth);
 }
+// On a trunk-merge test branch, returns the union of changed files of the PRs
+// the branch actually tests, so path filters skip jobs only dependent PRs need.
+// Returns null on any parse or fetch problem: the caller MUST then fall back to
+// the full test-branch diff. Over-selection wastes runner minutes; a silent
+// under-selection lets breakage merge to master.
+async function getTrunkMergeTestedPrFiles(token, pullRequest) {
+    const testedPrNumbers = (0, trunk_merge_1.parseTestedPrNumbers)(pullRequest.body, github.context.repo);
+    if (testedPrNumbers.length === 0) {
+        core.warning('Could not parse tested PRs from the trunk-merge PR body - using the full test-branch diff');
+        return null;
+    }
+    core.info(`Trunk-merge test branch detected - scoping filters to tested PRs: ${testedPrNumbers.join(', ')}`);
+    try {
+        const files = [];
+        const seen = new Set();
+        for (const prNumber of testedPrNumbers) {
+            for (const file of await getChangedFilesFromApi(token, prNumber)) {
+                const key = `${file.status} ${file.filename}`;
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    files.push(file);
+                }
+            }
+        }
+        if (files.length === 0) {
+            core.warning('Tested PRs report no changed files - using the full test-branch diff');
+            return null;
+        }
+        return files;
+    }
+    catch (error) {
+        core.warning(`Failed to fetch tested PR files (${getErrorMessage(error)}) - using the full test-branch diff`);
+        return null;
+    }
+}
 // Uses github REST api to get list of files changed in PR
-async function getChangedFilesFromApi(token, pullRequest) {
-    core.startGroup(`Fetching list of changed files for PR#${pullRequest.number} from Github API`);
+async function getChangedFilesFromApi(token, pullNumber) {
+    core.startGroup(`Fetching list of changed files for PR#${pullNumber} from Github API`);
     try {
         const client = github.getOctokit(token);
         const per_page = 100;
         const files = [];
-        core.info(`Invoking listFiles(pull_number: ${pullRequest.number}, per_page: ${per_page})`);
+        core.info(`Invoking listFiles(pull_number: ${pullNumber}, per_page: ${per_page})`);
         for await (const response of client.paginate.iterator(client.rest.pulls.listFiles.endpoint.merge({
             owner: github.context.repo.owner,
             repo: github.context.repo.repo,
-            pull_number: pullRequest.number,
+            pull_number: pullNumber,
             per_page
         }))) {
             if (response.status !== 200) {
@@ -42924,6 +42966,53 @@ function getErrorMessage(error) {
     return String(error);
 }
 run();
+
+
+/***/ }),
+
+/***/ 9468:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+// Trunk's merge queue tests each batch on a `trunk-merge/**` branch whose diff
+// against master also carries every PR stacked underneath (optimistic parallel
+// mode), so filters fed that diff run far more jobs than the batch's own
+// changes require. The queue PR body authored by Trunk declares which PRs the
+// branch actually tests; parsing it lets filters scope to those PRs' files.
+// Callers MUST treat an empty result as "fall back to the full branch diff",
+// never as "nothing changed".
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.isTrunkMergeRef = isTrunkMergeRef;
+exports.parseTestedPrNumbers = parseTestedPrNumbers;
+const TESTED_HEADING = /^##\s+Pull Requests Being Tested\s*$/im;
+const NEXT_HEADING = /^##\s/m;
+function isTrunkMergeRef(ref) {
+    return typeof ref === 'string' && ref.startsWith('trunk-merge/');
+}
+function parseTestedPrNumbers(body, repo) {
+    if (!body) {
+        return [];
+    }
+    const heading = body.match(TESTED_HEADING);
+    if (!heading || heading.index === undefined) {
+        return [];
+    }
+    const rest = body.slice(heading.index + heading[0].length);
+    const nextHeading = rest.search(NEXT_HEADING);
+    const section = nextHeading === -1 ? rest : rest.slice(0, nextHeading);
+    // Only same-repo PR links count: a foreign number would make the caller
+    // fetch an unrelated PR's files and silently under-select jobs.
+    const prLink = new RegExp(`github\\.com/${escapeRegExp(repo.owner)}/${escapeRegExp(repo.repo)}/pull/(\\d+)`, 'gi');
+    const numbers = new Set();
+    for (const match of section.matchAll(prLink)) {
+        numbers.add(parseInt(match[1], 10));
+    }
+    return [...numbers];
+}
+function escapeRegExp(text) {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 
 /***/ }),
