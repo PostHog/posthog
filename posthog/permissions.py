@@ -28,7 +28,8 @@ from posthog.auth import (
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeatureException
-from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR
+from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Team, User
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl, ordered_access_levels
 from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS, APIScopeObject, APIScopeObjectOrNotSupported
 from posthog.session.reauth import sensitive_action_reference, step_up_required
@@ -236,6 +237,76 @@ class TeamMemberAccessPermission(BasePermission):
         # - not the "current_team" property of the user
         requesting_level = view.user_permissions.current_team.effective_membership_level
         return requesting_level is not None
+
+
+class VerifiedDomainEnforcementPermission(BasePermission):
+    """
+    Deny members whose email is outside the target organization's verified domains, when that
+    organization has `enforce_verified_domains` on.
+
+    Checked against the URL-resolved organization, never `user.current_organization` — the current
+    organization is a UI preference that routing doesn't validate, so a member of several
+    organizations could otherwise reach an enforcing one by leaving another current. Appended to
+    every `TeamAndOrgViewSetMixin` view in `get_permissions`, this holds for every user-bound
+    authenticator (session, personal API key, OAuth, JWT) regardless of the view's own
+    `authentication_classes`.
+
+    Free while the setting is off: it runs after the membership permission, so `view.team` (loaded
+    with its organization via `select_related`) or `view.organization` is already resolved, and the
+    predicate short-circuits on the organization's own flag before touching the domains table.
+    """
+
+    def has_permission(self, request: Request, view) -> bool:
+        # The root organizations viewset's URL pk isn't in parents_query_dict, so the target can
+        # only be resolved per object below.
+        if view.basename == "organizations":
+            return True
+
+        organization = self._target_organization(view)
+        if organization is None:
+            return True
+        return self._admits(request, organization)
+
+    def has_object_permission(self, request: Request, view, object: Model) -> bool:
+        if view.basename != "organizations" or not isinstance(object, Organization):
+            return True
+        return self._admits(request, object)
+
+    def _admits(self, request: Request, organization: Organization) -> bool:
+        user = request.user
+        # Non-user principals (sharing links, project secret keys, internal API) aren't members
+        # and can't be domain-gated.
+        if not isinstance(user, User):
+            return True
+
+        if not OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, organization):
+            return True
+
+        if is_impersonated_session(request):
+            return True
+
+        raise PermissionDenied(detail=VERIFIED_DOMAIN_REQUIRED_ERROR, code="verified_domain_required")
+
+    def _target_organization(self, view) -> Optional[Organization]:
+        # Same resolution as `get_organization_from_view`, but the team's FK first: routing loads
+        # the team with `select_related("organization")` and `TeamMemberAccessPermission` has
+        # already resolved it, whereas `view.organization` would issue its own PK query on
+        # team-scoped views.
+        try:
+            organization = view.team.organization
+            if isinstance(organization, Organization):
+                return organization
+        except (KeyError, AttributeError, AssertionError, Team.DoesNotExist):
+            pass
+
+        try:
+            organization = view.organization
+            if isinstance(organization, Organization):
+                return organization
+        except (KeyError, AttributeError, AssertionError):
+            pass
+
+        return None
 
 
 def is_authenticated_via_team_secret_token(request: Request) -> bool:

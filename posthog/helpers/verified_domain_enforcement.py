@@ -19,7 +19,10 @@ def enforce_verified_domain(request: Request, user: User) -> None:
     Deny requests from members whose email is outside their current organization's verified domains.
 
     Re-checked per request, like 2FA enforcement, so enabling the setting takes effect on sessions
-    that are already live and switching current organization can't walk around the login-time check.
+    that are already live. This is the app-level cutoff against the *current* organization; the
+    authoritative boundary against the *target* organization — which also covers personal API keys,
+    OAuth, and views with their own `authentication_classes` — is `VerifiedDomainEnforcementPermission`
+    in the shared permission path.
 
     Adds no query while the setting is off: `enforce_verified_domains` comes down the same SELECT as
     `enforce_2fa` (Django fetches the whole row), `user.organization` is a cached property that any

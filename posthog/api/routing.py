@@ -35,6 +35,7 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     SharingTokenPermission,
     TeamMemberAccessPermission,
+    VerifiedDomainEnforcementPermission,
 )
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.scopes import APIScopeObjectOrNotSupported
@@ -267,6 +268,10 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             permission_classes.append(TeamMemberAccessPermission)
         else:
             permission_classes.append(OrganizationMemberPermissions)
+
+        # After the membership permission, so non-members get the generic denial and the
+        # organization row it resolved is reused.
+        permission_classes.append(VerifiedDomainEnforcementPermission)
 
         permission_classes.extend(self.permission_classes)
         return [permission() for permission in permission_classes]

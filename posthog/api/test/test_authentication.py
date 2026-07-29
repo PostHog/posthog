@@ -281,6 +281,52 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["code"], "verified_domain_required")
 
+    def _second_org_with_team(self) -> tuple[Organization, Team]:
+        org = Organization.objects.create(name="Permitted org")
+        team = Team.objects.create(organization=org, name="Permitted project")
+        OrganizationMembership.objects.create(organization=org, user=self.user)
+        return org, team
+
+    def _enforce_current_test_org(self) -> None:
+        self.organization.enforce_verified_domains = True
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+    def test_cross_org_member_cannot_reach_enforced_org_via_direct_api_access(self):
+        # The current organization is a UI preference routing never validates, so enforcement must
+        # hold against the URL-resolved organization — otherwise a member of a permitted org keeps
+        # full API access to the enforcing one by simply not making it current.
+        permitted_org, permitted_team = self._second_org_with_team()
+        self.user.current_organization = permitted_org
+        self.user.current_team = permitted_team
+        self.user.save()
+        self._enforce_current_test_org()
+        self.client.force_login(self.user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "verified_domain_required")
+
+        response = self.client.get(f"/api/projects/{permitted_team.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_personal_api_key_cannot_reach_enforced_org(self):
+        # Personal API keys never pass through session authentication, so this exercises the
+        # permission-layer gate: the same key works against a permitted org and not the enforcing one.
+        _, permitted_team = self._second_org_with_team()
+        self._enforce_current_test_org()
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="Test key", user=self.user, secure_value=hash_key_value(key_value))
+
+        response = self.client.get(f"/api/projects/{self.team.id}/", HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "verified_domain_required")
+
+        response = self.client.get(f"/api/projects/{permitted_team.id}/", HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
     def test_email_unverified_user_cant_log_in_if_email_available(
