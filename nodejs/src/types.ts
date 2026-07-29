@@ -157,7 +157,6 @@ export interface PluginServerCapabilities {
     cdpRerunWorker?: boolean
     cdpHogflowScheduler?: boolean
     cdpHogflowSubscriptionMatcher?: boolean
-    emailReputationEvaluator?: boolean
     recordingApi?: boolean
     ingestionV2Testing?: boolean
 }
