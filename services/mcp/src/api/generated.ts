@@ -12803,6 +12803,37 @@ export namespace Schemas {
     }
 
     /**
+     * A canvas document. Version/build content hangs off the source and build endpoints.
+     */
+    export interface Canvas {
+      readonly id: string;
+      readonly name: string;
+      readonly channel: string;
+      readonly template_id: string;
+      readonly context: string;
+      /** @nullable */
+      readonly generation_task_id: string | null;
+      /** Whether the canvas is pinned to its channel. */
+      readonly pinned: boolean;
+      /** @nullable */
+      readonly pinned_at: string | null;
+      readonly is_home: boolean;
+      /**
+         * Id of the live source version — pass as expected_current_version_id on publish. Null before the first publish.
+         * @nullable
+         */
+      readonly current_version_id: string | null;
+      /**
+         * Id of the canvas's live (last successful, still-eligible) build. Null until a build completes.
+         * @nullable
+         */
+      readonly published_build_id: string | null;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    /**
      * One emitted file of a built canvas artifact.
      */
     export interface CanvasArtifactAsset {
@@ -12859,7 +12890,7 @@ export namespace Schemas {
        * * `error` - error
        * * `warning` - warning */
       severity: DiagnosticSeverityEnum;
-      /** Stable machine-readable diagnostic code, e.g. 'import_not_allowed' or 'unsupported_file'. */
+      /** Stable machine-readable diagnostic code, e.g. 'import_not_allowed' or 'capability_missing_insight'. */
       code: string;
       /** Human-readable description of the problem and how to fix it. */
       message: string;
@@ -12894,10 +12925,10 @@ export namespace Schemas {
          */
       integrity: string | null;
       /**
-         * Short-lived URL for the ready build's entry HTML. Null until ready or when artifact delivery is unavailable.
+         * Signed URL for the ready build's entry HTML. Null until ready or when artifact delivery is unavailable.
          * @nullable
          */
-      artifact_url: string | null;
+      readonly artifact_url: string | null;
       /** Pinned builds are retained for the lifetime of the canvas. */
       pinned: boolean;
       /** When the build was queued. */
@@ -12910,6 +12941,27 @@ export namespace Schemas {
     }
 
     /**
+     * * `retry` - retry
+     * * `pin` - pin
+     * * `unpin` - unpin
+     * * `cancel` - cancel
+     */
+    export type CanvasBuildActionActionEnum = typeof CanvasBuildActionActionEnum[keyof typeof CanvasBuildActionActionEnum];
+
+
+    export const CanvasBuildActionActionEnum = {
+      Retry: 'retry',
+      Pin: 'pin',
+      Unpin: 'unpin',
+      Cancel: 'cancel',
+    } as const;
+
+    export interface CanvasBuildAction {
+      action: CanvasBuildActionActionEnum;
+      build_id: string;
+    }
+
+    /**
      * A canvas's build lifecycle: live pointers plus its most recent builds.
      */
     export interface CanvasBuildsResponse {
@@ -12919,22 +12971,56 @@ export namespace Schemas {
          */
       published_build_id: string | null;
       /**
-         * Id of the source-version row the canvas's head points at.
+         * Id of the source version the canvas's head points at.
          * @nullable
          */
-      current_source_version_id: string | null;
-      /** Most recent builds, newest first (capped at 20). */
+      current_version_id: string | null;
+      /** Most recent builds, newest first (capped at 20; the live build is always included). */
       builds: CanvasBuild[];
+    }
+
+    export interface CanvasPostHogCapabilities {
+      /**
+         * @maxItems 100
+         * @items.maxLength 128
+         */
+      insights: string[];
+      inlineQueries: boolean;
+      /**
+         * @maxItems 100
+         * @items.maxLength 200
+         */
+      captureEvents: string[];
+    }
+
+    export interface CanvasNetworkCapabilities {
+      /**
+         * @maxItems 20
+         * @items.maxLength 2048
+         */
+      origins: string[];
+    }
+
+    export interface CanvasCapabilities {
+      posthog: CanvasPostHogCapabilities;
+      network: CanvasNetworkCapabilities;
     }
 
     /**
      * Payload for creating a new, empty canvas in a channel.
      */
     export interface CanvasCreate {
-      /** Display name for the canvas. Slashes are replaced with spaces. */
+      /**
+         * Display name for the canvas.
+         * @maxLength 400
+         */
       name: string;
-      /** Desktop file-system id of the channel (folder) to create the canvas in. */
+      /** Id of the channel the canvas belongs to. */
       channel_id: string;
+      /** @maxLength 64 */
+      template_id?: string;
+      /** Create the canvas as the channel's home board (at most one per channel). */
+      is_home?: boolean;
     }
 
     /**
@@ -12946,10 +13032,18 @@ export namespace Schemas {
       /** Always "version_conflict". */
       code: string;
       /**
-         * The canvas's live currentVersionId at rejection time (null when the canvas has no versions).
+         * The canvas's live current_version_id at rejection time (null when the canvas has no versions).
          * @nullable
          */
       current_version_id: string | null;
+    }
+
+    /**
+     * Payload for reverting the canvas's head to an existing source version.
+     */
+    export interface CanvasRevert {
+      /** Id of the source version to make the head again. */
+      version_id: string;
     }
 
     /**
@@ -13019,7 +13113,10 @@ export namespace Schemas {
       operations: CanvasSourceEditOperation[];
       /** Short description of the change, stored on the appended version history entry. */
       prompt?: string;
-      /** Optional new display name for the canvas (rewrites the leaf segment of its path). */
+      /**
+         * Optional new display name for the canvas.
+         * @maxLength 400
+         */
       name?: string;
       /**
          * Required optimistic-concurrency guard: the current_version_id the edits are based on (null when the canvas has never been published). Diff edits against a moved head are rejected with 409 version_conflict — they cannot be published unguarded.
@@ -13041,7 +13138,7 @@ export namespace Schemas {
     }
 
     /**
-     * Project files keyed by relative path (forward slashes, no '..'). Until the canvas build service ships, only "index.html" and "src/canvas.tsx" (the single React component the canvas mounts) are supported.
+     * Project files keyed by relative path (forward slashes, no '..').
      */
     export type CanvasSourceProjectFiles = {[key: string]: string};
 
@@ -13057,15 +13154,11 @@ export namespace Schemas {
 
     /**
      * A canvas's multi-file source project — the canonical write format for canvas source.
-     *
-     * Until the canvas build service ships, projects are constrained to the
-     * legacy-compatible shape: `index.html` (a fixed synthetic shell) plus
-     * `src/canvas.tsx` (the single React component the runtime mounts).
      */
     export interface CanvasSourceProject {
       /** Source-project schema version. Currently always 1. */
       schemaVersion: number;
-      /** Project files keyed by relative path (forward slashes, no '..'). Until the canvas build service ships, only "index.html" and "src/canvas.tsx" (the single React component the canvas mounts) are supported. */
+      /** Project files keyed by relative path (forward slashes, no '..'). */
       files: CanvasSourceProjectFiles;
       /** Optional base64-encoded binary assets keyed by safe project-relative paths. */
       assets?: CanvasSourceProjectAssets;
@@ -13075,6 +13168,8 @@ export namespace Schemas {
       dependencies?: CanvasSourceProjectDependencies;
       /** Version of the host-injected `ph` canvas SDK the project targets. */
       canvasSdkVersion?: string;
+      /** Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. */
+      capabilities?: CanvasCapabilities;
     }
 
     /**
@@ -13085,7 +13180,10 @@ export namespace Schemas {
       project: CanvasSourceProject;
       /** Short description of the change, stored on the appended version history entry. */
       prompt?: string;
-      /** Optional new display name for the canvas (rewrites the leaf segment of its path). */
+      /**
+         * Optional new display name for the canvas.
+         * @maxLength 400
+         */
       name?: string;
       /**
          * Optimistic-concurrency guard: the current_version_id the publisher based its edits on (null when it read a canvas with no versions yet). When the canvas has since moved past it the publish is rejected with a 409 version_conflict instead of overwriting the newer head. Omit to publish unguarded.
@@ -13095,37 +13193,27 @@ export namespace Schemas {
     }
 
     /**
-     * Identity and version pointers for one canvas (a desktop 'dashboard' entry).
+     * Identity and version pointers for one canvas.
      */
     export interface CanvasSummary {
-      /** The canvas's desktop file-system id. */
+      /** The canvas's id. */
       id: string;
-      /** Display name of the canvas (the leaf segment of its path). */
+      /** Display name of the canvas. */
       name: string;
-      /**
-         * File-system id of the channel (folder) the canvas belongs to, when recorded.
-         * @nullable
-         */
-      channel_id: string | null;
+      /** Id of the channel the canvas belongs to. */
+      channel_id: string;
       /**
          * Id of the live source version — pass as expected_current_version_id on publish. Null before the first publish.
          * @nullable
          */
       current_version_id: string | null;
-      /** Number of source versions in the canvas's history. */
-      version_count: number;
-      /** When the canvas was created. */
-      created_at: string;
-      /**
-         * Id of the normalized source-version row the canvas's head points at (null before the lifecycle recorded one).
-         * @nullable
-         */
-      current_source_version_id?: string | null;
       /**
          * Id of the canvas's live (last successful, still-eligible) build. Null until a build completes.
          * @nullable
          */
-      published_build_id?: string | null;
+      published_build_id: string | null;
+      /** When the canvas was created. */
+      created_at: string;
     }
 
     /**
@@ -13146,7 +13234,7 @@ export namespace Schemas {
     export interface CanvasSourceResponse {
       /** Identity and version pointers for the canvas. */
       canvas: CanvasSummary;
-      /** The canvas's source project. Legacy single-file canvases are presented as a synthetic project. */
+      /** The canvas's source project. Pre-relational single-file canvases are presented as a synthetic project. */
       project: CanvasSourceProject;
       /**
          * The live source version this project reflects — pass as expected_current_version_id when publishing an edit. Null before the first publish.
@@ -13423,6 +13511,14 @@ export namespace Schemas {
     }
 
     /**
+     * The task currently generating this channel's CONTEXT.md, or null.
+     */
+    export interface ChannelContextGeneration {
+      /** @nullable */
+      task_id: string | null;
+    }
+
+    /**
      * @nullable
      */
     export type TaskUserBasicInfoHedgehogConfig = { [key: string]: unknown } | null;
@@ -13454,6 +13550,7 @@ export namespace Schemas {
       channel_type: string;
       created_at: string;
       created_by?: TaskUserBasicInfo | null;
+      starred?: boolean;
     }
 
     /**
@@ -13524,6 +13621,35 @@ export namespace Schemas {
     }
 
     /**
+     * Response shape for a channel's CONTEXT.md instructions version.
+     */
+    export interface ChannelInstructionsDTO {
+      channel: string;
+      content: string;
+      version: number;
+      /** @nullable */
+      created_at?: string | null;
+      created_by?: TaskUserBasicInfo | null;
+    }
+
+    /**
+     * Request body for publishing a new instructions version.
+     */
+    export interface ChannelInstructionsWrite {
+      /**
+         * The complete markdown instructions (CONTEXT.md) for the channel.
+         * @maxLength 100000
+         */
+      content: string;
+      /**
+         * Optimistic-concurrency guard: the version the edit is based on (0 for a channel with no instructions yet). A stale base is rejected with 409; omit to publish unguarded.
+         * @minimum 0
+         * @nullable
+         */
+      base_version?: number | null;
+    }
+
+    /**
      * * `widget` - Widget
      * * `email` - Email
      * * `slack` - Slack
@@ -13540,6 +13666,13 @@ export namespace Schemas {
       Teams: 'teams',
       Github: 'github',
     } as const;
+
+    /**
+     * Request body for starring/unstarring a channel for the requesting user.
+     */
+    export interface ChannelStarWrite {
+      starred: boolean;
+    }
 
     /**
      * Request body for creating (resolve-or-create) or renaming a public channel.
@@ -14608,22 +14741,6 @@ export namespace Schemas {
       Utf8: 'utf-8',
       Base64: 'base64',
     } as const;
-
-    export interface ContextGeneration {
-      /**
-         * ID of the Task currently generating this folder's CONTEXT.md, or null if none.
-         * @nullable
-         */
-      task_id: string | null;
-    }
-
-    export interface ContextGenerationSet {
-      /**
-         * ID of the Task generating this folder's CONTEXT.md. Must reference a Task in the same team. Set to null to clear the association.
-         * @nullable
-         */
-      task_id: string | null;
-    }
 
     export type ConversationMessagesItem = { [key: string]: unknown };
 
@@ -32367,49 +32484,6 @@ export namespace Schemas {
       latest_at: string | null;
     }
 
-    export interface FolderInstructions {
-      /** Unique identifier for this instructions version. */
-      readonly id: string;
-      /** Markdown instructions describing the contents of the folder. */
-      readonly content: string;
-      /** Monotonically increasing version number, starting at 1. */
-      readonly version: number;
-      /** Whether this is the current (latest) version for the folder. */
-      readonly is_latest: boolean;
-      /** User who published this version. */
-      readonly created_by: UserBasic;
-      /** When this version was published. */
-      readonly created_at: string;
-      /** When this version row was last modified. */
-      readonly updated_at: string;
-    }
-
-    export interface FolderInstructionsPublish {
-      /** Full markdown instructions to publish as a new version for the folder. */
-      content: string;
-      /**
-         * Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet.
-         * @minimum 0
-         */
-      base_version?: number;
-    }
-
-    /**
-     * Version-history entry: metadata only, with the markdown content omitted.
-     */
-    export interface FolderInstructionsVersion {
-      /** Unique identifier for this instructions version. */
-      readonly id: string;
-      /** Monotonically increasing version number, starting at 1. */
-      readonly version: number;
-      /** Whether this is the current (latest) version for the folder. */
-      readonly is_latest: boolean;
-      /** User who published this version. */
-      readonly created_by: UserBasic;
-      /** When this version was published. */
-      readonly created_at: string;
-    }
-
     /**
      * Request body for `forget`.
      */
@@ -38772,13 +38846,13 @@ export namespace Schemas {
     export interface LoopContextTargetDTO {
       /** What the loop maintains in this context each run. */
       outputs: LoopContextOutputsDTO;
-      folder_id: string;
+      channel_id: string;
       name: string;
     }
 
     export interface LoopContextTargetWrite {
-      /** Desktop folder id of the context this loop is attached to. */
-      folder_id: string;
+      /** Id of the channel (context) this loop is attached to. */
+      channel_id: string;
       /**
          * Context (channel) name, used to file runs into its feed.
          * @maxLength 128
@@ -41867,6 +41941,15 @@ export namespace Schemas {
       results: CIMDVerificationToken[];
     }
 
+    export interface PaginatedCanvasList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: Canvas[];
+    }
+
     export interface PaginatedChangeRequestList {
       count: number;
       /** @nullable */
@@ -41892,6 +41975,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ChannelFeedMessageDTO[];
+    }
+
+    export interface PaginatedChannelInstructionsDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ChannelInstructionsDTO[];
     }
 
     export interface PaginatedClickhouseEventList {
@@ -42428,15 +42520,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: FileSystemShortcut[];
-    }
-
-    export interface PaginatedFolderInstructionsVersionList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: FolderInstructionsVersion[];
     }
 
     export interface PaginatedGroupUsageMetricList {
@@ -47631,6 +47714,35 @@ export namespace Schemas {
     }
 
     /**
+     * Writable canvas fields: metadata only — source changes go through publish/edit.
+     */
+    export interface PatchedCanvasUpdate {
+      /** @maxLength 400 */
+      name?: string;
+      context?: string;
+      pinned?: boolean;
+      /** @nullable */
+      generation_task_id?: string | null;
+    }
+
+    /**
+     * Request body for publishing a new instructions version.
+     */
+    export interface PatchedChannelInstructionsWrite {
+      /**
+         * The complete markdown instructions (CONTEXT.md) for the channel.
+         * @maxLength 100000
+         */
+      content?: string;
+      /**
+         * Optimistic-concurrency guard: the version the edit is based on (0 for a channel with no instructions yet). A stale base is rejected with 409; omit to publish unguarded.
+         * @minimum 0
+         * @nullable
+         */
+      base_version?: number | null;
+    }
+
+    /**
      * Request body for creating (resolve-or-create) or renaming a public channel.
      */
     export interface PatchedChannelWrite {
@@ -49652,16 +49764,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
-    }
-
-    export interface PatchedFolderInstructionsPublish {
-      /** Full markdown instructions to publish as a new version for the folder. */
-      content?: string;
-      /**
-         * Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet.
-         * @minimum 0
-         */
-      base_version?: number;
     }
 
     export interface PatchedGroupType {
@@ -73829,6 +73931,17 @@ export namespace Schemas {
       text?: string;
     };
 
+    export type CanvasesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type ChangeRequestsListParams = {
     action_key?: string;
     /**
@@ -74796,58 +74909,6 @@ export namespace Schemas {
      * Search in name, description, or metadata
      */
     search?: string;
-    };
-
-    export type DesktopFileSystemListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type DesktopFileSystemInstructionsVersionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type DesktopFileSystemCanvasesListParams = {
-    /**
-     * Only return canvases inside this channel (desktop folder id).
-     */
-    channel_id?: string;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type DesktopFileSystemShortcutListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     };
 
     export type EarlyAccessFeatureListParams = {

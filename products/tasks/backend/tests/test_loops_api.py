@@ -23,21 +23,13 @@ try:
 except ImportError:
     pass
 
-from posthog.models import (
-    FileSystem,
-    Organization,
-    OrganizationMembership,
-    PersonalAPIKey,
-    ProjectSecretAPIKey,
-    Team,
-    User,
-)
+from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, ProjectSecretAPIKey, Team, User
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
 
 from products.tasks.backend.facade import loops as loops_facade
-from products.tasks.backend.models import Loop, LoopTrigger, Task, TaskRun
+from products.tasks.backend.models import Channel, Loop, LoopTrigger, Task, TaskRun
 from products.tasks.backend.presentation.views.loops import MAX_LOOP_TRIGGER_PAYLOAD_BYTES
 
 
@@ -774,10 +766,11 @@ class LoopVisibilityAPITest(LoopsAPITestCase):
 class LoopContextVisibilityAPITest(LoopsAPITestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.folder = FileSystem.objects.create(team=self.team, path="Growth Team", type="folder", surface="desktop")
+        self.channel = Channel(team=self.team, name="growth-team", created_by=self.owner)
+        self.channel.save()
 
     def _context_target(self) -> dict:
-        return {"folder_id": str(self.folder.id), "name": "Growth Team", "outputs": {"post_to_feed": True}}
+        return {"channel_id": str(self.channel.id), "name": "Growth Team", "outputs": {"post_to_feed": True}}
 
     @parameterized.expand(
         [
@@ -809,7 +802,7 @@ class LoopContextVisibilityAPITest(LoopsAPITestCase):
 
         current = self.owner_client.get(self._loop_url(loop_id)).json()
         if expected_status == status.HTTP_200_OK:
-            self.assertEqual(current["context_target"]["folder_id"], str(self.folder.id))
+            self.assertEqual(current["context_target"]["channel_id"], str(self.channel.id))
         else:
             self.assertIsNone(current["context_target"])
 
