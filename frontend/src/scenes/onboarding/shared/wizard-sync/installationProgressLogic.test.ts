@@ -74,6 +74,16 @@ describe('installationProgressLogic merge', () => {
             expect(cloudProgress(state, [], conn, null).phase).toBe(expected)
         })
 
+        it.each([
+            // A deliberate cancel (button or PR close) must not read as a broken installation.
+            ['cancelled', 'Run cancelled'],
+            ['failed', 'Installation failed'],
+        ])('titles a terminal %s run as %s', (status, expectedTitle) => {
+            const result = cloudProgress(taskState({ status, error_message: 'Stopped by user' }), [], 'open', null)
+            expect(result.error?.title).toBe(expectedTitle)
+            expect(result.error?.detail).toBe('Stopped by user')
+        })
+
         it('surfaces a stalled queued run as an error instead of an eternal spinner', () => {
             const result = cloudProgress(taskState({ status: 'queued' }), [], 'open', null, true)
             expect(result.phase).toBe('error')
@@ -82,6 +92,15 @@ describe('installationProgressLogic merge', () => {
 
         it('ignores the stall flag once the run has left the queue', () => {
             expect(cloudProgress(taskState({ status: 'in_progress' }), [], 'open', null, true).phase).toBe('running')
+        })
+
+        it('surfaces a run that never delivered any state as an error, not an eternal idle spinner', () => {
+            // `idle` renders a spinner with no recovery controls, so a stream that stayed silent has
+            // to resolve to the error phase (which carries the retry CTAs and the dismiss control).
+            const result = cloudProgress(null, [], 'open', null, true)
+            expect(result.phase).toBe('error')
+            expect(result.error?.title).toBe('Setup lost contact')
+            expect(result.isCurrent).toBe(true)
         })
 
         it.each([

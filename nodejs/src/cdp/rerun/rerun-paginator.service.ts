@@ -4,6 +4,7 @@ import { Counter } from 'prom-client'
 
 import { logger } from '~/common/utils/logger'
 
+import { HogFunctionInvocationGlobalsSchema } from '../schema/cyclotron'
 import { CyclotronJobConflictError } from '../services/cyclotron-v2'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
@@ -606,6 +607,21 @@ export class RerunPaginatorService {
             // rehydrates `groups`/`person` and the executor rebuilds `inputs`
             // from the current hog function config, so the rerun runs against
             // the latest config/secrets rather than a stored snapshot.
+            //
+            // Validate the shape before trusting it: a snapshot written by an
+            // older serializer (or otherwise drifted) can be missing
+            // project/event, which the worker dereferences unguarded — skip the
+            // row rather than re-enqueue a poison pill.
+            const parsed = HogFunctionInvocationGlobalsSchema.safeParse(parsedGlobals)
+            if (!parsed.success) {
+                logger.warn('⚠️', 'Skipping rerun of invocation with malformed persisted globals', {
+                    functionId,
+                    teamId,
+                    invocation_id: row.invocation_id,
+                    issues: parsed.error.issues.map((issue) => issue.path.join('.')),
+                })
+                return null
+            }
             const persistedGlobals = parsedGlobals as HogFunctionInvocationGlobalsWithInputs
 
             const invocation: CyclotronJobInvocationHogFunction = {

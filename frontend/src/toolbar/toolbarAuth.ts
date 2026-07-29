@@ -90,7 +90,16 @@ export async function withTokenRefresh(
 
     // `response?.status` (not `response.status`) so a non-Response value from a customer-page
     // `fetch` wrapper can't throw here — callers that don't route through `safeFetch` stay safe too.
-    if (response?.status !== 401 || !accessToken || !refreshToken || !clientId || !uiHost) {
+    if (response?.status !== 401 || !accessToken || !clientId || !uiHost) {
+        return response
+    }
+
+    // Refresh-less tokens (impersonation-minted, refresh-less by design) can't be refreshed —
+    // a 401 means the short-lived access token has expired, so prompt the user to re-authenticate.
+    if (!refreshToken) {
+        toolbarLogger.warn('auth', 'Access token expired and no refresh token available, re-authentication required')
+        lemonToast.error('Please re-authenticate to continue using the toolbar.')
+        toolbarConfigLogic.actions.tokenExpired()
         return response
     }
 

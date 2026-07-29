@@ -8,6 +8,8 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from modal.exception import (
     ConnectionError as ModalConnectionError,
     ServiceError as ModalServiceError,
@@ -39,6 +41,7 @@ from products.tasks.backend.logic.services.modal_sandbox import (
     _image_ref_cache,
     _merge_runtime_dependency_specs,
     _resource_create_kwargs,
+    _session_init_probe_hosts,
 )
 from products.tasks.backend.logic.services.sandbox import (
     AgentServerResult,
@@ -549,6 +552,8 @@ class TestModalSandboxAgentServer:
             provider="openai",
             model="gpt-5.3-codex",
             reasoning_effort="high",
+            context_window="1m",
+            fast_mode=True,
             initial_permission_mode="plan",
             event_ingest_token="ingest-token",
             event_ingest_url="https://agent-proxy.example.com",
@@ -559,11 +564,39 @@ class TestModalSandboxAgentServer:
         assert "POSTHOG_CODE_PROVIDER=openai" in command
         assert "POSTHOG_CODE_MODEL=gpt-5.3-codex" in command
         assert "POSTHOG_CODE_REASONING_EFFORT=high" in command
+        assert "POSTHOG_CODE_CONTEXT_WINDOW=1m" in command
+        assert "POSTHOG_CODE_FAST_MODE=true" in command
         assert "POSTHOG_CODE_INITIAL_PERMISSION_MODE=plan" in command
         assert "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=ingest-token" in command
         # Modal sandboxes reach the proxy by its real URL, no Docker-host rewrite.
         assert "POSTHOG_TASK_RUN_EVENT_INGEST_URL=https://agent-proxy.example.com" in command
         assert "POSTHOG_RTK=1" in command
+
+    @pytest.mark.parametrize(
+        "fast_mode, expected_env",
+        [
+            (False, "POSTHOG_CODE_FAST_MODE=false"),
+            (None, None),
+        ],
+    )
+    def test_start_agent_server_fast_mode_env(self, mock_sandbox: Any, fast_mode, expected_env):
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+        )
+
+        mock_sandbox.start_agent_server(
+            repository="posthog/posthog",
+            task_id="task-123",
+            run_id="run-456",
+            mode="background",
+            fast_mode=fast_mode,
+        )
+
+        command = _agent_server_launch_command(mock_sandbox.execute)
+        if expected_env is not None:
+            assert expected_env in command
+        else:
+            assert "POSTHOG_CODE_FAST_MODE" not in command
 
     @pytest.mark.parametrize(
         "rtk_enabled, expected_env",
@@ -641,6 +674,8 @@ class TestModalSandboxAgentServer:
         mock_sandbox.execute = MagicMock(
             side_effect=[
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # gh shim write (mv)
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # gh shim chmod
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # --posthogExecPermissionRegex probe
                 ExecutionResult(stdout="", stderr="", exit_code=1, error=None),
                 ExecutionResult(stdout="some log output", stderr="", exit_code=0, error=None),
@@ -696,6 +731,8 @@ class TestModalSandboxAgentServer:
         mock_sandbox.execute = MagicMock(
             side_effect=[
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # gh shim write (mv)
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # gh shim chmod
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # --posthogExecPermissionRegex probe
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
                 ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
@@ -1170,3 +1207,25 @@ class TestModalSandboxCreateSnapshot:
         mock_sandbox._sandbox.snapshot_directory.assert_called_once_with(
             "/tmp/workspace", timeout=DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS, ttl=None
         )
+
+
+class TestSessionInitProbeHosts:
+    @override_settings(
+        SANDBOX_LLM_GATEWAY_URL="https://gateway.dev.posthog.dev",
+        SANDBOX_AI_GATEWAY_URL="https://ai-gateway.dev.posthog.dev",
+    )
+    def test_includes_both_configured_gateway_hosts(self):
+        # Routed products call the ai-gateway during session init; if the probe
+        # omits its host, a blocked ai-gateway diagnoses as "no egress block
+        # detected" (the exact failure class this probe exists to name).
+        hosts = _session_init_probe_hosts()
+        assert "gateway.dev.posthog.dev" in hosts
+        assert "ai-gateway.dev.posthog.dev" in hosts
+
+    @override_settings(
+        SANDBOX_LLM_GATEWAY_URL="https://gateway.us.posthog.com",
+        SANDBOX_AI_GATEWAY_URL=None,
+    )
+    def test_deduplicates_against_static_hosts_and_skips_unset(self):
+        hosts = _session_init_probe_hosts()
+        assert hosts.count("gateway.us.posthog.com") == 1

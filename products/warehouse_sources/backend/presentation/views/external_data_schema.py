@@ -349,9 +349,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     # the runtime behaviour (a read-only SerializerMethodField backed by get_source) is correct.
     source = serializers.SerializerMethodField(  # type: ignore[assignment]
         read_only=True,
-        help_text="Lightweight parent-source summary (id, source_type, column-selection support, the requesting "
-        "user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so "
-        "read-only views can render without fetching the full source and all its schemas.",
+        help_text="Lightweight parent-source summary (id, source_type, access_method, column-selection support, "
+        "the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` "
+        "elsewhere — so read-only views can render without fetching the full source and all its schemas.",
     )
 
     class Meta:
@@ -442,6 +442,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "properties": {
                 "id": {"type": "string"},
                 "source_type": {"type": "string"},
+                "access_method": {"type": "string"},
                 "supports_column_selection": {"type": "boolean"},
                 "supports_row_filters": {"type": "boolean"},
                 "user_access_level": {"type": "string", "nullable": True},
@@ -472,6 +473,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         return {
             "id": str(source.id),
             "source_type": source.source_type,
+            # The schema page hides sync-history UI for direct-query sources, which have no jobs.
+            "access_method": source.access_method,
             "supports_column_selection": source_supports_column_selection(source.source_type),
             "supports_row_filters": source_supports_row_filters(source.source_type),
             "user_access_level": user_access_level,
@@ -1511,16 +1514,30 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         if latest_running_job.pipeline_version != ExternalDataJob.PipelineVersion.V3:
-            # v1/v2: the workflow itself owns the job's terminal status, so keep the legacy
-            # behavior where the cancel RPC is the whole operation and a missing workflow
-            # is an error.
+            # v1/v2: normally the workflow handles the cancellation and writes the job's
+            # terminal status itself, so the cancel RPC is the whole operation.
             try:
                 cancel_external_data_workflow(latest_running_job.workflow_id)
             except temporalio.service.RPCError as e:
-                logger.exception(f"Could not cancel external data workflow for schema {instance.id}", exc_info=e)
-                return Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"detail": "Could not find workflow to cancel. The sync may have already finished."},
+                if e.status != temporalio.service.RPCStatusCode.NOT_FOUND:
+                    # Transient RPC failure against a possibly-live workflow. The workflow still
+                    # owns the terminal status, so leave the job Running and surface the failure.
+                    logger.exception(f"Could not cancel external data workflow for schema {instance.id}", exc_info=e)
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"detail": "Could not cancel the running sync. Please try again."},
+                    )
+                # The workflow is already gone (e.g. it was terminated rather than cancelled), so it
+                # will never run the cleanup that writes the terminal status - the job and schema
+                # would stay stuck on Running forever. Write the Failed status ourselves so the
+                # schema unsticks and can be synced again.
+                logger.info("cancel_sync_v2_workflow_already_gone", schema_id=str(instance.id))
+                update_external_job_status(
+                    job_id=str(latest_running_job.id),
+                    team_id=instance.team_id,
+                    status=ExternalDataJob.Status.FAILED,
+                    logger=logger,
+                    latest_error="Sync cancelled by user",
                 )
             return Response(status=status.HTTP_200_OK)
 
@@ -1611,7 +1628,14 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 config, self.team_id, names=[instance.name], api_version=effective_api_version
             )
         except Exception as e:
-            capture_exception(e)
+            # `validate_credentials` above just probed the same connection successfully, so a
+            # failure here that the source itself classifies as non-retryable (e.g. a connect-time
+            # timeout, which usually means an unreachable host or unconfigured firewall) is an
+            # expected customer/upstream condition, not a bug — don't flood error tracking with it.
+            # Mirrors `refresh_schemas`'s `_classify_refresh_schemas_error`.
+            error_text = str(e)
+            if not any(pattern and pattern in error_text for pattern in new_source.get_non_retryable_errors()):
+                capture_exception(e)
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": str(e)},

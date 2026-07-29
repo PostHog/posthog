@@ -126,6 +126,38 @@ class TestVercelSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
 
+    @parameterized.expand(
+        [
+            ("server_error", "Vercel API error (retryable): status=500, url=https://api.vercel.com/v1/billing/charges"),
+            ("rate_limit", "Vercel API error (retryable): status=429, url=https://api.vercel.com/v6/deployments"),
+        ]
+    )
+    def test_retryable_errors_match_known_failures(self, _name: str, observed_error: str) -> None:
+        # Matches the message `_fetch_page`/`_open_billing_stream` raise after their internal
+        # retry loop exhausts; keeps this benign, self-recovering failure out of error tracking.
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors)
+
+    @parameterized.expand(
+        [
+            (
+                "connection_error",
+                "HTTPSConnectionPool(host='api.vercel.com', port=443): Max retries exceeded with url: "
+                '/v1/billing/charges?teamId=team_abc (Caused by ReadTimeoutError("HTTPSConnectionPool'
+                "(host='api.vercel.com', port=443): Read timed out. (read timeout=120)\"))",
+            ),
+            (
+                "read_timeout",
+                "HTTPSConnectionPool(host='api.vercel.com', port=443): Read timed out. (read timeout=120)",
+            ),
+        ]
+    )
+    def test_retryable_errors_match_transient_network_failures(self, _name: str, observed_error: str) -> None:
+        # `_fetch_page`/`_open_billing_stream` already retry these in-process; once exhausted, this
+        # keeps the benign, self-recovering failure out of error tracking.
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors)
+
     def test_get_resumable_source_manager_binds_data_class(self) -> None:
         manager = self.source.get_resumable_source_manager(_source_inputs("deployments"))
         assert isinstance(manager, ResumableSourceManager)

@@ -61,6 +61,10 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'customer analytics'
     } else if (resource === AccessControlResourceType.LlmAnalytics) {
         return 'AI observability'
+    } else if (resource === AccessControlResourceType.McpAnalytics) {
+        return 'MCP analytics'
+    } else if (resource === AccessControlResourceType.LlmSkill) {
+        return 'skills'
     } else if (resource === AccessControlResourceType.AiObservabilityClusters) {
         return 'AI trace clusters'
     } else if (resource === AccessControlResourceType.RevenueAnalytics) {
@@ -86,8 +90,12 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'sharing'
     } else if (resource === AccessControlResourceType.Toolbar) {
         return 'toolbar'
+    } else if (resource === AccessControlResourceType.LlmPlayground) {
+        return 'LLM playground'
     } else if (resource === AccessControlResourceType.Workflow) {
         return 'workflows'
+    } else if (resource === AccessControlResourceType.Ticket) {
+        return 'support'
     } else if (resource === AccessControlResourceType.ReplayScanner) {
         // Covers both scanners and their scheduled summary actions — "replay vision" is the product name.
         return 'replay vision'
@@ -125,6 +133,10 @@ export const resourceTypeToString = (resourceType: AccessControlResourceType): s
         return 'customer analytics resource'
     } else if (resourceType === AccessControlResourceType.LlmAnalytics) {
         return 'AI observability resource'
+    } else if (resourceType === AccessControlResourceType.LlmSkill) {
+        return 'skill'
+    } else if (resourceType === AccessControlResourceType.LlmPlayground) {
+        return 'LLM playground'
     } else if (resourceType === AccessControlResourceType.AiObservabilityClusters) {
         return 'AI trace clusters resource'
     } else if (resourceType === AccessControlResourceType.RevenueAnalytics) {
@@ -141,6 +153,8 @@ export const resourceTypeToString = (resourceType: AccessControlResourceType): s
         return 'tracing resource'
     } else if (resourceType === AccessControlResourceType.Workflow) {
         return 'workflow'
+    } else if (resourceType === AccessControlResourceType.McpAnalytics) {
+        return 'MCP analytic'
     } else if (resourceType === AccessControlResourceType.ReplayScanner) {
         return 'replay vision resource'
     }

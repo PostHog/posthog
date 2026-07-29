@@ -18,7 +18,7 @@ from products.tasks.backend.exceptions import (
     OAuthTokenError,
     TaskNotFoundError,
 )
-from products.tasks.backend.logic.services.agentsh import INFRASTRUCTURE_DOMAINS, _get_debug_only_domains
+from products.tasks.backend.logic.services.agentsh import _get_debug_only_domains, enforced_egress_domains
 from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_JWT_STATE_KID_KEY,
     get_primary_sandbox_jwt_kid,
@@ -40,11 +40,13 @@ from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     set_git_remote_token,
 )
 from products.tasks.backend.temporal.process_task.utils import (
+    ai_gateway_env_vars,
     get_git_identity_env_vars,
     get_readonly_github_token,
     get_sandbox_api_url,
     get_sandbox_github_token,
     get_sandbox_name_for_task,
+    get_sandbox_otel_env_vars,
     get_sandbox_snapshot_metadata,
     get_task_run_credential_user,
     parse_run_state,
@@ -157,12 +159,13 @@ def _to_modal_domain_allowlist(allowed_domains: list[str]) -> list[str]:
     """Translate the agentsh allowlist into Modal's outbound_domain_allowlist.
 
     Modal fences the whole sandbox and supports `*.` wildcards that match the
-    apex and any subdomain, so union in the infra (and local tunnel) domains the
-    agent needs, drop loopback aliases Modal rejects as invalid domains, and
-    collapse entries already covered by a wildcard.
+    apex and any subdomain, so union in the shared egress source set (infra
+    plus settings-derived sandbox hosts) the agent needs, drop loopback
+    aliases Modal rejects as invalid domains, and collapse entries already
+    covered by a wildcard.
     """
     domains = list(allowed_domains)
-    extra = list(INFRASTRUCTURE_DOMAINS)
+    extra = enforced_egress_domains()
     if settings.DEBUG:
         extra += _get_debug_only_domains()
     for domain in extra:
@@ -338,11 +341,16 @@ def _build_environment_variables(
     if settings.SANDBOX_LLM_GATEWAY_URL:
         environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
+    environment_variables.update(ai_gateway_env_vars())
+
     if settings.DEBUG:
         # Local eval runs pin models per unit; the agent's overload rescue would silently switch a
         # session to the fallback model mid-run, breaking prompt-cache sharing (model is part of
         # the cache key) and cost attribution. Rely on Temporal retries instead.
         environment_variables["POSTHOG_DISABLE_MODEL_FALLBACK"] = "1"
+
+    if ctx.agent_otel_telemetry_enabled:
+        environment_variables.update(get_sandbox_otel_env_vars())
 
     if ctx.allowed_domains is not None:
         environment_variables.update(NETWORK_RESTRICTED_AGENT_ENV)

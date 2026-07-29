@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+    align_incoming_decimals_to_delta,
     conditional_lru_cache_async,
     normalize_column_name,
     pyarrow_schema_from_arrow_exportable,
@@ -49,6 +50,25 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 # Tune further once the admin fragmentation view gives per-customer distributions.
 DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD = 200
 DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
+
+# Substrings of the `OSError`s raised talking to our own S3-backed data-warehouse bucket that are
+# transient and self-recovering, not a bug in our code or a customer credential problem:
+# - the first three come from delta-rs's Rust `object_store` crate inside `DeltaTable.is_deltatable()`
+#   (IMDS/STS blips, dispatch timeouts)
+# - "Please reduce your request rate" is S3's SlowDown throttling response, surfaced by s3fs/aiobotocore
+#   when a bulk delete (e.g. `_purge_s3_prefix`) outruns the bucket's request-rate limit
+# A retry (next maintenance pass, or next sync attempt) redoes the same idempotent operation from
+# scratch, so these shouldn't be treated the same as a bug in our logic.
+TRANSIENT_OBJECT_STORE_ERRORS = (
+    "an error occurred while loading credentials",
+    "the credential provider was not enabled",
+    "Generic S3 error",
+    "Please reduce your request rate",
+)
+
+
+def is_transient_object_store_error(error: BaseException) -> bool:
+    return isinstance(error, OSError) and any(needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS)
 
 
 def _delta_merge_spill_kwargs() -> dict[str, int]:
@@ -281,9 +301,18 @@ class DeltaTableHelper:
         delta_uri = await self._get_delta_table_uri()
         storage_options = self._get_credentials()
 
-        is_delta = await asyncio.to_thread(
-            deltalake.DeltaTable.is_deltatable, table_uri=delta_uri, storage_options=storage_options
-        )
+        try:
+            is_delta = await asyncio.to_thread(
+                deltalake.DeltaTable.is_deltatable, table_uri=delta_uri, storage_options=storage_options
+            )
+        except Exception as e:
+            # Mirrors the DeltaTable() open below: capture before propagating. Callers range from
+            # best-effort maintenance to the main write path, so this can't safely swallow the
+            # error and report "no table" here — that would trip should_overwrite_table for a
+            # table that actually exists, risking data loss.
+            capture_exception(e)
+            raise
+
         if is_delta:
             try:
                 return await asyncio.to_thread(
@@ -429,6 +458,11 @@ class DeltaTableHelper:
         if write_type == "incremental" and delta_table is not None and not self._is_first_sync:
             if not primary_keys or len(primary_keys) == 0:
                 raise Exception("Primary key required for incremental syncs")
+
+            # The merge casts every source column to its stored column type; a scale-heavy decimal
+            # column (e.g. decimal128(38, 32)) overflows that cast on larger values. Align to the
+            # stored types up front so the merge cast is a no-op, or raise a clean reset signal.
+            data = align_incoming_decimals_to_delta(data, delta_table.schema())
 
             existing_delta_table = delta_table
 

@@ -88,6 +88,24 @@ pub fn start_coordinator_named(
     strategy: Arc<dyn AssignmentStrategy>,
     cancel: CancellationToken,
 ) -> JoinHandle<Result<()>> {
+    start_coordinator_with_deadline(
+        store,
+        name,
+        leader_lease_ttl,
+        Duration::from_secs(86_400),
+        strategy,
+        cancel,
+    )
+}
+
+pub fn start_coordinator_with_deadline(
+    store: Arc<PersonhogStore>,
+    name: &str,
+    leader_lease_ttl: i64,
+    handoff_deadline: Duration,
+    strategy: Arc<dyn AssignmentStrategy>,
+    cancel: CancellationToken,
+) -> JoinHandle<Result<()>> {
     let keepalive_secs = (leader_lease_ttl as u64 / 3).max(1);
     let coordinator = Coordinator::new(
         store,
@@ -98,6 +116,13 @@ pub fn start_coordinator_named(
             election_retry_interval: Duration::from_secs(1),
             rebalance_debounce_interval: Duration::from_millis(100),
             reconcile_interval: Duration::from_millis(500),
+            // Callers default this to a day: these tests deliberately
+            // park handoffs mid-phase to assert what the protocol does
+            // with them, and a live deadline would replace the state
+            // under test. The cancellation test passes a short one
+            // explicitly.
+            handoff_deadline,
+            warming_deadline: Duration::from_secs(86_400),
         },
         strategy,
         None,
@@ -121,6 +146,16 @@ pub fn start_pod_with_lease_ttl(
     lease_ttl: i64,
     cancel: CancellationToken,
 ) -> PodHandles {
+    start_pod_with_address(store, name, lease_ttl, None, cancel)
+}
+
+pub fn start_pod_with_address(
+    store: Arc<PersonhogStore>,
+    name: &str,
+    lease_ttl: i64,
+    advertise_address: Option<String>,
+    cancel: CancellationToken,
+) -> PodHandles {
     let heartbeat_secs = (lease_ttl as u64 / 3).max(1);
     let (handler, events) = MockHandoffHandler::new();
     let pod = PodHandle::new(
@@ -129,6 +164,10 @@ pub fn start_pod_with_lease_ttl(
             pod_name: name.to_string(),
             lease_ttl,
             heartbeat_interval: Duration::from_secs(heartbeat_secs),
+            advertise_address,
+            // Parked: event-driven tests assert exact handler-call
+            // sequences a live reconcile pass would duplicate.
+            reconcile_interval: Duration::from_secs(86_400),
             ..Default::default()
         },
         Arc::new(handler),
@@ -158,6 +197,9 @@ pub fn start_pod_blocking(
             pod_name: name.to_string(),
             lease_ttl,
             heartbeat_interval: Duration::from_secs(heartbeat_secs),
+            // Parked: event-driven tests assert exact handler-call
+            // sequences a live reconcile pass would duplicate.
+            reconcile_interval: Duration::from_secs(86_400),
             ..Default::default()
         },
         Arc::new(handler),
@@ -201,6 +243,9 @@ pub fn start_pod_slow(
         store,
         PodConfig {
             pod_name: name.to_string(),
+            // Parked: event-driven tests assert exact handler-call
+            // sequences a live reconcile pass would duplicate.
+            reconcile_interval: Duration::from_secs(86_400),
             ..Default::default()
         },
         Arc::new(handler),
@@ -216,6 +261,7 @@ pub fn start_pod_slow(
 
 pub struct RouterHandles {
     pub events: Arc<Mutex<Vec<CutoverEvent>>>,
+    pub addresses: Arc<std::sync::RwLock<std::collections::HashMap<String, String>>>,
     pub table: Arc<tokio::sync::RwLock<std::collections::HashMap<u32, String>>>,
     pub join_handle: Option<JoinHandle<Result<()>>>,
 }
@@ -242,13 +288,21 @@ pub fn start_router_with_lease_ttl(
             router_name: name.to_string(),
             lease_ttl,
             heartbeat_interval: Duration::from_secs(heartbeat_secs),
+            // Parked: event-driven tests assert exact handler-call
+            // sequences, which a live reconcile pass would re-assert
+            // nondeterministically. Reconcile-specific tests pass a
+            // short interval explicitly.
+            reconcile_interval: Duration::from_secs(86_400),
+            ..RoutingTableConfig::default()
         },
     );
     let table = router.table_handle();
+    let addresses = router.addresses_handle();
     let token = cancel.child_token();
     let join_handle = tokio::spawn(async move { router.run(token, Arc::new(handler)).await });
     RouterHandles {
         events,
+        addresses,
         table,
         join_handle: Some(join_handle),
     }
@@ -453,7 +507,12 @@ impl StashHandler for MockCutoverHandler {
         Ok(())
     }
 
-    async fn drain_stash(&self, partition: u32, target: &str) -> Result<()> {
+    async fn drain_stash(
+        &self,
+        partition: u32,
+        target: &str,
+        _cancel: CancellationToken,
+    ) -> Result<()> {
         self.events.lock().await.push(CutoverEvent::StashDrained {
             partition,
             target: target.to_string(),
