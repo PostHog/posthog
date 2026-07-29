@@ -104,6 +104,10 @@ assert_contains sa-name-required 'serviceAccount.name is required' "$out"
 out=$(render --set posthog.apiKey=phc_test --set posthog.host=https://eu.i.posthog.com)
 assert_contains eu-host 'https://eu.i.posthog.com/i/v1/metrics' "$out"
 
+# --- ingest path override (proxies, test sinks) ---
+out=$(render --set posthog.apiKey=phc_test --set posthog.host=http://sink:4318 --set posthog.ingestPath=/v1/metrics)
+assert_contains ingest-path-override 'http://sink:4318/v1/metrics' "$out"
+
 # --- default: single instance, no sharding machinery ---
 out=$(render --set posthog.apiKey=phc_test)
 assert_contains default-is-deployment 'kind: Deployment' "$out"

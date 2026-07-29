@@ -125,7 +125,7 @@ exporters:
     otlphttp:
         # The otlphttp exporter appends /v1/metrics to `endpoint`, but PostHog's
         # public ingest route is /i/v1/metrics, so pin the per-signal path.
-        metrics_endpoint: '{{ .Values.posthog.host }}/i/v1/metrics'
+        metrics_endpoint: '{{ .Values.posthog.host }}{{ .Values.posthog.ingestPath | default "/i/v1/metrics" }}'
         compression: gzip
         headers:
             authorization: 'Bearer ${env:POSTHOG_API_KEY}'

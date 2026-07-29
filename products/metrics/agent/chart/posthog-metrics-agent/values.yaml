@@ -7,6 +7,9 @@ image:
 posthog:
     # PostHog ingestion origin. EU cloud: https://eu.i.posthog.com
     host: https://us.i.posthog.com
+    # Per-signal ingest path. Defaults to PostHog's public metrics route;
+    # override only for a proxy or a test sink (e.g. /v1/metrics).
+    ingestPath: ''
     # Project API key. Stored in a chart-managed Secret.
     apiKey: ''
     # Alternatively, the name of an existing Secret with the key `posthog-api-key`.
