@@ -5,7 +5,7 @@ import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
-import { IconFilter, IconList, IconRewindPlay, IconSearch, IconX } from '@posthog/icons'
+import { IconFilter, IconList, IconRefresh, IconRewindPlay, IconSearch, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -17,7 +17,7 @@ import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/Vie
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { IconRobot } from 'lib/lemon-ui/icons'
-import { Separator } from 'lib/ui/quill'
+import { Button, Separator, Tooltip, TooltipContent, TooltipTrigger } from 'lib/ui/quill'
 import {
     TabsPrimitive,
     TabsPrimitiveContent,
@@ -40,6 +40,7 @@ import { BreakdownsChart } from '../../components/Breakdowns/BreakdownsChart'
 import { BreakdownsSearchBar } from '../../components/Breakdowns/BreakdownsSearchBar'
 import { MiniBreakdowns } from '../../components/Breakdowns/MiniBreakdowns'
 import { miniBreakdownsLogic } from '../../components/Breakdowns/miniBreakdownsLogic'
+import { eventsSourceLogic } from '../../components/EventsTable/eventsSourceLogic'
 import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { StackTraceActions } from '../../components/ExceptionCard/Tabs/StackTraceTab/StackTraceActions'
@@ -391,6 +392,9 @@ const ExceptionsTab = (): JSX.Element => {
     const { eventsQuery, eventsQueryKey, selectedEvent, issueFingerprints, issueFingerprintsLoading } =
         useValues(errorTrackingIssueSceneLogic)
     const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
+    const eventsDataSource = eventsSourceLogic({ query: eventsQuery, queryKey: eventsQueryKey })
+    const { itemsLoading } = useValues(eventsDataSource)
+    const { loadData } = useActions(eventsDataSource)
 
     return (
         <div className="flex flex-col h-full min-h-0">
@@ -398,6 +402,22 @@ const ExceptionsTab = (): JSX.Element => {
                 <ErrorFilters.Root>
                     <div className="flex w-full flex-col gap-1">
                         <div className="flex w-full flex-wrap items-center gap-1">
+                            <Tooltip>
+                                <TooltipTrigger
+                                    render={
+                                        <Button
+                                            variant="outline"
+                                            size="icon"
+                                            loading={itemsLoading}
+                                            aria-label="Reload exceptions"
+                                            onClick={() => loadData()}
+                                        />
+                                    }
+                                >
+                                    <IconRefresh />
+                                </TooltipTrigger>
+                                <TooltipContent>Reload exceptions</TooltipContent>
+                            </Tooltip>
                             <ErrorFilters.DateRange />
                             <div className="ml-auto shrink-0">
                                 <ErrorFilters.InternalAccounts />

@@ -17,7 +17,7 @@ const INSIGHTS_TAXONOMIC_GROUP_TYPES = [
 export function InsightsFilters(): JSX.Element {
     return (
         <ErrorFilters.Root>
-            <div className="flex w-full flex-wrap items-center gap-1">
+            <div className="flex w-full flex-wrap items-center gap-2">
                 <ErrorFilters.DateRange />
                 <Separator orientation="vertical" className="h-6" />
                 <ErrorTrackingQuickFilters />

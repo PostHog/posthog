@@ -18,7 +18,7 @@ export function ErrorTrackingInsights(): JSX.Element {
             <div className="space-y-4">
                 <SummaryStats />
 
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                     <ChartCard
                         title="Exception volume"
                         description="Exceptions per day"

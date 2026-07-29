@@ -11,8 +11,8 @@ export function IssuesFilters(): JSX.Element {
     return (
         <ErrorFilters.Root>
             <div className="flex flex-col gap-2">
-                <div className="flex flex-wrap items-center gap-1">
-                    <div className="flex shrink-0 items-center gap-1">
+                <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-2">
                         <ReloadIssuesButton />
                         <ErrorFilters.DateRange />
                     </div>
@@ -24,7 +24,7 @@ export function IssuesFilters(): JSX.Element {
                         <ErrorFilters.InternalAccounts />
                     </div>
                 </div>
-                <div className="flex w-full flex-wrap items-center gap-1">
+                <div className="flex w-full flex-wrap items-center gap-2">
                     <ErrorFilters.Search />
                     <ErrorFilters.FilterGroup activeFiltersInline />
                     <div className="ml-auto shrink-0">

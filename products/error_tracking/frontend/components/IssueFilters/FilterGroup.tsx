@@ -5,7 +5,7 @@ import { IconFilter } from '@posthog/icons'
 
 import { TaxonomicFilterHeadless } from 'lib/components/TaxonomicFilter/headless'
 import { TaxonomicFilterMenu } from 'lib/components/TaxonomicFilter/menu/TaxonomicFilterMenu'
-import { ExcludedProperties, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
@@ -18,16 +18,6 @@ import { TAXONOMIC_FILTER_LOGIC_KEY, TAXONOMIC_GROUP_TYPES } from './consts'
 import { issueFiltersLogic } from './issueFiltersLogic'
 
 const ERROR_TRACKING_EVENT_NAMES = ['$exception']
-const ERROR_TRACKING_EXCLUDED_PROPERTIES: ExcludedProperties = {
-    [TaxonomicFilterGroupType.ErrorTrackingIssues]: ['assignee'],
-    [TaxonomicFilterGroupType.EventProperties]: [
-        '$exception_type',
-        '$exception_value',
-        '$exception_message',
-        '$exception_source',
-        '$exception_function',
-    ],
-}
 
 export const FilterGroup = ({
     taxonomicGroupTypes = TAXONOMIC_GROUP_TYPES,
@@ -69,7 +59,7 @@ const FilterControls = ({
     activeFiltersInline?: boolean
 }): JSX.Element => {
     const filterRow = (
-        <div className="relative flex shrink-0 items-center gap-1">
+        <div className={`relative flex shrink-0 items-center ${activeFiltersInline ? 'gap-2' : 'gap-1'}`}>
             {nested ? <FilterOperatorToggle /> : null}
             <FilterPicker taxonomicGroupTypes={taxonomicGroupTypes} />
             {nested ? null : <FilterOperatorToggle />}
@@ -92,7 +82,7 @@ const FilterControls = ({
                 taxonomicGroupTypes={taxonomicGroupTypes}
                 className={
                     activeFiltersInline
-                        ? 'flex flex-1 flex-wrap items-center gap-1'
+                        ? 'flex flex-1 flex-wrap items-center gap-2'
                         : 'order-last flex w-full flex-wrap items-center gap-1'
                 }
                 dataAttr="error-tracking-active-filters"
@@ -103,6 +93,7 @@ const FilterControls = ({
 
 const FilterPicker = ({ taxonomicGroupTypes }: { taxonomicGroupTypes: TaxonomicFilterGroupType[] }): JSX.Element => {
     const { addGroupFilter } = useActions(universalFiltersLogic)
+    const [openRequest, setOpenRequest] = useState(0)
 
     return (
         <TaxonomicFilterHeadless.Root
@@ -111,12 +102,23 @@ const FilterPicker = ({ taxonomicGroupTypes }: { taxonomicGroupTypes: TaxonomicF
             groupType={taxonomicGroupTypes[0] ?? TaxonomicFilterGroupType.ErrorTrackingProperties}
             taxonomicGroupTypes={taxonomicGroupTypes}
             eventNames={ERROR_TRACKING_EVENT_NAMES}
-            excludedProperties={ERROR_TRACKING_EXCLUDED_PROPERTIES}
             onChange={(group, value, item) => addGroupFilter(group, value, item)}
         >
             <TaxonomicFilterMenu
+                key={openRequest}
+                defaultOpen={openRequest > 0}
+                defaultOpenState="combobox"
                 trigger={({ open }) => (
-                    <Button variant="outline" size="default" aria-expanded={open}>
+                    <Button
+                        variant="outline"
+                        size="default"
+                        aria-expanded={open}
+                        onClick={() => {
+                            if (!open) {
+                                setOpenRequest((request) => request + 1)
+                            }
+                        }}
+                    >
                         <IconFilter />
                         Add filter
                     </Button>
