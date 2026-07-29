@@ -1,5 +1,6 @@
 # From django channels https://github.com/django/channels/blob/b6dc8c127d7bda3f5e5ae205332b1388818540c5/channels/db.py#L16
 
+import contextvars
 from collections.abc import Callable, Coroutine
 from concurrent.futures import ThreadPoolExecutor
 from time import time
@@ -8,11 +9,48 @@ from typing import Any, Optional, ParamSpec, TypeVar, Union, overload
 from django.conf import settings
 from django.db import close_old_connections
 
+import asgiref.sync
 from asgiref.sync import SyncToAsync
 from prometheus_client import Histogram
 from structlog import get_logger
 
 logger = get_logger(__name__)
+
+
+_RESTORE_CONTEXT_ATTEMPTS = 5
+
+
+def _make_resilient_restore_context(
+    original: Callable[[contextvars.Context], None],
+) -> Callable[[contextvars.Context], None]:
+    """Wrap asgiref's ``_restore_context`` to survive a concurrent-GC race.
+
+    When a SyncToAsync/AsyncToSync call returns, asgiref runs ``_restore_context``,
+    which compares each contextvar's value against the captured one with ``!=``.
+    If a value is a weakref-backed collection, that comparison iterates the
+    collection, and a garbage-collection pass finalizing a dead weakref can mutate
+    it mid-iteration, raising ``RuntimeError: dictionary changed size during
+    iteration``. The race depends purely on GC timing and is unaddressed upstream
+    as of asgiref 3.12.x.
+
+    Restoring contextvars is idempotent, so we retry the restore rather than let a
+    transient race surface as a failed call. Only ``_restore_context`` is retried,
+    never the wrapped function, so side effects of the call are not repeated.
+    """
+
+    def resilient_restore_context(context: contextvars.Context) -> None:
+        for attempt in range(_RESTORE_CONTEXT_ATTEMPTS):
+            try:
+                original(context)
+                return
+            except RuntimeError as e:
+                if "changed size during iteration" not in str(e) or attempt == _RESTORE_CONTEXT_ATTEMPTS - 1:
+                    raise
+
+    return resilient_restore_context
+
+
+asgiref.sync._restore_context = _make_resilient_restore_context(asgiref.sync._restore_context)
 
 # Prometheus metric to track database_sync_to_async execution time
 DATABASE_SYNC_TO_ASYNC_TIME = Histogram(
