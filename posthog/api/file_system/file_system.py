@@ -990,5 +990,3 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if items_to_update:
             for item in items_to_update:
                 item.save()
-
-
