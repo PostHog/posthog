@@ -4,7 +4,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Organization, PersonalAPIKey
+from posthog.models import Organization, PersonalAPIKey, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.wizard.backend.models import WizardSession
@@ -127,6 +127,21 @@ class TestWizardSessionViewSet(APIBaseTest):
         self.assertEqual(data["tasks"][0]["status"], "completed")
 
         self.assertEqual(WizardSession.objects.unscoped().filter(team=self.team).count(), 1)
+
+    def test_repost_by_a_different_user_is_forbidden(self):
+        first = self.client.post(self._url(), self._payload(), format="json")
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+
+        other_user = User.objects.create_and_join(self.organization, "teammate@posthog.com", None)
+        self.client.force_login(other_user)
+
+        response = self.client.post(
+            self._url(),
+            self._payload(run_phase="completed"),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_different_session_id_creates_new_row(self):
         self.client.post(self._url(), self._payload(), format="json")

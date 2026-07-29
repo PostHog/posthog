@@ -9,7 +9,11 @@ from posthog.models import Team, User
 
 from products.event_definitions.backend.models import EventDefinition
 from products.wizard.backend.facade import api as wizard_facade
-from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardTaskDTO
+from products.wizard.backend.facade.contracts import (
+    UpsertWizardSessionInput,
+    WizardSessionOwnershipError,
+    WizardTaskDTO,
+)
 from products.wizard.backend.facade.enums import RunPhase, TaskStatus
 from products.wizard.backend.metrics import WIZARD_SESSIONS_FINISHED_TOTAL
 from products.wizard.backend.tasks.tasks import sync_wizard_event_definitions
@@ -251,20 +255,41 @@ def test_upsert_with_different_session_id_creates_new_row(team):
 
 
 @pytest.mark.django_db
-def test_created_by_is_set_on_create_and_not_overwritten_on_update(team, user):
-    other_user = User.objects.create(email="second-runner@posthog.com", first_name="Second")
-
+def test_created_by_is_set_on_create_and_preserved_on_owner_update(team, user):
     created, _ = wizard_facade.upsert(_input(team.id, created_by_id=user.id))
     assert created.created_by is not None
     assert created.created_by.id == user.id
 
-    # A later push for the same run — even one carrying a different user — must not reattribute it.
-    updated, was_created = wizard_facade.upsert(
-        _input(team.id, run_phase=RunPhase.COMPLETED, created_by_id=other_user.id)
-    )
+    updated, was_created = wizard_facade.upsert(_input(team.id, run_phase=RunPhase.COMPLETED, created_by_id=user.id))
     assert was_created is False
     assert updated.created_by is not None
     assert updated.created_by.id == user.id
+
+
+@pytest.mark.django_db
+def test_upsert_by_a_different_user_is_rejected(team, user):
+    other_user = User.objects.create(email="second-runner@posthog.com", first_name="Second")
+    wizard_facade.upsert(_input(team.id, run_phase=RunPhase.RUNNING, created_by_id=user.id))
+
+    with pytest.raises(WizardSessionOwnershipError):
+        wizard_facade.upsert(_input(team.id, run_phase=RunPhase.COMPLETED, created_by_id=other_user.id))
+
+    # The owner's run data is left untouched.
+    current = wizard_facade.get(team.id, _input(team.id).session_id)
+    assert current is not None
+    assert current.run_phase == RunPhase.RUNNING
+    assert current.created_by is not None
+    assert current.created_by.id == user.id
+
+
+@pytest.mark.django_db
+def test_upsert_allows_update_of_legacy_unattributed_session(team, user):
+    # Rows created before attribution existed carry a null created_by and stay updatable by anyone.
+    wizard_facade.upsert(_input(team.id, created_by_id=None))
+
+    updated, was_created = wizard_facade.upsert(_input(team.id, run_phase=RunPhase.COMPLETED, created_by_id=user.id))
+    assert was_created is False
+    assert updated.run_phase == RunPhase.COMPLETED
 
 
 @pytest.mark.django_db

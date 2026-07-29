@@ -10,6 +10,7 @@ from django.db import transaction
 from products.wizard.backend.facade.contracts import (
     UpsertWizardSessionInput,
     WizardSessionDTO,
+    WizardSessionOwnershipError,
     WizardSessionUserDTO,
     WizardTaskDTO,
 )
@@ -40,6 +41,18 @@ def upsert_session(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, 
             .first()
         )
         previous_run_phase = previous_session.run_phase if previous_session else None
+
+        # A session belongs to the user who created it. A later push from a
+        # different user would overwrite the run data while `created_by` stays
+        # the original owner, so reject it. Legacy rows with a null
+        # `created_by_id` predate attribution and stay updatable by anyone.
+        if (
+            previous_session is not None
+            and previous_session.created_by_id is not None
+            and previous_session.created_by_id != params.created_by_id
+        ):
+            raise WizardSessionOwnershipError("This wizard session belongs to a different user and can't be updated.")
+
         event_plan = params.event_plan
         if event_plan is None and params.run_phase == RunPhase.COMPLETED and previous_session:
             event_plan = previous_session.event_plan

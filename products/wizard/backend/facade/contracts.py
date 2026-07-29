@@ -46,6 +46,10 @@ class WizardSessionDTO:
     is_stale: bool
 
 
+class WizardSessionOwnershipError(Exception):
+    """Raised when an upsert would overwrite a session owned by a different user."""
+
+
 @dataclass(frozen=True)
 class UpsertWizardSessionRequest:
     """What the wizard CLI POSTs. team_id is derived from the URL, not the body."""
