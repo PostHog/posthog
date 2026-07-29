@@ -269,9 +269,8 @@ export class RequestStateResolver {
             return {}
         }
         // Local dev runs against the locally-running project, where the dev-only
-        // surfaces these flags gate (e.g. the agent-platform product DB) exist.
-        // The flags only hide those surfaces on prod until GA, so enable them all
-        // locally — the analytics flag-eval client is disabled in dev anyway.
+        // surfaces these flags gate exist. The flags only hide those surfaces on
+        // prod until GA, so enable them all locally — the analytics flag-eval client is disabled in dev anyway.
         if (isLocalApi()) {
             return Object.fromEntries(flagKeys.map((key) => [key, true]))
         }

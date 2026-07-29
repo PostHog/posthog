@@ -27,12 +27,28 @@ pub struct Handoff {
     pub old_owner: Option<PodId>,
     pub new_owner: PodId,
     pub phase: Phase,
+    /// The freeze-quorum snapshot: routers registered when the rebalance
+    /// created this handoff (production `HandoffState::freeze_quorum`,
+    /// always captured — the model never writes legacy records, so the
+    /// production `None` fallback is pinned by unit tests instead).
+    /// With `RouterJoin` in the action space this diverges from the live
+    /// registry, which is exactly what the checker is here to explore.
+    pub quorum: BTreeSet<RouterId>,
 }
 
 /// Per-partition warm state on a pod — everything the invariants need to
 /// know about one warmed partition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct WarmState {
+    /// What this warm was installed for (production:
+    /// `WarmProvenance` on the pod handle). `None` is a serving-era warm
+    /// (restart, or the returning old owner of an in-flight handoff);
+    /// `Some(id)` was installed for that handoff's Warming. An Acquiring
+    /// convergence honors a warm only when it carries the current
+    /// handoff's id — anything else is a leftover from an earlier era
+    /// whose cache may predate writes accepted since, and is released
+    /// and rebuilt.
+    pub for_handoff: Option<HandoffId>,
     /// The Kafka transactional-producer epoch held (production:
     /// `init_transactions` under the `EpochFenced` variant; the broker
     /// rejects produces bearing a stale epoch).
@@ -143,6 +159,11 @@ pub struct SystemState {
     pub reads_left: u8,
     pub crashes_left: u8,
     pub rejoins_left: u8,
+    /// Times a router may (re)join: a late slot coming up for the first
+    /// time, or a dead router returning as a fresh process.
+    pub router_joins_left: u8,
+    /// Deadline cancellations the checker may still inject.
+    pub cancels_left: u8,
     pub next_write_id: WriteId,
     /// Count of strong reads actually served (reachability evidence for
     /// the read properties).
@@ -163,6 +184,17 @@ pub struct SystemState {
     /// (`cutoff + accepted`) is behind the changelog — the read returned
     /// state missing at least one acked write.
     pub stale_strong_read: bool,
+
+    // ── reachability flags (probe evidence, history encoding) ──
+    /// A cancellation resolved as a reaffirm-Complete toward the live
+    /// current owner.
+    pub reaffirmed: bool,
+    /// A cancellation resolved as an atomic successor replacement.
+    pub replaced_with_successor: bool,
+    /// A cancellation happened while some router held parked requests
+    /// for the partition — the composition the replacement design must
+    /// keep safe and live.
+    pub cancelled_while_stash_parked: bool,
 }
 
 /// Everything that can happen, from every actor, including failures.
@@ -170,15 +202,26 @@ pub struct SystemState {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Action {
     // ── coordinator (pure derivation over etcd state) ──────────
-    /// The cleanup half of `handle_pod_change` for one partition:
-    /// atomically check-and-delete a handoff whose new owner is
-    /// unregistered (the mod_revision guard is what makes modeling this
-    /// as atomic faithful). Scheduled independently of `Rebalance` and
-    /// `AdvancePhase` — the coordinator's watch handlers and tick run
-    /// concurrently in production, and an overlapping outgoing
-    /// coordinator is just more interleavings of the same guarded
-    /// actions.
-    CleanupStale(Partition),
+    /// Cancellation of a handoff whose new owner is unregistered — the
+    /// dead-new-owner arm of the coordinator's cleanup, as a
+    /// mod_revision-guarded atomic *replacement*: the record is swapped
+    /// for whatever resolves its stashes (a reaffirm-Complete toward a
+    /// live current owner, a successor Freezing handoff, or — only when
+    /// nothing is placeable — a plain delete). Scheduled independently
+    /// of `Rebalance` and `AdvancePhase` — the coordinator's watch
+    /// handlers and tick run concurrently in production, and an
+    /// overlapping outgoing coordinator is just more interleavings of
+    /// the same guarded actions.
+    CancelDeadNewOwner(Partition),
+    /// Deadline cancellation of any in-flight handoff, with the same
+    /// replacement disposition. The model has no clock, so the deadline
+    /// trigger is "the checker schedules this whenever it likes" — a
+    /// superset of every timing policy production could apply, which is
+    /// exactly what makes the phase-aware deadline a production-only
+    /// concern. Budgeted (`cancels_left`): an unbounded cancel action
+    /// would let the checker cancel forever and vacuously defeat the
+    /// convergence property.
+    Cancel(Partition),
     /// The rebalance half of `handle_pod_change`: when no handoffs are
     /// in flight, create Freezing handoffs for every assignment diff in
     /// one transaction.
@@ -236,4 +279,13 @@ pub enum Action {
     /// The zombie router's keepalive notices the dead lease and the
     /// process exits (production fix 1).
     RouterSelfFence(RouterId),
+    /// A router process starts and registers: a late slot coming up
+    /// mid-run, or a dead router returning under its old name. Fresh
+    /// process, empty table — production `load_initial` starts from an
+    /// empty routing table that fails every lookup closed, and the
+    /// model's `Observe` is its bootstrap. A joiner whose `Observe` the
+    /// checker never schedules is precisely the silent late joiner the
+    /// freeze-quorum snapshot exists to tolerate: registered, counted by
+    /// the legacy live-set rule, acking nothing.
+    RouterJoin(RouterId),
 }

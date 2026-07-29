@@ -1857,6 +1857,7 @@ export interface ExperimentFlagCleanupTaskApi {
 
 /**
  * * `manual` - Manual
+ * * `agent_mcp` - Agent (MCP)
  * * `cold_run` - Cold Run
  * * `stale_refresh` - Stale Refresh
  * * `auto_refresh` - Auto Refresh
@@ -1869,6 +1870,7 @@ export type TriggerEnumApi = (typeof TriggerEnumApi)[keyof typeof TriggerEnumApi
 
 export const TriggerEnumApi = {
     Manual: 'manual',
+    AgentMcp: 'agent_mcp',
     ColdRun: 'cold_run',
     StaleRefresh: 'stale_refresh',
     AutoRefresh: 'auto_refresh',
@@ -1885,6 +1887,7 @@ export interface RecalculateMetricsRequestApi {
     /** What triggered this recalculation (manual is the default for user-initiated runs)
      *
      * * `manual` - Manual
+     * * `agent_mcp` - Agent (MCP)
      * * `cold_run` - Cold Run
      * * `stale_refresh` - Stale Refresh
      * * `auto_refresh` - Auto Refresh
@@ -2000,6 +2003,7 @@ export interface ExperimentMetricsRecalculationApi {
     /** What triggered this recalculation
      *
      * * `manual` - Manual
+     * * `agent_mcp` - Agent (MCP)
      * * `cold_run` - Cold Run
      * * `stale_refresh` - Stale Refresh
      * * `auto_refresh` - Auto Refresh
@@ -2335,6 +2339,26 @@ export interface ExperimentSessionContextResponseApi {
     session_id: string
     /** Experiments (and variants) the session saw, sorted by experiment name. Empty when no launched experiment's run window overlaps the recording or no flag data was observed in the session. */
     results: ExperimentSessionContextItemApi[]
+}
+
+/**
+ * Request body for the batch session-context endpoint.
+ */
+export interface ExperimentSessionContextsRequestApi {
+    /**
+     * IDs of the session recordings to resolve experiment context for, at most 20 per request. Duplicates are ignored.
+     * @minItems 1
+     * @maxItems 20
+     */
+    session_ids: string[]
+}
+
+/**
+ * Experiment/variant context for a batch of session recordings.
+ */
+export interface ExperimentSessionContextsResponseApi {
+    /** Per-session experiment context, in the order the session IDs were requested. Sessions whose recording metadata doesn't exist yet (still ingesting, or unknown to this project) are omitted, as are recordings you don't have access to and sessions beyond the batch's recording-day budget (only the most recent days are computed). Fetch omitted sessions individually via the single-session endpoint. */
+    results: ExperimentSessionContextResponseApi[]
 }
 
 export type ExperimentHoldoutsListParams = {

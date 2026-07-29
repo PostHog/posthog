@@ -64,6 +64,30 @@ from products.workflows.backend.providers import SESProvider, TwilioProvider
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
+# Fernet tokens always start with this marker (version byte 0x80 + timestamp, base64-encoded).
+_ENCRYPTED_VALUE_PREFIX = "gAAAAA"
+
+
+class UndecryptedIntegrationSecretError(ValueError):
+    """Raised when a value read off `Integration.sensitive_config` still looks like Fernet
+    ciphertext instead of the decrypted secret.
+
+    `sensitive_config` sets `ignore_decrypt_errors=True` so integrations written before
+    encryption existed keep loading, but that same leniency means a value that fails to
+    decrypt under every configured key (a lost/rotated key, a corrupted row) comes back as
+    raw ciphertext rather than raising. Left unchecked, that ciphertext gets sent to the
+    third-party API as if it were the real credential, which rejects it as invalid — hiding
+    the actual cause behind what looks like a bad customer-supplied key.
+    """
+
+
+def _decrypted_sensitive_value(value: str | None, field_name: str) -> str | None:
+    if value is not None and value.startswith(_ENCRYPTED_VALUE_PREFIX):
+        raise UndecryptedIntegrationSecretError(
+            f"Integration.sensitive_config['{field_name}'] is still encrypted; the stored credentials could not be decrypted"
+        )
+    return value
+
 
 def _decode_jwt_payload(token: str) -> dict | None:
     """
@@ -493,11 +517,11 @@ class Integration(models.Model):
 
     @property
     def access_token(self) -> str | None:
-        return self.sensitive_config.get("access_token")
+        return _decrypted_sensitive_value(self.sensitive_config.get("access_token"), "access_token")
 
     @property
     def refresh_token(self) -> str | None:
-        return self.sensitive_config.get("refresh_token")
+        return _decrypted_sensitive_value(self.sensitive_config.get("refresh_token"), "refresh_token")
 
 
 def defer_repository_cache_fields(queryset: models.QuerySet[Integration]) -> models.QuerySet[Integration]:
@@ -683,8 +707,10 @@ class OauthIntegration:
                 client_secret=settings.HUBSPOT_APP_CLIENT_SECRET,
                 scope="tickets crm.objects.contacts.write sales-email-read crm.objects.companies.read crm.objects.deals.read crm.objects.contacts.read crm.objects.quotes.read crm.objects.companies.write",
                 additional_authorize_params={
-                    # NOTE: these scopes are only available on certain hubspot plans and as such are optional
-                    "optional_scope": "analytics.behavioral_events.send behavioral_events.event_definitions.read_write"
+                    # NOTE: these scopes are only available on certain hubspot plans and as such are optional.
+                    # crm.objects.leads.read is Sales Hub Pro+/Enterprise only — requesting it as a
+                    # mandatory scope would fail the whole authorization for portals that lack it.
+                    "optional_scope": "analytics.behavioral_events.send behavioral_events.event_definitions.read_write crm.objects.leads.read"
                 },
                 id_path="hub_id",
                 name_path="hub_domain",
@@ -1840,7 +1866,7 @@ class GoogleAdsIntegration:
     def list_google_ads_conversion_actions(self, customer_id, parent_id=None) -> list[dict]:
         response = requests.request(
             "POST",
-            f"https://googleads.googleapis.com/v21/customers/{customer_id}/googleAds:searchStream",
+            f"https://googleads.googleapis.com/v24/customers/{customer_id}/googleAds:searchStream",
             json={
                 "query": "SELECT conversion_action.id, conversion_action.name FROM conversion_action WHERE conversion_action.status != 'REMOVED'"
             },
@@ -1885,7 +1911,7 @@ class GoogleAdsIntegration:
     def list_google_ads_accessible_accounts(self) -> list[dict[str, Any]]:
         response = requests.request(
             "GET",
-            "https://googleads.googleapis.com/v21/customers:listAccessibleCustomers",
+            "https://googleads.googleapis.com/v24/customers:listAccessibleCustomers",
             headers={
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
@@ -1925,7 +1951,7 @@ class GoogleAdsIntegration:
                 accounts = []
             response = requests.request(
                 "POST",
-                f"https://googleads.googleapis.com/v21/customers/{account_id}/googleAds:searchStream",
+                f"https://googleads.googleapis.com/v24/customers/{account_id}/googleAds:searchStream",
                 json={
                     "query": "SELECT customer_client.descriptive_name, customer_client.client_customer, customer_client.level, customer_client.manager, customer_client.status FROM customer_client WHERE customer_client.level <= 5"
                 },

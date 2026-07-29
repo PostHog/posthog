@@ -89,6 +89,7 @@ ActivityScope = Literal[
     "Log",
     "LogsAlertConfiguration",
     "LogsExclusionRule",
+    "LogsRetentionRule",
     "DashboardWidget",
     "ProductTour",
     "Ticket",
@@ -278,6 +279,15 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
         # Full content snapshot including action inputs (auth headers, API keys) — record that a
         # draft was staged/published/discarded, never its contents.
         "draft",
+        # Encrypted secret function inputs (Fernet ciphertext) — a diff would be noise at best and
+        # leak-adjacent at worst; record that they changed, never the values.
+        "encrypted_inputs",
+        "draft_encrypted_inputs",
+        # The action graph can carry secret function inputs (auth headers, API keys). New writes strip
+        # them into encrypted_inputs, but a legacy row's first write would diff its still-plaintext
+        # `before` against the stripped `after`, leaking the secret. Record that actions changed, never
+        # the contents — the per-version content audit lives in the revisions feature instead.
+        "actions",
     ],
     "OrganizationDomain": [
         "_scim_bearer_token",
@@ -408,6 +418,14 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
     {
         "scope": "User",
         "activities": ["scim_provisioned", "scim_replaced", "scim_updated", "scim_deprovisioned"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
+    {
+        # Staff-only email sending suspension flips: the acting staff user must not leak into the
+        # org activity log. The customer is told via email and in-app notification instead.
+        "scope": "Team",
+        "activities": ["email_sending_suspended", "email_sending_unsuspended"],
         "exclude_when": {},
         "allow_staff": True,
     },
@@ -745,7 +763,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Secrets — never diff these, even masked.
         "client_secret",
         "hash_client_secret",
-        "provisioning_signing_secret",
         # Reverse token relations can hold tens of thousands of rows; reading
         # through them in `changes_between` would scan the token tables.
         "oauthaccesstoken",

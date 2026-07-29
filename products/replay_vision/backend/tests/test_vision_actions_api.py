@@ -3,6 +3,8 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
@@ -10,18 +12,44 @@ from posthog.cdp.templates.slack.template_slack import template as template_slac
 from posthog.models import Organization, Team
 from posthog.models.integration import Integration
 
-from products.replay_vision.backend.api.vision_actions import MAX_ENABLED_ALERTS_PER_SCANNER
+from products.replay_vision.backend.api.vision_actions import (
+    MAX_DELIVERY_TARGETS,
+    MAX_ENABLED_ALERTS_PER_SCANNER,
+    DeliveryTargetSerializer,
+    _redact_webhook_url,
+)
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
+
+# The webhook destination template lives in the nodejs registry (no Python source object like Slack's).
+# Provisioning only needs the row to resolve by id and expose its inputs, so this minimal stand-in is enough.
+_WEBHOOK_TEMPLATE = {
+    "id": "template-webhook",
+    "name": "HTTP Webhook",
+    "description": "Sends a webhook templated by the incoming event data",
+    "type": "destination",
+    "status": "stable",
+    "free": False,
+    "category": ["Custom"],
+    "code_language": "hog",
+    "code": "let res := fetch(inputs.url, {'method': inputs.method, 'headers': inputs.headers, 'body': inputs.body})",
+    "inputs_schema": [
+        {"key": "url", "type": "string", "label": "Webhook URL", "required": True},
+        {"key": "method", "type": "string", "label": "Method", "required": False},
+        {"key": "body", "type": "json", "label": "JSON Body", "required": False},
+        {"key": "headers", "type": "dictionary", "label": "Headers", "required": False},
+    ],
+}
 
 
 class _VisionActionAPITestCase(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        # Creating an action provisions a Slack internal_destination HogFunction, which resolves the
-        # template from the DB.
+        # Creating an action provisions an internal_destination HogFunction, which resolves the
+        # template from the DB — sync both delivery templates so slack and webhook targets provision.
         sync_template_to_db(template_slack)
+        sync_template_to_db(_WEBHOOK_TEMPLATE)
         self.flag_patcher = patch(
             "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
             return_value=True,
@@ -257,6 +285,67 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
         resp = self.client.post(self.actions_url, data=self._create_payload(), format="json")
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()["attr"], "name")
+
+    def test_webhook_target_accepted(self) -> None:
+        # Wiring guard: the viewset accepts a webhook target and persists it (the serializer no longer
+        # rejects non-slack types). The SimpleTestCase covers the per-type shape matrix.
+        resp = self.client.post(
+            self.actions_url,
+            data=self._create_payload(delivery_config=[{"type": "webhook", "url": "https://example.com/hook"}]),
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.content)
+        action = VisionAction.all_teams.get(id=resp.json()["id"])
+        self.assertEqual(action.delivery_config, [{"type": "webhook", "url": "https://example.com/hook"}])
+
+    def test_slack_integration_idor_rejected(self) -> None:
+        # A Slack integration from another team must not be usable as a delivery target.
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        foreign = Integration.objects.create(
+            team=other_team, kind="slack", integration_id="T_FOREIGN", created_by=self.user
+        )
+        resp = self.client.post(
+            self.actions_url,
+            data=self._create_payload(
+                delivery_config=[{"type": "slack", "integration_id": foreign.id, "channel": "#general"}]
+            ),
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400, resp.content)
+
+    def test_too_many_delivery_targets_rejected(self) -> None:
+        # Each target provisions an enabled HogFunction that POSTs on every run, so an over-cap list
+        # would turn one action into a webhook fan-out to many hosts.
+        targets = [{"type": "webhook", "url": f"https://example.com/hook/{i}"} for i in range(MAX_DELIVERY_TARGETS + 1)]
+        resp = self.client.post(self.actions_url, data=self._create_payload(delivery_config=targets), format="json")
+        self.assertEqual(resp.status_code, 400, resp.content)
+
+    def test_webhook_url_redacted_for_viewers(self) -> None:
+        # A webhook URL can carry a bearer token in its path/query. Configuring delivery needs editor
+        # access, but reading the action only needs viewer, so a viewer must not be able to lift the
+        # credentialed URL an editor set — it comes back redacted to scheme+host.
+        secret = "https://hooks.example.com/services/T0/B0/xoxb-secret-token"
+        created = self.client.post(
+            self.actions_url,
+            data=self._create_payload(delivery_config=[{"type": "webhook", "url": secret}]),
+            format="json",
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        action_id = created.json()["id"]
+
+        # The admin test user can edit, so they see the full URL.
+        full = self.client.get(f"{self.actions_url}{action_id}/").json()
+        self.assertEqual(full["delivery_config"][0]["url"], secret)
+
+        # Simulate a viewer: viewer access holds (so the GET still returns the action), but editor
+        # access to the scanner does not (so the URL is redacted).
+        with patch(
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            side_effect=lambda obj, required_level, **_: required_level != "editor",
+        ):
+            redacted = self.client.get(f"{self.actions_url}{action_id}/").json()
+        self.assertEqual(redacted["delivery_config"][0]["url"], "https://hooks.example.com/…")
+        self.assertNotIn("xoxb-secret-token", redacted["delivery_config"][0]["url"])
 
     def test_selection_valid_accepted(self) -> None:
         resp = self.client.post(
@@ -610,3 +699,38 @@ class TestVisionActionRunNow(_VisionActionAPITestCase):
         self.assertEqual(resp.status_code, 400, resp.content)
         start_workflow = mock_async_to_sync.return_value
         start_workflow.assert_not_called()
+
+
+class TestDeliveryTargetSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("slack_ok", {"type": "slack", "integration_id": 1, "channel": "#general"}, True),
+            ("webhook_ok", {"type": "webhook", "url": "https://example.com/hook"}, True),
+            ("slack_missing_channel", {"type": "slack", "integration_id": 1}, False),
+            ("slack_missing_integration", {"type": "slack", "channel": "#general"}, False),
+            ("webhook_missing_url", {"type": "webhook"}, False),
+            # Cleartext is rejected — the report can carry session-derived content.
+            ("webhook_http", {"type": "webhook", "url": "http://example.com/hook"}, False),
+            ("webhook_bad_scheme", {"type": "webhook", "url": "ftp://example.com/hook"}, False),
+            ("webhook_not_a_url", {"type": "webhook", "url": "not-a-url"}, False),
+            # Embedded credentials are rejected — redaction couldn't safely surface them anyway.
+            ("webhook_userinfo", {"type": "webhook", "url": "https://token:secret@example.com/hook"}, False),
+            ("unknown_type", {"type": "discord", "url": "https://example.com/hook"}, False),
+        ]
+    )
+    def test_per_type_shape(self, _label: str, target: dict[str, Any], expected_valid: bool) -> None:
+        # The per-type shape (slack needs integration+channel, webhook needs a well-formed https url) is
+        # pure in-memory validation — a bad target must be rejected before it reaches provisioning.
+        self.assertEqual(DeliveryTargetSerializer(data=target).is_valid(), expected_valid)
+
+    @parameterized.expand(
+        [
+            ("path_and_query", "https://hooks.example.com/svc/tok?k=v", "https://hooks.example.com/…"),
+            # Defense in depth: even if userinfo slipped past validation, the redaction must not echo it.
+            ("userinfo", "https://token:secret@hooks.example.com/path", "https://hooks.example.com/…"),
+            ("port", "https://hooks.example.com:8443/path", "https://hooks.example.com:8443/…"),
+            ("ipv6", "https://[2001:db8::1]:9000/path", "https://[2001:db8::1]:9000/…"),
+        ]
+    )
+    def test_redact_webhook_url(self, _label: str, url: str, expected: str) -> None:
+        self.assertEqual(_redact_webhook_url(url), expected)

@@ -375,6 +375,40 @@ class TestProductIntent(BaseTest):
             team=self.team,
         )
 
+    @freeze_time("2024-01-01T12:00:00Z")
+    @patch("posthog.event_usage.report_user_action")
+    def test_register_managed_warehouse_intent(self, mock_report_user_action):
+        # Managed warehouse is a distinct product from data_warehouse imports. Provisioning is the
+        # intent; there is no activation criterion yet (it depends on a per-org usage signal that
+        # isn't available in production), so registering intent never auto-activates.
+        ProductIntent.register(
+            team=self.team,
+            product_type=ProductKey.MANAGED_WAREHOUSE,
+            context=ProductIntentContext.MANAGED_WAREHOUSE_PROVISIONED,
+            user=self.user,
+        )
+
+        intent = ProductIntent.objects.filter(team=self.team, product_type=ProductKey.MANAGED_WAREHOUSE).first()
+        assert intent is not None
+        assert intent.contexts == {ProductIntentContext.MANAGED_WAREHOUSE_PROVISIONED: 1}
+        assert intent.activated_at is None
+        assert intent.check_and_update_activation() is False
+
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "user showed product intent",
+            {
+                "product_key": ProductKey.MANAGED_WAREHOUSE,
+                "$set_once": {},
+                "intent_context": ProductIntentContext.MANAGED_WAREHOUSE_PROVISIONED,
+                "is_first_intent_for_product": True,
+                "intent_created_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+                "intent_updated_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+                "realm": get_instance_realm(),
+            },
+            team=self.team,
+        )
+
     def test_has_activated_product_analytics_with_all_criteria(self):
         self.product_intent.product_type = ProductKey.PRODUCT_ANALYTICS
         self.product_intent.save()

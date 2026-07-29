@@ -56,6 +56,10 @@ import type {
     SandboxListParams,
     SlackThreadContextResponseApi,
     StreamReadTokenResponseApi,
+    TaskActivityListParams,
+    TaskActivityMarkReadApi,
+    TaskActivityMarkReadResponseApi,
+    TaskActivityPageDTOApi,
     TaskAutomationDTOApi,
     TaskAutomationWriteApi,
     TaskAutomationsListParams,
@@ -89,6 +93,8 @@ import type {
     TaskRunRelayMessageRequestApi,
     TaskRunRelayMessageResponseApi,
     TaskRunStartRequestApi,
+    TaskSessionResponseApi,
+    TaskSessionSyncResponseApi,
     TaskStagedArtifactsFinalizeUploadRequestApi,
     TaskStagedArtifactsFinalizeUploadResponseApi,
     TaskStagedArtifactsPrepareUploadRequestApi,
@@ -622,6 +628,58 @@ export const sandboxDestroy = async (projectId: string, id: string, options?: Re
     return apiMutator<void>(getSandboxDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getTaskActivityListUrl = (projectId: string, params?: TaskActivityListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/task_activity/?${stringifiedParams}`
+        : `/api/projects/${projectId}/task_activity/`
+}
+
+/**
+ * Tasks the requester is involved in (created, mentioned, or messaged), one row per task, most-recent activity first, restricted to tasks they can see.
+ * @summary List the requester's task activity
+ */
+export const taskActivityList = async (
+    projectId: string,
+    params?: TaskActivityListParams,
+    options?: RequestInit
+): Promise<TaskActivityPageDTOApi> => {
+    return apiMutator<TaskActivityPageDTOApi>(getTaskActivityListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTaskActivityMarkReadCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_activity/mark_read/`
+}
+
+/**
+ * Clear the unread flag on the requester's feed rows for the given tasks. Read state is per task, so opening a task through any surface clears the same row.
+ * @summary Mark task activity read
+ */
+export const taskActivityMarkReadCreate = async (
+    projectId: string,
+    taskActivityMarkReadApi: TaskActivityMarkReadApi,
+    options?: RequestInit
+): Promise<TaskActivityMarkReadResponseApi> => {
+    return apiMutator<TaskActivityMarkReadResponseApi>(getTaskActivityMarkReadCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskActivityMarkReadApi),
     })
 }
 
@@ -1434,7 +1492,7 @@ export const getTasksRunsCommandCreateUrl = (projectId: string, taskId: string, 
 }
 
 /**
- * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, and mcp_response commands.
+ * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, mcp_response, native Pi RPC commands, and Pi queue operations.
  * @summary Send command to task run
  */
 export const tasksRunsCommandCreate = async (
@@ -1659,6 +1717,49 @@ export const tasksRunsStreamTokenRetrieve = async (
     return apiMutator<StreamReadTokenResponseApi>(getTasksRunsStreamTokenRetrieveUrl(projectId, taskId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTasksRunsTaskSessionRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/task_session/`
+}
+
+/**
+ * API for managing task runs. Each run represents an execution of a task.
+ * @summary Get active task session storage access
+ */
+export const tasksRunsTaskSessionRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskSessionResponseApi> => {
+    return apiMutator<TaskSessionResponseApi>(getTasksRunsTaskSessionRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksRunsTaskSessionSyncCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/task_session_sync/`
+}
+
+/**
+ * API for managing task runs. Each run represents an execution of a task.
+ * @summary Replace the active native task session
+ */
+export const tasksRunsTaskSessionSyncCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    tasksRunsTaskSessionSyncCreateBody?: Blob,
+    options?: RequestInit
+): Promise<TaskSessionSyncResponseApi> => {
+    return apiMutator<TaskSessionSyncResponseApi>(getTasksRunsTaskSessionSyncCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream', ...options?.headers },
+        body: tasksRunsTaskSessionSyncCreateBody,
     })
 }
 
