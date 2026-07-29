@@ -14,6 +14,8 @@ from parameterized import parameterized
 from posthog.models.organization import Organization, OrganizationMembership
 
 from products.growth.backend.enrichment.labels import (
+    MAX_INPUT_LIST_ITEMS,
+    MAX_INPUT_VALUE_CHARS,
     UNKNOWN,
     OutputParseError,
     build_messages,
@@ -161,6 +163,24 @@ class TestConfigurableOutputFields(SimpleTestCase):
         assert "Enterprise flag" in user_content
         # The legacy instruction (verdict/confidence/reasoning) must not leak into a custom schema.
         assert "confidence" not in user_content
+
+    def test_stored_inputs_are_the_bounded_ones_sent_to_the_model(self):
+        config = self._config([{"key": "is_enterprise", "type": "boolean", "description": ""}])
+        config.input_fields = ["description", "tags"]
+        client = MagicMock()
+        response = MagicMock()
+        response.choices[0].message.content = json.dumps({"is_enterprise": True})
+        response.usage = None
+        client.chat.completions.create.return_value = response
+        payload = {"description": "x" * (MAX_INPUT_VALUE_CHARS + 500), "tags": list(range(MAX_INPUT_LIST_ITEMS + 20))}
+
+        output = classify_payload(config, payload, None, client)
+
+        stored = output["inputs"]["fields"]
+        sent = client.chat.completions.create.call_args.kwargs["messages"][1]["content"]
+        assert len(stored["description"]) == MAX_INPUT_VALUE_CHARS + 1
+        assert len(stored["tags"]) == MAX_INPUT_LIST_ITEMS
+        assert json.dumps(stored, indent=2) in sent
 
     def test_parses_and_coerces_exactly_the_configured_keys(self):
         config = self._config(

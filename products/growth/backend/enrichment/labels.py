@@ -116,6 +116,16 @@ def _bounded(value: Any) -> Any:
     return value
 
 
+def bound_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
+    """Cap what one company can contribute, in both directions.
+
+    Applied once, before the prompt is built, so the same dict is what the model sees and what
+    EnrichmentLabelResult.inputs stores. Bounding inside build_messages instead would leave the
+    stored record claiming an untruncated value was sent.
+    """
+    return {key: _bounded(value) for key, value in list(inputs.items())[:MAX_INPUT_COLUMNS]}
+
+
 def build_messages(
     config: EnrichmentPromptConfig, inputs: dict[str, Any], signup_domain: str | None
 ) -> list[dict[str, str]]:
@@ -123,8 +133,7 @@ def build_messages(
     # Domain only, never the full address: the signup email's local part is personal data
     # with no classification signal, and nothing else internal sends PII to the gateway.
     system = config.prompt_text.replace("{email}", signup_domain or "unknown")
-    bounded = {key: _bounded(value) for key, value in list(inputs.items())[:MAX_INPUT_COLUMNS]}
-    user = "Company data:\n" + json.dumps(bounded, indent=2) + "\n\nRespond with " + _output_instruction(config)
+    user = "Company data:\n" + json.dumps(inputs, indent=2) + "\n\nRespond with " + _output_instruction(config)
     return [
         {"role": "system", "content": system},
         {"role": "user", "content": user},
@@ -260,7 +269,7 @@ def classify_payload(
 
     # Checked after resolving, not before: a payload that's present but has none of the configured
     # paths would otherwise bill a call to ask the model about "Company data: {}".
-    inputs = extract_input_fields(payload, config.input_fields)
+    inputs = bound_inputs(extract_input_fields(payload, config.input_fields))
     if not inputs:
         return _unknown_output(config, signup_domain, "archived payload has none of the configured input fields")
 
