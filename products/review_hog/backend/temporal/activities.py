@@ -17,9 +17,11 @@ access goes through `database_sync_to_async(..., thread_sensitive=False)`; `@sco
 import logging
 from dataclasses import dataclass, field
 
+import posthoganalytics
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from posthog.event_usage import groups
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
@@ -68,6 +70,7 @@ from products.review_hog.backend.reviewer.persistence import (
     load_prior_findings_with_verdicts,
     load_run_issues,
     load_run_validations,
+    load_turn_findings,
     load_valid_findings,
     persist_chunk_set,
     persist_commit_snapshot,
@@ -373,6 +376,16 @@ class AppendCodeReviewArtefactInput:
     run_index: int
     outcome: str  # "published" / "stored" / "failed"
     review_url: str | None = None
+
+
+@dataclass
+class TrackReviewCompletedInput:
+    """One `reviewhog_review_completed` analytics event per finalized review turn."""
+
+    team_id: int
+    report_id: str
+    run_index: int
+    published: bool
 
 
 @dataclass
@@ -1228,6 +1241,48 @@ async def publish_review_activity(input: PublishInput) -> PublishResult:
         input.pr_number,
         input.urgency_threshold,
     )
+
+
+def _track_review_completed(input: TrackReviewCompletedInput) -> None:
+    report = ReviewReport.objects.for_team(input.team_id).select_related("acting_user", "team").get(id=input.report_id)
+    findings = load_turn_findings(team_id=input.team_id, report_id=input.report_id, run_index=input.run_index)
+    # Acting user when resolved, else the team — the same attribution the TaskRun analytics use.
+    distinct_id = str(report.acting_user.distinct_id) if report.acting_user is not None else str(report.team.uuid)
+    posthoganalytics.capture(
+        distinct_id=distinct_id,
+        event="reviewhog_review_completed",
+        properties={
+            "report_id": str(report.id),
+            "team_id": report.team_id,
+            "repository": report.repository,
+            "pr_number": report.pr_number,
+            "run_index": input.run_index,
+            "trigger_source": report.trigger_source,
+            "author_login": report.author_login,
+            "published": input.published,
+            "findings_total": len(findings),
+            "findings_valid": sum(1 for _, verdict in findings if verdict is not None and verdict.is_valid),
+        },
+        groups=groups(team=report.team),
+        send_feature_flags=True,
+    )
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def track_review_completed_activity(input: TrackReviewCompletedInput) -> None:
+    """Capture the turn's `reviewhog_review_completed` product-analytics event.
+
+    One event per finalized turn (published or stored), across every trigger and repo — the
+    per-review count product dashboards aggregate, which the step-level `task_*` events can't
+    provide (one review fans out into many sandbox tasks). Best-effort: analytics must never fail
+    a review, so any capture failure is logged, not raised.
+    """
+    try:
+        await database_sync_to_async(_track_review_completed, thread_sensitive=False)(input)
+    except Exception:
+        logger.exception("Failed to capture reviewhog_review_completed for report %s; continuing", input.report_id)
 
 
 # --- The PR's live status comment -------------------------------------------------------------------

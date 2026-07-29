@@ -16,6 +16,7 @@ from products.review_hog.backend.temporal.activities import (
     select_perspectives_activity,
     split_chunks_activity,
     sync_review_skills_activity,
+    track_review_completed_activity,
     validate_chunk_activity,
     validate_github_integration_activity,
 )
@@ -50,5 +51,6 @@ ACTIVITIES = [
     post_status_comment_activity,
     finalize_status_comment_activity,
     fail_status_comment_activity,
+    track_review_completed_activity,
     append_code_review_artefact_activity,
 ]
