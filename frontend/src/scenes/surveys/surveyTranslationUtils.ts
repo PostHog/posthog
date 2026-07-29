@@ -7,7 +7,7 @@ import { NewSurvey } from './constants'
 // recognised as a predefined answer rather than a free-text "Other" response.
 export function buildChoiceTranslationMap(question: MultipleSurveyQuestion): Map<string, string> {
     const baseChoices = question.choices ?? []
-    const map = new Map<string, string>(baseChoices.map((choice) => [choice, choice]))
+    const map = new Map<string, string>()
 
     for (const translation of Object.values(question.translations ?? {})) {
         translation.choices?.forEach((choice, index) => {
@@ -17,6 +17,10 @@ export function buildChoiceTranslationMap(question: MultipleSurveyQuestion): Map
             }
         })
     }
+
+    // Seed base choices last so they take precedence: a translation that reuses another
+    // base-choice string must not remap that base choice to a different option.
+    baseChoices.forEach((choice) => map.set(choice, choice))
 
     return map
 }

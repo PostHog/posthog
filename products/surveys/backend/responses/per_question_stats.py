@@ -128,8 +128,10 @@ def fetch_per_question_stats(
         choice_map: dict[str, str] | None = None
         if question_type in ("single_choice", "multiple_choice"):
             choices = q.get("choices") or []
-            choice_map = {choice: choice for choice in choices}
-            choice_map.update(q.get("choice_translations") or {})
+            # Seed translations first, then base choices, so a translation that reuses another
+            # base-choice string can't remap that base choice to a different option.
+            choice_map = dict(q.get("choice_translations") or {})
+            choice_map.update({choice: choice for choice in choices})
 
         distribution: dict[str, int] = {}
         total_count = 0
