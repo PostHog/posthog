@@ -71,11 +71,14 @@ export function AlertLeadingActions({
                     Clear snooze
                 </LemonButton>
             ) : null}
-            <div className="ml-auto">
-                <LemonField name="enabled" className="m-0">
-                    <LemonSwitch checked={alertForm.enabled} data-attr="alertForm-enabled" label="Enabled" />
-                </LemonField>
-            </div>
         </div>
+    )
+}
+
+export function AlertEnabledAction({ alertForm }: Pick<AlertLeadingActionsProps, 'alertForm'>): JSX.Element {
+    return (
+        <LemonField name="enabled" className="m-0">
+            <LemonSwitch checked={alertForm.enabled} data-attr="alertForm-enabled" label="Enabled" />
+        </LemonField>
     )
 }

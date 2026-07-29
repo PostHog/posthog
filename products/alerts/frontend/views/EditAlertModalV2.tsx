@@ -45,7 +45,7 @@ import { supportsAnomalyDetection, supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
 import { AlertHistorySection } from './AlertHistorySection'
 import type { ResolvedAlertModalProps } from './EditAlertModal'
-import { AlertLeadingActions } from './EditAlertModalV2/AlertLeadingActions'
+import { AlertEnabledAction, AlertLeadingActions } from './EditAlertModalV2/AlertLeadingActions'
 import { buildWizardSteps } from './EditAlertModalV2/buildWizardSteps'
 import { EditAlertTabs } from './EditAlertModalV2/EditAlertTabs'
 
@@ -410,6 +410,7 @@ export function EditAlertModalV2({
                             hasPendingChanges={hasPendingNotifications}
                             onSubmitAttempted={setAlertFormSubmitAttempted}
                             leadingActions={leadingActions}
+                            trailingActions={<AlertEnabledAction alertForm={alertForm} />}
                         >
                             <div className="space-y-3">
                                 <EditAlertTabs
