@@ -610,9 +610,9 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def _build_test_accounts_filter(self, date_from: date, date_to: date | None) -> ast.CompareOperation:
         # The heatmap predicate treats date_to as an inclusive day via `timestamp <= {date_to} + interval 1 day`.
-        # HogQLFilters instead emits a strict `timestamp < date_to`, so pass the day after date_to as an explicit
-        # midnight datetime — which HogQLFilters uses verbatim, unlike a date-only value that would snap to the end
-        # of that day — so the events subquery covers exactly the same date window as the main heatmap query.
+        # Pass the same bound as an explicit midnight datetime — which HogQLFilters uses verbatim and compares with
+        # `<=`, unlike a date-only value that would snap to the end of the previous day — so the events subquery
+        # covers exactly the same date window as the main heatmap query.
         events_date_to = (date_to or date.today()) + timedelta(days=1)
         events_select = replace_filters(
             parse_select(

@@ -90,7 +90,7 @@ class TestFilters(BaseTest):
             self.assertEqual(
                 self._print_ast(select),
                 "SELECT event FROM events WHERE "
-                "and(less(timestamp, toDateTime('2020-02-15 23:59:59.999999')), "
+                "and(lessOrEquals(timestamp, toDateTime('2020-02-15 23:59:59.999999')), "
                 f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
             )
 
@@ -102,7 +102,7 @@ class TestFilters(BaseTest):
         )
         self.assertEqual(
             self._print_ast(select),
-            f"SELECT event FROM events WHERE less(timestamp, toDateTime('2020-02-02 23:59:59.999999')) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT event FROM events WHERE lessOrEquals(timestamp, toDateTime('2020-02-02 23:59:59.999999')) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
         select = replace_filters(
@@ -113,7 +113,7 @@ class TestFilters(BaseTest):
         self.assertEqual(
             self._print_ast(select),
             "SELECT event FROM events WHERE "
-            "and(less(timestamp, toDateTime('2020-02-03 23:59:59.000000')), "
+            "and(lessOrEquals(timestamp, toDateTime('2020-02-03 23:59:59.000000')), "
             f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
@@ -129,7 +129,7 @@ class TestFilters(BaseTest):
         self.assertEqual(
             self._print_ast(select),
             "SELECT event FROM events WHERE "
-            "and(less(timestamp, toDateTime('2020-02-03 23:59:59.000000')), "
+            "and(lessOrEquals(timestamp, toDateTime('2020-02-03 23:59:59.000000')), "
             f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
@@ -146,7 +146,7 @@ class TestFilters(BaseTest):
         self.assertEqual(
             self._print_ast(select),
             "SELECT event FROM events WHERE "
-            "and(less(timestamp, toDateTime('2020-02-03 18:59:59.000000')), "
+            "and(lessOrEquals(timestamp, toDateTime('2020-02-03 18:59:59.000000')), "
             f"greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
@@ -206,6 +206,7 @@ class TestFilters(BaseTest):
             ("-1mEnd", "2020-01-31 23:59:59.999999"),  # relative → end of that day
             ("2020-02-10", "2020-02-10 23:59:59.999999"),  # date-only → end of that day
             ("2020-02-10 12:34:56", "2020-02-10 12:34:56.000000"),  # explicit datetime → verbatim
+            ("-30M", "2020-02-15 13:07:42.000000"),  # sub-day relative → exact rolling bound, no snapping
         ]
     )
     def test_replace_filters_date_to_resolution(self, date_to: Optional[str], expected: str):
@@ -283,7 +284,7 @@ class TestFilters(BaseTest):
         self.assertEqual(
             self._print_ast(select),
             "SELECT event FROM events WHERE "
-            "and(less(timestamp, toDateTime('2020-02-15 23:59:59.999999')), "
+            "and(lessOrEquals(timestamp, toDateTime('2020-02-15 23:59:59.999999')), "
             f"greaterOrEquals(timestamp, toDateTime('2020-02-01 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
@@ -381,7 +382,7 @@ class TestFilters(BaseTest):
             self.assertEqual(
                 self._print_ast(select),
                 "SELECT group_key FROM groups WHERE "
-                "and(less(created_at, toDateTime('2020-02-15 23:59:59.999999')), "
+                "and(lessOrEquals(created_at, toDateTime('2020-02-15 23:59:59.999999')), "
                 f"greaterOrEquals(created_at, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
             )
 
@@ -392,7 +393,7 @@ class TestFilters(BaseTest):
         )
         self.assertEqual(
             self._print_ast(select),
-            f"SELECT group_key FROM groups WHERE less(created_at, toDateTime('2020-02-02 23:59:59.999999')) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            f"SELECT group_key FROM groups WHERE lessOrEquals(created_at, toDateTime('2020-02-02 23:59:59.999999')) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
         select = replace_filters(
@@ -403,7 +404,7 @@ class TestFilters(BaseTest):
         self.assertEqual(
             self._print_ast(select),
             "SELECT group_key FROM groups WHERE "
-            "and(less(created_at, toDateTime('2020-02-03 23:59:59.000000')), "
+            "and(lessOrEquals(created_at, toDateTime('2020-02-03 23:59:59.000000')), "
             f"greaterOrEquals(created_at, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
@@ -462,7 +463,7 @@ class TestFilters(BaseTest):
             self._print_ast(select),
             "SELECT group_key FROM groups WHERE "
             "and(equals(properties.company_name, 'PostHog'), "
-            "less(created_at, toDateTime('2020-02-15 23:59:59.999999')), "
+            "lessOrEquals(created_at, toDateTime('2020-02-15 23:59:59.999999')), "
             f"greaterOrEquals(created_at, toDateTime('2020-02-02 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 

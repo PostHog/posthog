@@ -233,8 +233,11 @@ class ReplaceFilters(CloningVisitor):
             date_to = self._resolve_date_to()
             if date_to is not None:
                 exprs.append(
+                    # Inclusive, like insights compare against QueryDateRange's date_to — the resolved
+                    # end-of-day bound lands on 23:59:59.999999, so a strict `<` would drop rows at
+                    # exactly that microsecond
                     ast.CompareOperation(
-                        op=ast.CompareOperationOp.Lt,
+                        op=ast.CompareOperationOp.LtEq,
                         left=timestamp_field,
                         right=ast.Constant(value=date_to),
                     )
