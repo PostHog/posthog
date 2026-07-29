@@ -65,7 +65,7 @@
                     "minW": 1
                 }
             },
-            "description": "Shows the number of unique users over the last 30 days."
+            "description": "Shows the number of unique users."
         },
         {
             "name": "Top Website Pages (Overall)",
