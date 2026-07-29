@@ -160,7 +160,7 @@ def detect_broken_default_branch(
 ) -> list[CISignalFinding]:
     now = datetime.now(UTC)
     date_from = now - timedelta(hours=window_hours)
-    default_branches = query_default_branches(curated=curated, date_from=date_from, workload=Workload.OFFLINE)
+    default_branches = query_default_branches(curated=curated, workload=Workload.OFFLINE)
     findings: list[CISignalFinding] = []
     for branch in sorted(set(default_branches.values())):
         for item in query_workflow_health(

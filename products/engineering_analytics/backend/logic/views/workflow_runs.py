@@ -60,7 +60,6 @@ def build_query(table_name: str, *, started_floor: bool = False) -> str:
             updated_at,
             created_at,
             run_attempt,
-            default_branch,
             pr_number,
             if(status = 'completed', dateDiff('second', run_started_at, updated_at), NULL) AS duration_seconds,
             arrayElement(repo_parts, 1) AS repo_owner,
@@ -75,8 +74,9 @@ def build_query(table_name: str, *, started_floor: bool = False) -> str:
                 conclusion,
                 run_attempt,
                 JSONExtractInt(arrayElement(JSONExtractArrayRaw(ifNull(pull_requests, '[]')), 1), 'number') AS pr_number,
+                -- repository is GitHub's MINIMAL repository representation (id/name/full_name/owner/urls);
+                -- it carries no default_branch, so repo identity is the only thing to extract from it.
                 splitByChar('/', ifNull(JSONExtractString(repository, 'full_name'), '')) AS repo_parts,
-                ifNull(JSONExtractString(repository, 'default_branch'), '') AS default_branch,
                 parseDateTimeBestEffort(run_started_at) AS run_started_at,
                 parseDateTimeBestEffort(updated_at) AS updated_at,
                 parseDateTimeBestEffort(created_at) AS created_at

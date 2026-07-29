@@ -58,6 +58,7 @@ def build_query(table_name: str) -> str:
             head_sha,
             head_branch,
             base_branch,
+            default_branch,
             if(merged_at IS NOT NULL, dateDiff('second', created_at, merged_at), NULL) AS open_to_merge_seconds
         FROM (
             SELECT
@@ -78,6 +79,10 @@ def build_query(table_name: str) -> str:
                 -- base.ref is the branch the PR merges into (usually the default branch); the LLM-spend
                 -- session join treats it as neutral, since agents stamp pre-branch exploration with it.
                 JSONExtractString(base, 'ref') AS base_branch,
+                -- base.repo is a full GitHub repository object, so unlike the workflow_run webhook's
+                -- minimal repository payload it carries the repo's reported default_branch. This is the
+                -- only warehouse column that holds it (see query_default_branches).
+                ifNull(JSONExtractString(base, 'repo', 'default_branch'), '') AS default_branch,
                 parseDateTimeBestEffort(created_at) AS created_at,
                 parseDateTimeBestEffort(updated_at) AS updated_at,
                 parseDateTimeBestEffort(merged_at) AS merged_at,
