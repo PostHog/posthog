@@ -8,6 +8,7 @@ import { surveyLogic } from './surveyLogic'
 
 describe('surveyEventLibsLogic', () => {
     let logic: ReturnType<typeof surveyEventLibsLogic.build>
+    let survey: ReturnType<typeof surveyLogic.build>
 
     beforeEach(() => {
         initKeaTests()
@@ -15,6 +16,7 @@ describe('surveyEventLibsLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+        survey?.unmount()
     })
 
     function useMockedLibs(libs: string[]): void {
@@ -28,6 +30,16 @@ describe('surveyEventLibsLogic', () => {
         })
     }
 
+    function mountWithTriggerEvent(eventName: string): void {
+        survey = surveyLogic({ id: 'new' })
+        survey.mount()
+        logic = surveyEventLibsLogic({ id: 'new' })
+        logic.mount()
+        survey.actions.setSurveyValue('conditions', {
+            events: { values: [{ name: eventName }], repeatedActivation: false },
+        })
+    }
+
     it.each([
         ['a server-side only event', ['posthog-python', 'posthog-node'], true],
         ['an event seen from both a backend and the web SDK', ['posthog-python', 'web'], false],
@@ -37,38 +49,24 @@ describe('surveyEventLibsLogic', () => {
         expect(hasOnlyNonClientSideLibs(libs)).toBe(expected)
     })
 
-    it('reports events that only arrive from non-client SDKs', async () => {
+    it('reports a trigger event that only arrives from non-client SDKs', async () => {
         useMockedLibs(['posthog-python'])
-        logic = surveyEventLibsLogic()
-        logic.mount()
+        mountWithTriggerEvent('order_shipped')
 
-        await expectLogic(logic, () => {
-            logic.actions.loadEventLibs(['order_shipped'])
-        })
-            .toDispatchActions(['loadEventLibsSuccess'])
+        await expectLogic(logic)
+            .toDispatchActions([logic.actionCreators.loadEventLibs(['order_shipped']), 'loadEventLibsSuccess'])
             .toMatchValues({
                 libsByEvent: { order_shipped: ['posthog-python'] },
                 nonClientSideLibsByEvent: { order_shipped: ['posthog-python'] },
             })
     })
 
-    it('loads the libs of trigger events picked in the survey editor', async () => {
+    it('stays quiet for a trigger event the web SDK captures', async () => {
         useMockedLibs(['web'])
-        logic = surveyEventLibsLogic()
-        logic.mount()
-        const survey = surveyLogic({ id: 'new' })
-        survey.mount()
-
-        await expectLogic(survey, () => {
-            survey.actions.setSurveyValue('conditions', {
-                events: { values: [{ name: 'signed_up' }], repeatedActivation: false },
-            })
-        }).toDispatchActions([logic.actionCreators.loadEventLibs(['signed_up'])])
+        mountWithTriggerEvent('signed_up')
 
         await expectLogic(logic)
             .toDispatchActions(['loadEventLibsSuccess'])
             .toMatchValues({ libsByEvent: { signed_up: ['web'] }, nonClientSideLibsByEvent: {} })
-
-        survey.unmount()
     })
 })

@@ -20,6 +20,7 @@ import {
 } from '~/types'
 
 import { AddEventButton } from './AddEventButton'
+import { surveyEventLibsLogic } from './surveyEventLibsLogic'
 import { surveyLogic } from './surveyLogic'
 
 // Only include operators supported by the SDK's property matching system
@@ -114,7 +115,8 @@ function SurveyEventSelector({
     addButtonText,
     showRepeatedActivation = false,
 }: SurveyEventSelectorProps): JSX.Element {
-    const { survey, surveyRepeatedActivationAvailable, nonClientSideLibsByEvent } = useValues(surveyLogic)
+    const { survey, surveyRepeatedActivationAvailable } = useValues(surveyLogic)
+    const { nonClientSideLibsByEvent } = useValues(surveyEventLibsLogic({ id: survey.id || 'new' }))
     const { setSurveyValue } = useActions(surveyLogic)
     const excludedObjectProperties = useExcludedObjectProperties()
 
