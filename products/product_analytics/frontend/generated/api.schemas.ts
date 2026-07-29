@@ -3007,6 +3007,14 @@ export const WebStatsBreakdownApi = {
     InitialUTMTerm: 'InitialUTMTerm',
     InitialUTMContent: 'InitialUTMContent',
     InitialUTMSourceMediumCampaign: 'InitialUTMSourceMediumCampaign',
+    FirstPageviewChannelType: 'FirstPageviewChannelType',
+    FirstPageviewReferringDomain: 'FirstPageviewReferringDomain',
+    FirstPageviewUTMSource: 'FirstPageviewUTMSource',
+    FirstPageviewUTMCampaign: 'FirstPageviewUTMCampaign',
+    FirstPageviewUTMMedium: 'FirstPageviewUTMMedium',
+    FirstPageviewUTMTerm: 'FirstPageviewUTMTerm',
+    FirstPageviewUTMContent: 'FirstPageviewUTMContent',
+    FirstPageviewUTMSourceMediumCampaign: 'FirstPageviewUTMSourceMediumCampaign',
     Browser: 'Browser',
     Os: 'OS',
     Viewport: 'Viewport',
@@ -7097,6 +7105,8 @@ export interface ChartAxisApi {
 export type ChartSettingsApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
 
 export interface ChartSettingsApi {
+    /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
+    chartStyle?: ChartStyleApi | null
     goalLines?: GoalLineApi[] | null
     heatmap?: HeatmapSettingsApi | null
     leftYAxisSettings?: YAxisSettingsApi | null

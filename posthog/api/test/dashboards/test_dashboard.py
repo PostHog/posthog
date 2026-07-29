@@ -17,7 +17,7 @@ from rest_framework import status
 from posthog.schema import DateRange, EventPropertyFilter, EventsNode, PropertyOperator, TrendsQuery
 
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.caching.fetch_from_cache import InsightResult
+from posthog.caching.insight_result import InsightResult
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.models import Filter, Team, User
@@ -1988,11 +1988,16 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_dashboard_duplication_copies_breakdown_colors(self):
         """Test that breakdown_colors are copied during duplication"""
+        # The shape the frontend persists: a list of BreakdownColorConfig objects
+        breakdown_colors = [
+            {"breakdownValue": "Chrome", "breakdownType": "event", "colorToken": "preset-1", "source": "manual"},
+            {"breakdownValue": "Firefox", "breakdownType": "event", "colorToken": "preset-2", "source": "manual"},
+        ]
         existing_dashboard = Dashboard.objects.create(
             team=self.team,
             name="Dashboard with colors",
             created_by=self.user,
-            breakdown_colors={"event1": "#FF0000", "event2": "#00FF00"},
+            breakdown_colors=breakdown_colors,
         )
 
         # Duplicate the dashboard
@@ -2001,10 +2006,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
 
         # Verify breakdown_colors are copied
-        self.assertEqual(response["breakdown_colors"], {"event1": "#FF0000", "event2": "#00FF00"})
+        self.assertEqual(response["breakdown_colors"], breakdown_colors)
 
         duplicated_dashboard = Dashboard.objects.get(id=response["id"])
-        self.assertEqual(duplicated_dashboard.breakdown_colors, {"event1": "#FF0000", "event2": "#00FF00"})
+        self.assertEqual(duplicated_dashboard.breakdown_colors, breakdown_colors)
 
     def test_dashboard_duplication_copies_variables(self):
         """Test that variables are copied during duplication"""

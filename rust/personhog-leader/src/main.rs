@@ -243,12 +243,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
         },
     );
+    let advertise_address =
+        personhog_leader::config::derive_advertise_address(&config.grpc_address, &config.pod_ip)
+            .expect("Invalid advertise address configuration");
+    tracing::info!(%advertise_address, "advertising gRPC address for routing");
+
     let pod = PodHandle::new(
         store,
         PodConfig {
             pod_name: config.pod_name.clone(),
             lease_ttl: config.lease_ttl,
             heartbeat_interval: config.heartbeat_interval(),
+            advertise_address: Some(advertise_address),
             ..Default::default()
         },
         Arc::new(handler),

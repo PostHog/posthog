@@ -14,18 +14,17 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import get_incremental_field_value
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    BillingLimitsWillBeReachedException,
+    DuplicatePrimaryKeysException,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
     DeltaTableHelper,
     is_transient_object_store_error,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.person_property_row_sink import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_row_sink import (
     PersonPropertyRowSink,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
-    BillingLimitsWillBeReachedException,
-    DuplicatePrimaryKeysException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import (
     decrement_rows,
@@ -35,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.row_tracking impor
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import (
     extract_available_column_names,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
 if TYPE_CHECKING:
@@ -441,7 +441,7 @@ async def handle_corrupted_delta_log(
     # and clears the markers when temp is also gone (the terminal corrupt state), so we then fall to reset.
     swap = schema.repartition_swap
     if swap and swap.get("state") == "ready" and swap.get("temp_uri") and swap.get("live_uri"):
-        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.repartition import (  # noqa: PLC0415 — deferred to avoid an import cycle with the repartition modules
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (  # noqa: PLC0415 — deferred to avoid an import cycle with the repartition modules
             _resume_swap_with_missing_live,
         )
         from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (  # noqa: PLC0415 — deferred to avoid an import cycle with the repartition modules
@@ -494,6 +494,16 @@ async def handle_corrupted_delta_log(
     try:
         await delta_table_helper.reset_table()
     except Exception as e:
+        if is_transient_object_store_error(e):
+            # A rate-limited or connectivity blip purging the old table's S3 prefix isn't a bug —
+            # the revive markers stay set, so the next sync attempt retries the same reset from
+            # scratch. Escalating this through the non-retryable-error policy below would burn
+            # through its attempt budget on pure S3 throttling and give up on a revivable schema.
+            await logger.awarning(
+                f"handle_corrupted_delta_log: reset_table transient object-store error, retrying next sync, "
+                f"schema_id={schema.id}: {e}"
+            )
+            return False
         # A reset that can't even complete (e.g. the storage backend rejects the delete) leaves the
         # revive markers in place, so an unguarded re-raise here would repeat this exact same failing
         # reset on every subsequent sync attempt forever. Give up after a few identical failures

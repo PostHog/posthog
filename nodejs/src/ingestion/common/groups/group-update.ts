@@ -18,6 +18,12 @@ export interface GroupUpdate {
     created_at: DateTime
     version: number
     needsWrite: boolean
+    /**
+     * The row doesn't exist in Postgres yet — the deferred-create path
+     * installed this entry and the next flush inserts it in a batched
+     * statement (version stays 0 until the insert returns the real row).
+     */
+    pendingCreate?: boolean
 }
 
 export interface PropertiesUpdate {

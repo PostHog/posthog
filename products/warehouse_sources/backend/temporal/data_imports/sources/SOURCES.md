@@ -9,6 +9,10 @@ Keep this file in sync as sources are added, implemented, or migrated. The [impl
 skill](/.agents/skills/implementing-warehouse-sources/SKILL.md) instructs agents to update it as part of any
 new source / vendor-SDK / migration PR.
 
+This file tracks _whether_ a source is implemented. For endpoints a source is missing relative to its
+vendor's API, see [COVERAGE_GAPS.md](COVERAGE_GAPS.md), refreshed by the
+[auditing-warehouse-source-coverage skill](/.agents/skills/auditing-warehouse-source-coverage/SKILL.md).
+
 ## Status legend
 
 | Status          | Meaning                                                                                                                   |
@@ -48,6 +52,7 @@ the row lists both.
 | adroll                           | HTTP                        | requests                                                        | ✅                          |
 | agilecrm                         | HTTP                        | requests                                                        | ✅                          |
 | aha                              | HTTP                        | requests                                                        | ✅                          |
+| aha_ideas                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | airbrake                         | HTTP                        | requests                                                        | ✅                          |
 | aircall                          | HTTP                        | requests                                                        | ✅                          |
 | airops                           | HTTP                        | requests                                                        | ✅                          |
@@ -60,6 +65,7 @@ the row lists both.
 | amplitude                        | HTTP                        | requests                                                        | ✅                          |
 | anthropic                        | HTTP                        | requests                                                        | ✅                          |
 | apify_dataset                    | HTTP                        | requests                                                        | ✅                          |
+| apitally                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | apollo                           | HTTP                        | requests                                                        | ✅                          |
 | appdynamics                      | HTTP                        | requests                                                        | ✅                          |
 | appfigures                       | HTTP                        | requests                                                        | ✅                          |
@@ -118,6 +124,7 @@ the row lists both.
 | canny                            | HTTP                        | requests                                                        | ✅                          |
 | capsule_crm                      | HTTP                        | requests                                                        | ✅                          |
 | care_quality_commission          | HTTP                        | requests                                                        | ✅                          |
+| cast_ai                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | census                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | chameleon                        | HTTP                        | requests                                                        | ✅                          |
 | chargebee                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -196,6 +203,7 @@ the row lists both.
 | dixa                             | HTTP                        | requests                                                        | ✅                          |
 | dockerhub                        | HTTP                        | requests                                                        | ✅                          |
 | docuseal                         | HTTP                        | requests                                                        | ✅                          |
+| docusign                         | HTTP                        | requests                                                        | ✅                          |
 | doit                             | HTTP                        | requests                                                        | ✅                          |
 | doppler                          | HTTP                        | requests                                                        | ✅                          |
 | dovetail                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -210,6 +218,7 @@ the row lists both.
 | easypromos                       | HTTP                        | requests                                                        | ✅                          |
 | elevenlabs                       | HTTP                        | requests                                                        | ✅                          |
 | eppo                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| etsy                             | HTTP                        | requests                                                        | ✅                          |
 | freshcaller                      | HTTP                        | requests                                                        | ✅                          |
 | freshchat                        | HTTP                        | requests                                                        | ✅                          |
 | freshdesk                        | HTTP                        | requests                                                        | ✅                          |
@@ -275,6 +284,7 @@ the row lists both.
 | groq                             | HTTP                        | requests                                                        | ✅                          |
 | guardian                         | HTTP                        | requests                                                        | ✅                          |
 | guru                             | HTTP                        | requests                                                        | ✅                          |
+| gusto                            | HTTP                        | requests                                                        | ✅                          |
 | harvey                           | HTTP                        | requests                                                        | ✅                          |
 | hatchet                          | HTTP                        | requests                                                        | ✅                          |
 | healthchecks                     | HTTP                        | requests                                                        | ✅                          |
@@ -638,6 +648,7 @@ the row lists both.
 | zenduty                          | HTTP                        | requests                                                        | ✅                          |
 | zenloop                          | HTTP                        | requests                                                        | ✅                          |
 | zep                              | HTTP                        | requests                                                        | ✅                          |
+| zoho_crm                         | HTTP                        | requests                                                        | ✅                          |
 | zonka_feedback                   | HTTP                        | requests                                                        | ✅                          |
 | zoom                             | HTTP                        | requests                                                        | ✅                          |
 | zuora                            | HTTP                        | requests                                                        | ✅                          |
@@ -694,7 +705,6 @@ doesn't conflict with concurrent PRs.
 - adp_workforce_now
 - adyen
 - aftership
-- aha_ideas
 - ahrefs
 - aikido_security
 - airbyte
@@ -717,7 +727,6 @@ doesn't conflict with concurrent PRs.
 - anodot_cost
 - anomalo
 - apaleo
-- apitally
 - app_store_connect
 - appcues
 - appdirect
@@ -820,7 +829,6 @@ doesn't conflict with concurrent PRs.
 - captivate
 - cart_com
 - cashfree
-- cast_ai
 - castor_edc
 - catchpoint
 - cdc_open_data
@@ -873,7 +881,6 @@ doesn't conflict with concurrent PRs.
 - dialpad
 - discord
 - display_video_360
-- docusign
 - dodopayments
 - dolibarr
 - donorbox
@@ -884,11 +891,13 @@ doesn't conflict with concurrent PRs.
 - dremio
 - dropbox
 - dubsado
+- ducklake
 - dwolla
 - dynamics365
 - dynamics_365_business_central
 - dynamodb
 - e2b
+- easybill
 - ebay
 - ecb_data_portal
 - eloqua
@@ -897,7 +906,6 @@ doesn't conflict with concurrent PRs.
 - employment_hero
 - encharge
 - entsoe
-- etsy
 - eurostat
 - expensify
 - facebook_pages
@@ -992,7 +1000,6 @@ doesn't conflict with concurrent PRs.
 - guesty
 - gumloop
 - gumroad
-- gusto
 - harness
 - harness_ccm
 - harness_sei
@@ -1268,6 +1275,7 @@ doesn't conflict with concurrent PRs.
 - shopware
 - shopwired
 - shortio
+- sideshift
 - sigma_computing
 - signnow
 - sim
@@ -1297,6 +1305,7 @@ doesn't conflict with concurrent PRs.
 - spotify_ads
 - sprinklr
 - sprout_social
+- starburst
 - statsig
 - stockx
 - strava
@@ -1376,6 +1385,7 @@ doesn't conflict with concurrent PRs.
 - wikipedia_pageviews
 - wiz
 - wompi
+- workato
 - workday
 - workflowmax
 - workiz
@@ -1404,7 +1414,6 @@ doesn't conflict with concurrent PRs.
 - zoho_billing
 - zoho_books
 - zoho_campaign
-- zoho_crm
 - zoho_desk
 - zoho_expense
 - zoho_inventory

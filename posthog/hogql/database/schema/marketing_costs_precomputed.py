@@ -14,17 +14,26 @@ _RAW = "marketing_costs_preaggregated"
 
 _RAW_FIELDS = MarketingCostsPreaggregatedTable().fields  # reuse the raw column defs so the view can't drift
 _INTERNAL = {"job_id", "computed_at"}  # folded away by the dedup, not exposed
-_METRIC_LATEST = {"cost", "clicks", "impressions", "reported_conversions", "reported_conversion_value", "expires_at"}
-_LABEL_COLUMNS = {"match_key", "campaign_name", "ad_group_name", "ad_name"}
+# argMax(…, computed_at) columns; expires_at rides along so `expires_at > today()` sees the freshest row.
+_LATEST = {"cost", "clicks", "impressions", "reported_conversions", "reported_conversion_value", "expires_at"}
+# match_key is a join key re-derived per job from the team's campaign_field_preferences (campaign_name or
+# campaign_id), not cell identity — keeping it in the GROUP BY duplicates every cell when the preference
+# flips, so the latest job's value wins instead.
+_LATEST_LABELS = {"match_key"}
+_ARGMAX = _LATEST | _LATEST_LABELS
+# Renamable display labels, which split a cell the same way match_key does. Only the v2 view folds them, so
+# the wider dedup stays reversible at the flag.
+_IDENTITY_LABELS = {"campaign_name", "ad_group_name", "ad_name"}
 
 
-def _latest_columns(dedup_labels_by_identity: bool) -> set[str]:
-    return _METRIC_LATEST | _LABEL_COLUMNS if dedup_labels_by_identity else _METRIC_LATEST
+def _argmax_columns(dedup_labels_by_identity: bool) -> set[str]:
+    return _ARGMAX | _IDENTITY_LABELS if dedup_labels_by_identity else _ARGMAX
 
 
 def _dimension_columns(dedup_labels_by_identity: bool) -> list[str]:
-    latest = _latest_columns(dedup_labels_by_identity)
-    return [c for c in _RAW_FIELDS if c not in _INTERNAL | latest | {"timestamp"}]
+    # Full cell identity — always GROUP BY all of it so each cell collapses independently.
+    argmax = _argmax_columns(dedup_labels_by_identity)
+    return [c for c in _RAW_FIELDS if c not in _INTERNAL | argmax | {"timestamp"}]
 
 
 class MarketingCostsPrecomputedTable(LazyTable):
@@ -46,7 +55,7 @@ class MarketingCostsPrecomputedTable(LazyTable):
         self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
     ) -> ast.SelectQuery:
         requested = table_to_add.fields_accessed
-        latest = _latest_columns(self.dedup_labels_by_identity)
+        argmax = _argmax_columns(self.dedup_labels_by_identity)
         dimensions = _dimension_columns(self.dedup_labels_by_identity)
 
         def raw(col: str) -> ast.Field:
@@ -54,7 +63,7 @@ class MarketingCostsPrecomputedTable(LazyTable):
 
         select_fields: list[ast.Expr] = []
         for name in requested:
-            if name in latest:
+            if name in argmax:
                 expr: ast.Expr = ast.Call(name="argMax", args=[raw(name), raw("computed_at")])
             elif name == "timestamp":
                 expr = ast.Call(name="toDateTime", args=[raw("cost_date")])

@@ -21,6 +21,62 @@ import { AgentRunDetail } from './AgentRunDetail'
 import { PullRequestDetail } from './PullRequestDetail'
 import { ReportDetail } from './ReportDetail'
 
+const mixedPrChecks = {
+    checks: [
+        {
+            name: 'Frontend CI / TypeScript check',
+            status: 'completed',
+            conclusion: 'failure',
+            url: 'https://github.com/PostHog/posthog/actions/runs/12001/jobs/1',
+        },
+        {
+            name: 'Backend CI / Django tests – Core (persons-on-events off), Python 3.13, ClickHouse 26.3',
+            status: 'in_progress',
+            conclusion: null,
+            url: 'https://github.com/PostHog/posthog/actions/runs/12001/jobs/2',
+        },
+        {
+            name: 'Product analytics / Jest',
+            status: 'completed',
+            conclusion: 'success',
+            url: 'https://github.com/PostHog/posthog/actions/runs/12001/jobs/3',
+        },
+        {
+            name: 'Visual regression',
+            status: 'completed',
+            conclusion: 'cancelled',
+            url: 'https://github.com/PostHog/posthog/actions/runs/12001/jobs/4',
+        },
+        {
+            name: 'Dependency review',
+            status: 'completed',
+            conclusion: 'stale',
+            url: 'https://github.com/PostHog/posthog/actions/runs/12001/jobs/5',
+        },
+        {
+            name: 'Codecov / project',
+            status: 'completed',
+            conclusion: 'neutral',
+            url: 'https://app.codecov.io/gh/PostHog/posthog',
+        },
+    ],
+}
+
+const successfulPrChecks = {
+    checks: [
+        'CI preflight',
+        'Frontend CI / TypeScript check',
+        'Frontend CI / Jest',
+        'Backend CI / Django tests',
+        'Visual regression',
+    ].map((name, index) => ({
+        name,
+        status: 'completed',
+        conclusion: 'success',
+        url: `https://github.com/PostHog/posthog/actions/runs/12002/jobs/${index + 1}`,
+    })),
+}
+
 // Detail-body stories. Each detail component mounts the keyed `inboxReportDetailLogic`,
 // which fetches artefacts / signals / tasks – mocked here. Polish the two-column detail
 // layout (summary, evidence, runs, reviewers) against the desktop detail views.
@@ -36,6 +92,11 @@ const detailMocks = mswDecorator({
             200,
             { report: null, signals: mockSignals(req.params.reportId as string, 4) },
         ],
+        '/api/projects/:id/signals/reports/:reportId/pr_checks/': (req) => [
+            200,
+            req.params.reportId === pullRequestReports[1].id ? successfulPrChecks : mixedPrChecks,
+        ],
+        '/api/projects/:id/signals/reports/:reportId/pr_comments/': () => [200, { comments: [] }],
         '/api/projects/:id/signals/reports/available_reviewers': () => [200, mockReviewers],
         // Terminal run status so the inline run viewer replays its static log instead of opening SSE.
         '/api/projects/:id/tasks/:taskId': (req) => [200, mockTask(req.params.taskId as string, 'completed')],
@@ -88,6 +149,14 @@ export const PullRequest: Story = {
     render: () => (
         <Frame>
             <PullRequestDetail report={pullRequestReports[0]} />
+        </Frame>
+    ),
+}
+
+export const PullRequestChecksPassing: Story = {
+    render: () => (
+        <Frame>
+            <PullRequestDetail report={pullRequestReports[1]} />
         </Frame>
     ),
 }

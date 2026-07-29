@@ -23,7 +23,7 @@ export interface ExceptionData {
     type: string
     value: string
     module?: string
-    mechanism?: { handled?: boolean; type?: string }
+    mechanism?: { handled?: boolean; synthetic?: boolean; type?: string }
     stacktrace?: {
         type?: string
         frames?: StackFrame[]

@@ -5,10 +5,15 @@ learned (agent-authored, sandbox-write-only), a note is what the team wants the
 fleet to know (authored over the public MCP surface via `signal_scout:write`).
 A note targets one scout by `skill_name`, or the whole fleet when `skill_name`
 is blank; `list_notes` is what a run calls to pick up the notes addressed to it.
+
+Most notes are left by hand through that surface. The exception is `origin`
+`report_dismissal`: notes forwarded from the feedback someone typed when they
+dismissed, snoozed, or restored an inbox report (see `dismissal_notes.py`).
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any
@@ -44,6 +49,7 @@ class ScoutNote:
     expires_at: str | None = None
     # Display name only — author emails stay behind the internal-scope member roster.
     created_by_name: str | None = None
+    origin: str = SignalScoutNote.Origin.HUMAN
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -59,6 +65,7 @@ def list_notes(
     date_to: datetime | None = None,
     limit: int = DEFAULT_NOTES_LIST_LIMIT,
     content_max_chars: int | None = None,
+    exclude_origins: Sequence[str] = (),
 ) -> list[ScoutNote]:
     """Return notes for a team, newest first.
 
@@ -76,9 +83,16 @@ def list_notes(
     against notes stacking up to `MAX_NOTE_CONTENT_LENGTH × limit` characters of
     prose (a plain Python slice; note volume is small, unlike the scratchpad's
     SQL-projected equivalent).
+
+    `exclude_origins` drops whole classes of note before the cap is applied, so a caller
+    who may not see one class still gets a full page of what it may see. The read surface
+    uses it to withhold `report_dismissal` notes (which quote report content) from callers
+    without report read access.
     """
     clamped_limit = min(max(limit, 1), MAX_NOTES_LIST_LIMIT)
     qs = SignalScoutNote.objects.filter(team_id=team_id).select_related("created_by")
+    if exclude_origins:
+        qs = qs.exclude(origin__in=list(exclude_origins))
     if skill_name is not None:
         target = Q(skill_name=skill_name)
         if include_general:
@@ -101,8 +115,13 @@ def leave_note(
     skill_name: str = "",
     created_by_id: int | None = None,
     expires_at: datetime | None = None,
+    origin: str = SignalScoutNote.Origin.HUMAN,
 ) -> ScoutNote:
-    """Create a note. Not an upsert — every call mints a new row; delete retires one."""
+    """Create a note. Not an upsert — every call mints a new row; delete retires one.
+
+    `origin` is server-owned and never caller-supplied over the API: the notes endpoint always
+    writes `HUMAN`, and `REPORT_DISMISSAL` belongs to `dismissal_notes.forward_dismissal_note`.
+    """
     _validate_note(team_id=team_id, skill_name=skill_name, content=content)
     row = SignalScoutNote.objects.create(
         team_id=team_id,
@@ -110,6 +129,7 @@ def leave_note(
         content=content,
         created_by_id=created_by_id,
         expires_at=expires_at,
+        origin=origin,
     )
     return _to_note(row)
 
@@ -156,4 +176,5 @@ def _to_note(row: SignalScoutNote, *, content_max_chars: int | None = None) -> S
         created_at=row.created_at.isoformat() if row.created_at else None,
         expires_at=row.expires_at.isoformat() if row.expires_at else None,
         created_by_name=name or None,
+        origin=row.origin,
     )

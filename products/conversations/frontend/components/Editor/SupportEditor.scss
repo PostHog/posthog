@@ -102,6 +102,9 @@
 }
 
 .SupportRichContentPreview {
+    // Break long unbreakable strings (URLs, tokens) so a message can't grow wider than the ticket pane.
+    overflow-wrap: anywhere;
+
     p {
         margin-bottom: 0;
     }

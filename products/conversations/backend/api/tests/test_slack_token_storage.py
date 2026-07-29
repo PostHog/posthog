@@ -34,12 +34,15 @@ class TestSlackTokenStorage(BaseTest):
             is_impersonated_session=False,
             bot_token="xoxb-test-token",
             slack_team_id="T_SETTINGS",
+            granted_scopes=["chat:write", "files:read"],
         )
 
         self.team.refresh_from_db()
         settings = self.team.conversations_settings or {}
         assert settings["slack_enabled"] is True
         assert "slack_team_id" not in settings
+        # Recorded so the settings page can tell which installs predate the files: scopes
+        assert settings["slack_scopes"] == ["chat:write", "files:read"]
 
         config = TeamConversationsSlackConfig.objects.get(team=self.team)
         assert config.slack_team_id == "T_SETTINGS"

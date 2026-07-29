@@ -101,6 +101,43 @@ class TestGithubWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
 
         self.mock_produce_to_warehouse_webhooks.assert_called_once_with(job, "schema_jobs")
 
+    def test_deployment_row_lands_unchanged(self):
+        # The deployment event nests the object under body.deployment, matching the polled REST
+        # shape, so it lands as-is like workflow_job / workflow_run.
+        deployment = {"id": 7, "environment": "production", "sha": "abc123"}
+        self._run("deployment", {"action": "created", "deployment": deployment}, {"deployment": "schema_deploys"})
+
+        self.mock_produce_to_warehouse_webhooks.assert_called_once_with(deployment, "schema_deploys")
+
+    def test_deployment_status_row_is_reshaped_to_poll_shape(self):
+        # The deployment_status event nests the status under body.deployment_status and its
+        # deployment under body.deployment; the status carries no deployment_id. The template must
+        # inject deployment_id so webhook rows match poll rows (which carry it from the parent).
+        body = {
+            "action": "created",
+            "deployment_status": {"id": 900, "state": "success", "created_at": "2026-01-20T10:00:00Z"},
+            "deployment": {"id": 7, "environment": "production"},
+        }
+        self._run("deployment_status", body, {"deployment_status": "schema_statuses"})
+
+        row, schema_id = self.mock_produce_to_warehouse_webhooks.call_args.args
+        assert schema_id == "schema_statuses"
+        assert row["id"] == 900
+        assert row["state"] == "success"
+        assert row["deployment_id"] == 7
+
+    @parameterized.expand(
+        [
+            ("missing_status", {"action": "created", "deployment": {"id": 7}}),
+            ("missing_deployment", {"action": "created", "deployment_status": {"id": 900, "state": "success"}}),
+        ]
+    )
+    def test_incomplete_deployment_status_payload_is_skipped_with_200(self, _name: str, body: dict[str, Any]):
+        res = self._run("deployment_status", body, {"deployment_status": "schema_statuses"})
+
+        assert res.result["httpResponse"]["status"] == 200
+        self.mock_produce_to_warehouse_webhooks.assert_not_called()
+
     def test_unmapped_event_type_no_ops(self):
         # Sources whose schema_mapping predates the pull_request_review entry must 200-skip the
         # event, not error, so enabling the webhook event repo-wide is safe for old deployments.

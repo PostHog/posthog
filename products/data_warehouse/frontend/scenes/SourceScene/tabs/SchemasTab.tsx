@@ -588,6 +588,7 @@ function ManagedSchemaTable({
                                     type="secondary"
                                     size="xsmall"
                                     to={urls.dataWarehouseSourceSchema(prefixedSourceId, schema.id, 'configuration')}
+                                    disabledReason={editDisabledReason}
                                 >
                                     Configure
                                 </LemonButton>

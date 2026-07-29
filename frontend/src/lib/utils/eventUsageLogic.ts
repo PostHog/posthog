@@ -60,6 +60,7 @@ import {
     ExperimentHoldoutType,
     ExperimentIdType,
     ExperimentStatsMethod,
+    ExporterFormat,
     FilterLogicalOperator,
     FunnelCorrelation,
     HelpType,
@@ -613,6 +614,13 @@ export interface eventUsageLogicActions {
         dashboardId: number | undefined
         promptLabel: string
     }
+    reportDashboardExported: (
+        dashboardId: number,
+        exportFormat: ExporterFormat
+    ) => {
+        dashboardId: number
+        exportFormat: ExporterFormat
+    }
     reportDashboardFiltersChanged: (
         dashboard: DashboardType<QueryBasedInsightModel> | null,
         changeType: DashboardFilterChangeType,
@@ -1087,6 +1095,7 @@ export interface eventUsageLogicActions {
             succeeded?: number
             total_metrics?: number
             trigger?:
+                | 'agent_mcp'
                 | 'auto_refresh'
                 | 'cold_run'
                 | 'config_change'
@@ -1107,6 +1116,7 @@ export interface eventUsageLogicActions {
             succeeded?: number | undefined
             total_metrics?: number | undefined
             trigger?:
+                | 'agent_mcp'
                 | 'auto_refresh'
                 | 'cold_run'
                 | 'config_change'
@@ -2230,6 +2240,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             promptLabel,
             dashboardId,
         }),
+        reportDashboardExported: (dashboardId: number, exportFormat: ExporterFormat) => ({
+            dashboardId,
+            exportFormat,
+        }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
@@ -2441,6 +2455,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                     | 'experiment_launch'
                     | 'experiment_stop'
                     | 'experiment_update'
+                    | 'agent_mcp'
                 is_existing?: boolean
                 total_metrics?: number
                 succeeded?: number
@@ -3231,6 +3246,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 prompt_label: promptLabel,
                 dashboard_id: dashboardId,
                 source: 'web',
+            })
+        },
+        reportDashboardExported: async ({ dashboardId, exportFormat }) => {
+            posthog.capture('dashboard exported', {
+                dashboard_id: dashboardId,
+                export_format: exportFormat,
             })
         },
         reportUpgradeModalShown: async (payload) => {
