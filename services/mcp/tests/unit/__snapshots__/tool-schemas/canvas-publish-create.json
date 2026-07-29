@@ -1,12 +1,28 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "expected_current_version_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optimistic-concurrency guard: the current_version_id the publisher based its edits on (null when it read a canvas with no versions yet). When the canvas has since moved past it the publish is rejected with a 409 version_conflict instead of overwriting the newer head. Omit to publish unguarded."
+        },
         "id": {
-            "description": "ID of the canvas the project is for.",
+            "description": "ID of the canvas whose source to publish.",
+            "type": "string"
+        },
+        "name": {
+            "description": "Optional new display name for the canvas.",
+            "maxLength": 400,
             "type": "string"
         },
         "project": {
-            "description": "The candidate source project to validate.",
+            "description": "The complete source project to publish.",
             "properties": {
                 "assets": {
                     "additionalProperties": {
@@ -47,9 +63,55 @@
                     "type": "object"
                 },
                 "canvasSdkVersion": {
-                    "default": "0.1.0",
                     "description": "Version of the host-injected `ph` canvas SDK the project targets.",
                     "type": "string"
+                },
+                "capabilities": {
+                    "description": "Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls.",
+                    "properties": {
+                        "network": {
+                            "properties": {
+                                "origins": {
+                                    "items": {
+                                        "format": "uri",
+                                        "maxLength": 2048,
+                                        "type": "string"
+                                    },
+                                    "maxItems": 20,
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["origins"],
+                            "type": "object"
+                        },
+                        "posthog": {
+                            "properties": {
+                                "captureEvents": {
+                                    "items": {
+                                        "maxLength": 200,
+                                        "type": "string"
+                                    },
+                                    "maxItems": 100,
+                                    "type": "array"
+                                },
+                                "inlineQueries": {
+                                    "type": "boolean"
+                                },
+                                "insights": {
+                                    "items": {
+                                        "maxLength": 128,
+                                        "type": "string"
+                                    },
+                                    "maxItems": 100,
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["insights", "inlineQueries", "captureEvents"],
+                            "type": "object"
+                        }
+                    },
+                    "required": ["posthog", "network"],
+                    "type": "object"
                 },
                 "dependencies": {
                     "additionalProperties": {
@@ -69,7 +131,7 @@
                     "additionalProperties": {
                         "type": "string"
                     },
-                    "description": "Project files keyed by relative path (forward slashes, no '..'). Until the canvas build service ships, only \"index.html\" and \"src/canvas.tsx\" (the single React component the canvas mounts) are supported.",
+                    "description": "Project files keyed by relative path (forward slashes, no '..').",
                     "propertyNames": {
                         "type": "string"
                     },
@@ -82,6 +144,10 @@
             },
             "required": ["schemaVersion", "files", "entryHtml"],
             "type": "object"
+        },
+        "prompt": {
+            "description": "Short description of the change, stored on the appended version history entry.",
+            "type": "string"
         }
     },
     "required": ["id", "project"],

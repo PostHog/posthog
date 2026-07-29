@@ -17,7 +17,8 @@
             "type": "string"
         },
         "name": {
-            "description": "Optional new display name for the canvas (rewrites the leaf segment of its path).",
+            "description": "Optional new display name for the canvas.",
+            "maxLength": 400,
             "type": "string"
         },
         "operations": {

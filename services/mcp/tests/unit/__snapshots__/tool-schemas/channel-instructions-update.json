@@ -1,0 +1,28 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "base_version": {
+            "anyOf": [
+                {
+                    "minimum": 0,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optimistic-concurrency guard: the version the edit is based on (0 for a channel with no instructions yet). A stale base is rejected with 409; omit to publish unguarded."
+        },
+        "content": {
+            "description": "The complete markdown instructions (CONTEXT.md) for the channel.",
+            "maxLength": 100000,
+            "type": "string"
+        },
+        "id": {
+            "description": "ID of the channel whose instructions to update.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}
