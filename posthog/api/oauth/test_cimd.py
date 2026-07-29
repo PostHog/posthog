@@ -618,7 +618,9 @@ class TestApplyProvisioningDefaults(APIBaseTest):
         mock_get.return_value = _mock_response(_make_metadata(), headers={})
         existing = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
         assert existing is not None
-        existing.update_provisioning(disabled=True)
+        # Disabled through a separate row read, so `existing` still holds the pre-revocation
+        # copy - the state a registration is in when its metadata fetch overlaps an admin edit.
+        OAuthApplication.objects.get(pk=existing.pk).update_provisioning(disabled=True)
         mock_capture.reset_mock()
 
         app = apply_provisioning_defaults(existing)
@@ -627,6 +629,22 @@ class TestApplyProvisioningDefaults(APIBaseTest):
         app.refresh_from_db()
         self.assertFalse(app.is_provisioning_partner)
         self.assertNotIn("cimd_provisioning_partner_registered", _captured_events(mock_capture))
+
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_registration_does_not_restore_a_capability_revoked_mid_fetch(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+        existing = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert existing is not None
+        existing.update_provisioning(can_use_github_grants=True)
+        OAuthApplication.objects.get(pk=existing.pk).update_provisioning(can_use_github_grants=False)
+
+        app = apply_provisioning_defaults(existing)
+
+        self.assertFalse(app.provisioning.can_use_github_grants)
+        app.refresh_from_db()
+        self.assertFalse(app.provisioning.can_use_github_grants)
+        # The self-serve defaults still land - only the admin's revocation survives on top.
+        self.assertTrue(app.provisioning.can_create_accounts)
 
 
 @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})

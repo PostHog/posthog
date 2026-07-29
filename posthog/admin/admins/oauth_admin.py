@@ -107,8 +107,10 @@ class OAuthApplicationForm(forms.ModelForm):
         )
         # An operator typing a limit here outranks the verified/unverified defaults, so record
         # that. Without it the next CIMD metadata refresh re-tiers the app and overwrites them.
+        # Keyed on the field actually changing in this form rather than on the stored value, so
+        # saving an unrelated field doesn't pin a limit a CIMD refresh set since the form loaded.
         source = previous.rate_limit_source
-        if rate_limits.account_requests != previous.rate_limits.account_requests:
+        if f"{PROVISIONING_RATE_LIMIT_PREFIX}account_requests" in self.changed_data:
             source = "admin"
 
         instance.provisioning = ProvisioningConfig(**capabilities, rate_limits=rate_limits, rate_limit_source=source)
