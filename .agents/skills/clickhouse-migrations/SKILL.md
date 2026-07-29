@@ -91,6 +91,10 @@ The only exception is tables whose definition intentionally differs per environm
 
 **Dictionary credentials:** when a dictionary uses a `SOURCE(CLICKHOUSE(...))`, resolve the source user/password via `get_clickhouse_creds(ClickHouseUser.DICT_READER)` and interpolate them into the `USER`/`PASSWORD` clause — do not hardcode `default`/`CLICKHOUSE_USER` or omit credentials. This keeps dictionary auth on the dedicated low-privilege `dict_reader` user, decoupled from `default`; it falls back to `default` creds when the env vars are unset. See `posthog/models/exchange_rate/sql.py` for the pattern.
 
+The source user reads the source table over its own connection, so it needs a `SELECT` grant on that table in **every** cluster the dictionary lives on — the cloud grants are managed outside this repo, and `docker/clickhouse/users*.xml` only covers local and CI.
+A denied source read fails the whole dictionary, so every `dictGet` against it errors until a later reload succeeds.
+When a new dictionary sources a table no existing dictionary reads, get the cloud grant in place before the migration ships, or source as `ClickHouseUser.DEFAULT` (as `posthog/models/channel_type/sql.py` does) until it is.
+
 ### Testing
 
 Delete entry from `infi_clickhouse_orm_migrations` table to re-run a migration.

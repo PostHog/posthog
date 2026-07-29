@@ -1,1 +1,1 @@
-0291_add_ai_channel_type
+0292_channel_definition_dict_source_user

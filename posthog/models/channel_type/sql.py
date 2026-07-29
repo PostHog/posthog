@@ -59,12 +59,20 @@ INSERT INTO channel_definition (domain, kind, domain_type, type_if_paid, type_if
 """
 )
 
-CLICKHOUSE_DICT_READER_USER, CLICKHOUSE_DICT_READER_PASSWORD = get_clickhouse_creds(ClickHouseUser.DICT_READER)
 
+# The SOURCE user opens its own connection to read `channel_definition`, so it needs a SELECT
+# grant on that table in every cluster the dictionary lives on. `dict_reader` — the low-privilege
+# user the other dictionaries source as — does not hold that grant on the main cluster, and a
+# denied source read fails the dictionary as a whole: every dictGetOrNull against it then errors
+# until a later reload succeeds. Source as the default user, which can always read the table the
+# same deploy just wrote to.
+#
 # Use COMPLEX_KEY_HASHED, as we have a composite key
-CHANNEL_DEFINITION_DICTIONARY_SQL = lambda on_cluster=True: (
-    f"""
-CREATE DICTIONARY IF NOT EXISTS {CHANNEL_DEFINITION_DICTIONARY_NAME} {ON_CLUSTER_CLAUSE(on_cluster)} (
+def CHANNEL_DEFINITION_DICTIONARY_SQL(on_cluster: bool = True, replace: bool = False) -> str:
+    user, password = get_clickhouse_creds(ClickHouseUser.DEFAULT)
+    create_clause = "CREATE OR REPLACE DICTIONARY" if replace else "CREATE DICTIONARY IF NOT EXISTS"
+    return f"""
+{create_clause} {CHANNEL_DEFINITION_DICTIONARY_NAME} {ON_CLUSTER_CLAUSE(on_cluster)} (
     domain String,
     kind String,
     domain_type Nullable(String),
@@ -72,11 +80,11 @@ CREATE DICTIONARY IF NOT EXISTS {CHANNEL_DEFINITION_DICTIONARY_NAME} {ON_CLUSTER
     type_if_organic Nullable(String)
 )
 PRIMARY KEY domain, kind
-SOURCE(CLICKHOUSE(TABLE '{CHANNEL_DEFINITION_TABLE_NAME}' USER '{CLICKHOUSE_DICT_READER_USER}' PASSWORD '{CLICKHOUSE_DICT_READER_PASSWORD}'))
+SOURCE(CLICKHOUSE(TABLE '{CHANNEL_DEFINITION_TABLE_NAME}' USER '{user}' PASSWORD '{password}'))
 LIFETIME(MIN 3000 MAX 3600)
 LAYOUT(COMPLEX_KEY_HASHED())
 """
-)
+
 
 DROP_CHANNEL_DEFINITION_DICTIONARY_SQL = (
     f"DROP DICTIONARY IF EXISTS {CHANNEL_DEFINITION_DICTIONARY_NAME} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
