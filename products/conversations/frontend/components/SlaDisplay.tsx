@@ -1,7 +1,6 @@
 import clsx from 'clsx'
 
 import { TZLabel } from 'lib/components/TZLabel'
-
 import { dayjs } from 'lib/dayjs'
 
 export function SlaDisplay({
