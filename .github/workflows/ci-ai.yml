@@ -111,6 +111,15 @@ jobs:
               shell: bash
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
+            # The eval harness builds personhog-replica/personhog-router from rust/ during
+            # preflight (ensure_personhog_binaries), so this job needs the pinned toolchain
+            # regardless of whether setup-sqlx-cli hits its cache.
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
+
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
 
