@@ -873,9 +873,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             if "response_target_rank" in queryset.query.annotations:
                 response_target_counts = {
                     str(row["response_target_rank"]): row["n"]
-                    for row in queryset.order_by()
-                    .values("response_target_rank")
-                    .annotate(n=Count("id", distinct=True))
+                    for row in queryset.order_by().values("response_target_rank").annotate(n=Count("id", distinct=True))
                 }
 
             if page is not None:
