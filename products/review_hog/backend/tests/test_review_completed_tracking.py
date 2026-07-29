@@ -12,7 +12,11 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_verdicts,
     upsert_review_report,
 )
-from products.review_hog.backend.temporal.activities import TrackReviewCompletedInput, _track_review_completed
+from products.review_hog.backend.temporal.activities import (
+    TrackReviewCompletedInput,
+    _track_review_completed,
+    _track_review_completed_safe,
+)
 
 _PR_URL = "https://github.com/o/r/pull/7"
 
@@ -55,8 +59,8 @@ class TestTrackReviewCompleted(BaseTest):
 
     @parameterized.expand([(True,), (False,)])
     def test_captures_the_turn_with_review_scoped_properties(self, published: bool) -> None:
-        # The team-2 ReviewHog dashboard counts reviews from this event's name and these exact
-        # properties — a rename, a dropped property, or a broken finding count silently zeroes it.
+        # Dashboards count reviews from this event's name and these exact properties — a rename,
+        # a dropped property, or a broken finding count silently zeroes them.
         report_id = self._review_report()
         persist_pr_snapshot(
             team_id=self.team.id,
@@ -121,3 +125,34 @@ class TestTrackReviewCompleted(BaseTest):
         props = capture.call_args.kwargs["properties"]
         assert props["pr_additions"] is None
         assert props["findings_total"] == 0
+
+    def test_event_uuid_is_stable_across_retries(self) -> None:
+        # A Temporal retry after a successful capture re-emits the event; a stable uuid lets
+        # ingestion dedupe it instead of double-counting the review.
+        report_id = self._review_report()
+        tracking_input = TrackReviewCompletedInput(
+            team_id=self.team.id, report_id=report_id, head_sha="sha1", run_index=1, published=True
+        )
+
+        with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
+            _track_review_completed(tracking_input)
+            _track_review_completed(tracking_input)
+
+        first, second = capture.call_args_list
+        assert first.kwargs["uuid"]
+        assert first.kwargs["uuid"] == second.kwargs["uuid"]
+
+    def test_capture_failure_is_swallowed(self) -> None:
+        # Telemetry must never fail a review — losing this guard would fail review turns on any
+        # analytics outage.
+        report_id = self._review_report()
+
+        with patch(
+            "products.review_hog.backend.temporal.activities.posthoganalytics.capture",
+            side_effect=RuntimeError("analytics down"),
+        ):
+            _track_review_completed_safe(
+                TrackReviewCompletedInput(
+                    team_id=self.team.id, report_id=report_id, head_sha="sha1", run_index=1, published=True
+                )
+            )

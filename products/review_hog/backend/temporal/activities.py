@@ -14,6 +14,7 @@ access goes through `database_sync_to_async(..., thread_sensitive=False)`; `@sco
 `@close_db_connections` mirror the Signals report activities.
 """
 
+import uuid
 import logging
 from dataclasses import dataclass, field
 
@@ -1249,11 +1250,16 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
     findings = load_turn_findings(team_id=input.team_id, report_id=input.report_id, run_index=input.run_index)
     snapshot = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
     pr_meta = snapshot.pr_metadata if snapshot is not None else None
-    # Acting user when resolved, else the team — the same attribution the TaskRun analytics use.
-    distinct_id = str(report.acting_user.distinct_id) if report.acting_user is not None else str(report.team.uuid)
+    # Acting user when resolved and carrying a distinct_id, else the team — the same attribution
+    # the TaskRun analytics use.
+    acting_distinct_id = report.acting_user.distinct_id if report.acting_user is not None else None
+    distinct_id = str(acting_distinct_id) if acting_distinct_id else str(report.team.uuid)
     posthoganalytics.capture(
         distinct_id=distinct_id,
         event="reviewhog_review_completed",
+        # Deterministic per turn: an activity retry that re-captures after a worker crash emits the
+        # same event uuid, so ingestion dedupes it instead of double-counting the review.
+        uuid=str(uuid.uuid5(uuid.NAMESPACE_URL, f"reviewhog_review_completed:{input.report_id}:{input.run_index}")),
         properties={
             "report_id": str(report.id),
             "team_id": report.team_id,
@@ -1276,6 +1282,14 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
     )
 
 
+def _track_review_completed_safe(input: TrackReviewCompletedInput) -> None:
+    # Analytics must never fail a review: any load/capture failure is logged, not raised.
+    try:
+        _track_review_completed(input)
+    except Exception:
+        logger.exception("Failed to capture reviewhog_review_completed for report %s; continuing", input.report_id)
+
+
 @activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -1285,12 +1299,9 @@ async def track_review_completed_activity(input: TrackReviewCompletedInput) -> N
     One event per finalized turn (published or stored), across every trigger and repo — the
     per-review count product dashboards aggregate, which the step-level `task_*` events can't
     provide (one review fans out into many sandbox tasks). Best-effort: analytics must never fail
-    a review, so any capture failure is logged, not raised.
+    a review, so any failure is logged, not raised.
     """
-    try:
-        await database_sync_to_async(_track_review_completed, thread_sensitive=False)(input)
-    except Exception:
-        logger.exception("Failed to capture reviewhog_review_completed for report %s; continuing", input.report_id)
+    await database_sync_to_async(_track_review_completed_safe, thread_sensitive=False)(input)
 
 
 # --- The PR's live status comment -------------------------------------------------------------------
