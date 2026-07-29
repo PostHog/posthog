@@ -263,8 +263,7 @@ def _rank_counts(counts: dict[str, int], key: str = "tag") -> list[dict[str, Any
 def _summarizer_stats(queryset: QuerySet[ReplayObservation]) -> dict[str, Any]:
     succeeded = queryset.filter(status=ObservationStatus.SUCCEEDED).order_by()
     inner_sql, inner_params = succeeded.values("id", "scanner_result").query.sql_with_params()
-    # Rankings count summaries mentioning a term; stored facet arrays aren't guaranteed deduplicated,
-    # so count distinct observations rather than array elements.
+    # Stored facet arrays may repeat a term, so rank by distinct observations rather than array elements.
     with connection.cursor() as cursor:
         cursor.execute(
             f"""

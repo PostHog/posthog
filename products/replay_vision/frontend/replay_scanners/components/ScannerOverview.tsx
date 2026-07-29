@@ -56,10 +56,7 @@ function PanelEmpty({ loading, message }: { loading: boolean; message: string })
 // Cap the rows so a panel can't outgrow the one beside it.
 const RANKED_ROWS = 5
 
-/**
- * One ranked "term → count" list, shared by the classifier's tag panels and the summarizer's facet panels.
- * The bar is the row background rather than a column, so long friction phrases wrap instead of truncating.
- */
+// The bar is the row background rather than a column, so long friction phrases wrap instead of truncating.
 function RankedTermList({
     ranked,
     loading,
@@ -76,8 +73,7 @@ function RankedTermList({
     }
     const top = ranked.slice(0, RANKED_ROWS)
     const maxCount = top[0][1]
-    // Freeform phrases rarely repeat verbatim. With no repeats every bar is full width, which reads as
-    // "these all dominate" when it actually means there's no ranking yet, so drop the bars instead.
+    // When no term repeats, every bar is full width and falsely reads as "these all dominate", so drop the bars.
     const showBars = maxCount > 1
     return (
         <div className="space-y-1">
@@ -333,8 +329,7 @@ function SummarizerOverview({ scannerId }: { scannerId: string }): JSX.Element |
         : 'No keywords reported yet. They appear as summaries accumulate.'
 
     const summaries = (count: number): string => `${count.toLocaleString()} summar${count === 1 ? 'y' : 'ies'}`
-    // How often summaries report friction at all is the number worth leading with; the ranking below only
-    // says which kinds. Both panels share the same denominator so they stay comparable.
+    // Both subtitles use the same succeeded-summary denominator so the two panels stay comparable.
     const frictionSubtitle =
         totalSucceeded > 0
             ? `${totalWithFriction.toLocaleString()} of ${summaries(totalSucceeded)} (${Math.round(

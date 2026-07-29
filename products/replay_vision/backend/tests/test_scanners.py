@@ -634,7 +634,6 @@ class TestSummarizerScannerSteps:
             _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
         )
         summary = SummarizerSummaryResponse(title="Auth", summary="Tried to log in", confidence=0.9)
-        # The casing variants collapse to one term, so the overview's emission counts stay per-session.
         facets = SummarizerFacetsResponse(
             intent="Authenticate",
             outcome="Reached reset page",

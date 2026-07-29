@@ -185,8 +185,7 @@ export default meta
 
 export const ScannersList: StoryObj = {}
 
-// The summarizer overview is the only one whose panels are driven purely by freeform model output, so it
-// needs its own story: nothing else catches a regression in the friction/keyword rankings.
+// Nothing else renders the summarizer's friction/keyword panels, so this story is what catches regressions there.
 export const SummarizerOverview: StoryObj = {
     parameters: {
         pageUrl: urls.replayVision(summarizerScanner.id),
