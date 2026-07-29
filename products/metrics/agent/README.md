@@ -70,7 +70,7 @@ Checked in this order:
 ## Notes and limits
 
 - One `service_name` per scrape job: Prometheus `job_name` maps to `service_name` in PostHog and target labels cannot override it. Run one agent (or one mounted scrape job) per logical service if you need distinct service names.
-- Run a single replica. Two agents scraping the same targets double-count every metric.
+- Don't run bare replicas of one agent — they all scrape the same targets and double-count. To scale, use a sharded fleet (see Scaling out) so each instance takes a disjoint slice.
 - Metrics are rate limited server side per project; keep label cardinality sane (avoid user IDs, request IDs and the like as label values).
 - Health endpoint for probes: `:13133`.
 - The agent exposes its own metrics (scrape success, queue depth, points sent/dropped) at `:8888/metrics` — point your monitoring at it, or scrape it with the agent itself.
@@ -82,8 +82,20 @@ Checked in this order:
 # Config rendering golden tests (pure sh, no docker):
 tests/render/run.sh
 
+# Helm chart render + behavior tests (needs helm):
+tests/helm/run.sh
+
 # Integration smoke test (builds the image; asserts exemplars survive scrape -> OTLP):
 tests/integration/run.sh
+
+# Durability: scrape through a simulated outage, hard-kill, assert nothing lost:
+tests/durability/run.sh
+
+# Fleet sharding at scale (synthetic target farm; completeness + disjointness):
+tests/scale/run.sh
+
+# Real-Kubernetes E2E on kind (restricted-PSS admission, discovery, sharding, exemplars):
+tests/kind/run.sh
 ```
 
 End-to-end against the local dev stack (requires `hogli start` with capture-logs and the metrics ingestion consumer running):
