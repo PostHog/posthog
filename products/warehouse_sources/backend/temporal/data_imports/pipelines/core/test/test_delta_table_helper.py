@@ -397,15 +397,38 @@ class TestGetDeltaTableUnrecoverableErrors:
             patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
             patch(f"{module}.capture_exception") as mock_capture,
         ):
-            mock_delta_table.is_deltatable.side_effect = OSError(
-                "Generic S3 error: Received redirect without LOCATION, this normally indicates "
-                "an incorrectly configured region"
-            )
+            mock_delta_table.is_deltatable.side_effect = OSError("Access Denied: not authorized to list bucket")
 
-            with pytest.raises(OSError, match="Received redirect without LOCATION"):
+            with pytest.raises(OSError, match="Access Denied"):
                 await helper.get_delta_table()
 
             mock_capture.assert_called_once()
+            assert helper.is_first_sync is False
+
+    @pytest.mark.asyncio
+    async def test_is_deltatable_transient_error_is_not_captured_but_still_reraised(self):
+        """A known-transient object-store blip (e.g. an S3 LIST request timing out) must not be
+        reported to error tracking as a defect — it's a self-recovering network hiccup, not a bug —
+        but it must still propagate so Temporal's activity retry policy retries the sync."""
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        delta_uri = "s3://bucket/team_id/job_id/t"
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper"
+        with (
+            patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value=delta_uri)),
+            patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
+            patch(f"{module}.capture_exception") as mock_capture,
+        ):
+            mock_delta_table.is_deltatable.side_effect = OSError(
+                "Generic S3 error\nError getting list response body\nHTTP error\n"
+                "request or response body error\noperation timed out"
+            )
+
+            with pytest.raises(OSError, match="operation timed out"):
+                await helper.get_delta_table()
+
+            mock_capture.assert_not_called()
+            cast(AsyncMock, helper._logger.awarning).assert_awaited_once()
             assert helper.is_first_sync is False
 
 
