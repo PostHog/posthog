@@ -64,7 +64,7 @@ def create_canvas_artifact_token(build: CanvasBuild) -> str | None:
     )
 
 
-def _artifact_origin() -> str | None:
+def _artifact_origin() -> str:
     """The origin artifacts are linked from and served on.
 
     DEBUG/TEST with no CANVAS_ARTIFACT_ORIGIN falls back to the application
@@ -82,10 +82,7 @@ def create_canvas_artifact_url(build: CanvasBuild, artifact_path: str) -> str | 
     token = create_canvas_artifact_token(build)
     if token is None:
         return None
-    origin = _artifact_origin()
-    if origin is None:
-        return None
-    return f"{origin}/canvas-artifacts/{token}/{artifact_path}"
+    return f"{_artifact_origin()}/canvas-artifacts/{token}/{artifact_path}"
 
 
 def _read_token(token: str) -> dict[str, Any]:
