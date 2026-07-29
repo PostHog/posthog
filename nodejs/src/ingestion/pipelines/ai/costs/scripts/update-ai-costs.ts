@@ -55,7 +55,30 @@ const parsePricingNumber = (value: unknown): number | undefined => {
     }
 }
 
-const buildModelCost = (pricing: Record<string, unknown> | undefined): ModelCost | null => {
+/**
+ * OpenRouter serves `pricing.*` net of any promotion and reports the rate here.
+ * A provider key means "what this provider charges a direct caller", so the
+ * promotion is divided back out. Returns 0 for absent, zero, or out-of-range.
+ */
+export const parseDiscountRate = (pricing: Record<string, unknown>, context?: string, warn = true): number => {
+    const parsed = parsePricingNumber(pricing.discount)
+    if (parsed === undefined || parsed === 0) {
+        return 0
+    }
+
+    // A rate at or above 1 would divide by zero or flip the sign. Negatives are
+    // already clamped to 0 by parsePricingNumber.
+    if (parsed >= 1) {
+        if (warn) {
+            console.warn(`Ignoring out-of-range discount ${String(pricing.discount)} for ${context ?? 'unknown model'}`)
+        }
+        return 0
+    }
+
+    return parsed
+}
+
+export const buildModelCost = (pricing: Record<string, unknown> | undefined, context?: string): ModelCost | null => {
     if (!pricing) {
         return null
     }
@@ -67,9 +90,16 @@ const buildModelCost = (pricing: Record<string, unknown> | undefined): ModelCost
         return null
     }
 
+    // The rate applies uniformly to every price field, flat fees included: on a
+    // 50%-off endpoint web_search reads 0.005 against 0.01 on the undiscounted
+    // sibling, the same ratio as the token rates.
+    const discount = parseDiscountRate(pricing, context)
+    const toListPrice = (value: number): number =>
+        discount === 0 ? value : parseFloat((value / (1 - discount)).toPrecision(10))
+
     const cost: ModelCost = {
-        prompt_token: promptToken,
-        completion_token: completionToken,
+        prompt_token: toListPrice(promptToken),
+        completion_token: toListPrice(completionToken),
     }
 
     const optionalPricingFields: Array<[keyof ModelCost, string]> = [
@@ -88,22 +118,253 @@ const buildModelCost = (pricing: Record<string, unknown> | undefined): ModelCost
     for (const [targetField, sourceField] of optionalPricingFields) {
         const parsedValue = parsePricingNumber(pricing[sourceField])
         if (parsedValue !== undefined && parsedValue !== 0) {
-            cost[targetField] = parsedValue
+            cost[targetField] = toListPrice(parsedValue)
         }
     }
 
     return cost
 }
 
-const normalizeProviderKey = (endpoint: { tag?: string; provider_name?: string; name?: string }): string => {
-    const rawKey = endpoint.tag || endpoint.provider_name || endpoint.name || 'unknown'
-    return rawKey
+export interface EndpointCandidate {
+    key: string
+    cost: ModelCost
+    discount: number
+}
+
+/*
+ * `default` holds the `/api/v1/models` list price, promotion included, and no
+ * de-discount is applied to it: `PROVIDER_ALIASES` maps `$ai_provider:
+ * 'openrouter'` onto `default`, where the promo price is what the caller was
+ * billed. Raising it to list over-reports those events by 1/(1 - rate).
+ * Separating the two readers needs an `openrouter` key, which requires that key
+ * to exist in `CanonicalProvider` first.
+ */
+
+export type DiscountConfirmation = 'confirmed' | 'unconfirmed' | 'not-checkable'
+
+/**
+ * Corroborates the de-discount: where a model has both a promo route and an
+ * undiscounted one, the recovered price should land on the sibling. Evidence
+ * only, never a warning. Two hosts legitimately price the same open-weights
+ * model differently, so a mismatch fires on half of all checkable models.
+ */
+export const confirmDiscountAgainstSiblings = (candidates: EndpointCandidate[]): DiscountConfirmation => {
+    const discounted = candidates.filter((candidate) => candidate.discount > 0)
+    const undiscounted = candidates.filter((candidate) => candidate.discount === 0)
+    if (discounted.length === 0 || undiscounted.length === 0) {
+        return 'not-checkable'
+    }
+
+    // Both sides already went through the same rounding, so exact equality holds.
+    const siblingListPrices = new Set(undiscounted.map((candidate) => candidate.cost.prompt_token))
+    return discounted.some((candidate) => siblingListPrices.has(candidate.cost.prompt_token))
+        ? 'confirmed'
+        : 'unconfirmed'
+}
+
+export interface DiscountReportEntry {
+    model: string
+    endpoints: Array<{ key: string; discount: number }>
+    confirmation: DiscountConfirmation
+}
+
+/** Table rows rendered before the remainder collapses into a count line. */
+export const DISCOUNT_REPORT_ROW_LIMIT = 200
+
+/**
+ * Model ids and endpoint tags are third-party strings from the OpenRouter
+ * response, and this table becomes the body of a PR that approves a change to
+ * the billing price book. Confine them to one cell: a newline or a pipe would
+ * otherwise break the row apart, and angle brackets render as HTML on GitHub.
+ */
+export const sanitizeReportCell = (value: string): string =>
+    value
+        .replace(/[\r\n]+/g, ' ')
+        .replace(/[|<>`]/g, '')
+        .trim()
+        .slice(0, 120)
+
+/**
+ * Renders promotions as explicit line items in the generated PR rather than as
+ * unexplained price movements inside a large diff. `uncheckedModels` is
+ * reported too: those prices may still carry a promotion, and a bare "no
+ * discounts" would read as a verified negative rather than an unmeasured one.
+ */
+export const renderDiscountReport = (entries: DiscountReportEntry[], uncheckedModels = 0): string => {
+    const unchecked =
+        uncheckedModels > 0
+            ? `\n${uncheckedModels} model(s) could not be checked (endpoint pricing unavailable); their prices may still carry a promotion.\n`
+            : ''
+
+    if (entries.length === 0) {
+        return `## Discounts\n\nNo discounted endpoints found in this run.\n${unchecked}`
+    }
+
+    const rows = [...entries].sort((a, b) => a.model.localeCompare(b.model))
+    const confirmed = rows.filter((row) => row.confirmation === 'confirmed').length
+    const checkable = rows.filter((row) => row.confirmation !== 'not-checkable').length
+    const endpointCount = rows.reduce((total, row) => total + row.endpoints.length, 0)
+
+    const lines = [
+        '## Discounts',
+        '',
+        `OpenRouter is running a promotion on **${endpointCount} endpoint(s)** across **${rows.length} model(s)**.`,
+        'Per-provider keys below are stored at list rate, with the promotion divided back',
+        'out, so a provider key keeps meaning what that provider charges a direct caller.',
+        'The `default` key is left as OpenRouter serves it.',
+        '',
+        `Independently confirmed against an undiscounted sibling route: ${confirmed}/${checkable} checkable model(s).`,
+        unchecked,
+        '| Model | Endpoint | Rate | Confirmed |',
+        '| --- | --- | --- | --- |',
+    ]
+
+    // Bounded on emitted rows rather than models: a model renders one row per
+    // discounted endpoint, and the widest model in the catalogue carries 32 of
+    // them, so a model cap does not bound the body GitHub has to accept.
+    let emitted = 0
+    let omittedModels = 0
+    for (const row of rows) {
+        if (emitted + row.endpoints.length > DISCOUNT_REPORT_ROW_LIMIT) {
+            omittedModels += 1
+            continue
+        }
+        for (const [index, endpoint] of row.endpoints.entries()) {
+            const model = index === 0 ? sanitizeReportCell(row.model) : ''
+            const confirmation = index === 0 ? row.confirmation : ''
+            lines.push(
+                `| ${model} | \`${sanitizeReportCell(endpoint.key)}\` | ${Math.round(endpoint.discount * 100)}% | ${confirmation} |`
+            )
+        }
+        emitted += row.endpoints.length
+    }
+    if (omittedModels > 0) {
+        lines.push('', `...and ${omittedModels} more discounted model(s) not listed.`)
+    }
+
+    lines.push('')
+    return lines.join('\n')
+}
+
+const normalizeKeySegment = (raw: string): string =>
+    raw
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '')
+
+const normalizeProviderKey = (endpoint: { tag?: string; provider_name?: string; name?: string }): string => {
+    const rawKey = endpoint.tag || endpoint.provider_name || endpoint.name || 'unknown'
+    return normalizeKeySegment(rawKey)
 }
 
-const fetchOpenRouterCosts = async (): Promise<ModelRow[]> => {
+export interface BuiltModelRow {
+    cost: Record<string, ModelCost>
+    discount?: DiscountReportEntry
+    /** False when no endpoint yielded usable pricing, so nothing was checked for promotions. */
+    checked: boolean
+}
+
+/**
+ * Turn one model's list-payload cost and its endpoints payload into the row that
+ * gets written, plus whatever the discount report needs to say about it.
+ *
+ * Split out of the fetch loop so the wiring is reachable from a test: the
+ * network call is the only part that has to be live.
+ */
+export const buildModelRow = (modelId: string, defaultCost: ModelCost, endpoints: unknown[]): BuiltModelRow => {
+    const cost: Record<string, ModelCost> = { default: defaultCost }
+    const candidates: EndpointCandidate[] = []
+
+    for (const raw of endpoints) {
+        const endpoint = (raw ?? {}) as { tag?: string; provider_name?: string; pricing?: Record<string, unknown> }
+        const context = `${modelId} (${endpoint.tag ?? '?'})`
+        const endpointCost = buildModelCost(endpoint.pricing, context)
+        if (!endpointCost) {
+            continue
+        }
+
+        const providerKey = normalizeProviderKey(endpoint)
+        // The fallback is normalized too: any key here is also interpolated into
+        // canonical-providers.ts as a string literal, so it has to be confined to
+        // [a-z0-9-] by construction rather than by whatever the provider is named.
+        const safeProviderKey =
+            providerKey && providerKey !== 'default'
+                ? providerKey
+                : `provider-${normalizeKeySegment(endpoint.provider_name ?? 'unknown') || 'unknown'}`
+
+        cost[safeProviderKey] = endpointCost
+        candidates.push({
+            key: safeProviderKey,
+            cost: endpointCost,
+            discount: parseDiscountRate(endpoint.pricing ?? {}),
+        })
+    }
+
+    // Keyed on parsed candidates rather than the raw endpoint count: a payload
+    // whose entries all fail to parse yielded nothing to check either.
+    if (candidates.length === 0) {
+        return { cost, checked: false }
+    }
+
+    const discounted = candidates.filter((candidate) => candidate.discount > 0)
+    return {
+        cost,
+        checked: true,
+        discount:
+            discounted.length > 0
+                ? {
+                      model: modelId,
+                      endpoints: discounted.map(({ key, discount }) => ({ key, discount })),
+                      confirmation: confirmDiscountAgainstSiblings(candidates),
+                  }
+                : undefined,
+    }
+}
+
+export interface RunTotals {
+    models: ModelRow[]
+    discounts: DiscountReportEntry[]
+    uncheckedModels: number
+}
+
+/** Folds one built row into the run totals; split out so a test can cover the
+ * wire between what `buildModelRow` reports and what the summary claims. */
+export const accumulateModelRow = (built: BuiltModelRow, modelId: string, totals: RunTotals): RunTotals => {
+    totals.models.push({ model: modelId, cost: built.cost })
+    if (built.discount) {
+        totals.discounts.push(built.discount)
+    }
+    return { ...totals, uncheckedModels: totals.uncheckedModels + (built.checked ? 0 : 1) }
+}
+
+/** Name of the env var carrying the summary path, shared with the workflow that sets it. */
+export const DISCOUNT_SUMMARY_ENV = 'DISCOUNT_SUMMARY_PATH'
+
+/**
+ * Writes the run's outputs. The summary only decorates a PR body, so it goes
+ * last and its failure is logged rather than thrown: a scratch-file problem
+ * must not discard a completed run's fetching.
+ */
+export const writeOutputs = (sortedCosts: ModelRow[], discounts: DiscountReportEntry[], unchecked: number): void => {
+    fs.writeFileSync(path.join(PATH_TO_PROVIDERS, OPENROUTER_COSTS_FILENAME), JSON.stringify(sortedCosts, null, 4))
+    console.log(`Wrote OpenRouter costs to ${OPENROUTER_COSTS_FILENAME}`)
+
+    generateCanonicalProviders(sortedCosts)
+
+    const summaryPath = process.env[DISCOUNT_SUMMARY_ENV]
+    console.log(`Found discounted endpoints on ${discounts.length} model(s)`)
+    if (!summaryPath) {
+        return
+    }
+    try {
+        fs.writeFileSync(summaryPath, renderDiscountReport(discounts, unchecked))
+        console.log(`Wrote discount summary to ${summaryPath}`)
+    } catch (error) {
+        console.warn('Failed to write discount summary:', error)
+    }
+}
+
+const fetchOpenRouterCosts = async (): Promise<RunTotals> => {
     // eslint-disable-next-line no-restricted-globals
     const res = await fetch('https://openrouter.ai/api/v1/models', {})
     if (!res.ok) {
@@ -121,6 +382,8 @@ const fetchOpenRouterCosts = async (): Promise<ModelRow[]> => {
     const models = data.data
 
     const allModels: ModelRow[] = []
+    const discounts: DiscountReportEntry[] = []
+    let uncheckedModels = 0
 
     for (const [modelIndex, model] of models.entries()) {
         if (!model?.id) {
@@ -128,15 +391,13 @@ const fetchOpenRouterCosts = async (): Promise<ModelRow[]> => {
             continue
         }
 
-        const defaultCost = buildModelCost(model.pricing)
+        const defaultCost = buildModelCost(model.pricing, model.id)
         if (!defaultCost) {
             console.warn('Skipping model without valid pricing:', model.id)
             continue
         }
 
-        const costs: Record<string, ModelCost> = {
-            default: defaultCost,
-        }
+        let endpoints: unknown[] = []
 
         const encodedModelId = model.id
             .split('/')
@@ -159,34 +420,29 @@ const fetchOpenRouterCosts = async (): Promise<ModelRow[]> => {
                     console.warn('Failed to parse endpoint pricing payload for model:', model.id, parseError)
                 }
 
-                const endpoints = endpointsPayload?.data?.endpoints ?? []
-                for (const endpoint of endpoints) {
-                    const endpointCost = buildModelCost(endpoint?.pricing)
-                    if (!endpointCost) {
-                        continue
-                    }
-
-                    const providerKey = normalizeProviderKey(endpoint)
-                    const safeProviderKey =
-                        providerKey && providerKey !== 'default'
-                            ? providerKey
-                            : `provider-${endpoint.provider_name ?? 'unknown'}`
-                    costs[safeProviderKey] = endpointCost
-                }
+                endpoints = endpointsPayload?.data?.endpoints ?? []
             }
         } catch (error) {
             console.warn('Error fetching endpoint pricing for model:', model.id, error)
         }
 
-        allModels.push({
-            model: model.id,
-            cost: costs,
+        const accumulated = accumulateModelRow(buildModelRow(model.id, defaultCost, endpoints), model.id, {
+            models: allModels,
+            discounts,
+            uncheckedModels,
         })
+        uncheckedModels = accumulated.uncheckedModels
     }
 
     allModels.sort((a, b) => a.model.localeCompare(b.model))
 
-    return allModels
+    if (uncheckedModels > 0) {
+        // Alias and meta-router models carry no per-endpoint pricing, so a
+        // handful here is the steady state; aggregated to keep it readable.
+        console.log(`${uncheckedModels} model(s) had no usable endpoint pricing and were not checked for promotions`)
+    }
+
+    return { models: allModels, discounts, uncheckedModels }
 }
 
 const sortProviderCosts = (models: ModelRow[]): ModelRow[] => {
@@ -254,23 +510,22 @@ const main = async () => {
 
     // Fetch costs from both providers
     console.log('Fetching costs from OpenRouter...')
-    const openRouterCosts = await fetchOpenRouterCosts()
+    const { models: openRouterCosts, discounts, uncheckedModels } = await fetchOpenRouterCosts()
     console.log(`Fetched ${openRouterCosts.length} models from OpenRouter`)
 
     // Sort provider costs deterministically (default first, then alphabetically)
     const sortedCosts = sortProviderCosts(openRouterCosts)
 
-    // Write OpenRouter costs as backup
-    fs.writeFileSync(path.join(PATH_TO_PROVIDERS, OPENROUTER_COSTS_FILENAME), JSON.stringify(sortedCosts, null, 4))
-    console.log(`Wrote OpenRouter costs to ${OPENROUTER_COSTS_FILENAME}`)
-
-    // Generate canonical providers TypeScript file
-    generateCanonicalProviders(sortedCosts)
+    writeOutputs(sortedCosts, discounts, uncheckedModels)
 }
 
-;(async () => {
-    await main()
-})().catch((e) => {
-    console.error('Error updating AI costs:', e)
-    process.exit(1)
-})
+// Only run when invoked directly (`pnpm update-ai-costs`). Importing this
+// module from a test must not fetch the live API or rewrite the generated files.
+if (require.main === module) {
+    ;(async () => {
+        await main()
+    })().catch((e) => {
+        console.error('Error updating AI costs:', e)
+        process.exit(1)
+    })
+}
