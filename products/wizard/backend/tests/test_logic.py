@@ -28,6 +28,7 @@ def _input(team_id: int, **overrides) -> UpsertWizardSessionInput:
         "tasks": (WizardTaskDTO(id="1", title="Install SDK", status=TaskStatus.IN_PROGRESS),),
         "event_plan": None,
         "error": None,
+        "pending_input": None,
     }
     params.update(overrides)
     return UpsertWizardSessionInput(**params)
@@ -43,6 +44,23 @@ def test_upsert_creates_new_session(team):
     assert dto.run_phase == RunPhase.RUNNING
     assert len(dto.tasks) == 1
     assert dto.tasks[0].status == TaskStatus.IN_PROGRESS
+
+
+@pytest.mark.django_db
+def test_upsert_round_trips_pending_input(team):
+    pending_input = {
+        "id": "ask-1",
+        "asked_at": "2026-05-19T10:05:00Z",
+        "question_count": 1,
+        "sensitive": False,
+        "prompts": ["Which region is your project in?"],
+    }
+    with_question, _ = wizard_facade.upsert(_input(team.id, pending_input=pending_input))
+    assert with_question.pending_input == pending_input
+
+    # The wire is a full-state upsert: the next push without the field is the dismissal.
+    cleared, _ = wizard_facade.upsert(_input(team.id))
+    assert cleared.pending_input is None
 
 
 @pytest.mark.django_db

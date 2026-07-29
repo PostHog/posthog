@@ -1766,6 +1766,36 @@ describe('sqlEditorLogic', () => {
             performQuerySpy.mockRestore()
         })
 
+        it('hands the shared schema catalog back unscoped when a connected editor unmounts', async () => {
+            const performQuerySpy = jest
+                .spyOn(queryRunner, 'performQuery')
+                .mockResolvedValue({ tables: {}, joins: [] } as never)
+
+            const editorLogic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            editorLogic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'conn-123' })
+            await expectLogic(editorLogic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(databaseLogic.values.connectionId).toEqual('conn-123')
+
+            // databaseTableListLogic outlives the editor, so leaving it scoped hides everything the
+            // project owns (self-managed sources, views) from every other page that reads it.
+            performQuerySpy.mockClear()
+            editorLogic.unmount()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(databaseLogic.values.connectionId).toBeNull()
+            expect(performQuerySpy).toHaveBeenCalledTimes(1)
+            expect(performQuerySpy.mock.calls[0][0]).toMatchObject({ connectionId: undefined })
+
+            performQuerySpy.mockRestore()
+        })
+
         it('resets stale database connection state when reopening the editor without a connection in the url', async () => {
             const performQuerySpy = jest
                 .spyOn(queryRunner, 'performQuery')
