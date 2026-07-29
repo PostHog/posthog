@@ -7,6 +7,8 @@ import { uploadToS3 } from '~/session-replay/recording-rasterizer/storage'
 import { createActivities } from '~/session-replay/recording-rasterizer/temporal/activities'
 import { RasterizeRecordingInput, RecordingResult } from '~/session-replay/recording-rasterizer/types'
 
+const mockHeartbeat = jest.fn()
+
 jest.mock('@temporalio/activity', () => ({
     Context: {
         current: () => ({
@@ -14,7 +16,7 @@ jest.mock('@temporalio/activity', () => ({
                 activityId: 'test-activity-1',
                 workflowExecution: { workflowId: 'test-workflow-1', runId: 'test-run-1' },
             },
-            heartbeat: jest.fn(),
+            heartbeat: mockHeartbeat,
         }),
     },
 }))
@@ -91,6 +93,10 @@ describe('rasterizeRecordingActivity', () => {
         mockedUploadToS3.mockResolvedValue('s3://test-bucket/exports/mp4/team-1/task-1/uuid.mp4')
     })
 
+    afterEach(() => {
+        jest.useRealTimers()
+    })
+
     it('orchestrates recording, upload, and returns complete output', async () => {
         const inactivityPeriods = [
             { ts_from_s: 0, ts_to_s: 5, active: true },
@@ -159,6 +165,47 @@ describe('rasterizeRecordingActivity', () => {
         mockSuccessfulRecording({ capture_duration_s: 39.96 })
         const result = await rasterizeRecordingActivity(baseInput())
         expect(result.video_duration_s).toBe(39.96)
+    })
+
+    describe('heartbeating', () => {
+        // Setup produces no onProgress calls until the player reports loading progress, which
+        // can take longer than the workflow's heartbeat timeout. Without a background beat
+        // Temporal kills the activity and its heartbeat timeout masks the real failure.
+        it('beats immediately and keeps beating while setup is silent', async () => {
+            jest.useFakeTimers()
+            let finishRecording: () => void = () => {}
+            mockedRasterizeRecording.mockImplementation(async (_pool, _input, outputPath) => {
+                await new Promise<void>((resolve) => {
+                    finishRecording = resolve
+                })
+                await fs.writeFile(outputPath, Buffer.alloc(64))
+                return baseRecordingResult(outputPath)
+            })
+
+            const activity = rasterizeRecordingActivity(baseInput())
+            expect(mockHeartbeat).toHaveBeenCalledTimes(1)
+            expect(mockHeartbeat).toHaveBeenLastCalledWith(expect.objectContaining({ phase: 'setup' }))
+
+            await jest.advanceTimersByTimeAsync(20_000)
+            const beatsDuringSetup = mockHeartbeat.mock.calls.length
+            expect(beatsDuringSetup).toBeGreaterThan(2)
+
+            finishRecording()
+            jest.useRealTimers()
+            await activity
+        })
+
+        it('stops beating once the activity finishes', async () => {
+            jest.useFakeTimers()
+            mockSuccessfulRecording()
+
+            await rasterizeRecordingActivity(baseInput())
+            const beatsAtCompletion = mockHeartbeat.mock.calls.length
+
+            await jest.advanceTimersByTimeAsync(60_000)
+            expect(mockHeartbeat.mock.calls.length).toBe(beatsAtCompletion)
+            jest.useRealTimers()
+        })
     })
 
     describe('temp file cleanup', () => {

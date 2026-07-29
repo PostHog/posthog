@@ -20,6 +20,12 @@ import {
 } from '~/session-replay/recording-rasterizer/types'
 import { elapsed } from '~/session-replay/recording-rasterizer/utils'
 
+// Setup can run for ~45s without producing a single onProgress call (page acquisition,
+// navigation, block listing, then the 15s wait for the player's first progress message),
+// which is longer than the workflow's heartbeat timeout. A background beat keeps the
+// activity alive so the real failure surfaces instead of a heartbeat timeout wrapping it.
+const HEARTBEAT_INTERVAL_MS = 5000
+
 function toActivityError(err: unknown): Error {
     if (err instanceof RasterizationError && !err.retryable) {
         return ApplicationFailure.nonRetryable(err.message, 'NON_RETRYABLE', err)
@@ -32,7 +38,8 @@ async function rasterizeRecordingActivity(
     playerHtml: string,
     input: RasterizeRecordingInput
 ): Promise<RasterizeRecordingOutput> {
-    const { workflowExecution, activityId } = Context.current().info
+    const ctx = Context.current()
+    const { workflowExecution, activityId } = ctx.info
     const log = createLogger({
         session_id: input.session_id,
         team_id: input.team_id,
@@ -55,7 +62,11 @@ async function rasterizeRecordingActivity(
     // the latest phase and frame count. Temporal exposes this via
     // `pending_activities[].heartbeat_details` for the parent workflow to read.
     const progress: RasterizationProgress = { phase: 'setup', frame: 0, estimatedTotalFrames: 0 }
-    const onProgress = (): void => Context.current().heartbeat(progress)
+    const onProgress = (): void => ctx.heartbeat(progress)
+
+    onProgress()
+    const heartbeatTimer = setInterval(onProgress, HEARTBEAT_INTERVAL_MS)
+    heartbeatTimer.unref()
 
     try {
         const result = await rasterizeRecording(
@@ -128,6 +139,7 @@ async function rasterizeRecordingActivity(
         }
         throw toActivityError(err)
     } finally {
+        clearInterval(heartbeatTimer)
         RasterizationMetrics.activityFinished()
         await fs.rm(outputPath, { force: true })
     }
