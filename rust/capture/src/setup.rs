@@ -8,7 +8,7 @@ use common_ingestion_warnings::{
     observe_delivery, KafkaWarningEmitter, WarningEmitter, INGESTION_WARNINGS_EMITTER_ENABLED,
 };
 use common_kafka::config::KafkaConfig as WarningsKafkaConfig;
-use common_kafka::kafka_producer::create_threaded_kafka_producer;
+use common_kafka::kafka_producer::create_threaded_kafka_producer_no_ping;
 use common_redis::RedisClient;
 use metrics::gauge;
 use tracing::{info, warn};
@@ -725,7 +725,7 @@ fn build_warnings_kafka_config(
 /// any misconfiguration or producer-creation failure logs and returns `None`
 /// (capture runs without warnings) instead of failing startup. The producer
 /// is a `common_kafka` `ThreadedProducer`, built via
-/// `common_kafka::kafka_producer::create_threaded_kafka_producer` from a
+/// `common_kafka::kafka_producer::create_threaded_kafka_producer_no_ping` from a
 /// dedicated, warnings-only `common_kafka::config::KafkaConfig` (fire-and-forget
 /// acks/retries, a small queue) with `observe_delivery` as its delivery
 /// callback — by default it shares only the destination cluster (hosts/TLS) and
@@ -735,10 +735,12 @@ fn build_warnings_kafka_config(
 /// task heartbeats the advisory lifecycle handle, sweeps the throttle's per-key
 /// state, and flushes the producer once at shutdown.
 ///
-/// Fail-open note: unlike the previous bespoke producer (which never pinged
-/// brokers at startup), `create_threaded_kafka_producer` does a one-time
-/// metadata fetch. If brokers are unreachable at boot, the emitter stays
-/// disabled for the pod's life rather than retrying.
+/// Uses the no-ping constructor so an unreachable warnings cluster costs
+/// capture nothing at boot: no 15s metadata fetch on the startup path, and no
+/// pod that serves events for hours with warnings permanently off because the
+/// cluster happened to be down the moment it started. librdkafka reconnects on
+/// its own, so read `delivered`/`delivery_failed` to judge whether warnings are
+/// landing — the enabled gauge only reports that the emitter exists.
 async fn create_ingestion_warning_emitter(
     config: &Config,
     handle: Option<lifecycle::Handle>,
@@ -798,13 +800,11 @@ async fn create_ingestion_warning_emitter(
         config.capture_ingestion_warnings_kafka_message_max_bytes,
     );
 
-    let producer = match create_threaded_kafka_producer(
+    let producer = match create_threaded_kafka_producer_no_ping(
         &warnings_kafka_config,
         handle.clone(),
         observe_delivery,
-    )
-    .await
-    {
+    ) {
         Ok(producer) => producer,
         Err(e) => {
             tracing::error!(
