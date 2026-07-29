@@ -12,36 +12,35 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { teamLogic } from 'scenes/teamLogic'
 
-const DOM_MUTATION_PATTERNS = [
-    "Failed to execute 'removeChild' on 'Node'",
-    "Failed to execute 'insertBefore' on 'Node'",
-    "Failed to execute 'appendChild' on 'Node'",
-]
-
-function isDOMModificationError(error: Error): boolean {
-    const message = error.message || ''
-    return DOM_MUTATION_PATTERNS.some((pattern) => message.includes(pattern))
-}
+import { type ExceptionProperties, getDOMMutationSignals, isDOMMutationError } from './domMutationSignals'
 
 interface ErrorBoundaryProps {
     children?: React.ReactNode
-    exceptionProps?: Record<string, number | string | boolean | bigint | symbol | null | undefined>
+    exceptionProps?: ExceptionProperties
     className?: string
+}
+
+// Passed as a callback rather than a plain object so the DOM probes run when the exception is
+// captured. Our props were last evaluated before the crash, when the page may not have been
+// translated yet.
+function buildAdditionalProperties(
+    exceptionProps: ExceptionProperties,
+    currentTeamId: number | null | undefined
+): (error: unknown) => ExceptionProperties {
+    return (error) => ({
+        ...exceptionProps,
+        ...(currentTeamId !== undefined ? { team_id: currentTeamId } : {}),
+        ...getDOMMutationSignals(error),
+    })
 }
 
 export function ErrorBoundary({ children, exceptionProps = {}, className }: ErrorBoundaryProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { openSupportForm } = useActions(supportLogic)
 
-    const additionalProperties = { ...exceptionProps }
-
-    if (currentTeamId !== undefined) {
-        additionalProperties.team_id = currentTeamId
-    }
-
     return (
         <PostHogErrorBoundary
-            additionalProperties={additionalProperties}
+            additionalProperties={buildAdditionalProperties(exceptionProps, currentTeamId)}
             fallback={(props: PostHogErrorBoundaryFallbackProps) => {
                 const rawError = props.error
                 const normalizedError =
@@ -52,7 +51,7 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
 
                 const exceptionEvent = props.exceptionEvent as SupportTicketExceptionEvent
 
-                const isBrowserExtensionError = isDOMModificationError(normalizedError)
+                const isBrowserExtensionError = isDOMMutationError(normalizedError)
 
                 const errorDetails = [
                     exceptionEvent?.uuid ? `Exception ID: ${exceptionEvent.uuid}` : null,
@@ -146,13 +145,9 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
 
 export function LightErrorBoundary({ children, exceptionProps = {}, className }: ErrorBoundaryProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
-    const additionalProperties = { ...exceptionProps }
-    if (currentTeamId !== undefined) {
-        additionalProperties.team_id = currentTeamId
-    }
     return (
         <PostHogErrorBoundary
-            additionalProperties={additionalProperties}
+            additionalProperties={buildAdditionalProperties(exceptionProps, currentTeamId)}
             fallback={(props: PostHogErrorBoundaryFallbackProps) => {
                 const rawError = props.error
                 const normalizedError =

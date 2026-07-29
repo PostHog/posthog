@@ -44,6 +44,34 @@ When touching `lib/api`, `api.get<`, `api.create<`, or any handwritten API inter
 
 Covered by the root `AGENTS.md` (Code Style → Frontend). The discovery hint for this tree: if a scene/component has a `*Logic.ts`, that's where actions/reducers/selectors/listeners belong. See `/writing-kea-logics` and `/using-kea-disposables`.
 
+## Rule 4 — Don't leave a changing bare text node next to siblings
+
+Page-translation extensions (Chrome and Edge in-page translate, the Google Translate widget) replace each text node they translate with a `<font>` element.
+React keeps pointing at the original node, which produces two defects — both of which land hardest on users outside English-speaking markets, since they're the ones with translation turned on:
+
+- **A crash.** Removing that text node, or inserting a sibling before it, throws `NotFoundError: Failed to execute 'removeChild' on 'Node'` ([react#11538](https://github.com/facebook/react/issues/11538)) and drops the whole panel to the `ErrorBoundary` crash screen.
+- **Silent staleness.** A text-only update writes `nodeValue` on the detached node, so the text freezes at whatever the extension translated. Live timers and countdowns just stop.
+
+The hazard is specifically a **bare text node that has siblings**, because that's the only shape React tracks as its own node:
+
+```tsx
+<div>Computed {lastRefresh.fromNow()}</div>          {/* hazard: two bare text nodes */}
+<>{formatElapsed(seconds)}</>                        {/* hazard: a bare text node in the parent's children */}
+<span>{lastRefresh.fromNow()}</span>                 {/* safe: sole child, React writes parent.textContent */}
+```
+
+A sole text child is immune, so don't add anything there.
+For the hazardous shape, either wrap the changing part in its own element, or mark it `translate="no"`, or both:
+
+```tsx
+<span>Computed&nbsp;</span>
+<span translate="no">{lastRefresh.fromNow()}</span>
+```
+
+Scope it to the changing part and keep the static labels around it translatable.
+Nearly all of these render numbers, dates, or durations, so nothing of value goes untranslated.
+`queries/nodes/InsightViz/ComputationTimeWithRefresh` and `scenes/experiments/MetricsView/new/ElapsedTime` are the exemplars.
+
 ## Typecheck & typegen cadence (don't over-run these)
 
 These are slow; run them at the right moment, not after every edit.
