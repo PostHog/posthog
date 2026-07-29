@@ -321,6 +321,15 @@ class TestTokenManager:
         with pytest.raises(AdobeCommerceConfigurationError):
             manager.get_token()
 
+    def test_oversized_token_body_is_a_configuration_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # A real token is a short string, so validation caps the token exchange far below a data
+        # page. An oversized body must fail permanently rather than buffer on the API worker.
+        monkeypatch.setattr(adobe_commerce, "TOKEN_RESPONSE_MAX_BYTES", 8)
+        session = _FakeSession({"/rest/V1/integration/admin/token": _make_response(200, raw=b'"' + b"x" * 64 + b'"')})
+        manager = AdobeCommerceTokenManager(cast(Any, session), "https://s.example.com/rest/V1", ADMIN_CREDENTIALS)
+        with pytest.raises(AdobeCommerceConfigurationError):
+            manager.get_token()
+
     def test_bad_admin_password_surfaces_as_http_error(self) -> None:
         session = _FakeSession({"/rest/V1/integration/admin/token": _make_response(401, {"message": "bad"})})
         manager = AdobeCommerceTokenManager(cast(Any, session), "https://s.example.com/rest/V1", ADMIN_CREDENTIALS)

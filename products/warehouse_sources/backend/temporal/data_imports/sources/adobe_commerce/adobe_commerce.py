@@ -42,6 +42,13 @@ MAX_PAGES = 100_000
 ADMIN_TOKEN_LIFETIME_SECONDS = 4 * 60 * 60
 TOKEN_REFRESH_MARGIN_SECONDS = 5 * 60
 
+# The admin token endpoint returns a bare JSON string (the token itself), so a well-behaved store
+# answers in under a kilobyte. Validation mints the token inline on the API request thread, so cap
+# the exchange far tighter than a data page and give it a short deadline — a hostile store pointed
+# at by `store_url` must not be able to tie up a worker by dribbling a huge body during validation.
+TOKEN_RESPONSE_MAX_BYTES = 1 * 1024 * 1024
+TOKEN_DOWNLOAD_SECONDS = 30
+
 # Magento compares searchCriteria datetime filters against MySQL `DATETIME` columns stored in UTC.
 MAGENTO_DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -218,28 +225,36 @@ def build_search_criteria(
     return params
 
 
-def _read_capped_json(response: requests.Response) -> Any:
+def _read_capped_json(
+    response: requests.Response,
+    max_bytes: int | None = None,
+    max_seconds: int | None = None,
+) -> Any:
     """Parse a streamed JSON body, refusing one past the size or wall-clock budget.
 
     The host is customer-controlled, so a body must never be buffered unbounded, nor be allowed to
     hold the connection open by dribbling under the per-read timeout. Both caps are permanent
-    failures — re-fetching the same page returns the same oversized/slow body.
+    failures — re-fetching the same page returns the same oversized/slow body. The token exchange
+    passes tighter caps than a data page since its body is a single short string.
     """
+    # Resolved at call time (not as defaults) so the module-level caps stay patchable in tests.
+    max_bytes = MAX_RESPONSE_BYTES if max_bytes is None else max_bytes
+    max_seconds = MAX_DOWNLOAD_SECONDS if max_seconds is None else max_seconds
     chunks: list[bytes] = []
     total = 0
-    deadline = time.monotonic() + MAX_DOWNLOAD_SECONDS
+    deadline = time.monotonic() + max_seconds
     try:
         for chunk in response.iter_content(chunk_size=_RESPONSE_CHUNK_BYTES):
             if time.monotonic() > deadline:
                 raise AdobeCommerceResponseTooSlowError(
-                    f"Adobe Commerce response exceeded the {MAX_DOWNLOAD_SECONDS}s download budget; aborting"
+                    f"Adobe Commerce response exceeded the {max_seconds}s download budget; aborting"
                 )
             if not chunk:
                 continue
             total += len(chunk)
-            if total > MAX_RESPONSE_BYTES:
+            if total > max_bytes:
                 raise AdobeCommerceResponseTooLargeError(
-                    f"Adobe Commerce response exceeded the {MAX_RESPONSE_BYTES}-byte limit; refusing to buffer it"
+                    f"Adobe Commerce response exceeded the {max_bytes}-byte limit; refusing to buffer it"
                 )
             chunks.append(chunk)
     finally:
@@ -316,7 +331,16 @@ class AdobeCommerceTokenManager:
                     f"Adobe Commerce returned an unexpected redirect (status={response.status_code}) for the token request"
                 )
             response.raise_for_status()
-            payload = _read_capped_json(response)
+            try:
+                payload = _read_capped_json(
+                    response, max_bytes=TOKEN_RESPONSE_MAX_BYTES, max_seconds=TOKEN_DOWNLOAD_SECONDS
+                )
+            except (AdobeCommerceResponseTooLargeError, AdobeCommerceResponseTooSlowError) as e:
+                # A real token is a short string, so an oversized or dribbled body means the URL
+                # isn't a Magento token endpoint — permanent, not worth retrying.
+                raise AdobeCommerceConfigurationError(
+                    "Adobe Commerce returned an oversized admin token response; check the store URL points at a Magento REST API"
+                ) from e
         finally:
             response.close()
 
