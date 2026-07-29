@@ -1497,6 +1497,7 @@ class TestAlertTestDelivery(APIBaseTest):
 
     @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions")
     def test_queues_test_delivery_for_active_destinations_without_changing_alert(self, mock_trigger) -> None:
+        mock_trigger.return_value = True
         self._create_destination()
         self._create_destination()
         self._create_destination(enabled=False)
@@ -1506,12 +1507,17 @@ class TestAlertTestDelivery(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}/test-delivery/")
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.content
-        assert response.json() == {"destination_count": 2, "email_recipient_count": 0}
+        assert response.json() == {
+            "destination_count": 2,
+            "email_recipient_count": 0,
+            "failed_delivery_channels": [],
+        }
         mock_trigger.assert_called_once_with(
             mock.ANY,
             {
                 "breaches": "Test alert from PostHog. No action is needed.",
                 "is_test": True,
+                "alert_name": "[TEST] Testable alert",
             },
         )
         alert_after = AlertConfiguration.objects.get(id=self.alert["id"])
@@ -1530,12 +1536,45 @@ class TestAlertTestDelivery(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}/test-delivery/")
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.content
-        assert response.json() == {"destination_count": 0, "email_recipient_count": 1}
+        assert response.json() == {
+            "destination_count": 0,
+            "email_recipient_count": 1,
+            "failed_delivery_channels": [],
+        }
         mock_email_message.assert_called_once()
         assert mock_email_message.call_args.kwargs["subject"] == "Test alert: Testable alert for Default project"
         mock_email_message.return_value.add_recipient.assert_called_once_with(email=self.user.email)
         mock_email_message.return_value.send.assert_called_once_with()
         mock_trigger.assert_not_called()
+
+    @mock.patch("products.alerts.backend.api.alert.send_test_alert_email", side_effect=RuntimeError("email failed"))
+    @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions", return_value=True)
+    def test_destination_still_queues_when_email_fails(self, mock_trigger, _mock_email) -> None:
+        alert = AlertConfiguration.objects.get(id=self.alert["id"])
+        AlertSubscription.objects.create(alert_configuration=alert, user=self.user)
+        self._create_destination()
+
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}/test-delivery/")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.content
+        assert response.json() == {
+            "destination_count": 1,
+            "email_recipient_count": 0,
+            "failed_delivery_channels": ["email"],
+        }
+        mock_trigger.assert_called_once()
+
+    @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions", return_value=False)
+    def test_returns_service_unavailable_when_destination_fails_to_queue(self, mock_trigger) -> None:
+        self._create_destination()
+
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}/test-delivery/")
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
+        assert response.json() == {
+            "detail": "Unable to start the test delivery. Check the configured channels and try again."
+        }
+        mock_trigger.assert_called_once()
 
     @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions")
     def test_rejects_test_delivery_without_active_destinations(self, mock_trigger) -> None:

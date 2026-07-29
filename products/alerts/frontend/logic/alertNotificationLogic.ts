@@ -490,7 +490,13 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
             if (destinationCount > 0) {
                 deliveryTargets.push(`${destinationCount} ${destinationCount === 1 ? 'destination' : 'destinations'}`)
             }
-            lemonToast.success(`Test sent to ${deliveryTargets.join(' and ')}.`)
+            if (testDeliveryResult.failed_delivery_channels.length > 0) {
+                lemonToast.warning(
+                    `Test delivery started for ${deliveryTargets.join(' and ')}, but failed for ${testDeliveryResult.failed_delivery_channels.join(' and ')}.`
+                )
+                return
+            }
+            lemonToast.success(`Test delivery started for ${deliveryTargets.join(' and ')}.`)
         },
         sendTestDeliveryFailure: ({ errorObject }) => {
             const detail = errorObject?.detail

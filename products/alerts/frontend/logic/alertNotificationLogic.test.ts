@@ -100,7 +100,11 @@ describe('alertNotificationLogic', () => {
     })
 
     it('sends a test delivery for the saved alert', async () => {
-        jest.mocked(alertsTestDeliveryCreate).mockResolvedValue({ destination_count: 2, email_recipient_count: 1 })
+        jest.mocked(alertsTestDeliveryCreate).mockResolvedValue({
+            destination_count: 2,
+            email_recipient_count: 1,
+            failed_delivery_channels: [],
+        })
         logic = alertNotificationLogic({ alertId: 'alert-123' })
         logic.mount()
 
@@ -109,7 +113,7 @@ describe('alertNotificationLogic', () => {
 
         expect(alertsTestDeliveryCreate).toHaveBeenCalledWith('997', 'alert-123')
         await expectLogic(logic).toMatchValues({
-            testDeliveryResult: { destination_count: 2, email_recipient_count: 1 },
+            testDeliveryResult: { destination_count: 2, email_recipient_count: 1, failed_delivery_channels: [] },
         })
     })
 

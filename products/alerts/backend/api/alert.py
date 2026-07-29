@@ -33,6 +33,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.event_usage import get_request_analytics_properties
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.trigram_search import (
     MAX_SEARCH_LENGTH,
     NAME_FIELD,
@@ -903,6 +904,10 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
 class AlertTestDeliveryResponseSerializer(serializers.Serializer):
     destination_count = serializers.IntegerField(help_text="Number of active destinations queued for test delivery.")
     email_recipient_count = serializers.IntegerField(help_text="Number of subscribed users sent a test email.")
+    failed_delivery_channels = serializers.ListField(
+        child=serializers.ChoiceField(choices=("email", "destination")),
+        help_text="Configured delivery channels that failed to schedule or send.",
+    )
 
 
 @extend_schema_view(
@@ -1135,15 +1140,35 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_409_CONFLICT,
             )
 
+        failed_delivery_channels: list[str] = []
+        successful_email_count = 0
+        successful_destination_count = 0
         if email_targets:
-            send_test_alert_email(alert, idempotency_key=str(uuid.uuid4()))
-        if destination_count:
-            trigger_alert_hog_functions(
-                alert,
-                {
-                    "breaches": "Test alert from PostHog. No action is needed.",
-                    "is_test": True,
-                },
+            try:
+                send_test_alert_email(alert, recipients=email_targets, idempotency_key=str(uuid.uuid4()))
+                successful_email_count = len(email_targets)
+            except Exception as error:
+                capture_exception(
+                    error,
+                    additional_properties={"alert_id": str(alert.id), "feature": "alerts", "channel": "email"},
+                )
+                failed_delivery_channels.append("email")
+        if destination_count and trigger_alert_hog_functions(
+            alert,
+            {
+                "breaches": "Test alert from PostHog. No action is needed.",
+                "is_test": True,
+                "alert_name": f"[TEST] {alert.name}",
+            },
+        ):
+            successful_destination_count = destination_count
+        elif destination_count:
+            failed_delivery_channels.append("destination")
+
+        if successful_email_count == 0 and successful_destination_count == 0:
+            return Response(
+                {"detail": "Unable to start the test delivery. Check the configured channels and try again."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         posthoganalytics.capture(
             distinct_id=str(request.user.distinct_id),
@@ -1151,13 +1176,18 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             properties={
                 **get_request_analytics_properties(request),
                 "alert_id": str(alert.id),
-                "destination_count": destination_count,
-                "email_recipient_count": len(email_targets),
+                "destination_count": successful_destination_count,
+                "email_recipient_count": successful_email_count,
+                "failed_delivery_channels": failed_delivery_channels,
                 "team_id": alert.team_id,
             },
         )
         return Response(
-            {"destination_count": destination_count, "email_recipient_count": len(email_targets)},
+            {
+                "destination_count": successful_destination_count,
+                "email_recipient_count": successful_email_count,
+                "failed_delivery_channels": failed_delivery_channels,
+            },
             status=status.HTTP_202_ACCEPTED,
         )
 

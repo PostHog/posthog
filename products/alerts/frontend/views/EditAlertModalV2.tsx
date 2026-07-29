@@ -268,6 +268,9 @@ export function EditAlertModalV2({
             onClearSnooze={clearSnooze}
             onSendTestDelivery={sendTestDelivery}
             testDeliveryLoading={testDeliveryResultLoading}
+            testDeliveryDisabledReason={
+                alertFormChanged || hasPendingNotifications ? 'Save changes before testing.' : undefined
+            }
         />
     )
 

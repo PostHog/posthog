@@ -20,6 +20,7 @@ interface AlertLeadingActionsProps {
     onClearSnooze: () => void
     onSendTestDelivery: () => void
     testDeliveryLoading: boolean
+    testDeliveryDisabledReason?: string
 }
 
 export function AlertLeadingActions({
@@ -30,6 +31,7 @@ export function AlertLeadingActions({
     onClearSnooze,
     onSendTestDelivery,
     testDeliveryLoading,
+    testDeliveryDisabledReason,
 }: AlertLeadingActionsProps): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-2">
@@ -58,7 +60,12 @@ export function AlertLeadingActions({
                 value={alert?.snoozed_until}
                 disabledReason={alert?.state === AlertState.FIRING ? undefined : 'Only firing alerts can be snoozed'}
             />
-            <LemonButton type="secondary" onClick={onSendTestDelivery} loading={testDeliveryLoading}>
+            <LemonButton
+                type="secondary"
+                onClick={onSendTestDelivery}
+                loading={testDeliveryLoading}
+                disabledReason={testDeliveryDisabledReason}
+            >
                 Test delivery
             </LemonButton>
             {alert?.state === AlertState.SNOOZED ? (
