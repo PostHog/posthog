@@ -1,5 +1,4 @@
 import time
-import pickle
 import asyncio
 from collections.abc import AsyncGenerator, Callable
 from typing import Literal, Optional, cast
@@ -157,8 +156,6 @@ class ConversationStreamSerializer:
             return None
 
         return {
-            # Migration Phase 2: emit JSON. Readers already understand both formats (Phase 1);
-            # the legacy pickle read path is removed in Phase 3 once older entries have drained.
             self.serialization_key: StreamEvent(event=event).model_dump_json().encode("utf-8"),
         }
 
@@ -198,14 +195,7 @@ class ConversationStreamSerializer:
         )
 
     def deserialize(self, data: dict[bytes, bytes]) -> StreamEvent:
-        raw = data[bytes(self.serialization_key, "utf-8")]
-        # Migration Phase 1: read both formats. JSON (the new format) starts with '{';
-        # legacy pickle starts with 0x80. Once every writer emits JSON, the pickle
-        # branch is removed (Phase 3).
-        if raw[:1] == b"{":
-            return StreamEvent.model_validate_json(raw)
-        # nosemgrep: python.lang.security.deserialization.pickle.avoid-pickle (transitional legacy read, removed in migration Phase 3 once all writers emit JSON)
-        return pickle.loads(raw)
+        return StreamEvent.model_validate_json(data[bytes(self.serialization_key, "utf-8")])
 
 
 class StreamError(Exception):
@@ -325,6 +315,19 @@ class ConversationRedisStream:
                 for _, stream_messages in messages:
                     for stream_id, message in stream_messages:
                         current_id = stream_id
+                        raw = message.get(bytes(self._serializer.serialization_key, "utf-8"))
+                        if raw is not None and raw[:1] == b"\x80":
+                            # Skip a legacy pickle entry (pickle protocol >= 2 starts with 0x80) left in
+                            # an un-expired stream from before the JSON migration. current_id has already
+                            # advanced, so it isn't re-read. Genuinely-corrupt JSON is not skipped here —
+                            # it falls through to deserialize and fails the read as before.
+                            logger.warning(
+                                "Skipping legacy pickle conversation stream entry",
+                                stream_key=self._stream_key,
+                                stream_id=stream_id,
+                            )
+                            continue
+
                         data = self._serializer.deserialize(message)
 
                         latency = time.time() - data.timestamp

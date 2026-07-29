@@ -8,15 +8,18 @@ import dagster
 from parameterized import parameterized
 
 from posthog.clickhouse.query_tagging import Feature, get_query_tags, reset_query_tags, tag_queries
+from posthog.models import Team
 
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_background_warming_request
 from products.web_analytics.dags.cache_warming import (
+    WarmQueriesConfig,
     build_replay_runner,
     deepen_to_widest_warmable_range,
     get_warmable_queries_op,
     maybe_expand_warming_date_range,
     maybe_opt_into_lazy_precompute,
     queries_to_keep_fresh,
+    split_warmable_queries_op,
     warm_queries_op,
 )
 
@@ -253,6 +256,55 @@ class TestBuildReplayRunner(BaseTest):
         self.assertEqual(used_json["dateRange"]["date_from"], "-7d")
 
 
+class TestSplitWarmableQueries(BaseTest):
+    def _shape(self, team_id: int, n: int) -> dict:
+        return {
+            "team_id": team_id,
+            "query_json": {"kind": "WebOverviewQuery", "n": n},
+            "query_count": 5,
+            "representative_query_count": 5,
+            "normalized_query_hash": f"h{n}",
+        }
+
+    def test_shards_are_team_disjoint_and_lossless(self) -> None:
+        # A team split across shards breaks the per-shard (team, cache_key)
+        # dedupe and warms duplicates; a dropped or duplicated shape silently
+        # under- or over-warms. Both fail here.
+        queries = [self._shape(team, n) for n, team in enumerate([1, 2, 3, 9, 10, 17, 2, 9, 1])]
+
+        outputs = list(split_warmable_queries_op(dagster.build_op_context(), WarmQueriesConfig(), queries))
+
+        team_to_shard: dict[int, str] = {}
+        seen_hashes = []
+        for out in outputs:
+            for q in out.value["queries"]:
+                seen_hashes.append(q["normalized_query_hash"])
+                previously = team_to_shard.setdefault(q["team_id"], out.mapping_key)
+                self.assertEqual(previously, out.mapping_key)
+        self.assertEqual(sorted(seen_hashes), sorted(q["normalized_query_hash"] for q in queries))
+
+    def test_scoping_applies_before_sharding(self) -> None:
+        # team_ids/limit moved from the warm op to the split — if they stop
+        # applying, a scoped Launchpad launch warms the whole fleet while
+        # holding the schedule's slot.
+        queries = [self._shape(team, n) for n, team in enumerate([1, 2, 1, 3, 1])]
+
+        outputs = list(
+            split_warmable_queries_op(
+                dagster.build_op_context(), WarmQueriesConfig(mode="backfill", team_ids=[1], limit=2), queries
+            )
+        )
+
+        shapes = [q for out in outputs for q in out.value["queries"]]
+        self.assertEqual(len(shapes), 2)
+        self.assertTrue(all(q["team_id"] == 1 for q in shapes))
+        self.assertTrue(all(out.value["mode"] == "backfill" for out in outputs))
+
+    def test_unknown_mode_fails_before_fanout(self) -> None:
+        with self.assertRaises(ValueError):
+            list(split_warmable_queries_op(dagster.build_op_context(), WarmQueriesConfig(mode="bogus"), []))
+
+
 class TestFleetQuerySelection(BaseTest):
     @patch("products.web_analytics.dags.cache_warming.sync_execute")
     def test_parses_fleet_rows_into_query_infos(self, mock_exec: MagicMock) -> None:
@@ -395,6 +447,7 @@ class TestWarmQueriesOp(BaseTest):
             mock_cm.return_value.lookup.return_value.entry = None
             warm_queries_op(
                 dagster.build_op_context(),
+                WarmQueriesConfig(),
                 [
                     {
                         "team_id": self.team.pk,
@@ -411,6 +464,122 @@ class TestWarmQueriesOp(BaseTest):
 
         self.assertEqual(runner.run.call_count, expected_runs)
 
+    @parameterized.expand(
+        [
+            # A churned team surfaces as a DoesNotExist from get_cache_key (the
+            # team-extension FK). That must be a quiet skip, not a logged failure
+            # plus an error-tracking event per churned team — which spammed
+            # tracebacks in prod. But DoesNotExist alone isn't proof the team is
+            # gone — other models raise it too (a cohort filter whose cohort was
+            # deleted) — so for a live team it must still report, as must any
+            # other error.
+            ("churned_team_does_not_exist", Team.DoesNotExist, False, 0),
+            ("live_team_other_model_does_not_exist", Team.DoesNotExist, True, 1),
+            ("genuine_failure", RuntimeError, True, 1),
+        ]
+    )
+    def test_churned_team_skipped_but_real_failure_reported(
+        self, _name: str, raised: type[Exception], team_exists: bool, expected_capture_calls: int
+    ) -> None:
+        runner = MagicMock()
+        runner.get_cache_key.side_effect = raised("boom")
+        with (
+            patch(
+                "products.web_analytics.dags.cache_warming.build_replay_runner",
+                return_value=(runner, {}, True),
+            ),
+            patch("products.web_analytics.dags.cache_warming.capture_exception") as mock_capture,
+            # Pinned because pool worker threads hold their own DB connections and
+            # can't see this TestCase's uncommitted team row.
+            patch("products.web_analytics.dags.cache_warming._team_still_exists", return_value=team_exists),
+        ):
+            warm_queries_op(
+                dagster.build_op_context(),
+                WarmQueriesConfig(),
+                [
+                    {
+                        "team_id": self.team.pk,
+                        "query_json": {"kind": "WebOverviewQuery", "properties": []},
+                        "query_count": 5,
+                        "representative_query_count": 5,
+                        "normalized_query_hash": "h",
+                    }
+                ],
+            )
+
+        self.assertEqual(mock_capture.call_count, expected_capture_calls)
+        self.assertEqual(runner.run.call_count, 0)
+
+    @parameterized.expand(
+        [
+            # Mode gates on the cache entry (warm/cold discriminator). Inverting
+            # either condition is a real operational hazard: backfill re-running
+            # the warm set repeats the hours-long cold rebuild the mode exists to
+            # avoid, and refresh cold-building defeats its cheap-pass purpose.
+            ("full_runs_cold", "full", False, 1),
+            ("refresh_skips_cold", "refresh", False, 0),
+            ("refresh_runs_warm_stale", "refresh", True, 1),
+            ("backfill_runs_cold", "backfill", False, 1),
+            ("backfill_skips_warm", "backfill", True, 0),
+        ]
+    )
+    def test_mode_gates_on_warm_state(self, _name: str, mode: str, has_entry: bool, expected_runs: int) -> None:
+        runner = MagicMock()
+        runner.get_cache_key.return_value = f"key-{_name}"
+        runner._is_stale.return_value = True
+        with (
+            patch("products.web_analytics.dags.cache_warming.build_replay_runner", return_value=(runner, {}, True)),
+            patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
+        ):
+            entry = None
+            if has_entry:
+                entry = MagicMock()
+                entry.as_full_response.return_value = {"last_refresh": "2026-07-01T00:00:00Z"}
+            mock_cm.return_value.lookup.return_value.entry = entry
+            warm_queries_op(
+                dagster.build_op_context(),
+                WarmQueriesConfig(mode=mode),
+                [
+                    {
+                        "team_id": self.team.pk,
+                        "query_json": {"kind": "WebOverviewQuery", "properties": []},
+                        "query_count": 5,
+                        "representative_query_count": 5,
+                        "normalized_query_hash": "h",
+                    }
+                ],
+            )
+
+        self.assertEqual(runner.run.call_count, expected_runs)
+
+    def test_team_ids_and_limit_scope_the_run(self) -> None:
+        # A Launchpad run scoped to one team must not warm the fleet: launches
+        # are mutually exclusive with the hourly schedule, so an unscoped manual
+        # run starves it for the duration.
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        runner = MagicMock()
+        runner.get_cache_key.side_effect = lambda: f"key-{len(runner.mock_calls)}"
+        shape = lambda team_id, n: {  # noqa: E731
+            "team_id": team_id,
+            "query_json": {"kind": "WebOverviewQuery", "properties": [], "n": n},
+            "query_count": 5,
+            "representative_query_count": 5,
+            "normalized_query_hash": f"h{n}",
+        }
+        with (
+            patch("products.web_analytics.dags.cache_warming.build_replay_runner", return_value=(runner, {}, True)),
+            patch("products.web_analytics.dags.cache_warming.QueryCache") as mock_cm,
+        ):
+            mock_cm.return_value.lookup.return_value.entry = None
+            warm_queries_op(
+                dagster.build_op_context(),
+                WarmQueriesConfig(team_ids=[self.team.pk], limit=2),
+                [shape(self.team.pk, 1), shape(other_team.pk, 2), shape(self.team.pk, 3), shape(self.team.pk, 4)],
+            )
+
+        # 3 shapes match the team filter; limit=2 caps it.
+        self.assertEqual(runner.run.call_count, 2)
+
     def test_duplicate_cache_keys_warm_once(self) -> None:
         # Selection groups by raw JSON text, so two encodings of one query can
         # both be selected; replaying both wastes ClickHouse capacity and
@@ -424,6 +593,7 @@ class TestWarmQueriesOp(BaseTest):
             mock_cm.return_value.lookup.return_value.entry = None
             warm_queries_op(
                 dagster.build_op_context(),
+                WarmQueriesConfig(),
                 [
                     {
                         "team_id": self.team.pk,
@@ -457,13 +627,14 @@ class TestWarmQueriesOp(BaseTest):
 
         shape = {"team_id": self.team.pk, "query_json": {"kind": "WebOverviewQuery", "properties": []}}
         with (
-            patch("products.web_analytics.dags.cache_warming.WARMING_SHAPE_CONCURRENCY", 1),
+            patch("products.web_analytics.dags.cache_warming.WARMING_SHARD_THREADS", 1),
             patch(
                 "products.web_analytics.dags.cache_warming.get_query_runner_or_none", side_effect=fake_runner_or_none
             ),
         ):
             warm_queries_op(
                 dagster.build_op_context(),
+                WarmQueriesConfig(),
                 [{**shape, "normalized_query_hash": "a"}, {**shape, "normalized_query_hash": "b"}],
             )
 
@@ -483,6 +654,7 @@ class TestWarmQueriesOp(BaseTest):
         with patch("products.web_analytics.dags.cache_warming.get_query_runner_or_none", side_effect=capture_tags):
             warm_queries_op(
                 dagster.build_op_context(),
+                WarmQueriesConfig(),
                 [
                     {
                         "team_id": self.team.pk,
@@ -501,6 +673,7 @@ class TestWarmQueriesOp(BaseTest):
         # "unsupported", not "failed" — or every hourly run pages Sentry.
         warm_queries_op(
             dagster.build_op_context(),
+            WarmQueriesConfig(),
             [{"team_id": self.team.pk, "query_json": {"kind": "WebVitalsQuery"}, "normalized_query_hash": "h"}],
         )
 
