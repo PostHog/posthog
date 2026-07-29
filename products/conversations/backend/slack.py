@@ -53,7 +53,12 @@ from .services.attachments import (
     sanitize_attachment_filename,
     save_file_to_uploaded_media,
 )
-from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, get_support_slack_bot_token
+from .support_slack import (
+    SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES,
+    SUPPORT_SLACK_FILE_READ_SCOPE,
+    get_support_slack_bot_token,
+    supporthog_missing_file_scopes,
+)
 
 logger = structlog.get_logger(__name__)
 SLACK_DOWNLOAD_TIMEOUT_SECONDS = 10
@@ -260,7 +265,7 @@ def _is_allowed_slack_file_url(url: str) -> bool:
     return any(hostname == suffix or hostname.endswith(f".{suffix}") for suffix in SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES)
 
 
-def _download_slack_image_bytes(url: str, bot_token: str) -> bytes | None:
+def _download_slack_image_bytes(url: str, bot_token: str, expected_mimetype: str = "") -> bytes | None:
     if not _is_allowed_slack_file_url(url):
         logger.warning("🖼️ slack_file_download_invalid_host", url=url)
         return None
@@ -287,6 +292,20 @@ def _download_slack_image_bytes(url: str, bot_token: str) -> bytes | None:
 
             if status != 200:
                 logger.warning("🖼️ slack_file_download_non_200", url=next_url, status=status)
+                return None
+
+            # A rejected file request (a revoked or downgraded token) lands on a Slack sign-in page
+            # served as a 200. Storing that as the customer's attachment is worse than having none,
+            # and only images get byte validation. Callers skip the request entirely when the
+            # install is known to lack files:read, which is the case this can't catch on its own:
+            # a sign-in page and a genuine text/html attachment look the same here.
+            content_type = (response.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+            if content_type == "text/html" and expected_mimetype.lower() != "text/html":
+                logger.warning(
+                    "🖼️ slack_file_download_unexpected_html",
+                    url=next_url,
+                    expected_mimetype=expected_mimetype,
+                )
                 return None
 
             content_length_header = response.headers.get("Content-Length")
@@ -321,11 +340,84 @@ def _download_slack_image_bytes(url: str, bot_token: str) -> bytes | None:
     return None
 
 
+def _is_inline_image(attachment: dict) -> bool:
+    return (attachment.get("mimetype") or "").startswith("image/") and not attachment.get("unavailable")
+
+
 def split_slack_attachments(attachments: list[dict]) -> tuple[list[dict], list[dict]]:
-    """Partition extracted attachments into (images, non-image files) by mimetype."""
-    images = [a for a in attachments if (a.get("mimetype") or "").startswith("image/")]
-    files = [a for a in attachments if not (a.get("mimetype") or "").startswith("image/")]
+    """Partition extracted attachments into (images, non-image files) by mimetype.
+
+    Attachments we couldn't re-host go to the file bucket whatever their mimetype:
+    they point at Slack, so they can only be rendered as a link, not inlined.
+    """
+    images = [a for a in attachments if _is_inline_image(a)]
+    files = [a for a in attachments if not _is_inline_image(a)]
     return images, files
+
+
+def _rehost_slack_file(f: dict, team: Team, bot_token: str | None) -> dict | None:
+    """Copy one Slack file into UploadedMedia, or None when it can't be read or stored."""
+    mimetype = f.get("mimetype", "")
+    is_image = mimetype.startswith("image/")
+    file_id = f.get("id")
+
+    source_url = f.get("url_private_download") or f.get("url_private")
+    if not source_url or not bot_token:
+        logger.warning(
+            "🖼️ slack_file_missing_download_info",
+            file_id=file_id,
+            has_source_url=bool(source_url),
+            has_bot_token=bool(bot_token),
+        )
+        return None
+
+    try:
+        file_bytes = _download_slack_image_bytes(source_url, bot_token, expected_mimetype=mimetype)
+    except Exception as e:
+        logger.warning("🖼️ slack_file_download_failed", file_id=file_id, error=str(e))
+        return None
+
+    if not file_bytes:
+        logger.warning("🖼️ slack_file_download_rejected", file_id=file_id, source_url=source_url)
+        return None
+
+    # Only images get byte-level validation; other types are stored as-is and
+    # served as opaque downloads by the media endpoint.
+    if is_image and not is_valid_image(file_bytes):
+        logger.warning("🖼️ slack_file_invalid_image_content", file_id=file_id)
+        return None
+
+    safe_name = sanitize_attachment_filename(f.get("name"))
+    stored_url = save_file_to_uploaded_media(team, safe_name, mimetype, file_bytes, validate_images=False)
+    if not stored_url:
+        logger.warning("🖼️ slack_file_copy_save_failed", file_id=file_id)
+        return None
+
+    attachment = {
+        "url": stored_url,
+        "name": safe_name,
+        "mimetype": mimetype,
+    }
+    if is_image:
+        attachment["thumb"] = f.get("thumb_360") or f.get("thumb_160")
+    return attachment
+
+
+def _slack_hosted_fallback(f: dict) -> dict | None:
+    """A link back to the file in Slack, for when re-hosting failed.
+
+    Without this the attachment vanishes from the ticket with no trace, which reads as
+    "the customer sent nothing". Most often this is an install missing files:read.
+    """
+    permalink = f.get("permalink")
+    if not isinstance(permalink, str) or not _is_allowed_slack_file_url(permalink):
+        return None
+    return {
+        "url": permalink,
+        "name": sanitize_attachment_filename(f.get("name")),
+        "mimetype": f.get("mimetype", ""),
+        "unavailable": True,
+    }
 
 
 def extract_slack_files(files: list[dict] | None, team: Team, client: WebClient | None = None) -> list[dict]:
@@ -340,53 +432,29 @@ def extract_slack_files(files: list[dict] | None, team: Team, client: WebClient 
 
     team_id = _get_team_id(team)
     bot_token = getattr(client, "token", None) if client else None
+    # Slack answers an unauthorized download with a 200 sign-in page, which is indistinguishable
+    # from a genuine text/html attachment. So don't ask: we've requested files:read for as long as
+    # we've recorded granted scopes, meaning an install with none recorded definitively lacks it.
+    missing_file_scopes = supporthog_missing_file_scopes(team)
+    can_read_files = SUPPORT_SLACK_FILE_READ_SCOPE not in missing_file_scopes
     logger.info("🖼️ slack_file_extract_started", team_id=team_id, total_files=len(files), has_bot_token=bool(bot_token))
     attachments: list[dict] = []
+    unavailable_count = 0
     for f in files[:MAX_ATTACHMENTS_PER_MESSAGE]:
-        mimetype = f.get("mimetype", "")
-        is_image = mimetype.startswith("image/")
-
-        file_id = f.get("id")
-        source_url = f.get("url_private_download") or f.get("url_private")
-        if not source_url or not bot_token:
-            logger.warning(
-                "🖼️ slack_file_missing_download_info",
-                file_id=file_id,
-                has_source_url=bool(source_url),
-                has_bot_token=bool(bot_token),
-            )
-            continue
-
-        try:
-            file_bytes = _download_slack_image_bytes(source_url, bot_token)
-        except Exception as e:
-            logger.warning("🖼️ slack_file_download_failed", file_id=file_id, error=str(e))
-            continue
-
-        if not file_bytes:
-            logger.warning("🖼️ slack_file_download_rejected", file_id=file_id, source_url=source_url)
-            continue
-
-        # Only images get byte-level validation; other types are stored as-is and
-        # served as opaque downloads by the media endpoint.
-        if is_image and not is_valid_image(file_bytes):
-            logger.warning("🖼️ slack_file_invalid_image_content", file_id=file_id)
-            continue
-
-        safe_name = sanitize_attachment_filename(f.get("name"))
-        stored_url = save_file_to_uploaded_media(team, safe_name, mimetype, file_bytes, validate_images=False)
-        if stored_url:
-            attachment = {
-                "url": stored_url,
-                "name": safe_name,
-                "mimetype": mimetype,
-            }
-            if is_image:
-                attachment["thumb"] = f.get("thumb_360") or f.get("thumb_160")
+        attachment = _rehost_slack_file(f, team, bot_token) if can_read_files else None
+        if attachment is None:
+            attachment = _slack_hosted_fallback(f)
+            unavailable_count += 1
+        if attachment:
             attachments.append(attachment)
-        else:
-            logger.warning("🖼️ slack_file_copy_save_failed", file_id=file_id)
     logger.info("🖼️ slack_file_extract_finished", team_id=team_id, attachment_count=len(attachments))
+    if unavailable_count:
+        logger.warning(
+            "🖼️ slack_file_extract_incomplete",
+            team_id=team_id,
+            unavailable_count=unavailable_count,
+            missing_file_scopes=missing_file_scopes,
+        )
     return attachments
 
 

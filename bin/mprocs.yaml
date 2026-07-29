@@ -266,45 +266,6 @@ procs:
             layer: Processing
             tech: Rust
 
-    agent-ingress:
-        # Sources .env.local on restart for AGENT_INGRESS_PUBLIC_URL (bin/agent-tunnel
-        # writes it post-start); skips 1Password op:// refs.
-        shell: |-
-            bin/wait-for-docker && \
-            if [ -f .env.local ] && ! grep -q 'op://' .env.local; then \
-                set -a; . ./.env.local; set +a; \
-            fi && \
-            pnpm --filter @posthog/agent-ingress start:dev
-        capability: agent_runtime
-        ready_pattern: 'listening'
-        groups:
-            layer: Product services
-            tech: Node
-        # Dev: tee JSON logs to a tmp file a local agent can read. See
-        # products/agent_platform/AGENTS.md.
-        env:
-            AGENT_LOG_FILE: '/tmp/posthog-agent-logs/agent-ingress.log'
-
-    agent-runner:
-        shell: 'bin/wait-for-docker && pnpm --filter @posthog/agent-runner start:dev'
-        capability: agent_runtime
-        ready_pattern: 'starting worker loop'
-        groups:
-            layer: Processing
-            tech: Node
-        env:
-            AGENT_LOG_FILE: '/tmp/posthog-agent-logs/agent-runner.log'
-
-    agent-janitor:
-        shell: 'bin/wait-for-docker && pnpm --filter @posthog/agent-janitor start:dev'
-        capability: agent_runtime
-        ready_pattern: 'listening'
-        groups:
-            layer: Processing
-            tech: Node
-        env:
-            AGENT_LOG_FILE: '/tmp/posthog-agent-logs/agent-janitor.log'
-
     ai-gateway:
         shell: 'bin/wait-for-docker && bin/start-ai-gateway'
         capability: ai_gateway
@@ -657,10 +618,6 @@ procs:
         groups:
             layer: Infrastructure
             tech: Migrations
-
-    # agent_platform schema is now Django-owned in its product DB, migrated by
-    # the main `migrate` process (migrate_product_databases). The old node-side
-    # migrate-agent-runtime process was removed.
 
     migrate-persons-db:
         shell: 'bin/wait-for-docker && bin/migrate --scope=persons'

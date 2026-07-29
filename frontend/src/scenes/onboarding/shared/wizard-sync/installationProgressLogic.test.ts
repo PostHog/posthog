@@ -94,6 +94,15 @@ describe('installationProgressLogic merge', () => {
             expect(cloudProgress(taskState({ status: 'in_progress' }), [], 'open', null, true).phase).toBe('running')
         })
 
+        it('surfaces a run that never delivered any state as an error, not an eternal idle spinner', () => {
+            // `idle` renders a spinner with no recovery controls, so a stream that stayed silent has
+            // to resolve to the error phase (which carries the retry CTAs and the dismiss control).
+            const result = cloudProgress(null, [], 'open', null, true)
+            expect(result.phase).toBe('error')
+            expect(result.error?.title).toBe('Setup lost contact')
+            expect(result.isCurrent).toBe(true)
+        })
+
         it.each([
             ['pending', 'pending'],
             ['in_progress', 'in_progress'],

@@ -8,7 +8,7 @@ from posthog.models.activity_logging.activity_log import ActivityScope, Detail, 
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 
-from products.logs.backend.models import LogsAlertConfiguration, LogsExclusionRule
+from products.logs.backend.models import LogsAlertConfiguration, LogsExclusionRule, LogsRetentionRule
 
 
 @mutable_receiver(model_activity_signal, sender=LogsAlertConfiguration)
@@ -44,6 +44,35 @@ def handle_logs_sampling_rule_activity(
     scope: str,
     before_update: LogsExclusionRule | None,
     after_update: LogsExclusionRule | None,
+    activity: str,
+    user: User | None,
+    was_impersonated: bool = False,
+    **kwargs: Any,
+) -> None:
+    instance = after_update or before_update
+    if instance is None:
+        return
+    log_activity(
+        organization_id=instance.team.organization_id,
+        team_id=instance.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=instance.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(cast(ActivityScope, scope), previous=before_update, current=after_update),
+            name=instance.name,
+        ),
+    )
+
+
+@mutable_receiver(model_activity_signal, sender=LogsRetentionRule)
+def handle_logs_retention_rule_activity(
+    sender: Any,
+    scope: str,
+    before_update: LogsRetentionRule | None,
+    after_update: LogsRetentionRule | None,
     activity: str,
     user: User | None,
     was_impersonated: bool = False,

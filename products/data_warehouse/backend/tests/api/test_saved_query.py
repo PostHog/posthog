@@ -2075,6 +2075,25 @@ class TestSavedQueryRunV2Aware(APIBaseTest):
         mock_trigger.assert_not_called()
         mock_client.start_workflow.assert_not_called()
 
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    @patch("products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids")
+    def test_materialize_on_v2_schedule_starts_initial_run(self, mock_v2_dags, mock_sync_connect):
+        saved_query, dag, _node = self._make_saved_query_with_node("v2_matview")
+        mock_v2_dags.return_value = {str(dag.id)}
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/materialize",
+            )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        mock_client.start_workflow.assert_called_once()
+        self.assertEqual(mock_client.start_workflow.call_args[0][0], "data-modeling-materialize-view")
+        saved_query.refresh_from_db()
+        self.assertTrue(saved_query.is_materialized)
+
     @patch("products.data_warehouse.backend.presentation.views.saved_query.trigger_saved_query_schedule")
     @patch("products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids")
     def test_run_on_v1_triggers_saved_query_schedule(self, mock_v2_dags, mock_trigger):

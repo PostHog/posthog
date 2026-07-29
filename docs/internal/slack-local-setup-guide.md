@@ -118,8 +118,9 @@ oauth_config:
       - users:read
       - users:read.email
     user:
-      - identity.basic
-      - identity.email
+      - openid
+      - email
+      - profile
 settings:
   event_subscriptions:
     request_url: https://<you>-posthog.ngrok.dev/slack/event-callback
@@ -142,9 +143,9 @@ Django must be up at that moment.
 > otherwise) and the coding agent doesn't use it.
 
 > The `app_home` block + `app_home_opened` bot event power the App Home tab; the
-> sign-in-with-Slack flow needs `user` scopes `identity.basic` + `identity.email` and the second
-> redirect URL (`/complete/slack-link/`). Drop those if you don't want either feature locally —
-> they're behind the `slack-app-home` and `slack-app-oauth` flags.
+> Sign in with Slack (OpenID Connect) flow needs `user` scopes `openid` + `email` + `profile` and
+> the second redirect URL (`/complete/slack-link/`). Drop those if you don't want either feature
+> locally — they're behind the `slack-app-home` and `slack-app-oauth` flags.
 
 ## Step 3 — backend credentials and `SITE_URL`
 

@@ -42,6 +42,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     _UNSET,
     FRESHNESS_WINDOW_SECONDS,
+    TAKEOVER_STALE_THRESHOLD_SECONDS,
     BatchQueue,
     PendingBatch,
     _Unset,
@@ -49,6 +50,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
     OLDEST_UNCLAIMED_BATCH_SECONDS,
     RUNS_RECONCILED_TOTAL,
+    RUNS_TERMINALIZED_STALE_TOTAL,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     release_v3_pipeline_lock,
@@ -67,6 +69,10 @@ DeltaProcessBatchFn = Callable[[PendingBatch, VerifyOwnership | None], Coroutine
 # Ceiling for the queue-freshness probe, deliberately far below the sweep
 # timeout so a degraded probe can't starve the reconcile sweep it rides on.
 FRESHNESS_PROBE_TIMEOUT_SECONDS = 30.0
+
+# Stamped on a run the loader abandoned: its extraction ended without a final batch, so nothing
+# finalized it and there is no failed queue batch for the failed-run reconcile to key on.
+STRANDED_RUN_ERROR = "run abandoned before completion (no loader progress; reconciled from queue)"
 
 # Errors that fail identically on every attempt. Substring-matched because they
 # surface as generic exceptions; keep entries specific so transients can't match.
@@ -384,6 +390,95 @@ class DeltaBatchConsumerAdapter:
                     run_uuid=ref.run_uuid,
                     external_data_schema_id=ref.schema_id,
                 )
+
+        # Runs the loader abandoned leave no 'failed' batch for get_failed_runs to key on, so sweep
+        # them on the same cadence and connection. Isolated so its failure can't take the sweep down.
+        try:
+            await self._reconcile_stale_stranded_runs(conn, stale_seconds=TAKEOVER_STALE_THRESHOLD_SECONDS, limit=limit)
+        except Exception as e:
+            logger.exception("stranded_run_reconcile_sweep_failed")
+            capture_exception(e)
+
+    async def _reconcile_stale_stranded_runs(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        stale_seconds: int,
+        limit: int,
+    ) -> None:
+        """Fail runs the loader abandoned: non-terminal batches, no live lease, no progress for ``stale_seconds``.
+
+        ``reconcile_failed_runs`` above only catches runs with a ``failed`` queue batch. When an
+        extraction workflow dies mid-run it leaves the batches non-terminal with no failed batch and the
+        ExternalDataJob stuck RUNNING, and lock takeover only fires on the next scheduled run — so
+        without this the batches strand until the retention prune (days later).
+
+        Ordering mirrors lock takeover, not the retention sweep: these batches are still within
+        ``CLAIM_ELIGIBILITY_INTERVAL`` and could still be claimed, so fail them FIRST — a straggler
+        claimed after the job is failed could load and flip a FAILED job back to COMPLETED via its final
+        batch. Failing batches first also self-heals a crash mid-sweep: the run then has a failed batch,
+        so ``reconcile_failed_runs`` finalizes the job next cycle.
+        """
+        refs = await BatchQueue.get_stale_stranded_runs(conn, stale_seconds=stale_seconds, limit=limit)
+        for ref in refs:
+            try:
+                failed_batches = await BatchQueue.fail_run(
+                    conn,
+                    run_uuid=ref.run_uuid,
+                    team_id=ref.team_id,
+                    schema_id=ref.schema_id,
+                    reason=STRANDED_RUN_ERROR,
+                )
+            except Exception as e:
+                # Without the batches failed we'd fail the job while leaving claimable stragglers
+                # behind — the exact resurrection this ordering prevents. Skip the rest for this run.
+                logger.exception("stranded_run_batch_sweep_failed", run_uuid=ref.run_uuid)
+                capture_exception(e)
+                continue
+
+            try:
+                reconciled = await sync_to_async(mark_job_failed_if_not_terminal)(
+                    job_id=ref.job_id,
+                    team_id=ref.team_id,
+                    error=STRANDED_RUN_ERROR,
+                )
+            except Exception as e:
+                logger.exception("stranded_run_job_status_update_failed", job_id=ref.job_id, run_uuid=ref.run_uuid)
+                capture_exception(e)
+                reconciled = False
+
+            # Count only fully terminalized runs: on a failed job write the failed-run
+            # reconcile finishes the job next cycle and counts it in RUNS_RECONCILED_TOTAL.
+            if reconciled:
+                RUNS_TERMINALIZED_STALE_TOTAL.inc()
+            logger.warning(
+                "stranded_run_terminalized",
+                job_id=ref.job_id,
+                run_uuid=ref.run_uuid,
+                team_id=ref.team_id,
+                external_data_schema_id=ref.schema_id,
+                non_terminal_batches=ref.non_terminal_batches,
+                failed_batches=failed_batches,
+                job_reconciled=reconciled,
+            )
+
+            # Best-effort, compare-and-deletes on the token: safe even if the lease already expired
+            # or another pod reclaimed the group.
+            if ref.workflow_run_id:
+                try:
+                    await sync_to_async(release_v3_pipeline_lock)(
+                        team_id=ref.team_id,
+                        schema_id=ref.schema_id,
+                        token=ref.workflow_run_id,
+                    )
+                except Exception as e:
+                    logger.error(
+                        "failed_to_release_v3_pipeline_lock",
+                        job_id=ref.job_id,
+                        schema_id=ref.schema_id,
+                        exc_info=True,
+                    )
+                    capture_exception(e)
 
     async def _observe_queue_freshness(self, conn: psycopg.AsyncConnection[Any]) -> None:
         """Report the age of the oldest batch no consumer has picked up yet.

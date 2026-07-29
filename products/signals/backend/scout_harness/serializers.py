@@ -24,6 +24,8 @@ from posthog.permissions import get_authenticator_scopes
 
 from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
+from products.signals.backend.report_charts import MAX_REPORT_CHARTS
+from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.tools.emit import (
     MAX_FINDING_ID_LENGTH,
@@ -34,6 +36,7 @@ from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_
 from products.signals.backend.scout_harness.tools.report import MAX_REPORT_TITLE_LENGTH, MAX_SUGGESTED_REVIEWERS
 from products.signals.backend.scout_harness.tools.runs import DEFAULT_FINDINGS_WINDOW_HOURS, MAX_FINDINGS_WINDOW_HOURS
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
+from products.signals.backend.serializers import ReportChartSerializer
 from products.skills.backend.api.skill_serializers import (
     MAX_SKILL_FILE_COUNT,
     LLMSkillFileInputSerializer,
@@ -43,6 +46,44 @@ from products.skills.backend.api.skill_serializers import (
 from products.skills.backend.models.skills import LLMSkill
 
 # --- Run history -----------------------------------------------------------
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "properties": {
+            "harness_prompt_version": {"type": "string"},
+            "report_channel": {"type": "string"},
+            "skill_origin": {"type": "string"},
+            "github_guidance": {"type": "boolean"},
+            "model": {"type": "string"},
+            "runtime_adapter": {"type": "string"},
+            "reasoning_effort": {"type": "string"},
+            # Closed and fully required, unlike the parent: the region is written whole or not at
+            # all, so every flag is present whenever the object is. Leaving it open would generate
+            # a `[key: string]: boolean` index signature that the optional named flags cannot
+            # satisfy, which fails frontend typechecking.
+            DERIVED_METADATA_KEY: {
+                "type": "object",
+                "properties": {key: {"type": "boolean"} for key in DERIVED_FLAG_KEYS},
+                "required": list(DERIVED_FLAG_KEYS),
+            },
+        },
+        # Older rows predate these keys and future runner-stamped dimensions land here before the
+        # schema catches up, so the object stays open rather than closed.
+        "additionalProperties": True,
+    }
+)
+class RunMetadataField(serializers.DictField):
+    """The run row's whole `metadata` column: runner-stamped keys at the top level plus the nested
+    `derived` map of harness-computed booleans.
+
+    The known keys are spelled out so generated TypeScript and MCP consumers get real types
+    instead of `unknown` on every value. `DictField(child=CharField())` is what this replaced,
+    and it coerced the nested `derived` map to its string repr on the way out, turning a queryable
+    object into unparseable prose. Output-only: writes come from the runner at creation and from
+    `derived_metadata.stamp_derived_metadata` at finalize, never through this field.
+    """
 
 
 class SignalScoutRunSummarySerializer(serializers.Serializer):
@@ -146,13 +187,24 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
             "edited no report."
         ),
     )
-    metadata = serializers.DictField(
-        child=serializers.CharField(),
+    metadata = RunMetadataField(
         help_text=(
-            "Scout-owned per-run context stamped at run start. Known keys today: `model`, "
-            "`runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the "
-            "`scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. "
-            "Empty object when the run rode the default model, or for runs predating the field."
+            "Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner "
+            "at run start. Always present: `harness_prompt_version` (id of the harness prompt build "
+            "the run was given), `report_channel` (which report tools the run held: `none`, `emit`, "
+            "`edit`, or `both`), "
+            "`skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got "
+            "the GitHub evidence section) — the provenance set that says which instructions the run "
+            "actually got, so runs are only compared against runs of the same shape. Present only "
+            "when routing overrode the agent-server default: `model`, "
+            "`runtime_adapter`, and `reasoning_effort`. The nested `derived` object is the harness's "
+            "own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, "
+            "`has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use "
+            "`derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. "
+            "Note the flags describe the reports the run authored as they stand now, so charts "
+            "attached to someone else's report via an edit are not counted. A missing `derived` "
+            "object is unknown, not all-false: the run predates the field, never finalized, or its "
+            "stamp failed."
         ),
     )
 
@@ -904,6 +956,16 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "It also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold."
         ),
     )
+    charts = serializers.ListField(
+        required=False,
+        child=ReportChartSerializer(),
+        max_length=MAX_REPORT_CHARTS,
+        help_text=(
+            "Optional charts to attach to the report — the inbox renders them inline, so a metric move "
+            "is something the reader sees rather than a number they take on trust. Attach one whenever "
+            "the finding rests on a trend, a spike, or a comparison you already queried."
+        ),
+    )
 
 
 class EmitReportResponseSerializer(serializers.Serializer):
@@ -974,6 +1036,16 @@ class EditReportRequestSerializer(serializers.Serializer):
             "empty list is a no-op (existing reviewers are left untouched, never cleared)."
         ),
     )
+    charts = serializers.ListField(
+        required=False,
+        child=ReportChartSerializer(),
+        max_length=MAX_REPORT_CHARTS,
+        help_text=(
+            "The full set of charts the report should show. Replaces the report's charts rather than "
+            "adding to them, the way `summary` replaces the summary — so send every chart you want "
+            "kept. Omit the field to leave the report's existing charts untouched."
+        ),
+    )
 
 
 class EditReportResponseSerializer(serializers.Serializer):
@@ -984,6 +1056,9 @@ class EditReportResponseSerializer(serializers.Serializer):
     )
     note_appended = serializers.BooleanField(help_text="Whether a note artefact was appended.")
     reviewers_set = serializers.BooleanField(help_text="Whether the report's suggested reviewers were replaced.")
+    charts_set = serializers.IntegerField(
+        help_text="How many charts the report now shows, or 0 if charts were untouched."
+    )
 
 
 # --- Project profile ------------------------------------------------------

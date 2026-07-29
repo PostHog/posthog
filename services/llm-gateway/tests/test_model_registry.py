@@ -147,6 +147,7 @@ def create_mock_settings(
     settings.cloudflare_account_id = "acct-test" if cloudflare else None
     # Modal needs all three; same MagicMock-truthiness hazard as CF above.
     settings.modal_api_base = "https://modal.test/v1" if modal else None
+    settings.modal_kimi_api_base = "https://kimi.modal.test/v1" if modal else None
     settings.modal_key = "wk-test" if modal else None
     settings.modal_secret = "ws-test" if modal else None
     return settings

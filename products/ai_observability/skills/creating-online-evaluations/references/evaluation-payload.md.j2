@@ -13,7 +13,7 @@ schemas below are rendered from the backend Pydantic models at build time, so th
 | `evaluation_config`   | yes            | Shape depends on `evaluation_type` (below).                                           |
 | `output_type`         | yes            | `"boolean"` for `hog`/`llm_judge`; `"sentiment"` for `sentiment`.                    |
 | `output_config`       | no             | `{ "allows_na": bool }` for boolean; `{}` for sentiment.                             |
-| `model_configuration` | llm_judge only | Provider/model/key. Rejected on `hog`/`sentiment`.                                    |
+| `model_configuration` | llm_judge only | Provider + model; key ID optional. Rejected on `hog`/`sentiment`.                     |
 | `target`              | no             | `"generation"` (default) or `"trace"`. Sentiment supports only `"generation"`.       |
 | `target_config`       | trace only     | Settle config discriminated on `strategy` (below); defaults to a 1800-second fixed window. |
 | `conditions`          | no             | Trigger condition sets (below). For traces, conditions match the triggering generation. |
@@ -77,9 +77,11 @@ Empty object: `{}`.
 | ----------------- | -------- | ------------------------------------------------------------------------------ |
 | `provider`        | yes      | One of `openai`, `anthropic`, `gemini`, `openrouter`, `fireworks`, `azure_openai`, `together_ai`. |
 | `model`           | yes      | Model id, e.g. `gpt-5-mini`. Validate against `llma-evaluation-judge-models`.  |
-| `provider_key_id` | yes      | UUID of an `ok`-state `LLMProviderKey` from `llma-provider-key-list`. |
+| `provider_key_id` | no       | UUID of an `ok`-state key for the same provider. `null` uses the matching active team key. |
 
-Pin `provider_key_id` to an `ok`-state key; the eval runs on that key.
+`provider` and `model` are required. Pin `provider_key_id` to run on one specific key. Leave it `null` only
+when `llma-evaluation-config-get` shows an `ok`-state active key for the same provider. A disabled draft may
+be saved without a usable key, but it cannot be tested or enabled until a key can be resolved.
 
 ## `conditions`
 
@@ -170,3 +172,6 @@ matters.
   "enabled": false
 }
 ```
+
+Set `provider_key_id` to `null` only when the team's active key is in the `ok` state and its provider is
+`openai`.
