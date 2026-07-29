@@ -193,6 +193,42 @@ class TestKernelRuntimeService(BaseTest):
             with self.assertRaisesMessage(RuntimeError, "Modal credentials are required to start notebook kernels"):
                 service._get_backend(require_credentials=True)
 
+    def test_create_kernel_handle_failure_reports_kernel_log(self) -> None:
+        service = KernelRuntimeService()
+        notebook = Notebook.objects.create(team=self.team)
+
+        class _FailingSandbox(_FakeSandbox):
+            def __init__(self) -> None:
+                super().__init__(_FakeExecutionResult(stdout=""))
+                self.destroyed = False
+
+            def execute(self, command: str, timeout_seconds: int | None = None) -> _FakeExecutionResult:
+                if command.startswith("tail"):
+                    return _FakeExecutionResult(stdout="ModuleNotFoundError: No module named 'ipykernel_launcher'")
+                if command.startswith("ps -p"):
+                    return _FakeExecutionResult(stdout="", exit_code=1)
+                return _FakeExecutionResult(stdout="4321")
+
+            def destroy(self) -> None:
+                self.destroyed = True
+
+        sandbox = _FailingSandbox()
+
+        class _FailingSandboxClass(_FakeSandboxClass):
+            @staticmethod
+            def create(config: Any) -> _FailingSandbox:
+                return sandbox
+
+        with patch.object(service, "_get_sandbox_class", return_value=_FailingSandboxClass):
+            with self.assertRaises(RuntimeError) as raised:
+                service._create_kernel_handle(notebook, self.user, KernelRuntime.Backend.DOCKER)
+
+        assert "No module named 'ipykernel_launcher'" in str(raised.exception)
+        assert sandbox.destroyed
+        runtime = KernelRuntime.objects.filter(notebook=notebook).latest("created_at")
+        assert runtime.status == KernelRuntime.Status.ERROR
+        assert "No module named 'ipykernel_launcher'" in (runtime.last_error or "")
+
     def test_execute_filters_invalid_variable_names(self) -> None:
         service = KernelRuntimeService()
         notebook = Notebook.objects.create(team=self.team)

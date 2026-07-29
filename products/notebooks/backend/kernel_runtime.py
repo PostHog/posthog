@@ -252,8 +252,16 @@ class KernelRuntimeService:
     _HANDLE_LOCK_TIMEOUT_SECONDS = 60.0
     _LOCK_BLOCKING_TIMEOUT_SECONDS = 10.0
     _EXECUTION_LOCK_TIMEOUT_BUFFER_SECONDS = 30.0
+    _SANDBOX_EXEC_BUFFER_SECONDS = 15.0
+    # Trivial shell commands (launch, pid check, log tail) don't get the whole startup budget —
+    # the readiness wait needs it, and dispatch has to finish inside its Temporal activity timeout.
+    _SHELL_COMMAND_TIMEOUT_SECONDS = 30.0
+    _KERNEL_LOG_PATH = "/tmp/jupyter/kernel.log"
+    _KERNEL_LOG_MAX_CHARS = 4000
 
-    def __init__(self, startup_timeout: float = 10.0, execution_timeout: float = 30.0):
+    # A cold sandbox needs far more than a few seconds to import ipykernel and answer
+    # kernel_info, so the startup budget is generous compared to per-execution timeouts.
+    def __init__(self, startup_timeout: float = 60.0, execution_timeout: float = 30.0):
         self._startup_timeout = startup_timeout
         self._execution_timeout = execution_timeout
         self._kernels: dict[str, _KernelHandle] = {}
@@ -785,10 +793,21 @@ class KernelRuntimeService:
             self._wait_for_kernel_ready(sandbox, connection_file)
             self._bootstrap_kernel(sandbox, connection_file, notebook, user)
         except Exception as err:
-            self._mark_runtime_error(runtime, "Failed to start kernel in sandbox")
+            # Read the kernel's own log while the sandbox is still up — once it is destroyed
+            # the only remaining clue is the generic message below.
+            kernel_log = self._read_kernel_log(sandbox)
+            detail = f"{err}\n{kernel_log}" if kernel_log else str(err)
+            self._mark_runtime_error(runtime, f"Failed to start kernel in sandbox: {detail}")
+            logger.warning(
+                "notebook_kernel_start_failed",
+                notebook_short_id=notebook.short_id,
+                kernel_runtime_id=str(runtime.id),
+                error=str(err),
+                kernel_log=kernel_log,
+            )
             with suppress(Exception):
                 sandbox.destroy()
-            raise RuntimeError("Failed to start kernel in sandbox") from err
+            raise RuntimeError(f"Failed to start kernel in sandbox: {detail}") from err
 
         runtime.kernel_id = kernel_id
         runtime.kernel_pid = kernel_pid
@@ -817,22 +836,35 @@ class KernelRuntimeService:
         )
 
     def _start_kernel_process(self, sandbox: SandboxBase, connection_file: str) -> int:
+        # Prefer the notebook venv python, the same choice sql_v2.py makes for the kernel-server,
+        # so the kernel and the server never land on different interpreters.
+        python = "$([ -x /opt/notebook-venv/bin/python3 ] && echo /opt/notebook-venv/bin/python3 || echo python3)"
         start_command = (
             "mkdir -p /tmp/jupyter && "
-            f"nohup python3 -m ipykernel_launcher -f {connection_file} "
-            "> /tmp/jupyter/kernel.log 2>&1 & echo $!"
+            f"nohup {python} -m ipykernel_launcher -f {connection_file} "
+            f"> {self._KERNEL_LOG_PATH} 2>&1 & echo $!"
         )
-        start_result = sandbox.execute(start_command, timeout_seconds=int(self._startup_timeout))
+        start_result = sandbox.execute(start_command, timeout_seconds=int(self._SHELL_COMMAND_TIMEOUT_SECONDS))
         pid_line = start_result.stdout.strip().splitlines()[-1] if start_result.stdout else ""
         kernel_pid = int(pid_line) if pid_line.isdigit() else None
         if not kernel_pid:
             raise RuntimeError(f"Failed to start kernel process: {start_result.stdout} {start_result.stderr}")
-        pid_check = sandbox.execute(f"ps -p {kernel_pid}", timeout_seconds=int(self._startup_timeout))
+        pid_check = sandbox.execute(f"ps -p {kernel_pid}", timeout_seconds=int(self._SHELL_COMMAND_TIMEOUT_SECONDS))
         if pid_check.exit_code != 0:
             raise RuntimeError(
                 f"Kernel process exited immediately after startup: {pid_check.stdout} {pid_check.stderr}"
             )
         return kernel_pid
+
+    def _read_kernel_log(self, sandbox: SandboxBase) -> str:
+        with suppress(Exception):
+            result = sandbox.execute(
+                f"tail -n 50 {self._KERNEL_LOG_PATH}", timeout_seconds=int(self._SHELL_COMMAND_TIMEOUT_SECONDS)
+            )
+            log = (result.stdout or "").strip()
+            if log:
+                return f"kernel.log:\n{log[-self._KERNEL_LOG_MAX_CHARS :]}"
+        return ""
 
     def _wait_for_kernel_ready(self, sandbox: Any, connection_file: str) -> None:
         payload = {
@@ -840,7 +872,11 @@ class KernelRuntimeService:
             "timeout": self._startup_timeout,
         }
         command = self._build_kernel_command(payload, action="ready")
-        result = sandbox.execute(command, timeout_seconds=int(self._startup_timeout))
+        # The outer exec needs headroom over the inner wait, otherwise it is killed at the same
+        # moment and we lose the inner script's diagnostics.
+        result = sandbox.execute(
+            command, timeout_seconds=int(self._startup_timeout + self._SANDBOX_EXEC_BUFFER_SECONDS)
+        )
         if result.exit_code != 0:
             raise RuntimeError(f"Kernel did not become ready: {result.stdout} {result.stderr}")
 
@@ -857,7 +893,9 @@ class KernelRuntimeService:
             "user_expressions": None,
         }
         command = self._build_kernel_command(payload, action="execute")
-        result = sandbox.execute(command, timeout_seconds=int(self._startup_timeout))
+        result = sandbox.execute(
+            command, timeout_seconds=int(self._startup_timeout + self._SANDBOX_EXEC_BUFFER_SECONDS)
+        )
         if result.exit_code != 0:
             logger.warning(
                 "notebook_kernel_bootstrap_failed",
@@ -1190,7 +1228,6 @@ class KernelRuntimeService:
             "import time\n"
             "import traceback\n"
             "from queue import Empty\n"
-            "from jupyter_client import KernelManager\n"
             "from jupyter_client.blocking import BlockingKernelClient\n"
             "\n"
             f"payload = json.loads(base64.b64decode('{encoded_payload}').decode('utf-8'))\n"
@@ -1209,10 +1246,11 @@ class KernelRuntimeService:
             "\n"
             "client = None\n"
             "try:\n"
-            "    manager = KernelManager(connection_file=connection_file)\n"
-            "    manager.load_connection_file()\n"
-            "    client = manager.blocking_client()\n"
-            "    client.load_connection_file(connection_file)\n"
+            # No parent KernelManager: the kernel was launched out of band, so a manager would
+            # report has_kernel=False and is_alive() would call every kernel dead. Without one,
+            # is_alive() falls back to the heartbeat channel and reflects the real process.
+            "    client = BlockingKernelClient(connection_file=connection_file)\n"
+            "    client.load_connection_file()\n"
             "    client.start_channels()\n"
             "    client.wait_for_ready(timeout=timeout)\n"
             "    if action == 'ready':\n"
