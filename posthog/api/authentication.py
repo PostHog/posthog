@@ -61,6 +61,7 @@ from posthog.helpers.two_factor_session import (
     set_two_factor_verified_in_session,
 )
 from posthog.helpers.user_devices import has_valid_known_device_cookie
+from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
 from posthog.models import OrganizationDomain, User
 from posthog.models.activity_logging import signal_handlers  # noqa: F401
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -182,11 +183,6 @@ def get_safe_next_url(next_url: str | None, request: Request) -> str | None:
     if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
         return next_url
     return None
-
-
-VERIFIED_DOMAIN_REQUIRED_LOGIN_ERROR = (
-    "Your organization requires a verified email domain to log in. Please contact your administrator."
-)
 
 
 def is_email_verified_for_login(user: User, next_url: str | None = None) -> bool:
@@ -333,12 +329,12 @@ class LoginSerializer(serializers.Serializer):
                 code="not_verified",
             )
 
-        # Domain enforcement: an org that requires a verified email domain blocks logins for members
-        # whose email is outside its verified domains. Checked after authentication so the error is
-        # only shown for valid credentials.
-        if OrganizationDomain.objects.is_login_blocked_by_domain_enforcement(user):
+        # Domain enforcement: an org that requires a verified email domain admits no member whose
+        # email is outside those domains. Checked after authentication so the error is only shown
+        # for valid credentials.
+        if not resolve_login_organization(user):
             raise serializers.ValidationError(
-                VERIFIED_DOMAIN_REQUIRED_LOGIN_ERROR,
+                VERIFIED_DOMAIN_REQUIRED_ERROR,
                 code="verified_domain_required",
             )
 

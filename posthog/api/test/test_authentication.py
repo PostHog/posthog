@@ -246,6 +246,41 @@ class TestLoginAPI(APIBaseTest):
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_login_moves_user_to_an_organization_that_admits_them(self):
+        # A contractor in several orgs must not be locked out of all of them because one turned the
+        # setting on — they land in an org that still admits them instead of being refused.
+        self.user.is_email_verified = True
+        self.user.save()
+        permitted_org = Organization.objects.create(name="Permitted org")
+        Team.objects.create(organization=permitted_org, name="Permitted project")
+        OrganizationMembership.objects.create(organization=permitted_org, user=self.user)
+        self.organization.enforce_verified_domains = True
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.current_organization, permitted_org)
+
+    def test_live_session_is_cut_off_when_domain_enforcement_is_enabled(self):
+        # Enforcement is re-checked per request, like 2FA, so flipping the setting on takes effect for
+        # members who are already logged in and can't be walked around by switching organization.
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(f"/api/projects/{self.team.id}/").status_code, status.HTTP_200_OK)
+
+        self.organization.enforce_verified_domains = True
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "verified_domain_required")
+
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
     def test_email_unverified_user_cant_log_in_if_email_available(

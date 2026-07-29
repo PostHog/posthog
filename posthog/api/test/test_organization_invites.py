@@ -30,14 +30,17 @@ from ee.models.rbac.access_control import AccessControl
 NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
 
 
-def _enable_domain_enforcement(organization: Organization, domain: str) -> None:
+def _enable_domain_enforcement(organization: Organization, domain: str, acting_user_email: str) -> None:
+    # The acting admin's own domain has to be verified too, otherwise enforcement locks them out of
+    # the organization they're administering — the serializer refuses that configuration.
     organization.enforce_verified_domains = True
     organization.save()
-    OrganizationDomain.objects.create(
-        domain=domain,
-        organization=organization,
-        verified_at=timezone.now(),
-    )
+    for verified_domain in {domain, acting_user_email.split("@")[1]}:
+        OrganizationDomain.objects.create(
+            domain=verified_domain,
+            organization=organization,
+            verified_at=timezone.now(),
+        )
 
 
 class TestOrganizationInvitesAPI(APIBaseTest):
@@ -549,7 +552,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         ]
     )
     def test_invite_restricted_to_verified_domain_when_enforcement_on(self, _name, email, expected_status):
-        _enable_domain_enforcement(self.organization, "hogflix.com")
+        _enable_domain_enforcement(self.organization, "hogflix.com", self.user.email)
 
         response = self.client.post("/api/organizations/@current/invites/", {"target_email": email})
 
@@ -1589,7 +1592,7 @@ class TestOnboardingDelegationInviteAPI(APIBaseTest):
 
     def test_delegate_rejects_email_outside_enforced_verified_domain(self):
         # Delegation grants admin, so it must respect the same verified-domain rule as a normal invite.
-        _enable_domain_enforcement(self.organization, "hogflix.com")
+        _enable_domain_enforcement(self.organization, "hogflix.com", self.user.email)
         response = self.client.post(self._delegate_url(), {"target_email": "engineer@gmail.com"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["code"], "verified_domain_required")

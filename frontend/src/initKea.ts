@@ -145,6 +145,7 @@ export function initKea({
                     const isTwoFactorError =
                         error.code === 'two_factor_setup_required' || error.code === 'two_factor_verification_required'
                     const isSensitiveActionError = error.code === 'sensitive_action_required_reauth'
+                    const isVerifiedDomainError = error.code === 'verified_domain_required'
 
                     if (!errorMessage && error.status === 404) {
                         errorMessage = 'URL not found'
@@ -157,7 +158,8 @@ export function initKea({
                     ) {
                         errorMessage = `Rate limit exceeded. Please try again ${error.formattedRetryAfter}.`
                     }
-                    if (isTwoFactorError || isSensitiveActionError) {
+                    if (isTwoFactorError || isSensitiveActionError || isVerifiedDomainError) {
+                        // These get their own dedicated toast in apiStatusLogic.
                         errorMessage = null
                     }
                     if (errorMessage) {

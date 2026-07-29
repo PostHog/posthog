@@ -186,15 +186,17 @@ class OrganizationDomainManager(models.Manager):
             return False
         return not self.is_domain_verified_for_organization(email, organization)
 
-    def is_login_blocked_by_domain_enforcement(self, user: "User") -> bool:
+    def is_access_blocked_by_domain_enforcement(self, user: "User") -> bool:
         """
-        Whether `user` should be denied a session. Shared by every path that mints one (password,
-        passkey, SSO, email verification) so enforcement can't be bypassed by picking another door.
+        Whether `user` should be denied access to the organization they're currently in.
+
+        Scoped to the current organization, matching `enforce_2fa`: one organization's setting must
+        not lock a member out of the other organizations they belong to.
         """
-        return any(
-            self.is_email_blocked_by_domain_enforcement(user.email, organization)
-            for organization in user.organizations.all()
-        )
+        organization = user.organization
+        if organization is None:
+            return False
+        return self.is_email_blocked_by_domain_enforcement(user.email, organization)
 
 
 class OrganizationDomain(ModelActivityMixin, UUIDTModel):

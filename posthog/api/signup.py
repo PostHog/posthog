@@ -33,6 +33,7 @@ from posthog.email import is_email_available
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailValidationHelper, validate_display_name
+from posthog.helpers.verified_domain_enforcement import resolve_login_organization
 from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -971,19 +972,22 @@ def social_create_user(
 
     # Domain enforcement blocks logins and joins for emails outside the org's verified domains.
     # Lives here, not in `social_auth_allowed` — that gate never sees the user's organizations.
-    enforcement_email = user.email if user else email
-    organizations_to_check: list[Organization] = list(user.organizations.all()) if user else []
+    if user and not resolve_login_organization(user):
+        logger.warning("social_create_user_blocked_domain_enforcement", user_id=user.pk)
+        return redirect("/login?error_code=verified_domain_required")
+
     invite_organization = _resolve_invite_organization(invite_id) if invite_id else None
-    if invite_organization is not None:
-        organizations_to_check.append(invite_organization)
-    if enforcement_email:
-        for organization in organizations_to_check:
-            if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(enforcement_email, organization):
-                logger.warning(
-                    "social_create_user_blocked_domain_enforcement",
-                    organization=str(organization.id),
-                )
-                return redirect("/login?error_code=verified_domain_required")
+    enforcement_email = user.email if user else email
+    if (
+        invite_organization is not None
+        and enforcement_email
+        and OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(enforcement_email, invite_organization)
+    ):
+        logger.warning(
+            "social_create_user_blocked_domain_enforcement",
+            organization=str(invite_organization.id),
+        )
+        return redirect("/login?error_code=verified_domain_required")
 
     if user:
         # If the user is already authenticated, we're looking for outstanding invites for them

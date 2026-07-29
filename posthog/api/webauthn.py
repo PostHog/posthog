@@ -17,14 +17,11 @@ from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_
 from webauthn.helpers.decode_credential_public_key import decode_credential_public_key
 from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredentialDescriptor
 
-from posthog.api.authentication import (
-    VERIFIED_DOMAIN_REQUIRED_LOGIN_ERROR,
-    axes_locked_out,
-    is_email_verified_for_login,
-)
+from posthog.api.authentication import axes_locked_out, is_email_verified_for_login
 from posthog.auth import SessionAuthentication, WebAuthnAuthenticationResponse, WebauthnBackend
 from posthog.event_usage import report_user_logged_in
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
+from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
 from posthog.models import User
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -414,9 +411,9 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
 
     def _check_domain_enforcement(self, user: User) -> Response | None:
         """Passkeys are a full login path, so they get the same verified-domain gate as a password login."""
-        if OrganizationDomain.objects.is_login_blocked_by_domain_enforcement(user):
+        if not resolve_login_organization(user):
             return Response(
-                {"error": VERIFIED_DOMAIN_REQUIRED_LOGIN_ERROR},
+                {"error": VERIFIED_DOMAIN_REQUIRED_ERROR},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return None
