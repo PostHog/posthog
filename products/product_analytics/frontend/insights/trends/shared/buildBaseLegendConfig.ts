@@ -7,16 +7,16 @@ export function buildBaseLegendConfig({
     show,
     legendPosition,
     canEditInsight,
-    inSharedMode,
 }: {
     show: boolean
     legendPosition: string | null | undefined
     canEditInsight: boolean
-    inSharedMode?: boolean
 }): ChartLegendConfig {
     return {
         show,
         position: (legendPosition ?? 'right') as ChartLegendConfig['position'],
-        interactive: canEditInsight && !inSharedMode,
+        // Interactive on shared and exported views too: these charts keep their toggled-off series
+        // in local state, so hiding one never needs to write back to the insight.
+        interactive: canEditInsight,
     }
 }

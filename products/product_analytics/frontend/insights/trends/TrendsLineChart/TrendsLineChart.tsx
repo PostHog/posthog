@@ -46,7 +46,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     const theme = useChartTheme()
     const { insightProps, insight } = useValues(insightLogic)
 
-    const legendConfig = useInsightsLegendConfig({ insightProps, inSharedMode })
+    const legendConfig = useInsightsLegendConfig({ insightProps })
 
     const {
         indexedResults,

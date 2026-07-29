@@ -287,7 +287,10 @@ function InsightCardInternal(
     const canEditInsight = insight.user_access_level
         ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Editor)
         : true
-    const canPersistDisplayOptions = !!dashboardId && canEditInsight
+    // A shared, embedded, or exported dashboard has no authenticated session to save with, so display
+    // options stay local to the view there — the tile still re-renders, it just doesn't write back.
+    const isReadOnlyPlacement = placement === DashboardPlacement.Public || placement === DashboardPlacement.Export
+    const canPersistDisplayOptions = !!dashboardId && canEditInsight && !isReadOnlyPlacement
 
     // Base props without setQuery — used to mount insightDataLogic and retrieve the
     // persistDisplayOptions action before wiring it back in as setQuery below.

@@ -3,6 +3,7 @@ import { MOCK_DATA_COLOR_THEMES } from 'lib/api.mock'
 import '@testing-library/jest-dom'
 
 import { cleanup, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
@@ -61,5 +62,26 @@ describe('ExporterQueryScene', () => {
         })
         // Exactly one legend: the legacy horizontal legend below the chart must not render too.
         expect(container.querySelector('.InsightLegendMenu')).not.toBeInTheDocument()
+    })
+
+    // A shared report has no editor session, so hiding a series can't be persisted — but it must still
+    // apply to the chart the viewer is looking at instead of silently snapping back.
+    it('hides a series when the viewer toggles it off in the legend', async () => {
+        const { container } = renderAdhoc(__trendsBarBreakdown, true)
+
+        const legendAttr = '[data-attr="hog-chart-timeseries-bar-legend"]'
+        await waitFor(() => {
+            expect(container.querySelector(legendAttr)).toBeInTheDocument()
+        })
+        const items = container.querySelectorAll(`${legendAttr} button`)
+        expect(items.length).toBeGreaterThan(1)
+
+        await userEvent.click(items[0])
+
+        // Dimmed in the legend (so it can be restored) and dropped from the chart itself.
+        await waitFor(() => {
+            expect(container.querySelector(`${legendAttr} .opacity-40`)).toBeInTheDocument()
+        })
+        expect(container.querySelector('canvas[aria-label]')).toHaveAttribute('aria-label', 'Chart with 2 data series')
     })
 })

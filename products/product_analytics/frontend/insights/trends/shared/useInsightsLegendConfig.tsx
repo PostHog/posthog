@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useMemo, type ReactNode } from 'react'
 
 import type { ChartLegendConfig, LegendItem } from '@posthog/quill-charts'
@@ -13,16 +14,12 @@ import { TrendsLegendItemContextMenu } from './TrendsLegendItemContextMenu'
 
 interface UseInsightsLegendConfigOptions {
     insightProps: InsightLogicProps
-    inSharedMode?: boolean
 }
 
 /** Builds the quill in-chart legend config for trends-family charts. Wires toggle persistence and the
  *  isolate/show-all context menu through trendsDataLogic. Lifecycle and funnel charts build their
  *  legend config inline (they don't read from trendsDataLogic). */
-export function useInsightsLegendConfig({
-    insightProps,
-    inSharedMode = false,
-}: UseInsightsLegendConfigOptions): ChartLegendConfig {
+export function useInsightsLegendConfig({ insightProps }: UseInsightsLegendConfigOptions): ChartLegendConfig {
     const { canEditInsight } = useValues(insightLogic)
     const { indexedResults, getTrendsHidden, showLegend, legendPosition, legendSeriesIsolationMenuEligible } =
         useValues(trendsDataLogic(insightProps))
@@ -34,7 +31,9 @@ export function useInsightsLegendConfig({
         return m
     }, [indexedResults])
 
-    const legendInteractive = canEditInsight && !inSharedMode
+    // Interactive on shared and exported views too: a toggle only writes back to the insight when
+    // the surface wired up a persisting `setQuery`, so hiding a series there stays local to the view.
+    const legendInteractive = canEditInsight
 
     return useMemo<ChartLegendConfig>(() => {
         const hiddenKeys = (indexedResults ?? []).filter((r) => getTrendsHidden(r)).map((r) => String(r.id))
@@ -47,6 +46,11 @@ export function useInsightsLegendConfig({
             onToggleSeries: (key: string) => {
                 const result = resultById.get(key)
                 if (result) {
+                    posthog.capture('insight_legend_series_toggled', {
+                        source: 'in_chart_legend',
+                        hidden: !getTrendsHidden(result),
+                        series_count: indexedResults.length,
+                    })
                     toggleResultHidden(result)
                 }
             },

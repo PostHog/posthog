@@ -74,8 +74,8 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
     // useInsightsLegendConfig can't distinguish them — build the config inline and let the
     // chart manage toggle state internally.
     const legendConfig = useMemo<ChartLegendConfig>(
-        () => buildBaseLegendConfig({ show: !!showLegend, legendPosition, canEditInsight, inSharedMode }),
-        [showLegend, legendPosition, canEditInsight, inSharedMode]
+        () => buildBaseLegendConfig({ show: !!showLegend, legendPosition, canEditInsight }),
+        [showLegend, legendPosition, canEditInsight]
     )
 
     const isStacked = lifecycleFilter?.stacked ?? true

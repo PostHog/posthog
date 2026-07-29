@@ -34,7 +34,6 @@ import { buildTrendsPieSeries } from './trendsPieTransforms'
 
 interface TrendsPieChartProps {
     context?: QueryContext<InsightVizNode>
-    inSharedMode?: boolean
     showPersonsModal?: boolean
 }
 
@@ -45,15 +44,11 @@ const handleChartError = (error: Error, info: ErrorInfo): void => {
     })
 }
 
-export function TrendsPieChart({
-    context,
-    inSharedMode,
-    showPersonsModal = true,
-}: TrendsPieChartProps): JSX.Element | null {
+export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieChartProps): JSX.Element | null {
     const theme = useChartTheme()
 
     const { insightProps } = useValues(insightLogic)
-    const legendConfig = useInsightsLegendConfig({ insightProps, inSharedMode })
+    const legendConfig = useInsightsLegendConfig({ insightProps })
     const { baseCurrency } = useValues(teamLogic)
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)

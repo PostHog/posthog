@@ -851,8 +851,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
         // insightVizDataLogic.setQuery listener which would loop back via props.setQuery.
         // Guard must match propsQuery selector (only ad-hoc insights receive query via props).
         if (props.dashboardItemId?.startsWith('new-AdHoc.') && props.query) {
+            // Compare against the *incoming* prop, not local state: propsChanged fires on nearly every
+            // render (several components build this logic with slightly different props objects), so
+            // syncing whenever local state differs from the prop would wipe local-only view state —
+            // e.g. a series the viewer hid from the legend of a shared or exported insight.
             try {
-                if (!objectsEqual(props.query, values.query)) {
+                if (!oldProps?.query || !objectsEqual(oldProps.query, props.query)) {
                     actions.syncQueryFromProps(props.query)
                 }
             } catch {

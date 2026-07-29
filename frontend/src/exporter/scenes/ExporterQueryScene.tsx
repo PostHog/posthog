@@ -2,6 +2,7 @@ import '../ExportedInsight/ExportedInsight.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useMountedLogic } from 'kea'
+import { useMemo } from 'react'
 
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { DISPLAY_TYPES_WITHOUT_LEGEND } from 'lib/components/InsightLegend/utils'
@@ -50,8 +51,14 @@ export default function ExporterQueryScene({
     const usesQuillInChartLegend =
         !trendsDisplay || DISPLAYS_WITH_IN_CHART_LEGEND.includes(trendsDisplay as ChartDisplayType)
 
-    if (isInsightVizNode(query) && isTrendsQuery(query.source)) {
-        query = {
+    // Memoized because insightDataLogic re-syncs its query from `props.query` whenever the props it was
+    // built with change. A fresh object every render would revert local view state — such as a series
+    // the viewer hid from the legend — on the next render.
+    const exportedQuery = useMemo<NonNullable<ExportedData['query']>>(() => {
+        if (!isInsightVizNode(query) || !isTrendsQuery(query.source)) {
+            return query
+        }
+        return {
             ...query,
             source: {
                 ...query.source,
@@ -62,17 +69,20 @@ export default function ExporterQueryScene({
                       { ...query.source.trendsFilter, showLegend: false },
             },
         }
-    }
+    }, [query, showLegend, usesQuillInChartLegend])
 
     // `query` carries the display type, breakdown, and formulas. Without it insightDataLogic falls back
     // to a bare default TrendsQuery, and every ad-hoc export renders as a plain line chart. The
     // `new-AdHoc.` prefix is what gates that props-query path — insightDataLogic ignores `props.query`
     // under any other dashboardItemId.
-    const insightLogicProps: InsightLogicProps = {
-        dashboardItemId: 'new-AdHoc.export',
-        query,
-        doNotLoad: true,
-    }
+    const insightLogicProps: InsightLogicProps = useMemo(
+        () => ({
+            dashboardItemId: 'new-AdHoc.export',
+            query: exportedQuery,
+            doNotLoad: true,
+        }),
+        [exportedQuery]
+    )
 
     return (
         <BindLogic logic={insightLogic} props={insightLogicProps}>
@@ -84,7 +94,7 @@ export default function ExporterQueryScene({
             >
                 <div className="ExportedInsight__content">
                     <Query
-                        query={query}
+                        query={exportedQuery}
                         cachedResults={queryResults}
                         context={{ insightProps: insightLogicProps }}
                         embedded

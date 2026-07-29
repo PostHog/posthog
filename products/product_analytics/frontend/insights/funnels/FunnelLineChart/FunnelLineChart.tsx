@@ -127,9 +127,8 @@ export function FunnelLineChart({
                 show: !!showLegend && series.length > 1,
                 legendPosition,
                 canEditInsight,
-                inSharedMode,
             }),
-        [showLegend, series.length, legendPosition, canEditInsight, inSharedMode]
+        [showLegend, series.length, legendPosition, canEditInsight]
     )
 
     const chartConfig: TimeSeriesLineChartConfig = useChartConfig(

@@ -92,7 +92,7 @@ export function TrendsBarChart({
 
     // Time-series bars (vertical) render the in-chart legend; the aggregated bar-value layout has
     // no legend (each bar is a breakdown row, not a series).
-    const legendConfig = useInsightsLegendConfig({ insightProps, inSharedMode })
+    const legendConfig = useInsightsLegendConfig({ insightProps })
 
     const {
         indexedResults,

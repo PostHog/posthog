@@ -680,7 +680,8 @@ describe('TrendsLineChart', () => {
             expect(tooltip.element.textContent).not.toContain('Napped')
         })
 
-        it('renders a static, non-interactive legend in shared mode', async () => {
+        // Shared views keep the toggle: hiding a series there is local view state, never a write-back.
+        it('renders an interactive legend in shared mode too', async () => {
             const { container } = renderInsight({
                 query: twoSeriesQuery,
                 inSharedMode: true,
@@ -692,7 +693,7 @@ describe('TrendsLineChart', () => {
             const legendEl = getInChartLegend(container)
 
             expect(legendEl.textContent).toContain('Napped')
-            expect(legendEl.querySelector('button')).not.toBeInTheDocument()
+            expect(legendEl.querySelector('button')).toBeInTheDocument()
         })
     })
 

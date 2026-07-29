@@ -129,6 +129,23 @@ describe('insightDataLogic', () => {
                 .toMatchValues({ query: trendsQuery })
         })
 
+        // A read-only surface (shared insight, export) has no persisting setQuery, so a legend toggle
+        // lives only in internalQuery. Re-syncing from an unchanged props.query would silently undo it.
+        it('keeps a local query edit when props are rebuilt with the same query', async () => {
+            const adHocProps = {
+                dashboardItemId: 'new-AdHoc.InsightViz.test-node' as any,
+                query: stepsQuery,
+            }
+
+            const adHocLogic = insightDataLogic(adHocProps)
+            adHocLogic.mount()
+            adHocLogic.actions.setQuery(trendsQuery)
+
+            insightDataLogic({ ...adHocProps })
+
+            await expectLogic(adHocLogic).toMatchValues({ query: trendsQuery })
+        })
+
         it('does not dispatch syncQueryFromProps when query is unchanged', async () => {
             const adHocProps = {
                 dashboardItemId: 'new-AdHoc.InsightViz.test-node' as any,

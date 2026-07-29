@@ -93,7 +93,14 @@ export function InsightLegendRow({ item, readOnly = false }: InsightLegendRowPro
                     className="text-xs mr-4"
                     color={mainColor}
                     checked={!isHidden}
-                    onChange={() => toggleResultHidden(item)}
+                    onChange={() => {
+                        posthog.capture('insight_legend_series_toggled', {
+                            source: 'legend_checkbox',
+                            hidden: !isHidden,
+                            series_count: indexedResults.length,
+                        })
+                        toggleResultHidden(item)
+                    }}
                     fullWidth
                     label={
                         <InsightLabel

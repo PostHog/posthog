@@ -59,17 +59,13 @@ describe('useInsightsLegendConfig', () => {
         expect(result.current?.show).toBe(expectedShow)
     })
 
-    it.each([
-        { inSharedMode: false, expectedInteractive: true },
-        { inSharedMode: true, expectedInteractive: false },
-    ])(
-        'interactive is $expectedInteractive when inSharedMode is $inSharedMode',
-        ({ inSharedMode, expectedInteractive }) => {
-            setup({ trendsFilter: { showLegend: true } })
+    // Hiding a series only writes back to the insight where a persisting setQuery is wired up, so a
+    // shared or exported view can toggle the legend too — the hidden series just stays local there.
+    it('stays interactive without a persisting setQuery', () => {
+        setup({ trendsFilter: { showLegend: true } })
 
-            const { result } = renderHook(() => useInsightsLegendConfig({ insightProps, inSharedMode }), { wrapper })
+        const { result } = renderHook(() => useInsightsLegendConfig({ insightProps }), { wrapper })
 
-            expect(result.current?.interactive).toBe(expectedInteractive)
-        }
-    )
+        expect(result.current?.interactive).toBe(true)
+    })
 })
