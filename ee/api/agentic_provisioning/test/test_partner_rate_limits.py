@@ -36,6 +36,7 @@ class TestPartnerRateLimits(ProvisioningTestBase):
             provisioning_auth_method="pkce",
             provisioning_partner_type="test_partner",
             provisioning_active=True,
+            provisioning_approved=True,
             provisioning_can_create_accounts=True,
             provisioning_can_provision_resources=True,
         )
@@ -115,6 +116,7 @@ class TestPartnerRateLimits(ProvisioningTestBase):
             provisioning_auth_method="pkce",
             provisioning_partner_type="other",
             provisioning_active=True,
+            provisioning_approved=True,
             provisioning_rate_limit_account_requests=2,
         )
 

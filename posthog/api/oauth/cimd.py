@@ -622,26 +622,14 @@ def refresh_cimd_metadata_task(url: str) -> None:
 
 @shared_task(ignore_result=True, time_limit=30)
 def register_cimd_provisioning_application_task(url: str) -> None:
-    """Celery task: fetch CIMD metadata, create the app, and backfill provisioning defaults."""
+    """Celery task: fetch CIMD metadata and create the basic OAuth client record.
+    Does NOT set provisioning defaults — an admin must explicitly configure and approve
+    the app before it can use provisioning endpoints."""
     try:
         with ph_scoped_capture() as capture_ph_event:
             app = fetch_and_upsert_cimd_application(url, capture_ph_event=capture_ph_event)
             if app is None:
                 return
-            if not app.is_provisioning_partner:
-                apply_provisioning_defaults(app)
-                capture_ph_event(
-                    distinct_id=url,
-                    event="cimd_provisioning_partner_registered",
-                    properties={
-                        "cimd_url": url,
-                        "client_name": app.name,
-                        "app_id": str(app.pk),
-                        "account_requests_rate_limit": app.provisioning_rate_limit_account_requests,
-                        "is_verified": app.organization_id is not None,
-                        "organization_id": str(app.organization_id) if app.organization_id else None,
-                    },
-                )
     except CIMDValidationError as e:
         # Expected rejection of a non-compliant partner document — log for observability, don't surface as an error.
         logger.warning("cimd_background_registration_failed", url=url, error=str(e))

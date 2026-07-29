@@ -129,6 +129,7 @@ class TestE2EProvisioningFlow(ProvisioningTestBase):
             provisioning_auth_method="pkce",
             provisioning_partner_type="test_partner",
             provisioning_active=True,
+            provisioning_approved=True,
             provisioning_can_create_accounts=True,
             provisioning_can_provision_resources=True,
         )

@@ -240,6 +240,10 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
     provisioning_rate_limit_wizard_runs: models.IntegerField = models.IntegerField(
         null=True, blank=True, help_text="Override default rate limit for wizard cloud run creation (per hour)"
     )
+    provisioning_approved: models.BooleanField = models.BooleanField(
+        default=False,
+        help_text="Admin approval for provisioning access. Must be explicitly set by an admin before this app can use provisioning endpoints.",
+    )
     provisioning_disabled: models.BooleanField = models.BooleanField(
         default=False,
         help_text=(

@@ -12,7 +12,6 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 
 from posthog.api.oauth.cimd import (
-    apply_provisioning_defaults,
     enqueue_cimd_refresh_if_stale,
     get_application_by_client_id,
     is_cimd_client_id,
@@ -77,6 +76,11 @@ class ProvisioningAuthentication(BaseAuthentication):
 
     cimd_registration_pending: bool = False
 
+    def expected_assertion_audiences(self, request: Request) -> list[str]:
+        """Return the audience values this endpoint accepts in client assertions
+        (JWT bearer tokens). By default the endpoint's own URL path."""
+        return [request.path.rstrip("/")]
+
     def authenticate(self, request: Request):
         app = self._identify_partner(request)
         if app is None:
@@ -109,7 +113,7 @@ class ProvisioningAuthentication(BaseAuthentication):
             if client_id:
                 app = self._identify_pkce_partner(client_id)
 
-        if app is not None and not app.provisioning_active:
+        if app is not None and (not app.provisioning_active or not app.provisioning_approved):
             return None
 
         return app
@@ -124,7 +128,7 @@ class ProvisioningAuthentication(BaseAuthentication):
         if app is None or not app.is_provisioning_partner:
             return None
 
-        return app if app.provisioning_active else None
+        return app if app.provisioning_active and app.provisioning_approved else None
 
     def _identify_pkce_partner(self, client_id: str) -> OAuthApplication | None:
         if is_cimd_client_id(client_id):
@@ -148,22 +152,7 @@ class ProvisioningAuthentication(BaseAuthentication):
                         error_type=type(e).__name__,
                     )
 
-                try:
-                    if not app.is_provisioning_partner:
-                        apply_provisioning_defaults(app)
-                except Exception as e:
-                    logger.warning(
-                        "provisioning_cimd_backfill_error",
-                        client_id=client_id,
-                        error=str(e),
-                        error_type=type(e).__name__,
-                    )
-                    capture_exception(e)
-                    try:
-                        app.refresh_from_db()
-                    except Exception:
-                        return None
-                return app if app.provisioning_active else None
+                return app if app.provisioning_active and app.provisioning_approved else None
 
             # New CIMD URL: kick off background registration, don't block the worker.
             # cache.add is atomic - coalesces concurrent first-time requests so only
@@ -225,6 +214,8 @@ class ProvisioningBearerAuthentication(BaseAuthentication):
             raise ProvisioningError("unauthorized", "Authentication failed", status=401)
         if not app.provisioning_active:
             raise ProvisioningError("unauthorized", "Partner is deactivated", status=401)
+        if not app.provisioning_approved:
+            raise ProvisioningError("forbidden", "Partner has not been approved", status=403)
         if not app.provisioning_can_provision_resources:
             raise ProvisioningError("forbidden", "Resource provisioning not enabled for this partner", status=403)
 
@@ -254,6 +245,10 @@ def authenticate_confidential_partner(request: Request) -> OAuthApplication:
         raise ProvisioningError("unauthorized", "Authentication required", status=401)
     if partner.provisioning_auth_method != "bearer":
         raise ProvisioningError("forbidden", "This endpoint requires a confidential partner", status=403)
+    if not partner.provisioning_approved:
+        raise ProvisioningError("forbidden", "Partner has not been approved", status=403)
+    if not partner.provisioning_partner_type:
+        raise ProvisioningError("forbidden", "Partner type not configured", status=403)
     return partner
 
 

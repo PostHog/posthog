@@ -153,12 +153,63 @@ class TestGitHubGrants(ProvisioningTestBase):
             algorithm="RS256",
             provisioning_auth_method="pkce",
             provisioning_active=True,
+            provisioning_approved=True,
             provisioning_can_create_accounts=True,
         )
         response = self.client.post(
             "/api/agentic/provisioning/github/grants",
             data={"client_id": pkce_partner.client_id, "code": "gh_code"},
             format="json",
+        )
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "forbidden"
+
+    def test_github_grants_rejects_unapproved_partner(self):
+        """A bearer partner without provisioning_approved cannot create GitHub grants."""
+        unapproved = OAuthApplication.objects.create(
+            name="Unapproved Bearer Partner",
+            client_id="unapproved_bearer",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://unapproved.example.com",
+            algorithm="RS256",
+            provisioning_auth_method="bearer",
+            provisioning_partner_type="test_partner",
+            provisioning_active=True,
+            provisioning_approved=False,
+            provisioning_can_create_accounts=True,
+        )
+        token = self._request_bearer_token(partner=unapproved).json()["access_token"]
+        response = self._post_with_bearer(
+            "/api/agentic/provisioning/github/grants",
+            {"code": "gh_code"},
+            token=token,
+        )
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "forbidden"
+
+    def test_github_grants_rejects_partner_without_partner_type(self):
+        """A bearer partner without provisioning_partner_type cannot create GitHub grants."""
+        no_type = OAuthApplication.objects.create(
+            name="No Type Bearer Partner",
+            client_id="no_type_bearer",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://notype.example.com",
+            algorithm="RS256",
+            provisioning_auth_method="bearer",
+            provisioning_partner_type="",
+            provisioning_active=True,
+            provisioning_approved=True,
+            provisioning_can_create_accounts=True,
+        )
+        token = self._request_bearer_token(partner=no_type).json()["access_token"]
+        response = self._post_with_bearer(
+            "/api/agentic/provisioning/github/grants",
+            {"code": "gh_code"},
+            token=token,
         )
         assert response.status_code == 403
         assert response.json()["error"]["code"] == "forbidden"
@@ -272,6 +323,7 @@ class TestGitHubGrants(ProvisioningTestBase):
             algorithm="RS256",
             provisioning_auth_method="bearer",
             provisioning_active=True,
+            provisioning_approved=True,
             provisioning_can_create_accounts=True,
         )
 

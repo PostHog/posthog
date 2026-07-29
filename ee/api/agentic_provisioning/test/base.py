@@ -53,6 +53,7 @@ class ProvisioningTestBase(APIBaseTest):
                 "provisioning_auth_method": "bearer",
                 "provisioning_partner_type": "test_partner",
                 "provisioning_active": True,
+                "provisioning_approved": True,
                 "provisioning_can_create_accounts": True,
                 "provisioning_can_provision_resources": True,
                 "provisioning_can_issue_deep_links": True,

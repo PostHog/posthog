@@ -47,6 +47,7 @@ class AuthorizeTestBase(ProvisioningTestBase):
             provisioning_auth_method="bearer",
             provisioning_partner_type="test_partner",
             provisioning_active=True,
+            provisioning_approved=True,
             provisioning_skip_existing_user_consent=True,
         )
 
@@ -232,6 +233,7 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
             provisioning_auth_method="pkce",
             provisioning_partner_type="test_partner",
             provisioning_active=True,
+            provisioning_approved=True,
         )
         self._set_pending_auth("state_attr", self.user.email, partner=partner)
         res = self._confirm("state_attr", self.team.id)
