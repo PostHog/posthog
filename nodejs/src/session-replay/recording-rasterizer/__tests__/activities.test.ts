@@ -191,10 +191,10 @@ describe('rasterizeRecordingActivity', () => {
             expect(beatsDuringSetup).toBeGreaterThan(2)
 
             finishRecording()
-            jest.useRealTimers()
             await activity
         })
 
+        // A leaked interval would go on heartbeating an activity Temporal has already closed out.
         it('stops beating once the activity finishes', async () => {
             jest.useFakeTimers()
             mockSuccessfulRecording()
@@ -204,7 +204,6 @@ describe('rasterizeRecordingActivity', () => {
 
             await jest.advanceTimersByTimeAsync(60_000)
             expect(mockHeartbeat.mock.calls.length).toBe(beatsAtCompletion)
-            jest.useRealTimers()
         })
     })
 
