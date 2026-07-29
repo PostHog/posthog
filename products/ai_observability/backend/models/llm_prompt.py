@@ -55,6 +55,10 @@ class LLMPrompt(UUIDModel):
     # The prompt content as JSON (currently a string, may expand to array of objects)
     prompt = models.JSONField()
 
+    # Schemaless JSON object with model parameters or any agent configuration (e.g. model,
+    # temperature, tools). Versioned with the prompt: immutable per row, changed via publish.
+    config = models.JSONField(null=True, blank=True)
+
     version = models.PositiveIntegerField(default=1)
     is_latest = models.BooleanField(default=True)
 
