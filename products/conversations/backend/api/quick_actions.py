@@ -210,19 +210,23 @@ class QuickActionSerializer(serializers.ModelSerializer):
         if not (has_reply or has_actions or workflow_id):
             raise serializers.ValidationError("A quick action needs a reply, a ticket action, or a workflow to run.")
 
-        # Require the workflow to be active only when it's actually being set/changed (mirroring the
-        # RBAC check below). Re-checking the effective value would block unrelated edits — rename,
-        # visibility — if a previously-attached workflow was archived after it was linked.
+        # The settings UI resends workflow_id on every save, so "present in the payload" does not
+        # mean "being changed". Validate only when the value differs from what's stored, otherwise
+        # unrelated edits (rename, visibility) get rejected once a linked workflow was archived or
+        # the edit comes from a sibling environment where the workflow isn't active.
         new_workflow_id = attrs.get("workflow_id")
-        if new_workflow_id and not workflow_is_runnable(self.context["team_id"], new_workflow_id):
+        workflow_changed = "workflow_id" in attrs and (instance is None or new_workflow_id != instance.workflow_id)
+        if workflow_changed and new_workflow_id and not workflow_is_runnable(self.context["team_id"], new_workflow_id):
             raise serializers.ValidationError({"workflow_id": "That workflow does not exist or is not active."})
 
-        # RBAC: attaching a workflow requires access to that workflow — otherwise a ticket-scoped
-        # user could wire up (and later run) privileged automations by UUID. Only checked when the
-        # reference is being set/changed, so unrelated edits by teammates without workflow access
-        # don't get blocked. The run endpoint re-checks the actual runner at execution time.
-        if attrs.get("workflow_id") and not user_can_run_workflow(
-            self.context["request"].user, self.context["get_team"](), attrs["workflow_id"]
+        # RBAC: attaching a workflow requires access to that workflow, otherwise a ticket-scoped
+        # user could wire up (and later run) privileged automations by UUID. Gated on the reference
+        # actually changing, so unrelated edits by teammates without workflow access don't get
+        # blocked. The run endpoint re-checks the actual runner at execution time.
+        if (
+            workflow_changed
+            and new_workflow_id
+            and not user_can_run_workflow(self.context["request"].user, self.context["get_team"](), new_workflow_id)
         ):
             raise serializers.ValidationError({"workflow_id": "You don't have access to that workflow."})
 
@@ -319,6 +323,36 @@ class QuickActionViewSet(
         # parent-lookup filter would AND the raw URL team id back on top, which for a child
         # environment can never match a quick action stored under the parent team.
         return True
+
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # Attaching a workflow wires up an automation other agents can then trigger, so it's a
+        # workflow write, not just a ticket write. Mirror the explicit scopes on `run`: a
+        # ticket:write-only token can edit quick actions but not set or change workflow_id.
+        # Scopes only gate token auth; session users are unaffected and still hit the
+        # per-workflow RBAC check in the serializer like every other caller.
+        if self.action in ("create", "update", "partial_update") and self._sets_or_changes_workflow(request):
+            return ["ticket:write", "hog_flow:write"]
+        return None
+
+    def _sets_or_changes_workflow(self, request: Request) -> bool:
+        data = request.data
+        if not isinstance(data, dict) or not data.get("workflow_id"):
+            return False
+        if self.action == "create":
+            return True
+        try:
+            incoming = UUID(str(data["workflow_id"]))
+        except ValueError:
+            # Not a valid UUID; the serializer rejects it later, so treat it as a change (fail closed).
+            return True
+        # `for_team` resolves to the canonical parent team, matching `safely_get_queryset`.
+        stored = (
+            QuickAction.objects.for_team(self.team_id)
+            .filter(short_id=self.kwargs.get(self.lookup_field, ""))
+            .values_list("workflow_id", flat=True)
+            .first()
+        )
+        return incoming != stored
 
     def safely_get_queryset(self, queryset: QuerySet[QuickAction]) -> QuerySet[QuickAction]:
         # `for_team` resolves child environments to the canonical (parent) team id, matching the

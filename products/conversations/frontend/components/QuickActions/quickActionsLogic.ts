@@ -7,6 +7,8 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
 
+import { workflowsLogic } from 'products/workflows/frontend/Workflows/workflowsLogic'
+
 import {
     conversationsQuickActionsCreate,
     conversationsQuickActionsDestroy,
@@ -69,6 +71,7 @@ export interface quickActionsLogicActions {
         quickActions: QuickActionApi[]
         payload?: any
     }
+    loadWorkflows: () => {}
     openCreateModal: () => {
         value: true
     }
@@ -130,6 +133,7 @@ export const quickActionsLogic = kea<quickActionsLogicType>([
 
     connect(() => ({
         values: [teamLogic, ['currentTeamId']],
+        actions: [workflowsLogic, ['loadWorkflows']],
     })),
 
     actions({
@@ -291,6 +295,14 @@ export const quickActionsLogic = kea<quickActionsLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        // Fetch the workflow list lazily, only once an editor modal opens (the sole place the
+        // workflow picker renders), rather than on every settings-page render.
+        openCreateModal: () => {
+            actions.loadWorkflows()
+        },
+        openEditModal: () => {
+            actions.loadWorkflows()
+        },
         saveQuickAction: async ({ body }) => {
             const name = values.name.trim()
             if (!name) {

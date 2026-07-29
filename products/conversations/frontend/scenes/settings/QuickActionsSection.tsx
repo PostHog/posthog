@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
@@ -72,16 +72,8 @@ export function QuickActionsSection(): JSX.Element {
     } = useActions(quickActionsLogic)
 
     const { user } = useValues(userLogic)
+    // The workflow list itself is loaded by quickActionsLogic when an editor modal opens.
     const { workflows, workflowsLoading } = useValues(workflowsLogic)
-    const { loadWorkflows } = useActions(workflowsLogic)
-
-    // Fetch the workflow list lazily, only once an editor modal is open (the sole place the picker
-    // renders), rather than on every settings-page render.
-    useEffect(() => {
-        if (isModalOpen) {
-            loadWorkflows()
-        }
-    }, [isModalOpen, loadWorkflows])
 
     const workflowOptions = workflows
         .filter((w) => w.status === 'active' || w.id === workflowId)

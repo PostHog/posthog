@@ -1,9 +1,13 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
+from rest_framework.test import APIClient
 
 from posthog.models import Team, User
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.conversations.backend.api.quick_actions import QuickActionViewSet
 from products.conversations.backend.models import QuickAction, Ticket
@@ -265,6 +269,93 @@ class TestQuickActionAPI(APIBaseTest):
         with runnable, can_run:
             renamed = self.client.patch(f"{self.base_url}{created['short_id']}/", {"name": "Renamed"}, format="json")
         self.assertEqual(renamed.status_code, status.HTTP_200_OK, renamed.content)
+
+    @parameterized.expand(
+        [
+            ("unchanged_workflow_id_resent", "01890000-0000-0000-0000-000000000007", status.HTTP_200_OK),
+            ("changed_to_archived_workflow", "01890000-0000-0000-0000-000000000008", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_resent_workflow_id_only_revalidated_when_changed(
+        self, _name: str, patched_workflow_id: str, expected_status: int
+    ) -> None:
+        # Regression guard: the settings UI resends workflow_id on every save, so a rename carrying
+        # the unchanged id must not be rejected after the workflow was archived, while actually
+        # switching to an archived workflow must still be rejected.
+        created = self._create_workflow_quick_action("01890000-0000-0000-0000-000000000007")
+        runnable, can_run = self._allow_workflow(runnable=False)
+        with runnable, can_run:
+            response = self.client.patch(
+                f"{self.base_url}{created['short_id']}/",
+                {"name": "Renamed", "workflow_id": patched_workflow_id},
+                format="json",
+            )
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == status.HTTP_200_OK:
+            self.assertEqual(QuickAction.objects.unscoped().get(short_id=created["short_id"]).name, "Renamed")
+
+    def _bearer_client(self, scopes: list[str]) -> APIClient:
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="qa-key", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+        return client
+
+    @parameterized.expand(
+        [
+            (
+                "attach_denied_without_workflow_scope",
+                ["ticket:write"],
+                "patch",
+                {"workflow_id": "01890000-0000-0000-0000-000000000009"},
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "rename_allowed_without_workflow_scope",
+                ["ticket:write"],
+                "patch",
+                {"name": "Renamed"},
+                status.HTTP_200_OK,
+            ),
+            (
+                "unchanged_workflow_id_allowed_without_workflow_scope",
+                ["ticket:write"],
+                "patch",
+                {"name": "Renamed", "workflow_id": "01890000-0000-0000-0000-000000000007"},
+                status.HTTP_200_OK,
+            ),
+            (
+                "attach_allowed_with_workflow_scope",
+                ["ticket:write", "hog_flow:write"],
+                "patch",
+                {"workflow_id": "01890000-0000-0000-0000-000000000009"},
+                status.HTTP_200_OK,
+            ),
+            (
+                "create_denied_without_workflow_scope",
+                ["ticket:write"],
+                "post",
+                {"name": "New", "workflow_id": "01890000-0000-0000-0000-000000000009"},
+                status.HTTP_403_FORBIDDEN,
+            ),
+        ]
+    )
+    def test_setting_workflow_via_api_key_requires_workflow_scope(
+        self, _name: str, scopes: list[str], method: str, body: dict, expected_status: int
+    ) -> None:
+        # Security regression guard: attaching a workflow arms an automation other agents can then
+        # trigger, so a ticket:write-only personal API key must not set or change workflow_id
+        # (mirroring the explicit scopes on the run action). Edits that leave the workflow
+        # reference alone must stay possible with ticket:write.
+        created = self._create_workflow_quick_action("01890000-0000-0000-0000-000000000007")
+        client = self._bearer_client(scopes)
+        runnable, can_run = self._allow_workflow()
+        with runnable, can_run:
+            if method == "post":
+                response = client.post(self.base_url, body, format="json")
+            else:
+                response = client.patch(f"{self.base_url}{created['short_id']}/", body, format="json")
+        self.assertEqual(response.status_code, expected_status, response.content)
 
     def test_quick_actions_visible_from_child_environment(self) -> None:
         # Regression guard: quick actions are stored under the canonical parent team, so a child

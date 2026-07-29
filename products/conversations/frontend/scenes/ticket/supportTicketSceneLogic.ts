@@ -1015,8 +1015,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 return
             }
             cache.runningWorkflowQuickAction = true
-            // Acknowledge the click up front; the run can take until the CDP timeout to come back.
-            lemonToast.success(`Running "${quickAction.name}"`)
             try {
                 // Wait out any ticket-field update from the same quick action so the workflow runs
                 // against the updated ticket, not the pre-update state.
@@ -1026,6 +1024,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 await conversationsQuickActionsRunCreate(String(getCurrentTeamId()), quickAction.short_id, {
                     ticket_id: ticket.id,
                 })
+                // Only claim success once the run request is accepted; toasting before the await
+                // reads as success-then-error when the run fails.
+                lemonToast.success(`Running "${quickAction.name}"`)
                 // The workflow may change the ticket server-side; refresh so a later local edit
                 // doesn't PATCH over its changes with stale state.
                 actions.loadTicket()
