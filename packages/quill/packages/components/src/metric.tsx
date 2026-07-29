@@ -38,7 +38,7 @@ interface MetricContextValue {
     } | null
     /** Sparkline wiring, or null when no series was supplied. */
     sparkline: {
-        /** Per-index total when `series` is set, otherwise the single series' values. */
+        /** The `data` prop — what hovering scrubs through. The chart draws `series` instead when set. */
         data: number[]
         series?: Series[]
         labels?: string[]
@@ -70,15 +70,10 @@ const DEFAULT_FORMAT_CHANGE = (p: number): string => {
     return p > 0 ? `+${formatted}` : formatted
 }
 
-export interface MetricProps {
+interface MetricBaseProps {
     /** Resting headline number. Defaults to `data[data.length - 1]` when `data` is present;
      *  required when `data` is empty or omitted. */
     value?: number
-    /** Series values. When present, a `MetricSparkline` renders and hovering a point swaps the headline. */
-    data?: number[]
-    /** Multi-series sparkline (one line per series). The headline, hover and change pill run on the
-     *  per-index total, so the tile still reads as one number. Ignores `data`/`color`. */
-    series?: Series[]
     /** Labels paired with `data`. Used for the default subtitle on hover. */
     labels?: string[]
     /** Required when `data` is present. */
@@ -121,6 +116,25 @@ export interface MetricProps {
     onError?: (error: Error, info: React.ErrorInfo) => void
     children: React.ReactNode
 }
+
+export type MetricProps = MetricBaseProps &
+    (
+        | {
+              /** The metric's values. When present, a `MetricSparkline` renders and hovering a point
+               *  swaps the headline. The change pill's fallback also runs on it. */
+              data?: number[]
+              series?: undefined
+          }
+        | {
+              /** The metric's values — headline hover, change-pill fallback, and hover indexes. */
+              data: number[]
+              /** Visual breakdown drawn as one sparkline line per series instead of the single `data`
+               *  line. Purely presentational: the headline and pill still read `data`, so give each
+               *  series the same point count as `data` to keep hover indexes aligned. The single-line
+               *  conveniences (`color`, `sparklineDashedFromIndex`) don't apply — set them per series. */
+              series?: Series[]
+          }
+    )
 
 /**
  * Composable metric tile — a headline number, a `Badge` change pill, and an optional `Sparkline`.
@@ -179,22 +193,8 @@ function MetricInner({
     className,
     dataAttr,
     children,
-}: Omit<MetricProps, 'onError'>): React.ReactElement | null {
-    // A multi-series tile still reads as one number: the headline, hover and change pill run on the
-    // per-index total across the series, while the sparkline draws the breakdown.
-    const sparklineData = React.useMemo<number[] | null>(() => {
-        if (theme == null) {
-            return null
-        }
-        if (series != null && series.length > 0) {
-            const pointCount = Math.max(0, ...series.map((s) => s.data.length))
-            const totals = Array.from({ length: pointCount }, (_, i) =>
-                series.reduce((acc, s) => acc + (s.data[i] ?? 0), 0)
-            )
-            return totals.length > 0 ? totals : null
-        }
-        return data != null && data.length > 0 ? data : null
-    }, [series, data, theme])
+}: Omit<MetricBaseProps, 'onError'> & { data?: number[]; series?: Series[] }): React.ReactElement | null {
+    const sparklineData = data != null && data.length > 0 && theme != null ? data : null
     const lastIndex = sparklineData ? sparklineData.length - 1 : -1
 
     const [hoverIndex, setHoverIndex] = React.useState(-1)
