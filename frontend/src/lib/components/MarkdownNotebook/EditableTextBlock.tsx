@@ -13,6 +13,8 @@ import {
 import { IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import DOMPurify from 'dompurify'
+
 import {
     getSlashCommandQuery,
     getTextBlockShortcutReplacement,
@@ -386,7 +388,7 @@ export function EditableTextBlock({
 
         event.preventDefault()
         const container = document.createElement('div')
-        container.innerHTML = html
+        container.innerHTML = DOMPurify.sanitize(html)
         document.execCommand('insertHTML', false, inlineNodesToHtml(htmlElementToInlineNodes(container)))
         updateFromElement(event.currentTarget)
     }
