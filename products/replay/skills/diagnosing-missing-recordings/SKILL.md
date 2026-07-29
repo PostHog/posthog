@@ -149,3 +149,11 @@ map to verdicts. Use these to calibrate your interpretation of query results.
   Check the session's timestamp against the project's retention period.
 - If `$has_recording` is true but the user can't find it, check if it's filtered out
   by duration, activity threshold, or playlist filters.
+- **A session with no events at all may have been classified as a bot.** `posthog-js` drops bot
+  traffic inside `capture()`, before any per-event handling, so a detected bot sends neither
+  `$pageview` nor `$snapshot` — there are no diagnostic signals to query because there is no event.
+  Expect this for crawlers, headless browsers, and anything setting `navigator.webdriver`. It's
+  working as intended, and it's also why an over-broad `custom_blocked_useragents` entry can silently
+  stop recording real users. For the reverse problem — bots that _are_ being recorded and billed —
+  see the `filtering-bot-traffic` skill's
+  [session replay reference](../../../web_analytics/skills/filtering-bot-traffic/references/session-replay.md).

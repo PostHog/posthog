@@ -1,6 +1,6 @@
 ---
 name: filtering-bot-traffic
-description: 'Identify, measure, and exclude bot / crawler / AI-agent traffic in PostHog web and product analytics using the traffic classification surface (the isLikelyBot / getTrafficType HogQL functions and the $virt_* virtual properties). Use when the user asks to "exclude bots", "filter out crawlers", "remove bot traffic from my numbers", "how much of my traffic is bots / AI crawlers", "is GPTBot / ChatGPT / Claude hitting my site", "break down traffic by human vs bot", or wants clean human-only counts in an insight or dashboard. For the real-time Live tab bot tiles, use exploring-live-traffic instead.'
+description: 'Identify, measure, and exclude bot / crawler / AI-agent traffic in PostHog web and product analytics using the traffic classification surface (the isLikelyBot / getTrafficType HogQL functions and the $virt_* virtual properties). Use when the user asks to "exclude bots", "filter out crawlers", "remove bot traffic from my numbers", "how much of my traffic is bots / AI crawlers", "is GPTBot / ChatGPT / Claude hitting my site", "break down traffic by human vs bot", or wants clean human-only counts in an insight or dashboard. Also covers bot traffic in session replay — "bots are eating my replay credits", "stop recording bot / ad-click traffic", "why am I billed for bot recordings", "how much of my replay usage is bots" — where filtering at query time does not help because recordings are billed once stored. For the real-time Live tab bot tiles, use exploring-live-traffic instead.'
 ---
 
 # Filtering and measuring bot traffic
@@ -148,6 +148,18 @@ WHERE event = '$pageview'
 GROUP BY bot, operator
 ORDER BY hits DESC
 ```
+
+## Session replay
+
+Replay is the one case where query-time filtering doesn't answer the question: recordings are
+billed once stored, so the only thing that reduces cost is not capturing them.
+`posthog-js` already drops bot recordings by default, but only via user-agent-style signals — bots
+that present a real browser UA get recorded and billed, and the CDP "Filter Bot Events"
+transformation does **not** cover `$snapshot`.
+
+See [bot traffic and session replay](./references/session-replay.md) for the levers that work,
+a query for how much replay usage is actually bots (with the empty-user-agent trap that otherwise
+inflates it by ~60x), and what to avoid promising.
 
 ## Seeing bots that don't run JavaScript
 
