@@ -41,11 +41,11 @@ export function EnforceVerifiedDomains(): JSX.Element {
     return (
         <PayGateMini feature={AvailableFeature.AUTOMATIC_PROVISIONING}>
             <p>
-                Only allow people with an email address on a verified domain to log in or join this organization.
-                Invites to other domains are blocked.
+                Only allow people with an email address on a verified domain into this organization. Invites to other
+                domains are blocked, and existing members on other domains lose access.
             </p>
             <LemonSwitch
-                label="Require a verified email domain to log in"
+                label="Restrict membership to verified email domains"
                 bordered
                 checked={!!currentOrganization?.enforce_verified_domains}
                 onChange={(enforce_verified_domains) => updateOrganization({ enforce_verified_domains })}
