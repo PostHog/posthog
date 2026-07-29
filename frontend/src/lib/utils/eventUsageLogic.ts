@@ -746,7 +746,6 @@ export interface eventUsageLogicActions {
     }
     reportDashboardRefreshed: (
         dashboardId: number,
-        dashboard: DashboardType<QueryBasedInsightModel> | null,
         filters: Record<string, any>,
         variables: Record<string, any>,
         lastRefreshed: string | Dayjs | null,
@@ -762,7 +761,6 @@ export interface eventUsageLogicActions {
         }
     ) => {
         action: string
-        dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
         dashboardId: number
         filters: Record<string, any>
         forceRefresh: boolean
@@ -2125,7 +2123,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ dashboard, themeId }),
         reportDashboardRefreshed: (
             dashboardId: number,
-            dashboard: DashboardType<QueryBasedInsightModel> | null,
             filters: Record<string, any>,
             variables: Record<string, any>,
             lastRefreshed: string | Dayjs | null,
@@ -2141,7 +2138,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             }
         ) => ({
             dashboardId,
-            dashboard,
             filters,
             variables,
             lastRefreshed,
