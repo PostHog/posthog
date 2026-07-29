@@ -8,6 +8,7 @@ from rest_framework import exceptions
 
 from products.ai_observability.backend.summarization.constants import (
     EVALUATION_SUMMARY_CHUNK_SIZE,
+    EVALUATION_SUMMARY_MAP_PROMPT_MAX_CHARS,
     SUMMARIZATION_TIMEOUT,
 )
 from products.ai_observability.backend.summarization.llm.evaluation_summary import summarize_evaluation_runs
@@ -204,49 +205,13 @@ class TestSummarizeEvaluationRuns:
         assert mock_client.chat.completions.create.call_args.kwargs["timeout"] == SUMMARIZATION_TIMEOUT
         assert result.overall_assessment == "Mostly passing."
 
-    def test_large_run_set_preserves_singleton_candidates_for_global_merge(self):
+    def test_large_run_set_bounds_map_requests_and_preserves_singleton_candidates(self):
         def response_with_content(content: str) -> MagicMock:
             response = MagicMock()
             response.choices = [MagicMock()]
             response.choices[0].message.content = content
             return response
 
-        candidate_responses = [
-            response_with_content(
-                json.dumps(
-                    {
-                        "pass_patterns": [],
-                        "fail_patterns": [
-                            {
-                                "title": "Missing citations",
-                                "description": "The response makes an unsupported factual claim.",
-                                "occurrence_count": 1,
-                                "example_reasoning": "The factual claim has no citation.",
-                                "example_generation_ids": ["g0"],
-                            }
-                        ],
-                        "na_patterns": [],
-                    }
-                )
-            ),
-            response_with_content(
-                json.dumps(
-                    {
-                        "pass_patterns": [],
-                        "fail_patterns": [
-                            {
-                                "title": "Unsupported claims",
-                                "description": "The response states a fact without evidence.",
-                                "occurrence_count": 1,
-                                "example_reasoning": "No source supports the factual claim.",
-                                "example_generation_ids": ["g50"],
-                            }
-                        ],
-                        "na_patterns": [],
-                    }
-                )
-            ),
-        ]
         merged_response = response_with_content(
             json.dumps(
                 {
@@ -258,7 +223,7 @@ class TestSummarizeEvaluationRuns:
                             "description": "Failing responses made factual claims without supporting evidence.",
                             "frequency": "common",
                             "example_reasoning": "The factual claim has no citation.",
-                            "example_generation_ids": ["g0", "g50"],
+                            "example_generation_ids": ["g0", f"g{EVALUATION_SUMMARY_CHUNK_SIZE}"],
                         }
                     ],
                     "na_patterns": [],
@@ -275,16 +240,45 @@ class TestSummarizeEvaluationRuns:
                 "result": False if i in {0, EVALUATION_SUMMARY_CHUNK_SIZE} else True,
                 "reasoning": "The factual claim has no citation."
                 if i in {0, EVALUATION_SUMMARY_CHUNK_SIZE}
-                else "Good.",
+                else f"Distinct passing theme {i}. " * 500,
             }
             for i in range(run_count)
         ]
+
+        def completion_response(**kwargs) -> MagicMock:
+            schema_name = kwargs["response_format"]["json_schema"]["name"]
+            if schema_name == "evaluation_summary":
+                return merged_response
+
+            user_prompt = kwargs["messages"][1]["content"]
+            patterns = []
+            if "- Generation ID: g0\n" in user_prompt:
+                patterns.append(
+                    {
+                        "result": "fail",
+                        "title": "Missing citations",
+                        "occurrence_count": 1,
+                        "example_reasoning": "The factual claim has no citation.",
+                        "example_generation_ids": ["g0"],
+                    }
+                )
+            if f"- Generation ID: g{EVALUATION_SUMMARY_CHUNK_SIZE}\n" in user_prompt:
+                patterns.append(
+                    {
+                        "result": "fail",
+                        "title": "Unsupported claims",
+                        "occurrence_count": 1,
+                        "example_reasoning": "No source supports the factual claim.",
+                        "example_generation_ids": [f"g{EVALUATION_SUMMARY_CHUNK_SIZE}"],
+                    }
+                )
+            return response_with_content(json.dumps({"patterns": patterns}))
 
         with patch(
             "products.ai_observability.backend.summarization.llm.evaluation_summary.build_async_openai_client"
         ) as mock_builder:
             mock_client = MagicMock()
-            mock_client.chat.completions.create = AsyncMock(side_effect=[*candidate_responses, merged_response])
+            mock_client.chat.completions.create = AsyncMock(side_effect=completion_response)
             mock_builder.return_value = mock_client
 
             result = asyncio.run(
@@ -295,11 +289,24 @@ class TestSummarizeEvaluationRuns:
                 )
             )
 
-        assert mock_client.chat.completions.create.call_count == 3
+        map_calls = mock_client.chat.completions.create.await_args_list[:-1]
+        assert len(map_calls) >= 3
+        for map_call in map_calls:
+            user_prompt = map_call.kwargs["messages"][1]["content"]
+            response_schema = map_call.kwargs["response_format"]["json_schema"]["schema"]
+            candidate_properties = response_schema["$defs"]["EvaluationPatternCandidate"]["properties"]
+
+            assert len(user_prompt) <= EVALUATION_SUMMARY_MAP_PROMPT_MAX_CHARS
+            assert response_schema["properties"]["patterns"]["maxItems"] == user_prompt.count("- Generation ID:")
+            assert candidate_properties["occurrence_count"]["maximum"] == user_prompt.count("- Generation ID:")
+            assert "maxLength" in candidate_properties["title"]
+            assert "maxLength" in candidate_properties["example_reasoning"]
+            assert "maxItems" in candidate_properties["example_generation_ids"]
+
         merge_user_prompt = mock_client.chat.completions.create.await_args_list[-1].kwargs["messages"][1]["content"]
         assert merge_user_prompt.count('"occurrence_count": 1') == 2
         assert '"g0"' in merge_user_prompt
-        assert '"g50"' in merge_user_prompt
+        assert f'"g{EVALUATION_SUMMARY_CHUNK_SIZE}"' in merge_user_prompt
         assert f'"total_analyzed": {run_count}' in merge_user_prompt
         assert result.statistics.total_analyzed == run_count
         assert result.statistics.pass_count == run_count - 2

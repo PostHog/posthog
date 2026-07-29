@@ -17,7 +17,13 @@ from rest_framework import exceptions
 
 from posthog.llm.gateway_client import build_async_openai_client
 
-from ..constants import EVALUATION_SUMMARY_CHUNK_SIZE, SUMMARIZATION_TIMEOUT
+from ..constants import (
+    EVALUATION_SUMMARY_CHUNK_SIZE,
+    EVALUATION_SUMMARY_MAP_PROMPT_MAX_CHARS,
+    EVALUATION_SUMMARY_MAP_REASONING_MAX_CHARS,
+    EVALUATION_SUMMARY_MAX_CONCURRENT_MAP_CALLS,
+    SUMMARIZATION_TIMEOUT,
+)
 from ..models import OpenAIModel
 from ..utils import load_summarization_template
 from .evaluation_schema import EvaluationSummaryMapResponse, EvaluationSummaryResponse, EvaluationSummaryStatistics
@@ -63,6 +69,48 @@ def _build_runs_prompt(evaluation_runs: list[dict]) -> str:
 {runs_text}"""
 
 
+def _truncate_reasoning(reasoning: str) -> str:
+    if len(reasoning) <= EVALUATION_SUMMARY_MAP_REASONING_MAX_CHARS:
+        return reasoning
+
+    marker = "\n...[truncated]...\n"
+    available_characters = EVALUATION_SUMMARY_MAP_REASONING_MAX_CHARS - len(marker)
+    prefix_length = (available_characters + 1) // 2
+    suffix_length = available_characters // 2
+    return f"{reasoning[:prefix_length]}{marker}{reasoning[-suffix_length:]}"
+
+
+def _build_bounded_chunks(evaluation_runs: list[dict]) -> list[list[dict]]:
+    chunks: list[list[dict]] = []
+    current_chunk: list[dict] = []
+
+    for run in evaluation_runs:
+        bounded_run = {**run, "reasoning": _truncate_reasoning(run["reasoning"])}
+        proposed_chunk = [*current_chunk, bounded_run]
+        proposed_prompt = _build_runs_prompt(proposed_chunk)
+
+        if current_chunk and (
+            len(proposed_chunk) > EVALUATION_SUMMARY_CHUNK_SIZE
+            or len(proposed_prompt) > EVALUATION_SUMMARY_MAP_PROMPT_MAX_CHARS
+        ):
+            chunks.append(current_chunk)
+            current_chunk = [bounded_run]
+        else:
+            current_chunk = proposed_chunk
+
+    if current_chunk:
+        chunks.append(current_chunk)
+
+    return chunks
+
+
+def _map_response_schema(max_candidates: int) -> dict[str, Any]:
+    schema = EvaluationSummaryMapResponse.model_json_schema()
+    schema["properties"]["patterns"]["maxItems"] = max_candidates
+    schema["$defs"]["EvaluationPatternCandidate"]["properties"]["occurrence_count"]["maximum"] = max_candidates
+    return schema
+
+
 async def _run_structured_completion(
     client: AsyncOpenAI,
     model: OpenAIModel,
@@ -72,6 +120,7 @@ async def _run_structured_completion(
     user_distinct_id: str,
     response_model: type[StructuredResponse],
     schema_name: str,
+    response_schema: dict[str, Any] | None = None,
 ) -> StructuredResponse:
     messages: list[ChatCompletionMessageParam] = [
         {"role": "system", "content": system_prompt},
@@ -90,7 +139,7 @@ async def _run_structured_completion(
                 "json_schema": {
                     "name": schema_name,
                     "strict": True,
-                    "schema": response_model.model_json_schema(),
+                    "schema": response_schema or response_model.model_json_schema(),
                 },
             },
         ),
@@ -189,45 +238,47 @@ async def summarize_evaluation_runs(
         "evaluation_name": evaluation_name,
         "evaluation_description": evaluation_description,
         "evaluation_prompt": evaluation_prompt,
+        "max_candidates": EVALUATION_SUMMARY_CHUNK_SIZE,
     }
     client = build_async_openai_client("llma_eval_summary", ai_product="aio_eval_summary")
+    single_user_prompt = _build_runs_prompt(evaluation_runs)
 
     try:
-        if len(evaluation_runs) <= EVALUATION_SUMMARY_CHUNK_SIZE:
+        if (
+            len(evaluation_runs) <= EVALUATION_SUMMARY_CHUNK_SIZE
+            and len(single_user_prompt) <= EVALUATION_SUMMARY_MAP_PROMPT_MAX_CHARS
+        ):
             system_prompt = load_summarization_template("prompts/evaluation_summary.djt", prompt_context)
             summary = await _run_structured_completion(
                 client=client,
                 model=model,
                 system_prompt=system_prompt,
-                user_prompt=_build_runs_prompt(evaluation_runs),
+                user_prompt=single_user_prompt,
                 team_id=team_id,
                 user_distinct_id=user_distinct_id,
                 response_model=EvaluationSummaryResponse,
                 schema_name="evaluation_summary",
             )
         else:
-            chunks = [
-                evaluation_runs[i : i + EVALUATION_SUMMARY_CHUNK_SIZE]
-                for i in range(0, len(evaluation_runs), EVALUATION_SUMMARY_CHUNK_SIZE)
-            ]
+            chunks = _build_bounded_chunks(evaluation_runs)
             map_system_prompt = load_summarization_template("prompts/evaluation_summary_map.djt", prompt_context)
-            batch_candidates = list(
-                await asyncio.gather(
-                    *(
-                        _run_structured_completion(
-                            client=client,
-                            model=model,
-                            system_prompt=map_system_prompt,
-                            user_prompt=_build_runs_prompt(chunk),
-                            team_id=team_id,
-                            user_distinct_id=user_distinct_id,
-                            response_model=EvaluationSummaryMapResponse,
-                            schema_name="evaluation_summary_candidates",
-                        )
-                        for chunk in chunks
+            map_call_semaphore = asyncio.Semaphore(EVALUATION_SUMMARY_MAX_CONCURRENT_MAP_CALLS)
+
+            async def summarize_chunk(chunk: list[dict]) -> EvaluationSummaryMapResponse:
+                async with map_call_semaphore:
+                    return await _run_structured_completion(
+                        client=client,
+                        model=model,
+                        system_prompt=map_system_prompt,
+                        user_prompt=_build_runs_prompt(chunk),
+                        team_id=team_id,
+                        user_distinct_id=user_distinct_id,
+                        response_model=EvaluationSummaryMapResponse,
+                        schema_name="evaluation_summary_candidates",
+                        response_schema=_map_response_schema(len(chunk)),
                     )
-                )
-            )
+
+            batch_candidates = list(await asyncio.gather(*(summarize_chunk(chunk) for chunk in chunks)))
             summary = await _merge_summaries(
                 client=client,
                 model=model,

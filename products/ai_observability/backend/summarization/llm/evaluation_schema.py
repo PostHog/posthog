@@ -2,7 +2,11 @@
 Pydantic schema for structured evaluation summary outputs.
 """
 
+from typing import Annotated, Literal
+
 from pydantic import BaseModel, ConfigDict, Field
+
+from ..constants import EVALUATION_SUMMARY_CHUNK_SIZE
 
 
 class EvaluationPattern(BaseModel):
@@ -46,16 +50,28 @@ class EvaluationSummaryResponse(BaseModel):
 class EvaluationPatternCandidate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    title: str = Field(description="Short title for the candidate theme (3-5 words)")
-    description: str = Field(description="Detailed description of the candidate theme")
-    occurrence_count: int = Field(ge=1, description="Exact number of matching runs in this batch")
-    example_reasoning: str = Field(description="Reasoning from one run that demonstrates this candidate theme")
-    example_generation_ids: list[str] = Field(description="List of 1-5 generation IDs that exemplify this theme")
+    result: Literal["pass", "fail", "na"] = Field(description="Result category for this candidate theme")
+    title: str = Field(max_length=60, description="Short title for the candidate theme (3-5 words)")
+    occurrence_count: int = Field(
+        ge=1,
+        le=EVALUATION_SUMMARY_CHUNK_SIZE,
+        description="Exact number of matching runs in this batch",
+    )
+    example_reasoning: str = Field(
+        max_length=240,
+        description="Concise reasoning from one run that demonstrates this candidate theme",
+    )
+    example_generation_ids: list[Annotated[str, Field(max_length=64)]] = Field(
+        min_length=1,
+        max_length=3,
+        description="List of 1-3 generation IDs that exemplify this theme",
+    )
 
 
 class EvaluationSummaryMapResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    pass_patterns: list[EvaluationPatternCandidate]
-    fail_patterns: list[EvaluationPatternCandidate]
-    na_patterns: list[EvaluationPatternCandidate]
+    patterns: list[EvaluationPatternCandidate] = Field(
+        max_length=EVALUATION_SUMMARY_CHUNK_SIZE,
+        description="Candidate themes partitioning the runs in this batch",
+    )

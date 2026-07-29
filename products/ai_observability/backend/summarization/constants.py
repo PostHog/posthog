@@ -12,8 +12,9 @@ SUMMARIZATION_TIMEOUT = 120
 # Evaluation summary limits
 EVALUATION_SUMMARY_MAX_RUNS = 250
 
-# Runs above this count are summarized as a concurrent map-reduce instead of one big
-# LLM call. A single call over all 250 runs takes long enough (20-30s+) to routinely
-# trip the internal ai-gateway's ~30s hard timeout; splitting keeps every individual
-# call well under the cliff so the request reliably completes.
-EVALUATION_SUMMARY_CHUNK_SIZE = 50
+# Large or verbose inputs are summarized as a bounded concurrent map-reduce so no
+# individual ai-gateway request approaches its ~30s hard timeout.
+EVALUATION_SUMMARY_CHUNK_SIZE = 20
+EVALUATION_SUMMARY_MAP_PROMPT_MAX_CHARS = 20_000
+EVALUATION_SUMMARY_MAP_REASONING_MAX_CHARS = 2_000
+EVALUATION_SUMMARY_MAX_CONCURRENT_MAP_CALLS = 5

@@ -14,7 +14,7 @@ You are an expert at analyzing AI observability evaluation results. Several batc
 
 ## Your task
 
-You are given ground-truth statistics for the complete evaluation and candidate themes from each batch. Every candidate has an occurrence_count scoped to its batch, example reasoning, and real generation IDs.
+You are given ground-truth statistics for the complete evaluation and candidate themes from each batch. Every candidate has a result category, an occurrence_count scoped to its batch, example reasoning, and real generation IDs.
 
 Consolidate them into ONE final summary:
 - Merge candidates that describe the same underlying theme, even when their wording differs. Sum their occurrence_count values and combine representative generation IDs (keep 1-5 per pattern).
