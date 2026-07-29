@@ -199,6 +199,29 @@ def send_notifications_for_breaches(
     return email_targets
 
 
+def send_test_alert_email(alert: AlertConfiguration, idempotency_key: str) -> list[str]:
+    email_targets = alert.get_subscribed_users_emails()
+    if not email_targets:
+        return []
+
+    insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
+    send_alert_email(
+        recipients=email_targets,
+        campaign_key=f"alert-test-notification-{idempotency_key}",
+        subject=f"Test alert: {alert.name} for {alert.team.name}",
+        template_name="alert_check_firing",
+        template_context={
+            "match_descriptions": ["This is a test alert. No action is needed."],
+            "insight_url": insight_url,
+            "insight_name": alert.insight.name,
+            "alert_url": f"{insight_url}?alert_id={alert.id}",
+            "alert_name": alert.name,
+            "project_name": alert.team.name,
+        },
+    )
+    return email_targets
+
+
 def send_notifications_for_errors(alert: AlertConfiguration, error: dict) -> list[str]:
     logger.info("Sending alert error notifications", alert_id=alert.id, error=error)
     email_targets = alert.get_subscribed_users_emails()

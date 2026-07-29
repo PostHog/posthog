@@ -163,7 +163,7 @@ export const getAlertsTestDeliveryCreateUrl = (projectId: string, id: string) =>
 }
 
 /**
- * Queue a synthetic test notification for every active destination configured on this alert.
+ * Send a synthetic test notification to subscribed users and every active destination on this alert.
  */
 export const alertsTestDeliveryCreate = async (
     projectId: string,

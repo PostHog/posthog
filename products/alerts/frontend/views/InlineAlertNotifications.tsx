@@ -1,8 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect, useState } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
-
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
@@ -154,7 +152,6 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         selectedType,
         slackChannelValue,
         webhookUrl,
-        testDeliveryResultLoading,
     } = useValues(logic)
     const {
         addPendingNotification,
@@ -165,7 +162,6 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         setSlackChannelValue,
         setWebhookUrl,
         loadIntegrations,
-        sendTestDelivery,
     } = useActions(logic)
 
     const buildPendingNotification = (): PendingAlertNotification | null => {
@@ -236,24 +232,7 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
     const urlInput = getUrlInput(selectedType)
 
     return (
-        <div className="space-y-2">
-            {existingHogFunctions.length > 0 ? (
-                <div className="flex justify-end">
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={sendTestDelivery}
-                        loading={testDeliveryResultLoading}
-                        disabledReason={
-                            existingHogFunctions.some((destination) => destination.enabled)
-                                ? undefined
-                                : 'Enable a destination before sending a test.'
-                        }
-                    >
-                        Send test
-                    </LemonButton>
-                </div>
-            ) : null}
+        <div>
             <AlertNotificationDestinationEditor
                 destinations={{
                     showExisting: Boolean(alertId),

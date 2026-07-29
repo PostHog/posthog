@@ -46,7 +46,11 @@ from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
 from posthog.tasks.alerts.schedule_restriction import validate_and_normalize_schedule_restriction
-from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_change, trigger_alert_hog_functions
+from posthog.tasks.alerts.utils import (
+    next_check_at_after_schedule_restriction_change,
+    send_test_alert_email,
+    trigger_alert_hog_functions,
+)
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
@@ -898,6 +902,7 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
 
 class AlertTestDeliveryResponseSerializer(serializers.Serializer):
     destination_count = serializers.IntegerField(help_text="Number of active destinations queued for test delivery.")
+    email_recipient_count = serializers.IntegerField(help_text="Number of subscribed users sent a test email.")
 
 
 @extend_schema_view(
@@ -1107,7 +1112,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(
         request=None,
         responses={202: AlertTestDeliveryResponseSerializer},
-        description="Queue a synthetic test notification for every active destination configured on this alert.",
+        description="Send a synthetic test notification to subscribed users and every active destination on this alert.",
     )
     @action(
         detail=True,
@@ -1123,19 +1128,23 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             alert_id=str(alert.id),
             allowed_event_ids=(INSIGHT_ALERT_FIRING_EVENT,),
         )
-        if destination_count == 0:
+        email_targets = alert.get_subscribed_users_emails()
+        if destination_count == 0 and not email_targets:
             return Response(
-                {"detail": "This alert has no active destinations."},
+                {"detail": "Add an email recipient or active destination before sending a test."},
                 status=status.HTTP_409_CONFLICT,
             )
 
-        trigger_alert_hog_functions(
-            alert,
-            {
-                "breaches": "Test alert from PostHog. No action is needed.",
-                "is_test": True,
-            },
-        )
+        if email_targets:
+            send_test_alert_email(alert, idempotency_key=str(uuid.uuid4()))
+        if destination_count:
+            trigger_alert_hog_functions(
+                alert,
+                {
+                    "breaches": "Test alert from PostHog. No action is needed.",
+                    "is_test": True,
+                },
+            )
         posthoganalytics.capture(
             distinct_id=str(request.user.distinct_id),
             event="insight alert test delivery scheduled",
@@ -1143,10 +1152,14 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 **get_request_analytics_properties(request),
                 "alert_id": str(alert.id),
                 "destination_count": destination_count,
+                "email_recipient_count": len(email_targets),
                 "team_id": alert.team_id,
             },
         )
-        return Response({"destination_count": destination_count}, status=status.HTTP_202_ACCEPTED)
+        return Response(
+            {"destination_count": destination_count, "email_recipient_count": len(email_targets)},
+            status=status.HTTP_202_ACCEPTED,
+        )
 
     @extend_schema(
         request=AlertSimulateSerializer,

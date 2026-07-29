@@ -480,8 +480,16 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
             actions.loadExistingHogFunctions()
         },
         sendTestDeliverySuccess: ({ testDeliveryResult }) => {
-            const count = testDeliveryResult.destination_count
-            lemonToast.success(`Test queued for ${count} ${count === 1 ? 'destination' : 'destinations'}.`)
+            const destinationCount = testDeliveryResult.destination_count
+            const emailCount = testDeliveryResult.email_recipient_count
+            const deliveryTargets: string[] = []
+            if (emailCount > 0) {
+                deliveryTargets.push(`${emailCount} email ${emailCount === 1 ? 'recipient' : 'recipients'}`)
+            }
+            if (destinationCount > 0) {
+                deliveryTargets.push(`${destinationCount} ${destinationCount === 1 ? 'destination' : 'destinations'}`)
+            }
+            lemonToast.success(`Test sent to ${deliveryTargets.join(' and ')}.`)
         },
         sendTestDeliveryFailure: ({ errorObject }) => {
             const detail = errorObject?.detail

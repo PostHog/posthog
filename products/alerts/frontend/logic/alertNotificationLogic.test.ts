@@ -100,7 +100,7 @@ describe('alertNotificationLogic', () => {
     })
 
     it('sends a test delivery for the saved alert', async () => {
-        jest.mocked(alertsTestDeliveryCreate).mockResolvedValue({ destination_count: 2 })
+        jest.mocked(alertsTestDeliveryCreate).mockResolvedValue({ destination_count: 2, email_recipient_count: 1 })
         logic = alertNotificationLogic({ alertId: 'alert-123' })
         logic.mount()
 
@@ -108,7 +108,9 @@ describe('alertNotificationLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(alertsTestDeliveryCreate).toHaveBeenCalledWith('997', 'alert-123')
-        await expectLogic(logic).toMatchValues({ testDeliveryResult: { destination_count: 2 } })
+        await expectLogic(logic).toMatchValues({
+            testDeliveryResult: { destination_count: 2, email_recipient_count: 1 },
+        })
     })
 
     it('clears the channel when an integrations refresh removes the selected workspace', async () => {

@@ -19,7 +19,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 
@@ -1506,7 +1506,7 @@ class TestAlertTestDelivery(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}/test-delivery/")
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.content
-        assert response.json() == {"destination_count": 2}
+        assert response.json() == {"destination_count": 2, "email_recipient_count": 0}
         mock_trigger.assert_called_once_with(
             mock.ANY,
             {
@@ -1520,13 +1520,31 @@ class TestAlertTestDelivery(APIBaseTest):
         assert AlertCheck.objects.filter(alert_configuration_id=self.alert["id"]).count() == 0
 
     @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions")
+    @mock.patch("products.alerts.backend.email_notifications.EmailMessage")
+    def test_sends_test_delivery_to_subscribed_users_without_a_destination(
+        self, mock_email_message, mock_trigger
+    ) -> None:
+        alert = AlertConfiguration.objects.get(id=self.alert["id"])
+        AlertSubscription.objects.create(alert_configuration=alert, user=self.user)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}/test-delivery/")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.content
+        assert response.json() == {"destination_count": 0, "email_recipient_count": 1}
+        mock_email_message.assert_called_once()
+        assert mock_email_message.call_args.kwargs["subject"] == "Test alert: Testable alert for Default project"
+        mock_email_message.return_value.add_recipient.assert_called_once_with(email=self.user.email)
+        mock_email_message.return_value.send.assert_called_once_with()
+        mock_trigger.assert_not_called()
+
+    @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions")
     def test_rejects_test_delivery_without_active_destinations(self, mock_trigger) -> None:
         self._create_destination(enabled=False)
 
         response = self.client.post(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}/test-delivery/")
 
         assert response.status_code == status.HTTP_409_CONFLICT
-        assert response.json() == {"detail": "This alert has no active destinations."}
+        assert response.json() == {"detail": "Add an email recipient or active destination before sending a test."}
         mock_trigger.assert_not_called()
 
     @mock.patch("posthog.rate_limit.AlertTestDeliveryThrottle.rate", new="2/minute")

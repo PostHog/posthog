@@ -8753,6 +8753,8 @@ export namespace Schemas {
     export interface AlertTestDeliveryResponse {
       /** Number of active destinations queued for test delivery. */
       destination_count: number;
+      /** Number of subscribed users sent a test email. */
+      email_recipient_count: number;
     }
 
     /**
