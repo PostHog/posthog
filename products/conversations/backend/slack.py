@@ -415,7 +415,7 @@ def create_or_update_slack_ticket(
     images, file_attachments = split_slack_attachments(extract_slack_files(files, team, client))
 
     # Resolve Slack user info for this message author
-    user_info = resolve_slack_user(client, slack_user_id)
+    user_info = resolve_slack_user(client, slack_user_id, workspace=slack_team_id or "")
 
     # Check if this Slack user is a PostHog team member
     posthog_user = resolve_posthog_user_for_slack(user_info.get("email"), team)
@@ -428,7 +428,7 @@ def create_or_update_slack_ticket(
         if uid == slack_user_id and user_info["name"] != "Unknown":
             user_names[uid] = user_info["name"]
         elif uid not in user_names:
-            info = resolve_slack_user(client, uid)
+            info = resolve_slack_user(client, uid, workspace=slack_team_id or "")
             if info["name"] != "Unknown":
                 user_names[uid] = info["name"]
 
@@ -614,7 +614,7 @@ def _configured_support_channels(settings: dict) -> set[str]:
 
 
 def _record_last_slack_message(
-    team: Team, *, channel: str, slack_user_id: str, message_ts: str | None, is_bot: bool
+    team: Team, *, channel: str, slack_user_id: str, message_ts: str | None, is_bot: bool, slack_team_id: str
 ) -> None:
     """Record the message time on the customer analytics account bound to `channel`.
 
@@ -633,7 +633,7 @@ def _record_last_slack_message(
         account = customer_analytics.get_account_ref_by_slack_channel_id(team_id, channel)
         if account is None:
             return
-        slack_user = resolve_slack_user(get_slack_client(team), slack_user_id)
+        slack_user = resolve_slack_user(get_slack_client(team), slack_user_id, workspace=slack_team_id)
         # An unresolved email may belong to a teammate, so treat it as one.
         email = slack_user.get("email")
         if not email or resolve_posthog_user_for_slack(email, team):
@@ -680,7 +680,14 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
     thread_ts = event.get("thread_ts")
     message_ts = event.get("ts")
 
-    _record_last_slack_message(team, channel=channel, slack_user_id=slack_user_id, message_ts=message_ts, is_bot=is_bot)
+    _record_last_slack_message(
+        team,
+        channel=channel,
+        slack_user_id=slack_user_id,
+        message_ts=message_ts,
+        is_bot=is_bot,
+        slack_team_id=slack_team_id,
+    )
 
     if thread_ts:
         if is_bot:
@@ -724,7 +731,9 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
         # click "Open ticket" (handled by the interactivity endpoint). Heuristics
         # keep us from pestering the whole channel.
         if settings_dict.get("slack_nudge_enabled", True):
-            decision = _should_send_nudge(team, channel, slack_user_id, text, blocks, files, message_ts or "")
+            decision = _should_send_nudge(
+                team, channel, slack_user_id, text, blocks, files, message_ts or "", slack_team_id
+            )
             if decision.send:
                 post_ticket_confirmation_prompt(
                     team=team,
@@ -935,6 +944,7 @@ def _should_send_nudge(
     blocks: list[dict] | None,
     files: list[dict] | None,
     message_ts: str,
+    slack_team_id: str,
 ) -> NudgeDecision:
     """Heuristics to avoid pestering the channel: nudge only external users on substantive
     messages, skipping anyone recently nudged/dismissed or who @mentioned the bot (which
@@ -958,7 +968,7 @@ def _should_send_nudge(
     # External users only — internal teammates don't need nudging. Skipped in local
     # dev, where the tester's own account is the only org member and would never nudge.
     if not settings.DEBUG:
-        user_info = resolve_slack_user(client, slack_user_id)
+        user_info = resolve_slack_user(client, slack_user_id, workspace=slack_team_id)
         if resolve_posthog_user_for_slack(user_info.get("email"), team):
             return NudgeDecision(send=False, classifier_verdict="skipped")
 
@@ -1087,7 +1097,9 @@ def _create_ticket_and_backfill(
         post_confirmation=post_confirmation,
     )
     if ticket:
-        _backfill_thread_replies(client, team, ticket, slack_channel_id, thread_ts, after_ts=after_ts)
+        _backfill_thread_replies(
+            client, team, ticket, slack_channel_id, thread_ts, slack_team_id=slack_team_id, after_ts=after_ts
+        )
     return ticket
 
 
@@ -1257,6 +1269,8 @@ def _backfill_thread_replies(
     ticket: Ticket,
     channel: str,
     thread_ts: str,
+    *,
+    slack_team_id: str | None,
     after_ts: str | None = None,
 ) -> None:
     """Fetch existing thread replies and add them as comments on the ticket.
@@ -1314,7 +1328,7 @@ def _backfill_thread_replies(
         images, file_attachments = split_slack_attachments(extract_slack_files(reply_files, team, client))
 
         if reply_user not in user_cache:
-            user_cache[reply_user] = resolve_slack_user(client, reply_user)
+            user_cache[reply_user] = resolve_slack_user(client, reply_user, workspace=slack_team_id or "")
         user_info = user_cache[reply_user]
 
         if reply_user not in posthog_user_cache:
@@ -1327,7 +1341,7 @@ def _backfill_thread_replies(
         reply_user_names: dict[str, str] = {}
         for uid in mentioned_ids:
             if uid not in user_cache:
-                user_cache[uid] = resolve_slack_user(client, uid)
+                user_cache[uid] = resolve_slack_user(client, uid, workspace=slack_team_id or "")
             if user_cache[uid]["name"] != "Unknown":
                 reply_user_names[uid] = user_cache[uid]["name"]
 
@@ -1538,6 +1552,7 @@ def _handle_member_event(
     team: Team,
     *,
     joined: bool,
+    slack_team_id: str,
     client: WebClient | None = None,
     own_bot_user_id: str | None = None,
 ) -> None:
@@ -1587,7 +1602,7 @@ def _handle_member_event(
 
     # Members of the team's own organization are internal teammates, not the external
     # participants these alerts surface — skip them.
-    slack_user = resolve_slack_user(client, user)
+    slack_user = resolve_slack_user(client, user, workspace=slack_team_id)
     if resolve_posthog_user_for_slack(slack_user.get("email"), team):
         return
 
@@ -1621,9 +1636,11 @@ def handle_member_joined_channel(event: dict, team: Team, slack_team_id: str) ->
     client = get_slack_client(team)
     own_bot_user_id = get_bot_user_id_cached(team, client)
     _track_bot_joined_channel(event, team, slack_team_id, own_bot_user_id=own_bot_user_id)
-    _handle_member_event(event, team, joined=True, client=client, own_bot_user_id=own_bot_user_id)
+    _handle_member_event(
+        event, team, joined=True, slack_team_id=slack_team_id, client=client, own_bot_user_id=own_bot_user_id
+    )
 
 
 def handle_member_left_channel(event: dict, team: Team, slack_team_id: str) -> None:
     """Handle a Slack 'member_left_channel' event by alerting the configured channel."""
-    _handle_member_event(event, team, joined=False)
+    _handle_member_event(event, team, joined=False, slack_team_id=slack_team_id)

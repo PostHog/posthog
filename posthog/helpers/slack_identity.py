@@ -3,8 +3,8 @@
 Token-agnostic: every function takes a ``slack_sdk.WebClient`` so the caller supplies the
 workspace's bot token (the conversations SupportHog bot, the generic Slack ``Integration``,
 etc.). Profile and avatar lookups are cached in Redis. Slack user ids are only guaranteed
-unique per workspace, so callers that make trust decisions on the resolved profile should
-pass ``workspace`` to namespace the cache; email keys are globally unique already.
+unique per workspace, so profile cache keys are namespaced by the required ``workspace``
+(the Slack team id); email keys are globally unique already.
 """
 
 from types import MappingProxyType
@@ -33,7 +33,7 @@ def _make_cache_key(prefix: str, *args: str) -> str:
     return f"slack_identity:{prefix}:{key_parts}"
 
 
-def get_cached_slack_user(slack_user_id: str, workspace: str = "") -> dict | None:
+def get_cached_slack_user(slack_user_id: str, workspace: str) -> dict | None:
     """Get cached Slack user profile."""
     key = _make_cache_key("slack_user", workspace, slack_user_id)
     try:
@@ -43,7 +43,7 @@ def get_cached_slack_user(slack_user_id: str, workspace: str = "") -> dict | Non
         return None
 
 
-def set_cached_slack_user(slack_user_id: str, user_info: dict, workspace: str = "") -> None:
+def set_cached_slack_user(slack_user_id: str, user_info: dict, workspace: str) -> None:
     """Cache a Slack user profile."""
     key = _make_cache_key("slack_user", workspace, slack_user_id)
     try:
@@ -71,11 +71,11 @@ def set_cached_slack_avatar(email: str, avatar_url: str) -> None:
         logger.warning("slack_identity_cache_set_error", key=key)
 
 
-def resolve_slack_user(client: WebClient, slack_user_id: str, *, workspace: str = "") -> dict:
+def resolve_slack_user(client: WebClient, slack_user_id: str, *, workspace: str) -> dict:
     """Resolve a Slack user ID to name, email, and avatar. Cached in Redis for 5 minutes.
 
-    Slack user ids are only unique per workspace — pass ``workspace`` (e.g. the integration's
-    Slack team id) whenever the profile feeds a trust decision, so a colliding id from another
+    Slack user ids are only unique per workspace, so ``workspace`` (the Slack team id the
+    event or integration is scoped to) namespaces the cache — a colliding id from another
     workspace can't be served from this one's cache.
     """
     if not slack_user_id:
