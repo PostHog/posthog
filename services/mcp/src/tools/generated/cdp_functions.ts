@@ -161,6 +161,9 @@ const cdpFunctionsInvocationsCreate = (): ToolBase<
         if (params.configuration !== undefined) {
             body['configuration'] = params.configuration
         }
+        if (params.use_draft !== undefined) {
+            body['use_draft'] = params.use_draft
+        }
         if (params.globals !== undefined) {
             body['globals'] = params.globals
         }
@@ -360,6 +363,9 @@ const cdpFunctionsPartialUpdate = (): ToolBase<typeof CdpFunctionsPartialUpdateS
         }
         if (params.execution_order !== undefined) {
             body['execution_order'] = params.execution_order
+        }
+        if (params.base_updated_at !== undefined) {
+            body['base_updated_at'] = params.base_updated_at
         }
         const result = await context.api.request<Schemas.HogFunction>({
             method: 'PATCH',

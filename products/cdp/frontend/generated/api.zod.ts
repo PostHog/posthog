@@ -257,6 +257,12 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
     _create_in_folder: zod.string().optional(),
+    base_updated_at: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally.'
+        ),
 })
 
 export const hogFunctionsUpdateBodyNameMax = 400
@@ -507,6 +513,12 @@ export const HogFunctionsUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
     _create_in_folder: zod.string().optional(),
+    base_updated_at: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally.'
+        ),
 })
 
 export const hogFunctionsPartialUpdateBodyNameMax = 400
@@ -757,6 +769,12 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
     _create_in_folder: zod.string().optional(),
+    base_updated_at: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally.'
+        ),
 })
 
 export const hogFunctionsEnableBackfillsCreateBodyNameMax = 400
@@ -1017,6 +1035,12 @@ export const HogFunctionsEnableBackfillsCreateBody = /* @__PURE__ */ zod.object(
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
     _create_in_folder: zod.string().optional(),
+    base_updated_at: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally.'
+        ),
 })
 
 export const hogFunctionsInvocationsCreateBodyConfigurationOneNameMax = 400
@@ -1053,6 +1077,7 @@ export const hogFunctionsInvocationsCreateBodyConfigurationOneTemplateIdMax = 40
 export const hogFunctionsInvocationsCreateBodyConfigurationOneExecutionOrderMin = 0
 export const hogFunctionsInvocationsCreateBodyConfigurationOneExecutionOrderMax = 32767
 
+export const hogFunctionsInvocationsCreateBodyUseDraftDefault = false
 export const hogFunctionsInvocationsCreateBodyMockAsyncFunctionsDefault = true
 
 export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
@@ -1441,8 +1466,21 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .datetime({ offset: true })
                 .nullable()
                 .describe('When config was last staged for review, or null when nothing is staged.'),
+            base_updated_at: zod.iso
+                .datetime({ offset: true })
+                .optional()
+                .describe(
+                    'Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally.'
+                ),
         })
-        .describe('Full function configuration to test.'),
+        .optional()
+        .describe('Full function configuration to test. Omit when use_draft is true.'),
+    use_draft: zod
+        .boolean()
+        .default(hogFunctionsInvocationsCreateBodyUseDraftDefault)
+        .describe(
+            "Test the function's staged draft instead of passing a configuration. Staged secret inputs are used; secrets the draft doesn't change fall back to the live values. 400 when nothing is staged."
+        ),
     globals: zod
         .record(zod.string(), zod.unknown())
         .optional()

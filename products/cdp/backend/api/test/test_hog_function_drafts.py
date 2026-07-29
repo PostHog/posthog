@@ -4,6 +4,8 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.activity_logging.activity_log import ActivityLog
+
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
 
@@ -241,6 +243,11 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert function.draft is None
         assert function.draft_encrypted_inputs is None
         assert function.hog == LIVE_HOG
+        # The no-op second discard must not add audit noise.
+        assert (
+            ActivityLog.objects.filter(scope="HogFunction", item_id=function_id, activity="draft_discarded").count()
+            == 1
+        )
 
     def test_staged_secret_survives_a_later_edit_that_resends_the_marker(self):
         function_id = self._create()
@@ -279,6 +286,107 @@ class TestHogFunctionDrafts(DraftTestCase):
         stored_draft = HogFunction.objects.get(id=function_id).draft
         assert stored_draft is not None
         assert "token" not in stored_draft["inputs"]
+
+    def test_enabling_with_a_draft_open_is_refused_for_coercible_booleans(self):
+        function_id = self._create()
+        self._stage(function_id, {"hog": EDITED_HOG})
+        self._live_edit(function_id, {"enabled": False})
+
+        # BooleanField coerces "true" to True, so the refusal must fire on the validated value, not
+        # the raw payload.
+        response = self.client.patch(self._url(function_id), {"enabled": "true"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert HogFunction.objects.get(id=function_id).enabled is False
+
+    @parameterized.expand(
+        [
+            # A draft edit races other draft edits, a live edit races the live row; either way a
+            # base_updated_at older than the stored side means someone wrote in between.
+            ("draft_edit", True),
+            ("live_edit", False),
+        ]
+    )
+    def test_stale_base_updated_at_is_a_conflict(self, _name: str, agent_edit: bool):
+        function_id = self._create()
+        self._stage(function_id, {"hog": EDITED_HOG})
+
+        payload = {"hog": "fetch(inputs.url, {'method': 'PATCH'});", "base_updated_at": "2020-01-01T00:00:00Z"}
+        response = (
+            self._agent_patch(function_id, payload)
+            if agent_edit
+            else self.client.patch(self._url(function_id), payload)
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+
+    def test_current_base_updated_at_is_accepted(self):
+        function_id = self._create()
+        staged = self._stage(function_id, {"hog": EDITED_HOG})
+
+        response = self._agent_patch(
+            function_id,
+            {"hog": "fetch(inputs.url, {'method': 'PATCH'});", "base_updated_at": staged["draft_updated_at"]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def _test_invoke(self, function_id: str, payload: dict):
+        with patch("products.cdp.backend.api.hog_function.create_hog_invocation_test") as mock_invoke:
+            mock_invoke.return_value.status_code = 200
+            mock_invoke.return_value.json.return_value = {"status": "success", "logs": []}
+            response = self.client.post(self._url(function_id, "/invocations"), payload)
+        return response, mock_invoke
+
+    def test_invocations_use_draft_tests_staged_config_and_secrets(self):
+        function_id = self._create()
+        self._stage(
+            function_id,
+            {"hog": EDITED_HOG, "inputs": {"url": {"value": "https://example.com/live"}, "token": {"value": "new"}}},
+        )
+
+        response, mock_invoke = self._test_invoke(function_id, {"use_draft": True})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        configuration = mock_invoke.call_args.kwargs["payload"]["configuration"]
+        assert configuration["hog"] == EDITED_HOG
+        # The staged secret is what gets exercised, not the live one it will replace.
+        assert configuration["inputs"]["token"]["value"] == "new"
+
+    def test_invocations_use_draft_recovers_unstaged_secrets_from_live(self):
+        function_id = self._create()
+        self._stage(function_id, {"hog": EDITED_HOG})
+
+        response, mock_invoke = self._test_invoke(function_id, {"use_draft": True})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        configuration = mock_invoke.call_args.kwargs["payload"]["configuration"]
+        assert configuration["inputs"]["token"]["value"] == "live-token"
+
+    def test_invocations_use_draft_without_a_draft_is_rejected(self):
+        function_id = self._create()
+
+        response = self.client.post(self._url(function_id, "/invocations"), {"use_draft": True})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    @parameterized.expand(
+        [
+            # Only the destination type is held to the create-disabled-then-enable path: the alert
+            # recipe legitimately creates internal_destination functions enabled in one call, and the
+            # web builder is a human clicking through a confirm UI.
+            ("agent_destination", True, "destination", status.HTTP_400_BAD_REQUEST),
+            ("agent_internal_destination", True, "internal_destination", status.HTTP_201_CREATED),
+            ("web_destination", False, "destination", status.HTTP_201_CREATED),
+        ]
+    )
+    def test_create_as_enabled(self, _name: str, from_agent: bool, function_type: str, expected: int):
+        payload = {**BASE_FUNCTION, "type": function_type}
+        headers = {"x-posthog-client": "mcp"} if from_agent else {}
+
+        response = self.client.post(self._url(), data=payload, headers=headers)
+
+        assert response.status_code == expected, response.json()
 
 
 class TestHogFunctionRevisions(DraftTestCase):

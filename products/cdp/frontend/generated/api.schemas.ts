@@ -461,6 +461,8 @@ export interface HogFunctionApi {
      * @nullable
      */
     readonly draft_updated_at: string | null
+    /** Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally. */
+    base_updated_at?: string
 }
 
 /**
@@ -547,6 +549,8 @@ export interface PatchedHogFunctionApi {
      * @nullable
      */
     readonly draft_updated_at?: string | null
+    /** Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally. */
+    base_updated_at?: string
 }
 
 /**
@@ -560,8 +564,10 @@ export type HogFunctionInvocationApiGlobals = { [key: string]: unknown }
 export type HogFunctionInvocationApiClickhouseEvent = { [key: string]: unknown }
 
 export interface HogFunctionInvocationApi {
-    /** Full function configuration to test. */
-    configuration: HogFunctionApi
+    /** Full function configuration to test. Omit when use_draft is true. */
+    configuration?: HogFunctionApi
+    /** Test the function's staged draft instead of passing a configuration. Staged secret inputs are used; secrets the draft doesn't change fall back to the live values. 400 when nothing is staged. */
+    use_draft?: boolean
     /** Mock global variables available during test invocation. */
     globals?: HogFunctionInvocationApiGlobals
     /** Mock ClickHouse event data to test the function with. */

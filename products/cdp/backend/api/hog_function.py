@@ -92,6 +92,10 @@ ENABLE_WITH_OPEN_DRAFT_MESSAGE = (
     "This function has config staged for review. Publish or discard it before enabling, so you don't "
     "turn on config nobody looked at."
 )
+CREATE_ENABLED_MESSAGE = (
+    "Create destinations disabled: test with an invocation first, then enable with a separate update "
+    "once the config looks right."
+)
 
 # The confirm token makes the publish preview structurally unskippable: only the preview mints it,
 # and it signs both sides of the publish, so a valid token proves the caller saw what publishing
@@ -284,6 +288,15 @@ class HogFunctionMaskingSerializer(serializers.Serializer):
 
 class HogFunctionSerializer(HogFunctionMinimalSerializer):
     template = HogFunctionTemplateSerializer(read_only=True)
+    base_updated_at = serializers.DateTimeField(
+        write_only=True,
+        required=False,
+        help_text=(
+            "Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) "
+            "you last read. If the stored side is newer, the write fails with 409 instead of "
+            "overwriting the concurrent edit. Omit to overwrite unconditionally."
+        ),
+    )
     masking = HogFunctionMaskingSerializer(
         required=False,
         allow_null=True,
@@ -343,6 +356,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "version",
             "draft",
             "draft_updated_at",
+            "base_updated_at",
         ]
         read_only_fields = [
             "id",
@@ -678,7 +692,18 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
 
 class HogFunctionInvocationSerializer(serializers.Serializer):
-    configuration = HogFunctionSerializer(write_only=True, help_text="Full function configuration to test.")
+    configuration = HogFunctionSerializer(
+        write_only=True, required=False, help_text="Full function configuration to test. Omit when use_draft is true."
+    )
+    use_draft = serializers.BooleanField(
+        default=False,
+        write_only=True,
+        help_text=(
+            "Test the function's staged draft instead of passing a configuration. Staged secret inputs "
+            "are used; secrets the draft doesn't change fall back to the live values. 400 when nothing "
+            "is staged."
+        ),
+    )
     globals = serializers.DictField(
         write_only=True, required=False, help_text="Mock global variables available during test invocation."
     )
@@ -938,6 +963,24 @@ class HogFunctionViewSet(
 
         return icon_service.get_icon_http_response(id, team_id=self.team_id)
 
+    def _draft_test_configuration(self, hog_function: Optional[HogFunction]) -> dict:
+        """The staged draft as a test-invocable configuration: live config with the draft's content
+        fields on top, staged secrets rehydrated in plaintext so the test exercises what publish
+        would ship. Secrets the draft doesn't stage stay as `{"secret": true}` markers, which
+        validation recovers from the live encrypted inputs."""
+        if not use_destinations_revisions(self.team):
+            raise exceptions.ValidationError(DRAFTS_DISABLED_MESSAGE)
+        if hog_function is None or not hog_function.draft:
+            raise exceptions.ValidationError({"use_draft": "This function has no staged draft to test."})
+
+        serialized = self.get_serializer(hog_function).data
+        draft = serialized.get("draft") or {}
+        configuration = {**serialized, **{field: draft[field] for field in DRAFT_CONTENT_FIELDS if field in draft}}
+        inputs = dict(configuration.get("inputs") or {})
+        inputs.update(hog_function.draft_encrypted_inputs or {})
+        configuration["inputs"] = inputs
+        return configuration
+
     @extend_schema(
         request=HogFunctionInvocationSerializer,
         responses={200: HogFunctionInvocationSerializer},
@@ -949,8 +992,14 @@ class HogFunctionViewSet(
         except Exception:
             hog_function = None
 
+        data = request.data
+        if data.get("use_draft"):
+            data = {**data, "configuration": self._draft_test_configuration(hog_function)}
+        elif "configuration" not in data:
+            raise exceptions.ValidationError({"configuration": "Required unless use_draft is true."})
+
         serializer = HogFunctionInvocationSerializer(
-            data=request.data, context={**self.get_serializer_context(), "instance": hog_function}
+            data=data, context={**self.get_serializer_context(), "instance": hog_function}
         )
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)
@@ -1032,6 +1081,19 @@ class HogFunctionViewSet(
         return Response(res.json())
 
     def perform_create(self, serializer):
+        # base_updated_at is an update-only concurrency guard; there is nothing to race on a create.
+        serializer.validated_data.pop("base_updated_at", None)
+        # An agent-created destination starts disabled: create, test, then enable in a separate call
+        # once the config looks right. Scoped like the draft cycle — other types (e.g. the alert
+        # recipe's internal_destination) create as sent, and a null type behaves as a destination
+        # everywhere else in this file.
+        if (
+            serializer.validated_data.get("enabled")
+            and (serializer.validated_data.get("type") or HogFunctionType.DESTINATION) == HogFunctionType.DESTINATION
+            and self._is_agent_request(self.request)
+            and use_destinations_revisions(self.team)
+        ):
+            raise exceptions.ValidationError({"enabled": CREATE_ENABLED_MESSAGE})
         serializer.save()
         log_activity_from_viewset(
             self,
@@ -1139,14 +1201,22 @@ class HogFunctionViewSet(
 
         # Enabling with a draft open would turn on the live config while the reviewed one sits
         # unpublished. Make the caller resolve the draft first rather than picking for them.
+        # Checked on the validated value: BooleanField coerces "true"/"True", and the raw payload
+        # wouldn't catch those.
         if (
             revisions_enabled
-            and self.request.data.get("enabled") is True
+            and serializer.validated_data.get("enabled") is True
             and isinstance(serializer.instance, HogFunction)
             and serializer.instance.draft
             and not serializer.instance.enabled
         ):
             raise exceptions.ValidationError({"enabled": ENABLE_WITH_OPEN_DRAFT_MESSAGE})
+
+        # Optimistic concurrency, same contract as workflows: a client may send the updated_at (or
+        # draft_updated_at) it last loaded as `base_updated_at`. If the stored side is strictly newer,
+        # another channel wrote in between: 409 rather than silently clobbering. Omitting it keeps
+        # last-writer-wins. Popped so it never reaches the model save.
+        base_updated_at = serializer.validated_data.pop("base_updated_at", None)
 
         with transaction.atomic():
             try:
@@ -1156,6 +1226,14 @@ class HogFunctionViewSet(
                 before_update = None
 
             route_to_draft = route_to_draft and before_update is not None
+
+            # Draft edits race against other draft edits, not against the live row (which they don't
+            # touch), so the staleness baseline is the draft's own timestamp once a draft exists.
+            guard_timestamp = before_update.updated_at if before_update else None
+            if route_to_draft and before_update and before_update.draft_updated_at:
+                guard_timestamp = before_update.draft_updated_at
+            if base_updated_at and guard_timestamp and guard_timestamp > base_updated_at:
+                raise StaleHogFunctionUpdateError()
             if route_to_draft:
                 assert before_update is not None
                 self._write_draft(serializer.instance, before_update, serializer)
@@ -1310,19 +1388,22 @@ class HogFunctionViewSet(
             locked = HogFunction.objects.select_for_update().get(pk=instance.pk)
             # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFunction.objects.get(pk=instance.pk)
+            had_draft = locked.draft is not None
             locked.draft = None
             locked.draft_updated_at = None
             locked.draft_encrypted_inputs = None
             locked.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
 
-        log_activity_from_viewset(
-            self,
-            locked,
-            activity="draft_discarded",
-            name=locked.name,
-            previous=before_update,
-            detail_type=humanize_hog_function_type(locked.type),
-        )
+        # The no-op case stays out of the audit trail: nothing was discarded.
+        if had_draft:
+            log_activity_from_viewset(
+                self,
+                locked,
+                activity="draft_discarded",
+                name=locked.name,
+                previous=before_update,
+                detail_type=humanize_hog_function_type(locked.type),
+            )
 
         return Response(self.get_serializer(locked).data)
 

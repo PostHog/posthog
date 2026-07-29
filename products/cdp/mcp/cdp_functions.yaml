@@ -24,7 +24,9 @@ tools:
             warehouse_source_webhook, site_app, or transformation) and either 'hog' source code or a 'template_id' to
             derive code from a template. Provide 'inputs_schema' to define configurable parameters and 'inputs' with
             their values. Use 'filters' to control which events trigger the function. Transformations run during
-            ingestion and have an 'execution_order' field.
+            ingestion and have an 'execution_order' field. Create destinations disabled: test with
+            cdp-functions-invocations-create, then enable with cdp-functions-partial-update once the config looks
+            right. (Other types, like internal_destination below, create as sent.)
 
             Recipe — deliver an insight alert to Slack, a webhook, or Discord (canonical reference; alert-create /
             alert-update point here):
@@ -103,6 +105,7 @@ tools:
             created function's id. Never share a URL read from the function's inputs — those are destination endpoints
             (e.g. incoming webhook URLs) and may grant access to the destination.
         exclude_params:
+            - base_updated_at
             - _create_in_folder
             - batch_export_id
             - bytecode
@@ -220,8 +223,9 @@ tools:
         description: >
             Test-invoke a function with a mock event payload. Sends the function configuration and test data to the
             plugin server for execution and returns logs and status. Use 'mock_async_functions: true' (default) to
-            simulate external calls like fetch() without making real HTTP requests. To try config that is staged for
-            review, pass the 'draft' from cdp-functions-retrieve as the 'configuration' here.
+            simulate external calls like fetch() without making real HTTP requests. To test config that is staged for
+            review, pass 'use_draft: true' instead of a 'configuration' — staged secret inputs are used, so the test
+            exercises exactly what publishing would ship.
     cdp-functions-list:
         operation: hog_functions_list
         enabled: true
@@ -324,8 +328,9 @@ tools:
             change what is running. Name, description and enable/disable still apply immediately, except that enabling a
             function with staged config is refused until it is published or discarded. Tell the user what you staged and
             that they need to publish it; publish it yourself only when they ask, with cdp-functions-publish. Discard it
-            with cdp-functions-discard-draft. To try a staged config before publishing, pass the 'draft' you read back
-            from cdp-functions-retrieve as the 'configuration' to cdp-functions-invocations-create.
+            with cdp-functions-discard-draft. To test a staged config before publishing, call
+            cdp-functions-invocations-create with 'use_draft: true'. Optionally pass 'base_updated_at' (the
+            draft_updated_at or updated_at you last read) to fail with 409 instead of overwriting a concurrent edit.
         exclude_params:
             - _create_in_folder
             - batch_export_id

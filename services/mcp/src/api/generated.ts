@@ -33880,6 +33880,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly draft_updated_at: string | null;
+      /** Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally. */
+      base_updated_at?: string;
     }
 
     /**
@@ -33893,8 +33895,10 @@ export namespace Schemas {
     export type HogFunctionInvocationClickhouseEvent = { [key: string]: unknown };
 
     export interface HogFunctionInvocation {
-      /** Full function configuration to test. */
-      configuration: HogFunction;
+      /** Full function configuration to test. Omit when use_draft is true. */
+      configuration?: HogFunction;
+      /** Test the function's staged draft instead of passing a configuration. Staged secret inputs are used; secrets the draft doesn't change fall back to the live values. 400 when nothing is staged. */
+      use_draft?: boolean;
       /** Mock global variables available during test invocation. */
       globals?: HogFunctionInvocationGlobals;
       /** Mock ClickHouse event data to test the function with. */
@@ -49720,6 +49724,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly draft_updated_at?: string | null;
+      /** Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally. */
+      base_updated_at?: string;
     }
 
     /**

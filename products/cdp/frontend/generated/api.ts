@@ -244,7 +244,7 @@ export const getHogFunctionsInvocationsCreateUrl = (projectId: string, id: strin
 export const hogFunctionsInvocationsCreate = async (
     projectId: string,
     id: string,
-    hogFunctionInvocationApi: NonReadonly<HogFunctionInvocationApi>,
+    hogFunctionInvocationApi?: NonReadonly<HogFunctionInvocationApi>,
     options?: RequestInit
 ): Promise<HogFunctionInvocationApi> => {
     return apiMutator<HogFunctionInvocationApi>(getHogFunctionsInvocationsCreateUrl(projectId, id), {
