@@ -7,13 +7,13 @@ import pyarrow as pa
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldSelectConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     WebhookCreationResult,
     WebhookDeletionResult,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.constants import (
     CIO_API_SCHEMA_NAMES,
     CIO_WEBHOOK_SCHEMA_NAMES,

@@ -14,7 +14,8 @@ from posthog.models.team.team import Team
 from posthog.models.user import OnboardingSkippedReason
 from posthog.models.user_integration import UserIntegration
 
-from ee.api.agentic_provisioning import GITHUB_GRANT_CACHE_PREFIX, github_grants
+from ee.api.agentic_provisioning import github_grants
+from ee.api.agentic_provisioning.constants import GITHUB_GRANT_CACHE_PREFIX
 from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
 
 INSTALLATION_ID = "777"
@@ -178,7 +179,7 @@ class TestWizardResourceActions(ProvisioningTestBase):
         with (
             patch.object(GitHubIntegration, "first_for_team_repository", return_value=MagicMock()),
             patch(
-                "ee.api.agentic_provisioning.views.tasks_facade.create_wizard_cloud_run", return_value=created
+                "ee.api.agentic_provisioning.wizard.tasks_facade.create_wizard_cloud_run", return_value=created
             ) as mock_create,
         ):
             response = self._post_wizard_runs(self.team.id, {"repository": "octocat/hello-world", "branch": "main"})
@@ -209,7 +210,7 @@ class TestWizardResourceActions(ProvisioningTestBase):
         created = MagicMock(task_id="task-uuid", latest_run=None)
         with (
             patch.object(GitHubIntegration, "first_for_team_repository", return_value=MagicMock()),
-            patch("ee.api.agentic_provisioning.views.tasks_facade.create_wizard_cloud_run", return_value=created),
+            patch("ee.api.agentic_provisioning.wizard.tasks_facade.create_wizard_cloud_run", return_value=created),
         ):
             first = self._post_wizard_runs(self.team.id, {"repository": "octocat/one"})
             second = self._post_wizard_runs(self.team.id, {"repository": "octocat/two"})
@@ -225,7 +226,7 @@ class TestWizardResourceActions(ProvisioningTestBase):
         # so a grant for one installation can't report success for an unrelated owner/repo.
         with (
             patch.object(GitHubIntegration, "first_for_team_repository", return_value=None),
-            patch("ee.api.agentic_provisioning.views.tasks_facade.create_wizard_cloud_run") as mock_create,
+            patch("ee.api.agentic_provisioning.wizard.tasks_facade.create_wizard_cloud_run") as mock_create,
         ):
             response = self._post_wizard_runs(self.team.id, {"repository": "octocat/hello-world"})
         assert response.status_code == 400

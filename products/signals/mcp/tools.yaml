@@ -150,7 +150,10 @@ tools:
             are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each report's
             full work log — signal findings (evidence), judgments, and log entries — is readable via
             inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by
-            '-is_suggested_reviewer,status,-updated_at' by default.
+            '-is_suggested_reviewer,status,-updated_at' by default. To find the self-driving reports for one source
+            record — e.g. what the inbox already investigated for a specific support ticket — pass that record's id as
+            `source_id` together with exactly one `source_product` (for a support ticket: `source_product=conversations`
+            and the ticket's UUID as `source_id`); add `include_all_statuses=true` to include dismissed ones.
         agent_note:
             "If you do ANY work connected to one of these reports — even pure research or investigation — always first
             associate your task with it: call inbox-report-artefacts-create with artefact_type `task_run` and content {}

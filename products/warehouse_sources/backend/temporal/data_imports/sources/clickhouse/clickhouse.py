@@ -21,13 +21,14 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
-    DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     build_pyarrow_decimal_type,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     Column,
     Table,
@@ -40,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ValidatedRowFilter,
     render_named_conditions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
 
 # ClickHouse default ports
@@ -361,11 +363,18 @@ def get_schemas(
             params["names"] = tuple(names)
             names_filter = "AND table IN %(names)s"
 
+        # Skip ALIAS and EPHEMERAL columns. A native `SELECT *` never touches them, but our
+        # `SELECT *` expands to an explicit column list — so an ALIAS whose defining expression no
+        # longer resolves on the server (a dropped/renamed underlying column, or one the connecting
+        # user can't read) fails the whole query with UNKNOWN_IDENTIFIER (code 47), and EPHEMERAL
+        # columns aren't selectable at all. Ordinary, DEFAULT and MATERIALIZED columns hold real,
+        # selectable data and are kept.
         result = client.query(
             f"""
             SELECT table, name, type
             FROM system.columns
             WHERE database = %(database)s {names_filter}
+              AND default_kind NOT IN ('ALIAS', 'EPHEMERAL')
             ORDER BY table ASC, position ASC
             """,
             parameters=params,

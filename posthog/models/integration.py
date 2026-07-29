@@ -683,8 +683,10 @@ class OauthIntegration:
                 client_secret=settings.HUBSPOT_APP_CLIENT_SECRET,
                 scope="tickets crm.objects.contacts.write sales-email-read crm.objects.companies.read crm.objects.deals.read crm.objects.contacts.read crm.objects.quotes.read crm.objects.companies.write",
                 additional_authorize_params={
-                    # NOTE: these scopes are only available on certain hubspot plans and as such are optional
-                    "optional_scope": "analytics.behavioral_events.send behavioral_events.event_definitions.read_write"
+                    # NOTE: these scopes are only available on certain hubspot plans and as such are optional.
+                    # crm.objects.leads.read is Sales Hub Pro+/Enterprise only — requesting it as a
+                    # mandatory scope would fail the whole authorization for portals that lack it.
+                    "optional_scope": "analytics.behavioral_events.send behavioral_events.event_definitions.read_write crm.objects.leads.read"
                 },
                 id_path="hub_id",
                 name_path="hub_domain",

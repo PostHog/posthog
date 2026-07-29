@@ -13,6 +13,7 @@ import type {
     AppMetricsTotalsResponseApi,
     BlastRadiusApi,
     BlastRadiusRequestApi,
+    EmailSendingSuspensionStatusApi,
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowInvocationApi,
@@ -808,6 +809,25 @@ export const hogFlowsBulkDeleteCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(hogFlowApi),
+    })
+}
+
+export const getHogFlowsEmailSendingSuspensionRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_flows/email_sending_suspension/`
+}
+
+/**
+ * Cheap read for the scene-wide suspension banner: single-row `TeamWorkflowsConfig` lookup
+ * with no reputation computation. Every project member sees this — a suspension stops
+ * everyone's email, so hiding it would leave silent send failures unexplained.
+ */
+export const hogFlowsEmailSendingSuspensionRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<EmailSendingSuspensionStatusApi> => {
+    return apiMutator<EmailSendingSuspensionStatusApi>(getHogFlowsEmailSendingSuspensionRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
