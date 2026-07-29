@@ -262,8 +262,11 @@
     }
 }
 
-// Drop the viz padding so the Metric sparkline can bleed to the card edges.
-.InsightVizDisplay__content:has(.Metric) {
+// Drop the viz padding for displays that bleed to the card edges: the Metric sparkline, and the
+// results table, whose full-width header and row separators would otherwise stop short of the border.
+.InsightVizDisplay__content:has(.Metric),
+.InsightVizDisplay__content:has(.TrendsInsight--ActionsTable),
+.InsightVizDisplay__content:has(.InsightCard__viz--ActionsTable) {
     padding: 0;
 }
 

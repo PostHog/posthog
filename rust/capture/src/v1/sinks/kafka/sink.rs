@@ -24,8 +24,9 @@ use super::types::{KafkaResult, KafkaSinkError};
 use super::KafkaProducerTrait;
 
 /// Returns true when the partition key should be nulled — i.e. when person
-/// processing is force-disabled for Main/Overflow destinations, spreading
-/// load across partitions instead of hotspotting on a single key.
+/// processing is force-disabled for Main/Overflow-shaped destinations
+/// (including the AI lane's own overflow), spreading load across partitions
+/// instead of hotspotting on a single key.
 fn should_null_partition_key(
     force_disable_person_processing: bool,
     destination: &Destination,
@@ -33,7 +34,7 @@ fn should_null_partition_key(
     force_disable_person_processing
         && matches!(
             destination,
-            Destination::AnalyticsMain | Destination::Overflow
+            Destination::AnalyticsMain | Destination::Overflow | Destination::AiEventsOverflow
         )
 }
 
@@ -460,10 +461,13 @@ mod should_null_partition_key_tests {
     #[rstest]
     #[case::main_disabled(true, Destination::AnalyticsMain, true)]
     #[case::overflow_disabled(true, Destination::Overflow, true)]
+    #[case::ai_overflow_disabled(true, Destination::AiEventsOverflow, true)]
+    #[case::ai_disabled(true, Destination::AiEvents, false)]
     #[case::dlq_disabled(true, Destination::Dlq, false)]
     #[case::historical_disabled(true, Destination::AnalyticsHistorical, false)]
     #[case::custom_disabled(true, Destination::Custom("t".into()), false)]
     #[case::main_not_disabled(false, Destination::AnalyticsMain, false)]
+    #[case::ai_overflow_not_disabled(false, Destination::AiEventsOverflow, false)]
     fn policy(#[case] force_disable: bool, #[case] dest: Destination, #[case] expected: bool) {
         assert_eq!(should_null_partition_key(force_disable, &dest), expected);
     }

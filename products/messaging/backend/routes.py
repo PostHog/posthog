@@ -7,13 +7,13 @@ from products.messaging.backend.api.message_templates import MessageTemplatesVie
 
 
 def register_routes(routers: RouterRegistry) -> None:
-    routers.register_legacy_dual_route(
+    routers.projects.register(
         r"messaging_templates", MessageTemplatesViewSet, "project_messaging_templates", ["team_id"]
     )
-    routers.register_legacy_dual_route(
+    routers.projects.register(
         r"messaging_categories", MessageCategoryViewSet, "project_messaging_categories", ["team_id"]
     )
-    routers.register_legacy_dual_route(
+    routers.projects.register(
         r"messaging_preferences", MessagePreferencesViewSet, "project_messaging_preferences", ["team_id"]
     )
     # New endpoint — register under /api/projects/ only, not the dual-route legacy shim.

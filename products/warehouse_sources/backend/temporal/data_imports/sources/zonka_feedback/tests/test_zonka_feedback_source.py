@@ -6,7 +6,9 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ZonkaFeedbackSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zonkafeedback import (
+    ZonkaFeedbackSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.source import ZonkaFeedbackSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.zonka_feedback import (
@@ -156,6 +158,14 @@ class TestZonkaFeedbackSource:
         assert self.source.default_version == ZONKA_API_VERSION_V2_1
         assert self.source.resolve_api_version(None) == ZONKA_API_VERSION_V2_1
         assert self.source.resolve_api_version(ZONKA_API_VERSION_V1) == ZONKA_API_VERSION_V1
+
+    def test_v1_is_deprecated_without_sunset_and_v2_1_is_not(self) -> None:
+        # Zonka published no sunset date for its older API generation, so the legacy v1 label is
+        # flagged deprecated with sunset_at=None; the default v2.1 must never be deprecated.
+        deprecation = self.source.get_version_deprecation(ZONKA_API_VERSION_V1)
+        assert deprecation is not None
+        assert deprecation.sunset_at is None
+        assert self.source.get_version_deprecation(ZONKA_API_VERSION_V2_1) is None
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.zonka_feedback.source.zonka_feedback_source"

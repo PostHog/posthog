@@ -1,5 +1,10 @@
 DEFAULT_ACTIVITY_EVENT = {"kind": "EventsNode", "event": "$pageview", "name": "$pageview"}
 
+# Mirrors frontend `SLACK_ARCHIVES_ORIGIN` in accountLinksLogic.ts. PostHog-internal: hardcodes our
+# own workspace, so Slack links are wrong for any other team. Replace with the per-team workspace
+# URL (from the conversations bot's auth.test) before GA — see COMPROMISES.md.
+SLACK_ARCHIVES_ORIGIN = "https://posthog.slack.com/archives"
+
 # Mirrors frontend `FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP`.
 CUSTOMER_ANALYTICS_CSP_FLAG = "customer-analytics-csp"
 
@@ -32,3 +37,10 @@ CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES = [
 
 # Mirrors OPTION_COLOR_TOKENS in the frontend's customPropertyTypes.ts (DataColorToken presets).
 CUSTOM_PROPERTY_OPTION_COLORS = [f"preset-{i}" for i in range(1, 11)]
+
+# Bounds the fan-out so one create can't enqueue an unbounded Slack send loop.
+MAX_ANNOUNCEMENT_CHANNELS = 200
+
+DELIVERY_IN_FLIGHT_ERROR = "in_flight"
+DELIVERY_RATE_LIMIT_DEFERRED_ERROR = "rate_limited_deferred"
+DELIVERY_INTERRUPTED_ERROR = "interrupted before confirmation; the message may have been delivered"

@@ -15,6 +15,7 @@ from products.mcp_analytics.backend.hogql_queries.tool_quality_tables import (
 from products.mcp_analytics.backend.hogql_queries.tool_tables import (
     MCPToolDailyStatsQueryRunner,
     MCPToolDescriptionsQueryRunner,
+    MCPToolFailureOccurrencesQueryRunner,
     MCPToolFailuresQueryRunner,
     MCPToolNeighborsQueryRunner,
     MCPToolSampleIntentsQueryRunner,
@@ -28,6 +29,7 @@ __all__ = [
     "MCPToolCategoryCountsQueryRunner",
     "MCPToolDailyStatsQueryRunner",
     "MCPToolDescriptionsQueryRunner",
+    "MCPToolFailureOccurrencesQueryRunner",
     "MCPToolFailuresQueryRunner",
     "MCPToolNeighborsQueryRunner",
     "MCPToolQualityDailyStatsQueryRunner",

@@ -8,7 +8,7 @@ import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
-import { OnboardingStepKey, type SDK, SDKInstructionsMap, SDKTagOverrides } from '~/types'
+import { OnboardingStepKey, type SDK, SDKDocsLinkOverrides, SDKInstructionsMap, SDKTagOverrides } from '~/types'
 
 import { onboardingLogic, OnboardingStepComponentType } from '../../onboardingLogic'
 import { OnboardingStep } from '../../OnboardingStep'
@@ -25,6 +25,7 @@ import { WizardInstallStep } from './WizardInstallStep'
 
 interface OnboardingInstallStepProps {
     sdkInstructionMap: SDKInstructionsMap
+    sdkDocsLinkOverrides?: SDKDocsLinkOverrides
     sdkTagOverrides?: SDKTagOverrides
     listeningForName?: string
     teamPropertyToVerify?: string
@@ -39,14 +40,21 @@ interface OnboardingInstallStepProps {
  */
 export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstallStepProps> = ({
     sdkInstructionMap,
+    sdkDocsLinkOverrides,
     sdkTagOverrides,
     listeningForName = 'event',
     teamPropertyToVerify = 'ingested_event',
     hideInstallationCheck = false,
     header,
 }) => {
-    const { setAvailableSDKInstructionsMap, setSDKTagOverrides, selectSDK, setSearchTerm, setSelectedTag } =
-        useActions(sdksLogic)
+    const {
+        setAvailableSDKInstructionsMap,
+        setSDKDocsLinkOverrides,
+        setSDKTagOverrides,
+        selectSDK,
+        setSearchTerm,
+        setSelectedTag,
+    } = useActions(sdksLogic)
     const { filteredSDKs, selectedSDK, tags, searchTerm, selectedTag } = useValues(sdksLogic)
     const [instructionsModalOpen, setInstructionsModalOpen] = useState(false)
     const [mobileHandoffDismissed, setMobileHandoffDismissed] = useState(false)
@@ -73,9 +81,17 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     const showMobileHandoff = isMobileHandoffTest && isMobile() && !mobileHandoffDismissed
 
     useEffect(() => {
+        setSDKDocsLinkOverrides(sdkDocsLinkOverrides ?? {})
         setSDKTagOverrides(sdkTagOverrides ?? {})
         setAvailableSDKInstructionsMap(sdkInstructionMap)
-    }, [sdkInstructionMap, sdkTagOverrides, setAvailableSDKInstructionsMap, setSDKTagOverrides])
+    }, [
+        sdkDocsLinkOverrides,
+        sdkInstructionMap,
+        sdkTagOverrides,
+        setAvailableSDKInstructionsMap,
+        setSDKDocsLinkOverrides,
+        setSDKTagOverrides,
+    ])
 
     // Captures the funnel-close event when desktop arrives via a `?handoff=mobile`
     // share link, then strips the param so refreshes / back-nav don't re-capture.

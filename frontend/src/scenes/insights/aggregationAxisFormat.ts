@@ -3,7 +3,13 @@ import posthog from 'posthog-js'
 import { LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
 import { formatCurrency } from 'lib/utils/currency'
 import { humanFriendlyDuration } from 'lib/utils/durations'
-import { compactNumber, humanFriendlyCurrency, humanFriendlyNumber, percentage } from 'lib/utils/numbers'
+import {
+    compactNumber,
+    humanFriendlyCurrency,
+    humanFriendlyNumber,
+    percentage,
+    significantDecimalPlaces,
+} from 'lib/utils/numbers'
 
 import { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general'
 import { ChartDisplayType, TrendsFilterType } from '~/types'
@@ -84,7 +90,11 @@ export const formatAggregationAxisValue = (
     const aggregationAxisPostfix =
         (trendsFilter as TrendsFilter)?.aggregationAxisPostfix ??
         (trendsFilter as Partial<TrendsFilterType>)?.aggregation_axis_postfix
-    let formattedValue = humanFriendlyNumber(value, maxDecimalPlaces, minDecimalPlaces)
+    let formattedValue = humanFriendlyNumber(
+        value,
+        maxDecimalPlaces ?? significantDecimalPlaces(value, minDecimalPlaces),
+        minDecimalPlaces
+    )
     if (aggregationAxisFormat) {
         switch (aggregationAxisFormat) {
             case 'duration':
@@ -97,10 +107,16 @@ export const formatAggregationAxisValue = (
                 formattedValue = formatNanoseconds(value)
                 break
             case 'percentage':
-                formattedValue = percentage(value / 100, maxDecimalPlaces)
+                formattedValue = percentage(
+                    value / 100,
+                    maxDecimalPlaces ?? significantDecimalPlaces(value, minDecimalPlaces)
+                )
                 break
             case 'percentage_scaled':
-                formattedValue = percentage(value, maxDecimalPlaces)
+                formattedValue = percentage(
+                    value,
+                    maxDecimalPlaces ?? significantDecimalPlaces(value * 100, minDecimalPlaces)
+                )
                 break
             case 'currency':
                 // In the rare case where we get an error because we have an invalid currency code

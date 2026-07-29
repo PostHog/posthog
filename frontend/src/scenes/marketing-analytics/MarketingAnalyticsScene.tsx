@@ -25,6 +25,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
+import { LegacyOAuthReconnectBanner } from '../web-analytics/tabs/marketing-analytics/frontend/components/LegacyOAuthReconnectBanner'
 import { MarketingAnalyticsFilters } from '../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
 import { MarketingAnalyticsSourceStatusBanner } from '../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
 import {
@@ -191,6 +192,7 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
     return (
         <>
             {feedbackBanner}
+            <LegacyOAuthReconnectBanner />
             <MarketingAnalyticsSourceStatusBanner />
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-x-4 gap-y-12">
                 {marketingTiles?.map((tile, i) => (

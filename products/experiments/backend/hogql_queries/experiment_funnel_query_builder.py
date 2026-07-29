@@ -937,8 +937,10 @@ class FunnelQueryBuilder:
     def build_maturity_having_clause_optimized(self) -> Optional[ast.Expr]:
         """
         Maturity HAVING clause for the optimized path.
-        Uses maxIf to only consider exposure events (step_0 = 1) for maturity,
-        since entity_metrics groups over all events, not just exposures.
+        Uses minIf to anchor maturity on the user's first exposure (step_0 = 1),
+        matching how the variant is assigned (argMinIf on first exposure). Anchoring
+        on the last exposure would keep resetting the window for flags re-evaluated
+        repeatedly (e.g. backend flags), so active users would never mature.
         """
         if self._b.metric is None:
             return None
@@ -951,7 +953,7 @@ class FunnelQueryBuilder:
 
         now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
         return parse_expr(
-            "maxIf(timestamp, step_0 = 1) + toIntervalSecond({maturity_seconds}) <= toDateTime({now}, 'UTC')",
+            "minIf(timestamp, step_0 = 1) + toIntervalSecond({maturity_seconds}) <= toDateTime({now}, 'UTC')",
             placeholders={
                 "maturity_seconds": ast.Constant(value=maturity_seconds),
                 "now": ast.Constant(value=now),

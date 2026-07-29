@@ -1,13 +1,20 @@
 //! Best-effort, fire-and-forget emission of ingestion warnings to Kafka.
 //!
-//! Producers (capture today; other Rust services later, see [`WarningSource`])
-//! call [`WarningEmitter::emit`] with the offending event's API token, a
-//! source, a registered [`WarningType`], and caller context; the emitter
-//! throttles per `(token, type)`, builds a `$$client_ingestion_warning`
-//! [`common_types::CapturedEvent`] envelope, and enqueues it to a producer
-//! without ever awaiting delivery. Everything fails open: a throttled,
-//! unserializable, or unenqueueable warning is counted and dropped — the
-//! caller's hot path is never blocked or failed.
+//! Two transports share the registry ([`WarningType`], generated from the
+//! Node.js source of truth) and one builder ([`serializer::Warning`]):
+//! services that only know API tokens (capture) commit via
+//! [`serializer::Warning::into_event_envelope`], and services that know `team_id`
+//! (personhog leader/writer) commit the terminal row via
+//! [`serializer::Warning::into_row`]. See `serializer.rs` for the
+//! field-by-field correspondence and the trust rationale.
+//!
+//! Envelope producers call [`WarningEmitter::emit`] with the offending
+//! event's API token, a source, a registered [`WarningType`], and caller
+//! context; the emitter throttles per `(token, type)`, builds a
+//! `$$client_ingestion_warning` [`common_types::CapturedEvent`] envelope,
+//! and enqueues it to a producer without ever awaiting delivery. Everything
+//! fails open: a throttled, unserializable, or unenqueueable warning is
+//! counted and dropped — the caller's hot path is never blocked or failed.
 //!
 //! The producer is a `common_kafka` `ThreadedProducer` (built by
 //! [`common_kafka::kafka_producer::create_threaded_kafka_producer`]) rather
@@ -32,7 +39,6 @@ pub mod throttle;
 
 use std::time::Duration;
 
-use chrono::Utc;
 use common_kafka::kafka_producer::ThreadedKafkaContext;
 use metrics::{counter, gauge};
 use rdkafka::error::KafkaError;
@@ -58,6 +64,18 @@ pub const INGESTION_WARNINGS_TOTAL: &str = "ingestion_warnings_total";
 /// on each sweep. The early-warning signal for the cardinality cap.
 pub const INGESTION_WARNINGS_THROTTLE_KEYS: &str = "ingestion_warnings_throttle_keys";
 
+/// Gauge reporting whether a process that *wants* an emitter actually built
+/// one: `1` healthy, `0` enabled-but-failed. Deliberately unset when warnings
+/// are disabled, because otherwise a misconfigured pod reporting `0` would be
+/// indistinguishable from an intentionally quiet one. Absence means "off",
+/// `0` means "broken".
+///
+/// Emitter construction is one-shot (`create_threaded_kafka_producer` fetches
+/// metadata once, with no retry), so a broker blip at boot mutes that process
+/// for its entire life. The only other symptom is lower-than-expected warning
+/// volume, which is unobservable without a baseline. Alert on `min() == 0`.
+pub const INGESTION_WARNINGS_EMITTER_ENABLED: &str = "ingestion_warnings_emitter_enabled";
+
 /// Identifies which service — and which code path within it — produced a
 /// warning.
 ///
@@ -65,17 +83,22 @@ pub const INGESTION_WARNINGS_THROTTLE_KEYS: &str = "ingestion_warnings_throttle_
 /// `source` metric label) and must be a value a reader of the ClickHouse
 /// table can rely on; `path` is metric-only, for attributing volume to a
 /// specific emit site within one service (e.g. `v1_analytics` vs `legacy`)
-/// without inflating the message schema.
+/// without inflating the message schema; `pipeline_step` is stamped into the
+/// warning's details as `pipelineStep` — a producer-declared value, since
+/// which stage a warning comes from is a property of the emit site, not of
+/// the warning type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WarningSource {
     pub service: &'static str,
     pub path: &'static str,
+    pub pipeline_step: &'static str,
 }
 
 /// Capture's v1 analytics validation pipeline (`rust/capture/src/v1/analytics`).
 pub const CAPTURE_V1_ANALYTICS: WarningSource = WarningSource {
     service: serializer::SOURCE_CAPTURE,
     path: "v1_analytics",
+    pipeline_step: "capture_validation",
 };
 
 /// Sink-agnostic emitter seam. The Kafka implementation is
@@ -177,15 +200,13 @@ impl WarningEmitter for KafkaWarningEmitter {
             }
         }
 
-        let serialized = serializer::build_warning_event(
-            &token,
-            source,
-            warning,
-            extra_details,
-            count,
-            Utc::now(),
-        )
-        .and_then(|event| serde_json::to_vec(&event).map(|payload| (payload, event.to_headers())));
+        let serialized = serializer::Warning::new(warning)
+            .with_details(extra_details)
+            .with_count(count)
+            .into_event_envelope(&token, source)
+            .and_then(|event| {
+                serde_json::to_vec(&event).map(|payload| (payload, event.to_headers()))
+            });
 
         let (payload, headers) = match serialized {
             Ok((payload, headers)) => (payload, OwnedHeaders::from(headers)),

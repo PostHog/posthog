@@ -16,7 +16,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk.source import ChargedeskSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ChargedeskSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chargedesk import (
+    ChargedeskSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

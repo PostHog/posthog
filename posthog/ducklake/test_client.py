@@ -5,7 +5,19 @@ from psycopg import sql as psql
 
 from posthog.schema import HogQLQuery, HogQLVariable
 
+from posthog.ducklake import cp_teams
 from posthog.ducklake.client import _SEARCH_PATH_SCHEMAS, compile_hogql_to_ducklake_sql, execute_ducklake_query
+
+
+@pytest.fixture(autouse=True)
+def _cp_no_rows():
+    # Compilation binds source tables via the team's control-plane row; serve the
+    # no-row (legacy team-id schema) shape so these tests stay CP-independent.
+    cp_teams.clear_cache()
+    with mock.patch("posthog.ducklake.cp_teams._fetch_org_rows", return_value=[]):
+        yield
+    cp_teams.clear_cache()
+
 
 pytestmark = [pytest.mark.django_db]
 

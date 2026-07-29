@@ -35,7 +35,7 @@ def json_safe_rows(rows: Sequence[Sequence[Any]]) -> list[list[Any]]:
 
 def from_columns_and_rows(
     columns: list[str],
-    rows: list[tuple[Any, ...]],
+    rows: Sequence[Sequence[Any]],
     types: list[list[str]] | None = None,
     has_more: bool = False,
 ) -> dict[str, Any]:

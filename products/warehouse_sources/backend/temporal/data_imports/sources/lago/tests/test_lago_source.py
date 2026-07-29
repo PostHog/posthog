@@ -4,7 +4,7 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LagoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lago import LagoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.lago.lago import LagoResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.lago.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.lago.source import LagoSource

@@ -105,6 +105,14 @@ export interface PrepareConfirmedActionResult {
     next_steps: string
 }
 
+export function isPrepareConfirmedActionResult(value: unknown): value is PrepareConfirmedActionResult {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+        return false
+    }
+    const candidate = value as Partial<PrepareConfirmedActionResult>
+    return typeof candidate.confirmation_hash === 'string' && candidate.confirmation_word === CONFIRMATION_WORD
+}
+
 /**
  * Run at the top of a `-prepare` tool's handler. Signs the args into a
  * hash and returns the payload the model relays to the user.

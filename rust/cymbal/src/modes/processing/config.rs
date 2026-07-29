@@ -129,6 +129,18 @@ pub struct ProcessingConfig {
     #[envconfig(from = "ISSUE_BUCKETS_REDIS_URL", default = "redis://localhost:6379/")]
     pub issue_buckets_redis_url: String,
 
+    #[envconfig(
+        from = "ERROR_TRACKING_EVENT_PROPERTIES_TTL_SECONDS",
+        default = "172800"
+    )]
+    pub event_properties_ttl_seconds: u64,
+
+    #[envconfig(
+        from = "ERROR_TRACKING_EVENT_PROPERTIES_MAX_BYTES",
+        default = "1048576"
+    )]
+    pub event_properties_max_bytes: usize,
+
     #[envconfig(default = "100")]
     pub redis_response_timeout_ms: u64,
 

@@ -128,15 +128,38 @@ VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES = {
         # explicit_datetime_to is always optional — the existing `{explicit_datetime}` entry
         # already accepts the both-set case since the validator uses "all required keys present".
         {"explicit_datetime"},
+        # Realtime-compiled unbounded condition ("did this person ever do X"): the cohort
+        # backend compiles bytecode/conditionHash from event_type/event_filters regardless
+        # of whether a time bound is present, so a leaf carrying compiled bytecode but no
+        # time window is a deliberately unbounded condition, not a malformed one. A related
+        # (stricter, unconditional) requirement for these two fields lives in
+        # products/cohorts/backend/parity/eligibility.py::_classify_behavioral and its Rust
+        # source of truth rust/cohort-core/src/filters/leaf_classifier.rs — those answer a
+        # different question (is this leaf eligible for realtime precompute) and intentionally
+        # still require a time window there.
+        {"conditionHash", "bytecode"},
     ],
     BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE: [
         {"time_value", "time_interval"},
         {"explicit_datetime"},
+        {"conditionHash", "bytecode"},
     ],
     BehavioralPropertyType.PERFORMED_EVENT_FIRST_TIME: [
         {"time_value", "time_interval"},
         {"explicit_datetime"},
     ],
+}
+
+# Behavioral `value`s that don't match BehavioralPropertyType's enum value but are
+# produced by cohort filter generators and are equivalent for validation purposes.
+# Keyed by the raw stored value string; resolves to the canonical type whose
+# VALIDATE_BEHAVIORAL_PROP_TYPES / VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES rules apply.
+# `Property.__init__` normalizes `self.value` to this canonical string once validation
+# passes, so downstream consumers that compare `prop.value` against the canonical
+# BehavioralPropertyType strings (e.g. HogQLCohortQuery._get_condition_for_property)
+# don't each need their own alias awareness.
+BEHAVIORAL_VALUE_ALIASES: dict[str, BehavioralPropertyType] = {
+    "performed_event_multiple_times": BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE,
 }
 
 VALIDATE_BEHAVIORAL_PROP_TYPES = {
@@ -196,6 +219,13 @@ VALIDATE_BEHAVIORAL_PROP_TYPES = {
         "seq_time_interval",
     ],
 }
+
+
+class PropertyValidationError(ValueError):
+    """Every failure to construct a valid Property from prop_params raises this (a
+    ValueError subclass, so existing `except ValueError` callers are unaffected) — one
+    owned type callers can catch, instead of having to discover each new internal raise
+    site (e.g. via validate_group_type_index) by reading Property.__init__'s source."""
 
 
 class Property:
@@ -276,6 +306,11 @@ class Property:
         self.key = key
         self.operator = operator
         self.type = type if type else "event"
+        # Left unwrapped (a DRF ValidationError, not PropertyValidationError): callers that
+        # construct Property() directly inside serializer validation (e.g. feature_flag.py's
+        # validate_filters) rely on DRF recognizing this exception type to turn it into a 400.
+        # _parse_properties, the one caller that needs report-and-skip for this, catches it
+        # explicitly alongside PropertyValidationError.
         self.group_type_index = validate_group_type_index("group_type_index", group_type_index)
         self.event_type = event_type
         self.operator_value = operator_value
@@ -299,34 +334,47 @@ class Property:
         elif self.type == "hogql":
             pass  # keep value as None
         elif value is None:
-            raise ValueError(f"Value must be set for property type {self.type} & operator {self.operator}")
+            raise PropertyValidationError(f"Value must be set for property type {self.type} & operator {self.operator}")
         else:
             self.value = value
 
         if self.type not in VALIDATE_PROP_TYPES.keys():
-            raise ValueError(f"Invalid property type: {self.type}")
+            raise PropertyValidationError(f"Invalid property type: {self.type}")
 
         for attr in VALIDATE_PROP_TYPES[self.type]:
             if getattr(self, attr, None) is None:
-                raise ValueError(f"Missing required attr {attr} for property type {self.type} with key {self.key}")
+                raise PropertyValidationError(
+                    f"Missing required attr {attr} for property type {self.type} with key {self.key}"
+                )
 
         if self.type == "behavioral":
-            for attr in VALIDATE_BEHAVIORAL_PROP_TYPES[cast(BehavioralPropertyType, self.value)]:
-                if getattr(self, attr, None) is None:
-                    raise ValueError(f"Missing required attr {attr} for property type {self.type}::{self.value}")
+            behavioral_value = BEHAVIORAL_VALUE_ALIASES.get(
+                cast(str, self.value), cast(BehavioralPropertyType, self.value)
+            )
+            required_attrs = VALIDATE_BEHAVIORAL_PROP_TYPES.get(behavioral_value)
+            if required_attrs is None:
+                raise PropertyValidationError(f"Invalid behavioral value: {self.value}")
 
-            if cast(BehavioralPropertyType, self.value) in VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES:
+            for attr in required_attrs:
+                if getattr(self, attr, None) is None:
+                    raise PropertyValidationError(
+                        f"Missing required attr {attr} for property type {self.type}::{self.value}"
+                    )
+
+            if behavioral_value in VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES:
                 matches_attr_list = False
-                condition_list = VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES[cast(BehavioralPropertyType, self.value)]
+                condition_list = VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES[behavioral_value]
                 for attr_list in condition_list:
                     if all(getattr(self, attr, None) is not None for attr in attr_list):
                         matches_attr_list = True
                         break
 
                 if not matches_attr_list:
-                    raise ValueError(
+                    raise PropertyValidationError(
                         f"Missing required parameters, atleast one of values ({'), ('.join([' & '.join(condition) for condition in condition_list])}) for property type {self.type}::{self.value}"
                     )
+
+            self.value = behavioral_value
 
     def __repr__(self):
         params_repr = ", ".join(f"{key}={repr(value)}" for key, value in self.to_dict().items())

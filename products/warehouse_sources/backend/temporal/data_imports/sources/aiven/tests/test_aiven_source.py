@@ -7,7 +7,7 @@ from posthog.schema import SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.aiven import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.aiven.settings import AIVEN_ENDPOINTS, ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.aiven.source import AivenSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AivenSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.aiven import AivenSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

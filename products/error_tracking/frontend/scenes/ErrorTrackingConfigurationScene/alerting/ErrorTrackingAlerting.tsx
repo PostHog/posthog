@@ -31,6 +31,7 @@ export function ErrorTrackingAlerting(): JSX.Element {
         subTemplateIds: ERROR_TRACKING_SUB_TEMPLATE_IDS,
         triggers: ERROR_TRACKING_TRIGGERS,
         destinations: ERROR_TRACKING_DESTINATIONS,
+        contextId: 'error-tracking',
     }
 
     return (

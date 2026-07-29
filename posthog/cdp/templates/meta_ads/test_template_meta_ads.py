@@ -1,5 +1,36 @@
+import re
+
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+
+from posthog.hogql.compiler.bytecode import create_bytecode
+from posthog.hogql.parser import parse_string_template
+
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.meta_ads.template_meta_ads import template as template_meta_ads
+
+from common.hogvm.python.execute import execute_bytecode
+
+
+class TestMetaAdsFbcDefault(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("clean_fbclid", {"fbclid": "IwAR2F4-dbP0l7Mn1"}, r"fb\.1\.\d+\.IwAR2F4-dbP0l7Mn1"),
+            ("initial_fallback", {"$initial_fbclid": "AbC_123-x"}, r"fb\.1\.\d+\.AbC_123-x"),
+            # a full _fbc cookie value stored in the property must pass through, not get wrapped again
+            ("full_fbc_cookie", {"fbclid": "fb.1.1752830400000.IwAR123"}, r"fb\.1\.1752830400000\.IwAR123"),
+            # values Meta would reject (subcode 2804001) are skipped rather than sent
+            ("url_encoded_junk", {"fbclid": "IwAR%3D123 456"}, r""),
+            ("prefixed_but_malformed", {"fbclid": "fb.junk"}, r""),
+            ("missing_fbclid", {}, r""),
+        ]
+    )
+    def test_fbc_default_expression(self, _name, person_properties, expected_pattern):
+        expr = next(i for i in template_meta_ads.inputs_schema if i["key"] == "userData")["default"]["fbc"]
+        bytecode = create_bytecode(parse_string_template(expr)).bytecode
+        result = execute_bytecode(bytecode, {"person": {"properties": person_properties}}).result
+        assert re.fullmatch(expected_pattern, result), f"got {result!r}"
 
 
 class TestTemplateMetaAds(BaseHogFunctionTemplateTest):

@@ -8,7 +8,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.c
 from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.charthop.source import ChartHopSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ChartHopSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.charthop import (
+    ChartHopSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 CHECK_ACCESS_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.charthop.source.check_access"
@@ -22,6 +24,11 @@ class TestChartHopSource:
 
     def test_source_type(self) -> None:
         assert self.source.source_type == ExternalDataSourceType.CHARTHOP
+
+    def test_version_declaration_defaults_to_v2(self) -> None:
+        # New sources are stamped with default_version; v1 stays supported for existing pins.
+        assert self.source.supported_versions == ("v1", "v2")
+        assert self.source.default_version == "v2"
 
     def test_org_id_is_a_connection_host_field(self) -> None:
         # Changing org_id must force the api_key to be re-entered, so the stored token is
@@ -141,10 +148,16 @@ class TestChartHopSource:
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is ChartHopResumeConfig
 
+    @parameterized.expand([("unpinned", None, "v2"), ("legacy", "v1", "v1"), ("v2", "v2", "v2")])
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.charthop.source.resolve_org_id")
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.charthop.source.charthop_source")
     def test_source_for_pipeline_plumbs_arguments(
-        self, mock_charthop_source: mock.MagicMock, mock_resolve: mock.MagicMock
+        self,
+        _name: str,
+        pin: str | None,
+        expected_version: str,
+        mock_charthop_source: mock.MagicMock,
+        mock_resolve: mock.MagicMock,
     ) -> None:
         mock_resolve.return_value = "org-42"
         inputs = mock.MagicMock()
@@ -153,6 +166,7 @@ class TestChartHopSource:
         inputs.job_id = "job-1"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2026-01-01"
+        inputs.api_version = pin
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -167,3 +181,14 @@ class TestChartHopSource:
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01"
+        # An unpinned source resolves to default_version so its sync path matches new rows.
+        assert kwargs["api_version"] == expected_version
+
+    @parameterized.expand([("unpinned", None, "v2"), ("legacy", "v1", "v1")])
+    @mock.patch(CHECK_ACCESS_PATH)
+    def test_validate_credentials_probes_under_resolved_version(
+        self, _name: str, pin: str | None, expected_version: str, mock_check: mock.MagicMock
+    ) -> None:
+        mock_check.return_value = (200, None)
+        self.source.validate_credentials(self.config, self.team_id, schema_name="changes", api_version=pin)
+        assert mock_check.call_args.args == ("charthop-token", None, "changes", expected_version)

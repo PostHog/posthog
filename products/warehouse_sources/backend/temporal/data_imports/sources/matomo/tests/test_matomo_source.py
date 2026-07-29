@@ -4,7 +4,7 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MatomoSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.matomo import MatomoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.matomo import MatomoResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.settings import (
     ENDPOINTS,

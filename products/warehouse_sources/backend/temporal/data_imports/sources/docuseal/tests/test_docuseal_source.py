@@ -17,7 +17,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.docuseal i
 from products.warehouse_sources.backend.temporal.data_imports.sources.docuseal.docuseal import DocusealResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.docuseal.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.docuseal.source import DocusealSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DocusealSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.docuseal import (
+    DocusealSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

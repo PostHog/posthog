@@ -2,7 +2,7 @@ import pytest
 
 import orjson
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import _webhook_table_transformer
 
 

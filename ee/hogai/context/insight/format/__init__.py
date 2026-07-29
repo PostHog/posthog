@@ -20,10 +20,6 @@ from posthog.schema import (
     LifecycleQuery,
     PathsQuery,
     RetentionQuery,
-    RevenueAnalyticsGrossRevenueQuery,
-    RevenueAnalyticsMetricsQuery,
-    RevenueAnalyticsMRRQuery,
-    RevenueAnalyticsTopCustomersQuery,
     StickinessQuery,
     TrendsQuery,
 )
@@ -33,12 +29,6 @@ from .funnel import FunnelResultsFormatter
 from .lifecycle import LifecycleResultsFormatter
 from .paths import PathsResultsFormatter
 from .retention import RetentionResultsFormatter
-from .revenue_analytics import (
-    RevenueAnalyticsGrossRevenueResultsFormatter,
-    RevenueAnalyticsMetricsResultsFormatter,
-    RevenueAnalyticsMRRResultsFormatter,
-    RevenueAnalyticsTopCustomersResultsFormatter,
-)
 from .sql import TRUNCATED_MARKER, SQLResultsFormatter
 from .stickiness import StickinessResultsFormatter
 from .trends import TrendsResultsFormatter
@@ -122,14 +112,6 @@ def format_query_results_for_llm(
         formatted = RetentionResultsFormatter(query, response["results"]).format()
     elif isinstance(query, AssistantHogQLQuery | HogQLQuery):
         formatted = SQLResultsFormatter(query, response["results"], response["columns"]).format()
-    elif isinstance(query, RevenueAnalyticsGrossRevenueQuery):
-        formatted = RevenueAnalyticsGrossRevenueResultsFormatter(query, response["results"]).format()
-    elif isinstance(query, RevenueAnalyticsMetricsQuery):
-        formatted = RevenueAnalyticsMetricsResultsFormatter(query, response["results"]).format()
-    elif isinstance(query, RevenueAnalyticsMRRQuery):
-        formatted = RevenueAnalyticsMRRResultsFormatter(query, response["results"]).format()
-    elif isinstance(query, RevenueAnalyticsTopCustomersQuery):
-        formatted = RevenueAnalyticsTopCustomersResultsFormatter(query, response["results"]).format()
 
     if formatted is None:
         return None
@@ -146,10 +128,6 @@ __all__ = [
     "SQLResultsFormatter",
     "StickinessResultsFormatter",
     "TrendsResultsFormatter",
-    "RevenueAnalyticsGrossRevenueResultsFormatter",
-    "RevenueAnalyticsMetricsResultsFormatter",
-    "RevenueAnalyticsMRRResultsFormatter",
-    "RevenueAnalyticsTopCustomersResultsFormatter",
     "TRUNCATED_MARKER",
     "format_access_control_warnings",
     "format_query_results_for_llm",

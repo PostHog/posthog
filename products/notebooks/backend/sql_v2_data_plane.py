@@ -37,6 +37,7 @@ from posthog.models import Team, User
 from products.notebooks.backend import frame_store
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.sql_v2 import verify_data_plane_token
+from products.notebooks.backend.sql_v2_direct import apply_page_bounds
 from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2DataPlaneRequestSerializer
 
 logger = structlog.get_logger(__name__)
@@ -138,14 +139,7 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
     except ExposedHogQLError as exc:
         return JsonResponse({"error": str(exc)}, status=400)
 
-    # Wrap rather than mutate the user's query: the outer LIMIT/OFFSET caps the page
-    # regardless of the query's own shape (set queries, its own LIMIT, etc.).
-    # The inner query is validated HogQL (parsed above) and the wrapper is re-parsed as HogQL
-    # downstream, so there is no raw-SQL injection; limit/offset are int()-cast.
-    # The newline before the closing paren keeps a trailing line comment (`-- …`) in the
-    # user's query from swallowing the wrapper.
-    # nosemgrep: semgrep.rules.security.hogql-fstring-audit
-    wrapped = f"select * from ({data['query']}\n) limit {int(data['limit'])} offset {int(data['offset'])}"
+    bounded = apply_page_bounds(data["query"], limit=data["limit"], offset=data["offset"])
 
     if data["delivery"] == "object":
         if frame_store.is_enabled():
@@ -163,7 +157,7 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
                         team=team,
                         user_id=user.id if user else None,
                         notebook_short_id=notebook_short_id,
-                        query=wrapped,
+                        query=bounded,
                         _test_only_inline=settings.TEST,
                     )
             except Exception:
@@ -186,7 +180,7 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
             status = enqueue_process_query_task(
                 team=team,
                 user_id=user.id if user else None,
-                query_json={"kind": "HogQLQuery", "query": wrapped},
+                query_json={"kind": "HogQLQuery", "query": bounded},
                 # Dispatch normally rides transaction.on_commit, which never fires inside
                 # a test transaction — run inline there, like the manager's own tests do.
                 _test_only_bypass_celery=settings.TEST,

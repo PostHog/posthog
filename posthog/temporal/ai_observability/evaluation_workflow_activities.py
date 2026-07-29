@@ -10,7 +10,7 @@ import structlog
 import temporalio
 from structlog.contextvars import bind_contextvars
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_llm_judge import DEFAULT_JUDGE_MODEL
@@ -92,27 +92,6 @@ async def update_key_state_activity(key_id: str, state: str, error_message: str 
             logger.warning("Tried to update state for non-existent key", key_id=key_id)
 
     await database_sync_to_async(_update)()
-
-
-@dataclass
-class SendTrialUsageEmailInputs:
-    team_id: int
-    threshold_pct: int
-
-
-@temporalio.activity.defn
-async def increment_trial_eval_count_activity(team_id: int) -> int | None:
-    """No-op stub kept registered so evaluation runs started on the previous release can finish
-    during the rollout. Returning None means no usage email follows. The follow-up column-drop PR
-    deletes it."""
-    return None
-
-
-@temporalio.activity.defn
-async def send_trial_usage_email_activity(inputs: SendTrialUsageEmailInputs) -> None:
-    """No-op stub kept registered so evaluation runs started on the previous release can finish
-    during the rollout. The follow-up column-drop PR deletes it."""
-    return None
 
 
 @temporalio.activity.defn
@@ -274,11 +253,12 @@ def build_evaluation_event_properties(
         properties["$ai_evaluation_key_id"] = result.get("key_id")
 
     if result["result_type"] == "sentiment":
-        properties["$ai_sentiment_label"] = result.get("sentiment_label")
-        properties["$ai_sentiment_score"] = result.get("sentiment_score")
-        properties["$ai_sentiment_scores"] = result.get("sentiment_scores")
-        properties["$ai_sentiment_messages"] = result.get("sentiment_messages")
-        properties["$ai_sentiment_message_count"] = result.get("sentiment_message_count")
+        if not result.get("skipped"):
+            properties["$ai_sentiment_label"] = result.get("sentiment_label")
+            properties["$ai_sentiment_score"] = result.get("sentiment_score")
+            properties["$ai_sentiment_scores"] = result.get("sentiment_scores")
+            properties["$ai_sentiment_messages"] = result.get("sentiment_messages")
+            properties["$ai_sentiment_message_count"] = result.get("sentiment_message_count")
     else:
         properties["$ai_evaluation_allows_na"] = allows_na
         if allows_na:
@@ -345,6 +325,13 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()
         increment_emit_event_outcome("success")
+    except CaptureInternalError as e:
+        if e.is_billing_limit_exceeded:
+            increment_emit_event_outcome("dropped_billing_limited")
+            logger.info("Skipping eval event emission; team over billing quota", team_id=event_data["team_id"])
+            return
+        increment_emit_event_outcome("failed")
+        raise
     except Exception:
         increment_emit_event_outcome("failed")
         raise

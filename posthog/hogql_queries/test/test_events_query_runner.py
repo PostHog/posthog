@@ -133,6 +133,32 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual({"p_true", "p_false"}, {row[0]["distinct_id"] for row in results})
 
+    def test_star_select_tolerates_non_string_session_id(self):
+        # Malformed SDK payloads can send $session_id as a dict/list/number. The session-recording
+        # batch check used to `set.add(session_id)` it, raising `TypeError: unhashable type` and 500ing
+        # the whole explore query. A valid string session must still be processed; bad ones are skipped.
+        self._create_events(
+            data=[
+                ("good", "2020-01-11T12:00:01Z", {"$session_id": "0190-good-session"}),
+                ("dict", "2020-01-11T12:00:02Z", {"$session_id": {"bytes": {"0": 1}}}),
+                ("list", "2020-01-11T12:00:03Z", {"$session_id": [1, 2, 3]}),
+                ("int", "2020-01-11T12:00:04Z", {"$session_id": 12345}),
+            ]
+        )
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-11T12:01:00"):
+            query = EventsQuery(kind="EventsQuery", after="-24h", orderBy=["timestamp ASC"], select=["*"])
+            response = EventsQueryRunner(query=query, team=self.team).run()
+
+        assert isinstance(response, CachedEventsQueryResponse)
+        by_distinct_id = {row[0]["distinct_id"]: row[0]["properties"] for row in response.results}
+        assert set(by_distinct_id) == {"good", "dict", "list", "int"}
+        # String session id is checked for a recording (none exists, so False); non-string ones are skipped.
+        assert by_distinct_id["good"]["$has_recording"] is False
+        for distinct_id in ("dict", "list", "int"):
+            assert "$has_recording" not in by_distinct_id[distinct_id]
+
     def test_person_id_expands_to_distinct_ids(self):
         _create_person(
             team_id=self.team.pk,

@@ -10,7 +10,7 @@ touches ``DataWarehouseTable`` / schema rows, so it is data_warehouse-domain and
 from abc import ABC, abstractmethod
 from typing import Any
 
-from products.data_warehouse.backend.github_warehouse_repos import (
+from products.warehouse_sources.backend.facade.api import (
     github_repositories_for_job_inputs,
     reconcile_github_repositories,
 )

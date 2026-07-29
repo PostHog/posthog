@@ -19,6 +19,9 @@ use metrics::counter;
 use serde::{Deserialize, Serialize};
 
 use cohort_core::seed::RunId;
+// Hoisted to the shared seed contract so the seeder's marker watcher and this producer agree on the
+// wire bytes; re-exported here so processor call sites keep their `crate::producer` import path.
+pub use cohort_core::seed::ReconcileCompleteMarker;
 
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::CohortId;
@@ -60,6 +63,7 @@ pub struct CohortMembershipChange {
 #[serde(rename_all = "snake_case")]
 pub enum ChangeOrigin {
     Seed,
+    Reconcile,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -122,7 +126,35 @@ pub fn map_transition<'a>(
 
 /// Current UTC time as a ClickHouse `DateTime64(6)` string (microseconds).
 pub fn now_last_updated() -> String {
-    Utc::now().format("%Y-%m-%d %H:%M:%S%.6f").to_string()
+    format_last_updated(Utc::now().timestamp_micros())
+}
+
+/// Per-partition output-version allocator. Wall time supplies the normal value; the local floor
+/// makes every later worker message strictly newer even if the clock stalls or moves backward.
+#[derive(Debug, Default)]
+pub(crate) struct LastUpdatedClock {
+    last_micros: Option<i64>,
+}
+
+impl LastUpdatedClock {
+    pub fn next(&mut self) -> String {
+        self.next_at(Utc::now().timestamp_micros())
+    }
+
+    fn next_at(&mut self, observed_micros: i64) -> String {
+        let next_micros = self.last_micros.map_or(observed_micros, |last_micros| {
+            observed_micros.max(last_micros.saturating_add(1))
+        });
+        self.last_micros = Some(next_micros);
+        format_last_updated(next_micros)
+    }
+}
+
+fn format_last_updated(timestamp_micros: i64) -> String {
+    chrono::DateTime::<Utc>::from_timestamp_micros(timestamp_micros)
+        .expect("current UTC timestamps fit Chrono's supported range")
+        .format("%Y-%m-%d %H:%M:%S%.6f")
+        .to_string()
 }
 
 #[async_trait]
@@ -131,11 +163,17 @@ pub trait MembershipSink: Send + Sync {
         &self,
         changes: Vec<CohortMembershipChange>,
     ) -> Vec<Result<(), KafkaProduceError>>;
+
+    async fn produce_markers(
+        &self,
+        markers: Vec<ReconcileCompleteMarker>,
+    ) -> Vec<Result<(), KafkaProduceError>>;
 }
 
 #[derive(Debug, Default, Clone)]
 pub struct CaptureSink {
     changes: Arc<Mutex<Vec<CohortMembershipChange>>>,
+    markers: Arc<Mutex<Vec<ReconcileCompleteMarker>>>,
     fail_remaining: Arc<AtomicUsize>,
 }
 
@@ -147,6 +185,7 @@ impl CaptureSink {
     pub fn failing_first(n: usize) -> Self {
         Self {
             changes: Arc::default(),
+            markers: Arc::default(),
             fail_remaining: Arc::new(AtomicUsize::new(n)),
         }
     }
@@ -157,6 +196,21 @@ impl CaptureSink {
             .expect("CaptureSink mutex poisoned")
             .clone()
     }
+
+    pub fn markers(&self) -> Vec<ReconcileCompleteMarker> {
+        self.markers
+            .lock()
+            .expect("CaptureSink mutex poisoned")
+            .clone()
+    }
+
+    fn should_fail(&self) -> bool {
+        self.fail_remaining
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
+                (n > 0).then(|| n - 1)
+            })
+            .is_ok()
+    }
 }
 
 #[async_trait]
@@ -165,13 +219,7 @@ impl MembershipSink for CaptureSink {
         &self,
         changes: Vec<CohortMembershipChange>,
     ) -> Vec<Result<(), KafkaProduceError>> {
-        let should_fail = self
-            .fail_remaining
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
-                (n > 0).then(|| n - 1)
-            })
-            .is_ok();
-        if should_fail {
+        if self.should_fail() {
             return changes
                 .into_iter()
                 .map(|_| Err(KafkaProduceError::KafkaProduceCanceled))
@@ -182,6 +230,24 @@ impl MembershipSink for CaptureSink {
             .lock()
             .expect("CaptureSink mutex poisoned")
             .extend(changes);
+        acks
+    }
+
+    async fn produce_markers(
+        &self,
+        markers: Vec<ReconcileCompleteMarker>,
+    ) -> Vec<Result<(), KafkaProduceError>> {
+        if self.should_fail() {
+            return markers
+                .into_iter()
+                .map(|_| Err(KafkaProduceError::KafkaProduceCanceled))
+                .collect();
+        }
+        let acks = (0..markers.len()).map(|_| Ok(())).collect();
+        self.markers
+            .lock()
+            .expect("CaptureSink mutex poisoned")
+            .extend(markers);
         acks
     }
 }
@@ -234,6 +300,16 @@ mod tests {
             condition_hash: HASH,
             kind,
         }
+    }
+
+    fn reconcile_complete_marker(partition: u16) -> ReconcileCompleteMarker {
+        ReconcileCompleteMarker::new(
+            TeamId(42),
+            CohortId(91204),
+            partition,
+            RunId(Uuid::nil()),
+            TS.to_string(),
+        )
     }
 
     #[test]
@@ -354,6 +430,12 @@ mod tests {
     }
 
     #[test]
+    fn reconcile_origin_serializes_snake_case() {
+        let value = serde_json::to_value(ChangeOrigin::Reconcile).unwrap();
+        assert_eq!(value, json!("reconcile"));
+    }
+
+    #[test]
     fn live_path_change_stays_byte_identical_and_a_seed_tag_adds_only_the_two_keys() {
         let live = CohortMembershipChange {
             team_id: 42,
@@ -402,6 +484,21 @@ mod tests {
         assert_eq!(time.matches(':').count(), 2);
     }
 
+    #[test]
+    fn last_updated_clock_is_strictly_monotonic_when_wall_time_stalls_or_rewinds() {
+        let mut clock = LastUpdatedClock::default();
+
+        let first = clock.next_at(1_700_000_000_000_000);
+        let stalled = clock.next_at(1_700_000_000_000_000);
+        let rewound = clock.next_at(1_699_999_999_000_000);
+
+        assert!(first < stalled);
+        assert!(stalled < rewound);
+        assert_eq!(first, "2023-11-14 22:13:20.000000");
+        assert_eq!(stalled, "2023-11-14 22:13:20.000001");
+        assert_eq!(rewound, "2023-11-14 22:13:20.000002");
+    }
+
     #[tokio::test]
     async fn capture_sink_records_and_acks_in_order() {
         let sink = CaptureSink::new();
@@ -440,5 +537,42 @@ mod tests {
         let second = sink.produce(vec![change.clone()]).await;
         assert!(second.iter().all(Result::is_ok), "second flush succeeds");
         assert_eq!(sink.changes(), vec![change]);
+    }
+
+    #[tokio::test]
+    async fn capture_sink_records_markers_and_shares_failure_order_across_message_types() {
+        let sink = CaptureSink::failing_first(1);
+        let change = CohortMembershipChange {
+            team_id: 42,
+            cohort_id: 91204,
+            person_id: "p".to_string(),
+            last_updated: TS.to_string(),
+            status: MembershipStatus::Entered,
+            origin: Some(ChangeOrigin::Reconcile),
+            run_id: Some(RunId(Uuid::nil())),
+        };
+        let marker = reconcile_complete_marker(7);
+
+        let first = sink.produce(vec![change]).await;
+        assert!(first.iter().all(Result::is_err), "first flush fails");
+        assert!(sink.changes().is_empty(), "a failed flush records nothing");
+
+        let second = sink.produce_markers(vec![marker.clone()]).await;
+        assert!(second.iter().all(Result::is_ok), "second flush succeeds");
+        assert_eq!(sink.markers(), vec![marker]);
+    }
+
+    #[tokio::test]
+    async fn capture_sink_retries_a_failed_marker_without_recording_the_failed_attempt() {
+        let sink = CaptureSink::failing_first(1);
+        let marker = reconcile_complete_marker(7);
+
+        let first = sink.produce_markers(vec![marker.clone()]).await;
+        assert!(first.iter().all(Result::is_err), "first flush fails");
+        assert!(sink.markers().is_empty(), "a failed flush records nothing");
+
+        let second = sink.produce_markers(vec![marker.clone()]).await;
+        assert!(second.iter().all(Result::is_ok), "retry succeeds");
+        assert_eq!(sink.markers(), vec![marker]);
     }
 }

@@ -8,6 +8,7 @@ import {
     TracingSpansAttributesRetrieveQueryParams,
     TracingSpansCountCreateBody,
     TracingSpansDurationHistogramCreateBody,
+    TracingSpansLatencyHeatmapCreateBody,
     TracingSpansQueryCreateBody,
     TracingSpansServiceNamesRetrieveQueryParams,
     TracingSpansSparklineCreateBody,
@@ -173,6 +174,30 @@ const apmSpansDurationHistogram = (): ToolBase<typeof ApmSpansDurationHistogramS
     },
 })
 
+const ApmSpansLatencyHeatmapSchema = TracingSpansLatencyHeatmapCreateBody
+
+const apmSpansLatencyHeatmap = (): ToolBase<
+    typeof ApmSpansLatencyHeatmapSchema,
+    Schemas._TracingLatencyHeatmapResponse
+> => ({
+    name: 'apm-spans-latency-heatmap',
+    schema: ApmSpansLatencyHeatmapSchema,
+    handler: async (context: Context, params: z.infer<typeof ApmSpansLatencyHeatmapSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        const result = await context.api.request<Schemas._TracingLatencyHeatmapResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/latency-heatmap/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, ['results']) as typeof result
+        return filtered
+    },
+})
+
 const ApmSpansSparklineSchema = TracingSpansSparklineCreateBody
 
 const apmSpansSparkline = (): ToolBase<typeof ApmSpansSparklineSchema, unknown> => ({
@@ -275,6 +300,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'apm-spans-aggregate': apmSpansAggregate,
     'apm-spans-count': apmSpansCount,
     'apm-spans-duration-histogram': apmSpansDurationHistogram,
+    'apm-spans-latency-heatmap': apmSpansLatencyHeatmap,
     'apm-spans-sparkline': apmSpansSparkline,
     'apm-spans-tree': apmSpansTree,
     'apm-trace-get': apmTraceGet,

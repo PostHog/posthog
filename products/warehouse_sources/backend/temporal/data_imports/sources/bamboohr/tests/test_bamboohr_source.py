@@ -8,7 +8,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.b
 from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.source import BambooHRSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BambooHRSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bamboohr import (
+    BambooHRSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.source"

@@ -14,7 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.browserbas
     source as source_module,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.browserbase.source import BrowserbaseSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BrowserbaseSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.browserbase import (
+    BrowserbaseSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

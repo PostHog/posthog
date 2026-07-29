@@ -55,7 +55,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
     validate_manifest_structure,
     validate_manifest_urls,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CustomSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.custom import CustomSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
@@ -410,6 +410,24 @@ class TestCustomSourceAssembleManifest(SimpleTestCase):
         config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()))
         manifest = source._assemble_manifest(config)
         assert manifest["client"]["base_url"] == "https://api.example.com"
+
+    def test_accepts_already_parsed_manifest_object(self):
+        # The create/validate API can hand us the manifest as an already-parsed object rather than a
+        # JSON string; that used to reach json.loads(dict) and raise an uncaught TypeError.
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=_minimal_manifest())  # type: ignore[arg-type]
+        manifest = source._assemble_manifest(config)
+        assert manifest["client"]["base_url"] == "https://api.example.com"
+
+    def test_does_not_mutate_manifest_object_when_injecting_secrets(self):
+        # A dict manifest is deep-copied before secret injection so credentials never leak back into
+        # the caller's (persisted, redacted) config.
+        stored = _minimal_manifest()
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=stored, auth_token="ya29.secret")  # type: ignore[arg-type]
+        assembled = source._assemble_manifest(config)
+        assert assembled["client"]["auth"]["token"] == "ya29.secret"
+        assert "token" not in stored["client"]["auth"]
 
     @parameterized.expand(
         [
@@ -1546,6 +1564,16 @@ class TestManifestRequestHosts(SimpleTestCase):
     def test_unparseable_returns_empty(self, _name, raw):
         assert manifest_request_hosts(raw) == frozenset()
 
+    def test_parsed_object_manifest_reports_hosts(self):
+        # _assemble_manifest accepts a dict manifest, so the re-entry gate must extract hosts from a
+        # dict too — otherwise an update PATCHing a dict manifest that retargets a new host slips past
+        # the gate as "no hosts" and the stored credential is sent to the new host without re-entry.
+        manifest = {
+            "client": {"base_url": "https://api.example.com"},
+            "resources": [{"name": "r", "endpoint": {"path": "https://attacker.example.net/data"}}],
+        }
+        assert manifest_request_hosts(manifest) == frozenset({"api.example.com", "attacker.example.net"})
+
     def test_oauth2_token_url_host_is_tracked(self):
         # The token endpoint receives the stored client_secret, so its host must be in the
         # re-entry set — otherwise an editor who can't read the secret could repoint token_url
@@ -2523,6 +2551,41 @@ class TestCustomSourceIncrementalUnsupportedKeys(SimpleTestCase):
         ok, err = source.validate_credentials(config, team_id=999)
         assert ok is False
         assert err is not None and "upstream_row_order" in err and "'users'" in err
+
+
+class TestCustomSourcePaginatorUnsupportedKeys(SimpleTestCase):
+    def _manifest(self) -> dict:
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["paginator"] = {
+            "type": "offset",
+            "limit": 100,
+            "limit_body_path": "meta.limit",
+        }
+        return manifest
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_unsupported_key_raises_non_retryable_before_engine(self, mock_resources):
+        mock_resources.return_value = [_fake_resource("users")]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(self._manifest()))
+        inputs = MagicMock(
+            team_id=1,
+            schema_name="users",
+            job_id="job-1",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+        )
+        with self.assertRaises(NonRetryableException) as ctx:
+            source.source_for_pipeline(config, inputs)
+        assert "limit_body_path" in str(ctx.exception)
+        mock_resources.assert_not_called()
+
+    def test_unsupported_key_rejected_at_validation(self):
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(self._manifest()), auth_token="abc")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok is False
+        assert err is not None and "limit_body_path" in err and "'users'" in err
 
 
 def _apikey_manifest() -> dict:

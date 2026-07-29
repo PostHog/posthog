@@ -13,13 +13,30 @@ import type { Context, ToolBase } from '@/tools/types'
  * in the UI and in code. This hand-written tool resolves a key to its flag via the list
  * endpoint's `key` filter (a case-insensitive exact match), narrowed to the exact-case match
  * when the filter returns more than one case-variant.
+ *
+ * A key that matches no flag is not an error. The dominant caller is an agent checking whether
+ * a flag exists before creating it (a read-before-create existence check), so a miss is the
+ * expected answer: it returns a structured `{ found: false }` result naming the key and
+ * pointing at the list/create path. The caller's next step, creating the flag, doesn't depend
+ * on this being an exception. Reuse this not-found-as-data pattern for other existence checks;
+ * keep throwing where the caller expects the target to already exist, so a miss signals a
+ * genuine problem rather than an expected outcome.
  */
 const schema = z.object({
     key: z.string().describe('The feature flag key: the string identifier used in code (e.g. "new-checkout").'),
 })
 
 type Params = z.infer<typeof schema>
-type Result = WithPostHogUrl<Schemas.FeatureFlag>
+
+/** The result shape returned when no flag matches `key`. See the file doc comment for why this is data, not a thrown error. */
+interface FeatureFlagLookupMiss {
+    found: false
+    key: string
+    message: string
+}
+
+/** Discriminate on `found` in both branches, so callers don't have to test for its absence on a match. */
+type Result = (WithPostHogUrl<Schemas.FeatureFlag> & { found: true }) | FeatureFlagLookupMiss
 
 const featureFlagGetDefinitionByKey = (): ToolBase<typeof schema, Result> => ({
     name: 'feature-flag-get-definition-by-key',
@@ -47,12 +64,17 @@ const featureFlagGetDefinitionByKey = (): ToolBase<typeof schema, Result> => ({
         const matches = exact.length > 0 ? exact : results
 
         if (matches.length === 0) {
-            throw new ToolInputValidationError(
-                `No feature flag with key "${key}" found in this project. Use feature-flag-get-all to list ` +
-                    'available flags.'
-            )
+            return {
+                found: false,
+                key,
+                message:
+                    `No feature flag with key "${key}" exists in this project. ` +
+                    'Create it with `create-feature-flag`, or call `feature-flag-get-all` to list existing flags.',
+            }
         }
         if (matches.length > 1) {
+            // Unlike a miss, this is still an error: the key is ambiguous and the agent can't
+            // proceed on its own — it needs the numeric id from a different tool call.
             const ids = matches.map((flag) => flag.id).join(', ')
             throw new ToolInputValidationError(
                 `Multiple feature flags matched key "${key}" (IDs: ${ids}). Pass the numeric \`id\` to ` +
@@ -60,7 +82,8 @@ const featureFlagGetDefinitionByKey = (): ToolBase<typeof schema, Result> => ({
             )
         }
         const flag = matches[0]!
-        return await withPostHogUrl(context, flag, `/feature_flags/${flag.id}`)
+        const flagWithUrl = await withPostHogUrl(context, flag, `/feature_flags/${flag.id}`)
+        return { ...flagWithUrl, found: true }
     },
 })
 

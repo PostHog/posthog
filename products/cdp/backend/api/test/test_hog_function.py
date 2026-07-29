@@ -1821,6 +1821,55 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "value": "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
             }
 
+    # warehouse_source_webhook is intentionally omitted: it's excluded from the viewset queryset
+    # entirely (see test_warehouse_source_webhook_excluded), so its rerun endpoint 404s before the
+    # rerunnable-type guard is ever reached — it can't exercise the 400 this test asserts.
+    @parameterized.expand(
+        [
+            ("source_webhook",),
+            ("transformation",),
+            ("site_app",),
+            ("site_destination",),
+        ]
+    )
+    def test_rerun_rejected_for_non_rerunnable_type(self, hog_function_type):
+        fn = HogFunction.objects.create(team=self.team, type=hog_function_type, hog="return event")
+
+        with patch("products.cdp.backend.api.hog_function.rerun_hog_invocations") as mock_rerun:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/{fn.id}/rerun/",
+                data={
+                    "filter": {
+                        "window_start": "2026-07-01T00:00:00Z",
+                        "window_end": "2026-07-02T00:00:00Z",
+                    }
+                },
+            )
+
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert hog_function_type in response.json()["detail"]
+            # The whole point: a non-rerunnable type must never reach the enqueue path.
+            mock_rerun.assert_not_called()
+
+    def test_rerun_allowed_for_destination(self):
+        fn = HogFunction.objects.create(team=self.team, type="destination", hog="return event")
+
+        with patch("products.cdp.backend.api.hog_function.rerun_hog_invocations") as mock_rerun:
+            mock_rerun.return_value = MagicMock(status_code=200, json=lambda: {"rerun_job_id": "job-1"})
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/{fn.id}/rerun/",
+                data={
+                    "filter": {
+                        "window_start": "2026-07-01T00:00:00Z",
+                        "window_end": "2026-07-02T00:00:00Z",
+                    }
+                },
+            )
+
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert mock_rerun.call_count == 1
+
     @parameterized.expand(
         [
             (

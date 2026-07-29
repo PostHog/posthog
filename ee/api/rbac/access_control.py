@@ -642,6 +642,11 @@ class AccessControlViewSetMixin(_GenericViewSet):
             .prefetch_related("role_memberships")
         )
 
+        can_edit = user_access_control.check_can_modify_access_levels_for_object(team)
+        hide_non_project_members = (
+            not team.organization.members_can_see_org_members and not user_access_control.is_organization_admin
+        )
+
         results = []
         for membership in memberships:
             mid = str(membership.id)
@@ -662,6 +667,19 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 member_level=project_member_level,
                 is_org_admin=is_org_admin,
             )
+
+            # When the org restricts member list visibility, project members only see users with
+            # project-scoped access (explicit grant, role, or default) — org admins aren't implied in
+            if hide_non_project_members:
+                project_scoped_result = get_effective_access_level_for_member(
+                    resource="project",
+                    default_level=project_default_level,
+                    role_levels=project_role_levels,
+                    member_level=project_member_level,
+                    is_org_admin=False,
+                )
+                if project_scoped_result.effective_access_level in (None, "none"):
+                    continue
 
             resource_entries: dict[str, dict] = {}
             for resource in ACCESS_CONTROL_RESOURCES:
@@ -715,7 +733,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
             {
                 "available_project_levels": list(ordered_access_levels("project")),
                 "available_resource_levels": list(ACCESS_CONTROL_LEVELS_RESOURCE),
-                "can_edit": user_access_control.check_can_modify_access_levels_for_object(team),
+                "can_edit": can_edit,
                 "results": results,
             }
         )

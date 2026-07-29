@@ -149,7 +149,7 @@ function AIObservabilityTagsContent(): JSX.Element {
                 return (
                     <div className="flex items-center gap-2">
                         <AccessControlAction
-                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            resourceType={AccessControlResourceType.Tagger}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
                             <LemonSwitch
@@ -234,7 +234,7 @@ function AIObservabilityTagsContent(): JSX.Element {
             render: (_, tagger) => (
                 <div className="flex gap-1">
                     <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        resourceType={AccessControlResourceType.Tagger}
                         minAccessLevel={AccessControlLevel.Editor}
                     >
                         <LemonButton
@@ -252,7 +252,7 @@ function AIObservabilityTagsContent(): JSX.Element {
                         />
                     </AccessControlAction>
                     <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        resourceType={AccessControlResourceType.Tagger}
                         minAccessLevel={AccessControlLevel.Editor}
                     >
                         <LemonButton
@@ -316,7 +316,7 @@ export function AIObservabilityTagsScene(): JSX.Element {
                 resourceType={{ type: 'llm_tags' }}
                 actions={
                     <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
+                        resourceType={AccessControlResourceType.Tagger}
                         minAccessLevel={AccessControlLevel.Editor}
                     >
                         <LemonButton

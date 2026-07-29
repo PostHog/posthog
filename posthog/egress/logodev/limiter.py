@@ -1,7 +1,7 @@
 """logo.dev egress budget.
 
-logo.dev meters usage per account token, and each PostHog instance holds exactly one
-(``settings.LOGO_DEV_TOKEN``), so the whole instance draws from a single shared budget under a
+logo.dev meters usage per account, and each PostHog instance configures the image and Search API
+credentials from that account, so the whole instance draws from a single shared budget under a
 constant scope. logo.dev publishes no hard rate-limit numbers, so the defaults are deliberately
 modest operator ceilings. Icon bytes are never stored server-side (logo.dev gates that behind a
 data-caching license), so upstream volume is deduped only per user, by the browser caching that

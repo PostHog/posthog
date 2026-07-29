@@ -8,6 +8,7 @@ import { initKeaTests } from '~/test/init'
 
 import { tasksRunCreate, tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
 
+import { contextItemLine } from '../utils/posthogContextBlock'
 import { attachedContextLogic } from './attachedContextLogic'
 import { runInteractionLogic } from './runInteractionLogic'
 import { runStreamLogic } from './runStreamLogic'
@@ -417,6 +418,25 @@ describe('runInteractionLogic', () => {
         expect(secondSend.params.content).not.toContain('- insight sig')
         expect(secondSend.params.content).toContain('- text: "always resend me"')
         expect(secondSend.params.content.endsWith('follow up')).toBe(true)
+    })
+
+    it('prunes context whose rendered line the run log already carries, even with no sent-key bookkeeping', async () => {
+        // The reload scenario: `sentContextKeysByTask` is empty (fresh session), but `runStreamLogic`
+        // recorded the block lines it found replaying the resume-chain history — the same ref must not
+        // be re-wrapped into the next send.
+        const seenItem = { type: 'insight', key: 'sig', label: 'Signups' }
+        attachedContextLogic().actions.registerContext('scene', [seenItem])
+        attachedContextLogic().actions.markContextLinesSeen(TASK_ID, [contextItemLine(seenItem)])
+        setThinking(false)
+
+        logic.actions.setComposerFormValues({ draft: 'follow up' })
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        const send = (tasksRunsCommandCreate as jest.Mock).mock.calls[0][3] as { params: { content: string } }
+        // The only attached item is already in the chain history, so no context block is prepended.
+        expect(send.params.content).toBe('follow up')
     })
 
     it('keeps pruning context sent by a terminal-run send after re-pointing to the fresh run', async () => {

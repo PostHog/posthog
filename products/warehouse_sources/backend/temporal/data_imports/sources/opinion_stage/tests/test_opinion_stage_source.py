@@ -4,7 +4,9 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OpinionStageSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.opinionstage import (
+    OpinionStageSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.opinion_stage.opinion_stage import (
     OpinionStageResumeConfig,
 )

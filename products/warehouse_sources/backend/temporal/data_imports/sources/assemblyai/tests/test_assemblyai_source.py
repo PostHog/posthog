@@ -18,7 +18,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.assemblyai
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.assemblyai.source import AssemblyAISource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import AssemblyAISourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.assemblyai import (
+    AssemblyAISourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

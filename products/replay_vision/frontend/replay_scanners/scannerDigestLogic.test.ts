@@ -109,4 +109,24 @@ describe('scannerDigestLogic', () => {
         expect(logic.values.digest?.id).toEqual('d-new')
         expect(logic.values.latestRunLoading).toEqual(false)
     })
+
+    it('runNow posts to the digest run endpoint and clears its loading state', async () => {
+        useMocks(mocksFor([DIGEST]))
+        mountLogic()
+        await expectLogic(logic).toFinishAllListeners()
+        let posted = false
+        useMocks({
+            post: {
+                '/api/projects/:team/vision/actions/:action/run/': ({ request }: { request: Request }) => {
+                    // Runs the digest itself (d1), not some other action.
+                    expect(request.url).toContain('/vision/actions/d1/run/')
+                    posted = true
+                    return [202, { workflow_id: 'wf-1', already_running: false }]
+                },
+            },
+        })
+        await expectLogic(logic, () => logic.actions.runNow()).toFinishAllListeners()
+        expect(posted).toBe(true)
+        expect(logic.values.runningNow).toBe(false)
+    })
 })

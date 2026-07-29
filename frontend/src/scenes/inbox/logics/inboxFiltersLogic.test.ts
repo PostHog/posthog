@@ -8,6 +8,7 @@ import {
 const DEFAULT_STATE: InboxFilterState = {
     scope: 'for-you',
     sourceProductFilter: [],
+    scoutFilter: [],
     priorityFilter: [],
     sortField: 'priority',
     sortDirection: 'asc',
@@ -42,10 +43,13 @@ describe('inboxFiltersLogic', () => {
 
         it.each<[string, InboxFilterState, Record<string, string>]>([
             [
-                'scope + sources + priorities + custom sort + search',
+                'scope + sources + scouts + priorities + custom sort + search',
                 {
                     scope: 'entire-project',
                     sourceProductFilter: ['error_tracking', 'github'],
+                    // Scout slugs are team-specific and dynamic, so they round-trip without a
+                    // static valid-set check — unlike sources.
+                    scoutFilter: ['signals-scout-error-tracking', 'my-custom-scout'],
                     priorityFilter: ['P0', 'P2'],
                     sortField: 'created_at',
                     sortDirection: 'desc',
@@ -54,6 +58,7 @@ describe('inboxFiltersLogic', () => {
                 {
                     scope: 'entire-project',
                     source: 'error_tracking,github',
+                    scout: 'signals-scout-error-tracking,my-custom-scout',
                     priority: 'P0,P2',
                     sort: 'created_at:desc',
                     search: 'checkout crash',

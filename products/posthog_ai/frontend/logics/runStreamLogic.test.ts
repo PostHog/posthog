@@ -11,7 +11,10 @@ import { initKeaTests } from '~/test/init'
 
 import { tasksRunsCommandCreate, tasksRunsStreamTokenRetrieve } from 'products/tasks/frontend/generated/api'
 
+import type { AttachedContextItem } from '../types/contextTypes'
 import type { PermissionRequestFrame, StoredLogEntry } from '../types/wireTypes'
+import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
+import { attachedContextLogic } from './attachedContextLogic'
 import { foregroundStreamLogic } from './foregroundStreamLogic'
 import {
     extractRunArtifacts,
@@ -876,6 +879,44 @@ describe('runStreamLogic', () => {
                 complete: true,
             })
             expect(logic.values.threadItems[1].type).toEqual('assistant_message')
+        })
+    })
+
+    describe('history-derived context dedupe', () => {
+        const contextItems: AttachedContextItem[] = [
+            { type: 'instructions', value: 'Prefer calling tools.' },
+            { type: 'insight', key: 'sig', label: 'Signups' },
+        ]
+        const wrapped = wrapWithPosthogContext('follow up', contextItems)
+
+        // Resume chains persist a human turn in either wire form, so both must feed the recording —
+        // a regression in either silently re-duplicates context on the next run after a reload.
+        it.each([
+            ['_posthog/user_message', notification('_posthog/user_message', { content: wrapped })],
+            [
+                'session/update user_message',
+                sessionUpdate({ sessionUpdate: 'user_message', content: { text: wrapped } }),
+            ],
+        ])('records replayed context-block lines under the bootstrapped task (%s)', async (_form, frame) => {
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([frame] as any)
+            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            // Recorded lines must be exactly what `pendingContextItems` re-renders per candidate item.
+            expect(attachedContextLogic.values.seenContextLinesByTask['task-1']).toEqual(
+                contextItems.map(contextItemLine)
+            )
+        })
+
+        it('records nothing on a stream never bootstrapped onto a task', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: wrapped }), 'replay')
+            }).toFinishAllListeners()
+
+            expect(attachedContextLogic.values.seenContextLinesByTask).toEqual({})
         })
     })
 

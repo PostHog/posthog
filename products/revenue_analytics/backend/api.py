@@ -3,6 +3,7 @@ from typing import cast
 from posthoganalytics import capture_exception
 from rest_framework import serializers, status
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -19,6 +20,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.rbac.user_access_control import AccessControlLevelResource, UserAccessControl
 
 from products.revenue_analytics.backend.joins import ensure_person_join_for_team, remove_person_join_for_team
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
@@ -76,6 +78,13 @@ def find_values_for_revenue_analytics_property(key: str, team: Team, user: User)
     return values
 
 
+# `scope_object = "INTERNAL"` opts these viewsets out of the framework's resource-level
+# access-control check, so enforce `revenue_analytics` access here to match the query runners.
+def _assert_revenue_analytics_access(team: Team, user: User, required_level: AccessControlLevelResource) -> None:
+    if not UserAccessControl(user=user, team=team).check_access_level_for_resource("revenue_analytics", required_level):
+        raise PermissionDenied("You don't have access to revenue analytics in this project.")
+
+
 class RevenueAnalyticsTaxonomyViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "INTERNAL"
     serializer_class = _FallbackSerializer
@@ -83,6 +92,8 @@ class RevenueAnalyticsTaxonomyViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
     @action(methods=["GET"], detail=False)
     def values(self, request: Request, **kwargs):
+        _assert_revenue_analytics_access(self.team, cast(User, request.user), "viewer")
+
         key = request.GET.get("key")
         if key is None:
             return Response({"results": [], "refreshing": False})
@@ -101,6 +112,8 @@ class RevenueAnalyticsJoinViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     permission_classes = [IsAuthenticated]
 
     def create(self, request: Request, **kwargs):
+        _assert_revenue_analytics_access(self.team, cast(User, request.user), "editor")
+
         serializer = RevenueAnalyticsJoinSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 

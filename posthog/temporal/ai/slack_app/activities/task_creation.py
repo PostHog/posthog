@@ -125,11 +125,12 @@ def _max_ts(*candidates: str | None) -> str:
 def _format_author_token(user_id: str | None, display_name: str | None) -> str:
     """Render a message author as a labeled Slack mention when we have the raw id.
 
-    `<@U…|displayname>` is the wire-format token Slack accepts on both inbound and
-    outbound messages; including it here means the agent sees who wrote each line
-    *and* can echo the token verbatim to ping that participant back. When the raw
-    id is missing (bots, app-posted messages, unresolved users), fall back to the
-    plain display name so the line still reads naturally.
+    `<@U…|displayname>` is the form Slack uses to deliver mentions inbound; rendering
+    it here means the agent sees who wrote each line *and* can echo the token verbatim
+    to ping that participant back (the Slack relay rewrites echoed tokens to the bare
+    `<@U…>` on the way out, which is what actually notifies). When the raw id is missing
+    (bots, app-posted messages, unresolved users), fall back to the plain display name
+    so the line still reads naturally.
     """
     name = (display_name or "").strip() or "user"
     uid = (user_id or "").strip()
@@ -574,7 +575,7 @@ def create_posthog_code_task_for_repo_activity(
     from products.slack_app.backend.services.slack_user_info import get_slack_user_info  # noqa: PLC0415
 
     user_text = decode_slack_event_text(slack, integration, event.get("text", ""))
-    # Title is shown in PostHog Code's UI (task lists, PR titles) where the
+    # Title is shown in PostHog Desktop's UI (task lists, PR titles) where the
     # labeled `<@U…|name>` form would render as literal noise; the description
     # keeps the labeled form so the agent can echo tokens back as real pings.
     title_text = labeled_mentions_to_display_names(user_text)

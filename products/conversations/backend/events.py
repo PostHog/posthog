@@ -27,8 +27,10 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.settings import SITE_URL
 
 from products.conversations.backend.cache import get_cached_resolved_groups, set_cached_resolved_groups
-from products.conversations.backend.models import Ticket
-from products.conversations.backend.models.constants import Channel
+from products.conversations.backend.models import Ticket, TicketAssignment
+from products.conversations.backend.models.constants import Channel, OrganizationIdSource
+
+from ee.models.rbac.role import Role
 
 logger = structlog.get_logger(__name__)
 
@@ -184,8 +186,46 @@ def _resolve_groups_from_person_properties(team: Team, person: Person) -> dict |
     return {"instance": SITE_URL, "project": str(team.uuid), "organization": org_id}
 
 
-def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
-    """Resolve the customer organization's ``$groups`` for a ticket.
+def _org_groups_for_person(ticket: Ticket, team: Team, person: Person, distinct_ids: list[str]) -> dict | None:
+    """Resolve org ``$groups`` for an already-resolved person: membership, then analytics
+    events, then the person's own profile.
+
+    Each lookup hits a different subsystem (Postgres, ClickHouse, personhog), so failures
+    are isolated per step: the created event is emitted exactly once, and a transient error
+    in one source must degrade to the next fallback rather than permanently losing the
+    ticket's attribution (which downstream SLA/tagging workflows key off).
+    """
+    if distinct_ids:
+        try:
+            membership = (
+                OrganizationMembership.objects.select_related("organization")
+                .filter(user__distinct_id__in=distinct_ids)
+                .first()
+            )
+            if membership:
+                return build_groups(membership.organization, team)
+        except Exception:
+            logger.exception("ticket_org_membership_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
+        # Membership rows are region-local: accounts registered in another region
+        # never appear in this Postgres. Fall back to the $groups their sessions
+        # stamped onto this project's analytics events.
+        try:
+            groups = _resolve_groups_from_analytics(team, distinct_ids)
+            if groups:
+                return groups
+        except Exception:
+            logger.exception("ticket_org_analytics_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
+    # Their events may have aged out of the analytics window; the profile they
+    # identified with is still the same person's own claim about their org.
+    try:
+        return _resolve_groups_from_person_properties(team, person)
+    except Exception:
+        logger.exception("ticket_org_person_properties_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
+        return None
+
+
+def _resolve_person_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
+    """Resolve the customer organization's ``$groups`` from the requester's identity.
 
     Returns ``(process_person, groups)``. ``groups`` is ``None`` when the
     customer can't be tied to a PostHog organization.
@@ -202,29 +242,19 @@ def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
     # have no org membership, don't guess via email (a shared email could resolve to a
     # different person's org), so return early instead of falling through.
     if ticket.distinct_id:
-        # Only is_identified and properties are read, and the membership lookup below keys off
-        # the ticket's own distinct_id — so skip fetching the person's distinct_ids.
-        with personhog_caller_tag("conversations/ticket-event-person"):
-            persons = get_persons_by_distinct_ids(team.id, [ticket.distinct_id], distinct_id_limit=0)
+        persons: list[Person] = []
+        try:
+            # Only is_identified and properties are read, and the membership lookup keys off
+            # the ticket's own distinct_id — so skip fetching the person's distinct_ids.
+            with personhog_caller_tag("conversations/ticket-event-person"):
+                persons = get_persons_by_distinct_ids(team.id, [ticket.distinct_id], distinct_id_limit=0)
+        except Exception:
+            # A failed lookup is not "no identified person": fall through to the email
+            # path instead of losing attribution to a transient personhog error.
+            logger.exception("ticket_org_person_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
         identified_person = next((p for p in persons if p.is_identified), None)
         if identified_person is not None:
-            membership = (
-                OrganizationMembership.objects.select_related("organization")
-                .filter(user__distinct_id=ticket.distinct_id)
-                .first()
-            )
-            if membership:
-                return True, build_groups(membership.organization, team)
-            # Membership rows are region-local: accounts registered in another region
-            # never appear in this Postgres. Fall back to the $groups their sessions
-            # stamped onto this project's analytics events (same distinct_id, so the
-            # shared-email caveat above still holds).
-            groups = _resolve_groups_from_analytics(team, [ticket.distinct_id])
-            if groups:
-                return True, groups
-            # Their events may have aged out of the analytics window; the profile they
-            # identified with is still the same person's own claim about their org.
-            groups = _resolve_groups_from_person_properties(team, identified_person)
+            groups = _org_groups_for_person(ticket, team, identified_person, [ticket.distinct_id])
             if groups:
                 return True, groups
             return False, None
@@ -240,26 +270,80 @@ def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
         # via the conversations signal wiring, so import it lazily.
         from products.conversations.backend.person_lookup import _get_persons_by_email  # noqa: PLC0415
 
-        person = _get_persons_by_email(team, [email]).get(email.lower())
+        person: Person | None = None
+        try:
+            person = _get_persons_by_email(team, [email]).get(email.lower())
+        except Exception:
+            # Same isolation as above: a failed email lookup still leaves the
+            # Slack-channel fallback in _resolve_org_groups a chance to attribute.
+            logger.exception("ticket_org_email_person_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
         if person is not None:
-            if person.distinct_ids:
-                membership = (
-                    OrganizationMembership.objects.select_related("organization")
-                    .filter(user__distinct_id__in=person.distinct_ids)
-                    .first()
-                )
-                if membership:
-                    return True, build_groups(membership.organization, team)
-                # Same cross-region fallback as above, keyed by the person's distinct_ids.
-                groups = _resolve_groups_from_analytics(team, person.distinct_ids)
-                if groups:
-                    return True, groups
-            # Same last resort as above: the org id the person's own profile carries.
-            groups = _resolve_groups_from_person_properties(team, person)
+            groups = _org_groups_for_person(ticket, team, person, person.distinct_ids or [])
             if groups:
                 return True, groups
 
     return False, None
+
+
+def _resolve_groups_from_slack_channel(team: Team, slack_channel_id: str) -> dict | None:
+    """Attribute the ticket to the customer analytics account bound to its Slack channel.
+
+    Last-resort fallback when the requester can't be tied to an organization: a
+    dedicated support channel maps to one account, and that account's ``external_id``
+    is the group key at the team's configured account group type. Channel-level
+    evidence only — it says which account the ticket belongs to, not who sent it.
+    """
+    group_type_index = team.customer_analytics_config.account_group_type_index
+    if group_type_index is None:
+        return None
+
+    group_type_name = next(
+        (
+            gtm["group_type"]
+            for gtm in get_group_types_for_project(team.project_id)
+            if gtm["group_type_index"] == group_type_index
+        ),
+        None,
+    )
+    if group_type_name is None:
+        return None
+
+    # The facade pulls the workflows/notebooks facades with it; keep that off the
+    # django.setup() path this module loads on via the conversations signal wiring.
+    from products.customer_analytics.backend.facade import api as customer_analytics  # noqa: PLC0415
+
+    account = customer_analytics.get_account_ref_by_slack_channel_id(team.id, slack_channel_id)
+    if account is None or not account.external_id:
+        return None
+
+    return {"instance": SITE_URL, "project": str(team.uuid), group_type_name: account.external_id}
+
+
+def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None, str | None]:
+    """Resolve a ticket's ``$groups``, preferring the requester's identity.
+
+    Returns ``(process_person, groups, source)`` where ``source`` is an
+    ``OrganizationIdSource`` value recording how ``groups`` was resolved, or
+    ``None`` when nothing resolved. Slack tickets that can't be attributed
+    through the person fall back to the customer analytics account associated
+    with the ticket's Slack channel.
+    """
+    process_person, groups = _resolve_person_org_groups(ticket, team)
+    if groups is not None:
+        return process_person, groups, OrganizationIdSource.PERSON
+
+    # Deliberately no analytics fallback keyed on the bare ticket distinct_id here: for
+    # email/Slack/Teams that value is the raw customer email, and events under it are
+    # captured with the public project token, so anyone who knows the email can plant a
+    # $groups value. identity_verified only attests the ticket's sender, not who captured
+    # historical events under that key. Event-derived attribution is only trusted when
+    # anchored to a resolved person (see _org_groups_for_person).
+    if ticket.channel_source == Channel.SLACK.value and ticket.slack_channel_id:
+        groups = _resolve_groups_from_slack_channel(team, ticket.slack_channel_id)
+        if groups is not None:
+            return process_person, groups, OrganizationIdSource.SLACK_CHANNEL_ACCOUNT
+
+    return process_person, None, None
 
 
 def _groups_from_org_id(team: Team, organization_id: str) -> dict:
@@ -290,6 +374,37 @@ def _get_customer_properties(ticket: Ticket, *, include_distinct_id: bool = Fals
     return properties
 
 
+def _get_assignment_properties(ticket: Ticket) -> dict:
+    """Current assignment on the ticket, so workflows can route a single team's tickets.
+
+    `assignee_type` is "user", "role", or None (unassigned). `assignee_role_name` is set only for
+    role assignments, letting filters target a team by name instead of its UUID.
+    """
+    assignment = TicketAssignment.objects.select_related("role").filter(ticket_id=ticket.id).first()
+    if assignment is None:
+        return {"assignee_type": None, "assignee_id": None, "assignee_role_name": None}
+    if assignment.user_id is not None:
+        return {"assignee_type": "user", "assignee_id": str(assignment.user_id), "assignee_role_name": None}
+    if assignment.role_id is not None:
+        return {
+            "assignee_type": "role",
+            "assignee_id": str(assignment.role_id),
+            "assignee_role_name": assignment.role.name if assignment.role else None,
+        }
+    return {"assignee_type": None, "assignee_id": None, "assignee_role_name": None}
+
+
+def _role_name_for_assignee(ticket: Ticket, assignee_type: str | None, assignee_id: str | None) -> str | None:
+    """Look up a role's name for the assignment event; None for user or empty assignees."""
+    if assignee_type != "role" or not assignee_id:
+        return None
+    return (
+        Role.objects.filter(id=assignee_id, organization_id=ticket.team.organization_id)
+        .values_list("name", flat=True)
+        .first()
+    )
+
+
 def _get_sla_properties(ticket: Ticket, now: datetime) -> dict:
     """SLA state at the moment of the event.
 
@@ -316,13 +431,14 @@ def capture_ticket_created(ticket: Ticket) -> None:
     team_id = team.id
     process_person = False
     try:
-        process_person, groups = _resolve_org_groups(ticket, team)
+        process_person, groups, groups_source = _resolve_org_groups(ticket, team)
         if groups is not None:
             properties["$groups"] = groups
             org_id = groups.get("organization")
             if org_id and not ticket.organization_id:
-                Ticket.objects.filter(id=ticket.id).update(organization_id=org_id)
+                Ticket.objects.filter(id=ticket.id).update(organization_id=org_id, organization_id_source=groups_source)
                 ticket.organization_id = org_id
+                ticket.organization_id_source = groups_source
     except Exception:
         logger.exception("ticket_created_person_lookup_failed", team_id=team_id, ticket_id=str(ticket.id))
 
@@ -393,6 +509,7 @@ def capture_ticket_assigned(
     properties = _get_ticket_base_properties(ticket)
     properties["assignee_type"] = assignee_type
     properties["assignee_id"] = assignee_id
+    properties["assignee_role_name"] = _role_name_for_assignee(ticket, assignee_type, assignee_id)
     properties.update(_get_actor_properties(actor, actor_type))
     properties.update(_get_customer_properties(ticket, include_distinct_id=True))
 
@@ -419,6 +536,7 @@ def capture_message_sent(
     properties["author_type"] = "team"
     properties.update(_get_actor_properties(author, "user"))
     properties.update(_get_customer_properties(ticket, include_distinct_id=True))
+    properties.update(_get_assignment_properties(ticket))
     properties.update(_get_sla_properties(ticket, timezone.now()))
 
     capture_internal(
@@ -438,15 +556,20 @@ def capture_message_received(ticket: Ticket, message_id: str, message_content: s
     properties["message_content"] = (message_content or "")[:1000]
     properties["author_type"] = "customer"
     properties.update(_get_customer_properties(ticket))
+    properties.update(_get_assignment_properties(ticket))
 
     team = ticket.team
     process_person = False
     try:
         if ticket.organization_id:
             properties["$groups"] = _groups_from_org_id(team, ticket.organization_id)
-            process_person = True
+            # Only a person-resolved org attests the sender (legacy rows without a source
+            # were person-resolved); a channel-inferred org says nothing about them, so
+            # don't create a person profile for it. Allowlist rather than blocklist so a
+            # future non-person source defaults to no person processing.
+            process_person = ticket.organization_id_source in (OrganizationIdSource.PERSON, None, "")
         else:
-            process_person, groups = _resolve_org_groups(ticket, team)
+            process_person, groups, groups_source = _resolve_org_groups(ticket, team)
             if groups is not None:
                 properties["$groups"] = groups
                 org_id = groups.get("organization")
@@ -456,10 +579,11 @@ def capture_message_received(ticket: Ticket, message_id: str, message_content: s
                     # wins: only mirror to the in-memory ticket when this update landed,
                     # so a concurrent handler's value isn't shadowed.
                     rows_updated = Ticket.objects.filter(id=ticket.id, organization_id__isnull=True).update(
-                        organization_id=org_id
+                        organization_id=org_id, organization_id_source=groups_source
                     )
                     if rows_updated:
                         ticket.organization_id = org_id
+                        ticket.organization_id_source = groups_source
     except Exception:
         logger.exception("message_received_person_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
 

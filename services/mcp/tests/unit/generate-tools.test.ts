@@ -990,6 +990,44 @@ describe('rename_params', () => {
     })
 })
 
+describe('param_overrides aliases', () => {
+    it('wraps the composed schema with normalizeParamAliases and imports the helper', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            param_overrides: {
+                id: { aliases: ['thingId', 'thing_id'] },
+            },
+        }
+        const resolved = makeResolved({
+            method: 'GET',
+            path: '/api/projects/{project_id}/things/{id}/',
+            operation: {
+                operationId: 'things_retrieve',
+                parameters: [
+                    { name: 'project_id', in: 'path', required: true, schema: { type: 'string' } },
+                    { name: 'id', in: 'path', required: true, schema: { type: 'integer' } },
+                ],
+            },
+        })
+
+        const result = generateToolCode(
+            'things-get',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.castHelperImports.has('normalizeParamAliases')).toBe(true)
+        expect(result.code).toContain(
+            "const ThingsGetSchema = z.preprocess(normalizeParamAliases({ id: ['thingId', 'thing_id'] }), ThingsRetrieveParams.omit({ project_id: true }))"
+        )
+    })
+})
+
 describe('x-accepts-stringified-json query params', () => {
     function resolvedWith(parameters: NonNullable<ResolvedOperation['operation']['parameters']>): ResolvedOperation {
         return makeResolved({
@@ -1966,6 +2004,32 @@ describe('generateToolCode with confirmed_action', () => {
         expect(result.code).not.toContain(
             'const params = __guard.verifiedArgs\n        const projectId = await context.stateManager.getProjectId()'
         )
+    })
+
+    it('resolves an omitted state-fallback id and signs it into the confirmed args (cross-org replay guard)', () => {
+        // When the target id is optional with a state fallback, prepare must
+        // resolve the active org/project to a concrete value and sign it, so a
+        // switch-organization between prepare and execute can't retarget the
+        // confirmed action at a different entity where the user is also an admin.
+        const config: ToolConfig = {
+            ...makeConfirmedConfig(),
+            param_overrides: {
+                id: { optional: true, fallback: 'orgId', description: 'Organization ID.' },
+            },
+        }
+        const result = generateToolCode(
+            'organization-enforce-2fa-update',
+            config,
+            makePatchResolved(),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+        expect(result.code).toContain('const id = params.id ?? await context.stateManager.getOrgID()')
+        expect(result.code).toContain('args: { ...params, id }')
+        // The unresolved args object must not be what gets signed.
+        expect(result.code).not.toContain('args: params,')
     })
 })
 

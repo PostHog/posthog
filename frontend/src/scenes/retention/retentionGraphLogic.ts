@@ -43,6 +43,10 @@ export interface retentionGraphLogicValues {
     retentionFilter: RetentionFilter | null // insightVizDataLogic
     breakdownDisplayNames: Record<string, string> // retentionLogic
     filteredResults: ProcessedRetentionPayload[] // retentionLogic
+    getRetentionColor: (
+        rawBreakdownValue: number | string | null | undefined,
+        seriesIndex: number
+    ) => string | undefined // retentionLogic
     hasValidBreakdown: boolean // retentionLogic
     isPropertyValueAggregation: boolean // retentionLogic
     results: ProcessedRetentionPayload[] // retentionLogic
@@ -139,6 +143,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                 'retentionMeans',
                 'breakdownDisplayNames',
                 'isPropertyValueAggregation',
+                'getRetentionColor',
             ],
             teamLogic,
             ['timezone'],
@@ -167,6 +172,10 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                             isPropertyValueAggregation ? (value.aggregation_value ?? 0) : value.percentage
                         ),
                         index: datasetIndex,
+                        // Per-cohort series are colored positionally, even when filtered to a single
+                        // breakdown value: matching them all to one breakdown color config would make
+                        // the cohorts indistinguishable. Clear the value the spread copied over.
+                        rawBreakdownValue: undefined,
                     }
                 })
             },
@@ -214,6 +223,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                         labels: string[]
                         days: string[]
                         breakdownValue?: string | number | boolean | null
+                        rawBreakdownValue?: string | number | null
                     }
                 >()
 
@@ -230,6 +240,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                             labels: [],
                             days: [],
                             breakdownValue: cohort.breakdown_value,
+                            rawBreakdownValue: cohort.rawBreakdownValue,
                         })
                     }
 
@@ -246,6 +257,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                         days: group.days,
                         labels: group.labels,
                         breakdown_value: hasValidBreakdown ? getDisplayLabel(group.breakdownValue) : undefined,
+                        rawBreakdownValue: hasValidBreakdown ? (group.rawBreakdownValue ?? null) : undefined,
                         index,
                     }
                 })
@@ -355,6 +367,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
 
                         meanSeries.push({
                             breakdown_value: displayLabel,
+                            rawBreakdownValue: meanData.rawBreakdownValue,
                             data: isPropertyValueAggregation ? meanData.meanValues : meanData.meanPercentages,
                             days: days,
                             labels: days,

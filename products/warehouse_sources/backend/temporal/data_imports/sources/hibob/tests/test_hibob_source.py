@@ -3,7 +3,7 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HiBobSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hibob import HiBobSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.hibob.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.hibob.source import HiBobSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType

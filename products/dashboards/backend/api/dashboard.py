@@ -69,6 +69,8 @@ from posthog.helpers.trigram_search import (
     apply_trigram_search,
     drop_similar_when_exact_exists,
 )
+from posthog.hogql_queries.apply_dashboard_filters import normalize_dashboard_filters_properties
+from posthog.hogql_queries.refresh_policy import ComputeSurface
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system import FileSystem, create_or_update_file, delete_file, join_path, split_path
 from posthog.models.quick_filter import QuickFilter
@@ -1295,17 +1297,34 @@ class DashboardSerializer(DashboardMetadataSerializer):
         ]
         read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
 
-    def validate_filters(self, value) -> dict:
-        if not isinstance(value, dict):
-            raise serializers.ValidationError("Filters must be a dictionary")
-
-        return value
-
     def validate_variables(self, value) -> dict:
         if not isinstance(value, dict):
             raise serializers.ValidationError("Variables must be a dictionary")
 
         return value
+
+    @staticmethod
+    def _validated_filters(request_filters: Any) -> dict:
+        """Validate and normalize a raw request `filters` payload before it's persisted.
+
+        `filters` is a read-only SerializerMethodField, so DRF's `validate_filters` never runs —
+        the write paths read `request.data`/`initial_data` directly. `Dashboard.filters` is opaque
+        JSON; this enforces the dict shape and normalizes a `PropertyGroupFilter` dict
+        (`{"type": ..., "values": [...]}`) on `properties` to the flat-list contract
+        (`DashboardFilter.properties`), so the dict form can't be persisted for readers to trip on."""
+        if not isinstance(request_filters, dict):
+            raise serializers.ValidationError("Filters must be a dictionary")
+        properties = request_filters.get("properties")
+        if isinstance(properties, dict) and properties.get("type") not in (None, "AND"):
+            raise serializers.ValidationError(
+                {"properties": "Property groups must be AND-combined; OR groups are not supported"}
+            )
+        if properties is not None and not isinstance(properties, (list, dict)):
+            raise serializers.ValidationError({"properties": "Must be a list of filters or a property group"})
+        try:
+            return normalize_dashboard_filters_properties(request_filters)
+        except ValueError as error:
+            raise serializers.ValidationError({"properties": str(error)}) from error
 
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="POST")
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
@@ -1342,9 +1361,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         request_filters = request.data.get("filters")
         if request_filters:
-            if not isinstance(request_filters, dict):
-                raise serializers.ValidationError("Filters must be a dictionary")
-            filters = request_filters
+            filters = self._validated_filters(request_filters)
         elif existing_dashboard:
             filters = existing_dashboard.filters
         else:
@@ -1588,9 +1605,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         request_filters = initial_data.get("filters")
         if request_filters:
-            if not isinstance(request_filters, dict):
-                raise serializers.ValidationError("Filters must be a dictionary")
-            instance.filters = request_filters
+            instance.filters = self._validated_filters(request_filters)
 
         request_variables = initial_data.get("variables")
         if request_variables:
@@ -1667,7 +1682,15 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
     @staticmethod
     def _extract_display_defaults(tile_data: dict) -> dict:
-        return {k: tile_data[k] for k in DashboardSerializer.TILE_DISPLAY_FIELDS if k in tile_data}
+        defaults = {k: tile_data[k] for k in DashboardSerializer.TILE_DISPLAY_FIELDS if k in tile_data}
+        # `filters_overrides` is opaque JSON with the same `properties` shape ambiguity as dashboard
+        # `filters` — normalize a PropertyGroupFilter dict on `properties` to the flat-list contract so
+        # a malformed tile override can't be persisted for the merge/contradiction code to trip on.
+        if "filters_overrides" in defaults:
+            tile_filters = defaults["filters_overrides"]
+            if tile_filters is not None:
+                defaults["filters_overrides"] = DashboardSerializer._validated_filters(tile_filters)
+        return defaults
 
     @staticmethod
     def _widget_tile_validation_error(exc: serializers.ValidationError) -> serializers.ValidationError:
@@ -2192,6 +2215,11 @@ class DashboardsViewSet(
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
+        context["compute_surface"] = (
+            ComputeSurface.DASHBOARD_MUTATE
+            if self.action in {"create", "update", "partial_update"}
+            else ComputeSurface.DASHBOARD_DETAIL
+        )
 
         return context
 
@@ -2436,6 +2464,7 @@ class DashboardsViewSet(
                 "dashboard": dashboard,
                 "dashboard_access_method": access_method,
                 "raw_results_supported": True,
+                "compute_surface": ComputeSurface.DASHBOARD_STREAM,
             }
         )
 
@@ -2892,6 +2921,7 @@ class DashboardsViewSet(
         context = self.get_serializer_context()
         context["dashboard"] = dashboard
         context["dashboard_access_method"] = access_method
+        context["compute_surface"] = ComputeSurface.DASHBOARD_RUN_INSIGHTS
         # _format_insight_for_llm consumes results as Python data, so raw cached
         # result bytes (orjson.Fragment) must not be used here.
         context["require_parsed_results"] = True

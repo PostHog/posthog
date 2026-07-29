@@ -1,7 +1,7 @@
 import * as motion from 'motion/react-client'
 import { ComponentType } from 'react'
 
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import * as shockedPng from '@posthog/brand/hoggies/png/shocked'
 import { LemonButton } from '@posthog/lemon-ui'
 

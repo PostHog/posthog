@@ -6,7 +6,7 @@ from unittest import mock
 from posthog.schema import SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import NoCRMSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.nocrm import NoCRMSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.nocrm.nocrm import NoCRMResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.nocrm.source import NoCRMSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType

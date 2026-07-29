@@ -6,13 +6,17 @@
 //! Per-key replay dedup is a separate concern, owned by
 //! [`AppliedOffsets`](crate::stage1::state::AppliedOffsets) on each `cf_behavioral` record.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
+use std::sync::Arc;
 
 use dashmap::DashMap;
 
 /// Per-partition consume/commit progress.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default)]
 struct PartitionProgress {
+    /// Identity for one partition tenure. A deferred token from a forgotten tenure must not release
+    /// an equal offset deferred by a later owner.
+    tenure: Arc<()>,
     /// Next offset to consume (highest processed `+ 1`), the value committed to Kafka. Monotonic.
     /// `0` is the "never processed" sentinel; a real mark is always `≥ 1`, so
     /// [`committable_offsets`](OffsetTracker::committable_offsets) treats `0` as nothing to commit.
@@ -35,9 +39,57 @@ struct PartitionProgress {
     /// persistent store error a *visible* commit-stall (lag grows; emit the `held_offset` gauge and
     /// alert) rather than a silent state loss — the intended fail-stop for a correctness-critical pipeline.
     held_offset: Option<i64>,
+    /// Releasable commit floors owned by in-flight work that outlives its consumed message. Unlike
+    /// [`held_offset`](Self::held_offset), each floor is removed explicitly when that work finishes.
+    deferred: BTreeSet<i64>,
     /// Last offset Kafka acked as committed. The gap to `processed_offset` is the window Kafka
     /// replays after a crash.
     committed_offset: i64,
+}
+
+impl PartitionProgress {
+    fn mark_processed(&mut self, next_offset: i64) -> MarkOutcome {
+        let capped = next_offset.min(self.dispatched_offset);
+        self.processed_offset = self.processed_offset.max(capped);
+        if capped < next_offset {
+            MarkOutcome::CappedAheadOfDispatch
+        } else {
+            MarkOutcome::WithinDispatch
+        }
+    }
+
+    fn committable_offset(&self) -> Option<i64> {
+        let committable = [
+            Some(self.processed_offset),
+            self.held_offset,
+            self.deferred.first().copied(),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
+        .expect("processed offset always supplies a commit candidate");
+
+        (self.processed_offset > 0 && committable > 0).then_some(committable)
+    }
+}
+
+/// Ownership token for a releasable commit floor created by [`OffsetTracker::defer`].
+///
+/// The token is deliberately non-`Clone`: one in-flight operation owns one completion. Dropping it
+/// leaves the floor pinned until the partition is forgotten, so a lost job fails closed and Kafka
+/// replays the message on the next tenure.
+#[derive(Debug)]
+#[must_use = "a deferred offset must be completed after its durable work finishes"]
+pub struct DeferredOffset {
+    partition: i32,
+    offset: i64,
+    tenure: Arc<()>,
+}
+
+impl DeferredOffset {
+    pub(crate) fn offset(&self) -> i64 {
+        self.offset
+    }
 }
 
 /// What [`OffsetTracker::mark_processed`] did with a mark — returned so the worker can emit a metric
@@ -82,13 +134,72 @@ impl OffsetTracker {
     #[must_use = "a CappedAheadOfDispatch outcome is an F1 invariant violation the worker must surface"]
     pub fn mark_processed(&self, partition: i32, next_offset: i64) -> MarkOutcome {
         let mut progress = self.partitions.entry(partition).or_default();
-        let capped = next_offset.min(progress.dispatched_offset);
-        progress.processed_offset = progress.processed_offset.max(capped);
-        if capped < next_offset {
-            MarkOutcome::CappedAheadOfDispatch
-        } else {
-            MarkOutcome::WithinDispatch
+        progress.mark_processed(next_offset)
+    }
+
+    /// Pin this partition's committable offset at the consumed message's own `offset` until the
+    /// returned token is passed to [`complete_deferred`](Self::complete_deferred).
+    ///
+    /// This is for durable work that continues after the message handler returns. Later processed
+    /// marks may advance normally, but Kafka cannot commit past the earliest deferred offset. The
+    /// serial partition worker must defer each consumed offset at most once per tenure.
+    pub fn defer(&self, partition: i32, offset: i64) -> DeferredOffset {
+        let mut progress = self.partitions.entry(partition).or_default();
+        assert!(
+            progress.deferred.insert(offset),
+            "partition {partition} offset {offset} was deferred twice in one tenure",
+        );
+        DeferredOffset {
+            partition,
+            offset,
+            tenure: Arc::clone(&progress.tenure),
         }
+    }
+
+    /// Release a deferred floor and mark its consumed message processed (`offset + 1`).
+    ///
+    /// Returns `None` when the partition was forgotten or the token no longer belongs to its
+    /// current progress. This makes late completion after a rebalance harmless and avoids
+    /// recreating tracking state for a revoked partition.
+    pub fn complete_deferred(&self, deferred: DeferredOffset) -> Option<MarkOutcome> {
+        let mut progress = self.partitions.get_mut(&deferred.partition)?;
+        if !Arc::ptr_eq(&progress.tenure, &deferred.tenure)
+            || !progress.deferred.remove(&deferred.offset)
+        {
+            return None;
+        }
+        Some(progress.mark_processed(deferred.offset + 1))
+    }
+
+    /// Atomically replace one deferred floor with another and mark the superseded message processed.
+    ///
+    /// Keeping both mutations under the partition lock matters when the replacement reuses an
+    /// offset after a follower rewind: a concurrent commit snapshot must never observe the old floor
+    /// removed before the replacement is installed. Returns `None` when the token belongs to a
+    /// forgotten tenure or no longer owns its floor.
+    pub fn replace_deferred(
+        &self,
+        deferred: DeferredOffset,
+        replacement_offset: i64,
+    ) -> Option<(DeferredOffset, MarkOutcome)> {
+        let mut progress = self.partitions.get_mut(&deferred.partition)?;
+        if !Arc::ptr_eq(&progress.tenure, &deferred.tenure)
+            || !progress.deferred.remove(&deferred.offset)
+        {
+            return None;
+        }
+        assert!(
+            progress.deferred.insert(replacement_offset),
+            "partition {} offset {replacement_offset} was deferred twice in one tenure",
+            deferred.partition,
+        );
+        let outcome = progress.mark_processed(deferred.offset + 1);
+        let replacement = DeferredOffset {
+            partition: deferred.partition,
+            offset: replacement_offset,
+            tenure: Arc::clone(&progress.tenure),
+        };
+        Some((replacement, outcome))
     }
 
     /// Pin the partition's commit floor at `offset` (the failed message's *own* offset `K`, **not**
@@ -120,27 +231,24 @@ impl OffsetTracker {
     }
 
     /// Snapshot of `partition → next-offset-to-consume` for every partition with a *processed*
-    /// offset, **capped at any [`hold`](Self::hold) floor**. Partitions tracked only because they were
-    /// dispatched carry the `processed_offset == 0` sentinel and are excluded — nothing safe to
-    /// commit, so Kafka replays them. A real mark is always `≥ 1`, so the filter never drops a
-    /// committable offset.
+    /// offset, capped at the earliest sticky [`hold`](Self::hold) or releasable
+    /// [`defer`](Self::defer) floor. Partitions tracked only because they were dispatched or deferred
+    /// carry the `processed_offset == 0` sentinel and are excluded — nothing safe to commit, so
+    /// Kafka replays them. A real mark is always `≥ 1`, so the filter never drops a committable
+    /// offset.
     ///
-    /// The hold cap is applied to the *value*, not the filter: a hold pinned at the message's own
-    /// offset `K` makes the committable value `min(processed, K)` so a later success cannot leapfrog
-    /// the failed message. A hold at `0` (or a hold while `processed == 0`) yields a value of `0`,
-    /// which the `> 0` filter then excludes — Kafka replays the partition from the start of its
-    /// uncommitted range, redelivering the held message rather than skipping it.
+    /// Floors cap the *value*, not the filter: a floor pinned at the message's own offset `K` makes
+    /// the committable value `min(processed, K)` so a later success cannot leapfrog the unfinished
+    /// message. A floor at `0` (or any floor while `processed == 0`) yields no committable value, so
+    /// Kafka replays from the start of the uncommitted range.
     pub fn committable_offsets(&self) -> HashMap<i32, i64> {
         self.partitions
             .iter()
-            .filter(|entry| entry.value().processed_offset > 0)
             .filter_map(|entry| {
-                let progress = entry.value();
-                let committable = match progress.held_offset {
-                    Some(held) => progress.processed_offset.min(held),
-                    None => progress.processed_offset,
-                };
-                (committable > 0).then_some((*entry.key(), committable))
+                entry
+                    .value()
+                    .committable_offset()
+                    .map(|offset| (*entry.key(), offset))
             })
             .collect()
     }
@@ -150,8 +258,9 @@ impl OffsetTracker {
     }
 
     /// Drop all tracking for a revoked partition. Its offset should already be committed. Removing the
-    /// whole entry also clears any [`hold`](Self::hold), so the next tenure starts unheld and replays
-    /// from the committed offset — the only way a sticky hold is released.
+    /// whole entry also clears any [`hold`](Self::hold) and [`defer`](Self::defer) floors, so the next
+    /// tenure starts unheld and replays from the committed offset — the only way a sticky hold is
+    /// released.
     pub fn forget_partition(&self, partition: i32) {
         self.partitions.remove(&partition);
     }
@@ -350,5 +459,185 @@ mod tests {
 
         assert_eq!(tracker.committable_offsets().get(&4), None);
         assert_eq!(tracker.partition_count(), 1);
+    }
+
+    #[test]
+    fn later_processed_marks_cannot_leapfrog_a_deferred_offset() {
+        let tracker = OffsetTracker::new();
+        tracker.mark_dispatched(4, 100);
+        let deferred = tracker.defer(4, 41);
+
+        assert_eq!(tracker.mark_processed(4, 80), MarkOutcome::WithinDispatch);
+        assert_eq!(tracker.committable_offsets().get(&4), Some(&41));
+
+        assert_eq!(
+            tracker.complete_deferred(deferred),
+            Some(MarkOutcome::WithinDispatch),
+        );
+        assert_eq!(tracker.committable_offsets().get(&4), Some(&80));
+    }
+
+    #[test]
+    fn completing_a_deferred_offset_zero_marks_next_offset_one() {
+        let tracker = OffsetTracker::new();
+        tracker.mark_dispatched(4, 1);
+        let deferred = tracker.defer(4, 0);
+
+        assert_eq!(tracker.committable_offsets().get(&4), None);
+        assert_eq!(
+            tracker.complete_deferred(deferred),
+            Some(MarkOutcome::WithinDispatch),
+        );
+        assert_eq!(tracker.committable_offsets().get(&4), Some(&1));
+    }
+
+    #[test]
+    fn multiple_deferred_offsets_reveal_the_next_lowest_floor() {
+        let tracker = OffsetTracker::new();
+        tracker.mark_dispatched(4, 100);
+        let first = tracker.defer(4, 20);
+        let second = tracker.defer(4, 40);
+        let _ = tracker.mark_processed(4, 80);
+
+        assert_eq!(tracker.committable_offsets().get(&4), Some(&20));
+        assert_eq!(
+            tracker.complete_deferred(first),
+            Some(MarkOutcome::WithinDispatch),
+        );
+        assert_eq!(tracker.committable_offsets().get(&4), Some(&40));
+        assert_eq!(
+            tracker.complete_deferred(second),
+            Some(MarkOutcome::WithinDispatch),
+        );
+        assert_eq!(tracker.committable_offsets().get(&4), Some(&80));
+
+        let tracker = OffsetTracker::new();
+        tracker.mark_dispatched(4, 100);
+        let first = tracker.defer(4, 20);
+        let second = tracker.defer(4, 40);
+        let _ = tracker.mark_processed(4, 80);
+
+        assert_eq!(
+            tracker.complete_deferred(second),
+            Some(MarkOutcome::WithinDispatch),
+        );
+        assert_eq!(tracker.committable_offsets().get(&4), Some(&20));
+        assert_eq!(
+            tracker.complete_deferred(first),
+            Some(MarkOutcome::WithinDispatch),
+        );
+        assert_eq!(tracker.committable_offsets().get(&4), Some(&80));
+    }
+
+    #[test]
+    fn replacing_a_deferred_offset_never_exposes_an_unpinned_commit() {
+        let tracker = OffsetTracker::new();
+        tracker.mark_dispatched(4, 100);
+        let original = tracker.defer(4, 20);
+        let _ = tracker.mark_processed(4, 80);
+
+        let (replacement, outcome) = tracker
+            .replace_deferred(original, 20)
+            .expect("the current tenure owns the original floor");
+
+        assert_eq!(outcome, MarkOutcome::WithinDispatch);
+        assert_eq!(tracker.committable_offsets().get(&4), Some(&20));
+        assert_eq!(
+            tracker.complete_deferred(replacement),
+            Some(MarkOutcome::WithinDispatch),
+        );
+        assert_eq!(tracker.committable_offsets().get(&4), Some(&80));
+    }
+
+    #[test]
+    fn replacing_a_deferred_offset_moves_the_floor_atomically() {
+        let tracker = OffsetTracker::new();
+        tracker.mark_dispatched(4, 100);
+        let original = tracker.defer(4, 40);
+        let _ = tracker.mark_processed(4, 80);
+
+        let (replacement, _) = tracker
+            .replace_deferred(original, 20)
+            .expect("the current tenure owns the original floor");
+
+        assert_eq!(tracker.committable_offsets().get(&4), Some(&20));
+        assert_eq!(
+            tracker.complete_deferred(replacement),
+            Some(MarkOutcome::WithinDispatch),
+        );
+        assert_eq!(tracker.committable_offsets().get(&4), Some(&80));
+    }
+
+    #[test]
+    fn deferred_and_sticky_floors_compose_by_minimum() {
+        for (partition, held, deferred_offset, expected_before, expected_after) in
+            [(1, 30, 40, 30, 30), (2, 50, 40, 40, 50)]
+        {
+            let tracker = OffsetTracker::new();
+            tracker.mark_dispatched(partition, 100);
+            tracker.hold(partition, held);
+            let deferred = tracker.defer(partition, deferred_offset);
+            let _ = tracker.mark_processed(partition, 80);
+
+            assert_eq!(
+                tracker.committable_offsets().get(&partition),
+                Some(&expected_before),
+            );
+            assert_eq!(
+                tracker.complete_deferred(deferred),
+                Some(MarkOutcome::WithinDispatch),
+            );
+            assert_eq!(
+                tracker.committable_offsets().get(&partition),
+                Some(&expected_after),
+            );
+        }
+    }
+
+    #[test]
+    fn forgetting_a_partition_invalidates_its_deferred_tokens() {
+        let tracker = OffsetTracker::new();
+        tracker.mark_dispatched(4, 100);
+        let stale = tracker.defer(4, 40);
+        let _ = tracker.mark_processed(4, 80);
+        tracker.forget_partition(4);
+
+        // Recreate the same offset in a new tenure to pin the ABA case: the stale token cannot
+        // release work now owned by the new partition worker.
+        tracker.mark_dispatched(4, 100);
+        let current = tracker.defer(4, 40);
+        let _ = tracker.mark_processed(4, 80);
+        assert_eq!(tracker.complete_deferred(stale), None);
+        assert_eq!(tracker.committable_offsets().get(&4), Some(&40));
+
+        assert_eq!(
+            tracker.complete_deferred(current),
+            Some(MarkOutcome::WithinDispatch),
+        );
+        assert_eq!(tracker.committable_offsets().get(&4), Some(&80));
+    }
+
+    #[test]
+    fn dropping_a_deferred_token_pins_until_the_partition_is_forgotten() {
+        let tracker = OffsetTracker::new();
+        tracker.mark_dispatched(4, 100);
+        let deferred = tracker.defer(4, 40);
+        let _ = tracker.mark_processed(4, 80);
+
+        drop(deferred);
+        assert_eq!(tracker.committable_offsets().get(&4), Some(&40));
+
+        tracker.forget_partition(4);
+        tracker.mark_dispatched(4, 100);
+        let _ = tracker.mark_processed(4, 80);
+        assert_eq!(tracker.committable_offsets().get(&4), Some(&80));
+    }
+
+    #[test]
+    #[should_panic(expected = "offset 40 was deferred twice in one tenure")]
+    fn deferring_the_same_offset_twice_fails_closed() {
+        let tracker = OffsetTracker::new();
+        let _first = tracker.defer(4, 40);
+        let _second = tracker.defer(4, 40);
     }
 }

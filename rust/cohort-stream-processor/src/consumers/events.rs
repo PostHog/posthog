@@ -82,12 +82,19 @@ pub struct ConsumedEvent {
     pub broker_ts_ms: Option<i64>,
 }
 
+/// A partition entry remains present while its old worker drains. That sentinel serializes worker
+/// replacement with tracker-tenure reset during a rapid revoke/reassign.
+enum WorkerSlot {
+    Running(Stage1Worker),
+    Draining,
+}
+
 /// The Kafka-free routing core: dispatches consumed batches to per-partition workers, tracks
 /// processed offsets, and owns the partition lifecycle the rebalance handler drives.
 pub struct EventDispatcher {
     router: Arc<PartitionRouter>,
     tracker: Arc<OffsetTracker>,
-    workers: Arc<DashMap<i32, Stage1Worker>>,
+    workers: Arc<DashMap<i32, WorkerSlot>>,
     /// Partitions currently assigned to this consumer.
     owned: Arc<DashSet<i32>>,
     handle: StoreHandle,
@@ -237,8 +244,8 @@ impl EventDispatcher {
     }
 
     /// Retry-send held sub-batches, raising the ceiling for any that flush. Returns the partitions
-    /// still full (retained holdover) to keep paused; a flushed or worker-gone one is absent, so the
-    /// caller resumes it.
+    /// still unavailable (full, missing, or closed) to keep paused; only a flushed partition is
+    /// absent, so the caller resumes it.
     pub fn redispatch_held(
         &self,
         held: Vec<(i32, Vec<ShuffleMessage>)>,
@@ -246,6 +253,7 @@ impl EventDispatcher {
         // Each partition's Vec stays contiguous, so the regrouped route keeps offset order.
         let mut messages: Vec<(i32, ShuffleMessage)> = Vec::new();
         for (partition, batch) in held {
+            self.ensure_worker(partition);
             for message in batch {
                 messages.push((partition, message));
             }
@@ -282,7 +290,10 @@ impl EventDispatcher {
                 SendOutcome::Full(returned) => {
                     full.entry(partition).or_default().extend(returned);
                 }
-                SendOutcome::NoWorker | SendOutcome::ChannelClosed => route_errors += 1,
+                SendOutcome::NoWorker(returned) | SendOutcome::ChannelClosed(returned) => {
+                    full.entry(partition).or_default().extend(returned);
+                    route_errors += 1;
+                }
             }
         }
         if dispatched > 0 {
@@ -423,7 +434,14 @@ impl EventDispatcher {
                             .filter_map(|message| ConsumedSeed::from_message(partition, message)),
                     );
                 }
-                SendOutcome::NoWorker | SendOutcome::ChannelClosed => route_errors += 1,
+                SendOutcome::NoWorker(returned) | SendOutcome::ChannelClosed(returned) => {
+                    full.entry(partition).or_default().extend(
+                        returned
+                            .into_iter()
+                            .filter_map(|message| ConsumedSeed::from_message(partition, message)),
+                    );
+                    route_errors += 1;
+                }
             }
         }
         if route_errors > 0 {
@@ -470,7 +488,14 @@ impl EventDispatcher {
     /// partition is unowned. The ownership check and insert are atomic under the DashMap shard guard.
     fn ensure_worker(&self, partition: i32) {
         match self.workers.entry(partition) {
-            Entry::Occupied(_) => {}
+            Entry::Occupied(slot) => {
+                if matches!(slot.get(), WorkerSlot::Draining) {
+                    debug!(
+                        partition,
+                        "worker replacement waits for the revoked worker to finish draining"
+                    );
+                }
+            }
             Entry::Vacant(slot) => {
                 // No `.await` in this arm — the DashMap shard guard is held.
                 if !self.owned.contains(&partition) {
@@ -500,7 +525,7 @@ impl EventDispatcher {
                             self.durable_restore_enabled(),
                             self.event_name_gating(),
                         );
-                        slot.insert(worker);
+                        slot.insert(WorkerSlot::Running(worker));
                         counter!(COHORT_STREAM_WORKERS_SPAWNED).increment(1);
                         info!(
                             partition,
@@ -560,6 +585,11 @@ impl EventDispatcher {
         .await;
     }
 
+    /// Route one bounded reconcile-drain tick to each owned partition with a live worker.
+    pub async fn route_reconcile_drain(&self) {
+        self.route_to_owned(|| ShuffleMessage::ReconcileDrain).await;
+    }
+
     /// Owned partitions that currently have a live worker channel — the only partitions a maintenance
     /// tick can reach. An owned partition that never received an event has no worker, so a tick to it
     /// is a guaranteed `no_worker` no-op (no in-memory state to evict, redrive, or GC); skipping it
@@ -616,8 +646,24 @@ impl EventDispatcher {
             return;
         }
 
+        let worker = match self.workers.entry(partition) {
+            Entry::Occupied(mut slot) => {
+                if matches!(slot.get(), WorkerSlot::Draining) {
+                    debug!(partition, "revoke cleanup is already draining this worker");
+                    return;
+                }
+                match slot.insert(WorkerSlot::Draining) {
+                    WorkerSlot::Running(worker) => Some(worker),
+                    WorkerSlot::Draining => unreachable!("the occupied slot was checked above"),
+                }
+            }
+            Entry::Vacant(slot) => {
+                slot.insert(WorkerSlot::Draining);
+                None
+            }
+        };
         self.router.remove_partition(partition);
-        if let Some((_, worker)) = self.workers.remove(&partition) {
+        if let Some(worker) = worker {
             let started = Instant::now();
             if let Err(err) = worker.join().await {
                 warn!(partition, error = %err, "stage 1 worker panicked during revoke drain");
@@ -626,7 +672,12 @@ impl EventDispatcher {
         }
 
         if self.owned.contains(&partition) {
-            // re-acquired during the join — skip cleanup
+            // The draining sentinel prevents an in-flight follower batch from spawning a replacement
+            // worker before the old in-memory reconcile queue is gone and its tracker tenure resets.
+            // The rebalance worker then rewinds the follower, so anything dropped against the
+            // sentinel is replayed into the fresh tenure.
+            self.merge.seed_tracker.forget_partition(partition);
+            self.finish_worker_drain(partition);
             counter!(REBALANCE_CLEANUP_SKIPPED_TOTAL, "phase" => "post_join").increment(1);
             debug!(
                 partition,
@@ -656,6 +707,7 @@ impl EventDispatcher {
                 partition,
                 "revoked partition out of u16 range; skipping state delete"
             );
+            self.finish_worker_drain(partition);
             return;
         };
         match self.handle.delete_partition(partition_id).await {
@@ -664,6 +716,12 @@ impl EventDispatcher {
                 warn!(partition, error = %err, "failed to delete revoked partition state")
             }
         }
+        self.finish_worker_drain(partition);
+    }
+
+    fn finish_worker_drain(&self, partition: i32) {
+        self.workers
+            .remove_if(&partition, |_, slot| matches!(slot, WorkerSlot::Draining));
     }
 
     /// Delete a moving-in partition's stale on-disk slice so the worker cold-rebuilds from the
@@ -886,7 +944,7 @@ impl EventDispatcher {
         self.router.clear();
         let partitions: Vec<i32> = self.workers.iter().map(|entry| *entry.key()).collect();
         for partition in partitions {
-            if let Some((_, worker)) = self.workers.remove(&partition) {
+            if let Some((_, WorkerSlot::Running(worker))) = self.workers.remove(&partition) {
                 if let Err(err) = worker.join().await {
                     warn!(partition, error = %err, "stage 1 worker panicked during shutdown drain");
                 }
@@ -1409,10 +1467,14 @@ pub(crate) async fn run_pauser_loop(
 mod tests {
     use super::*;
     use chrono_tz::UTC;
+    use common_kafka::kafka_producer::KafkaProduceError;
     use serde_json::json;
     use tempfile::TempDir;
     use uuid::Uuid;
 
+    use cohort_core::seed::{BehavioralShapeHash, ReconcileTile, RunId};
+
+    use crate::consumers::seeds::SeedWork;
     use crate::filters::{CohortId, FilterCatalog, TeamFiltersBuilder, TeamId};
     use crate::merge::transfer::{
         MergeStateTransfer, PendingTransfer, PersonMergeEvent, Tombstone, TransferLeaf,
@@ -1421,7 +1483,8 @@ mod tests {
     use crate::partitions::offset_tracker::MarkOutcome;
     use crate::partitions::partitioner::{partition_of, COHORT_PARTITION_COUNT};
     use crate::producer::{
-        CaptureSink, CaptureStreamEventSink, CaptureTransferSink, MembershipStatus,
+        CaptureSink, CaptureStreamEventSink, CaptureTransferSink, CohortMembershipChange,
+        MembershipStatus, ReconcileCompleteMarker,
     };
     use crate::stage1::state::AppliedOffsets;
     use crate::stage1::{Stage1State, StatefulRecord};
@@ -1434,6 +1497,43 @@ mod tests {
     const TEAM: i32 = 7;
     const BEHAVIORAL_HASH: [u8; 16] = *b"0123456789abcdef";
     const BASE_TS: &str = "2026-05-26 12:34:56.789000";
+
+    struct BlockingMembershipSink {
+        entered: tokio::sync::Notify,
+        release: tokio::sync::Notify,
+        block_first: AtomicBool,
+    }
+
+    impl BlockingMembershipSink {
+        fn new() -> Arc<Self> {
+            Arc::new(Self {
+                entered: tokio::sync::Notify::new(),
+                release: tokio::sync::Notify::new(),
+                block_first: AtomicBool::new(true),
+            })
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl MembershipSink for BlockingMembershipSink {
+        async fn produce(
+            &self,
+            changes: Vec<CohortMembershipChange>,
+        ) -> Vec<Result<(), KafkaProduceError>> {
+            if self.block_first.swap(false, Ordering::SeqCst) {
+                self.entered.notify_one();
+                self.release.notified().await;
+            }
+            changes.into_iter().map(|_| Ok(())).collect()
+        }
+
+        async fn produce_markers(
+            &self,
+            markers: Vec<ReconcileCompleteMarker>,
+        ) -> Vec<Result<(), KafkaProduceError>> {
+            markers.into_iter().map(|_| Ok(())).collect()
+        }
+    }
 
     /// Wrap a test store in the `All` operating point so the dispatcher runs on the blocking pool.
     fn test_handle(store: &CohortStore) -> StoreHandle {
@@ -1770,6 +1870,10 @@ mod tests {
         let sink = Arc::new(sink);
         let transfer_sink = Arc::new(transfer_sink);
         let transfer_sink_dyn: Arc<dyn crate::producer::TransferSink> = transfer_sink.clone();
+        let reconcile = crate::workers::ReconcileDeps {
+            enabled: true,
+            ..crate::workers::ReconcileDeps::default()
+        };
         let merge = Arc::new(MergeWorkerDeps {
             transfer_sink: transfer_sink_dyn,
             stream_event_sink: Arc::new(CaptureStreamEventSink::new()),
@@ -1785,6 +1889,9 @@ mod tests {
             seed_tile_sink: Arc::new(crate::producer::CaptureSeedTileSink::new()),
             seed_tracker: Arc::new(crate::partitions::offset_tracker::OffsetTracker::new()),
             live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
+            // The dispatch tests exercise cross-partition register transfer end to end.
+            register_transfer_enabled: true,
+            reconcile,
         });
         let dispatcher = EventDispatcher::new(
             PartitionRouter::new(64),
@@ -2469,6 +2576,165 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn post_join_reacquire_starts_a_fresh_seed_tenure_for_reconcile_replay() {
+        let (_dir, store) = temp_store();
+        let sink = BlockingMembershipSink::new();
+        let reconcile = crate::workers::ReconcileDeps {
+            enabled: true,
+            ..crate::workers::ReconcileDeps::default()
+        };
+        let merge = Arc::new(MergeWorkerDeps {
+            transfer_sink: Arc::new(CaptureTransferSink::new()),
+            stream_event_sink: Arc::new(CaptureStreamEventSink::new()),
+            merge_tracker: Arc::new(OffsetTracker::new()),
+            transfer_tracker: Arc::new(OffsetTracker::new()),
+            retry: TransferRetryPolicy::default(),
+            gc_scan_limit: crate::workers::DEFAULT_MERGE_GC_SCAN_LIMIT,
+            stage2_orphan_gc_enabled: true,
+            cascade_sink: Arc::new(crate::producer::CaptureCascadeSink::new()),
+            cascade_tracker: Arc::new(OffsetTracker::new()),
+            cascade: crate::workers::CascadeConfig::default(),
+            partition_count: COHORT_PARTITION_COUNT,
+            seed_tile_sink: Arc::new(crate::producer::CaptureSeedTileSink::new()),
+            seed_tracker: Arc::new(OffsetTracker::new()),
+            live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
+            register_transfer_enabled: false,
+            reconcile,
+        });
+        let dispatcher = Arc::new(EventDispatcher::new(
+            PartitionRouter::new(64),
+            Arc::new(OffsetTracker::new()),
+            test_handle(&store),
+            behavioral_catalog(),
+            sink.clone(),
+            merge.clone(),
+        ));
+        dispatcher.assign_partition(0);
+
+        let tile = ReconcileTile::new(
+            TeamId(TEAM),
+            CohortId(1),
+            BehavioralShapeHash::parse("0123456789abcdef").unwrap(),
+            RunId(Uuid::from_u128(1)),
+        );
+        let held = dispatcher.dispatch_seeds(vec![ConsumedSeed {
+            work: SeedWork::Reconcile(tile.clone()),
+            partition: 0,
+            offset: 5,
+        }]);
+        assert!(held.is_empty());
+        for _ in 0..10_000 {
+            if merge.reconcile.backlog.len() == 1 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(merge.reconcile.backlog.len(), 1, "reconcile was admitted");
+
+        dispatcher.dispatch(vec![consumed(person(1), 0, 6)]).await;
+        sink.entered.notified().await;
+
+        dispatcher.revoke_partition_sync(0);
+        let drain = {
+            let dispatcher = dispatcher.clone();
+            tokio::spawn(async move { dispatcher.revoke_partition_drain(0).await })
+        };
+        for _ in 0..10_000 {
+            if dispatcher
+                .workers
+                .get(&0)
+                .is_some_and(|slot| matches!(slot.value(), WorkerSlot::Draining))
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert!(
+            dispatcher
+                .workers
+                .get(&0)
+                .is_some_and(|slot| matches!(slot.value(), WorkerSlot::Draining)),
+            "the old worker was replaced by a draining sentinel before its blocked join",
+        );
+
+        dispatcher.assign_partition(0);
+        let held_events = dispatcher
+            .dispatch_events_nonblocking(vec![consumed(person(2), 0, 7)], &HashSet::new());
+        assert_eq!(
+            held_offsets(
+                held_events
+                    .get(&0)
+                    .expect("a primary event is held behind the draining worker"),
+            ),
+            vec![7],
+        );
+        let mut held = dispatcher.dispatch_seeds(vec![ConsumedSeed {
+            work: SeedWork::Reconcile(tile.clone()),
+            partition: 0,
+            offset: 5,
+        }]);
+        assert_eq!(
+            held_seed_offsets(held.get(&0).expect("the draining route is held")),
+            vec![5],
+        );
+        assert!(
+            dispatcher
+                .workers
+                .get(&0)
+                .is_some_and(|slot| matches!(slot.value(), WorkerSlot::Draining)),
+            "an in-flight follower batch cannot replace the draining worker",
+        );
+
+        sink.release.notify_one();
+        drain.await.unwrap();
+
+        assert!(dispatcher.owns(0));
+        assert!(merge.reconcile.backlog.is_empty());
+        assert!(dispatcher.workers.is_empty(), "the sentinel was released");
+
+        let still_held = dispatcher.redispatch_held(held_events.into_iter().collect());
+        assert!(
+            still_held.is_empty(),
+            "the primary event routes after the draining sentinel is released",
+        );
+        let held = dispatcher.dispatch_seeds(
+            held.remove(&0)
+                .expect("the held follower batch is retried after the drain"),
+        );
+        assert!(held.is_empty());
+        for _ in 0..10_000 {
+            if merge.reconcile.backlog.len() == 1 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(merge.reconcile.backlog.len(), 1, "replay was re-admitted");
+        assert_eq!(
+            merge.seed_tracker.mark_processed(0, 6),
+            MarkOutcome::WithinDispatch,
+            "worker receipt raises the fresh tenure's seed ceiling before admission",
+        );
+        assert_eq!(
+            merge.seed_tracker.committable_offsets().get(&0),
+            Some(&5),
+            "the replayed reconcile owns the fresh tenure's commit floor",
+        );
+        for _ in 0..10_000 {
+            if dispatcher.tracker().committable_offsets().get(&0) == Some(&8) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(
+            dispatcher.tracker().committable_offsets().get(&0),
+            Some(&8),
+            "the held primary event is processed after worker replacement",
+        );
+
+        dispatcher.shutdown().await;
+    }
+
+    #[tokio::test]
     async fn revoke_then_shutdown_drain_each_worker_exactly_once() {
         let (_dir, store) = temp_store();
         let (dispatcher, sink) = dispatcher_and_sink(&store, behavioral_catalog());
@@ -2605,6 +2871,24 @@ mod tests {
                 ShuffleMessage::Sweep { due_before_ms } => assert_eq!(*due_before_ms, cutoff),
                 other => panic!("expected Sweep, got {other:?}"),
             }
+        }
+    }
+
+    #[tokio::test]
+    async fn route_reconcile_drain_delivers_one_tick_to_each_active_worker() {
+        let (_dir, store) = temp_store();
+        let dispatcher = dispatcher_with(&store, behavioral_catalog());
+
+        dispatcher.assign_partition(0);
+        dispatcher.assign_partition(1);
+        let mut rx0 = dispatcher.router.add_partition(0).unwrap();
+        let mut rx1 = dispatcher.router.add_partition(1).unwrap();
+
+        dispatcher.route_reconcile_drain().await;
+
+        for receiver in [&mut rx0, &mut rx1] {
+            let batch = receiver.recv().await.expect("a reconcile tick was routed");
+            assert!(matches!(batch.as_slice(), [ShuffleMessage::ReconcileDrain]));
         }
     }
 
@@ -2950,6 +3234,7 @@ mod tests {
             source_partition: source.0,
             source_offset: source.1,
             leaves,
+            membership_registers: vec![],
             forward_hops: 0,
 
             person_dedup: None,
