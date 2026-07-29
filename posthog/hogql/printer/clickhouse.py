@@ -42,7 +42,6 @@ from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 from posthog.clickhouse.events_json import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.uuidt import UUIDT
-from posthog.week_start_day import WeekStartDay
 
 
 def _table_filter_type(table_type: ast.TableOrSelectType) -> ast.TableOrSelectType:
@@ -285,7 +284,7 @@ class ClickHousePrinter(BasePrinter):
         if node.name == "toStartOfWeek" and len(node.args) == 1:
             # If week mode hasn't been specified, use the project's default.
             # For Monday-based weeks mode 3 is used (which is ISO 8601), for Sunday-based mode 0 (CH default)
-            args.insert(1, WeekStartDay(self._get_week_start_day()).clickhouse_mode)
+            args.insert(1, self._get_week_start_day().clickhouse_mode)
 
         if node.name == "trimLeft" and len(args) == 2:
             return f"trim(LEADING {args[1]} FROM {args[0]})"

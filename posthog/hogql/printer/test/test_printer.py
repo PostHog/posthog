@@ -7125,11 +7125,18 @@ class TestPostgresPrinter(BaseTest):
             "(date_trunc('week', (events.timestamp + interval '1 day')) - interval '1 day')",
         )
 
-    def test_to_start_of_week_uses_project_week_start_day_in_postgres(self):
+    @parameterized.expand(
+        [
+            ("enum", WeekStartDay.MONDAY),
+            # Django hands back the raw int for `Team.week_start_day`, never the enum member
+            ("raw_int", WeekStartDay.MONDAY.value),
+        ]
+    )
+    def test_to_start_of_week_uses_project_week_start_day_in_postgres(self, _name: str, week_start_day: int):
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
-            database=Database(week_start_day=WeekStartDay.MONDAY),
+            database=Database(week_start_day=week_start_day),
         )
 
         self.assertEqual(self._expr("toStartOfWeek(timestamp)", context), "date_trunc('week', events.timestamp)")
