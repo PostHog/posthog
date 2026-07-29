@@ -63,6 +63,11 @@ jobs:
                         - 'rust/replay-anonymizer/**'
                         - 'rust/replay-anonymizer-node/**'
                         - '**/crosslang/**'
+                        # The clientwarnings consumer e2e replays capture's warning envelope from
+                        # this shared fixture. Without it the rust filter below decides, and it only
+                        # admits ingestion-consumer, which does not depend on the fixture's crate, so
+                        # a capture-side envelope change would skip the test that pins the consumer.
+                        - 'rust/common/ingestion_warnings/*.json'
                         - 'posthog/clickhouse/**'
                         - 'ee/migrations/**'
                         - 'posthog/management/commands/setup_test_environment.py'

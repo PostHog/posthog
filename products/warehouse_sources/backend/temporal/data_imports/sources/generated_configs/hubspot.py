@@ -14,6 +14,7 @@ class HubspotCustomPropertiesConfig(config.Config):
     quotes_properties: str | None = None
     emails_properties: str | None = None
     meetings_properties: str | None = None
+    leads_properties: str | None = None
 
 
 @config.config

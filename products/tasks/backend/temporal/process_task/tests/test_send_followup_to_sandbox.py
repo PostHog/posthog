@@ -709,6 +709,25 @@ class TestSendFollowupTurnTimeout:
         _patches["error"].assert_not_called()
         _patches["turn_complete"].assert_not_called()
 
+    def test_pi_retryable_failure_writes_sentinel_on_its_only_attempt(self, _patches):
+        _patches["user_msg"].return_value = CommandResult(
+            success=False, status_code=502, error="Connection to sandbox failed", retryable=True
+        )
+
+        with pytest.raises(ApplicationError, match="send_followup failed") as exc_info:
+            send_followup_to_sandbox(
+                SendFollowupToSandboxInput(
+                    run_id="run-1",
+                    message="hi",
+                    message_id="m-1",
+                    max_attempts=1,
+                )
+            )
+
+        assert exc_info.value.non_retryable is True
+        _patches["error"].assert_called_once()
+        _patches["turn_complete"].assert_not_called()
+
     def test_retryable_stream_error_final_attempt_writes_actionable_sentinel(self, _patches):
         _patches["user_msg"].return_value = CommandResult(
             success=False,
