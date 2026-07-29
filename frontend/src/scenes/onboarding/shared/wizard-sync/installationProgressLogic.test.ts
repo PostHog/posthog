@@ -5,6 +5,7 @@ import {
     cloudProgress,
     isSessionFresh,
     localProgress,
+    pendingInputFromSession,
     progressFromFinishedLocalRun,
     resetWizardSyncTelemetryForTests,
     runLocalSessionBookkeeping,
@@ -327,6 +328,51 @@ describe('installationProgressLogic merge', () => {
         })
     })
 
+    describe('pendingInput', () => {
+        const pending = {
+            id: 'ask-1',
+            asked_at: '2026-01-01T00:00:10Z',
+            question_count: 1,
+            sensitive: false,
+            prompts: ['Which region is your project in?'],
+        }
+
+        it('surfaces an open wizard_ask on a live session', () => {
+            const result = localProgress(session({ run_phase: 'running', pending_input: pending }), 'open', true)
+            expect(result.pendingInput).toEqual({
+                id: 'ask-1',
+                askedAt: '2026-01-01T00:00:10Z',
+                questionCount: 1,
+                sensitive: false,
+                prompts: ['Which region is your project in?'],
+            })
+        })
+
+        it.each([
+            // A dead wizard never sends the clearing push — staleness is the only way out.
+            ['stale session', session({ run_phase: 'running', pending_input: pending, is_stale: true })],
+            ['terminal session', session({ run_phase: 'completed', pending_input: pending })],
+            ['no pending_input on the row', session({ run_phase: 'running', pending_input: null })],
+        ])('gated off for a %s', (_name, s) => {
+            expect(pendingInputFromSession(s)).toBeNull()
+        })
+
+        it('withholds prompts on sensitive asks even if the row carries them', () => {
+            const result = pendingInputFromSession(
+                session({ run_phase: 'running', pending_input: { ...pending, sensitive: true } })
+            )
+            expect(result?.sensitive).toBe(true)
+            expect(result?.prompts).toEqual([])
+        })
+
+        it('the next push without the field reads as dismissed', () => {
+            const withQuestion = localProgress(session({ run_phase: 'running', pending_input: pending }), 'open', true)
+            const cleared = localProgress(session({ run_phase: 'running', pending_input: null }), 'open', true)
+            expect(withQuestion.pendingInput).not.toBeNull()
+            expect(cleared.pendingInput).toBeNull()
+        })
+    })
+
     describe('progressFromFinishedLocalRun', () => {
         const handle = (overrides: Partial<FinishedLocalRunHandle> = {}): FinishedLocalRunHandle => ({
             sessionId: 's',
@@ -355,6 +401,7 @@ describe('installationProgressLogic merge', () => {
                 prUrl: null,
                 prMerged: false,
                 isCurrent: true,
+                pendingInput: null,
             })
         })
 
