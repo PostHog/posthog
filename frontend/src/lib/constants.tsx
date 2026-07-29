@@ -217,6 +217,7 @@ export const FEATURE_FLAGS = {
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: #team-analytics-platform
     QUERY_RUNNING_TIME: 'query_running_time', // owner: #team-analytics-platform
     REPLAY_HOGQL_FILTERS: 'replay-hogql-filters', // owner: @pauldambra #team-replay
+    REPLAY_PLAYER_PERSON_SESSIONS_TAB: 'replay-player-person-sessions-tab', // owner: @ksvat #team-replay
     REPLAY_SETTINGS_HELP: 'replay-settings-help', // owner: @veryayskiy #team-replay
     REPLAY_TRIGGER_TYPE_CHOICE: 'replay-trigger-type-choice', // owner: @pauldambra #team-replay
     SESSION_REPLAY_BACKEND_LOGS: 'session-replay-backend-logs', // owner: #team-replay
