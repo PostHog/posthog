@@ -14,6 +14,7 @@ members = [
   "common/alloc",
   "common/assignment-coordination",
   "common/k8s-awareness",
+  "common/keyed-stash",
   "common/cache",
   "common/cookieless",
   "common/database",

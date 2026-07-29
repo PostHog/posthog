@@ -2,7 +2,6 @@ import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.clockodo.settings import (
     ENTRIES_TIME_SINCE,
     ClockodoEndpointConfig,
@@ -20,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 # Clockodo's API is hosted at a single fixed host for every account (no per-tenant subdomain).
 CLOCKODO_BASE_URL = "https://my.clockodo.com/api"

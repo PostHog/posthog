@@ -17,7 +17,10 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { userLogic } from 'scenes/userLogic'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { type SavedTicketView, type TicketViewFilters, normalizeAssigneeFilter } from '../../types'
 import { AssigneeLabelDisplay, AssigneeResolver } from '../Assignee'
@@ -90,6 +93,8 @@ function FiltersSummary({ filters }: { filters: TicketViewFilters }): JSX.Elemen
 function SaveViewModal({ id }: TicketViewsLogicProps): JSX.Element {
     const { isSaveModalOpen, viewName, isPrivate, currentFilters, isSavingView } = useValues(ticketViewsLogic({ id }))
     const { closeSaveModal, setViewName, setIsPrivate, saveView } = useActions(ticketViewsLogic({ id }))
+    const editDisabledReason =
+        getAccessControlDisabledReason(AccessControlResourceType.Ticket, AccessControlLevel.Editor) ?? undefined
 
     return (
         <LemonModal
@@ -105,7 +110,7 @@ function SaveViewModal({ id }: TicketViewsLogicProps): JSX.Element {
                         type="primary"
                         onClick={saveView}
                         loading={isSavingView}
-                        disabledReason={!viewName.trim() ? 'Enter a name' : undefined}
+                        disabledReason={editDisabledReason ?? (!viewName.trim() ? 'Enter a name' : undefined)}
                     >
                         Save view
                     </LemonButton>
@@ -118,7 +123,8 @@ function SaveViewModal({ id }: TicketViewsLogicProps): JSX.Element {
                     value={viewName}
                     onChange={setViewName}
                     autoFocus
-                    onPressEnter={() => !isSavingView && saveView()}
+                    disabledReason={editDisabledReason}
+                    onPressEnter={editDisabledReason ? undefined : () => !isSavingView && saveView()}
                 />
                 <FiltersSummary filters={currentFilters} />
                 <LemonCheckbox checked={isPrivate} onChange={setIsPrivate} label="Personal view (only visible to me)" />
@@ -142,6 +148,8 @@ export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
         setSearchTerm,
     } = useActions(ticketViewsLogic({ id }))
     const { user } = useValues(userLogic)
+    const editDisabledReason =
+        getAccessControlDisabledReason(AccessControlResourceType.Ticket, AccessControlLevel.Editor) ?? undefined
 
     const columns: LemonTableColumns<SavedTicketView> = [
         {
@@ -153,6 +161,7 @@ export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
                     size="xsmall"
                     loading={favoritingShortIds.includes(view.short_id)}
                     onClick={() => toggleFavorite(view)}
+                    disabledReason={editDisabledReason}
                     icon={
                         view.is_favorited ? (
                             <IconHeartFilled className="text-danger" />
@@ -208,6 +217,7 @@ export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
                         Load
                     </LemonButton>
                     <More
+                        disabledReason={editDisabledReason}
                         overlay={
                             <LemonMenuOverlay
                                 items={[
@@ -318,7 +328,7 @@ export function SavedViewsModal({ id }: TicketViewsLogicProps): JSX.Element {
                 width={720}
                 footer={
                     <div className="flex justify-between w-full">
-                        <LemonButton type="primary" onClick={openSaveModal}>
+                        <LemonButton type="primary" onClick={openSaveModal} disabledReason={editDisabledReason}>
                             Save current view
                         </LemonButton>
                         <LemonButton type="secondary" onClick={closeModal}>
