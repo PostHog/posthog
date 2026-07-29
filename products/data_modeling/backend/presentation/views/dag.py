@@ -1,13 +1,15 @@
 import re
-from typing import cast
+from typing import Any, cast
 
 from django.db.models import Count
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
+from products.data_modeling.backend.facade.api import tiered_schedules_enabled
 from products.data_modeling.backend.facade.models import DAG, RESERVED_DAG_NAMES
 from products.warehouse_sources.backend.facade.models import (
     sync_frequency_interval_to_sync_frequency,
@@ -25,6 +27,14 @@ class DAGSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Sync frequency string (e.g. '24hour', '7day')",
     )
+    frequency_managed_by_nodes = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "True when this team's DAG schedules are driven by per-model freshness targets, so "
+            "`sync_frequency` no longer controls scheduling and writes to it are rejected. False "
+            "when the DAG-level frequency still applies."
+        ),
+    )
 
     class Meta:
         model = DAG
@@ -33,12 +43,14 @@ class DAGSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "sync_frequency",
+            "frequency_managed_by_nodes",
             "node_count",
             "created_at",
             "updated_at",
         ]
         read_only_fields = [
             "id",
+            "frequency_managed_by_nodes",
             "node_count",
             "created_at",
             "updated_at",
@@ -47,6 +59,12 @@ class DAGSerializer(serializers.ModelSerializer):
             "name": {"help_text": "Human-readable name for this DAG"},
             "description": {"help_text": "Optional description of the DAG's purpose"},
         }
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_frequency_managed_by_nodes(self, dag: DAG) -> bool:
+        # Resolved once per request in DAGViewSet.get_serializer_context — it is team-scoped,
+        # so evaluating the flag per DAG row would be redundant.
+        return bool(self.context.get("frequency_managed_by_nodes", False))
 
     def to_representation(self, instance: DAG) -> dict:
         data = super().to_representation(instance)
@@ -91,7 +109,16 @@ class DAGSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("System-managed DAGs cannot be edited.")
         sync_frequency = validated_data.pop("sync_frequency", None)
         if sync_frequency is not None:
-            validated_data["sync_frequency_interval"] = sync_frequency_to_sync_frequency_interval(sync_frequency)
+            if self.context.get("frequency_managed_by_nodes", False):
+                # The frontend spreads the whole DAG into every PATCH, so an unchanged
+                # echo of the current frequency must pass; only a real change is rejected.
+                current = sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
+                if sync_frequency != current:
+                    raise serializers.ValidationError(
+                        "Sync frequency is managed per model on this team. Edit each model's sync frequency instead."
+                    )
+            else:
+                validated_data["sync_frequency_interval"] = sync_frequency_to_sync_frequency_interval(sync_frequency)
         return super().update(instance, validated_data)
 
 
@@ -103,6 +130,11 @@ class DAGViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(team_id=self.team_id).annotate(node_count=Count("node")).order_by("name")
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        context["frequency_managed_by_nodes"] = tiered_schedules_enabled(self.team)
+        return context
 
     def perform_destroy(self, instance: DAG) -> None:
         if instance.is_default:

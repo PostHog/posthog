@@ -105,10 +105,10 @@ describe('quotaUx', () => {
         expect(ux.tooltip).toBeUndefined()
     })
 
-    it('shows a dollar tooltip near the warn threshold but does not block', () => {
+    it('shows a remaining-credits tooltip near the warn threshold but does not block', () => {
         const ux = quotaUx(makeQuota({ credits_used: 8_500, remaining: 1_500 }))
         expect(ux.disabledReason).toBeUndefined()
-        expect(ux.tooltip).toContain('$15.00')
+        expect(ux.tooltip).toContain('1,500 credits left')
     })
 
     it('returns nothing while usage is well under the threshold', () => {

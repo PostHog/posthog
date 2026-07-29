@@ -39,6 +39,7 @@ jobs:
         if: >-
             github.event_name != 'pull_request'
             || github.event.pull_request.draft != true
+            || startsWith(github.head_ref, 'trunk-merge/')
             || !contains(github.event.pull_request.labels.*.name, 'no-ci')
         name: Determine need to run frontend checks
         # A snapshot-only bot push (Visual Review auto-commits frontend/snapshots.yml after
@@ -148,8 +149,8 @@ jobs:
             # frontend code (which doesn't always live under frontend/ — see
             # products/games, products/data_warehouse, products/ai_observability/shared),
             # but they also match product dirs that are their own Node services
-            # (products/agent_platform/services/**) with their own ci-agents.yml suite and
-            # nothing in the bundle. Exclude those so a PR touching only them skips frontend
+            # (products/<product>/services/**) with their own CI suite and nothing in
+            # the bundle. Exclude those so a PR touching only them skips frontend
             # CI. The excluded dirs are derived from pnpm-workspace.yaml (the product paths
             # that declare nested pnpm workspaces) rather than hardcoded, so a new product's
             # services are excluded automatically — see bin/frontend-exclude-filter.
@@ -181,10 +182,13 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         needs: changes
+        # Trunk's merge-queue branches open as draft PRs, but their run IS the
+        # merge gate, so they must never get the narrowed selection.
         if: |
             !cancelled() && needs.changes.outputs.frontend_code == 'true'
             && github.event_name == 'pull_request'
             && github.event.pull_request.draft == true
+            && !startsWith(github.head_ref, 'trunk-merge/')
             && !contains(github.event.pull_request.labels.*.name, 'run-ci-frontend')
         outputs:
             mode: ${{ steps.classify.outputs.mode }}
