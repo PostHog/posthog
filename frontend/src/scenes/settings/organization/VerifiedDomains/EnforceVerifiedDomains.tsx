@@ -10,7 +10,7 @@ import { AvailableFeature } from '~/types'
 
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 
-export function EnforceLoginWithVerifiedDomain(): JSX.Element {
+export function EnforceVerifiedDomains(): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { updateOrganization } = useActions(organizationLogic)
     const { verifiedDomains, verifiedDomainsLoading } = useValues(verifiedDomainsLogic)
@@ -31,10 +31,8 @@ export function EnforceLoginWithVerifiedDomain(): JSX.Element {
             <LemonSwitch
                 label="Require a verified email domain to log in"
                 bordered
-                checked={!!currentOrganization?.enforce_login_with_verified_domain}
-                onChange={(enforce_login_with_verified_domain) =>
-                    updateOrganization({ enforce_login_with_verified_domain })
-                }
+                checked={!!currentOrganization?.enforce_verified_domains}
+                onChange={(enforce_verified_domains) => updateOrganization({ enforce_verified_domains })}
                 loading={currentOrganizationLoading}
                 disabledReason={
                     restrictionReason ??

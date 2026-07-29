@@ -31,7 +31,7 @@ NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
 
 
 def _enable_domain_enforcement(organization: Organization, domain: str) -> None:
-    organization.enforce_login_with_verified_domain = True
+    organization.enforce_verified_domains = True
     organization.save()
     OrganizationDomain.objects.create(
         domain=domain,

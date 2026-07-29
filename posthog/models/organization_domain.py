@@ -179,7 +179,7 @@ class OrganizationDomainManager(models.Manager):
         Whether a login or join for `email` into `organization` should be blocked: the org requires
         a verified email domain, and `email`'s domain is not one of the org's verified domains.
         """
-        if not organization.enforce_login_with_verified_domain:
+        if not organization.enforce_verified_domains:
             return False
         return not self.is_domain_verified_for_organization(email, organization)
 

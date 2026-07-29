@@ -1,1 +1,1 @@
-1265_organization_enforce_login_with_verified_domain
+1265_organization_enforce_verified_domains

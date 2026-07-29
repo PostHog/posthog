@@ -537,7 +537,7 @@ const OrganizationEnforce2faSchema = PartialUpdateParams.extend(
     PartialUpdateBody.omit({
         name: true,
         logo_media_id: true,
-        enforce_login_with_verified_domain: true,
+        enforce_verified_domains: true,
         members_can_invite: true,
         members_can_create_projects: true,
         members_can_use_personal_api_keys: true,

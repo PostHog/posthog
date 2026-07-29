@@ -9,7 +9,7 @@ from posthog.models import Organization, OrganizationDomain
 
 class TestOrganizationDomainEnforcement(BaseTest):
     def _org_with_domain(self, *, enforce: bool = True) -> Organization:
-        org = Organization.objects.create(name="Enforced org", enforce_login_with_verified_domain=enforce)
+        org = Organization.objects.create(name="Enforced org", enforce_verified_domains=enforce)
         OrganizationDomain.objects.create(
             domain="hogflix.posthog.com",
             organization=org,

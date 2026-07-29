@@ -99,7 +99,7 @@ export type SettingId =
     | 'approval-policies'
     | 'authentication-domains'
     | 'autocapture'
-    | 'enforce-login-with-verified-domain'
+    | 'enforce-verified-domains'
     | 'autocapture-data-attributes'
     | 'banner'
     | 'base-currency'

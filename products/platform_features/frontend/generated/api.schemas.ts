@@ -79,10 +79,10 @@ export interface OrganizationApi {
     /** @nullable */
     enforce_2fa?: boolean | null
     /**
-     * When True, invites and signups into this organization are restricted to email addresses on its verified domains. Existing members are unaffected.
+     * When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.
      * @nullable
      */
-    enforce_login_with_verified_domain?: boolean | null
+    enforce_verified_domains?: boolean | null
     /** @nullable */
     members_can_invite?: boolean | null
     /**
@@ -182,10 +182,10 @@ export interface PatchedOrganizationApi {
     /** @nullable */
     enforce_2fa?: boolean | null
     /**
-     * When True, invites and signups into this organization are restricted to email addresses on its verified domains. Existing members are unaffected.
+     * When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.
      * @nullable
      */
-    enforce_login_with_verified_domain?: boolean | null
+    enforce_verified_domains?: boolean | null
     /** @nullable */
     members_can_invite?: boolean | null
     /**

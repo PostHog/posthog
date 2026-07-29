@@ -228,7 +228,7 @@ class TestLoginAPI(APIBaseTest):
     def test_login_blocked_when_org_requires_verified_domain(self):
         self.user.is_email_verified = True
         self.user.save()
-        self.organization.enforce_login_with_verified_domain = True
+        self.organization.enforce_verified_domains = True
         self.organization.save()
         OrganizationDomain.objects.create(
             domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
