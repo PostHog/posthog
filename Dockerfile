@@ -112,14 +112,14 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY bin/turbo bin/turbo
 COPY patches/ patches/
-COPY common/canvas-builder/ common/canvas-builder/
+COPY products/canvas/packages/canvas_builder/ products/canvas/packages/canvas_builder/
 COPY common/esbuilder/ common/esbuilder/
 COPY common/plugin_transpiler/ common/plugin_transpiler/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     corepack enable && \
     NODE_OPTIONS="--max-old-space-size=4096" CI=1 pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
     NODE_OPTIONS="--max-old-space-size=4096" bin/turbo --filter=@posthog/plugin-transpiler build && \
-    cd common/canvas-builder && npm ci --ignore-scripts --omit=dev
+    cd products/canvas/packages/canvas_builder && npm ci --ignore-scripts --omit=dev
 
 # The transpiler bundle externalizes @babel/standalone (its only external runtime require — a
 # self-contained 24MB package with no deps). Materialize it as real files inside the transpiler's
@@ -398,7 +398,7 @@ ENV TIKTOKEN_CACHE_DIR=/code/.tiktoken_cache
 COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/dist /code/common/plugin_transpiler/dist
 COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/node_modules /code/common/plugin_transpiler/node_modules
 COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/package.json /code/common/plugin_transpiler/package.json
-COPY --from=node-scripts-build --chown=posthog:posthog /code/common/canvas-builder /code/common/canvas-builder
+COPY --from=node-scripts-build --chown=posthog:posthog /code/products/canvas/packages/canvas_builder /code/products/canvas/packages/canvas_builder
 
 # Add in custom bin files and Django deps.
 COPY --chown=posthog:posthog ./bin ./bin/

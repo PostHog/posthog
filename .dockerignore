@@ -4,7 +4,6 @@
 !.kearc
 !bin
 !common/alerting
-!common/canvas-builder
 !common/hogvm
 !common/esbuilder
 !common/migration_utils
