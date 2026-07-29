@@ -32,7 +32,7 @@ export function AlertLeadingActions({
     testDeliveryLoading,
 }: AlertLeadingActionsProps): JSX.Element {
     return (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
             <LemonButton
                 type="secondary"
                 status="danger"

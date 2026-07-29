@@ -93,7 +93,7 @@ export function AlertEditorActions({
 
     return (
         <>
-            {leadingActions ? <div className="flex-1">{leadingActions}</div> : null}
+            {leadingActions ? <div className="min-w-0 flex-1">{leadingActions}</div> : null}
             <LemonButton
                 type="primary"
                 htmlType="submit"
