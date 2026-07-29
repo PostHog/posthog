@@ -17,13 +17,14 @@ Do NOT:
 
 from collections.abc import Iterable
 from datetime import datetime
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import UUID
 
 from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Exists, OuterRef, Prefetch, Q
+from django.db.models import CharField, Exists, OuterRef, Prefetch, Q
 from django.utils import timezone
 
 import structlog
@@ -37,7 +38,12 @@ from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team import Team
 
-from products.conversations.backend.facade.api import SupportSlackChannelsUnavailable, SupportSlackNotConfigured
+from products.conversations.backend.facade.api import (
+    SupportSlackChannelsUnavailable,
+    SupportSlackNotConfigured,
+    TicketSummary as TicketSummary,
+    list_account_tickets,
+)
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
 from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROLE_FIELDS
 from products.customer_analytics.backend.events import emit_account_tags_added
@@ -736,7 +742,7 @@ def _log_activity_swallowing(
     name: str,
     organization_id,
     team_id: int,
-    user: "User",
+    user: "User | None",
     was_impersonated: bool,
     previous=None,
 ) -> None:
@@ -1985,27 +1991,70 @@ def get_account_for_view(
     return _to_account_view(account)
 
 
-def create_account_for_view(
+class _Unset(Enum):
+    UNSET = "unset"
+
+
+_UNSET = _Unset.UNSET
+
+
+def _cap_to_field_length(field_name: str, value: str) -> str:
+    max_length = cast(CharField, Account._meta.get_field(field_name)).max_length
+    return value[:max_length]
+
+
+def update_account(
+    account: Account,
     *,
-    team_id: int,
-    team,
-    input: contracts.CreateAccountInput,
-    organization_id,
-    user: "User",
-    was_impersonated: bool,
-) -> contracts.AccountView:
+    name: str | _Unset = _UNSET,
+    external_id: str | None | _Unset = _UNSET,
+    properties: "dict | _ModelAccountProperties | _Unset" = _UNSET,
+) -> Account:
+    """Field-write primitive shared by every account update path. Only the fields passed are
+    written; ``properties`` replaces the stored JSON wholesale. Product-internal — takes and
+    returns the model, so it must not be called across the product boundary."""
+    update_fields: list[str] = []
+    if not isinstance(name, _Unset):
+        account.name = _cap_to_field_length("name", name)
+        update_fields.append("name")
+    if not isinstance(external_id, _Unset):
+        account.external_id = _cap_to_field_length("external_id", external_id) if external_id is not None else None
+        update_fields.append("external_id")
+    if not isinstance(properties, _Unset):
+        account._properties = _ModelAccountProperties.from_input(properties).model_dump(mode="json", exclude_unset=True)
+        update_fields.append("_properties")
+    if update_fields:
+        account.save(update_fields=update_fields)
+    return account
+
+
+def create_account(
+    *,
+    team: Team,
+    name: str,
+    created_by: "User | None" = None,
+    external_id: str | None = None,
+    properties: "dict | _ModelAccountProperties | None" = None,
+    tags: list[str] | None = None,
+    was_impersonated: bool = False,
+) -> Account:
+    """The single account-creation write path: validates properties, sets tags, shadows role
+    assignments into the relationships table, and logs activity. Product-internal — it returns
+    the model, so it must not be called across the product boundary.
+    Raises ``AccountPropertiesValidationError`` / ``AccountConflictError``."""
     try:
         with transaction.atomic():
-            account = Account.objects.create_account(
+            validated = _ModelAccountProperties.from_input(properties or {})
+            account = Account.objects.unscoped().create(
                 team=team,
-                created_by=user,
-                name=input.name,
-                external_id=input.external_id,
-                properties=input.properties,
+                created_by=created_by,
+                name=_cap_to_field_length("name", name),
+                external_id=_cap_to_field_length("external_id", external_id) if external_id is not None else None,
+                _properties=validated.model_dump(mode="json", exclude_unset=True),
             )
-            _set_tags(input.tags, account, actor=user)
+            _set_tags(tags, account, actor=created_by)
             if any(field in (account._properties or {}) for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS):
-                _relationships_logic.sync_from_account_properties(account, created_by=user)
+                _relationships_logic.sync_from_account_properties(account, created_by=created_by)
     except PydanticValidationError as exc:
         raise AccountPropertiesValidationError(_format_pydantic_errors(exc))
     except IntegrityError:
@@ -2015,9 +2064,28 @@ def create_account_for_view(
         scope="Account",
         activity="created",
         name=account.name,
-        organization_id=organization_id,
-        team_id=team_id,
-        user=user,
+        organization_id=team.organization_id,
+        team_id=team.pk,
+        user=created_by,
+        was_impersonated=was_impersonated,
+    )
+    return account
+
+
+def create_account_for_view(
+    *,
+    team: Team,
+    input: contracts.CreateAccountInput,
+    user: "User",
+    was_impersonated: bool,
+) -> contracts.AccountView:
+    account = create_account(
+        team=team,
+        created_by=user,
+        name=input.name,
+        external_id=input.external_id,
+        properties=input.properties,
+        tags=input.tags,
         was_impersonated=was_impersonated,
     )
     return _to_account_view(account)
@@ -2048,7 +2116,7 @@ def update_account_for_view(
 
     try:
         with transaction.atomic():
-            account = Account.objects.update_account(account, **update_kwargs)
+            account = update_account(account, **update_kwargs)
             _set_tags(input.tags, account, actor=user)
             if input.properties_provided:
                 _relationships_logic.sync_from_account_properties(account, created_by=user)
@@ -2187,6 +2255,30 @@ def get_accessible_account_id(team_id: int, account_id: str, user_access_control
     except (ValidationError, ValueError):
         return None
     return str(account.id) if account is not None else None
+
+
+def get_account_support_tickets(
+    team_id: int,
+    account_id: str,
+    user_access_control: "UserAccessControl",
+    *,
+    limit: int = 50,
+) -> list[TicketSummary] | None:
+    """Support tickets (from the conversations product) for an accessible account, newest activity
+    first. None when the parent account isn't accessible (→ 404); an empty list when the account
+    has no linked customer org key, or has one but no matching tickets.
+
+    Raises :class:`ResourceForbiddenError` (→ 403) when the caller can read the account but not
+    tickets — this endpoint is authorized as ``account`` while the payload is ticket content, so
+    the ``ticket`` resource has to be gated separately or this path bypasses its RBAC."""
+    if get_accessible_account_id(team_id, account_id, user_access_control) is None:
+        return None
+    if not user_access_control.check_access_level_for_resource("ticket", "viewer"):
+        raise ResourceForbiddenError()
+    account = _resolve_account(team_id, account_id=account_id)
+    if account is None or not account.external_id:
+        return []
+    return list_account_tickets(team_id, account.external_id, limit=limit)
 
 
 def list_account_notebooks(

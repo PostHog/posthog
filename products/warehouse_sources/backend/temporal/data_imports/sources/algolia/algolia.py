@@ -6,7 +6,6 @@ from urllib.parse import quote
 import requests
 from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.settings import (
     ALGOLIA_ENDPOINTS,
     AlgoliaEndpointConfig,
@@ -27,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     HTTPMethodBasic,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 # Algolia's REST API is served per-application. The main host handles both reads and the
 # admin/list operations we use; the `-dsn` replica is only a latency optimisation for search,

@@ -36,6 +36,7 @@ ALIAS_METRIC_LABELS: dict[str, tuple[str, str]] = {
     "openai/@cf/zai-org/glm-5.2": ("cloudflare", "@cf/zai-org/glm-5.2"),
     # Same public model id as the CF entry so dashboards slice one model across both backends.
     "openai/zai-org/GLM-5.2-FP8": ("modal", "@cf/zai-org/glm-5.2"),
+    "openai/zai-org/GLM-5.2": ("baseten", "@cf/zai-org/glm-5.2"),
     "openai/moonshotai/kimi-k3": ("modal", "moonshotai/kimi-k3"),
 }
 
