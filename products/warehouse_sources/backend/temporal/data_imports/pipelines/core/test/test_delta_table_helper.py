@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     _delta_merge_spill_kwargs,
     _first_per_pk_table,
     _realign_decimal_buffers,
+    is_transient_delta_maintenance_error,
 )
 
 
@@ -1151,3 +1152,25 @@ class TestIsTableCorrupted:
             result = await helper.is_table_corrupted()
 
         assert result is expected
+
+
+class TestIsTransientDeltaMaintenanceError:
+    @parameterized.expand(
+        [
+            # A concurrent optimize/vacuum losing the race on a file scan: safe to skip and retry.
+            (
+                "optimize_scan_file_not_found",
+                deltalake.exceptions.DeltaError(
+                    "Failed to parse parquet: Optimize selected-file scan failed while scanning data: "
+                    "Object at location .../part-0.parquet not found: 404 Not Found"
+                ),
+                True,
+            ),
+            # Other DeltaErrors are real failures (e.g. a genuinely corrupt log) and must still be captured.
+            ("unrelated_delta_error", deltalake.exceptions.DeltaError("no protocol found in delta log"), False),
+            # Same message shape but not the DeltaError type delta-rs actually raises for it.
+            ("wrong_exception_type", RuntimeError("Optimize selected-file scan failed"), False),
+        ]
+    )
+    def test_matches_only_the_racy_optimize_scan_signature(self, _name: str, error: Exception, expected: bool):
+        assert is_transient_delta_maintenance_error(error) is expected

@@ -78,6 +78,21 @@ def is_transient_object_store_error(error: BaseException) -> bool:
 # exactly what its "must be rerun" error message asks the caller to do.
 DELTA_MERGE_CONFLICT_RETRIES = 3
 
+# `optimize.compact` plans its rewrite against the file list at the start of its scan, then reads
+# those files. A concurrent maintenance pass on the same table (e.g. a Temporal activity attempt that
+# heartbeat-timed-out but keeps running as a zombie — see this package's README on the equivalent
+# unfenced race for repartition) can vacuum one of those files out from under the scan before it gets
+# read, which delta-rs surfaces as this DeltaError. The scan failing here means the optimize aborted
+# before committing anything — the table is left exactly as it was, just still fragmented — so this is
+# safe to skip and retry on the next maintenance pass, not a bug in our logic.
+TRANSIENT_DELTA_MAINTENANCE_ERRORS = ("Optimize selected-file scan failed",)
+
+
+def is_transient_delta_maintenance_error(error: BaseException) -> bool:
+    return isinstance(error, deltalake.exceptions.DeltaError) and any(
+        needle in str(error) for needle in TRANSIENT_DELTA_MAINTENANCE_ERRORS
+    )
+
 
 def _delta_merge_spill_kwargs() -> dict[str, int]:
     """delta-rs `merge` kwargs that let DataFusion spill to disk instead of OOMing on large merges.
