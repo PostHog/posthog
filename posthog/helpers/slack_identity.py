@@ -2,8 +2,9 @@
 
 Token-agnostic: every function takes a ``slack_sdk.WebClient`` so the caller supplies the
 workspace's bot token (the conversations SupportHog bot, the generic Slack ``Integration``,
-etc.). Profile and avatar lookups are cached in Redis keyed by the (workspace-stable) Slack
-user id / email, so the cache is safe to share across callers.
+etc.). Profile and avatar lookups are cached in Redis. Slack user ids are only guaranteed
+unique per workspace, so callers that make trust decisions on the resolved profile should
+pass ``workspace`` to namespace the cache; email keys are globally unique already.
 """
 
 from types import MappingProxyType
@@ -32,9 +33,9 @@ def _make_cache_key(prefix: str, *args: str) -> str:
     return f"slack_identity:{prefix}:{key_parts}"
 
 
-def get_cached_slack_user(slack_user_id: str) -> dict | None:
+def get_cached_slack_user(slack_user_id: str, workspace: str = "") -> dict | None:
     """Get cached Slack user profile."""
-    key = _make_cache_key("slack_user", slack_user_id)
+    key = _make_cache_key("slack_user", workspace, slack_user_id)
     try:
         return cache.get(key)
     except Exception:
@@ -42,9 +43,9 @@ def get_cached_slack_user(slack_user_id: str) -> dict | None:
         return None
 
 
-def set_cached_slack_user(slack_user_id: str, user_info: dict) -> None:
+def set_cached_slack_user(slack_user_id: str, user_info: dict, workspace: str = "") -> None:
     """Cache a Slack user profile."""
-    key = _make_cache_key("slack_user", slack_user_id)
+    key = _make_cache_key("slack_user", workspace, slack_user_id)
     try:
         cache.set(key, user_info, timeout=SLACK_USER_CACHE_TTL)
     except Exception:
@@ -70,13 +71,18 @@ def set_cached_slack_avatar(email: str, avatar_url: str) -> None:
         logger.warning("slack_identity_cache_set_error", key=key)
 
 
-def resolve_slack_user(client: WebClient, slack_user_id: str) -> dict:
-    """Resolve a Slack user ID to name, email, and avatar. Cached in Redis for 5 minutes."""
+def resolve_slack_user(client: WebClient, slack_user_id: str, *, workspace: str = "") -> dict:
+    """Resolve a Slack user ID to name, email, and avatar. Cached in Redis for 5 minutes.
+
+    Slack user ids are only unique per workspace — pass ``workspace`` (e.g. the integration's
+    Slack team id) whenever the profile feeds a trust decision, so a colliding id from another
+    workspace can't be served from this one's cache.
+    """
     if not slack_user_id:
         logger.warning("slack_user_resolve_empty_id")
         return dict(_UNKNOWN_USER)
 
-    cached = get_cached_slack_user(slack_user_id)
+    cached = get_cached_slack_user(slack_user_id, workspace)
     if cached is not None:
         return cached
 
@@ -101,7 +107,7 @@ def resolve_slack_user(client: WebClient, slack_user_id: str) -> dict:
             "email": profile.get("email"),
             "avatar": profile.get("image_72"),
         }
-        set_cached_slack_user(slack_user_id, result)
+        set_cached_slack_user(slack_user_id, result, workspace)
         return result
     except Exception as e:
         logger.warning("slack_user_resolve_failed", slack_user_id=slack_user_id, error=str(e))
