@@ -54970,6 +54970,11 @@ export namespace Schemas {
       homepage?: PinnedSceneTab | null;
     }
 
+    export interface PinnedTaskIdsResponse {
+      /** Visible task IDs pinned by the requester, newest pin first. */
+      task_ids: string[];
+    }
+
     export interface PlainThreadSignalExtra {
       status: string | null;
       priority: string | null;
@@ -68139,6 +68144,18 @@ export namespace Schemas {
        * * `acp` - ACP
        * * `pi` - Pi */
       runtime?: RuntimeEnum;
+    }
+
+    export interface TaskPinRequest {
+      /** Whether the task should be pinned for the requester. */
+      pinned: boolean;
+    }
+
+    export interface TaskPinResponse {
+      /** Task whose pin state was updated. */
+      task_id: string;
+      /** Current pin state for the requester. */
+      pinned: boolean;
     }
 
     /**

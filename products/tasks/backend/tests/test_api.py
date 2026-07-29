@@ -61,6 +61,7 @@ from products.tasks.backend.models import (
     Task,
     TaskArtifact,
     TaskAutomation,
+    TaskPin,
     TaskRun,
 )
 from products.tasks.backend.presentation.serializers import (
@@ -931,6 +932,67 @@ class TestTaskVisibilityInternalDebugRegionGate(BaseTaskAPITest):
 
 
 class TestTaskAPI(BaseTaskAPITest):
+    def test_pin_state_is_persisted_per_user(self):
+        task = self.create_task()
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/pin/", {"pinned": True}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"task_id": str(task.id), "pinned": True})
+        self.assertTrue(TaskPin.objects.filter(user=self.user, task=task).exists())
+
+        response = self.client.get("/api/projects/@current/tasks/pinned/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"task_ids": [str(task.id)]})
+
+        other_user = self.create_organization_user()
+        self.client.force_authenticate(other_user)
+        response = self.client.get("/api/projects/@current/tasks/pinned/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"task_ids": []})
+
+    def test_setting_pin_state_is_idempotent(self):
+        task = self.create_task()
+        url = f"/api/projects/@current/tasks/{task.id}/pin/"
+
+        self.client.post(url, {"pinned": True}, format="json")
+        self.client.post(url, {"pinned": True}, format="json")
+        self.assertEqual(TaskPin.objects.filter(user=self.user, task=task).count(), 1)
+
+        response = self.client.post(url, {"pinned": False}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(TaskPin.objects.filter(user=self.user, task=task).exists())
+
+    def test_cannot_pin_invisible_task(self):
+        other_user = self.create_organization_user()
+        task = self.create_task(created_by=other_user)
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/pin/", {"pinned": True}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_pins_are_team_scoped_and_hidden_after_task_deletion(self):
+        task = self.create_task()
+        self.client.post(f"/api/projects/@current/tasks/{task.id}/pin/", {"pinned": True}, format="json")
+        task.deleted = True
+        task.save(update_fields=["deleted"])
+
+        response = self.client.get("/api/projects/@current/tasks/pinned/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"task_ids": []})
+
+        other_organization = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_organization, name="Other Team")
+        other_task = Task.objects.create(
+            team=other_team,
+            created_by=self.user,
+            title="Other team task",
+            description="Not visible here",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{other_task.id}/pin/", {"pinned": True}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_list_tasks(self):
         self.create_task("Task 1")
         self.create_task("Task 2")

@@ -314,6 +314,12 @@ tools:
     tasks-partial-update:
         operation: tasks_partial_update
         enabled: false
+    tasks-pin-create:
+        operation: tasks_pin_create
+        enabled: false
+    tasks-pinned-retrieve:
+        operation: tasks_pinned_retrieve
+        enabled: false
     tasks-presence-create:
         operation: tasks_presence_create
         enabled: false

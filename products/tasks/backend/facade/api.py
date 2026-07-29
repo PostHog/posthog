@@ -61,6 +61,7 @@ from products.tasks.backend.models import (
     Task,
     TaskActivity,
     TaskAutomation,
+    TaskPin,
     TaskRun,
     TaskThreadMessage,
     TaskThreadMessageMention,
@@ -3596,6 +3597,25 @@ def task_visible(task_id: str | UUID, team_id: int, user_id: int | None, *, for_
     the task.
     """
     return _visible_task_qs(team_id, user_id, for_control=for_control).filter(id=task_id).exists()
+
+
+def list_pinned_task_ids(team_id: int, user_id: int) -> list[UUID]:
+    visible_tasks = _visible_task_qs(team_id, user_id).values("id")
+    return list(
+        TaskPin.objects.filter(user_id=user_id, task_id__in=Subquery(visible_tasks))
+        .order_by("-pinned_at")
+        .values_list("task_id", flat=True)
+    )
+
+
+def set_task_pinned(task_id: str | UUID, team_id: int, user_id: int, *, pinned: bool) -> bool | None:
+    if not task_visible(task_id, team_id, user_id):
+        return None
+    if pinned:
+        TaskPin.objects.get_or_create(user_id=user_id, task_id=task_id)
+    else:
+        TaskPin.objects.filter(user_id=user_id, task_id=task_id).delete()
+    return pinned
 
 
 async def select_repository_for_message(team_id: int, user_id: int, message: str, *, origin_product: str) -> str | None:
