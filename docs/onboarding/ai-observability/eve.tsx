@@ -51,7 +51,8 @@ export const getEveSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                 <>
                     <Markdown>
                         Create `agent/instrumentation.ts`. Eve discovers this file and starts the exporter when your
-                        agent server starts.
+                        agent server starts. The optional `events` handler identifies spans using the user who started
+                        the session, falling back to the caller for the current turn.
                     </Markdown>
 
                     <CodeBlock
@@ -71,6 +72,7 @@ export const getEveSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                     host: process.env.POSTHOG_HOST,
                                   }),
                                 }),
+                              // Optional: Link Eve and AI SDK spans to a PostHog user.
                               events: {
                                 'step.started'(input) {
                                   const distinctId =
@@ -97,12 +99,13 @@ export const getEveSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                         </Markdown>
                     </CalloutBox>
 
-                    <Markdown>
-                        Eve exposes the user who started the session as `session.auth.initiator`. If that value is not
-                        available, this example uses the caller for the current turn. The active span attribute
-                        identifies the Eve turn, and the runtime context identifies its AI SDK spans. Remove the
-                        `events` block to capture events without identifying a user.
-                    </Markdown>
+                    <Blockquote>
+                        <Markdown>
+                            **Note:** To capture LLM events anonymously, omit the `events` handler. See our docs on
+                            [anonymous vs identified
+                            events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
+                        </Markdown>
+                    </Blockquote>
 
                     <Blockquote>
                         <Markdown>

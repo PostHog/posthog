@@ -251,14 +251,16 @@ describe('vercel-ai middleware', () => {
             expect(event.properties!['$ai_stop_reason']).toBeUndefined()
         })
 
-        it.each(PROMOTED_CONTEXT_CASES)('promotes %s%s to event properties', (prefix, key, value) => {
+        it.each(PROMOTED_CONTEXT_CASES)('promotes %s%s value %p to event properties', (prefix, key, value) => {
             const event = createEvent('$ai_generation', {
                 'ai.operationId': 'ai.generateText.doGenerate',
                 [`${prefix}${key}`]: value,
+                [`${prefix}org_id`]: 'org-456',
             })
             convertOtelEvent(event)
 
             expect(event.properties![key]).toBe(value)
+            expect(event.properties![`${prefix}org_id`]).toBeUndefined()
             expect(event.properties![`${prefix}${key}`]).toBeUndefined()
         })
 

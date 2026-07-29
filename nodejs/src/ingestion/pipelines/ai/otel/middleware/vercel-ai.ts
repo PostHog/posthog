@@ -53,12 +53,6 @@ const AI_PROMPT_VERSION_KEY = '$ai_prompt_version'
 const AI_TELEMETRY_METADATA_PREFIX = 'ai.telemetry.metadata.'
 const AI_RUNTIME_CONTEXT_PREFIX = 'ai.settings.context.'
 const AI_CONTEXT_PREFIXES = [AI_TELEMETRY_METADATA_PREFIX, AI_RUNTIME_CONTEXT_PREFIX]
-const STRIPPED_RUNTIME_CONTEXT_KEYS = new Set([
-    ...STRING_AI_CONTEXT_KEYS,
-    AI_PROMPT_VERSION_KEY,
-    '$ai_span_name',
-    '$groups',
-])
 const EVE_MARKER_KEYS = ['eve.version', 'eve.session.id']
 const EVE_TURN_SPAN_NAME = 'ai.eve.turn'
 
@@ -100,15 +94,11 @@ function promotePosthogContext(props: Record<string, unknown>): void {
 
 function stripProcessedContext(props: Record<string, unknown>): void {
     for (const key of Object.keys(props)) {
-        if (key.startsWith(AI_TELEMETRY_METADATA_PREFIX) || key.startsWith('ai.request.headers.')) {
-            delete props[key]
-            continue
-        }
-        if (!key.startsWith(AI_RUNTIME_CONTEXT_PREFIX)) {
-            continue
-        }
-        const contextKey = key.slice(AI_RUNTIME_CONTEXT_PREFIX.length)
-        if (contextKey.startsWith('posthog_') || STRIPPED_RUNTIME_CONTEXT_KEYS.has(contextKey)) {
+        if (
+            key.startsWith(AI_TELEMETRY_METADATA_PREFIX) ||
+            key.startsWith(AI_RUNTIME_CONTEXT_PREFIX) ||
+            key.startsWith('ai.request.headers.')
+        ) {
             delete props[key]
         }
     }
