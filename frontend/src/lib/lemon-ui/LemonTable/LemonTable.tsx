@@ -59,7 +59,10 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
     /** Whether the table is still interactable while `loading` is `true`. Defaults to `true`. **/
     disableTableWhileLoading?: boolean
     pagination?: PaginationAuto | PaginationManual
-    /** Whether changing the page scrolls the table back into view. Defaults to `true`. */
+    /**
+     * Whether changing the page scrolls the table back into view. Defaults to `true`.
+     * Set to `false` for tables high up on a page where paging shouldn't move the viewport.
+     */
     scrollToTopOnPageChange?: boolean
     expandable?: ExpandableConfig<T>
     /** Whether the header should be shown. The default value is `true`. */
