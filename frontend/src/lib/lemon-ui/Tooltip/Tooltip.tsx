@@ -38,6 +38,13 @@ interface BaseTooltipProps {
     interactive?: boolean
     docLink?: string
     /**
+     * Also open the tooltip when the trigger is clicked, instead of a click dismissing it.
+     * Base UI only opens tooltips on hover for mouse users, so on a touch device the tooltip is
+     * otherwise unreachable. Clicking only opens – deliberately, so that clicking a tooltip you are
+     * already hovering doesn't snatch it away. To dismiss: Escape, a press outside, or hover away.
+     */
+    openOnClick?: boolean
+    /**
      * Run a function when showing the tooltip, for example to log an event.
      */
     onOpen?: () => void
@@ -92,6 +99,7 @@ export function Tooltip({
     visible: controlledOpen,
     docLink,
     containerClassName,
+    openOnClick = false,
     onOpen,
 }: React.PropsWithChildren<RequiredTooltipProps>): JSX.Element {
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
@@ -149,7 +157,13 @@ export function Tooltip({
 
     return (
         <BaseTooltip.Root open={open} onOpenChange={handleOpenChange} disableHoverablePopup={!isInteractive}>
-            <BaseTooltip.Trigger delay={delayMs} closeDelay={closeDelayMs} render={child} />
+            <BaseTooltip.Trigger
+                delay={delayMs}
+                closeDelay={closeDelayMs}
+                closeOnClick={!openOnClick}
+                onClick={openOnClick ? () => handleOpenChange(true) : undefined}
+                render={child}
+            />
             {shouldRenderPortal && (
                 <BaseTooltip.Portal container={floatingContainer ?? undefined}>
                     <BaseTooltip.Positioner
