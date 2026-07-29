@@ -359,11 +359,21 @@ def _append_debug_column_to_pyarrows_table(table: pa.Table, load_id: int) -> pa.
     return table.append_column("_ph_debug", column)
 
 
+UNNAMED_COLUMN_FALLBACK = "unnamed_column"
+
+
 def normalize_table_column_names(table: pa.Table) -> pa.Table:
     used_names = set()
 
     for column_name in table.column_names:
-        normalized_column_name = normalize_column_name(column_name)
+        try:
+            normalized_column_name = normalize_column_name(column_name)
+        except ValueError:
+            # A source can emit a blank or whitespace-only column name — e.g. a spreadsheet with an
+            # empty header cell above a populated column. The naming convention rejects an empty
+            # identifier, so fall back to a stable placeholder rather than failing the whole sync;
+            # the dedup loop below keeps it unique against the other columns.
+            normalized_column_name = UNNAMED_COLUMN_FALLBACK
         temp_name = normalized_column_name
 
         if temp_name != column_name:

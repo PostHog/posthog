@@ -472,6 +472,20 @@ def test_normalize_table_column_names_prevents_collisions():
     assert normalized_table.column("another_field").to_pylist() == ["value3"]
 
 
+@pytest.mark.parametrize("blank_name", ["", " ", "   ", "\t"])
+def test_normalize_table_column_names_handles_blank_column_name(blank_name):
+    # A blank/whitespace header (e.g. an empty header cell in a spreadsheet) reaches the pipeline
+    # as an empty column name and used to crash the whole sync in the naming convention.
+    table = pa.table({blank_name: ["value1"], "real_column": ["value2"]})
+
+    normalized_table = normalize_table_column_names(table)
+
+    assert "unnamed_column" in normalized_table.column_names
+    assert "real_column" in normalized_table.column_names
+    assert normalized_table.column("unnamed_column").to_pylist() == ["value1"]
+    assert normalized_table.column("real_column").to_pylist() == ["value2"]
+
+
 def test_table_from_py_list_with_rescaling_decimal_data_loss_error():
     # Very restrictive type, and the large_decimal value is too large for the schema
     schema = pa.schema({"column": pa.decimal128(5, 1)})
