@@ -227,5 +227,5 @@ def build_team_view(team: "Team") -> str | None:
     sources = resolve_job_source_tables(team)
     if not sources:
         return None
-    selects = [build_query(jobs_table=s.workflow_jobs, runs_table=s.workflow_runs) for s in sources]
+    selects = [build_query(jobs_table=source.workflow_jobs, runs_table=source.workflow_runs) for source in sources]
     return "\nUNION ALL\n".join(selects)

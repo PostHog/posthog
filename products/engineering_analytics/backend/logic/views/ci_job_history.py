@@ -157,10 +157,10 @@ def build_team_view(team: "Team") -> str | None:
         return None
     selects = [
         build_query(
-            jobs_table=s.workflow_jobs,
-            runs_table=s.workflow_runs,
-            pull_requests_table=s.pull_requests,
+            jobs_table=source.workflow_jobs,
+            runs_table=source.workflow_runs,
+            pull_requests_table=source.pull_requests,
         )
-        for s in sources
+        for source in sources
     ]
     return "\nUNION ALL\n".join(selects)

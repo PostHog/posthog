@@ -260,16 +260,17 @@ def _demo_master_commits(anchor: datetime, merged_prs: Sequence[dict[str, Any]])
         # through the merged set is enough: the demo needs the link to resolve, not a faithful
         # commit-to-merge history.
         pr = merged_prs[commit_index % len(merged_prs)] if merged_prs else None
-        # The first commit to cite a PR owns its merge commit, so that run resolves through the
-        # merge_commit_sha join; later citations reuse the number and exercise the message fallback.
-        # Every tenth join-backed commit drops the (#NNNN) suffix too, seeding the merge-commit
-        # landing that only the join can attribute.
-        joins_via_merge_sha = pr is not None and not pr.get("merge_commit_sha")
-        if pr is not None and joins_via_merge_sha:
-            pr["merge_commit_sha"] = sha
         subject = f"feat: seeded master commit {commit_index}"
-        if pr is not None and not (joins_via_merge_sha and commit_index % 10 == 3):
-            subject += f" (#{pr['number']})"
+        if pr is not None:
+            # The first commit to cite a PR owns its merge commit, so that run resolves through the
+            # merge_commit_sha join; later citations reuse the number and exercise the message
+            # fallback. Every tenth join-backed commit drops the (#NNNN) suffix too, seeding the
+            # merge-commit landing that only the join can attribute.
+            joins_via_merge_sha = not pr.get("merge_commit_sha")
+            if joins_via_merge_sha:
+                pr["merge_commit_sha"] = sha
+            if not (joins_via_merge_sha and commit_index % 10 == 3):
+                subject += f" (#{pr['number']})"
         red_commit = commit_index % 9 == 4  # an occasional broken master push
         cancelled_commit = commit_index % 17 == 9  # a rare all-cancelled push (neutral dot)
         for wf_index, workflow in enumerate(_MASTER_WORKFLOWS):

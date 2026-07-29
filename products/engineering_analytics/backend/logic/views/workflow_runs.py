@@ -39,11 +39,8 @@ row hasn't landed in the snapshot yet. Measured over 30 days of ``PostHog/postho
 runs, the join agreed with the suffix on all 122,743 runs the suffix resolved and attributed 35
 more that it could not (a merge-commit landing whose subject carries no ``(#NNNN)``).
 
-This is *not* the head-SHA join SPEC §6 locks out. That ban is about resolving a run through a PR's
-**current head**, which the snapshot overwrites on every push, silently dropping all but the latest.
-``merge_commit_sha`` on a merged PR is terminal: written once at merge, never updated, and one
-commit per PR. Reading it on an unmerged PR would be the mistake, since GitHub populates it there
-with the throwaway commit from a test merge, so the index gates on ``merged_at``.
+This is *not* the head-SHA join SPEC §6 locks out; see that entry for why a **merged** PR's
+``merge_commit_sha`` is a terminal key rather than the mutable current head the ban is about.
 
 The real GitHub source lands timestamps as **strings** and ``repository`` /
 ``pull_requests`` as **Nullable** JSON, so this builder runs in two layers: an inner
@@ -96,7 +93,7 @@ def _merged_pr_index(pull_requests_table: str) -> str:
     """
     return f"""
         SELECT
-            merge_commit_sha AS merged_commit_sha,
+            merge_commit_sha,
             min(number) AS merged_pr_number
         FROM {pull_requests_table}
         WHERE ifNull(merged_at, '') != '' AND ifNull(merge_commit_sha, '') != ''
@@ -112,31 +109,31 @@ def build_query(table_name: str, *, pull_requests_table: str | None = None, star
         f"(SELECT * FROM {table_name} WHERE run_started_at >= {{run_started_floor}})" if started_floor else table_name
     )
     if pull_requests_table:
-        merge_join = f"LEFT JOIN ({_merged_pr_index(pull_requests_table)}) AS pr ON run.head_sha = pr.merged_commit_sha"
+        merge_join = f"LEFT JOIN ({_merged_pr_index(pull_requests_table)}) AS pr ON run.head_sha = pr.merge_commit_sha"
         # An unmatched LEFT JOIN fills the Int with 0, not NULL (HogQL doesn't set `join_use_nulls`),
         # so `nullIf` is what lets the message fallback fire on a miss instead of reading PR 0.
-        commit_pr_number = "coalesce(nullIf(pr.merged_pr_number, 0), run.message_pr_number)"
+        commit_pr_number = "coalesce(nullIf(pr.merged_pr_number, 0), message_pr_number)"
     else:
         merge_join = ""
-        commit_pr_number = "run.message_pr_number"
+        commit_pr_number = "message_pr_number"
     return f"""
         SELECT
-            run.id AS id,
-            run.workflow_name AS workflow_name,
-            run.head_sha AS head_sha,
-            run.head_branch AS head_branch,
-            run.status AS status,
-            run.conclusion AS conclusion,
-            run.run_started_at AS run_started_at,
-            run.updated_at AS updated_at,
-            run.created_at AS created_at,
-            run.run_attempt AS run_attempt,
-            run.default_branch AS default_branch,
-            run.pr_number AS pr_number,
+            id,
+            workflow_name,
+            head_sha,
+            head_branch,
+            status,
+            conclusion,
+            run_started_at,
+            updated_at,
+            created_at,
+            run_attempt,
+            default_branch,
+            pr_number,
             {commit_pr_number} AS commit_pr_number,
-            if(run.status = 'completed', dateDiff('second', run.run_started_at, run.updated_at), NULL) AS duration_seconds,
-            arrayElement(run.repo_parts, 1) AS repo_owner,
-            arrayElement(run.repo_parts, 2) AS repo_name
+            if(status = 'completed', dateDiff('second', run_started_at, updated_at), NULL) AS duration_seconds,
+            arrayElement(repo_parts, 1) AS repo_owner,
+            arrayElement(repo_parts, 2) AS repo_name
         FROM (
             SELECT
                 id,
