@@ -104,10 +104,13 @@ class ScannerSpend:
     budget: CreditBudget
 
 
-def _scanner_in_flight_credits(scanner_ids: list[UUID], period: BillingPeriod) -> dict[UUID, int]:
+def _scanner_in_flight_credits(
+    organization_id: UUID, scanner_ids: list[UUID], period: BillingPeriod
+) -> dict[UUID, int]:
     """Credits reserved by each scanner's in-flight rows, priced from the frozen snapshot model."""
     pairs = Counter(
         ReplayObservation.objects.filter(
+            team__organization_id=organization_id,
             scanner_id__in=scanner_ids,
             status__in=IN_FLIGHT_STATUSES,
             created_at__gte=period.start,
@@ -145,11 +148,13 @@ def compute_scanner_budgets(organization_id: UUID, scanner_ids: list[UUID]) -> d
             total_observations=Count("id"),
         )
     }
-    in_flight = _scanner_in_flight_credits(scanner_ids, period)
+    in_flight = _scanner_in_flight_credits(organization_id, scanner_ids, period)
     # Read the limits here rather than taking them as a parameter: a caller that forgot to pass them
     # would get credit_limit=None, which reads as "uncapped" and would silently disable enforcement.
     limits: dict[UUID, int | None] = dict(
-        ReplayScanner.objects.filter(pk__in=scanner_ids).values_list("id", "monthly_credit_limit")
+        ReplayScanner.objects.filter(team__organization_id=organization_id, pk__in=scanner_ids).values_list(
+            "id", "monthly_credit_limit"
+        )
     )
     result: dict[UUID, ScannerSpend] = {}
     for scanner_id in scanner_ids:

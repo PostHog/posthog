@@ -322,6 +322,30 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
         assert result[unspent.id].credits == 0
         assert result[unspent.id].observations == 0
 
+    def test_another_orgs_scanner_id_contributes_nothing(self) -> None:
+        other_org = Organization.objects.create(name="other-budgets-org")
+        other_team = Team.objects.create(organization=other_org, name="other-budgets-team")
+        other_scanner = ReplayScanner.objects.create(
+            team=other_team,
+            name="other-scanner",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_6_FLASH,
+        )
+        ReplayScanner.objects.filter(pk=other_scanner.pk).update(monthly_credit_limit=1000)
+        ReplayObservation.objects.create(
+            scanner=other_scanner,
+            team=other_team,
+            session_id="other-sess",
+            status=ObservationStatus.RUNNING,
+            scanner_snapshot=_snapshot_for(other_scanner),
+            triggered_by=ObservationTrigger.ON_DEMAND,
+        )
+        result = compute_scanner_budgets(self.organization.id, [other_scanner.id])
+        assert result[other_scanner.id].credits == 0
+        assert result[other_scanner.id].budget.credits_used == 0
+        assert result[other_scanner.id].budget.credit_limit is None
+
 
 class TestBillingSyncedQuota(_VisionQuotaTestCase):
     @parameterized.expand(
