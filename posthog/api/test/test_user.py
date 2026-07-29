@@ -911,6 +911,20 @@ class TestUserAPI(APIBaseTest):
         assert self.user.email == "alice@example.com"
         assert self.user.pending_email is None
 
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    def test_email_change_to_address_taken_by_an_account_outside_the_organization(self, mock_is_email_available):
+        other_organization = Organization.objects.create(name="Some Other Org")
+        User.objects.create_and_join(other_organization, "taken@example.com", None)
+
+        with self.is_cloud(True):
+            response = self.client.patch("/api/users/@me/", {"email": "taken@example.com"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "email"
+        assert "may be in another organization" in response.json()["detail"]
+        self.user.refresh_from_db()
+        assert self.user.pending_email is None
+
     @patch("posthog.tasks.email.send_email_change_emails.delay")
     def test_verify_email_without_pending_email_keeps_social_auth_connections(self, mock_send_email_change_emails):
         social_auth = UserSocialAuth.objects.create(
@@ -2748,6 +2762,22 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.user.refresh_from_db()
         assert self.user.email == "new@posthog.com"
         assert self.user.pending_email is None
+
+    def test_verify_email_reports_a_pending_email_claimed_by_another_account(self):
+        self.client.logout()
+
+        self.user.pending_email = "claimed@posthog.com"
+        self.user.save()
+        token = email_verification_token_generator.make_token(self.user)
+        self._create_user("claimed@posthog.com", password="12345678")
+
+        response = self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "pending_email_taken"
+        self.user.refresh_from_db()
+        assert self.user.email != "claimed@posthog.com"
+        assert self.user.pending_email == "claimed@posthog.com"
 
     def test_email_verification_does_not_log_in_user_with_2fa_totp(self):
         # If the user has a TOTP device configured, verifying their email must

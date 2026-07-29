@@ -347,7 +347,7 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                         } catch (probeError) {
                             const probe = probeError as Record<string, any>
                             if (probe.status === 409 || probe.code === 'account_exists') {
-                                location.href = '/login'
+                                location.href = '/login?error_code=account_created'
                                 return
                             }
                         }

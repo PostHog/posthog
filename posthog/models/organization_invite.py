@@ -117,7 +117,11 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
             raise InviteExpiredException()
 
         if user is None and invite_email and EmailValidationHelper.user_exists(invite_email):
-            raise exceptions.ValidationError(f"/login?next={request_path}", code="account_exists")
+            # The detail is the URL the client redirects to. `error_code` makes the login page say why
+            # the invite sent them there instead of leaving them on an unexplained login form.
+            raise exceptions.ValidationError(
+                f"/login?next={request_path}&error_code=account_exists", code="account_exists"
+            )
 
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
             raise exceptions.ValidationError(

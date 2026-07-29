@@ -14,7 +14,7 @@ from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone as django_timezone
@@ -38,6 +38,7 @@ from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.validators import UniqueValidator
 from rest_framework.views import APIView
 from social_django.models import UserSocialAuth
 from two_factor.forms import TOTPDeviceForm
@@ -136,6 +137,15 @@ NUM_2FA_BACKUP_CODES = 10
 
 MAX_PIPELINE_NOTIFICATIONS = 1000
 _PIPELINE_ID_PATTERN = re.compile(r"^(?:hog_function|batch_export|plugin_config):[0-9a-zA-Z-]{1,128}$")
+
+# `User.email` is globally unique, but a member's view of accounts is organization-scoped, so the
+# colliding account is often invisible to them. Spell that out instead of leaving DRF's stock
+# "user with this email address already exists", which reads as a member they should be able to find.
+EMAIL_ALREADY_TAKEN_MESSAGE = (
+    "An account with this email address already exists. It may be in another organization, "
+    "so it won't show up in your members list. Use a different address, or contact support "
+    "if that account is yours."
+)
 
 
 def _validate_pipeline_notifications(incoming: dict, merged: dict) -> None:
@@ -352,6 +362,16 @@ class UserSerializer(serializers.ModelSerializer):
 
         extra_kwargs = {
             "password": {"write_only": True},
+            # Replaces the UniqueValidator DRF derives from the model, purely to carry a message
+            # that makes sense to someone who can only see their own organization's members.
+            "email": {
+                "validators": [
+                    UniqueValidator(
+                        queryset=User.objects.all(),
+                        message=EMAIL_ALREADY_TAKEN_MESSAGE,
+                    )
+                ]
+            },
         }
 
     def validate_first_name(self, value: str) -> str:
@@ -1085,12 +1105,21 @@ class UserViewSet(
 
         if user.pending_email:
             old_email = user.email
-            with transaction.atomic():
-                user.email = user.pending_email
-                user.pending_email = None
-                user.save(update_fields=["email", "pending_email"])
-                # Delete social auth so the old external identity can't keep logging in.
-                UserSocialAuth.objects.filter(user=user).delete()
+            try:
+                with transaction.atomic():
+                    user.email = user.pending_email
+                    user.pending_email = None
+                    user.save(update_fields=["email", "pending_email"])
+                    # Delete social auth so the old external identity can't keep logging in.
+                    UserSocialAuth.objects.filter(user=user).delete()
+            except IntegrityError:
+                # Another account can claim the address between staging the change and clicking the
+                # link. The pending change is left in place so the user can cancel it themselves.
+                raise serializers.ValidationError(
+                    "Another account claimed this email address while your change was pending. "
+                    "Cancel the pending change in your account settings, then try a different address.",
+                    code="pending_email_taken",
+                )
             send_email_change_emails.delay(datetime.now(UTC).isoformat(), user.first_name, old_email, user.email)
             revoke_other_sessions_for_request(request, user)
 

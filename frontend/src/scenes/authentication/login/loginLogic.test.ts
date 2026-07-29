@@ -56,6 +56,23 @@ describe('loginLogic', () => {
         }
     })
 
+    describe('error_code query param', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+
+        beforeEach(() => {
+            initKeaTests()
+            logic = loginLogic()
+            logic.mount()
+        })
+
+        it('surfaces the error and keeps the next param', () => {
+            router.actions.push('/login?next=/signup/an-invite-id&error_code=account_exists')
+
+            expect(logic.values.generalError?.code).toEqual('account_exists')
+            expect(router.values.searchParams).toEqual({ next: '/signup/an-invite-id' })
+        })
+    })
+
     describe('parseLoginRedirectURL', () => {
         let logic: ReturnType<typeof loginLogic.build>
 

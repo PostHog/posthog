@@ -2763,7 +2763,7 @@ class TestInviteSignupAPI(APIBaseTest):
         self.assertEqual(response.json()["code"], "account_exists")
 
         # AND then
-        self.assertEqual(response.json()["detail"], f"/login?next=/signup/{invite.id}")
+        self.assertEqual(response.json()["detail"], f"/login?next=/signup/{invite.id}&error_code=account_exists")
 
     @patch("posthog.workos_radar.verify_turnstile_token", return_value=True)
     @patch("posthog.workos_radar.validate_and_consume_nonce", return_value=True)

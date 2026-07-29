@@ -495,7 +495,10 @@ export const loginLogic = kea<loginLogicType>([
         '/login': (_, { error_code, error_detail, email, message }) => {
             if (error_code) {
                 actions.setGeneralError(error_code, error_detail)
-                router.actions.replace('/login', {})
+                // Keep the rest of the query string (notably `next`) so consuming the error doesn't
+                // strand the user here after they log in.
+                const { error_code: _, error_detail: __, ...otherParams } = router.values.searchParams
+                router.actions.replace('/login', otherParams)
             }
 
             if (message) {
