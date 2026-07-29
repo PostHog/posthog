@@ -61,13 +61,13 @@ class CupedQueryBuilder:
         )
 
     def build_windowed_metric_value_expr(
-        self, window_predicate: ast.Expr, events_alias: str = "metric_events"
+        self, window_predicate: ast.Expr, events_alias: str = "metric_events", column_name: str = "value"
     ) -> ast.Expr:
         return parse_expr(
             "if({window_predicate}, {metric_value}, NULL)",
             placeholders={
                 "window_predicate": window_predicate,
-                "metric_value": ast.Field(chain=[events_alias, "value"]),
+                "metric_value": ast.Field(chain=[events_alias, column_name]),
             },
         )
 

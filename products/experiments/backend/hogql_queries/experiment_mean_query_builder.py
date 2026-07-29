@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import TYPE_CHECKING, cast
 
 from posthog.schema import ActionsNode, EventsNode, ExperimentDataWarehouseNode, ExperimentMeanMetric
@@ -8,6 +9,10 @@ from posthog.hogql.parser import parse_expr, parse_select
 from products.experiments.backend.hogql_queries.base_query_utils import (
     is_session_property_metric,
     validate_session_property,
+)
+from products.experiments.backend.hogql_queries.experiment_metric_values import (
+    extra_value_columns_sql,
+    extra_value_placeholders,
 )
 from products.experiments.backend.hogql_queries.metric_source import MetricSourceInfo
 
@@ -30,6 +35,10 @@ class MeanQueryBuilder:
 
     def __init__(self, builder: "ExperimentQueryBuilder"):
         self._b = builder
+
+    def _windowed_value_factory(self, window_predicate: ast.Expr) -> Callable[[str], ast.Expr]:
+        """Reads a metric_events value column back, masked to the given window (CUPED)."""
+        return lambda column_name: self._b._build_windowed_metric_value_expr(window_predicate, column_name=column_name)
 
     def get_session_property_ctes(self) -> str:
         """
@@ -126,6 +135,8 @@ class MeanQueryBuilder:
             entity_metric_selects = """
                     {value_agg} AS value"""
 
+        extra_value_columns = extra_value_columns_sql(len(self._b._build_extra_value_exprs()))
+
         return f"""
             exposures AS (
                 {{exposure_select_query}}
@@ -135,7 +146,7 @@ class MeanQueryBuilder:
                 SELECT
                     {{entity_key}} AS entity_id,
                     {{metric_timestamp_field}} AS timestamp,
-                    {{value_expr}} AS value
+                    {{value_expr}} AS value{extra_value_columns}
                     -- breakdown columns added programmatically below
                 FROM {{metric_table}}
                 WHERE {{metric_predicate}}
@@ -206,18 +217,19 @@ class MeanQueryBuilder:
             "metric_predicate": metric_predicate,
             "value_expr": self._b._build_value_expr(),
             "value_agg": self._b._build_value_aggregation_expr(
-                value_expr=self._b._build_windowed_metric_value_expr(conversion_window_predicate)
+                value_expr_factory=self._windowed_value_factory(conversion_window_predicate)
                 if self._b.cuped_config.enabled
                 else None
             ),
             "conversion_window_predicate": conversion_window_predicate,
+            **extra_value_placeholders(self._b._build_extra_value_exprs()),
         }
 
         if self._b.cuped_config.enabled:
             cuped_pre_window_predicate = self._b._build_cuped_pre_window_predicate()
             placeholders["cuped_pre_window_predicate"] = cuped_pre_window_predicate
             placeholders["covariate_value_agg"] = self._b._build_value_aggregation_expr(
-                value_expr=self._b._build_windowed_metric_value_expr(cuped_pre_window_predicate)
+                value_expr_factory=self._windowed_value_factory(cuped_pre_window_predicate)
             )
 
         # Add join condition for data warehouse

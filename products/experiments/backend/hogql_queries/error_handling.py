@@ -122,6 +122,10 @@ def classify_experiment_query_error(error: Exception) -> str:
             return "byte_limit"
         if meta.get_category() == QueryErrorCategory.RATE_LIMITED:
             return "rate_limited"
+        if meta.get_category() == QueryErrorCategory.USER_ERROR:
+            # The metric's own SQL is what ClickHouse rejected, so every attempt fails identically.
+            # Classifying it as a server error burns the whole retry budget on a certain failure.
+            return "validation_error"
     return "server_error"
 
 

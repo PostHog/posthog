@@ -21,6 +21,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
@@ -31,9 +32,10 @@ from posthog.models.team.team import Team
 
 from products.actions.backend.models.action import Action
 from products.experiments.backend.hogql_queries.hogql_aggregation_utils import (
-    aggregation_needs_numeric_input,
-    build_aggregation_call,
-    extract_aggregation_and_inner_expr,
+    AggregationDecomposition,
+    UnsupportedAggregationExpressionError,
+    decompose_aggregation_expr,
+    unsupported_sql_expression_message,
 )
 from products.experiments.backend.models.experiment import Experiment
 
@@ -113,6 +115,43 @@ def is_threshold_supported_math(math_type: ExperimentMetricMathType | None) -> b
     return math_type in [ExperimentMetricMathType.SUM, ExperimentMetricMathType.TOTAL]
 
 
+def get_hogql_math_decomposition(
+    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode],
+) -> Optional[AggregationDecomposition]:
+    """Decomposition of a source's SQL expression math, or None when the source doesn't use one.
+
+    Raises :class:`QueryError` for an expression we can't split, so it reaches the user as a
+    validation error instead of a ClickHouse failure the query layer would retry.
+    """
+    if not isinstance(source, EventsNode | ActionsNode):
+        return None
+    if getattr(source, "math", None) != ExperimentMetricMathType.HOGQL:
+        return None
+    math_hogql = getattr(source, "math_hogql", None)
+    if not math_hogql:
+        return None
+
+    tag_contains_user_hogql()
+    try:
+        return decompose_aggregation_expr(math_hogql)
+    except UnsupportedAggregationExpressionError as e:
+        raise QueryError(unsupported_sql_expression_message(e)) from e
+
+
+def get_source_extra_value_exprs(
+    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode],
+) -> list[ast.Expr]:
+    """Per-event columns beyond the primary `value` one, for expressions with several aggregations.
+
+    ``sum(properties.revenue) / count()`` needs both ``properties.revenue`` and the constant that
+    ``count`` consumes projected into the event CTE before either aggregation can run.
+    """
+    decomposition = get_hogql_math_decomposition(source)
+    if decomposition is None:
+        return []
+    return decomposition.column_exprs[1:]
+
+
 def get_source_value_expr(source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]) -> ast.Expr:
     """
     Returns the expression for extracting values from a given source (EventsNode, ActionsNode, or DataWarehouseNode).
@@ -142,12 +181,11 @@ def get_source_value_expr(source: Union[EventsNode, ActionsNode, ExperimentDataW
             and source.math == ExperimentMetricMathType.HOGQL
             and getattr(source, "math_hogql", None) is not None
         ):
-            # Extract the inner expression from the HogQL expression
-            math_hogql = source.math_hogql
-            if math_hogql:
-                tag_contains_user_hogql()
-                _, inner_expr, _, _ = extract_aggregation_and_inner_expr(math_hogql)
-                return inner_expr
+            # Project the first per-event column the expression needs; the aggregation itself is
+            # applied a layer up, where the GROUP BY lives.
+            decomposition = get_hogql_math_decomposition(source)
+            if decomposition is not None:
+                return decomposition.column_exprs[0] if decomposition.has_aggregation else decomposition.template
     elif isinstance(source, ExperimentDataWarehouseNode):
         metric_property = getattr(source, "math_property", None)
         if metric_property:
@@ -362,60 +400,6 @@ def get_metric_time_window(
     Backward compatibility wrapper for get_source_time_window.
     """
     return get_source_time_window(date_range_query, left, metric.conversion_window, metric.conversion_window_unit)
-
-
-def get_source_aggregation_expr(
-    source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode], table_alias: str = "metric_events"
-) -> ast.Expr:
-    """
-    Returns the aggregation expression for a specific source based on its math type.
-    Uses the specified table_alias for field references.
-    """
-    if isinstance(source, EventsNode) or isinstance(source, ActionsNode):
-        math_type = getattr(source, "math", None)
-        if math_type in [
-            ExperimentMetricMathType.UNIQUE_SESSION,
-            ExperimentMetricMathType.DAU,
-            ExperimentMetricMathType.UNIQUE_GROUP,
-        ]:
-            # Clickhouse counts empty values as distinct, so need to explicitly exclude them
-            # Also handle the special case of null UUIDs (00000000-0000-0000-0000-000000000000)
-            return parse_expr(f"""toFloat(count(distinct
-                multiIf(
-                    toTypeName({table_alias}.value) = 'UUID' AND reinterpretAsUInt128({table_alias}.value) = 0, NULL,
-                    toString({table_alias}.value) = '', NULL,
-                    {table_alias}.value
-                )
-            ))""")
-        elif math_type == ExperimentMetricMathType.MIN:
-            return parse_expr(f"min(coalesce(toFloat({table_alias}.value), 0))")
-        elif math_type == ExperimentMetricMathType.MAX:
-            return parse_expr(f"max(coalesce(toFloat({table_alias}.value), 0))")
-        elif math_type == ExperimentMetricMathType.AVG:
-            return parse_expr(f"avg(coalesce(toFloat({table_alias}.value), 0))")
-        elif math_type == ExperimentMetricMathType.HOGQL:
-            math_hogql = getattr(source, "math_hogql", None)
-            if math_hogql is not None:
-                tag_contains_user_hogql()
-                aggregation_function, _, params, distinct = extract_aggregation_and_inner_expr(math_hogql)
-                if aggregation_function:
-                    inner_value_expr = parse_expr(f"{table_alias}.value")
-                    if aggregation_needs_numeric_input(aggregation_function):
-                        inner_value_expr = ast.Call(name="toFloat", args=[inner_value_expr])
-                    agg_call = build_aggregation_call(
-                        aggregation_function, inner_value_expr, params=params, distinct=distinct
-                    )
-                    # Non-numeric aggregations (count, uniq, etc.) return UInt64, which is
-                    # incompatible with Float64 in ClickHouse greatest/least functions used
-                    # by winsorization. Wrap with toFloat to ensure consistent Float64 type.
-                    if not aggregation_needs_numeric_input(aggregation_function):
-                        agg_call = ast.Call(name="toFloat", args=[agg_call])
-                    return ast.Call(name="coalesce", args=[agg_call, ast.Constant(value=0)])
-            # Default to sum if no aggregation function is found
-            return parse_expr(f"sum(coalesce(toFloat({table_alias}.value), 0))")
-
-    # Default aggregation for all other cases (including data warehouse)
-    return parse_expr(f"sum(coalesce(toFloat({table_alias}.value), 0))")
 
 
 def funnel_steps_to_filter(

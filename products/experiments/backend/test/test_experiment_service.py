@@ -849,6 +849,19 @@ class TestExperimentService(APIBaseTest):
                 },
             ),
             (
+                "valid_mean_with_aggregation_and_arithmetic",
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {
+                        "kind": "EventsNode",
+                        "event": "purchase",
+                        "math": "hogql",
+                        "math_hogql": "sum(properties.revenue) / count()",
+                    },
+                },
+            ),
+            (
                 "valid_retention",
                 {
                     "kind": "ExperimentMetric",
@@ -884,6 +897,38 @@ class TestExperimentService(APIBaseTest):
                 "funnel_with_no_series",
                 [{"kind": "ExperimentMetric", "metric_type": "funnel", "series": []}],
                 "funnel metrics require at least one step",
+            ),
+            (
+                "nested_aggregation_in_sql_expression",
+                [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {
+                            "kind": "EventsNode",
+                            "event": "purchase",
+                            "math": "hogql",
+                            "math_hogql": "sum(count())",
+                        },
+                    }
+                ],
+                "can't be applied to another aggregation",
+            ),
+            (
+                "unparseable_sql_expression",
+                [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {
+                            "kind": "EventsNode",
+                            "event": "purchase",
+                            "math": "hogql",
+                            "math_hogql": "count( % 2",
+                        },
+                    }
+                ],
+                "Couldn't read the SQL expression",
             ),
         ]
     )

@@ -1036,6 +1036,81 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
     @parameterized.expand(
         [
+            ("scaled_count", "count() * 2", 6, 14),
+            ("count_and_sum", "sum(properties.amount) / count()", 45, 25),
+        ]
+    )
+    @freeze_time("2024-01-01T12:00:00Z")
+    def test_hogql_metric_combining_aggregation_and_arithmetic(
+        self, _name: str, math_hogql: str, expected_control_sum: float, expected_test_sum: float
+    ):
+        # An aggregation wrapped in arithmetic has to be applied where the GROUP BY is. Inlining it
+        # into the per-event scan makes ClickHouse reject the query outright.
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        def _create_events_for_user(variant: str, amounts: list[int]) -> list[dict]:
+            return [
+                {
+                    "event": "$feature_flag_called",
+                    "timestamp": "2024-01-02T12:00:00",
+                    "properties": {
+                        "$feature_flag_response": variant,
+                        ff_property: variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                },
+                *[
+                    {
+                        "event": "purchase",
+                        "timestamp": f"2024-01-02T12:01:{i:02d}",
+                        "properties": {ff_property: variant, "amount": amount},
+                    }
+                    for i, amount in enumerate(amounts)
+                ],
+            ]
+
+        journeys_for(
+            {
+                # count() * 2 -> 4, 2, 0; sum/count -> 15, 30, 0 (an unexposed-to-the-event user
+                # divides by zero, which has to land on 0 rather than poisoning the variant's sum)
+                "control_1": _create_events_for_user("control", [10, 20]),
+                "control_2": _create_events_for_user("control", [30]),
+                "control_3": _create_events_for_user("control", []),
+                # count() * 2 -> 6, 8; sum/count -> 10, 15
+                "test_1": _create_events_for_user("test", [5, 10, 15]),
+                "test_2": _create_events_for_user("test", [10, 15, 15, 20]),
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.HOGQL, math_hogql=math_hogql),
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        query_runner = ExperimentQueryRunner(
+            query=ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric),
+            team=self.team,
+        )
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(result.baseline.number_of_samples, 3)
+        self.assertEqual(result.baseline.sum, expected_control_sum)
+        self.assertEqual(result.variant_results[0].number_of_samples, 2)
+        self.assertEqual(result.variant_results[0].sum, expected_test_sum)
+
+    @parameterized.expand(
+        [
             ("direct", False),
             ("precomputed", True),
         ]

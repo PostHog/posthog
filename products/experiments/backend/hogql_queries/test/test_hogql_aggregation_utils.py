@@ -1,173 +1,109 @@
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
 from products.experiments.backend.hogql_queries.hogql_aggregation_utils import (
-    build_aggregation_call,
-    extract_aggregation_and_inner_expr,
+    UnsupportedAggregationExpressionError,
+    decompose_aggregation_expr,
     is_aggregation_function,
 )
 
 
+def _metric_events_column(index: int) -> ast.Expr:
+    return ast.Field(chain=["metric_events", "value" if index == 0 else f"value_{index}"])
+
+
 class TestHogQLAggregationUtils(BaseTest):
-    def test_is_aggregation_function(self):
-        """Test that we can identify aggregation functions."""
+    @parameterized.expand(
+        [
+            ("sum", "sum", True),
+            ("avg", "avg", True),
+            ("count", "count", True),
+            ("uppercase", "COUNT", True),
+            ("plus", "plus", False),
+            ("to_float", "toFloat", False),
+            ("if", "if", False),
+        ]
+    )
+    def test_is_aggregation_function(self, _: str, function_name: str, expected: bool):
+        self.assertEqual(is_aggregation_function(function_name), expected)
 
-        # Test aggregation functions
-        self.assertTrue(is_aggregation_function("sum"))
-        self.assertTrue(is_aggregation_function("avg"))
-        self.assertTrue(is_aggregation_function("count"))
-        self.assertTrue(is_aggregation_function("min"))
-        self.assertTrue(is_aggregation_function("max"))
+    @parameterized.expand(
+        [
+            # A single top-level aggregation keeps the shape the query builder has always emitted.
+            ("sum", "sum(properties.revenue)", ["properties.revenue"], "sum(toFloat(metric_events.value))"),
+            (
+                "sum_of_arithmetic",
+                "sum(properties.revenue - properties.expense)",
+                ["properties.revenue - properties.expense"],
+                "sum(toFloat(metric_events.value))",
+            ),
+            ("count", "count()", ["1"], "count(metric_events.value)"),
+            (
+                "count_distinct",
+                "count(distinct properties.category)",
+                ["properties.category"],
+                "count(distinct metric_events.value)",
+            ),
+            (
+                "quantile",
+                "quantile(0.9)(properties.margin)",
+                ["properties.margin"],
+                "quantile(0.9)(toFloat(metric_events.value))",
+            ),
+            # Arithmetic around an aggregation: the aggregation has to move up to the grouped
+            # layer, leaving only its input behind as a per-event column.
+            ("modulo", "count() % 2", ["1"], "count(metric_events.value) % 2"),
+            ("multiply", "count() * 2", ["1"], "count(metric_events.value) * 2"),
+            (
+                "scaled_average",
+                "avg(properties.x) * 100",
+                ["properties.x"],
+                "avg(toFloat(metric_events.value)) * 100",
+            ),
+            # Several aggregations each get their own input column.
+            (
+                "sum_over_count",
+                "sum(properties.a) / count()",
+                ["properties.a", "1"],
+                "sum(toFloat(metric_events.value)) / count(metric_events.value_1)",
+            ),
+            (
+                "conditional_sum",
+                "sumIf(properties.a, properties.b > 1)",
+                ["properties.a", "properties.b > 1"],
+                "sumIf(toFloat(metric_events.value), metric_events.value_1)",
+            ),
+        ]
+    )
+    def test_decompose_aggregation_expr(
+        self, _: str, expression: str, expected_columns: list[str], expected_aggregate: str
+    ):
+        decomposition = decompose_aggregation_expr(expression)
 
-        # Test case insensitive
-        self.assertTrue(is_aggregation_function("SUM"))
-        self.assertTrue(is_aggregation_function("AVG"))
-        self.assertTrue(is_aggregation_function("COUNT"))
+        self.assertEqual(decomposition.column_exprs, [parse_expr(column, start=None) for column in expected_columns])
+        self.assertEqual(decomposition.build(_metric_events_column), parse_expr(expected_aggregate, start=None))
 
-        # Test non-aggregation functions
-        self.assertFalse(is_aggregation_function("plus"))
-        self.assertFalse(is_aggregation_function("minus"))
-        self.assertFalse(is_aggregation_function("toFloat"))
-        self.assertFalse(is_aggregation_function("toString"))
-        self.assertFalse(is_aggregation_function("if"))
+    def test_decompose_expression_without_aggregation_is_left_whole(self):
+        decomposition = decompose_aggregation_expr("properties.revenue")
 
-    def test_extract_aggregation_and_inner_expr_with_aggregation(self):
-        """Test extracting aggregation function and inner expression."""
+        self.assertFalse(decomposition.has_aggregation)
+        self.assertEqual(decomposition.column_exprs, [])
+        self.assertEqual(decomposition.template, parse_expr("properties.revenue", start=None))
 
-        # Test sum with arithmetic operation
-        aggregation, inner_expr, params, _ = extract_aggregation_and_inner_expr(
-            "sum(properties.revenue - properties.expense)"
-        )
-        self.assertEqual(aggregation, "sum")
-        self.assertIsInstance(inner_expr, ast.ArithmeticOperation)
-        self.assertIsNone(params)  # Non-parametric aggregation
+    @parameterized.expand(
+        [
+            ("bare_aggregation", "sum(properties.revenue)", True),
+            ("aggregation_with_arithmetic", "count() % 2", False),
+            ("no_aggregation", "properties.revenue", False),
+        ]
+    )
+    def test_is_bare_aggregation(self, _: str, expression: str, expected: bool):
+        self.assertEqual(decompose_aggregation_expr(expression).is_bare_aggregation, expected)
 
-        # Test avg with field
-        aggregation, inner_expr, params, _ = extract_aggregation_and_inner_expr("avg(properties.price)")
-        self.assertEqual(aggregation, "avg")
-        self.assertIsInstance(inner_expr, ast.Field)
-        self.assertIsNone(params)
-
-        # Test count with no arguments
-        aggregation, inner_expr, params, _ = extract_aggregation_and_inner_expr("count()")
-        self.assertEqual(aggregation, "count")
-        self.assertIsInstance(inner_expr, ast.Constant)
-        self.assertEqual(inner_expr.value, 1)  # type: ignore[attr-defined]
-        self.assertIsNone(params)
-
-        # Test min with field
-        aggregation, inner_expr, params, _ = extract_aggregation_and_inner_expr("min(properties.score)")
-        self.assertEqual(aggregation, "min")
-        self.assertIsInstance(inner_expr, ast.Field)
-        self.assertIsNone(params)
-
-        # Test max with field
-        aggregation, inner_expr, params, _ = extract_aggregation_and_inner_expr("max(properties.value)")
-        self.assertEqual(aggregation, "max")
-        self.assertIsInstance(inner_expr, ast.Field)
-        self.assertIsNone(params)
-
-    def test_extract_aggregation_and_inner_expr_without_aggregation(self):
-        """Test extracting from non-aggregation expressions."""
-
-        # Test simple field
-        aggregation, inner_expr, params, _ = extract_aggregation_and_inner_expr("properties.revenue")
-        self.assertIsNone(aggregation)
-        self.assertIsInstance(inner_expr, ast.Field)
-        self.assertIsNone(params)
-
-        # Test arithmetic operation
-        aggregation, inner_expr, params, _ = extract_aggregation_and_inner_expr("1 + 2")
-        self.assertIsNone(aggregation)
-        self.assertIsInstance(inner_expr, ast.ArithmeticOperation)
-        self.assertIsNone(params)
-
-        # Test function call that's not an aggregation
-        aggregation, inner_expr, params, _ = extract_aggregation_and_inner_expr("toFloat(properties.value)")
-        self.assertIsNone(aggregation)
-        self.assertIsInstance(inner_expr, ast.Call)
-        self.assertIsNone(params)
-
-    def test_extract_aggregation_and_inner_expr_with_ast_input(self):
-        """Test that the function works with AST nodes as input."""
-
-        # Parse expression first
-        expr = parse_expr("sum(properties.revenue)")
-
-        # Extract from AST
-        aggregation, inner_expr, params, _ = extract_aggregation_and_inner_expr(expr)
-        self.assertEqual(aggregation, "sum")
-        self.assertIsInstance(inner_expr, ast.Field)
-        self.assertIsNone(params)
-
-    def test_build_aggregation_call(self):
-        """Test building aggregation calls."""
-
-        inner_expr = parse_expr("properties.revenue - properties.expense")
-
-        # Test building a sum aggregation
-        agg_call = build_aggregation_call("sum", inner_expr)
-
-        self.assertIsInstance(agg_call, ast.Call)
-        self.assertEqual(agg_call.name, "sum")
-        self.assertEqual(len(agg_call.args), 1)
-        self.assertEqual(agg_call.args[0], inner_expr)
-        self.assertFalse(agg_call.distinct)
-
-        # Test building with distinct
-        agg_call_distinct = build_aggregation_call("count", inner_expr, distinct=True)
-        self.assertTrue(agg_call_distinct.distinct)
-
-    def test_extract_aggregation_with_params(self):
-        """Test that parametric aggregations preserve their parameters."""
-
-        # Test quantile with single parameter
-        agg, inner, params, _ = extract_aggregation_and_inner_expr("quantile(0.90)(properties.margin)")
-        self.assertEqual(agg, "quantile")
-        self.assertIsInstance(inner, ast.Field)
-        self.assertIsNotNone(params)
-        assert params is not None  # for mypy
-        self.assertEqual(len(params), 1)
-        self.assertIsInstance(params[0], ast.Constant)
-        assert isinstance(params[0], ast.Constant)  # for mypy
-        self.assertEqual(params[0].value, 0.90)
-
-        # Test quantile with different level
-        agg, inner, params, _ = extract_aggregation_and_inner_expr("quantile(0.50)(properties.value)")
-        self.assertEqual(agg, "quantile")
-        self.assertIsNotNone(params)
-        assert params is not None  # for mypy
-        assert isinstance(params[0], ast.Constant)  # for mypy
-        self.assertEqual(params[0].value, 0.50)
-
-        # Test non-parametric aggregation returns None for params
-        agg, inner, params, _ = extract_aggregation_and_inner_expr("sum(properties.revenue)")
-        self.assertEqual(agg, "sum")
-        self.assertIsNone(params)
-
-    def test_build_aggregation_call_with_params(self):
-        """Test that build_aggregation_call handles parametric functions."""
-
-        inner_expr = parse_expr("properties.value")
-        params: list[ast.Expr] = [ast.Constant(value=0.90)]
-
-        # Build quantile with parameter
-        result = build_aggregation_call("quantile", inner_expr, params=params)
-
-        # Should produce: quantile(0.90)(properties.value)
-        self.assertIsInstance(result, ast.Call)
-        self.assertEqual(result.name, "quantile")
-        self.assertIsNotNone(result.params)
-        assert result.params is not None  # for mypy
-        self.assertEqual(len(result.params), 1)
-        assert isinstance(result.params[0], ast.Constant)  # for mypy
-        self.assertEqual(result.params[0].value, 0.90)
-        self.assertEqual(result.args[0], inner_expr)
-
-        # Test building without params (non-parametric aggregation)
-        result_no_params = build_aggregation_call("sum", inner_expr, params=None)
-        self.assertIsInstance(result_no_params, ast.Call)
-        self.assertEqual(result_no_params.name, "sum")
-        self.assertIsNone(result_no_params.params)
+    def test_decompose_rejects_nested_aggregations(self):
+        with self.assertRaises(UnsupportedAggregationExpressionError):
+            decompose_aggregation_expr("sum(count())")

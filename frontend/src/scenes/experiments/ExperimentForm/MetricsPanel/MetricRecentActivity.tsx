@@ -12,7 +12,9 @@ export type MetricRecentActivityProps = {
 }
 
 export const MetricRecentActivity = ({ metric, filterTestAccounts }: MetricRecentActivityProps): JSX.Element => {
-    const { eventCount, eventCountLoading } = useValues(metricRecentActivityLogic({ metric, filterTestAccounts }))
+    const { eventCount, eventCountLoading } = useValues(
+        metricRecentActivityLogic({ metric, filterTestAccounts, surface: 'card' })
+    )
 
     if (eventCountLoading) {
         return (

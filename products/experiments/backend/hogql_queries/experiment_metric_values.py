@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Union
 
 from posthog.schema import (
@@ -21,12 +22,12 @@ from products.experiments.backend.hogql_queries.base_query_utils import (
     conversion_window_to_seconds,
     data_warehouse_node_to_filter,
     event_or_action_to_filter,
+    get_hogql_math_decomposition,
     get_source_value_expr,
 )
 from products.experiments.backend.hogql_queries.hogql_aggregation_utils import (
     aggregation_needs_numeric_input,
-    build_aggregation_call,
-    extract_aggregation_and_inner_expr,
+    value_column_name,
 )
 
 ExperimentMetric = Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric]
@@ -191,11 +192,28 @@ def build_value_expr(source: MetricSource, apply_coalesce: bool = True) -> ast.E
     return ast.Call(name="coalesce", args=[float_expr, ast.Constant(value=0)])
 
 
+def extra_value_columns_sql(count: int, placeholder_prefix: str = "value") -> str:
+    """SQL fragment projecting the extra aggregation-input columns into an event CTE.
+
+    ``placeholder_prefix`` only namespaces the placeholders, which share one dict across all the
+    CTEs in a query; the column aliases themselves are per-CTE and stay unprefixed.
+    """
+    return "".join(
+        f",\n                    {{{placeholder_prefix}_{index}}} AS {value_column_name(index)}"
+        for index in range(1, count + 1)
+    )
+
+
+def extra_value_placeholders(exprs: list[ast.Expr], placeholder_prefix: str = "value") -> dict[str, ast.Expr]:
+    """Placeholders matching :func:`extra_value_columns_sql`."""
+    return {f"{placeholder_prefix}_{index + 1}": expr for index, expr in enumerate(exprs)}
+
+
 def build_value_aggregation_expr(
     source: MetricSource,
     events_alias: str = "metric_events",
     column_name: str = "value",
-    value_expr: ast.Expr | None = None,
+    value_expr_factory: Callable[[str], ast.Expr] | None = None,
 ) -> ast.Expr:
     """
     Returns the value aggregation expression based on math type.
@@ -206,6 +224,9 @@ def build_value_aggregation_expr(
         source: The metric source configuration
         events_alias: The table/CTE alias to use (e.g., "metric_events", "combined_events")
         column_name: The column name containing the value (e.g., "value", "numerator_value")
+        value_expr_factory: Builds the expression that reads a value column back, given its name.
+            CUPED uses it to mask the column to a time window. A SQL expression metric with several
+            aggregations reads several columns, so this takes the name rather than a fixed expression.
 
     Note: NULL handling (coalesce) is applied upstream in _build_value_expr() when building
     the event CTEs. This method does not need to handle NULLs - aggregation functions will
@@ -214,6 +235,7 @@ def build_value_aggregation_expr(
     """
     math_type = getattr(source, "math", ExperimentMetricMathType.TOTAL)
     column_ref = f"{events_alias}.{column_name}"
+    value_expr = value_expr_factory(column_name) if value_expr_factory is not None else None
 
     if math_type in [
         ExperimentMetricMathType.UNIQUE_SESSION,
@@ -260,22 +282,27 @@ def build_value_aggregation_expr(
             return parse_expr("coalesce(avg(toFloat({value_expr})), 0)", placeholders={"value_expr": value_expr})
         return parse_expr(f"coalesce(avg(toFloat({column_ref})), 0)")
     elif math_type == ExperimentMetricMathType.HOGQL:
-        math_hogql = getattr(source, "math_hogql", None)
-        if math_hogql is not None:
-            aggregation_function, _, params, distinct = extract_aggregation_and_inner_expr(math_hogql)
-            if aggregation_function:
-                inner_value_expr = value_expr or parse_expr(column_ref)
-                if aggregation_needs_numeric_input(aggregation_function):
-                    inner_value_expr = ast.Call(name="toFloat", args=[inner_value_expr])
-                agg_call = build_aggregation_call(
-                    aggregation_function, inner_value_expr, params=params, distinct=distinct
-                )
+        decomposition = get_hogql_math_decomposition(source)
+        if decomposition is not None and decomposition.has_aggregation:
+            column_ref_factory = value_expr_factory or (lambda name: parse_expr(f"{events_alias}.{name}"))
+
+            def column_ref_for(index: int) -> ast.Expr:
+                return column_ref_factory(value_column_name(index, base_column_name=column_name))
+
+            agg_expr = decomposition.build(column_ref_for)
+            if decomposition.is_bare_aggregation:
                 # Non-numeric aggregations (count, uniq, etc.) return UInt64, which is
                 # incompatible with Float64 in ClickHouse greatest/least functions used
                 # by winsorization. Wrap with toFloat to ensure consistent Float64 type.
-                if not aggregation_needs_numeric_input(aggregation_function):
-                    agg_call = ast.Call(name="toFloat", args=[agg_call])
-                return ast.Call(name="coalesce", args=[agg_call, ast.Constant(value=0)])
+                if not aggregation_needs_numeric_input(decomposition.aggregations[0].function):
+                    agg_expr = ast.Call(name="toFloat", args=[agg_expr])
+                return ast.Call(name="coalesce", args=[agg_expr, ast.Constant(value=0)])
+            # Arithmetic around the aggregations can divide by an empty group, and an infinite or
+            # NaN per-entity value would silently poison the variant's sums downstream.
+            return parse_expr(
+                "if(isFinite(coalesce(toFloat({agg_expr}), 0)), coalesce(toFloat({agg_expr}), 0), 0)",
+                placeholders={"agg_expr": agg_expr},
+            )
         # Fallback to SUM
         if value_expr is not None:
             return parse_expr("sum(coalesce(toFloat({value_expr}), 0))", placeholders={"value_expr": value_expr})

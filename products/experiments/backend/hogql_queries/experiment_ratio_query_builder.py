@@ -5,6 +5,10 @@ from posthog.schema import ExperimentDataWarehouseNode, ExperimentMetricOutlierH
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 
+from products.experiments.backend.hogql_queries.experiment_metric_values import (
+    extra_value_columns_sql,
+    extra_value_placeholders,
+)
 from products.experiments.backend.hogql_queries.metric_source import MetricSourceInfo
 
 if TYPE_CHECKING:
@@ -282,6 +286,11 @@ class RatioQueryBuilder:
         else:
             denom_preagg_join = "exposures.entity_id = denominator_events.entity_id"
 
+        num_extra_value_exprs = self._b._build_extra_value_exprs(source=self._b.metric.numerator)
+        denom_extra_value_exprs = self._b._build_extra_value_exprs(source=self._b.metric.denominator)
+        num_extra_value_columns = extra_value_columns_sql(len(num_extra_value_exprs), "numerator_value")
+        denom_extra_value_columns = extra_value_columns_sql(len(denom_extra_value_exprs), "denominator_value")
+
         # Pre-aggregation approach: aggregate events per entity_id FIRST, then join
         # This dramatically reduces memory usage by avoiding large intermediate result sets
         # Memory impact: 471M rows → ~2M rows in joins
@@ -294,7 +303,7 @@ class RatioQueryBuilder:
                 SELECT
                     {{num_entity_key}} AS entity_id,
                     {{num_timestamp_field}} AS timestamp,
-                    {{numerator_value_expr}} AS value
+                    {{numerator_value_expr}} AS value{num_extra_value_columns}
                 FROM {{num_table}}
                 WHERE {{numerator_predicate}}
             ),
@@ -303,7 +312,7 @@ class RatioQueryBuilder:
                 SELECT
                     {{denom_entity_key}} AS entity_id,
                     {{denom_timestamp_field}} AS timestamp,
-                    {{denominator_value_expr}} AS value
+                    {{denominator_value_expr}} AS value{denom_extra_value_columns}
                 FROM {{denom_table}}
                 WHERE {{denominator_predicate}}
             ),
@@ -369,6 +378,8 @@ class RatioQueryBuilder:
             "denominator_conversion_window": self._b._build_conversion_window_predicate_for_events(
                 "denominator_events"
             ),
+            **extra_value_placeholders(num_extra_value_exprs, "numerator_value"),
+            **extra_value_placeholders(denom_extra_value_exprs, "denominator_value"),
         }
 
         return common_ctes, placeholders

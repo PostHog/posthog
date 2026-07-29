@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Optional, Union
 
 from django.utils import timezone
@@ -23,6 +24,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 
+from products.experiments.backend.hogql_queries.base_query_utils import get_source_extra_value_exprs
 from products.experiments.backend.hogql_queries.breakdown_injector import BreakdownInjector
 from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig
 from products.experiments.backend.hogql_queries.experiment_cuped_query_builder import CupedQueryBuilder
@@ -465,9 +467,9 @@ class ExperimentQueryBuilder:
         return self._cuped_query_builder().build_cuped_pre_window_predicate(events_alias, exposure_alias)
 
     def _build_windowed_metric_value_expr(
-        self, window_predicate: ast.Expr, events_alias: str = "metric_events"
+        self, window_predicate: ast.Expr, events_alias: str = "metric_events", column_name: str = "value"
     ) -> ast.Expr:
-        return self._cuped_query_builder().build_windowed_metric_value_expr(window_predicate, events_alias)
+        return self._cuped_query_builder().build_windowed_metric_value_expr(window_predicate, events_alias, column_name)
 
     def _build_funnel_covariate_value_expr(
         self,
@@ -570,12 +572,20 @@ class ExperimentQueryBuilder:
 
         return build_value_expr(source, apply_coalesce=apply_coalesce)
 
+    def _build_extra_value_exprs(self, source=None) -> list[ast.Expr]:
+        """Per-event columns beyond `value`, needed when a SQL expression has several aggregations."""
+        if source is None:
+            assert isinstance(self.metric, ExperimentMeanMetric)
+            source = self.metric.source
+
+        return get_source_extra_value_exprs(source)
+
     def _build_value_aggregation_expr(
         self,
         source=None,
         events_alias: str = "metric_events",
         column_name: str = "value",
-        value_expr: ast.Expr | None = None,
+        value_expr_factory: Callable[[str], ast.Expr] | None = None,
     ) -> ast.Expr:
         """
         Returns the value aggregation expression based on math type.
@@ -600,7 +610,7 @@ class ExperimentQueryBuilder:
             source,
             events_alias=events_alias,
             column_name=column_name,
-            value_expr=value_expr,
+            value_expr_factory=value_expr_factory,
         )
 
     def _build_test_accounts_filter(self) -> ast.Expr:

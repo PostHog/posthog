@@ -165,6 +165,9 @@ class TestExperimentErrorHandling(BaseTest):
             ("zero_division", ZeroDivisionError(), "insufficient_data"),
             ("validation_error", ValidationError("bad metric config"), "validation_error"),
             ("exposed_hogql_error", ExposedHogQLError("unknown property"), "validation_error"),
+            # 215 = NOT_AN_AGGREGATE. The metric's own SQL is what ClickHouse rejected, so retrying
+            # can only fail the same way.
+            ("ch_not_an_aggregate_code", ServerException("not under aggregate", code=215), "validation_error"),
             ("anything_else", RuntimeError("kaboom"), "server_error"),
         ]
     )

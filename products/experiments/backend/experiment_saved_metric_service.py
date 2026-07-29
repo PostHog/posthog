@@ -20,6 +20,7 @@ from posthog.schema import (
 
 from posthog.models.team.team import Team
 
+from products.experiments.backend.hogql_queries.metric_expression_validation import validate_metric_sql_expressions
 from products.experiments.backend.models.experiment import (
     LEGACY_METRIC_KINDS,
     ExperimentSavedMetric,
@@ -56,11 +57,11 @@ class ExperimentSavedMetricService:
                 if "metric_type" not in query:
                     raise ValidationError("ExperimentMetric requires a metric_type")
                 if query["metric_type"] == ExperimentMetricType.MEAN:
-                    ExperimentMeanMetric(**query)
+                    validate_metric_sql_expressions(ExperimentMeanMetric(**query))
                 elif query["metric_type"] == ExperimentMetricType.FUNNEL:
                     ExperimentFunnelMetric(**query)
                 elif query["metric_type"] == ExperimentMetricType.RATIO:
-                    ExperimentRatioMetric(**query)
+                    validate_metric_sql_expressions(ExperimentRatioMetric(**query))
                 elif query["metric_type"] == ExperimentMetricType.RETENTION:
                     ExperimentRetentionMetric(**query)
                 else:

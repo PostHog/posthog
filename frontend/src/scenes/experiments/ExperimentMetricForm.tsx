@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useValues } from 'kea'
 
 import { IconInfo, IconPencil } from '@posthog/icons'
 import { LemonBanner, LemonInput } from '@posthog/lemon-ui'
@@ -9,7 +9,6 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -19,7 +18,6 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { performQuery } from '~/queries/query'
 import {
     ExperimentExposureCriteria,
     ExperimentFunnelMetricStep,
@@ -34,6 +32,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { ExperimentMetricGoal, ExperimentMetricMathType, FilterType, FunnelConversionWindowTimeUnit } from '~/types'
 
+import { metricRecentActivityLogic } from './ExperimentForm/MetricsPanel/metricRecentActivityLogic'
 import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConversionWindowFilter'
 import { ExperimentMetricFunnelOrderSelector } from './ExperimentMetricFunnelOrderSelector'
 import {
@@ -48,7 +47,6 @@ import { commonActionFilterProps } from './Metrics/Selectors'
 import {
     getAllowedMathTypes,
     getDefaultExperimentMetric,
-    getEventCountQuery,
     getExposureConfigDisplayName,
     getMathAvailability,
 } from './utils'
@@ -60,40 +58,6 @@ export function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCri
     }
 
     return getExposureConfigDisplayName(exposureConfig)
-}
-
-const loadEventCount = async (
-    metric: ExperimentMetric,
-    filterTestAccounts: boolean,
-    setEventCount: (count: number | null) => void,
-    setIsLoading: (loading: boolean) => void
-): Promise<void> => {
-    setIsLoading(true)
-    try {
-        const query = getEventCountQuery(metric, filterTestAccounts)
-
-        if (!query) {
-            setEventCount(0)
-            return
-        }
-
-        const response = await performQuery(query)
-
-        let count = 0
-        if (response.results.length > 0) {
-            const firstResult = response.results[0]
-            if (firstResult && typeof firstResult.aggregated_value === 'number') {
-                count = firstResult.aggregated_value
-            }
-        }
-
-        setEventCount(count)
-    } catch (error) {
-        lemonToast.error(JSON.stringify(error))
-        setEventCount(0)
-    } finally {
-        setIsLoading(false)
-    }
 }
 
 const dataWarehousePopoverFields: DataWarehousePopoverField[] = [
@@ -136,8 +100,9 @@ export function ExperimentMetricForm({
 }): JSX.Element {
     const mathAvailability = getMathAvailability(metric.metric_type)
     const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
-    const [eventCount, setEventCount] = useState<number | null>(null)
-    const [isLoading, setIsLoading] = useState(false)
+    const { eventCount, eventCountLoading } = useValues(
+        metricRecentActivityLogic({ metric, filterTestAccounts, surface: 'editor' })
+    )
 
     const getEventTypeLabel = (): string => {
         if (isExperimentMeanMetric(metric)) {
@@ -247,28 +212,6 @@ export function ExperimentMetricForm({
     ]
 
     const metricFilter = getFilter(metric)
-
-    // dependencies for the loadEventCount useEffect call
-    const meanSource = isExperimentMeanMetric(metric) ? metric.source : null
-    const funnelSeries = isExperimentFunnelMetric(metric) ? metric.series : null
-    const ratioNumerator = isExperimentRatioMetric(metric) ? metric.numerator : null
-    const ratioDenominator = isExperimentRatioMetric(metric) ? metric.denominator : null
-    const retentionStartEvent = isExperimentRetentionMetric(metric) ? metric.start_event : null
-    const retentionCompletionEvent = isExperimentRetentionMetric(metric) ? metric.completion_event : null
-
-    useEffect(() => {
-        loadEventCount(metric, filterTestAccounts, setEventCount, setIsLoading)
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [
-        metric.metric_type,
-        meanSource,
-        funnelSeries,
-        ratioNumerator,
-        ratioDenominator,
-        retentionStartEvent,
-        retentionCompletionEvent,
-        filterTestAccounts,
-    ])
 
     const hideDeleteBtn = (_: any, index: number): boolean => index === 0
 
@@ -691,7 +634,7 @@ export function ExperimentMetricForm({
                 }
             >
                 <div className="border rounded p-4 bg-bg-light">
-                    {isLoading ? (
+                    {eventCountLoading ? (
                         <div className="flex items-center gap-2">
                             <Spinner />
                             <span className="text-muted">Loading recent activity...</span>

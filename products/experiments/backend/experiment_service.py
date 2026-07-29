@@ -61,6 +61,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_exposure_event_and_property,
 )
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
+from products.experiments.backend.hogql_queries.metric_expression_validation import validate_metric_sql_expressions
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
@@ -512,6 +513,7 @@ class ExperimentService:
 
                     # ExperimentMetric is a RootModel wrapping a union, so access .root to get the actual type
                     actual_metric = validated_metric.root
+                    validate_metric_sql_expressions(actual_metric)
                     if isinstance(actual_metric, ExperimentFunnelMetric):
                         # The experiment exposure event is prepended as step_0 at query time,
                         # so series must contain at least one user-supplied step for the funnel
