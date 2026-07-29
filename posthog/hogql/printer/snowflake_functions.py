@@ -348,8 +348,6 @@ SNOWFLAKE_PASSTHROUGH_FUNCTIONS: frozenset[str] = frozenset(
         # Null
         "coalesce",
         "nullif",
-        # Date / time
-        "date_trunc",
         # Other
         "md5",
     },

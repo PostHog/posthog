@@ -197,9 +197,9 @@ def _handle_log2(args: list[str]) -> str:
 
 # Complex handlers: ClickHouse function name → callable(list[rendered_arg_strings]) → SQL string
 #
-# NOTE: toStartOf* functions are NOT here — they are handled by
-# PostgresPrinter._visit_to_start_of_call() and inline sub-hour code
-# in visit_call(), which intercept before this dict is consulted.
+# NOTE: toStartOf* and dateTrunc/date_trunc are NOT here — they are handled by
+# PostgresPrinter._visit_to_start_of_call(), _visit_date_trunc_call() and inline
+# sub-hour code in visit_call(), which intercept before this dict is consulted.
 POSTGRES_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     # Type conversions
     "toDate": _make_cast_handler("DATE"),
@@ -390,8 +390,6 @@ POSTGRES_PASSTHROUGH_FUNCTIONS: frozenset[str] = frozenset(
         # Null
         "coalesce",
         "nullif",
-        # Date/time
-        "date_trunc",
         # Other
         "md5",
     }

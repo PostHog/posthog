@@ -213,9 +213,9 @@ def _handle_json_extract_bool(args: list[str]) -> str:
 
 # Complex handlers: ClickHouse function name → callable(list[rendered_arg_strings]) → SQL string
 #
-# NOTE: toStartOf* functions and dateDiff/date_trunc are NOT here — they are handled by
-# MySQLPrinter._visit_to_start_of_call() / visit_call(), which intercept before this dict
-# is consulted (dateDiff needs the unparameterized unit constant).
+# NOTE: toStartOf* functions and dateDiff/dateTrunc are NOT here — they are handled by
+# _visit_to_start_of_call() / _visit_date_trunc_call() / visit_call(), which intercept
+# before this dict is consulted (both need the unparameterized unit constant).
 MYSQL_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     # Type conversions — MySQL CAST never raises; invalid input becomes 0/NULL, which also
     # covers the *OrZero variants faithfully.

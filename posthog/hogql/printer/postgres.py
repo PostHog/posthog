@@ -26,6 +26,13 @@ from posthog.uuidt import UUIDT
 # Prevents SQL injection via backtick-quoted identifiers in HogQL.
 _SAFE_FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
+# HogQL registers dateTrunc under both spellings; visit_call matches on the lowercased name.
+_DATE_TRUNC_NAMES = frozenset({"datetrunc", "date_trunc"})
+
+# dateTrunc units that map onto a _render_start_of() unit. ClickHouse also accepts sub-second
+# units, which none of these dialects can express through the same rendering path.
+_DATE_TRUNC_UNITS = frozenset({"second", "minute", "hour", "day", "week", "month", "quarter", "year"})
+
 
 class PostgresPrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "postgres"
@@ -141,6 +148,9 @@ class PostgresPrinter(BasePrinter):
                 "toStartOfFifteenMinutes": 15,
             }
             return self._render_minute_bucket(self.visit(node.args[0]), minute_bucket_sizes[node.name])
+
+        if node.name.lower() in _DATE_TRUNC_NAMES:
+            return self._visit_date_trunc_call(node)
 
         function_renames = self._get_function_renames()
         function_handlers = self._get_function_handlers()
@@ -320,6 +330,25 @@ class PostgresPrinter(BasePrinter):
             raise QueryError(f"{node.name} expects exactly 1 argument {self._dialect_error_suffix()}.")
 
         return self._render_start_of("day", truncated_arg)
+
+    def _visit_date_trunc_call(self, node: ast.Call) -> str:
+        # The unit has to reach the SQL as a literal: visit_constant parameterizes string
+        # constants, and none of these dialects can infer a type for date_trunc(<param>, ...).
+        # So read it off the AST here, while it's still a Constant, and inline it validated.
+        if len(node.args) == 3:
+            raise QueryError(f"{node.name} with a timezone override is not supported {self._dialect_error_suffix()}.")
+        if len(node.args) != 2:
+            raise QueryError(f"{node.name} expects exactly 2 arguments {self._dialect_error_suffix()}.")
+
+        unit_node = node.args[0]
+        if not (isinstance(unit_node, ast.Constant) and isinstance(unit_node.value, str)):
+            raise QueryError(f"{node.name} only supports a literal unit {self._dialect_error_suffix()}.")
+
+        unit = unit_node.value.lower()
+        if unit not in _DATE_TRUNC_UNITS:
+            raise QueryError(f"Unsupported {node.name} unit '{unit}' {self._dialect_error_suffix()}.")
+
+        return self._render_start_of(unit, self.visit(node.args[1]))
 
     def _render_start_of(self, unit: str, arg: str, week_mode: int = 3) -> str:
         if unit == "week":

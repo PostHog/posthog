@@ -7160,18 +7160,34 @@ class TestPostgresPrinter(BaseTest):
 
     @parameterized.expand(
         [
-            ("date_trunc('second', timestamp)", "date_trunc(%(hogql_val_0)s, events.timestamp)"),
-            ("date_trunc('minute', timestamp)", "date_trunc(%(hogql_val_0)s, events.timestamp)"),
-            ("date_trunc('hour', timestamp)", "date_trunc(%(hogql_val_0)s, events.timestamp)"),
-            ("date_trunc('day', timestamp)", "date_trunc(%(hogql_val_0)s, events.timestamp)"),
-            ("date_trunc('week', timestamp)", "date_trunc(%(hogql_val_0)s, events.timestamp)"),
-            ("date_trunc('month', timestamp)", "date_trunc(%(hogql_val_0)s, events.timestamp)"),
-            ("date_trunc('quarter', timestamp)", "date_trunc(%(hogql_val_0)s, events.timestamp)"),
-            ("date_trunc('year', timestamp)", "date_trunc(%(hogql_val_0)s, events.timestamp)"),
+            ("date_trunc('second', timestamp)", "date_trunc('second', events.timestamp)"),
+            ("date_trunc('minute', timestamp)", "date_trunc('minute', events.timestamp)"),
+            ("date_trunc('hour', timestamp)", "date_trunc('hour', events.timestamp)"),
+            ("date_trunc('day', timestamp)", "date_trunc('day', events.timestamp)"),
+            ("date_trunc('week', timestamp)", "date_trunc('week', events.timestamp)"),
+            ("date_trunc('month', timestamp)", "date_trunc('month', events.timestamp)"),
+            ("date_trunc('quarter', timestamp)", "date_trunc('quarter', events.timestamp)"),
+            ("date_trunc('year', timestamp)", "date_trunc('year', events.timestamp)"),
+            # The camelCase spelling is the same HogQL function and must render identically.
+            ("dateTrunc('day', timestamp)", "date_trunc('day', events.timestamp)"),
+            ("dateTrunc('MONTH', timestamp)", "date_trunc('month', events.timestamp)"),
         ]
     )
-    def test_date_trunc_passthrough_in_postgres(self, expr: str, expected: str):
+    def test_date_trunc_renders_with_an_inlined_unit_in_postgres(self, expr: str, expected: str):
         self.assertEqual(self._expr(expr), expected)
+
+    @parameterized.expand(
+        [
+            ("unsupported_unit", "dateTrunc('fortnight', timestamp)", "Unsupported dateTrunc unit 'fortnight'"),
+            ("non_literal_unit", "dateTrunc(event, timestamp)", "only supports a literal unit"),
+            ("timezone_override", "dateTrunc('day', timestamp, 'UTC')", "timezone override"),
+        ]
+    )
+    def test_date_trunc_rejects_unrenderable_arguments_in_postgres(self, _name: str, expr: str, message: str):
+        with self.assertRaises(QueryError) as error:
+            self._expr(expr)
+
+        self.assertIn(message, str(error.exception))
 
     @parameterized.expand(
         [
@@ -8037,6 +8053,11 @@ class TestMySQLPrinter(BaseTest):
             (
                 "date_trunc",
                 "date_trunc('hour', timestamp)",
+                "DATE_ADD(DATE(events.timestamp), INTERVAL HOUR(events.timestamp) HOUR)",
+            ),
+            (
+                "date_trunc_camel_case",
+                "dateTrunc('hour', timestamp)",
                 "DATE_ADD(DATE(events.timestamp), INTERVAL HOUR(events.timestamp) HOUR)",
             ),
             ("to_year", "toYear(timestamp)", "EXTRACT(YEAR FROM events.timestamp)"),

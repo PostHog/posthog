@@ -15,8 +15,6 @@ from posthog.hogql.printer.mysql_functions import (
 )
 from posthog.hogql.printer.postgres import PostgresPrinter
 
-_DATE_TRUNC_UNITS = {"second", "minute", "hour", "day", "week", "month", "quarter", "year"}
-
 _TIMESTAMPDIFF_UNITS = {
     "second": "SECOND",
     "minute": "MINUTE",
@@ -214,9 +212,6 @@ class MySQLPrinter(PostgresPrinter):
         if node.name == "dateDiff":
             return self._visit_date_diff(node)
 
-        if node.name.lower() == "date_trunc":
-            return self._visit_date_trunc(node)
-
         return super().visit_call(node)
 
     def _constant_string_arg(self, node: ast.Call, index: int, what: str) -> str:
@@ -235,14 +230,6 @@ class MySQLPrinter(PostgresPrinter):
         start = self.visit(node.args[1])
         end = self.visit(node.args[2])
         return f"TIMESTAMPDIFF({ts_unit}, {start}, {end})"
-
-    def _visit_date_trunc(self, node: ast.Call) -> str:
-        if len(node.args) != 2:
-            raise QueryError("date_trunc expects exactly 2 arguments in the MySQL dialect")
-        unit = self._constant_string_arg(node, 0, "unit")
-        if unit not in _DATE_TRUNC_UNITS:
-            raise QueryError(f"Unsupported date_trunc unit '{unit}' in the MySQL dialect")
-        return self._render_start_of(unit, self.visit(node.args[1]))
 
     # --- date truncation ---------------------------------------------------------------
 
