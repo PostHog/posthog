@@ -70,6 +70,30 @@ DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES: int | None = get_from_
     "DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES", None, optional=True, type_cast=int
 )
 
+# --- deltalite shadow verification (rollout canary, phase 1) -------------------------------------
+# When enabled, the incremental merge path ALSO re-applies the same batch through the deltalite
+# streaming upsert into a throwaway copy of the affected partitions, then compares the result to
+# the real (delta-rs MERGE) output. deltalite NEVER writes the real table — this is pure observation
+# to build confidence that deltalite is byte-for-byte equivalent before it writes production tables.
+#
+# This env var is the cheap master switch, checked first so that when it's off nothing runs at all
+# (no DB query, no feature-flag eval, no extra I/O). Per-schema canary targeting is a PostHog feature
+# flag on top of this (see deltalite_shadow.is_deltalite_shadow_enabled). Off by default.
+DATA_WAREHOUSE_DELTALITE_SHADOW_ENABLED = get_from_env(
+    "DATA_WAREHOUSE_DELTALITE_SHADOW_ENABLED", False, type_cast=str_to_bool
+)
+# Fraction of eligible incremental batches to shadow. The comparison roughly doubles a batch's I/O
+# (seed copy + upsert + compare read), so sample rather than shadow every batch. 1.0 = all, 0.0 = none.
+DATA_WAREHOUSE_DELTALITE_SHADOW_SAMPLE_RATE = get_from_env(
+    "DATA_WAREHOUSE_DELTALITE_SHADOW_SAMPLE_RATE", 1.0, type_cast=float
+)
+# Skip the shadow for any batch whose affected partitions exceed this at-rest (compressed) byte size —
+# seeding and re-reading them would be too expensive. Measured from the Delta add-action stats before
+# any data is read, so an oversized batch is skipped cheaply. 0 disables the cap.
+DATA_WAREHOUSE_DELTALITE_SHADOW_MAX_AFFECTED_BYTES = get_from_env(
+    "DATA_WAREHOUSE_DELTALITE_SHADOW_MAX_AFFECTED_BYTES", 2_000_000_000, type_cast=int
+)
+
 GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL")
 GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY")
 GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID")
