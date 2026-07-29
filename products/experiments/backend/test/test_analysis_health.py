@@ -4,7 +4,11 @@ from parameterized import parameterized
 
 from posthog.schema import BiasRisk, MultipleVariantHandling
 
-from products.experiments.backend.analysis_health import MULTIPLE_VARIANT_BIAS_THRESHOLD, evaluate_bias_risk
+from products.experiments.backend.analysis_health import (
+    MULTIPLE_VARIANT_BIAS_THRESHOLD,
+    evaluate_bias_risk,
+    evaluate_exposure_source_risk,
+)
 
 UNEVEN_2WAY = [{"rollout_percentage": 80}, {"rollout_percentage": 20}]
 EVEN_2WAY = [{"rollout_percentage": 50}, {"rollout_percentage": 50}]
@@ -102,3 +106,34 @@ class TestEvaluateBiasRisk(TestCase):
         )
         assert result is not None
         self.assertGreater(result.multiple_variant_percentage, MULTIPLE_VARIANT_BIAS_THRESHOLD)
+
+
+class TestEvaluateExposureSourceRisk(TestCase):
+    def test_server_side_share_is_measured_against_all_exposures(self):
+        # 300 server-side of 1000 total = 30%. The share must use the full exposed population as
+        # the denominator, and name the server-side libs largest first.
+        result = evaluate_exposure_source_risk(
+            {"web": 700, "posthog-python": 200, "posthog-node": 100},
+        )
+        assert result is not None
+        self.assertAlmostEqual(result.server_side_percentage, 30.0, places=5)
+        self.assertEqual(result.libs, ["posthog-python", "posthog-node"])
+
+    @parameterized.expand(
+        [
+            # Unrecognized and mobile libs must never count as server-side, or every experiment
+            # running on a client SDK we don't have in the allowlist would warn.
+            ("only_client_libs", {"web": 800, "posthog-ios": 150, "posthog-flutter": 100}),
+            ("unknown_libs", {"web": 500, "some-custom-sdk": 400, "": 200}),
+            # 50 / 1000 = 5%, under the 10% threshold.
+            ("below_threshold", {"web": 950, "posthog-python": 50}),
+            # Exactly 10% must not trigger — the check is a strict `>`.
+            ("exactly_at_threshold", {"web": 900, "posthog-python": 100}),
+            # Under the minimum sample the share is too noisy to act on, even at 100% server-side.
+            ("below_minimum_sample", {"posthog-python": 99}),
+            ("no_exposures", {}),
+            ("server_lib_with_zero_count", {"web": 500, "posthog-go": 0}),
+        ]
+    )
+    def test_returns_none_when_not_at_risk(self, _name, exposures_by_lib):
+        self.assertIsNone(evaluate_exposure_source_risk(exposures_by_lib))

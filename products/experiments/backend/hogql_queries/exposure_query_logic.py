@@ -19,7 +19,6 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 
 from products.actions.backend.models.action import Action
@@ -129,26 +128,6 @@ def get_variant_selection_expr(
             )
 
 
-def get_test_accounts_filter(
-    team: Team, exposure_criteria: Union[ExperimentExposureCriteria, dict, None] = None
-) -> list[ast.Expr]:
-    """
-    Returns test account filters based on experiment configuration.
-
-    Args:
-        team: The team object
-        exposure_criteria: Experiment exposure criteria configuration
-    """
-    # Normalize to typed object
-    criteria = normalize_to_exposure_criteria(exposure_criteria)
-
-    filter_test_accounts = criteria.filterTestAccounts if criteria else False
-
-    if filter_test_accounts and isinstance(team.test_account_filters, list) and len(team.test_account_filters) > 0:
-        return [property_to_expr(property, team) for property in team.test_account_filters]
-    return []
-
-
 def get_exposure_event_and_property(
     feature_flag_key: str, exposure_criteria: Union[ExperimentExposureCriteria, dict, None] = None
 ) -> tuple[Optional[str], str]:
@@ -171,7 +150,7 @@ def get_exposure_event_and_property(
     # Handle ActionsNode
     if isinstance(exposure_config, ActionsNode):
         # For actions, we don't filter by event name (actions can match multiple events)
-        # The action filter will be applied in build_common_exposure_conditions
+        # The action filter will be applied in build_exposure_event_conditions
         feature_flag_variant_property = f"$feature/{feature_flag_key}"
         event = None
     elif (
@@ -262,8 +241,8 @@ def build_exposure_event_conditions(
 ) -> list[ast.Expr]:
     """
     Builds the event/action and property filters that define what counts as an exposure event —
-    the exposure-identity subset of build_common_exposure_conditions, without the analysis-only
-    conditions (date range, variant filter, test-account exclusion). Used directly by consumers
+    the exposure-identity subset of `ExposureQueryBuilder.build_exposure_predicate`, without the
+    analysis-only conditions (date range, variant filter, test-account exclusion). Used by consumers
     that need "who was exposed" for serving decisions rather than metric analysis, such as the
     freeze-exposure snapshot scan.
     """
@@ -272,52 +251,6 @@ def build_exposure_event_conditions(
     return [
         *_build_event_filters(exposure_config, team, feature_flag_key),
         *_build_property_filters(exposure_config, team),
-    ]
-
-
-def build_common_exposure_conditions(
-    feature_flag_variant_property: str,
-    variants: list[str],
-    date_range_query: QueryDateRange,
-    team: Team,
-    exposure_criteria: Union[ExperimentExposureCriteria, dict, None] = None,
-    feature_flag_key: Optional[str] = None,
-) -> list[ast.Expr]:
-    """
-    Builds common exposure conditions that are shared across exposure queries.
-
-    Args:
-        feature_flag_variant_property: Property containing the variant value
-        variants: List of valid variant keys
-        date_range_query: Date range for the query
-        team: Team object for test account filtering
-        exposure_criteria: Experiment exposure criteria configuration
-        feature_flag_key: Feature flag key (required for $feature_flag_called events)
-    """
-    criteria = normalize_to_exposure_criteria(exposure_criteria)
-
-    return [
-        # Date range filters
-        ast.CompareOperation(
-            op=ast.CompareOperationOp.GtEq,
-            left=ast.Field(chain=["timestamp"]),
-            right=ast.Constant(value=date_range_query.date_from()),
-        ),
-        ast.CompareOperation(
-            op=ast.CompareOperationOp.LtEq,
-            left=ast.Field(chain=["timestamp"]),
-            right=ast.Constant(value=date_range_query.date_to()),
-        ),
-        # Variant filter
-        ast.CompareOperation(
-            op=ast.CompareOperationOp.In,
-            left=ast.Field(chain=["properties", feature_flag_variant_property]),
-            right=ast.Constant(value=variants),
-        ),
-        # Test accounts filter
-        *get_test_accounts_filter(team, criteria),
-        # Event/action and property filters
-        *build_exposure_event_conditions(criteria, team, feature_flag_key),
     ]
 
 

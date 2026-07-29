@@ -114,6 +114,45 @@ class ExposureQueryBuilder:
         assert isinstance(query, ast.SelectQuery)
         return query
 
+    def exposures_by_lib_query(self) -> ast.SelectQuery:
+        """
+        Returns a query counting exposed entities per `$lib`, attributed from the entity's first
+        exposure so the counts add up to the same population the timeseries charts.
+
+        The precomputed exposures table doesn't carry `$lib`, so this always scans events.
+
+        Returns:
+            SelectQuery with columns: lib, exposed_count
+        """
+        query = parse_select(
+            """
+            WITH first_exposures AS (
+                SELECT
+                    {entity_key} AS entity_id,
+                    {variant_expr} AS variant,
+                    argMin(properties.$lib, timestamp) AS lib
+                FROM events
+                WHERE {exposure_predicate}
+                GROUP BY entity_id
+            )
+
+            SELECT
+                first_exposures.lib AS lib,
+                count(first_exposures.entity_id) AS exposed_count
+            FROM first_exposures
+            WHERE notEmpty(variant)
+            GROUP BY first_exposures.lib
+            """,
+            placeholders={
+                "entity_key": parse_expr(self.context.entity_key),
+                "variant_expr": self.build_variant_expr_for_mean(),
+                "exposure_predicate": self.build_exposure_predicate(),
+            },
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
     def _build_precomputed_entity_id_expr(self) -> ast.Expr:
         return (
             parse_expr("toUUID(t.entity_id)") if self.context.entity_key == "person_id" else parse_expr("t.entity_id")

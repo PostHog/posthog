@@ -70,7 +70,9 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                     description={
                         <>
                             When a <LemonTag>{EXPOSURE_DEFAULT_EVENT}</LemonTag> event is recorded, a user is considered{' '}
-                            <strong>exposed</strong> to the experiment and included in the analysis.
+                            <strong>exposed</strong> to the experiment and included in the analysis. This counts flag
+                            evaluations from your backend too, even when no browser ever loaded, so front-end metrics
+                            can show drop-off that didn't happen.
                         </>
                     }
                     selected={!exposureCriteria?.exposure_config}
@@ -87,7 +89,8 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                         <>
                             If you can't rely on the <LemonTag>{EXPOSURE_DEFAULT_EVENT}</LemonTag> event, you can select
                             a custom event to signal that users reached the part of your app where the experiment runs.
-                            You can also filter out users you would like to exclude from the analysis.
+                            Picking a front-end event keeps backend flag evaluations out of the analysis. You can also
+                            filter out users you would like to exclude.
                         </>
                     }
                     selected={!!exposureCriteria?.exposure_config}

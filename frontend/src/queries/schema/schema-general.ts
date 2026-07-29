@@ -4820,6 +4820,19 @@ export interface BiasRisk {
     multiple_variant_percentage: number
 }
 
+/**
+ * Share of exposures attributed to a server-side SDK. Only evaluated for experiments on the
+ * default `$feature_flag_called` exposure event, where a backend flag evaluation counts as an
+ * exposure even though no browser ever loaded. Present on the response only when the share is
+ * above the threshold.
+ */
+export interface ExposureSourceRisk {
+    /** Share of exposed entities whose first exposure came from a server-side SDK (0-100). */
+    server_side_percentage: number
+    /** The server-side `$lib` values seen, largest share first. */
+    libs: string[]
+}
+
 export interface ExperimentExposureQueryResponse {
     kind: NodeKind.ExperimentExposureQuery
     timeseries: ExperimentExposureTimeSeries[]
@@ -4827,6 +4840,7 @@ export interface ExperimentExposureQueryResponse {
     date_range: DateRange
     sample_ratio_mismatch?: SampleRatioMismatch
     bias_risk?: BiasRisk
+    exposure_source_risk?: ExposureSourceRisk
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
 }

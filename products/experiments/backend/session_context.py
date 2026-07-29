@@ -299,7 +299,7 @@ def _compute_session_experiment_context(
     for experiment in candidates:
         flag_key = experiment.feature_flag.key
         # Only the flag's defined variant keys count, mirroring the `variant IN variants` filter in
-        # build_common_exposure_conditions: a non-enrolled user's flag evaluation captures
+        # ExposureQueryBuilder.build_exposure_predicate: a non-enrolled user's flag evaluation captures
         # `$feature_flag_response: false`, which must not surface as a variant named "false".
         defined_variants = variant_keys_by_id.get(experiment.pk, set())
         exposure_rows = [row for row in exposures.get(experiment.pk, []) if row[0] in defined_variants]

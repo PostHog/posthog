@@ -1695,6 +1695,61 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         assert risk is not None
         self.assertGreater(risk.multiple_variant_percentage, 0)
 
+    @freeze_time("2024-01-07T12:00:00Z")
+    def test_exposures_by_lib_attributes_each_entity_to_its_first_exposure_lib(self):
+        # The `$lib` breakdown backs the server-side exposure warning. It runs its own query, and a
+        # failure there is swallowed as advisory, so without this the warning would silently never
+        # appear. user_switcher also pins the attribution: one entity, counted once, under the lib
+        # of its earliest exposure.
+        ff_property = f"$feature/{self.feature_flag.key}"
+
+        def _exposure(timestamp: str, variant: str, lib: str) -> dict:
+            return {
+                "event": "$feature_flag_called",
+                "timestamp": timestamp,
+                "properties": {
+                    "$feature_flag_response": variant,
+                    ff_property: variant,
+                    "$feature_flag": self.feature_flag.key,
+                    "$lib": lib,
+                },
+            }
+
+        journeys_for(
+            {
+                "user_web": [_exposure("2024-01-02", "control", "web")],
+                "user_backend": [_exposure("2024-01-02", "test", "posthog-python")],
+                "user_switcher": [
+                    _exposure("2024-01-02", "test", "posthog-python"),
+                    _exposure("2024-01-03", "test", "web"),
+                ],
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+
+        def _runner(exposure_criteria: dict | None) -> ExperimentExposuresQueryRunner:
+            query = ExperimentExposureQuery(
+                kind="ExperimentExposureQuery",
+                experiment_id=self.experiment.id,
+                experiment_name=self.experiment.name,
+                feature_flag=model_to_dict(self.feature_flag),
+                holdout=None,
+                start_date=self.experiment.start_date.isoformat(),
+                end_date=self.experiment.end_date.isoformat(),
+                exposure_criteria=exposure_criteria,
+            )
+            return ExperimentExposuresQueryRunner(team=self.team, query=query)
+
+        self.assertEqual(_runner(None)._exposures_by_lib(), {"web": 1, "posthog-python": 2})
+
+        # A custom front-end exposure event is already the remedy the warning recommends, so the
+        # breakdown isn't computed for it at all.
+        custom_criteria = {
+            "exposure_config": ExperimentEventExposureConfig(event="$pageview", properties=[]).model_dump(mode="json"),
+        }
+        self.assertIsNone(_runner(custom_criteria)._exposures_by_lib())
+
     def test_date_range_follows_query_not_model(self):
         # The result is cached under a key hashed from the query (see get_cache_payload), so the window
         # must come from the query — not live model state. A query whose end_date differs from the

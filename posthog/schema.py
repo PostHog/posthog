@@ -1365,6 +1365,17 @@ class ExperimentVariantTrendsBaseStats(BaseModel):
     key: str
 
 
+class ExposureSourceRisk(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    libs: list[str] = Field(..., description="The server-side `$lib` values seen, largest share first.")
+    server_side_percentage: float = Field(
+        ...,
+        description=("Share of exposed entities whose first exposure came from a server-side SDK (0-100)."),
+    )
+
+
 class FailureMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4722,6 +4733,7 @@ class ExperimentExposureQueryResponse(BaseModel):
     )
     bias_risk: BiasRisk | None = None
     date_range: DateRange
+    exposure_source_risk: ExposureSourceRisk | None = None
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
@@ -5786,6 +5798,7 @@ class QueryResponseAlternative19(BaseModel):
     )
     bias_risk: BiasRisk | None = None
     date_range: DateRange
+    exposure_source_risk: ExposureSourceRisk | None = None
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     sample_ratio_mismatch: SampleRatioMismatch | None = None
     timeseries: list[ExperimentExposureTimeSeries]
@@ -10408,6 +10421,7 @@ class CachedExperimentExposureQueryResponse(BaseModel):
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
     date_range: DateRange
+    exposure_source_risk: ExposureSourceRisk | None = None
     is_cached: bool
     kind: Literal["ExperimentExposureQuery"] = "ExperimentExposureQuery"
     last_refresh: AwareDatetime

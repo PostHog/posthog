@@ -948,6 +948,9 @@ export interface eventUsageLogicActions {
     reportExperimentBiasWarningShown: (experiment: Experiment) => {
         experiment: Experiment
     }
+    reportExperimentExposureSourceWarningShown: (experiment: Experiment) => {
+        experiment: Experiment
+    }
     reportExperimentCreated: (
         experiment: Experiment,
         metadata?: {
@@ -2300,6 +2303,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             warningKey,
         }),
         reportExperimentBiasWarningShown: (experiment: Experiment) => ({ experiment }),
+        reportExperimentExposureSourceWarningShown: (experiment: Experiment) => ({ experiment }),
         reportExperimentMetricsRefreshed: (
             experiment: Experiment,
             forceRefresh: boolean,
@@ -3402,6 +3406,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentBiasWarningShown: ({ experiment }) => {
             posthog.capture('experiment bias warning shown', {
+                ...getEventPropertiesForExperiment(experiment),
+            })
+        },
+        reportExperimentExposureSourceWarningShown: ({ experiment }) => {
+            posthog.capture('experiment exposure source warning shown', {
                 ...getEventPropertiesForExperiment(experiment),
             })
         },

@@ -38,6 +38,7 @@ import { ExperimentReplayTab } from './ExperimentReplayTab'
 import { ExperimentWarningBanner } from './ExperimentWarningBanners'
 import { ExposureCriteriaModal } from './ExposureCriteria'
 import { Exposures } from './Exposures'
+import { ExposureSourceWarning } from './ExposureSourceWarning'
 import { Info } from './Info'
 import { LoadingState } from './LoadingState'
 import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
@@ -89,6 +90,7 @@ const MetricsTab = (): JSX.Element => {
             <div className="w-full mb-4">
                 <Exposures />
                 <MultiVariantBiasWarning />
+                <ExposureSourceWarning />
             </div>
 
             {showRecalculationStatus && <RecalculationStatus experiment={experiment} />}

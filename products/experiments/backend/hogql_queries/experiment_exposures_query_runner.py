@@ -10,9 +10,11 @@ from posthog.schema import (
     BiasRisk,
     CachedExperimentExposureQueryResponse,
     DateRange,
+    ExperimentEventExposureConfig,
     ExperimentExposureQuery,
     ExperimentExposureQueryResponse,
     ExperimentExposureTimeSeries,
+    ExposureSourceRisk,
     IntervalType,
     SampleRatioMismatch,
 )
@@ -32,7 +34,11 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationTable,
     ensure_precomputed,
 )
-from products.experiments.backend.analysis_health import evaluate_bias_risk
+from products.experiments.backend.analysis_health import (
+    MIN_EXPOSURES_FOR_SOURCE_RISK,
+    evaluate_bias_risk,
+    evaluate_exposure_source_risk,
+)
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import analysis_window, analysis_window_end
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
@@ -45,7 +51,7 @@ from products.experiments.backend.hogql_queries.experiment_query_runner import (
     experiment_precompute_ttl_schedule,
     has_uncalculated_cohorts,
 )
-from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key
+from products.experiments.backend.hogql_queries.exposure_query_logic import DEFAULT_EXPOSURE_EVENT, get_entity_key
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
@@ -132,14 +138,14 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             spill_to_disk=True,
         )
 
-    def _get_exposure_query(self) -> ast.SelectQuery:
+    def _build_query_builder(self) -> ExperimentQueryBuilder:
         (
             exposure_config,
             multiple_variant_handling,
             filter_test_accounts,
         ) = get_exposure_config_params_for_builder(self.exposure_criteria)
 
-        builder = ExperimentQueryBuilder(
+        return ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=self.feature_flag_key,
             exposure_config=exposure_config,
@@ -149,6 +155,9 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             date_range_query=self.date_range_query,
             entity_key=get_entity_key(self.group_type_index),
         )
+
+    def _get_exposure_query(self) -> ast.SelectQuery:
+        builder = self._build_query_builder()
 
         # TODO: Add query-level precomputation_mode override for ExperimentExposureQuery.
         # Until then, the duration gate here is unconditional — the main runner
@@ -285,6 +294,54 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             total_exposures=total_exposures,
         )
 
+    def _exposures_by_lib(self) -> dict[str, int] | None:
+        """
+        Counts of exposed entities per `$lib`, or None when the breakdown doesn't apply or
+        couldn't be read.
+        """
+        # Only meaningful on the default exposure event: that's the config where a backend flag
+        # evaluation is what counts a user as exposed. A custom front-end exposure event is
+        # already the remedy we'd be recommending.
+        exposure_config, _, _ = get_exposure_config_params_for_builder(self.exposure_criteria)
+        if (
+            not isinstance(exposure_config, ExperimentEventExposureConfig)
+            or exposure_config.event != DEFAULT_EXPOSURE_EVENT
+        ):
+            return None
+
+        # A second scan of the same exposure events, needed because the precomputed exposures
+        # table doesn't carry `$lib`. Costed against the 24h cache on this response. Advisory, so
+        # a failure here must not take the exposure chart down with it.
+        try:
+            query = self._build_query_builder().get_exposures_by_lib_query()
+            query.limit = ast.Constant(value=QUERY_ROW_LIMIT)
+            with tags_context(experiment_query_surface="exposures_by_lib"):
+                response = execute_hogql_query(
+                    query_type="ExperimentExposuresByLibQuery",
+                    query=query,
+                    team=self.team,
+                    user=self.user,
+                    timings=self.timings,
+                    modifiers=create_default_modifiers_for_team(self.team),
+                    settings=HogQLGlobalSettings(max_execution_time=600),
+                )
+        except Exception:
+            logger.exception("exposures_by_lib_query_failed", experiment_id=self.experiment.id)
+            return None
+
+        return {str(lib): int(count) for lib, count in response.results or []}
+
+    def _evaluate_exposure_source_risk(self, total_exposures: dict[str, int]) -> ExposureSourceRisk | None:
+        # evaluate_exposure_source_risk applies this minimum itself; checking it here too keeps
+        # the extra scan off experiments that can't produce a signal from it.
+        if sum(total_exposures.values()) < MIN_EXPOSURES_FOR_SOURCE_RISK:
+            return None
+
+        exposures_by_lib = self._exposures_by_lib()
+        if exposures_by_lib is None:
+            return None
+        return evaluate_exposure_source_risk(exposures_by_lib)
+
     @experiment_error_handler
     def _calculate(self) -> ExperimentExposureQueryResponse:
         # Adding experiment specific tags to the tag collection
@@ -358,6 +415,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
         sample_ratio_mismatch = self._calculate_srm(total_exposures)
         bias_risk = self._evaluate_bias_risk(total_exposures)
+        exposure_source_risk = self._evaluate_exposure_source_risk(total_exposures)
 
         return ExperimentExposureQueryResponse(
             timeseries=ordered_timeseries,
@@ -365,6 +423,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             date_range=self.date_range,
             sample_ratio_mismatch=sample_ratio_mismatch,
             bias_risk=bias_risk,
+            exposure_source_risk=exposure_source_risk,
         )
 
     def to_query(self) -> ast.SelectQuery:
@@ -411,7 +470,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
-        payload["experiment_exposures_response_version"] = 2
+        payload["experiment_exposures_response_version"] = 3
         return payload
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:

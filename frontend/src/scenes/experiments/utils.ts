@@ -216,8 +216,8 @@ function seriesToFilter(series: AnyEntityNode | ExperimentMetricSource): Univers
 }
 
 /**
- * Mirrors the backend's exposure semantics (`build_common_exposure_conditions`, also behind the
- * replay player's experiment session context): the variant property must be IN the experiment's
+ * Mirrors the backend's exposure semantics (`ExposureQueryBuilder.build_exposure_predicate`, also
+ * behind the replay player's experiment session context): the variant property must be IN the experiment's
  * variant keys. Matching only on the event would include sessions of users who evaluated the flag
  * but were never enrolled, e.g. `$feature_flag_called` with a `false` response on a partial rollout.
  */

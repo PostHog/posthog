@@ -214,6 +214,15 @@ class ExperimentQueryBuilder:
         """
         return self._exposure_query_builder().daily_exposures_from_precomputed(job_ids)
 
+    def get_exposures_by_lib_query(self) -> ast.SelectQuery:
+        """
+        Returns a query counting exposed entities per `$lib`, attributed from first exposure.
+
+        Returns:
+            SelectQuery with columns: lib, exposed_count
+        """
+        return self._exposure_query_builder().exposures_by_lib_query()
+
     def _get_conversion_window_seconds(self) -> int:
         """
         Returns the conversion window in seconds for the current metric.

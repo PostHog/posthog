@@ -7028,6 +7028,9 @@
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "exposure_source_risk": {
+                    "$ref": "#/definitions/ExposureSourceRisk"
+                },
                 "is_cached": {
                     "type": "boolean"
                 },
@@ -21172,6 +21175,9 @@
                 "date_range": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "exposure_source_risk": {
+                    "$ref": "#/definitions/ExposureSourceRisk"
+                },
                 "kind": {
                     "const": "ExperimentExposureQuery",
                     "type": "string"
@@ -22667,6 +22673,25 @@
                 }
             },
             "required": ["key", "count", "exposure", "absolute_exposure"],
+            "type": "object"
+        },
+        "ExposureSourceRisk": {
+            "additionalProperties": false,
+            "description": "Share of exposures attributed to a server-side SDK. Only evaluated for experiments on the default `$feature_flag_called` exposure event, where a backend flag evaluation counts as an exposure even though no browser ever loaded. Present on the response only when the share is above the threshold.",
+            "properties": {
+                "libs": {
+                    "description": "The server-side `$lib` values seen, largest share first.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "server_side_percentage": {
+                    "description": "Share of exposed entities whose first exposure came from a server-side SDK (0-100).",
+                    "type": "number"
+                }
+            },
+            "required": ["server_side_percentage", "libs"],
             "type": "object"
         },
         "ExternalDataSourceType": {
@@ -36772,6 +36797,9 @@
                         },
                         "date_range": {
                             "$ref": "#/definitions/DateRange"
+                        },
+                        "exposure_source_risk": {
+                            "$ref": "#/definitions/ExposureSourceRisk"
                         },
                         "kind": {
                             "const": "ExperimentExposureQuery",
