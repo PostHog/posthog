@@ -362,6 +362,9 @@ describe('alertFormLogic', () => {
 
         expect(createSpy).not.toHaveBeenCalled()
         expect(successToastSpy).not.toHaveBeenCalled()
+        expect(errorToastSpy).toHaveBeenCalledWith(
+            "Couldn't save alert: Enter at least one threshold (less than or more than)"
+        )
         expect(logic.values.thresholdBoundsFormError).toBe('Enter at least one threshold (less than or more than)')
     })
 

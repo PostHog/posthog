@@ -890,6 +890,12 @@ export const alertFormLogic = kea<alertFormLogicType>([
             },
             submitAlertForm: () => {
                 actions.setAlertFormSubmitAttempted()
+                const validationErrors = Object.values(values.alertFormValidationErrors).filter(
+                    (error): error is string => typeof error === 'string'
+                )
+                if (validationErrors.length > 0) {
+                    lemonToast.error(`Couldn't save alert: ${validationErrors.join('. ')}`)
+                }
             },
             submitAlertFormSuccess: async () => {
                 // Background sync to pick up any server-side changes
