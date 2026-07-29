@@ -7,6 +7,7 @@ from posthog.schema import (
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldOauthConfig,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
@@ -19,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
@@ -39,7 +41,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class PardotSource(ResumableSource[PardotSourceConfig, PardotResumeConfig]):
+class PardotSource(ResumableSource[PardotSourceConfig, PardotResumeConfig], OAuthMixin):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v5",)
     default_version = "v5"
@@ -58,10 +60,14 @@ class PardotSource(ResumableSource[PardotSourceConfig, PardotResumeConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "400 Client Error: Bad Request for url: https://login.salesforce.com/services/oauth2/token": "Salesforce rejected your refresh token. Reauthorize the connected app and paste in the new refresh token.",
-            "400 Client Error: Bad Request for url: https://test.salesforce.com/services/oauth2/token": "Salesforce rejected your refresh token. Reauthorize the connected app and paste in the new refresh token.",
-            "401 Client Error: Unauthorized for url": "Account Engagement rejected the access token. Check your connected app credentials and reconnect.",
-            "403 Client Error: Forbidden for url": "Account Engagement denied access. Check that the user has API access and that the business unit ID is correct.",
+            # SalesforceAuthRequestError formats a failed token refresh as
+            # "<code> Client Error: <reason>: <error_description>", so key off the stable
+            # error_description Salesforce returns for a revoked or expired grant.
+            "expired access/refresh token": "Your Account Engagement connection has expired or been revoked. Please reconnect the source.",
+            "inactive user": "The Salesforce user for this connection is inactive. Reactivate it in Salesforce or reconnect the source with an active user.",
+            "Integration not found": "The linked Account Engagement integration no longer exists. Please reconnect the source.",
+            "401 Client Error: Unauthorized for url": "Account Engagement rejected the access token. Please reconnect the source.",
+            "403 Client Error: Forbidden for url": "Account Engagement denied access. Check that the connected user has API access and that the business unit ID is correct.",
         }
 
     @property
@@ -74,17 +80,25 @@ class PardotSource(ResumableSource[PardotSourceConfig, PardotResumeConfig]):
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Connect Salesforce Marketing Cloud Account Engagement (formerly Pardot) to pull your marketing data into the PostHog Data warehouse.
 
-Create a Salesforce connected app with the `pardot_api` and `refresh_token` scopes, authorize it, and keep the refresh token it returns. Your business unit ID is the 18-character ID starting with `0Uv`, in Salesforce Setup under **Account Engagement → Business Unit Setup**.""",
+Connect a Salesforce account that has access to Account Engagement, then enter the ID of the business unit you want to sync.""",
             iconPath="/static/services/pardot.png",
             docsUrl="https://posthog.com/docs/cdp/sources/pardot",
             fields=cast(
                 list[FieldType],
                 [
+                    SourceFieldOauthConfig(
+                        name="pardot_integration_id",
+                        label="Salesforce account",
+                        required=True,
+                        kind="pardot",
+                        requiredScopes="pardot_api refresh_token",
+                    ),
                     SourceFieldSelectConfig(
                         name="environment",
                         label="Environment",
                         required=True,
                         defaultValue="production",
+                        caption="Choose sandbox if your business unit belongs to a sandbox, demo or developer org.",
                         options=[
                             SourceFieldSelectConfigOption(label="Production", value="production"),
                             SourceFieldSelectConfigOption(label="Sandbox", value="sandbox"),
@@ -96,31 +110,8 @@ Create a Salesforce connected app with the `pardot_api` and `refresh_token` scop
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="0Uv...",
+                        caption="The 18-character ID starting with `0Uv`, in Salesforce Setup under Account Engagement Business Unit Setup.",
                         secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="client_id",
-                        label="Consumer key",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="3MVG9...",
-                        secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="client_secret",
-                        label="Consumer secret",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        placeholder="",
-                        secret=True,
-                    ),
-                    SourceFieldInputConfig(
-                        name="refresh_token",
-                        label="Refresh token",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        placeholder="",
-                        secret=True,
                     ),
                 ],
             ),
@@ -144,12 +135,20 @@ Create a Salesforce connected app with the `pardot_api` and `refresh_token` scop
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
+        try:
+            integration = self.get_oauth_integration(config.pardot_integration_id, team_id)
+        except ValueError:
+            return False, "Connect a Salesforce account with access to Account Engagement"
+
+        if not integration.access_token:
+            return False, "The Salesforce connection has no access token. Please reconnect it."
+
         return validate_pardot_credentials(
             environment=config.environment,
             business_unit_id=config.business_unit_id,
-            client_id=config.client_id,
-            client_secret=config.client_secret,
-            refresh_token=config.refresh_token,
+            access_token=integration.access_token,
+            refresh_token=integration.refresh_token,
+            instance_url=integration.config.get("instance_url"),
         )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[PardotResumeConfig]:
@@ -163,12 +162,17 @@ Create a Salesforce connected app with the `pardot_api` and `refresh_token` scop
         resumable_source_manager: ResumableSourceManager[PardotResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        integration = self.get_oauth_integration(config.pardot_integration_id, inputs.team_id)
+
+        if not integration.access_token:
+            raise ValueError(f"Account Engagement access token not found for job {inputs.job_id}")
+
         return pardot_source(
             environment=config.environment,
             business_unit_id=config.business_unit_id,
-            client_id=config.client_id,
-            client_secret=config.client_secret,
-            refresh_token=config.refresh_token,
+            access_token=integration.access_token,
+            refresh_token=integration.refresh_token,
+            instance_url=integration.config.get("instance_url"),
             endpoint=inputs.schema_name,
             api_version=self.resolve_api_version(inputs.api_version),
             resumable_source_manager=resumable_source_manager,

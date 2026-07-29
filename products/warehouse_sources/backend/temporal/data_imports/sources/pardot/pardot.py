@@ -13,16 +13,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pardot.set
     PARDOT_ENDPOINTS,
     PardotEndpointConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth import (
+    salesforce_refresh_access_token,
+)
 
-# Account Engagement runs on its own host per environment, while the OAuth token is
-# minted against the matching Salesforce login host.
+# Account Engagement runs on its own host per environment. Demos, developer orgs and
+# sandboxes are served from the demo host, everything else from the production host. This
+# is a separate axis from the Salesforce login host — a developer org signs in at
+# login.salesforce.com but its business units still live on pi.demo.pardot.com.
 PARDOT_HOSTS = {
     "production": "https://pi.pardot.com",
     "sandbox": "https://pi.demo.pardot.com",
-}
-SALESFORCE_LOGIN_HOSTS = {
-    "production": "https://login.salesforce.com",
-    "sandbox": "https://test.salesforce.com",
 }
 # v5 caps a query page at 200 records.
 PAGE_SIZE = 200
@@ -40,47 +41,35 @@ class PardotPageTokenExpiredError(Exception):
     """A saved `nextPageToken` was rejected — page tokens expire after 4 hours."""
 
 
-def _environment_hosts(environment: str) -> tuple[str, str]:
+def _api_host(environment: str) -> str:
     api_host = PARDOT_HOSTS.get(environment)
-    login_host = SALESFORCE_LOGIN_HOSTS.get(environment)
-    if api_host is None or login_host is None:
+    if api_host is None:
         raise ValueError(f"Invalid Account Engagement environment: {environment}")
-    return api_host, login_host
+    return api_host
 
 
-def _get_session(business_unit_id: str, client_secret: str, refresh_token: str) -> requests.Session:
+def _get_session(business_unit_id: str, access_token: str, refresh_token: str | None) -> requests.Session:
     # capture=False: prospect/visitor records carry PII (emails, addresses, phones, free-text
     # notes, visitor IPs) the name-based sample scrubber can't reliably redact, and the token
     # exchange returns a secret, so every request path must opt out of HTTP sample capture while
     # staying metered and logged.
     return make_tracked_session(
         headers={"Pardot-Business-Unit-Id": business_unit_id, "Accept": "application/json"},
-        redact_values=(client_secret, refresh_token),
+        redact_values=tuple(value for value in (access_token, refresh_token) if value),
         capture=False,
     )
 
 
-def _mint_token(
-    session: requests.Session,
-    environment: str,
-    client_id: str,
-    client_secret: str,
-    refresh_token: str,
-) -> str:
-    """Exchange the Salesforce refresh token for a short-lived access token."""
-    _, login_host = _environment_hosts(environment)
-    response = session.post(
-        f"{login_host}/services/oauth2/token",
-        data={
-            "grant_type": "refresh_token",
-            "refresh_token": refresh_token,
-            "client_id": client_id,
-            "client_secret": client_secret,
-        },
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
-    response.raise_for_status()
-    return response.json()["access_token"]
+def _refresh_token(refresh_token: str | None, instance_url: str | None) -> str:
+    """Mint a fresh access token part-way through a sync that outlived the current one.
+
+    Account Engagement and the Salesforce CRM share one connected app and one token endpoint,
+    so this rides the Salesforce source's helper — including its retry for Salesforce
+    serializing concurrent refreshes of the same app.
+    """
+    if not refresh_token or not instance_url:
+        raise ValueError("Reconnect the Account Engagement integration: it has no refresh token")
+    return salesforce_refresh_access_token(refresh_token, instance_url)
 
 
 def _format_datetime(value: Any) -> str:
@@ -142,27 +131,22 @@ def _is_expired_page_token(response: requests.Response) -> bool:
 def validate_credentials(
     environment: str,
     business_unit_id: str,
-    client_id: str,
-    client_secret: str,
-    refresh_token: str,
+    access_token: str,
+    refresh_token: str | None = None,
+    instance_url: str | None = None,
 ) -> tuple[bool, str | None]:
-    """Mint a token and read one campaign — the cheapest proof the whole chain works."""
+    """Read one campaign — the cheapest proof the token, business unit and host all line up."""
     try:
-        api_host, _ = _environment_hosts(environment)
+        api_host = _api_host(environment)
     except ValueError as e:
         return False, str(e)
 
-    session = _get_session(business_unit_id, client_secret, refresh_token)
-
-    try:
-        token = _mint_token(session, environment, client_id, client_secret, refresh_token)
-    except Exception:
-        return False, "Could not get a Salesforce access token. Check your consumer key, secret and refresh token."
+    session = _get_session(business_unit_id, access_token, refresh_token)
 
     try:
         response = session.get(
             f"{api_host}/api/v5/objects/campaigns",
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {access_token}"},
             params={"limit": "1", "fields": "id"},
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
@@ -171,17 +155,36 @@ def validate_credentials(
 
     if response.status_code == 200:
         return True, None
+    if response.status_code == 401:
+        # The stored token can be older than its lifetime, so a 401 is expected rather than a
+        # rejection. Mint a fresh one and try again before telling the user to reconnect.
+        try:
+            access_token = _refresh_token(refresh_token, instance_url)
+            response = session.get(
+                f"{api_host}/api/v5/objects/campaigns",
+                headers={"Authorization": f"Bearer {access_token}"},
+                params={"limit": "1", "fields": "id"},
+                timeout=REQUEST_TIMEOUT_SECONDS,
+            )
+        except Exception:
+            return False, "Salesforce rejected the connection. Reconnect your Account Engagement account."
+        if response.status_code == 200:
+            return True, None
     if response.status_code in (401, 403):
-        return False, "Account Engagement rejected the credentials. Check the business unit ID and the token's scopes."
+        return (
+            False,
+            "Account Engagement rejected the connection. Check the business unit ID, and that the connected "
+            "user has API access to it.",
+        )
     return False, f"Account Engagement returned an unexpected status ({response.status_code})"
 
 
 def get_rows(
     environment: str,
     business_unit_id: str,
-    client_id: str,
-    client_secret: str,
-    refresh_token: str,
+    access_token: str,
+    refresh_token: str | None,
+    instance_url: str | None,
     endpoint: str,
     api_version: str,
     resumable_source_manager: ResumableSourceManager[PardotResumeConfig],
@@ -191,11 +194,11 @@ def get_rows(
     incremental_field: str | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = PARDOT_ENDPOINTS[endpoint]
-    api_host, _ = _environment_hosts(environment)
+    api_host = _api_host(environment)
     url = f"{api_host}/api/{api_version}/objects/{config.path}"
 
-    session = _get_session(business_unit_id, client_secret, refresh_token)
-    token = _mint_token(session, environment, client_id, client_secret, refresh_token)
+    session = _get_session(business_unit_id, access_token, refresh_token)
+    token = access_token
 
     query_params = _build_query_params(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
@@ -218,7 +221,7 @@ def get_rows(
         response = _do()
         # Salesforce access tokens are short lived; re-mint once if the sync outlives one.
         if response.status_code == 401:
-            token = _mint_token(session, environment, client_id, client_secret, refresh_token)
+            token = _refresh_token(refresh_token, instance_url)
             response = _do()
 
         if _is_expired_page_token(response):
@@ -271,9 +274,9 @@ def get_rows(
 def pardot_source(
     environment: str,
     business_unit_id: str,
-    client_id: str,
-    client_secret: str,
-    refresh_token: str,
+    access_token: str,
+    refresh_token: str | None,
+    instance_url: str | None,
     endpoint: str,
     api_version: str,
     resumable_source_manager: ResumableSourceManager[PardotResumeConfig],
@@ -289,9 +292,9 @@ def pardot_source(
         items=lambda: get_rows(
             environment=environment,
             business_unit_id=business_unit_id,
-            client_id=client_id,
-            client_secret=client_secret,
+            access_token=access_token,
             refresh_token=refresh_token,
+            instance_url=instance_url,
             endpoint=endpoint,
             api_version=api_version,
             resumable_source_manager=resumable_source_manager,

@@ -9,7 +9,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 @config.config
 class PardotSourceConfig(config.Config):
     business_unit_id: str
-    client_id: str
-    client_secret: str
-    refresh_token: str
+    pardot_integration_id: int = config.value(converter=config.str_to_int)
     environment: Literal["production", "sandbox"] = config.value(default="production")

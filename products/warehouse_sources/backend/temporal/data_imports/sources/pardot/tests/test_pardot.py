@@ -23,13 +23,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pardot.par
 from products.warehouse_sources.backend.temporal.data_imports.sources.pardot.settings import PARDOT_ENDPOINTS
 
 SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.pardot.pardot.make_tracked_session"
+REFRESH_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.pardot.pardot.salesforce_refresh_access_token"
+)
 
 CREDENTIALS: dict[str, Any] = {
     "environment": "production",
     "business_unit_id": "0Uv000000000000000",
-    "client_id": "3MVG9",
-    "client_secret": "secret",
+    "access_token": "access",
     "refresh_token": "refresh",
+    "instance_url": "https://acme.my.salesforce.com",
 }
 
 
@@ -64,13 +67,8 @@ def _response(payload: Any, status_code: int = 200) -> Response:
     return response
 
 
-def _token_response(token: str = "access-token") -> Response:
-    return _response({"access_token": token, "instance_url": "https://example.my.salesforce.com"})
-
-
-def _session(get_responses: list[Response], token_responses: list[Response] | None = None) -> mock.MagicMock:
+def _session(get_responses: list[Response]) -> mock.MagicMock:
     session = mock.MagicMock()
-    session.post.side_effect = token_responses or [_token_response()]
     session.get.side_effect = get_responses
     return session
 
@@ -87,8 +85,7 @@ def _collect(
             api_version="v5",
             resumable_source_manager=manager,
             logger=mock.MagicMock(),
-            **CREDENTIALS,
-            **kwargs,
+            **{**CREDENTIALS, **kwargs},
         )
         return [row for page in pages for row in page]
 
@@ -282,32 +279,44 @@ class TestResume:
 
 
 class TestAuth:
-    def test_expired_access_token_is_reminted_once(self) -> None:
+    def test_the_integration_token_is_used_as_is(self) -> None:
+        session = _session([_response({"values": []})])
+
+        _collect(session, FakeResumeManager())
+
+        assert session.get.call_args.kwargs["headers"]["Authorization"] == "Bearer access"
+
+    def test_expired_access_token_is_refreshed_once(self) -> None:
         session = _session(
             [
                 _response({"message": "Session expired"}, status_code=401),
                 _response({"values": [{"id": 1}]}),
-            ],
-            token_responses=[_token_response("first"), _token_response("second")],
+            ]
         )
 
-        rows = _collect(session, FakeResumeManager())
+        with mock.patch(REFRESH_PATCH, return_value="refreshed") as refresh:
+            rows = _collect(session, FakeResumeManager())
 
         assert [row["id"] for row in rows] == [1]
-        assert session.post.call_count == 2
-        assert session.get.call_args_list[1].kwargs["headers"]["Authorization"] == "Bearer second"
+        refresh.assert_called_once_with(CREDENTIALS["refresh_token"], CREDENTIALS["instance_url"])
+        assert session.get.call_args_list[1].kwargs["headers"]["Authorization"] == "Bearer refreshed"
 
     def test_repeated_401_surfaces_the_error(self) -> None:
         session = _session(
             [
                 _response({"message": "Session expired"}, status_code=401),
                 _response({"message": "Session expired"}, status_code=401),
-            ],
-            token_responses=[_token_response("first"), _token_response("second")],
+            ]
         )
 
-        with pytest.raises(requests.HTTPError):
+        with mock.patch(REFRESH_PATCH, return_value="refreshed"), pytest.raises(requests.HTTPError):
             _collect(session, FakeResumeManager())
+
+    def test_401_without_a_refresh_token_asks_for_a_reconnect(self) -> None:
+        session = _session([_response({"message": "Session expired"}, status_code=401)])
+
+        with pytest.raises(ValueError, match="Reconnect"):
+            _collect(session, FakeResumeManager(), refresh_token=None)
 
     def test_business_unit_header_and_secrets_redaction_are_wired(self) -> None:
         session = _session([_response({"values": []})])
@@ -325,7 +334,7 @@ class TestAuth:
 
         kwargs = make_session.call_args.kwargs
         assert kwargs["headers"]["Pardot-Business-Unit-Id"] == CREDENTIALS["business_unit_id"]
-        assert set(kwargs["redact_values"]) == {CREDENTIALS["client_secret"], CREDENTIALS["refresh_token"]}
+        assert set(kwargs["redact_values"]) == {CREDENTIALS["access_token"], CREDENTIALS["refresh_token"]}
 
     def test_every_request_path_disables_http_sample_capture(self) -> None:
         # Prospect/visitor bodies carry PII the name-based scrubber can't redact, so both the
@@ -351,15 +360,13 @@ class TestAuth:
         assert all(call.kwargs["capture"] is False for call in make_session.call_args_list)
 
     @pytest.mark.parametrize(
-        "environment, expected_host, expected_login_host",
+        "environment, expected_host",
         [
-            ("production", "https://pi.pardot.com", "https://login.salesforce.com"),
-            ("sandbox", "https://pi.demo.pardot.com", "https://test.salesforce.com"),
+            ("production", "https://pi.pardot.com"),
+            ("sandbox", "https://pi.demo.pardot.com"),
         ],
     )
-    def test_environment_selects_the_api_and_login_hosts(
-        self, environment: str, expected_host: str, expected_login_host: str
-    ) -> None:
+    def test_environment_selects_the_api_host(self, environment: str, expected_host: str) -> None:
         session = _session([_response({"values": []})])
         credentials = {**CREDENTIALS, "environment": environment}
 
@@ -375,7 +382,6 @@ class TestAuth:
             )
 
         assert session.get.call_args.args[0] == f"{expected_host}/api/v5/objects/prospects"
-        assert session.post.call_args.args[0] == f"{expected_login_host}/services/oauth2/token"
 
     def test_unknown_environment_is_rejected(self) -> None:
         with pytest.raises(ValueError):
@@ -393,7 +399,7 @@ class TestAuth:
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected_valid",
-        [(200, True), (401, False), (403, False), (500, False)],
+        [(200, True), (403, False), (500, False)],
     )
     def test_probe_status_maps_to_validity(self, status_code: int, expected_valid: bool) -> None:
         session = _session([_response({"values": []}, status_code=status_code)])
@@ -404,16 +410,30 @@ class TestValidateCredentials:
         assert is_valid is expected_valid
         assert (message is None) is expected_valid
 
-    def test_failed_token_exchange_reports_the_credential_problem(self) -> None:
-        session = mock.MagicMock()
-        session.post.side_effect = [_response({"error": "invalid_grant"}, status_code=400)]
+    def test_stale_stored_token_is_refreshed_before_giving_up(self) -> None:
+        # The stored access token is often older than its lifetime by the time the source is
+        # configured, so a 401 must not be reported as a bad connection.
+        session = _session(
+            [
+                _response({"message": "Session expired"}, status_code=401),
+                _response({"values": []}),
+            ]
+        )
 
-        with mock.patch(SESSION_PATCH, return_value=session):
+        with mock.patch(SESSION_PATCH, return_value=session), mock.patch(REFRESH_PATCH, return_value="refreshed"):
+            is_valid, message = validate_credentials(**CREDENTIALS)
+
+        assert (is_valid, message) == (True, None)
+        assert session.get.call_args.kwargs["headers"]["Authorization"] == "Bearer refreshed"
+
+    def test_failed_refresh_asks_the_user_to_reconnect(self) -> None:
+        session = _session([_response({"message": "Session expired"}, status_code=401)])
+
+        with mock.patch(SESSION_PATCH, return_value=session), mock.patch(REFRESH_PATCH, side_effect=requests.HTTPError):
             is_valid, message = validate_credentials(**CREDENTIALS)
 
         assert is_valid is False
-        assert message is not None and "refresh token" in message
-        session.get.assert_not_called()
+        assert message is not None and "Reconnect" in message
 
     def test_unknown_environment_is_reported_not_raised(self) -> None:
         is_valid, message = validate_credentials(**{**CREDENTIALS, "environment": "staging"})
