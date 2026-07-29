@@ -17,6 +17,7 @@ Consequence worth knowing: the Last touch column will not equal the Dashboard's 
 same goal and window, because the Dashboard only ever sees UTM-tagged pageviews.
 """
 
+from functools import cached_property
 from typing import Any, cast
 
 from posthog.schema import (
@@ -115,9 +116,8 @@ _CONVERSION_INDEX = "i"
 
 
 def _ordered_weight_aliases() -> list[str]:
-    """Weight aliases in MODEL_ORDER. Every producer and consumer of the per-model columns iterates
-    this rather than `_WEIGHT_ALIASES.values()`, so reordering that dict literal — which looks harmless
-    on a keyed dict — can't silently pair one model's numbers with another's column."""
+    """Producers and consumers of the per-model columns iterate this rather than `_WEIGHT_ALIASES.values()`,
+    so reordering that dict literal can't pair one model's numbers with another's column."""
     return [_WEIGHT_ALIASES[model] for model in MODEL_ORDER]
 
 
@@ -140,15 +140,16 @@ class MarketingAnalyticsAttributionQueryRunner(
     def attribution_window_seconds(self) -> int:
         return self.lookback_window_days * DAY_IN_SECONDS
 
-    def _resolve_goal(self) -> ConversionGoal:
-        """Find the requested goal among the team's configured goals.
+    @cached_property
+    def goal(self) -> ConversionGoal:
+        """The requested goal, found among the team's configured goals.
 
         Data warehouse goals are rejected rather than silently mis-attributed: their conversions live in
         a warehouse table keyed by distinct_id, but this query collects conversions and touchpoints from
         one `events` scan grouped by person_id, so there is nothing to join them on here.
         """
-        goals, warnings = self._filter_invalid_conversion_goals(self._get_team_conversion_goals())
-        self._conversion_goal_warnings = warnings
+        all_goals = self._get_team_conversion_goals()
+        goals, warnings = self._filter_invalid_conversion_goals(all_goals)
         self._valid_conversion_goals_count = len(goals)
 
         for goal in goals:
@@ -160,22 +161,34 @@ class MarketingAnalyticsAttributionQueryRunner(
                     )
                 return goal
 
+        # The table shows one goal at a time, so another goal being unusable is not this query's problem.
+        # Only report it when it's the goal that was actually asked for.
+        skipped = next((g for g in all_goals if g.conversion_goal_id == self.query.conversionGoalId), None)
+        if skipped is not None:
+            reason = next((w for w in warnings if f"'{skipped.conversion_goal_name}'" in w), None)
+            raise ValueError(reason or f"Conversion goal '{skipped.conversion_goal_name}' can't be attributed")
+
         raise ValueError(f"Conversion goal '{self.query.conversionGoalId}' not found for this team")
 
-    def _conversion_condition(self, goal: ConversionGoal) -> ast.Expr:
-        """True for an event row that counts as a conversion for this goal."""
+    @cached_property
+    def conversion_condition(self) -> ast.Expr:
+        """True for an event row that counts as a conversion for this goal.
+
+        Cached because the query references it three times, and the action branch hits Postgres.
+        """
+        goal = self.goal
         if goal.kind == "EventsNode":
             return ast.CompareOperation(
                 left=ast.Field(chain=["events", "event"]),
                 op=ast.CompareOperationOp.Eq,
                 right=ast.Constant(value=goal.event),
             )
-        # ActionsNode — reuse the shared action->HogQL translation so the definition can't drift from
-        # the rest of PostHog.
+        # Reuse the shared action->HogQL translation so the definition can't drift from the rest of PostHog.
         action = Action.objects.get(pk=int(cast(str, goal.id)), team__project_id=self.team.project_id)
         return action_to_expr(action)
 
-    def allows_multiple_conversions_per_visitor(self, goal: ConversionGoal) -> bool:
+    @cached_property
+    def allows_multiple_conversions_per_visitor(self) -> bool:
         """Whether a repeat converter contributes every conversion, or just one.
 
         Unset follows the goal's own math: unique-users math already means one conversion per person
@@ -186,14 +199,15 @@ class MarketingAnalyticsAttributionQueryRunner(
         """
         if self.query.allowMultipleConversionsPerVisitor is not None:
             return self.query.allowMultipleConversionsPerVisitor
-        return goal.math not in [BaseMathType.DAU, "dau"]
+        return self.goal.math not in [BaseMathType.DAU, "dau"]
 
-    def _conversion_value_expr(self, goal: ConversionGoal) -> ast.Expr:
+    def _conversion_value_expr(self) -> ast.Expr:
         """Value of one conversion: the goal's math property under SUM math, otherwise 1.
 
         Mirrors `ConversionGoalProcessor._get_conversion_value_expr` — these must stay in lockstep, or
         the same goal would report different revenue on the Dashboard and here.
         """
+        goal = self.goal
         math_type = goal.math
         if math_type in ["sum", PropertyMathType.SUM] or str(math_type).endswith("_sum"):
             if goal.math_property:
@@ -210,8 +224,7 @@ class MarketingAnalyticsAttributionQueryRunner(
         """The row dimension, read off the session a touchpoint belongs to.
 
         Channel and source fall back to the same sentinels the rest of marketing analytics uses, so rows
-        line up with the cost side; the remaining dimensions keep an empty string, which the frontend
-        renders as "(none)".
+        line up with the cost side.
         """
         field = ast.Field(chain=["events", "session", _BREAKDOWN_SESSION_FIELDS[self.breakdown]])
 
@@ -222,10 +235,8 @@ class MarketingAnalyticsAttributionQueryRunner(
         return ast.Call(name="toString", args=[ast.Call(name="ifNull", args=[field, ast.Constant(value="")])])
 
     def _normalized_source_expr(self, field: ast.Expr) -> ast.Expr:
-        """Collapse the team's custom UTM source aliases onto each adapter's canonical source name.
-
-        Without this the events side and the cost side disagree on the row key and every cost cell reads
-        null. Same treatment as `_build_sessions_select`.
+        """Collapse the team's custom UTM source aliases onto each adapter's canonical source name, or
+        the events side and the cost side disagree on the row key. Same treatment as `_build_sessions_select`.
         """
         from .adapters.factory import MarketingSourceFactory  # noqa: PLC0415 — avoids an import cycle
         from .utils import build_source_normalization_expr  # noqa: PLC0415 — avoids an import cycle
@@ -252,15 +263,11 @@ class MarketingAnalyticsAttributionQueryRunner(
     # ------------------------------------------------------------------ CTEs
 
     def _build_reach_select(self, date_range: QueryDateRange) -> ast.SelectQuery:
-        """(A) Unique visitors per dimension — everyone, converters or not.
+        """(A) Unique visitors per dimension, converters or not.
 
-        Uses the same touchpoint definition AND the same lookback-extended window as the credit side, so
-        "visitors" means exactly the people who arrived via a touchpoint that could earn credit. Bounding
-        visitors to the display window instead would let a conversion be credited to a touch from before
-        the range while its person is missing from the denominator, which reported conversion rates above
-        100%. Sharing the touchpoint definition also means excluding direct removes its row entirely
-        instead of leaving one showing traffic with zero credit, which would read as "direct influenced
-        nothing".
+        Shares the touchpoint definition and the lookback-extended window with the credit side. Bounding
+        visitors to the display window instead let a conversion be credited to a touch from before the
+        range while its person was missing from the denominator, reporting rates above 100%.
         """
         breakdown = self._breakdown_expr()
         return ast.SelectQuery(
@@ -281,7 +288,7 @@ class MarketingAnalyticsAttributionQueryRunner(
             group_by=[ast.Field(chain=[_BREAKDOWN_VALUE])],
         )
 
-    def _build_converters_select(self, date_range: QueryDateRange, goal: ConversionGoal) -> ast.SelectQuery:
+    def _build_converters_select(self, date_range: QueryDateRange) -> ast.SelectQuery:
         """(B) Persons who converted in the window.
 
         This is not an optimization — it is what makes the query affordable. Widening touchpoints from
@@ -294,14 +301,14 @@ class MarketingAnalyticsAttributionQueryRunner(
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             where=ast.And(
                 exprs=[
-                    self._conversion_condition(goal),
+                    self.conversion_condition,
                     *self._get_where_conditions(date_range, date_field="events.timestamp"),
                 ]
             ),
             group_by=[ast.Field(chain=["events", "person_id"])],
         )
 
-    def _build_person_arrays_select(self, date_range: QueryDateRange, goal: ConversionGoal) -> ast.SelectQuery:
+    def _build_person_arrays_select(self, date_range: QueryDateRange) -> ast.SelectQuery:
         """(C) One row per converting person: its conversions, plus a deduped touchpoint set.
 
         Both arrays hold (timestamp, payload) tuples rather than parallel arrays indexed together, since
@@ -323,12 +330,12 @@ class MarketingAnalyticsAttributionQueryRunner(
                 ast.Tuple(
                     exprs=[
                         ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])]),
-                        self._conversion_value_expr(goal),
+                        self._conversion_value_expr(),
                     ]
                 ),
                 ast.And(
                     exprs=[
-                        self._conversion_condition(goal),
+                        self.conversion_condition,
                         *self._get_where_conditions(date_range, date_field="events.timestamp"),
                     ]
                 ),
@@ -365,7 +372,7 @@ class MarketingAnalyticsAttributionQueryRunner(
             ],
         )
 
-        if not self.allows_multiple_conversions_per_visitor(goal):
+        if not self.allows_multiple_conversions_per_visitor:
             # One conversion per person: keep the earliest in the window, so the models attribute the
             # journey that led to them first converting rather than an arbitrary later repeat.
             conversions = ast.Call(
@@ -389,13 +396,13 @@ class MarketingAnalyticsAttributionQueryRunner(
                     ast.CompareOperation(
                         left=ast.Field(chain=["events", "person_id"]),
                         op=ast.CompareOperationOp.In,
-                        right=self._build_converters_select(date_range, goal),
+                        right=self._build_converters_select(date_range),
                     ),
                     ast.Or(
                         exprs=[
                             ast.And(
                                 exprs=[
-                                    self._conversion_condition(goal),
+                                    self.conversion_condition,
                                     *self._get_where_conditions(date_range, date_field="events.timestamp"),
                                 ]
                             ),
@@ -599,13 +606,11 @@ class MarketingAnalyticsAttributionQueryRunner(
     def _build_per_conversion_dim_select(self) -> ast.SelectQuery:
         """(F) Collapse repeat touches on the same dimension within one conversion.
 
-        Does double duty. It gives "influenced" its once-per-conversion semantics, and it rolls the
-        weights up correctly: a channel touched on 3 of 5 sessions earns 0.6 of the linear credit as one
-        row, not three rows of 0.2.
+        Gives "influenced" its once-per-conversion semantics, and rolls the weights up: a channel touched
+        on 3 of 5 sessions earns 0.6 of the linear credit as one row, not three rows of 0.2.
 
         Keyed on the conversion's index within its person, not its timestamp: timestamps are truncated to
-        whole seconds, so two conversions a fraction of a second apart would merge into one, under-counting
-        influenced conversions and dropping one of their values.
+        whole seconds, so two conversions in the same second would merge into one.
         """
         select: list[ast.Expr] = [
             ast.Field(chain=[_BREAKDOWN_VALUE]),
@@ -662,7 +667,6 @@ class MarketingAnalyticsAttributionQueryRunner(
     # ------------------------------------------------------------------ main query
 
     def to_query(self) -> ast.SelectQuery:
-        goal = self._resolve_goal()
         date_range = self.query_date_range
 
         ctes: dict[str, ast.CTE] = {}
@@ -671,7 +675,7 @@ class MarketingAnalyticsAttributionQueryRunner(
         with self.timings.measure("attribution_person_arrays_cte"):
             ctes[_PERSON_ARRAYS_CTE] = ast.CTE(
                 name=_PERSON_ARRAYS_CTE,
-                expr=self._build_person_arrays_select(date_range, goal),
+                expr=self._build_person_arrays_select(date_range),
                 cte_type="subquery",
             )
         ctes[_PER_CONVERSION_CTE] = ast.CTE(
@@ -700,10 +704,7 @@ class MarketingAnalyticsAttributionQueryRunner(
         """(H) Join credit onto reach.
 
         FULL OUTER so a dimension keeps its row whether or not it has both sides: traffic that never
-        converted still shows visitors, and a credited dimension keeps its row even if the reach side
-        unexpectedly drops it. Reach scans the same touchpoints over the same window as credit, so the
-        second case shouldn't occur, but a credited row silently vanishing would be the worst failure
-        mode of this join.
+        converted still shows visitors, and a credited row can't silently vanish if reach drops it.
         """
         totals = ast.Field(chain=[_TOTALS_CTE, _BREAKDOWN_VALUE])
         reach = ast.Field(chain=[_REACH_CTE, _BREAKDOWN_VALUE])
@@ -751,9 +752,8 @@ class MarketingAnalyticsAttributionQueryRunner(
                     )
                 )
 
-        # Reconciliation counts for the footer, as scalar subqueries over the already-materialized
-        # per_conversion CTE. Repeated identically on every row, which is the cheap way round: running
-        # them as a second query would rebuild the touchpoint scan, the most expensive part of all this.
+        # Footer reconciliation counts, as scalar subqueries over the already-materialized per_conversion
+        # CTE. A second query would rebuild the touchpoint scan, the most expensive part of all this.
         select.append(
             ast.Alias(alias=_TOTAL_CONVERSIONS, expr=self._scalar_over_per_conversion(ast.Call(name="count", args=[])))
         )
@@ -803,7 +803,6 @@ class MarketingAnalyticsAttributionQueryRunner(
     # ------------------------------------------------------------------ execution
 
     def _calculate(self) -> MarketingAnalyticsAttributionQueryResponse:
-        goal = self._resolve_goal()
         query = self.to_query()
 
         response = execute_hogql_query(
@@ -823,16 +822,13 @@ class MarketingAnalyticsAttributionQueryRunner(
         if has_more:
             raw_results = raw_results[:requested_limit]
 
-        has_value = bool(goal.counts_as_revenue)
-        # Mapped by column name rather than tuple position: every column in the outer select is an
-        # ast.Alias, so execute_hogql_query fills response.columns with exactly these names. Sibling
-        # runners do the same, and it keeps adding a column from silently shifting every later one.
+        has_value = bool(self.goal.counts_as_revenue)
+        # Mapped by column name, not tuple position, so adding a column can't shift every later one.
         columns = response.columns or []
         named_results = [dict(zip(columns, row)) for row in raw_results]
         rows = [self._build_row(row, has_value=has_value) for row in named_results]
 
-        # Every row carries the same reconciliation totals, so read them off the first one. With no rows
-        # there is nothing to reconcile against either.
+        # Every row carries the same reconciliation totals, so read them off the first one.
         first = named_results[0] if named_results else {}
         total_conversions = int(first.get(_TOTAL_CONVERSIONS) or 0)
         attributed_conversions = int(first.get(_ATTRIBUTED_CONVERSIONS) or 0)
@@ -842,7 +838,7 @@ class MarketingAnalyticsAttributionQueryRunner(
             models=MODEL_ORDER,
             hasValue=has_value,
             attributionWindowDays=self.lookback_window_days,
-            allowsMultipleConversionsPerVisitor=self.allows_multiple_conversions_per_visitor(goal),
+            allowsMultipleConversionsPerVisitor=self.allows_multiple_conversions_per_visitor,
             unattributedConversions=max(total_conversions - attributed_conversions, 0),
             totalConversions=total_conversions,
             hogql=response.hogql,
@@ -851,15 +847,11 @@ class MarketingAnalyticsAttributionQueryRunner(
             hasMore=has_more,
             limit=requested_limit,
             offset=self.query.offset or 0,
-            error="; ".join(self._conversion_goal_warnings) if self._conversion_goal_warnings else None,
         )
 
     def _build_row(self, row: dict[str, Any], *, has_value: bool) -> MarketingAnalyticsAttributionRow:
-        """Map one named result row onto the typed row, deriving conversion rate in Python.
-
-        The rate is computed here rather than in SQL so the divide-by-zero case stays readable and the
-        frontend keeps the raw numerator and denominator for its tooltips.
-        """
+        """The rate is derived here rather than in SQL so the frontend keeps the raw numerator and
+        denominator for its tooltips."""
         visitors = int(row.get(_VISITORS) or 0)
 
         models: list[MarketingAnalyticsAttributionModelCell] = []

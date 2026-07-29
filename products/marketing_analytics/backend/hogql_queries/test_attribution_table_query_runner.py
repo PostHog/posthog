@@ -6,6 +6,7 @@ from posthog.schema import (
     AttributionMode,
     BaseMathType,
     ConversionGoalFilter1,
+    ConversionGoalFilter2,
     DateRange,
     MarketingAnalyticsAttributionBreakdown,
     MarketingAnalyticsAttributionQuery,
@@ -18,6 +19,7 @@ from posthog.hogql.visitor import TraversingVisitor
 from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 
+from products.actions.backend.models.action import Action
 from products.marketing_analytics.backend.hogql_queries.attribution_table_query_runner import (
     MarketingAnalyticsAttributionQueryRunner,
 )
@@ -487,6 +489,86 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         finder = FindSubqueryIn()
         finder.visit(person_arrays.where)
         self.assertTrue(finder.found, "person_arrays must restrict the events scan to converting persons")
+
+    def test_action_goals_credit_the_events_the_action_matches(self):
+        # The action branch resolves the goal through Postgres and `action_to_expr` rather than a plain
+        # event name. A goal that silently matched nothing would render an empty table that reads as an
+        # honest absence of conversions.
+        action = Action.objects.create(team=self.team, name="Purchased", steps_json=[{"event": CONVERSION_EVENT}])
+        config = self.team.marketing_analytics_config
+        config.conversion_goals = [
+            ConversionGoalFilter2(
+                kind="ActionsNode",
+                id=str(action.pk),
+                name="Purchased",
+                conversion_goal_id=GOAL_ID,
+                conversion_goal_name="Purchased",
+                schema_map={},
+                math=BaseMathType.TOTAL,
+            ).model_dump()
+        ]
+        config.save()
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", ONE_DAY_BEFORE, utm_campaign="a")
+        self._conversion("p1", CONVERSION_AT)
+
+        response = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN)
+
+        self.assertEqual(response.totalConversions, 1)
+        by_campaign = self._by_breakdown(response)
+        self.assertAlmostEqual(by_campaign["a"][AttributionMode.LAST_TOUCH], 1.0, places=4)
+
+    def test_referring_domain_breakdown_reads_the_sessions_entry_field(self):
+        # Channel and source get sentinel and normalization treatment; the remaining breakdowns pass the
+        # session's entry field straight through. A wrong field mapping would silently bucket every row
+        # under one value.
+        create_person(team=self.team, distinct_ids=["p1"])
+        create_person(team=self.team, distinct_ids=["p2"])
+        self._session("p1", ONE_DAY_BEFORE, referring_domain="google.com")
+        self._conversion("p1", CONVERSION_AT)
+        self._session("p2", ONE_DAY_BEFORE, referring_domain="news.ycombinator.com")
+        self._conversion("p2", CONVERSION_AT)
+
+        response = self._run(MarketingAnalyticsAttributionBreakdown.REFERRING_DOMAIN)
+
+        by_domain = self._by_breakdown(response)
+        self.assertAlmostEqual(by_domain["google.com"][AttributionMode.LAST_TOUCH], 1.0, places=4)
+        self.assertAlmostEqual(by_domain["news.ycombinator.com"][AttributionMode.LAST_TOUCH], 1.0, places=4)
+
+    def test_another_goals_problem_does_not_break_the_selected_goal(self):
+        # An unusable goal elsewhere in the team's settings used to replace the whole result with its
+        # warning, because those warnings were returned as the response's `error` and the table renders
+        # any error instead of rows. Asking for the broken goal itself still has to say why.
+        config = self.team.marketing_analytics_config
+        config.conversion_goals = [
+            *config.conversion_goals,
+            ConversionGoalFilter1(
+                kind="EventsNode",
+                event="",
+                name="All events",
+                conversion_goal_id="broken-goal",
+                conversion_goal_name="All events (misconfigured)",
+                schema_map={},
+                math=BaseMathType.TOTAL,
+            ).model_dump(),
+        ]
+        config.save()
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", ONE_DAY_BEFORE, utm_campaign="a")
+        self._conversion("p1", CONVERSION_AT)
+
+        response = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN)
+        self.assertIsNone(response.error)
+        self.assertEqual([row.breakdownValue for row in response.results], ["a"])
+
+        broken = MarketingAnalyticsAttributionQuery(
+            dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
+            conversionGoalId="broken-goal",
+            properties=[],
+        )
+        with self.assertRaises(ValueError) as raised:
+            MarketingAnalyticsAttributionQueryRunner(query=broken, team=self.team).to_query()
+        self.assertIn("All events (misconfigured)", str(raised.exception))
 
     @parameterized.expand(
         [
