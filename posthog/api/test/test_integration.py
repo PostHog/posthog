@@ -1061,6 +1061,107 @@ class TestSnowflakeIntegration:
         assert expected_error_message in response.json()["detail"]
 
 
+class TestRedshiftIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def test_create_with_password_auth(self, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "redshift",
+                "config": {
+                    "name": "prod-redshift",
+                    "authentication_type": "password",
+                    "user": "posthog_svc",
+                    "password": "secret",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["kind"] == "redshift"
+
+        integration = Integration.objects.get(id=response.json()["id"])
+        assert integration.integration_id == "prod-redshift"
+        assert integration.config == {
+            "name": "prod-redshift",
+            "authentication_type": "password",
+            "user": "posthog_svc",
+        }
+        assert integration.sensitive_config == {"password": "secret"}
+        assert "secret" not in json.dumps(response.json())
+
+    def test_create_with_iam_role_auth(self, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "redshift",
+                "config": {
+                    "name": "serverless-prod",
+                    "authentication_type": "iam_role",
+                    "aws_role_arn": "arn:aws:iam::123456789012:role/posthog-redshift",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        integration = Integration.objects.get(id=response.json()["id"])
+        assert integration.integration_id == "serverless-prod"
+        assert integration.config == {
+            "name": "serverless-prod",
+            "authentication_type": "iam_role",
+            "aws_role_arn": "arn:aws:iam::123456789012:role/posthog-redshift",
+        }
+        assert integration.sensitive_config == {}
+
+    @pytest.mark.parametrize(
+        "invalid_config,expected_error_message",
+        [
+            ({}, "Name and authentication type must be provided"),
+            (
+                {
+                    "name": "bad-password",
+                    "authentication_type": "password",
+                    "user": "posthog_svc",
+                },
+                "User and password must be provided",
+            ),
+            (
+                {
+                    "name": "bad-iam",
+                    "authentication_type": "iam_role",
+                    "aws_role_arn": "not-a-role-arn",
+                },
+                "Enter a valid IAM role ARN",
+            ),
+        ],
+    )
+    def test_create_with_invalid_config(self, invalid_config, expected_error_message, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {"kind": "redshift", "config": invalid_config},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected_error_message in response.json()["detail"]
+
+
 class TestIntegrationAPIKeyAccess:
     @pytest.fixture(autouse=True)
     def setup_integration(self, db):

@@ -73,6 +73,8 @@ from posthog.models.integration import (
     LinkedInAdsIntegration,
     OauthIntegration,
     PostgreSQLIntegration,
+    RedshiftIntegration,
+    RedshiftIntegrationError,
     S3CompatibleIntegration,
     S3CredentialIntegrationError,
     SlackIntegration,
@@ -784,6 +786,22 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 ssl_root_cert=ssl_root_cert,
                 created_by=request.user,
             )
+            return instance
+
+        elif validated_data["kind"] == "redshift":
+            config = validated_data.get("config", {})
+            try:
+                instance = RedshiftIntegration.integration_from_config(
+                    team_id=team_id,
+                    name=config.get("name"),
+                    authentication_type=config.get("authentication_type", "password"),
+                    user=config.get("user"),
+                    password=config.get("password"),
+                    aws_role_arn=config.get("aws_role_arn"),
+                    created_by=request.user,
+                )
+            except RedshiftIntegrationError as e:
+                raise ValidationError(str(e))
             return instance
 
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
