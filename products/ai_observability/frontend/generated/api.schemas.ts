@@ -1498,6 +1498,20 @@ export interface EvaluationSummaryResponseApi {
     statistics: EvaluationSummaryStatisticsApi
 }
 
+export interface EvaluationSummaryThrottleResponseApi {
+    /** Error category */
+    type: string
+    /** Machine-readable error code */
+    code: string
+    /** Why the request was throttled */
+    detail: string
+    /**
+     * Related request field, when applicable
+     * @nullable
+     */
+    attr: string | null
+}
+
 export interface LLMModelInfoApi {
     /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
     id: string
