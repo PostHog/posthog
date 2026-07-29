@@ -671,7 +671,10 @@ def split_warmable_queries_op(context: dagster.OpExecutionContext, config: WarmQ
     (team_id, cache_key)), so no cross-process coordination is needed.
     """
     mode, queries = _scope_queries(config, queries)
-    shards = min(16, max(1, get_instance_setting("WEB_ANALYTICS_WARMING_SHARDS") or WARMING_SHARDS))
+    shards_setting = get_instance_setting("WEB_ANALYTICS_WARMING_SHARDS")
+    # `if None` rather than `or`: an explicit 0 must clamp to the documented
+    # minimum of one shard, not silently fall back to the default of eight.
+    shards = min(16, max(1, WARMING_SHARDS if shards_setting is None else shards_setting))
     buckets: dict[int, list[dict]] = {}
     for query_info in queries:
         buckets.setdefault(query_info["team_id"] % shards, []).append(query_info)
@@ -837,9 +840,8 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
     # Clamped: a non-positive value would abort every run at pool construction and
     # an oversized one can exhaust process threads. The pool is fixed for the life
     # of the pass, so a settings change applies when the next run starts.
-    concurrency = min(
-        64, max(1, get_instance_setting("WEB_ANALYTICS_WARMING_SHAPE_CONCURRENCY") or WARMING_SHAPE_CONCURRENCY)
-    )
+    concurrency_setting = get_instance_setting("WEB_ANALYTICS_WARMING_SHAPE_CONCURRENCY")
+    concurrency = min(64, max(1, WARMING_SHAPE_CONCURRENCY if concurrency_setting is None else concurrency_setting))
     outcomes: dict[str, int] = {}
     total = len(queries)
     processed = 0
