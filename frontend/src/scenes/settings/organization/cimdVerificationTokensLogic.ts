@@ -51,14 +51,14 @@ export interface cimdVerificationTokensLogicActions {
         tokens: CIMDVerificationTokenApi[]
         payload?: any
     }
+    setIsCreatingToken: (creating: boolean) => {
+        creating: boolean
+    }
     setJustCreatedToken: (token: CIMDVerificationTokenWithValue | null) => {
         token: CIMDVerificationTokenWithValueApi | null
     }
     setNewTokenLabel: (label: string) => {
         label: string
-    }
-    setIsCreatingToken: (creating: boolean) => {
-        creating: boolean
     }
     setNewTokenUrl: (url: string) => {
         url: string

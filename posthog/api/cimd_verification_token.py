@@ -19,10 +19,6 @@ from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitive
 
 class CIMDVerificationTokenSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    label = serializers.CharField(
-        max_length=40,
-        help_text="Human-readable name to identify this token later, e.g. 'Production CIMD partner'.",
-    )
     # Nullable on read only, for tokens predating URL binding — writes must supply one.
     cimd_url = serializers.CharField(
         max_length=2048,
@@ -53,6 +49,11 @@ class CIMDVerificationTokenSerializer(serializers.ModelSerializer):
             "created_at",
             "last_used_at",
         ]
+        # `label` is set here rather than declared as a field: a serializer attribute
+        # named `label` shadows DRF's own `Field.label`, which mypy rejects.
+        extra_kwargs = {
+            "label": {"help_text": "Human-readable name to identify this token later, e.g. 'Production CIMD partner'."}
+        }
 
     def validate_label(self, value: str) -> str:
         value = value.strip()
