@@ -11,9 +11,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
-from posthog.models.organization import Organization
-from posthog.models.team.team import Team
+from posthog.models.oauth import OAuthApplication
 from posthog.models.user import User
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
@@ -35,22 +33,8 @@ class TestAccountRequests(ProvisioningTestBase):
         payload.update(overrides)
         return payload
 
-    def _post_account_request(self, payload, token: str | None = None):
-        return self._post_with_bearer(ACCOUNT_REQUESTS_URL, payload, token=token or self._get_bearer_token())
-
-    def _silent_partner_token_for(self, user: User) -> str:
-        # A skip-consent partner may only mint silently for an existing user when the
-        # bearer token belongs to that same user (see _caller_proved_existing_trust).
-        self.partner.provisioning_skip_existing_user_consent = True
-        self.partner.save(update_fields=["provisioning_skip_existing_user_consent"])
-        token = OAuthAccessToken.objects.create(
-            user=user,
-            application=self.partner,
-            token=f"tok_{user.id}",
-            expires=timezone.now() + timedelta(hours=1),
-            scope="query:read",
-        )
-        return token.token
+    def _post_account_request(self, payload):
+        return self._post_with_client_secret(ACCOUNT_REQUESTS_URL, payload)
 
     def test_no_identified_partner_returns_401(self):
         res = self._post_api(ACCOUNT_REQUESTS_URL, self._account_request_payload())
@@ -92,77 +76,17 @@ class TestAccountRequests(ProvisioningTestBase):
         assert "issued_at" in code_data
         datetime.fromisoformat(code_data["issued_at"])
 
-    def test_existing_user_auth_code_cached_with_team(self):
-        token = self._silent_partner_token_for(self.user)
-        res = self._post_account_request(self._account_request_payload(email=self.user.email), token=token)
-        assert res.status_code == 200
-        assert res.json()["type"] == "oauth"
-        code = res.json()["oauth"]["code"]
-        code_data = cache.get(f"{AUTH_CODE_CACHE_PREFIX}{code}")
-        assert code_data is not None
-        assert code_data["team_id"] == self.team.id
-        assert code_data["region"] == "US"
-        assert code_data["partner_id"] == str(self.partner.id)
+    def test_existing_user_requires_consent_even_for_skip_consent_partner(self):
+        # No partner may silently link a pre-existing account. A verified client secret proves
+        # the partner controls itself, never that it controls this email.
+        self.partner.provisioning_skip_existing_user_consent = True
+        self.partner.save(update_fields=["provisioning_skip_existing_user_consent"])
 
-    def test_existing_user_with_requested_team_id(self):
-        token = self._silent_partner_token_for(self.user)
-        second_team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-        payload = self._account_request_payload(email=self.user.email, configuration={"team_id": second_team.id})
-        res = self._post_account_request(payload, token=token)
-        assert res.status_code == 200
-        code = res.json()["oauth"]["code"]
-        code_data = cache.get(f"{AUTH_CODE_CACHE_PREFIX}{code}")
-        assert code_data["team_id"] == second_team.id
-
-    @parameterized.expand(
-        [
-            ("nonexistent", 999999, "team_resolution_failed"),
-            ("non_numeric", "abc", "invalid_request"),
-        ]
-    )
-    def test_existing_user_with_bad_team_id_returns_400(self, _name, team_id, expected_code):
-        token = self._silent_partner_token_for(self.user)
-        payload = self._account_request_payload(email=self.user.email, configuration={"team_id": team_id})
-        res = self._post_account_request(payload, token=token)
-        assert res.status_code == 400
-        assert res.json()["error"]["code"] == expected_code
-
-    @parameterized.expand(["other_org", "restricted_in_own_org"])
-    def test_existing_user_with_inaccessible_team_id_returns_400(self, case):
-        token = self._silent_partner_token_for(self.user)
-        if case == "other_org":
-            other_org = Organization.objects.create(name="Other Org")
-            target = Team.objects.create(organization=other_org, name="Other Team")
-        else:
-            target = Team.objects.create_with_data(
-                initiating_user=self.user, organization=self.organization, name="Restricted project"
-            )
-            self._restrict_team_access(target)
-
-        payload = self._account_request_payload(email=self.user.email, configuration={"team_id": target.id})
-        res = self._post_account_request(payload, token=token)
-        assert res.status_code == 400
-        assert res.json()["error"]["code"] == "team_resolution_failed"
-
-    def test_existing_user_auto_select_skips_restricted_team(self):
-        token = self._silent_partner_token_for(self.user)
-        self._restrict_team_access(self.team)
-
-        res = self._post_account_request(self._account_request_payload(email=self.user.email), token=token)
+        payload = self._account_request_payload(email=self.user.email, code_challenge=VALID_CODE_CHALLENGE)
+        res = self._post_account_request(payload)
 
         assert res.status_code == 200
-        code_data = cache.get(f"{AUTH_CODE_CACHE_PREFIX}{res.json()['oauth']['code']}")
-        assert code_data["team_id"] != self.team.id
-
-    def test_existing_user_multi_team_creates_new_project(self):
-        token = self._silent_partner_token_for(self.user)
-        Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
-        team_count_before = Team.objects.filter(organization=self.organization, is_demo=False).count()
-        res = self._post_account_request(self._account_request_payload(email=self.user.email), token=token)
-        assert res.status_code == 200
-        assert res.json()["type"] == "oauth"
-        team_count_after = Team.objects.filter(organization=self.organization, is_demo=False).count()
-        assert team_count_after == team_count_before + 1
+        assert res.json()["type"] == "requires_auth"
 
     def test_expired_request_returns_400(self):
         payload = self._account_request_payload(expires_at=(timezone.now() - timedelta(minutes=1)).isoformat())
@@ -266,7 +190,7 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
             redirect_uris="https://partner.example.com/callback",
             algorithm="RS256",
             is_first_party=True,
-            provisioning_auth_method="pkce",
+            is_provisioning_partner=True,
             provisioning_partner_type="test_partner",
             provisioning_active=True,
             provisioning_can_create_accounts=True,
@@ -412,199 +336,6 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
         assert res.status_code == 400
         assert res.json()["error"]["code"] == "invalid_request"
         assert "code_challenge" in res.json()["error"]["message"]
-
-
-class TestSilentRemintRequiresTrustProof(ProvisioningTestBase):
-    """A partner with skip_existing_user_consent=True can only mint silently for an
-    existing user when the caller proved a prior trust relationship with that user
-    (a bearer token belonging to that user). Otherwise the consent screen is
-    required. This holds whether or not the user has reviewed their credentials:
-    an unreviewed account is still a pre-existing account that a caller must not
-    be able to silently link."""
-
-    def setUp(self):
-        super().setUp()
-        self.partner = OAuthApplication.objects.create(
-            client_id="silent-partner",
-            name="Silent Partner",
-            client_secret="",
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://partner.example.com/callback",
-            algorithm="RS256",
-            is_first_party=True,
-            provisioning_auth_method="pkce",
-            provisioning_partner_type="test_partner",
-            provisioning_active=True,
-            provisioning_can_create_accounts=True,
-            provisioning_can_provision_resources=True,
-            provisioning_skip_existing_user_consent=True,
-        )
-        self.other_partner = OAuthApplication.objects.create(
-            client_id="other-partner",
-            name="Other Partner",
-            client_secret="",
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://other.example.com/callback",
-            algorithm="RS256",
-            is_first_party=True,
-            provisioning_auth_method="pkce",
-            provisioning_partner_type="test_partner",
-            provisioning_active=True,
-            provisioning_can_create_accounts=True,
-            provisioning_can_provision_resources=True,
-            provisioning_skip_existing_user_consent=True,
-        )
-        self.bearer_partner = OAuthApplication.objects.create(
-            client_id="bearer-partner",
-            name="Bearer Partner",
-            client_secret="",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://bearer.example.com/callback",
-            algorithm="RS256",
-            is_first_party=True,
-            provisioning_auth_method="bearer",
-            provisioning_partner_type="test_partner",
-            provisioning_active=True,
-            provisioning_can_create_accounts=True,
-            provisioning_can_provision_resources=True,
-            provisioning_skip_existing_user_consent=True,
-        )
-
-    def _post_as_partner(self, data: dict, client_id: str = "silent-partner"):
-        return self._post_api(ACCOUNT_REQUESTS_URL, {**data, "client_id": client_id})
-
-    def _post_as_bearer_partner(self, data: dict, token: str):
-        return self._post_with_bearer(ACCOUNT_REQUESTS_URL, data, token=token)
-
-    def _account_request_payload(self, **overrides):
-        payload = {
-            "id": "acctreq_silent_test",
-            "email": "existing@example.com",
-            "scopes": ["query:read"],
-            "code_challenge": VALID_CODE_CHALLENGE,
-            "code_challenge_method": "S256",
-            "expires_at": (timezone.now() + timedelta(minutes=10)).isoformat(),
-        }
-        payload.update(overrides)
-        return payload
-
-    def _make_user(self, *, credentials_reviewed: bool) -> User:
-        user = User.objects.create_and_join(
-            organization=self.organization,
-            email="existing@example.com",
-            password="testpass",
-            first_name="Existing",
-        )
-        user.credentials_reviewed_at = timezone.now() if credentials_reviewed else None
-        user.save(update_fields=["credentials_reviewed_at"])
-        return user
-
-    def _make_live_access_token(self, user: User, partner: OAuthApplication) -> OAuthAccessToken:
-        return OAuthAccessToken.objects.create(
-            user=user,
-            application=partner,
-            token=f"tok_{user.id}_{partner.id}",
-            expires=timezone.now() + timedelta(hours=1),
-            scope="query:read",
-        )
-
-    def _make_revoked_refresh_token(self, user: User, partner: OAuthApplication) -> OAuthRefreshToken:
-        return OAuthRefreshToken.objects.create(
-            user=user,
-            application=partner,
-            token=f"rtok_{user.id}_{partner.id}",
-            revoked=timezone.now(),
-        )
-
-    def test_unreviewed_existing_user_pkce_requires_consent(self):
-        # A public PKCE caller never proves control of the partner, so it must not mint
-        # silently for an existing account — even an unreviewed one, whose email may belong
-        # to a direct signup the caller has no relationship with.
-        self._make_user(credentials_reviewed=False)
-        res = self._post_as_partner(self._account_request_payload())
-        assert res.status_code == 200
-        data = res.json()
-        assert data["type"] == "requires_auth"
-        assert "oauth" not in data
-
-    @parameterized.expand([("reviewed", True), ("unreviewed", False)])
-    def test_pkce_caller_with_live_credential_requires_consent(self, _name, reviewed):
-        # A public PKCE caller is unauthenticated, so an existing live credential for the
-        # claimed client_id is not proof the caller controls the partner. It must not unlock
-        # the silent path for an existing user, in either review state.
-        user = self._make_user(credentials_reviewed=reviewed)
-        self._make_live_access_token(user, self.partner)
-        res = self._post_as_partner(self._account_request_payload())
-        assert res.status_code == 200
-        data = res.json()
-        assert data["type"] == "requires_auth"
-        assert "oauth" not in data
-
-    @parameterized.expand(
-        [
-            ("no_credentials", lambda self, user: None),
-            (
-                "different_partner_credential",
-                lambda self, user: self._make_live_access_token(user, self.other_partner),
-            ),
-            ("only_revoked_token", lambda self, user: self._make_revoked_refresh_token(user, self.partner)),
-        ]
-    )
-    def test_reviewed_user_without_live_caller_credential_falls_through_to_consent(self, _name, setup_credential):
-        user = self._make_user(credentials_reviewed=True)
-        setup_credential(self, user)
-        res = self._post_as_partner(self._account_request_payload())
-        assert res.status_code == 200
-        data = res.json()
-        assert data["type"] == "requires_auth"
-        assert "url" in data["requires_auth"]
-        assert "/api/agentic/authorize" in data["requires_auth"]["url"]
-        assert "oauth" not in data
-
-        url = data["requires_auth"]["url"]
-        state = parse_qs(urlparse(url).query)["state"][0]
-        pending = cache.get(f"{PENDING_AUTH_CACHE_PREFIX}{state}")
-        assert pending is not None
-        assert pending["partner_id"] == str(self.partner.id)
-
-    @parameterized.expand([("reviewed", True), ("unreviewed", False)])
-    def test_bearer_caller_cannot_remint_for_other_user(self, _name, reviewed):
-        # A bearer token only proves the caller holds *some* user's token under the partner's
-        # client, not that they control the partner. An attacker holding their own token must
-        # not ride a victim's account to mint a code for it, whether or not the victim has
-        # reviewed credentials — an unreviewed account is still a pre-existing account.
-        victim = self._make_user(credentials_reviewed=reviewed)
-        self._make_live_access_token(victim, self.bearer_partner)
-
-        attacker = User.objects.create_and_join(
-            organization=self.organization,
-            email="attacker@example.com",
-            password="testpass",
-            first_name="Attacker",
-        )
-        attacker_token = self._make_live_access_token(attacker, self.bearer_partner).token
-
-        res = self._post_as_bearer_partner(self._account_request_payload(), token=attacker_token)
-        assert res.status_code == 200
-        data = res.json()
-        assert data["type"] == "requires_auth"
-        assert "oauth" not in data
-
-    @parameterized.expand([("reviewed", True), ("unreviewed", False)])
-    def test_bearer_caller_can_remint_for_own_user(self, _name, reviewed):
-        # The legitimate bearer re-link path: the caller presents the user's own token, which
-        # is genuine proof of an existing trust relationship, so it stays silent in either state.
-        user = self._make_user(credentials_reviewed=reviewed)
-        token = self._make_live_access_token(user, self.bearer_partner).token
-
-        res = self._post_as_bearer_partner(self._account_request_payload(), token=token)
-        assert res.status_code == 200
-        data = res.json()
-        assert data["type"] == "oauth"
-        assert "code" in data["oauth"]
 
 
 class TestCaptureProvisioningEvent(ProvisioningTestBase):

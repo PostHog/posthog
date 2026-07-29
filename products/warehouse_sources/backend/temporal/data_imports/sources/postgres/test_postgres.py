@@ -23,13 +23,13 @@ from psycopg import sql
 from sshtunnel import BaseSSHTunnelForwarderError
 
 import products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables as partitioned_tables_pkg
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DEFAULT_NUMERIC_SCALE,
     MAX_NUMERIC_SCALE,
     QueryTimeoutException,
     TemporaryFileSizeExceedsLimitException,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
@@ -798,6 +798,8 @@ class TestPostgresSourceNonRetryableErrors:
         [
             'invalid input syntax for type integer: "1.5"',
             'InvalidTextRepresentation: invalid input syntax for type integer: "1.5"',
+            'invalid input syntax for type bigint: "2026-04-26T20:58:57.557000"',
+            'InvalidTextRepresentation: invalid input syntax for type bigint: "2026-04-26T20:58:57.557000"',
         ],
     )
     def test_non_integer_incremental_cursor_errors_are_non_retryable(self, source, error_msg):

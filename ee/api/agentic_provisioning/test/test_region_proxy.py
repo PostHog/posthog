@@ -222,9 +222,7 @@ class TestDecoratorIntegration(ProvisioningTestBase):
             "configuration": {"region": "EU"},
             "scopes": ["query:read"],
         }
-        res = self._post_with_bearer(
-            "/api/agentic/provisioning/account_requests", data=payload, token=self._get_bearer_token()
-        )
+        res = self._post_with_client_secret("/api/agentic/provisioning/account_requests", data=payload)
         assert res.status_code == 200
         assert res.json()["type"] == "oauth"
 
@@ -235,9 +233,7 @@ class TestDecoratorIntegration(ProvisioningTestBase):
             "configuration": {"region": "US"},
             "scopes": ["query:read"],
         }
-        res = self._post_with_bearer(
-            "/api/agentic/provisioning/account_requests", data=payload, token=self._get_bearer_token()
-        )
+        res = self._post_with_client_secret("/api/agentic/provisioning/account_requests", data=payload)
         assert res.status_code == 200
         assert res.json()["type"] == "oauth"
 
@@ -433,9 +429,7 @@ class TestCrossRegionLoopback(ProvisioningTestBase):
             "scopes": ["query:read"],
         }
 
-        res = self._post_with_bearer(
-            "/api/agentic/provisioning/account_requests", data=payload, token=self._get_bearer_token()
-        )
+        res = self._post_with_client_secret("/api/agentic/provisioning/account_requests", data=payload)
 
         assert mock_request.called, "US instance should have proxied to EU"
         assert captured["host"] == "eu.posthog.com"
@@ -517,9 +511,7 @@ class TestCrossRegionLoopback(ProvisioningTestBase):
             "configuration": {"region": "EU"},
             "scopes": ["query:read"],
         }
-        self._post_with_bearer(
-            "/api/agentic/provisioning/account_requests", data=payload, token=self._get_bearer_token()
-        )
+        self._post_with_client_secret("/api/agentic/provisioning/account_requests", data=payload)
 
         assert call_count["n"] == 1, (
             f"proxy should fire exactly once (US→EU); got {call_count['n']} — loop header not respected"

@@ -33,13 +33,41 @@ from ee.api.agentic_provisioning.serializers import first_error_message
 class ProvisioningAPIView(RegionProxyMixin, APIView):
     """Base for every endpoint in this namespace.
 
-    Unauthenticated by default (each endpoint declares its own partner auth);
-    errors raised as :class:`ProvisioningError` render in the view's envelope.
+    Errors raised as :class:`ProvisioningError` render in the view's envelope.
+
+    A subclass must either declare ``authentication_classes`` or set
+    ``authenticates_in_handler = True``, so an endpoint added later cannot end up
+    unauthenticated by inheriting a permissive default. See :meth:`__init_subclass__`.
     """
 
     authentication_classes: list[type[BaseAuthentication]] = []
     permission_classes: list = []
     error_envelope: ClassVar[Envelope] = "typed"
+
+    # Set by the few endpoints that must authenticate mid-handler rather than through a DRF
+    # authentication class: the token endpoint resolves its partner from the grant it is
+    # redeeming, and account_requests needs the CIMD registration-pending signal that
+    # ProvisioningAuthentication exposes as instance state.
+    authenticates_in_handler: ClassVar[bool] = False
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Refuse to define an endpoint that authenticates nobody.
+
+        These endpoints are partner-facing and several act on a partner's behalf without an
+        end user, so an accidentally open one would not fail any ordinary test. Making the
+        omission a definition-time error means it cannot reach review.
+        """
+        super().__init_subclass__(**kwargs)
+        # Intermediate bases exist to be subclassed and carry no routes of their own.
+        if cls.__name__.endswith("APIView"):
+            return
+        if not cls.authentication_classes and not cls.authenticates_in_handler:
+            raise TypeError(
+                f"{cls.__name__} declares no authentication_classes. Provisioning endpoints are "
+                "partner-facing, so set authentication_classes (for example to "
+                "ConfidentialPartnerAuthentication) or, if it must authenticate inside the "
+                "handler, set authenticates_in_handler = True."
+            )
 
     # Provisioning throttles keyed on something DRF has by the time it calls
     # check_throttles (the partner on request.auth, a URL kwarg). Additive to
@@ -92,8 +120,12 @@ class ProvisioningAPIView(RegionProxyMixin, APIView):
 
 
 class ConfidentialPartnerAPIView(ProvisioningAPIView):
-    """Base for confidential-partner endpoints (GitHub grants): the bearer-authed
-    partner rides ``request.auth``; typed envelope."""
+    """Base for confidential-partner endpoints (GitHub grants).
+
+    The partner rides ``request.auth``, having proven itself with either a signed
+    ``private_key_jwt`` assertion or a verified client secret. A public partner is identified
+    only by a client_id anyone can send, so it never reaches these endpoints.
+    """
 
     authentication_classes = [ConfidentialPartnerAuthentication]
 

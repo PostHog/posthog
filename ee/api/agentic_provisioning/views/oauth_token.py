@@ -15,11 +15,14 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
+from django.utils.crypto import constant_time_compare
 
 import structlog
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.oauth.client_assertion import ClientAssertionError, extract_client_assertion, verify_client_assertion
+from posthog.api.oauth.client_auth import extract_client_credentials, verify_client_secret
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.user import User
 from posthog.models.utils import generate_random_oauth_access_token, generate_random_oauth_refresh_token
@@ -43,9 +46,70 @@ from ee.api.agentic_provisioning.views.base import ProvisioningAPIView
 logger = structlog.get_logger(__name__)
 
 
+def _require_client_authentication(request: Request, oauth_app: OAuthApplication, grant_type: str) -> None:
+    """Make confidential partners prove themselves before their grant is spent.
+
+    Public partners keep ``code_verifier`` as their only client authentication, which is what
+    RFC 7636 prescribes and RFC 6749 section 3.2.1 expects. The app is resolved from the grant
+    rather than from a caller-supplied client_id, so a confidential partner cannot reach the
+    public path by presenting nothing.
+    """
+    if not oauth_app.requires_client_authentication:
+        return
+
+    if oauth_app.uses_private_key_jwt_auth:
+        _verify_assertion_or_fail(request, oauth_app, grant_type)
+        return
+
+    credentials = extract_client_credentials(request)
+    if credentials is None:
+        capture_provisioning_event(
+            "token_exchange", "missing_client_credentials", partner=oauth_app, grant_type=grant_type
+        )
+        raise ProvisioningError("invalid_client", "client_id and client_secret are required", status=401)
+
+    client_id, client_secret = credentials
+    if not constant_time_compare(client_id, oauth_app.effective_client_id) or not verify_client_secret(
+        client_secret, oauth_app.client_secret or ""
+    ):
+        capture_provisioning_event(
+            "token_exchange", "invalid_client_credentials", partner=oauth_app, grant_type=grant_type
+        )
+        raise ProvisioningError("invalid_client", "Invalid client credentials", status=401)
+
+
+def _verify_assertion_or_fail(request: Request, oauth_app: OAuthApplication, grant_type: str) -> None:
+    assertion = extract_client_assertion(request)
+    if assertion is None:
+        capture_provisioning_event(
+            "token_exchange", "missing_client_assertion", partner=oauth_app, grant_type=grant_type
+        )
+        raise ProvisioningError("invalid_client", "A client_assertion is required", status=401)
+
+    assertion_value, asserted_client_id = assertion
+    # The assertion is verified against the app the grant names, so an assertion validly
+    # signed by a different client cannot be used to redeem this one's grant.
+    if not constant_time_compare(asserted_client_id, oauth_app.effective_client_id):
+        capture_provisioning_event(
+            "token_exchange", "client_assertion_mismatch", partner=oauth_app, grant_type=grant_type
+        )
+        raise ProvisioningError("invalid_client", "Client assertion does not match this grant", status=401)
+
+    try:
+        verify_client_assertion(oauth_app, assertion_value)
+    except ClientAssertionError as exc:
+        capture_provisioning_event(
+            "token_exchange", "invalid_client_assertion", partner=oauth_app, grant_type=grant_type
+        )
+        raise ProvisioningError("invalid_client", str(exc), status=401)
+
+
 class OAuthTokenView(ProvisioningAPIView):
     error_envelope = "oauth"
     region_proxy_strategy = "token_lookup"
+    # The partner is resolved from the grant being redeemed, not from the request, so
+    # authentication happens in _require_client_authentication once the grant is known.
+    authenticates_in_handler = True
 
     def post(self, request: Request) -> Response:
         grant_type = request.data.get("grant_type", "")
@@ -90,12 +154,10 @@ class OAuthTokenView(ProvisioningAPIView):
             capture_provisioning_event("token_exchange", "pkce_mismatch", grant_type="authorization_code")
             raise ProvisioningError("invalid_grant", "PKCE code_verifier does not match")
 
-        # Consume the code before rate limiting so a leaked auth code can't be replayed
-        # to burn the partner's bucket. Auth codes are single-use by spec, so the
-        # tradeoff (rate-limited client loses the code) is acceptable — clients can
-        # re-initiate the OAuth flow if rate-limited.
-        cache.delete(cache_key)
-
+        # Resolved before the code is consumed because a confidential partner's client
+        # authentication is checked against this app, and that check has to be able to fail
+        # without spending the code. An unknown partner_id therefore leaves the code in the
+        # cache to expire on its own; it is unusable either way.
         oauth_app: OAuthApplication | None = None
         partner_id = code_data.get("partner_id", "")
         if partner_id:
@@ -106,6 +168,14 @@ class OAuthTokenView(ProvisioningAPIView):
         if oauth_app is None:
             capture_provisioning_event("token_exchange", "oauth_app_missing", grant_type="authorization_code")
             raise ProvisioningError("invalid_grant", "Unknown application for this authorization code")
+
+        _require_client_authentication(request, oauth_app, "authorization_code")
+
+        # Consume the code before rate limiting so a leaked auth code can't be replayed
+        # to burn the partner's bucket. Auth codes are single-use by spec, so the
+        # tradeoff (rate-limited client loses the code) is acceptable — clients can
+        # re-initiate the OAuth flow if rate-limited.
+        cache.delete(cache_key)
 
         enforce_partner_rate_limit(oauth_app, "token_exchanges")
 
@@ -220,6 +290,21 @@ class OAuthTokenView(ProvisioningAPIView):
             capture_provisioning_event("token_exchange", "missing_refresh_token", grant_type="refresh_token")
             raise ProvisioningError("invalid_request", "refresh_token is required")
 
+        # Authenticate the client before opening the transaction. Verification is expensive
+        # (a password-hash comparison, or a JWKS fetch on a cache miss), so doing it here
+        # keeps that work out of the row lock taken below, where it would serialize every
+        # concurrent refresh for the partner. Resolving the app unlocked is safe because only
+        # its registration state is read, which the lock does not protect anyway.
+        application_id = (
+            OAuthRefreshToken.objects.filter(token=refresh_token_value, revoked__isnull=True)
+            .values_list("application_id", flat=True)
+            .first()
+        )
+        if application_id:
+            unlocked_app = OAuthApplication.objects.filter(id=application_id).first()
+            if unlocked_app is not None:
+                _require_client_authentication(request, unlocked_app, "refresh_token")
+
         # Lock the app row first (revoke_application_sessions locks it before sweeping tokens),
         # then re-read the refresh token under that lock, so the rotate-and-mint serializes with
         # the revoke: either we hold the lock and our new tokens land before its sweep, or it
@@ -227,11 +312,6 @@ class OAuthTokenView(ProvisioningAPIView):
         # the app up by id first (without locking the token row) keeps the lock order app→token,
         # matching the revoke, so the two can't deadlock.
         with transaction.atomic():
-            application_id = (
-                OAuthRefreshToken.objects.filter(token=refresh_token_value, revoked__isnull=True)
-                .values_list("application_id", flat=True)
-                .first()
-            )
             locked_app = lock_application(application_id) if application_id else None
             old_refresh = (
                 OAuthRefreshToken.objects.select_related("user", "access_token")
@@ -292,7 +372,7 @@ class OAuthTokenView(ProvisioningAPIView):
 
             # provisioning_partner_type is a stable marker set at partner registration;
             # checking it instead of is_provisioning_partner prevents a bypass when an admin
-            # clears provisioning_auth_method to disable a partner without revoking tokens.
+            # clears that flag to disable a partner without revoking its tokens.
             if oauth_app and oauth_app.provisioning_partner_type:
                 enforce_partner_rate_limit(oauth_app, "token_exchanges")
 
