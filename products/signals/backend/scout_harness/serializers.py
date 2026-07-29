@@ -59,10 +59,14 @@ from products.skills.backend.models.skills import LLMSkill
             "model": {"type": "string"},
             "runtime_adapter": {"type": "string"},
             "reasoning_effort": {"type": "string"},
+            # Closed and fully required, unlike the parent: the region is written whole or not at
+            # all, so every flag is present whenever the object is. Leaving it open would generate
+            # a `[key: string]: boolean` index signature that the optional named flags cannot
+            # satisfy, which fails frontend typechecking.
             DERIVED_METADATA_KEY: {
                 "type": "object",
                 "properties": {key: {"type": "boolean"} for key in DERIVED_FLAG_KEYS},
-                "additionalProperties": {"type": "boolean"},
+                "required": list(DERIVED_FLAG_KEYS),
             },
         },
         # Older rows predate these keys and future runner-stamped dimensions land here before the

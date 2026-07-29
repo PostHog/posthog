@@ -62319,12 +62319,11 @@ export namespace Schemas {
     }
 
     export type SignalScoutRunDetailMetadataDerived = {
-      has_emit_report?: boolean;
-      has_edit_report?: boolean;
-      has_self_improvement?: boolean;
-      has_chart?: boolean;
-      has_self_validation?: boolean;
-      [key: string]: boolean;
+      has_emit_report: boolean;
+      has_edit_report: boolean;
+      has_self_improvement: boolean;
+      has_chart: boolean;
+      has_self_validation: boolean;
     };
 
     /**
@@ -62412,12 +62411,11 @@ export namespace Schemas {
     }
 
     export type SignalScoutRunSummaryMetadataDerived = {
-      has_emit_report?: boolean;
-      has_edit_report?: boolean;
-      has_self_improvement?: boolean;
-      has_chart?: boolean;
-      has_self_validation?: boolean;
-      [key: string]: boolean;
+      has_emit_report: boolean;
+      has_edit_report: boolean;
+      has_self_improvement: boolean;
+      has_chart: boolean;
+      has_self_validation: boolean;
     };
 
     /**
