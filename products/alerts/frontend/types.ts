@@ -100,7 +100,7 @@ export interface AnomalyPoint {
 
 export type InvestigationInconclusiveAction = 'notify' | 'suppress'
 
-type AlertThreshold = Omit<InsightThreshold, 'bounds'> & {
+export type AlertThreshold = Omit<InsightThreshold, 'bounds'> & {
     bounds?: InsightsThresholdBounds | null
 }
 
