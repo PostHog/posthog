@@ -43,9 +43,14 @@ export function normalizeResponseTargetGroups(raw: unknown): ResponseTargetGroup
         }
         groups.push({ label: group.label, tags: [...(group.tags as string[])] })
     }
-    // The backend also treats duplicate labels as malformed (falls back to the
-    // examples), so a dup-label ladder must read as "not customized" here too.
+    // The backend also treats duplicate labels and a tag claimed by two groups
+    // as malformed (falls back to the examples), so those must read as "not
+    // customized" here too.
     if (new Set(groups.map((group) => group.label)).size !== groups.length) {
+        return null
+    }
+    const allTags = groups.flatMap((group) => group.tags)
+    if (new Set(allTags).size !== allTags.length) {
         return null
     }
     return groups

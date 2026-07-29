@@ -46,11 +46,18 @@ describe('normalizeResponseTargetGroups', () => {
         expect(normalizeResponseTargetGroups('garbage')).toBeNull()
         expect(normalizeResponseTargetGroups([{ nope: true }])).toBeNull()
         expect(normalizeResponseTargetGroups([])).toBeNull()
-        // duplicate labels read as malformed, matching the backend's fallback
+        // duplicate labels and a tag in two groups read as malformed,
+        // matching the backend's fallback
         expect(
             normalizeResponseTargetGroups([
                 { label: 'A', tags: ['x'] },
                 { label: 'A', tags: ['y'] },
+            ])
+        ).toBeNull()
+        expect(
+            normalizeResponseTargetGroups([
+                { label: 'A', tags: ['vip'] },
+                { label: 'B', tags: ['vip', 'y'] },
             ])
         ).toBeNull()
     })
