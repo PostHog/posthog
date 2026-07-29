@@ -23232,6 +23232,21 @@ export namespace Schemas {
     }
 
     /**
+     * Cheap suspension-only read for the persistent scene-wide banner — no reputation computation.
+     */
+    export interface EmailSendingSuspensionStatus {
+      /** True while workflow email sending is suspended for this project to protect deliverability. */
+      readonly email_sending_suspended: boolean;
+      /**
+         * When email sending was suspended; null while sending is enabled.
+         * @nullable
+         */
+      readonly email_sending_suspended_at: string | null;
+      /** Staff-authored reason shown to customers alongside the suspension notice; empty when not suspended. */
+      readonly email_sending_suspension_reason: string;
+    }
+
+    /**
      * Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.
      */
     export type EmailTemplateDesignCounters = { [key: string]: unknown };
@@ -69087,6 +69102,15 @@ export namespace Schemas {
       readonly reputation: EmailReputationSnapshot | null;
       /** Latest snapshot per workflow, worst state and highest rates first, capped at the worst 50 workflows. */
       readonly workflows: readonly WorkflowEmailReputationSnapshot[];
+      /** True while workflow email sending is suspended for this project to protect deliverability. */
+      readonly email_sending_suspended: boolean;
+      /**
+         * When email sending was suspended; null while sending is enabled.
+         * @nullable
+         */
+      readonly email_sending_suspended_at: string | null;
+      /** Staff-authored reason shown to customers alongside the suspension notice; empty when not suspended. */
+      readonly email_sending_suspension_reason: string;
     }
 
     export interface TeamMergeTrendPoint {
