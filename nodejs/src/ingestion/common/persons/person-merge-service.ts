@@ -543,19 +543,25 @@ export class PersonMergeService {
             return mergeSuccess(target, Promise.resolve(), true)
         }
 
-        // Replay the pairs in order, exactly as the sequential path would: each
-        // pair merges its source's properties under the accumulated target's
-        // (target wins, earlier sources win over later ones), then that pair's
-        // own event applies its $set/$set_once on top before the next source
-        // contributes anything. Unioning every source first and only then
-        // applying one event's updates would let a later profile's value claim
-        // a $set_once key that an earlier event owns — that's how $initial_*
-        // properties ended up sourced from a chronologically later profile.
+        // Walk the pairs in order: each merges its source's properties under the
+        // accumulated target's (target wins, earlier sources win over later
+        // ones), and the current event applies its $set/$set_once at its own
+        // pair's position rather than after every source. Applying it last let a
+        // later source claim a $set_once key the event owns, which is how
+        // $initial_* properties ended up taken from a chronologically later
+        // profile. Pairs beyond the current event keep contributing their source
+        // properties but not their event's — those events apply their own
+        // updates when they short-circuit against the executed plan, so this
+        // event's snapshot never carries a later event's $set.
+        const currentPairIndex = pairsToFold.findIndex((pair) => pair.anonDistinctId === currentAnonDistinctId)
         let mergedProperties: Properties = target.properties
-        for (const pair of pairsToFold) {
+        pairsToFold.forEach((pair, index) => {
             const source = mergeSourceByAnonDistinctId.get(pair.anonDistinctId)
             if (source) {
                 mergedProperties = { ...source.properties, ...mergedProperties }
+            }
+            if (index > currentPairIndex) {
+                return
             }
             const propertyUpdates = computeEventPropertyUpdates(
                 pair.event,
@@ -567,7 +573,7 @@ export class PersonMergeService {
                 properties: mergedProperties,
             })
             mergedProperties = withEventProperties.properties
-        }
+        })
 
         const createdAt = DateTime.min(target.created_at, ...mergeSources.map((source) => source.created_at))
         const version = Math.max(target.version, ...mergeSources.map((source) => source.version)) + 1
