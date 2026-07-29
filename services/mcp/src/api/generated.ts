@@ -12772,6 +12772,13 @@ export namespace Schemas {
       Warning: 'warning',
     } as const;
 
+    export interface UtmAlternativeSource {
+      /** A utm_source value found on this campaign's pageviews */
+      utm_source: string;
+      /** Number of pageview events with this utm_source */
+      event_count: number;
+    }
+
     export interface UtmIssue {
       /** The UTM field with the issue (e.g. utm_campaign, utm_source) */
       field: string;
@@ -12780,8 +12787,14 @@ export namespace Schemas {
        * * `error` - error
        * * `warning` - warning */
       severity: UtmIssueSeverityEnum;
-      /** Human-readable description of the issue */
+      /** Issue type. One of: not_linked, name_collision, no_tagged_events, unknown_source, missing_source */
+      kind: string;
+      /** Human-readable headline; the frontend composes richer text from the fields below */
       message: string;
+      /** utm_source values actually found on this campaign's pageviews, ordered by event count */
+      alternative_sources: UtmAlternativeSource[];
+      /** Other integrations whose campaigns share this campaign's name (name_collision only) */
+      shared_with_integrations: string[];
     }
 
     export interface CampaignAuditResult {

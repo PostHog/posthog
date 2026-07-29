@@ -872,13 +872,35 @@ export const UtmIssueSeverityEnumApi = zod
 export type UtmIssueSeverityEnumApi = zod.input<typeof UtmIssueSeverityEnumApi>
 export type UtmIssueSeverityEnumApiOutput = zod.output<typeof UtmIssueSeverityEnumApi>
 
+export const UtmAlternativeSourceApi = zod.object({
+    utm_source: zod.string().describe("A utm_source value found on this campaign's pageviews"),
+    event_count: zod.number().describe('Number of pageview events with this utm_source'),
+})
+
+export type UtmAlternativeSourceApi = zod.input<typeof UtmAlternativeSourceApi>
+export type UtmAlternativeSourceApiOutput = zod.output<typeof UtmAlternativeSourceApi>
+
 export const UtmIssueApi = zod.object({
     field: zod.string().describe('The UTM field with the issue (e.g. utm_campaign, utm_source)'),
     severity: zod
         .enum(['error', 'warning'])
         .describe('\* `error` - error\n\* `warning` - warning')
         .describe('Issue severity level\n\n\* `error` - error\n\* `warning` - warning'),
-    message: zod.string().describe('Human-readable description of the issue'),
+    kind: zod
+        .string()
+        .describe('Issue type. One of: not_linked, name_collision, no_tagged_events, unknown_source, missing_source'),
+    message: zod.string().describe('Human-readable headline; the frontend composes richer text from the fields below'),
+    alternative_sources: zod
+        .array(
+            zod.object({
+                utm_source: zod.string().describe("A utm_source value found on this campaign's pageviews"),
+                event_count: zod.number().describe('Number of pageview events with this utm_source'),
+            })
+        )
+        .describe("utm_source values actually found on this campaign's pageviews, ordered by event count"),
+    shared_with_integrations: zod
+        .array(zod.string())
+        .describe("Other integrations whose campaigns share this campaign's name (name_collision only)"),
 })
 
 export type UtmIssueApi = zod.input<typeof UtmIssueApi>
@@ -901,7 +923,25 @@ export const CampaignAuditResultApi = zod.object({
                     .enum(['error', 'warning'])
                     .describe('\* `error` - error\n\* `warning` - warning')
                     .describe('Issue severity level\n\n\* `error` - error\n\* `warning` - warning'),
-                message: zod.string().describe('Human-readable description of the issue'),
+                kind: zod
+                    .string()
+                    .describe(
+                        'Issue type. One of: not_linked, name_collision, no_tagged_events, unknown_source, missing_source'
+                    ),
+                message: zod
+                    .string()
+                    .describe('Human-readable headline; the frontend composes richer text from the fields below'),
+                alternative_sources: zod
+                    .array(
+                        zod.object({
+                            utm_source: zod.string().describe("A utm_source value found on this campaign's pageviews"),
+                            event_count: zod.number().describe('Number of pageview events with this utm_source'),
+                        })
+                    )
+                    .describe("utm_source values actually found on this campaign's pageviews, ordered by event count"),
+                shared_with_integrations: zod
+                    .array(zod.string())
+                    .describe("Other integrations whose campaigns share this campaign's name (name_collision only)"),
             })
         )
         .describe('List of detected UTM configuration issues'),
@@ -965,7 +1005,35 @@ export const UtmAuditResponseApi = zod.object({
                                 .enum(['error', 'warning'])
                                 .describe('\* `error` - error\n\* `warning` - warning')
                                 .describe('Issue severity level\n\n\* `error` - error\n\* `warning` - warning'),
-                            message: zod.string().describe('Human-readable description of the issue'),
+                            kind: zod
+                                .string()
+                                .describe(
+                                    'Issue type. One of: not_linked, name_collision, no_tagged_events, unknown_source, missing_source'
+                                ),
+                            message: zod
+                                .string()
+                                .describe(
+                                    'Human-readable headline; the frontend composes richer text from the fields below'
+                                ),
+                            alternative_sources: zod
+                                .array(
+                                    zod.object({
+                                        utm_source: zod
+                                            .string()
+                                            .describe("A utm_source value found on this campaign's pageviews"),
+                                        event_count: zod
+                                            .number()
+                                            .describe('Number of pageview events with this utm_source'),
+                                    })
+                                )
+                                .describe(
+                                    "utm_source values actually found on this campaign's pageviews, ordered by event count"
+                                ),
+                            shared_with_integrations: zod
+                                .array(zod.string())
+                                .describe(
+                                    "Other integrations whose campaigns share this campaign's name (name_collision only)"
+                                ),
                         })
                     )
                     .describe('List of detected UTM configuration issues'),
