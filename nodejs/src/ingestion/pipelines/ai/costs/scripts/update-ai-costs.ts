@@ -488,7 +488,7 @@ export const readEndpointsFromOpenRouter: EndpointFetcher = async (modelId) => {
     }
 }
 
-const fetchOpenRouterCosts = async (): Promise<RunTotals> => {
+export const fetchOpenRouterCosts = async (): Promise<RunTotals> => {
     // eslint-disable-next-line no-restricted-globals
     const res = await fetch('https://openrouter.ai/api/v1/models', {})
     if (!res.ok) {

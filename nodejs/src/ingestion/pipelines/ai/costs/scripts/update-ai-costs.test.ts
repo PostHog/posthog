@@ -17,6 +17,7 @@ import {
     buildModelRow,
     collectModelRows,
     confirmDiscountAgainstSiblings,
+    fetchOpenRouterCosts,
     finalizeTotals,
     foldModelIntoTotals,
     parseDiscountRate,
@@ -255,7 +256,7 @@ describe('buildModelRow()', () => {
             {},
         ])
         expect(built!.checked).toBe(false)
-        expect(Object.keys(built!.cost)).toEqual(['default'])
+        expect(Object.keys(built!.cost)).toStrictEqual(['default'])
     })
 
     it('stores each endpoint at its de-discounted list price', () => {
@@ -544,7 +545,7 @@ describe('accumulateModelRow()', () => {
 
     it('collects the row into the price book', () => {
         const acc = accumulateModelRow(built(), 'openai/gpt-5.6-luna', totals())
-        expect(acc.models).toEqual([{ model: 'openai/gpt-5.6-luna', cost: { default: cost('0.000001') } }])
+        expect(acc.models).toStrictEqual([{ model: 'openai/gpt-5.6-luna', cost: { default: cost('0.000001') } }])
     })
 
     it('collects a discount entry when the row reports one', () => {
@@ -553,7 +554,7 @@ describe('accumulateModelRow()', () => {
             endpoints: [{ key: 'openai', discount: 0.5 }],
             confirmation: 'confirmed' as const,
         }
-        expect(accumulateModelRow(built({ discount }), 'm', totals()).discounts).toEqual([discount])
+        expect(accumulateModelRow(built({ discount }), 'm', totals()).discounts).toStrictEqual([discount])
     })
 
     it('counts a row that could not be checked', () => {
@@ -614,6 +615,23 @@ describe('foldModelIntoTotals()', () => {
         expect(base.uncheckedModels).toBe(0)
     })
 
+    it('keeps what was already collected when it skips', () => {
+        // Starting from empty cannot tell "added nothing" from "discarded everything".
+        jest.spyOn(console, 'warn').mockImplementation(() => {})
+        const seeded = foldModelIntoTotals('good/one', listPricing, [endpoint('openai', '0.000001', 0.5)], start())
+        expect(seeded.models).toHaveLength(1)
+        const after = foldModelIntoTotals('bad/one', { prompt: 'nonsense' }, [], seeded)
+        expect(after.models).toHaveLength(1)
+        expect(after.discounts).toHaveLength(1)
+        expect(after.uncheckedModels).toBe(seeded.uncheckedModels)
+    })
+
+    it('files the row and the discount under the model id it was given', () => {
+        const out = foldModelIntoTotals('a/b', listPricing, [endpoint('openai', '0.000001', 0.5)], start())
+        expect(out.models[0].model).toBe('a/b')
+        expect(out.discounts[0].model).toBe('a/b')
+    })
+
     it('warns naming the model it skipped', () => {
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
         foldModelIntoTotals('a/b', undefined, [], start())
@@ -627,14 +645,14 @@ describe('finalizeTotals()', () => {
     it('orders models by id so output does not follow response order', () => {
         // Unsorted output rewrites the whole file every run and opens a PR on noise.
         const out = finalizeTotals({ models: [row('z/z'), row('a/a')], discounts: [], uncheckedModels: 0 })
-        expect(out.models.map((m) => m.model)).toEqual(['a/a', 'z/z'])
+        expect(out.models.map((m) => m.model)).toStrictEqual(['a/a', 'z/z'])
     })
 
     it('leaves the totals it was handed untouched', () => {
         // Same contract accumulateModelRow carries; the family grew past its test.
         const base: RunTotals = { models: [row('z/z'), row('a/a')], discounts: [], uncheckedModels: 0 }
         finalizeTotals(base)
-        expect(base.models.map((m) => m.model)).toEqual(['z/z', 'a/a'])
+        expect(base.models.map((m) => m.model)).toStrictEqual(['z/z', 'a/a'])
     })
 
     it('carries the other totals through unchanged', () => {
@@ -651,14 +669,15 @@ describe('collectModelRows()', () => {
         // Unsorted output follows OpenRouter's response order, which rewrites the
         // whole file every run and opens a PR on noise.
         return collectModelRows([priced('z/z'), priced('a/a')], noEndpoints).then((totals) => {
-            expect(totals.models.map((m) => m.model)).toEqual(['a/a', 'z/z'])
+            expect(totals.models.map((m) => m.model)).toStrictEqual(['a/a', 'z/z'])
         })
     })
 
     it('skips an entry with no id and keeps going', async () => {
         jest.spyOn(console, 'warn').mockImplementation(() => {})
         const totals = await collectModelRows([{}, priced('a/a')], noEndpoints)
-        expect(totals.models.map((m) => m.model)).toEqual(['a/a'])
+        expect(totals.models).toHaveLength(1)
+        expect(totals.models.map((m) => m.model)).toStrictEqual(['a/a'])
     })
 
     it('skips an entry with no id even when its pricing is valid', async () => {
@@ -669,7 +688,7 @@ describe('collectModelRows()', () => {
             [{ pricing: { prompt: '0.000001', completion: '0.000001' } }, priced('a/a')],
             noEndpoints
         )
-        expect(totals.models.map((m) => m.model)).toEqual(['a/a'])
+        expect(totals.models.map((m) => m.model)).toStrictEqual(['a/a'])
     })
 
     it('reports the unchecked count with its denominator', async () => {
@@ -724,7 +743,7 @@ describe('collectModelRows()', () => {
             seen.push(id)
             return Promise.resolve([])
         })
-        expect(seen).toEqual(['a/a', 'b/b'])
+        expect(seen).toStrictEqual(['a/a', 'b/b'])
     })
 })
 
@@ -734,26 +753,26 @@ describe('readEndpointsFromOpenRouter()', () => {
 
     it('returns the endpoints the payload carries', async () => {
         mockFetch(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ data: { endpoints: [1, 2] } }) }))
-        await expect(readEndpointsFromOpenRouter('a/b')).resolves.toEqual([1, 2])
+        await expect(readEndpointsFromOpenRouter('a/b')).resolves.toStrictEqual([1, 2])
     })
 
     it('degrades to no endpoints on a non-ok response, and says so', async () => {
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
         mockFetch(() => Promise.resolve({ ok: false, status: 429, statusText: 'Too Many Requests' }))
-        await expect(readEndpointsFromOpenRouter('a/b')).resolves.toEqual([])
+        await expect(readEndpointsFromOpenRouter('a/b')).resolves.toStrictEqual([])
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('a/b'))
     })
 
     it('degrades to no endpoints when the request throws, and says so', async () => {
         const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
         mockFetch(() => Promise.reject(new Error('socket hang up')))
-        await expect(readEndpointsFromOpenRouter('a/b')).resolves.toEqual([])
+        await expect(readEndpointsFromOpenRouter('a/b')).resolves.toStrictEqual([])
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('Error fetching'), 'a/b', expect.anything())
     })
 
     it('degrades to no endpoints when the payload has no endpoints key', async () => {
         mockFetch(() => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }))
-        await expect(readEndpointsFromOpenRouter('a/b')).resolves.toEqual([])
+        await expect(readEndpointsFromOpenRouter('a/b')).resolves.toStrictEqual([])
     })
 
     it('encodes each path segment of the model id', async () => {
@@ -764,6 +783,49 @@ describe('readEndpointsFromOpenRouter()', () => {
         }) as never)
         await readEndpointsFromOpenRouter('anthropic/claude-sonnet-5:batch')
         expect(requested).toContain('anthropic/claude-sonnet-5%3Abatch')
+    })
+})
+
+describe('fetchOpenRouterCosts()', () => {
+    const listPayload = {
+        data: [{ id: 'a/b', pricing: { prompt: '0.0000005', completion: '0.0000005' } }],
+    }
+    const endpointsPayload = { data: { endpoints: [endpoint('openai', '0.0000005', 0.5)] } }
+
+    const mockFetch = (): jest.SpyInstance =>
+        jest.spyOn(global, 'fetch' as never).mockImplementation(((url: string) =>
+            Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve(url.includes('/endpoints') ? endpointsPayload : listPayload),
+            })) as never)
+
+    it('reads per-endpoint pricing, not just the list payload', async () => {
+        // The loop takes its reader as an argument so a test can fake it; this is
+        // what pins that production hands it the real one.
+        jest.spyOn(console, 'log').mockImplementation(() => {})
+        mockFetch()
+        const totals = await fetchOpenRouterCosts()
+        expect(totals.models[0].cost.openai.prompt_token).toBe(0.000001)
+        expect(totals.uncheckedModels).toBe(0)
+    })
+
+    it('reads the models out of the payload envelope', async () => {
+        jest.spyOn(console, 'log').mockImplementation(() => {})
+        mockFetch()
+        const totals = await fetchOpenRouterCosts()
+        expect(totals.models.map((m) => m.model)).toStrictEqual(['a/b'])
+    })
+
+    it('throws when the models list cannot be fetched', async () => {
+        jest.spyOn(global, 'fetch' as never).mockImplementation((() =>
+            Promise.resolve({ ok: false, status: 503, statusText: 'Service Unavailable' })) as never)
+        await expect(fetchOpenRouterCosts()).rejects.toThrow('Failed to fetch OpenRouter models')
+    })
+
+    it('throws when the models list is not JSON', async () => {
+        jest.spyOn(global, 'fetch' as never).mockImplementation((() =>
+            Promise.resolve({ ok: true, json: () => Promise.reject(new Error('bad json')) })) as never)
+        await expect(fetchOpenRouterCosts()).rejects.toThrow('Failed to parse OpenRouter API response')
     })
 })
 
@@ -821,6 +883,24 @@ describe('writeOutputs()', () => {
 
         const [, body] = writes.find(([f]) => f === summaryPath)!
         expect(body).toContain('17 model(s) could not be checked')
+    })
+
+    it('renders the promotions it was handed into the summary', () => {
+        // Every other call passes an empty list, which cannot tell the real
+        // argument from a hardcoded empty one.
+        process.env[DISCOUNT_SUMMARY_ENV] = summaryPath
+        const writes = captureWrites()
+        const promo = {
+            model: 'openai/gpt-5.6-luna',
+            endpoints: [{ key: 'openai', discount: 0.5 }],
+            confirmation: 'confirmed' as const,
+        }
+
+        writeOutputs([{ model: 'm', cost: { default: cost('0.000001')! } }], [promo], 0)
+
+        const [, body] = writes.find(([f]) => f === summaryPath)!
+        expect(body).toContain('openai/gpt-5.6-luna')
+        expect(body).not.toContain('No discounted endpoints found')
     })
 
     it('generates the provider union alongside the price book', () => {
