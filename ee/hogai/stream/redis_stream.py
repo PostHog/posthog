@@ -9,8 +9,8 @@ from django.conf import settings
 import structlog
 import redis.exceptions as redis_exceptions
 from opentelemetry import trace
-from prometheus_client import Histogram
-from pydantic import BaseModel, Field
+from prometheus_client import Counter, Histogram
+from pydantic import BaseModel, Field, ValidationError
 
 from posthog.schema import (
     AssistantEventType,
@@ -52,6 +52,12 @@ REDIS_STREAM_INIT_ITERATION_LATENCY_HISTOGRAM = Histogram(
     "posthog_ai_redis_stream_init_iteration_latency_seconds",
     "Time between iterations in the stream initialization wait loop",
     buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float("inf")],
+)
+
+REDIS_SKIPPED_ENTRIES_COUNTER = Counter(
+    "posthog_ai_redis_skipped_stream_entries_total",
+    "Conversation stream entries dropped by the reader instead of failing the whole read",
+    labelnames=["reason"],
 )
 
 # Redis stream configuration
@@ -319,8 +325,8 @@ class ConversationRedisStream:
                         if raw is not None and raw[:1] == b"\x80":
                             # Skip a legacy pickle entry (pickle protocol >= 2 starts with 0x80) left in
                             # an un-expired stream from before the JSON migration. current_id has already
-                            # advanced, so it isn't re-read. Genuinely-corrupt JSON is not skipped here —
-                            # it falls through to deserialize and fails the read as before.
+                            # advanced, so it isn't re-read.
+                            REDIS_SKIPPED_ENTRIES_COUNTER.labels(reason="legacy_pickle").inc()
                             logger.warning(
                                 "Skipping legacy pickle conversation stream entry",
                                 stream_key=self._stream_key,
@@ -328,7 +334,19 @@ class ConversationRedisStream:
                             )
                             continue
 
-                        data = self._serializer.deserialize(message)
+                        try:
+                            data = self._serializer.deserialize(message)
+                        except ValidationError:
+                            # An entry we can't read back is a single lost message, not a lost
+                            # conversation — drop it and keep streaming the rest.
+                            REDIS_SKIPPED_ENTRIES_COUNTER.labels(reason="undeserializable").inc()
+                            logger.warning(
+                                "Skipping undeserializable conversation stream entry",
+                                stream_key=self._stream_key,
+                                stream_id=stream_id,
+                                exc_info=True,
+                            )
+                            continue
 
                         latency = time.time() - data.timestamp
                         REDIS_TO_CLIENT_LATENCY_HISTOGRAM.observe(latency)

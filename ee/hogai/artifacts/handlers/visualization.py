@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any, cast
 
+import structlog
 from pydantic import ValidationError
 
 from posthog.schema import ArtifactContentType, ArtifactSource, VisualizationArtifactContent, VisualizationMessage
@@ -21,6 +22,8 @@ from ee.hogai.artifacts.types import (
 )
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.utils.types.base import AssistantMessageUnion
+
+logger = structlog.get_logger(__name__)
 
 
 @register_handler
@@ -113,14 +116,26 @@ class VisualizationHandler(ArtifactHandler[VisualizationArtifactContent, Visuali
         """
         for msg in messages:
             if isinstance(msg, VisualizationMessage) and msg.id == artifact_id:
-                # msg.answer is already validated by VisualizationMessage, so use
-                # model_construct to avoid redundant re-validation against the large
-                # VisualizationArtifactContent.query union (which fails for older schemas).
-                return VisualizationArtifactContent.model_construct(
+                # msg.answer is already validated by VisualizationMessage, so model_construct
+                # avoids re-validating it against the large VisualizationArtifactContent.query
+                # union up front. The content is streamed to the client as JSON though, so it
+                # still has to survive a round trip — anything that doesn't is dropped here
+                # rather than written to the stream as an entry the reader can't parse.
+                content = VisualizationArtifactContent.model_construct(
                     query=msg.answer,
                     name="Insight",
                     plan=msg.plan,
                 )
+                try:
+                    return VisualizationArtifactContent.model_validate_json(content.model_dump_json())
+                except ValidationError:
+                    logger.warning(
+                        "Dropping visualization artifact whose query can't be represented",
+                        artifact_id=artifact_id,
+                        query_kind=getattr(msg.answer, "kind", None),
+                        exc_info=True,
+                    )
+                    return None
         return None
 
     async def _from_db(self, artifact_ids: list[str], team: Team) -> dict[str, VisualizationArtifactContent]:

@@ -13,10 +13,12 @@ from posthog.schema import (
     AssistantLifecycleQuery,
     AssistantMessage,
     AssistantTrendsQuery,
+    DataVisualizationNode,
     DateRange,
     EventPropertyFilter,
     EventsNode,
     FunnelsQuery,
+    HogQLQuery,
     HumanMessage,
     NotebookArtifactContent,
     RetentionFilter,
@@ -390,6 +392,31 @@ class TestArtifactManagerGetContentsByMessageId(BaseTest):
         assert isinstance(content.query, expected_type)
         self.assertEqual(content.name, "Insight")
         self.assertEqual(content.plan, "test plan")
+
+    async def test_drops_state_content_that_cannot_survive_a_json_round_trip(self):
+        # A query that was built without validation can hold values the schema rejects. The
+        # conversation stream is JSON, so such content is dropped rather than written to the
+        # stream as an entry the reader can't parse.
+        viz_id = str(uuid4())
+        viz_message = VisualizationMessage(
+            id=viz_id,
+            query="test query",
+            answer=DataVisualizationNode.model_construct(
+                source=HogQLQuery(query="SELECT 1"),
+                display="SomeDisplayTypeWeDoNotHave",
+            ),
+            plan="test plan",
+        )
+        artifact_message = ArtifactRefMessage(
+            id=str(uuid4()),
+            content_type=ArtifactContentType.VISUALIZATION,
+            artifact_id=viz_id,
+            source=ArtifactSource.STATE,
+        )
+
+        contents = await self.manager._aget_contents_by_id([viz_message, artifact_message], aggregate_by="message_id")
+
+        self.assertEqual(contents, {})
 
 
 class TestArtifactManagerEnrichMessages(BaseTest):
