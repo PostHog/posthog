@@ -123,11 +123,13 @@ def fetch_per_question_stats(
         # `hasOpenChoice` "Other: ___" response) and would leak respondent-entered content.
         # Bucket free-text answers under "<other>" so callers still see how many people picked
         # "Other" without exposing the text itself. Reading the text requires the responses
-        # endpoint, which requires `query:read`.
-        allowed_choices: set[str] | None = None
+        # endpoint, which requires `query:read`. Translated answers map back to their base
+        # choice so they aggregate with it rather than being redacted into "<other>".
+        choice_map: dict[str, str] | None = None
         if question_type in ("single_choice", "multiple_choice"):
             choices = q.get("choices") or []
-            allowed_choices = set(choices) if choices else set()
+            choice_map = {choice: choice for choice in choices}
+            choice_map.update(q.get("choice_translations") or {})
 
         distribution: dict[str, int] = {}
         total_count = 0
@@ -140,13 +142,16 @@ def fetch_per_question_stats(
             if not answer_str:
                 continue
 
-            if allowed_choices is not None and answer_str not in allowed_choices:
-                # Free-text "Other" — keep the count but not the value.
-                other_count += count_n
-                total_count += count_n
-                continue
+            if choice_map is not None:
+                normalized = choice_map.get(answer_str)
+                if normalized is None:
+                    # Free-text "Other" — keep the count but not the value.
+                    other_count += count_n
+                    total_count += count_n
+                    continue
+                answer_str = normalized
 
-            distribution[answer_str] = count_n
+            distribution[answer_str] = distribution.get(answer_str, 0) + count_n
             total_count += count_n
             if question_type == "rating":
                 try:
