@@ -96,7 +96,10 @@ Create a personal access token at [airtable.com/create/tokens](https://airtable.
         if validate_airtable_credentials(config.personal_access_token):
             return True, None
 
-        return False, "Invalid Airtable personal access token"
+        return (
+            False,
+            "Invalid Airtable personal access token. Check that the token is correct and has access to the bases you want to sync, then try again.",
+        )
 
     def source_for_pipeline(self, config: AirtableSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return airtable_source(
