@@ -6,6 +6,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.temporal.ai_observability.eval_reports.report_agent import graph
 from posthog.temporal.ai_observability.eval_reports.report_agent.graph import (
     _append_references_section,
@@ -57,6 +58,23 @@ class TestSystemPromptFormat(SimpleTestCase):
         self.assertIn('outcome="all"|"positive"|"neutral"|"negative"', formatted)
         self.assertNotIn("pass rate", formatted.lower())
 
+    def test_sentiment_prompt_directs_agent_to_user_message_not_reasoning(self):
+        formatted = self._build_prompt(output_type="sentiment")
+
+        self.assertIn("Use user messages instead of reasoning", formatted)
+        self.assertIn("last user message", formatted)
+        self.assertIn("frustrated and why", formatted)
+        self.assertIn('sample_eval_results(outcome="negative", order_by="score")', formatted)
+        self.assertNotIn("get_top_outcome_reasons", formatted)
+        self.assertNotIn("Inspect grouped reasons", formatted)
+
+    def test_boolean_prompt_omits_sentiment_guidance(self):
+        formatted = self._build_prompt(output_type="boolean")
+
+        self.assertNotIn("How to analyze sentiment", formatted)
+        self.assertIn("get_top_outcome_reasons", formatted)
+        self.assertIn("Inspect grouped reasons", formatted)
+
     def test_trace_prompt_uses_only_trace_detail_workflow(self):
         formatted = self._build_prompt(evaluation_target="trace")
 
@@ -85,8 +103,37 @@ class TestComputeMetrics(SimpleTestCase):
             output_type="sentiment",
         )
 
+        self.assertIsNotNone(metrics)
+        assert metrics is not None
         self.assertEqual(metrics.result_rates, {"positive": 50.0, "neutral": 25.0, "negative": 25.0})
         self.assertEqual(metrics.previous_result_rates, {"positive": 50.0, "neutral": 50.0, "negative": 0.0})
+
+    @patch.object(graph, "_fetch_period_summary")
+    def test_transient_query_failure_returns_no_metrics(self, mock_fetch):
+        mock_fetch.side_effect = ClickHouseAtCapacity()
+
+        metrics = graph._compute_metrics(
+            team_id=1,
+            evaluation_id="eval-id",
+            period_start="2026-04-08T14:00:00+00:00",
+            period_end="2026-04-08T15:00:00+00:00",
+            previous_period_start="2026-04-08T13:00:00+00:00",
+        )
+
+        self.assertIsNone(metrics)
+
+    @patch.object(graph, "_fetch_period_summary")
+    def test_non_transient_query_failure_propagates(self, mock_fetch):
+        mock_fetch.side_effect = ValueError("invalid query result")
+
+        with self.assertRaisesRegex(ValueError, "invalid query result"):
+            graph._compute_metrics(
+                team_id=1,
+                evaluation_id="eval-id",
+                period_start="2026-04-08T14:00:00+00:00",
+                period_end="2026-04-08T15:00:00+00:00",
+                previous_period_start="2026-04-08T13:00:00+00:00",
+            )
 
 
 class TestFallbackContent(SimpleTestCase):
@@ -323,6 +370,45 @@ class TestRunEvalReportAgentRouting(SimpleTestCase):
         )
         # the agent is built with the gateway-helper client, not a directly-constructed one
         self.assertIs(mock_create_agent.call_args.kwargs["model"], mock_build_llm.return_value)
+
+
+class TestRunEvalReportAgentMetricsUnavailable(SimpleTestCase):
+    @patch.object(graph, "posthoganalytics")
+    @patch.object(graph, "build_langchain_chat_client")
+    @patch.object(graph, "create_react_agent")
+    @patch.object(graph, "_compute_metrics")
+    def test_metrics_unavailable_skips_agent_and_returns_fallback(
+        self, mock_metrics, mock_create_agent, mock_build_llm, mock_pha
+    ):
+        mock_pha.default_client = None
+        mock_metrics.return_value = None
+
+        with (
+            patch("posthog.temporal.ai_observability.eval_reports.metrics.increment_errors") as mock_increment_errors,
+            patch(
+                "posthog.temporal.ai_observability.eval_reports.metrics.increment_report_generated"
+            ) as mock_increment_generated,
+        ):
+            content = graph.run_eval_report_agent(
+                team_id=1,
+                evaluation_id="eval-1",
+                evaluation_name="Relevance",
+                evaluation_description="",
+                evaluation_prompt="",
+                evaluation_type="llm_judge",
+                period_start="2026-04-08T14:00:00+00:00",
+                period_end="2026-04-08T15:00:00+00:00",
+                previous_period_start="2026-04-08T13:00:00+00:00",
+            )
+
+        mock_create_agent.assert_not_called()
+        mock_build_llm.assert_not_called()
+        mock_increment_generated.assert_called_once_with("fallback_metrics_unavailable")
+        mock_increment_errors.assert_called_once_with("metrics_unavailable")
+        self.assertEqual(content.generation_status, graph.EvalReportGenerationStatus.METRICS_UNAVAILABLE)
+        self.assertEqual(content.title, "Metrics unavailable for this period")
+        self.assertIsNone(content.metrics)
+        self.assertEqual(content.sections, [])
 
 
 class TestRunEvalReportAgentCallbackGating(SimpleTestCase):

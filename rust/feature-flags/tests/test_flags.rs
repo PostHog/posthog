@@ -2224,7 +2224,7 @@ async fn test_config_cache_miss_returns_minimal_fallback() -> Result<()> {
     let json_data = res.json::<Value>().await?;
 
     // Verify minimal fallback config fields are present
-    assert_eq!(json_data.get("token"), Some(&json!(token)));
+    assert!(json_data.get("token").is_none());
     assert_eq!(json_data.get("hasFeatureFlags"), Some(&json!(false))); // no flags configured
     assert_eq!(json_data.get("sessionRecording"), Some(&json!(false)));
     assert_eq!(json_data.get("surveys"), Some(&json!(false)));
@@ -2290,7 +2290,7 @@ async fn test_config_cache_miss_with_recordings_quota_limited() -> Result<()> {
     let json_data = res.json::<Value>().await?;
 
     // Verify fallback config fields are present (cache miss behavior)
-    assert_eq!(json_data.get("token"), Some(&json!(token)));
+    assert!(json_data.get("token").is_none());
     assert_eq!(json_data.get("sessionRecording"), Some(&json!(false)));
 
     // Critical assertion: quota_limited must include "recordings"

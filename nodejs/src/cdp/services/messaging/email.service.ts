@@ -317,6 +317,11 @@ export class EmailService {
                     $workflow_action_id: invocation.state.actionId,
                     $email_to: params.to.email,
                     $email_subject: params.subject,
+                    // Always set, never conditional: an untracked send can never produce a
+                    // `$workflows_email_opened` or `$workflows_email_link_clicked`, so without this
+                    // dimension on the send there is no way to build an open rate in an insight that
+                    // isn't deflated by however much of the audience declined tracking.
+                    $email_tracking_enabled: trackingEnabled,
                 },
             })
         }
