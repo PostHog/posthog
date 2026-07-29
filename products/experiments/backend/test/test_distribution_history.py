@@ -32,11 +32,12 @@ class TestVariantSplitChangedAt(APIBaseTest):
             name="Split flag",
             filters=_filters(50, 50),
         )
+        self.launched_at = timezone.now() - timedelta(days=1)
         self.experiment = Experiment.objects.create(
             team=self.team,
             name="Split experiment",
             feature_flag=self.flag,
-            start_date=timezone.now() - timedelta(days=1),
+            start_date=self.launched_at,
         )
 
     def _update_filters(self, filters: dict) -> None:
@@ -58,7 +59,7 @@ class TestVariantSplitChangedAt(APIBaseTest):
         changed_at = variant_split_changed_at(self.experiment)
 
         assert changed_at is not None
-        assert changed_at > self.experiment.start_date
+        assert changed_at > self.launched_at
 
     def test_split_change_before_launch_is_ignored(self) -> None:
         self._update_filters(_filters(70, 30))

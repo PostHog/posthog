@@ -17,10 +17,10 @@ from typing import TYPE_CHECKING, Any
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 if TYPE_CHECKING:
-    from products.experiments.backend.models import Experiment
+    from products.experiments.backend.models.experiment import Experiment
 
 
-def _variant_split(filters: Any) -> dict[str, Any] | None:
+def _variant_split(filters: Any) -> dict[Any, Any] | None:
     """The variant key → rollout percentage mapping in a set of flag filters, or None when absent."""
     if not isinstance(filters, dict):
         return None

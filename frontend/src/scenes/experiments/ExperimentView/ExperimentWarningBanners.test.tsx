@@ -56,7 +56,7 @@ describe('ExperimentWarningBanner', () => {
         render(<ExperimentWarningBanner />)
 
         expect(screen.getByText(/variant split changed while the experiment was running/i)).toBeInTheDocument()
-        await userEvent.click(screen.getByRole('button', { name: /move start date to the change/i }))
+        await userEvent.click(screen.getByText('Move start date to the change'))
 
         expect(changeExperimentStartDate).toHaveBeenCalledWith(CHANGED_AT)
     })
