@@ -108,9 +108,8 @@ def _run_row(
         "updated_at": _ts(started + timedelta(seconds=duration_seconds)),
         "run_attempt": run_attempt,
         "pull_requests": None,
-        # The webhook's `repository` is GitHub's MINIMAL representation: identity and URLs only,
-        # never default_branch. An idealized fixture that added it here is how a detector reading
-        # a field production never lands stayed green through review.
+        # Faithful to the webhook's MINIMAL `repository` payload: faking a default_branch here
+        # would green-light a detector reading a column production never lands.
         "repository": json.dumps({"full_name": "PostHog/posthog"}),
     }
 
@@ -595,9 +594,8 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
                 source=source,
                 credential=credential,
             )
-        # Broken-default-branch reads the default branch off the PR snapshot, so its tests seed
-        # pr_rows; the flaky/duration detectors never read pull_requests, so their tests reuse the
-        # runs table there and skip for_team.
+        # The flaky and duration detectors never read pull_requests, so their tests leave pr_rows
+        # unset and that slot reuses the runs table, keeping for_team out of the picture.
         return CuratedGitHubSource(
             team=self.team,
             tables=GitHubTables(
@@ -728,9 +726,8 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
         assert refreshed[0].source_id == findings[0].source_id
 
     def test_broken_default_branch_without_pr_evidence_never_guesses(self) -> None:
-        # Only the PR snapshot's base.repo carries GitHub's reported default branch (the run
-        # webhook's minimal repository payload has none). With no PR evidence for this repo, a
-        # fallback guess of master/main would mint a P1 from inference, so silence is required.
+        # With no PR row for this repo its default branch is unknown, and a fallback guess of
+        # master/main would mint a P1 from inference rather than from GitHub's report.
         now = datetime.now(UTC).replace(tzinfo=None)
         rows = [
             _run_row(1, "red-ci", "s1", "failure", now - timedelta(hours=3), 30, head_branch="master"),

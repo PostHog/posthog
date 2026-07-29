@@ -74,8 +74,8 @@ def build_query(table_name: str, *, started_floor: bool = False) -> str:
                 conclusion,
                 run_attempt,
                 JSONExtractInt(arrayElement(JSONExtractArrayRaw(ifNull(pull_requests, '[]')), 1), 'number') AS pr_number,
-                -- repository is GitHub's MINIMAL repository representation (id/name/full_name/owner/urls);
-                -- it carries no default_branch, so repo identity is the only thing to extract from it.
+                -- repository is GitHub's MINIMAL repository representation: identity and URLs, never a
+                -- default_branch (the PR snapshot's base.repo carries that; see query_default_branches).
                 splitByChar('/', ifNull(JSONExtractString(repository, 'full_name'), '')) AS repo_parts,
                 parseDateTimeBestEffort(run_started_at) AS run_started_at,
                 parseDateTimeBestEffort(updated_at) AS updated_at,

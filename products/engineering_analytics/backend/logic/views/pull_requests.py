@@ -2,13 +2,14 @@
 
 Maps the raw GitHub pull-requests warehouse snapshot (GitHub's PR JSON, landed
 verbatim) into honest, query-able columns. This is the ONLY place PR domain rules
-live — bot detection, repo identity from ``base.repo.full_name``, label extraction,
-the canonical PR state, and the coarse open-to-merge duration. The source table name
-is resolved per-team and passed in (see ``logic.sources``); it is never hardcoded,
-because a warehouse table's name is ``prefix + "github_pull_requests"`` and the prefix
-is user-chosen. Every query module embeds this ``SELECT`` as a subquery (see
-``_curated``) rather than re-deriving the columns from JSON; nothing registers it as a
-global HogQL view, so the product stays off the per-query catalog hot path.
+live — bot detection, repo identity from ``base.repo.full_name``, the repo's reported
+default branch, label extraction, the canonical PR state, and the coarse open-to-merge
+duration. The source table name is resolved per-team and passed in (see
+``logic.sources``); it is never hardcoded, because a warehouse table's name is
+``prefix + "github_pull_requests"`` and the prefix is user-chosen. Every query module
+embeds this ``SELECT`` as a subquery (see ``_curated``) rather than re-deriving the
+columns from JSON; nothing registers it as a global HogQL view, so the product stays
+off the per-query catalog hot path.
 
 The real GitHub source lands timestamps as **strings** and the nested objects
 (``user`` / ``head`` / ``base`` / ``labels``) as **Nullable** JSON, so this builder
@@ -79,9 +80,9 @@ def build_query(table_name: str) -> str:
                 -- base.ref is the branch the PR merges into (usually the default branch); the LLM-spend
                 -- session join treats it as neutral, since agents stamp pre-branch exploration with it.
                 JSONExtractString(base, 'ref') AS base_branch,
-                -- base.repo is a full GitHub repository object, so unlike the workflow_run webhook's
-                -- minimal repository payload it carries the repo's reported default_branch. This is the
-                -- only warehouse column that holds it (see query_default_branches).
+                -- The only warehouse column carrying the repo's reported default branch: base.repo is a
+                -- full repository object, unlike the workflow_run webhook's minimal repository payload
+                -- (see query_default_branches).
                 ifNull(JSONExtractString(base, 'repo', 'default_branch'), '') AS default_branch,
                 parseDateTimeBestEffort(created_at) AS created_at,
                 parseDateTimeBestEffort(updated_at) AS updated_at,

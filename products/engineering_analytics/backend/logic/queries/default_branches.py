@@ -3,10 +3,9 @@
 The workflow_run webhook's ``repository`` is GitHub's minimal repository representation and
 carries no ``default_branch`` field, so the runs table can never answer this (every landed row
 is empty, verified against production). A PR's ``base.repo`` is a full repository object and
-does carry it; ``argMax`` over ``updated_at`` keeps the most recently reported value, so a repo
-that renames its default branch converges as soon as any of its PRs updates. A repo with no PR
-rows yet resolves nothing, and broken-default-branch detection honestly skips it rather than
-guessing.
+does carry it; taking the ``argMax`` over ``updated_at`` means a repo that renames its default
+branch converges as soon as any of its PRs updates. A repo with no PR rows yet resolves
+nothing, and broken-default-branch detection honestly skips it rather than guessing.
 """
 
 from posthog.clickhouse.workload import Workload
@@ -17,9 +16,9 @@ from products.engineering_analytics.backend.logic.queries._curated import Curate
 # cap and silently drop default-branch detection for the overflow (see pr_cost.py's convention).
 _LIMIT = 10000
 
-# Unwindowed on purpose: the PR snapshot is current state (one row per PR, no growing event
-# stream), and a window on updated_at would blank the map for a repo with no recent PR activity,
-# disabling broken-default-branch detection exactly when the repo is quiet.
+# Unwindowed on purpose: a window on updated_at would blank the map for a repo with no recent
+# PR activity, disabling broken-default-branch detection exactly when the repo is quiet. The
+# full snapshot scan (one row per PR) rides the hourly OFFLINE sweep, not a request path.
 _SELECT = f"""
     SELECT repo_owner, repo_name, argMax(default_branch, updated_at) AS repo_default_branch
     FROM __PR_SOURCE__ AS pr
