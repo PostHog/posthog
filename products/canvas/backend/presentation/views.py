@@ -17,6 +17,7 @@ from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.models.user import User
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
+from posthog.utils import str_to_bool
 
 from products.canvas.backend import build_service
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
@@ -38,7 +39,7 @@ from products.canvas.backend.presentation.serializers import (
     CanvasValidateRequestSerializer,
     CanvasValidateResponseSerializer,
 )
-from products.canvas.backend.source import has_errors, validate_source_project
+from products.canvas.backend.source import apply_source_edits, has_errors, validate_source_project
 from products.tasks.backend.facade import api as tasks_facade
 
 # The canvas's build lifecycle returns this many recent builds (the published
@@ -108,7 +109,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 queryset = queryset.filter(channel_id=channel_id)
             is_home = self.request.query_params.get("is_home")
             if is_home is not None:
-                queryset = queryset.filter(is_home=is_home.lower() == "true")
+                queryset = queryset.filter(is_home=str_to_bool(is_home))
         return queryset.order_by("-created_at")
 
     @extend_schema(
@@ -121,9 +122,11 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         payload = CanvasCreateSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         channel_id = payload.validated_data["channel_id"]
-        if not tasks_facade.channel_queryset().filter(team_id=self.team_id, id=channel_id).exists():
-            return Response({"detail": "Channel not found in this team."}, status=status.HTTP_400_BAD_REQUEST)
         user = request.user if isinstance(request.user, User) else None
+        # The facade's visibility rule, not a bare team filter: filing into
+        # someone else's personal channel must be refused here too.
+        if tasks_facade.get_channel(channel_id, self.team_id, user.id if user else None) is None:
+            return Response({"detail": "Channel not found in this team."}, status=status.HTTP_400_BAD_REQUEST)
         try:
             # Savepoint so losing the is_home uniqueness race doesn't poison
             # the request's transaction.
@@ -293,25 +296,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {"detail": "The canvas's source is temporarily unavailable."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        project = {**project, "files": dict(project["files"])}
-        diagnostics: list[dict[str, Any]] = []
-        for operation in payload.validated_data["operations"]:
-            path = operation["path"]
-            content = operation.get("content")
-            if content is None:
-                if path not in project["files"]:
-                    diagnostics.append(
-                        {
-                            "severity": "error",
-                            "code": "edit_target_missing",
-                            "message": f"cannot delete {path} — the project has no file at that path",
-                            "path": path,
-                        }
-                    )
-                    continue
-                del project["files"][path]
-            else:
-                project["files"][path] = content
+        project, diagnostics = apply_source_edits(project, payload.validated_data["operations"])
         if diagnostics:
             return Response(
                 {

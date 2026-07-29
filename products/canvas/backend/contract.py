@@ -12,7 +12,9 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-CANVAS_BUILDER_DIR = Path(__file__).resolve().parents[1] / "packages" / "canvas_builder"
+from django.conf import settings
+
+CANVAS_BUILDER_DIR = Path(settings.CANVAS_BUILDER_DIR)
 
 
 @lru_cache(maxsize=1)
