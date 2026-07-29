@@ -132,9 +132,10 @@ const SESSION_EVENT_FLUSH_MS = 16;
  * A backgrounded session's transcript is freed this long after it stops being
  * viewed, and reloaded from disk on return. Only disconnected (idle, no live
  * subscription) sessions are eligible, so no streamed event can append to an
- * evicted transcript.
+ * evicted transcript. Generous on purpose: reloading means a full log read and
+ * re-parse, so flipping between tasks within a few minutes must stay free.
  */
-const SESSION_EVENT_EVICT_GRACE_MS = 20_000;
+export const SESSION_EVENT_EVICT_GRACE_MS = 180_000;
 /**
  * On open, paint the last this-many bytes of the log immediately so a big
  * transcript shows its latest turns in tens of ms, while the authoritative

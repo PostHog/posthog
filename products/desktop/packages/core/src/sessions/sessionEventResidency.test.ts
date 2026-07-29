@@ -1,11 +1,14 @@
 import type { AgentSession, SessionStatus } from "@posthog/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SessionService, type SessionServiceDeps } from "./sessionService";
+import {
+  SESSION_EVENT_EVICT_GRACE_MS as GRACE_MS,
+  SessionService,
+  type SessionServiceDeps,
+} from "./sessionService";
 import { sessionStore, sessionStoreSetters } from "./sessionStore";
 
 const RUN = "run-res";
 const TASK = "task-res";
-const GRACE_MS = 20_000;
 
 const LOG_LINE = JSON.stringify({
   type: "notification",
