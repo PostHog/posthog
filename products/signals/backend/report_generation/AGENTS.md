@@ -87,16 +87,19 @@ charts path.
 - **Replace, not append.** `charts` is the report's whole set. On a re-research the previous charts
   are shown back as context (loaded from `SignalReport.charts` by `_load_previous_research`); the run
   keeps, refreshes, or drops them and the caller replaces the column with the result.
-- **Persistence** lives in the caller activity (`temporal/agentic/report.py`), like everything else
-  this module produces — `_append_agentic_report_artefacts` writes the column in the same
-  transaction as the artefacts. It only touches charts when this run's summary becomes the report's
-  prose (the ready and pending-input paths); the not-actionable reset keeps the previous
-  title/summary and so leaves the charts alone. Within that, three cases: a valid non-empty set
-  replaces the column; an **empty** set never overwrites an existing one (the presentation field is
-  optional, so an omitted key and a deliberate "drop everything" both arrive as `[]` — wiping
-  user-visible charts on the ambiguity is the worse failure, so the pipeline never auto-clears to
-  zero; a human can clear from the inbox); and a set that busts the whole-set caps clears to none
-  rather than leaving a stale set under the new summary.
+- **Persistence is atomic with the prose.** `run_agentic_report_activity` only *resolves* the charts
+  payload (`_resolve_report_charts_payload`) and returns it on `RunAgenticReportOutput.charts`; the
+  column is written by the transition activity that also writes the title/summary
+  (`mark_report_ready_activity` / `mark_report_pending_input_activity`), inside the same
+  `transition_to` transaction. So charts and the prose they illustrate land together — a failed run
+  or the not-actionable reset (neither writes the new prose) leaves the charts alone by construction,
+  with no separate-transaction window. The resolver yields three outcomes: a valid non-empty set
+  (replace the column); `None` when the team isn't opted in **or** the run authored no charts (leave
+  the column alone — the presentation field is optional, so an omitted key and a deliberate "drop
+  everything" both arrive empty and are indistinguishable, and wiping user-visible charts on that
+  ambiguity is the worse failure, so the pipeline never auto-clears to zero; a human can clear from
+  the inbox); and `[]` when the set busts the whole-set caps (clear, so a stale set can't sit under
+  the new summary).
 - **Not safety-judged.** The pipeline's safety judge screens the input signals before research runs,
   so it never sees research-authored charts — the same as it never sees research-authored
   title/summary. Charts are agent output derived from already-screened signals, consistent with that

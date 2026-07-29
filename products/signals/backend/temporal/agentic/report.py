@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from django.conf import settings
 from django.db import transaction
@@ -62,6 +62,11 @@ class RunAgenticReportOutput:
     explanation: str
     already_addressed: bool
     repository: str
+    # Resolved chart payload for `SignalReport.charts`: the JSON set to store, `[]` to clear, or
+    # `None` to leave the column untouched. Applied by the transition activity that writes the
+    # matching title/summary, so charts and their prose land in one transaction. Defaults to `None`
+    # (the safe skip value) so an older workflow history that predates this field replays cleanly.
+    charts: list[dict[str, Any]] | None = None
 
 
 _ArtefactContentT = TypeVar("_ArtefactContentT", bound=BaseModel)
@@ -253,9 +258,7 @@ def _build_reviewers_content(
     return reviewers_content
 
 
-def _append_agentic_report_artefacts(
-    *, team_id: int, report_id: str, artefacts: list[ArtefactDraft], charts: list[ReportChart] | None
-) -> None:
+def _append_agentic_report_artefacts(*, team_id: int, report_id: str, artefacts: list[ArtefactDraft]) -> None:
     # Append-only: each (re-promotion) run adds a new version of its artefacts rather than
     # replacing the previous ones. The report's current judgments / repo selection / reviewers are
     # the latest row of each type; findings are keyed by `signal_id` (latest per signal wins).
@@ -266,10 +269,10 @@ def _append_agentic_report_artefacts(
     # orchestrates auto-start explicitly, so appends opt out of the model's auto-start
     # re-evaluation hook.
     #
-    # `charts`, unlike the artefacts, are report *content* rather than log: they replace the report's
-    # set (the way title/summary do), not append to it. `None` means the team isn't opted in, so the
-    # charts column is left untouched. Written with `.update()` in the same transaction so it bypasses
-    # the model save hooks — matching the artefact appends' opt-out of the auto-start re-evaluation.
+    # Charts are NOT written here: they are report content that must land in the same transaction as
+    # the title/summary they illustrate, which a later activity writes (`mark_report_ready` /
+    # `mark_report_pending_input`). The research activity only resolves the payload; see
+    # `_resolve_report_charts_payload` and `RunAgenticReportOutput.charts`.
     with transaction.atomic():
         for draft in artefacts:
             SignalReportArtefact.append(
@@ -279,32 +282,32 @@ def _append_agentic_report_artefacts(
                 attribution=draft.attribution,
                 reevaluate_autostart=False,
             )
-        # `charts is not None` means this run's summary is becoming the report's prose, so the charts
-        # column may be replaced to match it. Three cases, because the model's output is untrusted:
-        #   - a valid non-empty set replaces the column (refresh / drop-individual works);
-        #   - an *empty* set does NOT overwrite an existing set. The presentation field is optional, so
-        #     a turn that omits it and a turn that deliberately drops every chart both arrive as `[]` —
-        #     indistinguishable, and silently wiping user-visible charts is the worse failure. A human
-        #     can clear charts from the inbox; the pipeline never auto-clears to zero.
-        #   - a cap-busting set (too many, too large, or a duplicate id the agent produced) can't be
-        #     stored, and mustn't fail an otherwise-good run — clear to none so the previous set can't
-        #     sit under an unrelated new summary. Any `chart:` link then degrades to its label.
-        if charts:
-            batch_error = chart_batch_error(charts)
-            if batch_error:
-                logger.warning(
-                    "clearing report charts: %s",
-                    batch_error,
-                    report_id=report_id,
-                    team_id=team_id,
-                    chart_count=len(charts),
-                )
-            payload = [] if batch_error else [chart.model_dump(mode="json") for chart in charts]
-            SignalReport.objects.filter(id=report_id, team_id=team_id).update(charts=payload)
-        elif charts is not None:
-            logger.info(
-                "run authored no charts; leaving the report's existing set", report_id=report_id, team_id=team_id
-            )
+
+
+def _resolve_report_charts_payload(
+    charts: list[ReportChart], charts_enabled: bool, *, report_id: str, team_id: int
+) -> list[dict[str, Any]] | None:
+    """Resolve an authored chart set to what a report's `charts` column should become, or `None` to
+    leave it untouched. The transition activity that writes the title/summary applies this atomically.
+
+    Three cases, because the model's output is untrusted and the presentation `charts` field is optional:
+    - a valid non-empty set → its JSON payload (replace the column).
+    - not opted in, or an *empty* set → `None` (leave the column alone). An omitted key and a
+      deliberate "drop everything" both arrive empty and are indistinguishable, so wiping
+      user-visible charts on that ambiguity is refused — the pipeline never auto-clears to zero (a
+      human can clear from the inbox).
+    - a cap-busting set (too many, too large, or a duplicate id the agent produced) → `[]` (clear),
+      so a stale set can't sit under the run's new summary; any `chart:` link then degrades to a label.
+    """
+    if not charts_enabled or not charts:
+        return None
+    batch_error = chart_batch_error(charts)
+    if batch_error:
+        logger.warning(
+            "clearing report charts: %s", batch_error, report_id=report_id, team_id=team_id, chart_count=len(charts)
+        )
+        return []
+    return [chart.model_dump(mode="json") for chart in charts]
 
 
 async def _persist_agentic_report_artefacts(
@@ -312,10 +315,6 @@ async def _persist_agentic_report_artefacts(
     report_id: str,
     result: ReportResearchOutput,
     repo_selection: RepoSelectionResult,
-    *,
-    # Defaults off so the debug seed/ingest commands (which don't gate on the flag) never write
-    # charts; the production activity passes the resolved gate explicitly.
-    charts_enabled: bool = False,
 ) -> None:
     # Resolve suggested reviewers from commit hashes (always, from the effective findings —
     # auto-start below needs them even when nothing is persisted this run)
@@ -360,19 +359,10 @@ async def _persist_agentic_report_artefacts(
             )
         )
 
-    # Charts illustrate the summary, so they may only replace the report's set when this run's
-    # summary will actually become the report's prose. The not-actionable branch resets the report to
-    # `potential` and keeps its previous title/summary (`reset_report_to_potential_activity` writes
-    # neither), so replacing its charts there would strand them under unrelated text; the ready and
-    # pending-input branches both write the new title/summary, so charts stay coherent with it.
-    # `None` leaves the column untouched — also the path for a team that isn't opted in.
-    prose_will_show = result.effective_actionability().actionability != ActionabilityChoice.NOT_ACTIONABLE
-    charts = list(result.charts) if (charts_enabled and prose_will_show) else None
     await database_sync_to_async(_append_agentic_report_artefacts, thread_sensitive=False)(
         team_id=team_id,
         report_id=report_id,
         artefacts=artefacts,
-        charts=charts,
     )
 
     # Backfill the research task's title now that research has produced the report title. At
@@ -500,10 +490,15 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 input.report_id,
                 result,
                 input.repo_selection,
-                charts_enabled=charts_enabled,
             )
         actionability = result.effective_actionability()
         priority = result.effective_priority()
+        # Resolve the charts payload here, but let the transition activity write it alongside the
+        # title/summary so charts and their prose land in one transaction (and never on the
+        # not-actionable reset or a failed run, which don't write the new prose).
+        charts_payload = _resolve_report_charts_payload(
+            result.charts, charts_enabled, report_id=input.report_id, team_id=input.team_id
+        )
         logger.info(
             "signals agentic report completed",
             report_id=input.report_id,
@@ -519,6 +514,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             explanation=actionability.explanation,
             already_addressed=actionability.already_addressed,
             repository=repository,
+            charts=charts_payload,
         )
     except Exception as error:
         logger.exception(

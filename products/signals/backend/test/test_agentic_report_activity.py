@@ -41,6 +41,7 @@ from products.signals.backend.temporal.agentic.select_repository import (
     SelectRepositoryInput,
     select_repository_activity,
 )
+from products.signals.backend.temporal.summary import MarkReportReadyInput, mark_report_ready_activity
 from products.signals.backend.temporal.types import SignalData
 
 
@@ -123,24 +124,6 @@ def _build_research_output_with_duplicate_chart_ids() -> ReportResearchOutput:
     )
 
 
-def _build_not_actionable_output_with_chart() -> ReportResearchOutput:
-    # A run that decides the report isn't worth acting on still authored a chart while researching.
-    return ReportResearchOutput(
-        title="Looked into it, nothing to do",
-        summary="After research this turned out not to need action.",
-        charts=[_chart()],
-        new_artefacts=[
-            SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="Checked; fine.", verified=True),
-            SignalFinding(signal_id="sig-2", relevant_code_paths=[], data_queried="Checked; fine.", verified=True),
-            ActionabilityAssessment(
-                explanation="Not actionable.",
-                actionability=ActionabilityChoice.NOT_ACTIONABLE,
-                already_addressed=True,
-            ),
-        ],
-    )
-
-
 _EXISTING_CHART = {
     "chart_id": "existing",
     "title": "Existing chart",
@@ -148,14 +131,14 @@ _EXISTING_CHART = {
 }
 
 
-async def _run_activity_with_output(monkeypatch, ateam, report, output: ReportResearchOutput) -> None:
+async def _run_activity_with_output(monkeypatch, ateam, report, output, *, charts_enabled=True):
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report.resolve_user_id_for_team",
         lambda team_id: 1,
     )
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report._team_report_charts_enabled",
-        lambda team_id: True,
+        lambda team_id: charts_enabled,
     )
 
     async def fake_run_multi_turn_research(*args, **kwargs):
@@ -166,7 +149,7 @@ async def _run_activity_with_output(monkeypatch, ateam, report, output: ReportRe
         fake_run_multi_turn_research,
     )
     with patch("products.signals.backend.temporal.agentic.report.Heartbeater"):
-        await run_agentic_report_activity(
+        return await run_agentic_report_activity(
             RunAgenticReportInput(
                 team_id=ateam.id,
                 report_id=str(report.id),
@@ -440,61 +423,57 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize("charts_enabled", [True, False])
-async def test_run_agentic_report_activity_persists_charts_only_when_enabled(monkeypatch, ateam, charts_enabled):
-    # The research agent authored a chart; it must reach the report row iff the team is opted in.
-    # Off, the charts column is left untouched (an un-opted team never gets a chart through the
-    # always-present schema field); on, the report shows exactly what the run authored.
+@pytest.mark.parametrize(
+    "name,charts_enabled,output_factory,expected",
+    [
+        # Opted-in + a valid chart → the JSON set to store.
+        ("enabled_non_empty", True, _build_research_output_with_chart, [{"chart_id": "signups-drop"}]),
+        # Not opted in → None (leave the column alone), even though the mocked run returned a chart.
+        ("disabled", False, _build_research_output_with_chart, None),
+        # Opted-in but the run authored no charts (optional field omitted / dropped) → None, never a
+        # wipe of whatever the report already showed.
+        ("enabled_empty", True, _build_research_output, None),
+        # Opted-in but the set busts the whole-set caps (duplicate id) → [] to clear, so a stale set
+        # can't sit under the new summary.
+        ("enabled_cap_bust", True, _build_research_output_with_duplicate_chart_ids, []),
+    ],
+)
+async def test_run_agentic_report_activity_resolves_charts_payload(
+    monkeypatch, ateam, name, charts_enabled, output_factory, expected
+):
+    # The activity resolves the charts payload but does not write it — the transition activity does,
+    # atomically with the title/summary (see test_mark_report_ready_activity_applies_charts). So we
+    # assert the resolved payload on the returned output rather than the report row.
     report = await database_sync_to_async(SignalReport.objects.create)(
-        team=ateam,
-        status=SignalReport.Status.IN_PROGRESS,
-        signal_count=2,
-        total_weight=1.3,
+        team=ateam, status=SignalReport.Status.IN_PROGRESS, signal_count=2, total_weight=1.3
     )
 
-    monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.report.resolve_user_id_for_team",
-        lambda team_id: 1,
-    )
-    monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.report._team_report_charts_enabled",
-        lambda team_id: charts_enabled,
+    result = await _run_activity_with_output(
+        monkeypatch, ateam, report, output_factory(), charts_enabled=charts_enabled
     )
 
-    async def fake_run_multi_turn_research(*args, **kwargs):
-        # The agent only returns charts when it was told it could — mirror the gate the caller passes.
-        return _build_research_output_with_chart() if kwargs.get("charts_enabled") else _build_research_output()
-
-    monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.report.run_multi_turn_research",
-        fake_run_multi_turn_research,
-    )
-
-    with patch("products.signals.backend.temporal.agentic.report.Heartbeater"):
-        await run_agentic_report_activity(
-            RunAgenticReportInput(
-                team_id=ateam.id,
-                report_id=str(report.id),
-                signals=_build_signals(),
-                repo_selection=RepoSelectionResult(repository="posthog/posthog", reason="test"),
-            )
-        )
-
-    stored_charts = await database_sync_to_async(
-        lambda: SignalReport.objects.get(id=report.id).charts,
-    )()
-    if charts_enabled:
-        assert [chart["chart_id"] for chart in stored_charts] == ["signups-drop"]
+    if expected is None:
+        assert result.charts is None
     else:
-        assert stored_charts == []
+        assert [{"chart_id": chart["chart_id"]} for chart in result.charts] == expected
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_not_actionable_run_leaves_existing_charts_untouched(monkeypatch, ateam):
-    # The not-actionable branch resets the report to potential and keeps its previous title/summary,
-    # so replacing its charts would strand them under unrelated prose. An opted-in, not-actionable run
-    # must leave the stored charts exactly as they were.
+@pytest.mark.parametrize(
+    "name,charts,expected",
+    [
+        # A resolved set replaces the column, in the same transaction as the ready transition.
+        ("replace", [{"chart_id": "new", "title": "New", "query": {"kind": "InsightVizNode"}}], "replaced"),
+        # None means "leave alone" — the report keeps whatever it had.
+        ("leave_alone", None, "kept"),
+        # [] clears (the resolver's cap-bust signal) — a stale set must not survive under new prose.
+        ("clear", [], "cleared"),
+    ],
+)
+async def test_mark_report_ready_activity_applies_charts(ateam, name, charts, expected):
+    # Charts land in the same transaction as the title/summary the ready transition writes, so a
+    # failure of that activity can never leave new charts under stale prose.
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
         status=SignalReport.Status.IN_PROGRESS,
@@ -503,50 +482,24 @@ async def test_not_actionable_run_leaves_existing_charts_untouched(monkeypatch, 
         charts=[_EXISTING_CHART],
     )
 
-    await _run_activity_with_output(monkeypatch, ateam, report, _build_not_actionable_output_with_chart())
-
-    stored_charts = await database_sync_to_async(lambda: SignalReport.objects.get(id=report.id).charts)()
-    assert stored_charts == [_EXISTING_CHART]
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_empty_chart_result_does_not_wipe_existing_charts(monkeypatch, ateam):
-    # The presentation `charts` field is optional, so a re-research that omits it — or the model just
-    # not attending to it — arrives as []. That must not silently wipe a report's existing charts;
-    # only a valid non-empty set replaces them. `_build_research_output()` carries no charts.
-    report = await database_sync_to_async(SignalReport.objects.create)(
-        team=ateam,
-        status=SignalReport.Status.IN_PROGRESS,
-        signal_count=2,
-        total_weight=1.3,
-        charts=[_EXISTING_CHART],
+    await mark_report_ready_activity(
+        MarkReportReadyInput(
+            team_id=ateam.id,
+            report_id=str(report.id),
+            title="Title",
+            summary="Summary",
+            processed_signal_count=2,
+            charts=charts,
+        )
     )
 
-    await _run_activity_with_output(monkeypatch, ateam, report, _build_research_output())
-
-    stored_charts = await database_sync_to_async(lambda: SignalReport.objects.get(id=report.id).charts)()
-    assert stored_charts == [_EXISTING_CHART]
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_duplicate_chart_ids_clear_the_set_rather_than_persisting_stale(monkeypatch, ateam):
-    # A batch that busts the whole-set contract (here, two charts under one id) can't be stored, and
-    # must not leave the previous set sitting under the run's new summary either — the column is
-    # cleared so a `chart:` link just degrades to its label.
-    report = await database_sync_to_async(SignalReport.objects.create)(
-        team=ateam,
-        status=SignalReport.Status.IN_PROGRESS,
-        signal_count=2,
-        total_weight=1.3,
-        charts=[_EXISTING_CHART],
-    )
-
-    await _run_activity_with_output(monkeypatch, ateam, report, _build_research_output_with_duplicate_chart_ids())
-
-    stored_charts = await database_sync_to_async(lambda: SignalReport.objects.get(id=report.id).charts)()
-    assert stored_charts == []
+    stored = await database_sync_to_async(lambda: SignalReport.objects.get(id=report.id).charts)()
+    if expected == "replaced":
+        assert [chart["chart_id"] for chart in stored] == ["new"]
+    elif expected == "kept":
+        assert stored == [_EXISTING_CHART]
+    else:
+        assert stored == []
 
 
 @pytest.mark.asyncio
