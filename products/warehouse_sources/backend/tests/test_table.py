@@ -89,6 +89,35 @@ class TestDataWarehouseTableColumnOrder(BaseTest):
         assert table.column_order == ["z", "a"]
 
 
+class TestWarehouseQueryDisablesHivePartitioning(BaseTest):
+    # ClickHouse infers a type for each Hive-style partition-folder value it samples (e.g. our
+    # internal `_ph_partition_key`) independently of the column's declared type. A table whose
+    # partition granularity changed over time mixes value shapes across folders (e.g. an
+    # hour-tier "2017-06-30T05" alongside older week-tier folders), and CH can misclassify the
+    # column as Date and then fail to parse it — HogQLGlobalSettings disables this inference for
+    # the normal HogQL query path, so these raw `sync_execute` calls must opt out the same way.
+    def _table(self) -> DataWarehouseTable:
+        return DataWarehouseTable(name="t", format="Delta", team=self.team, url_pattern="s3://bucket/team_1/t")
+
+    def test_get_count_disables_hive_partitioning(self) -> None:
+        with patch(
+            "products.warehouse_sources.backend.models.table.sync_execute", return_value=[(5,)]
+        ) as mock_sync_execute:
+            count = self._table().get_count()
+
+        assert count == 5
+        assert mock_sync_execute.call_args.kwargs["settings"]["use_hive_partitioning"] == 0
+
+    def test_get_max_value_for_column_disables_hive_partitioning(self) -> None:
+        with patch(
+            "products.warehouse_sources.backend.models.table.sync_execute", return_value=[(42,)]
+        ) as mock_sync_execute:
+            value = self._table().get_max_value_for_column("created_at")
+
+        assert value == 42
+        assert mock_sync_execute.call_args.kwargs["settings"]["use_hive_partitioning"] == 0
+
+
 class TestSafeExposeChError:
     # ClickHouseAtCapacity is a DRF APIException with no `.message`, so the capacity check
     # must run before the message-matching loop — reordering them would reintroduce an
