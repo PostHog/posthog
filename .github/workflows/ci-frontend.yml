@@ -581,7 +581,10 @@ jobs:
         name: Frontend typechecking
         needs: [changes]
         if: needs.changes.outputs.frontend_code == 'true'
-        # tsgo peaks around 10 GB checking the whole frontend, so 16 GB runners OOM mid-check.
+        # tsgo peaks ~10 GB RSS type-checking the whole frontend, which OOM-kills it on ~6% of
+        # runs on any 16 GB runner (ubuntu-latest and depot-ubuntu-24.04-4 alike). Peak tracks
+        # the type graph, not parallelism, so GOMAXPROCS does not shrink it; 32 GB is the next
+        # rung on Depot's ladder. Talk to #team-devex before changing.
         runs-on: depot-ubuntu-24.04-8
         # Kea typegen invalidates on changes to any logic plus everything that depends on it.
         # For changes to shared core (TaxonomicFilter, Insight, etc.) the dependent set is large
