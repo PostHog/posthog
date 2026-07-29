@@ -593,10 +593,10 @@ RAW_REPLAY_MIN_QUERY_COUNT = 10
 # reads/inserts), so a pool cuts wall time at the widened selection size. A cold
 # first run is dominated by per-day bucket builds — hundreds of thousands of them
 # — so this is the main throughput lever, but raising it adds load to the offline
-# ClickHouse pool. Overridable via WEB_ANALYTICS_WARMING_SHAPE_CONCURRENCY without
+# ClickHouse pool. Overridable via WEB_ANALYTICS_WARMING_SHARD_THREADS without
 # a redeploy; the pool is fixed for the life of a pass, so a change applies when
 # the next run starts. This is the fallback when the setting is unset.
-WARMING_SHAPE_CONCURRENCY = 6
+WARMING_SHARD_THREADS = 6
 
 # Fallback shard count for the sharded warm pass (see split_warmable_queries_op);
 # overridable live via WEB_ANALYTICS_WARMING_SHARDS. Total ClickHouse-side
@@ -659,7 +659,7 @@ def warm_queries_op(context: dagster.OpExecutionContext, config: WarmQueriesConf
     _warm_queries(context, mode, queries)
 
 
-@dagster.op(out=dagster.DynamicOut(dict))
+@dagster.op(out=dagster.DynamicOut(dict), retry_policy=cache_warming_retry_policy)
 def split_warmable_queries_op(context: dagster.OpExecutionContext, config: WarmQueriesConfig, queries: list[dict]):
     """Scope the selection and fan it out into team-disjoint shards.
 
@@ -840,8 +840,8 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
     # Clamped: a non-positive value would abort every run at pool construction and
     # an oversized one can exhaust process threads. The pool is fixed for the life
     # of the pass, so a settings change applies when the next run starts.
-    concurrency_setting = get_instance_setting("WEB_ANALYTICS_WARMING_SHAPE_CONCURRENCY")
-    concurrency = min(64, max(1, WARMING_SHAPE_CONCURRENCY if concurrency_setting is None else concurrency_setting))
+    concurrency_setting = get_instance_setting("WEB_ANALYTICS_WARMING_SHARD_THREADS")
+    concurrency = min(64, max(1, WARMING_SHARD_THREADS if concurrency_setting is None else concurrency_setting))
     outcomes: dict[str, int] = {}
     total = len(queries)
     processed = 0

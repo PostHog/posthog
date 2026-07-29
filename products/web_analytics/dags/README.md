@@ -25,7 +25,7 @@ shard count via the `dagster-k8s/config` tag on the job.
 | Setting                                       | Default | Meaning                                                                                                                        |
 | --------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `WEB_ANALYTICS_WARMING_SHARDS`                | 8       | Shard subprocesses per run (clamp 1-16). Bounds real CPU parallelism; keep the job's `dagster-k8s/config` CPU request in step. |
-| `WEB_ANALYTICS_WARMING_SHAPE_CONCURRENCY`     | 6       | Worker threads inside each shard (clamp 1-64). Total ClickHouse-side concurrency ≈ shards × this.                              |
+| `WEB_ANALYTICS_WARMING_SHARD_THREADS`         | 6       | Worker threads inside each shard (clamp 1-64). Total ClickHouse-side concurrency ≈ shards × this.                              |
 | `WEB_ANALYTICS_WARMING_DAYS`                  | 14      | query_log lookback for demand selection.                                                                                       |
 | `WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT`       | 2       | Per-shape demand floor for selection.                                                                                          |
 | `WEB_ANALYTICS_WARMING_MAX_SHAPES`            | 400000  | Fleet-wide selection cap.                                                                                                      |

@@ -627,7 +627,7 @@ class TestWarmQueriesOp(BaseTest):
 
         shape = {"team_id": self.team.pk, "query_json": {"kind": "WebOverviewQuery", "properties": []}}
         with (
-            patch("products.web_analytics.dags.cache_warming.WARMING_SHAPE_CONCURRENCY", 1),
+            patch("products.web_analytics.dags.cache_warming.WARMING_SHARD_THREADS", 1),
             patch(
                 "products.web_analytics.dags.cache_warming.get_query_runner_or_none", side_effect=fake_runner_or_none
             ),

@@ -319,8 +319,11 @@ CONSTANCE_CONFIG = {
         "of more background compute.",
         int,
     ),
-    "WEB_ANALYTICS_WARMING_SHAPE_CONCURRENCY": (
-        get_from_env("WEB_ANALYTICS_WARMING_SHAPE_CONCURRENCY", default=6, type_cast=int),
+    # Renamed from WEB_ANALYTICS_WARMING_SHAPE_CONCURRENCY when its meaning changed
+    # from total workers to per-shard workers, so stale overrides sized for the old
+    # semantics (e.g. 24 total) can't silently become 24 threads in every shard.
+    "WEB_ANALYTICS_WARMING_SHARD_THREADS": (
+        get_from_env("WEB_ANALYTICS_WARMING_SHARD_THREADS", default=6, type_cast=int),
         "Worker threads inside each warm shard (total ClickHouse-side concurrency is shards x this). "
         "Threads overlap the IO-bound parts; CPU-bound HogQL compilation parallelizes across shards, "
         "not threads. Clamped to 1-64; applies when the next warming run starts.",
@@ -390,7 +393,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS",
     "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT",
     "WEB_ANALYTICS_WARMING_MAX_SHAPES",
-    "WEB_ANALYTICS_WARMING_SHAPE_CONCURRENCY",
+    "WEB_ANALYTICS_WARMING_SHARD_THREADS",
     "WEB_ANALYTICS_WARMING_SHARDS",
 )
 
