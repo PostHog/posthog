@@ -328,6 +328,14 @@ class TestQuickActionAPI(APIBaseTest):
                 status.HTTP_403_FORBIDDEN,
             ),
             (
+                "attach_denied_without_workflow_scope_multipart",
+                ["ticket:write"],
+                "patch",
+                {"workflow_id": "01890000-0000-0000-0000-000000000009"},
+                status.HTTP_403_FORBIDDEN,
+                "multipart",
+            ),
+            (
                 "rename_allowed_without_workflow_scope",
                 ["ticket:write"],
                 "patch",
@@ -358,7 +366,7 @@ class TestQuickActionAPI(APIBaseTest):
         ]
     )
     def test_setting_workflow_via_api_key_requires_workflow_scope(
-        self, _name: str, scopes: list[str], method: str, body: dict, expected_status: int
+        self, _name: str, scopes: list[str], method: str, body: dict, expected_status: int, body_format: str = "json"
     ) -> None:
         # Security regression guard: attaching a workflow arms an automation other agents can then
         # trigger, so a ticket:write-only personal API key must not set or change workflow_id
@@ -369,9 +377,9 @@ class TestQuickActionAPI(APIBaseTest):
         runnable, can_run = self._allow_workflow()
         with runnable, can_run:
             if method == "post":
-                response = client.post(self.base_url, body, format="json")
+                response = client.post(self.base_url, body, format=body_format)
             else:
-                response = client.patch(f"{self.base_url}{created['short_id']}/", body, format="json")
+                response = client.patch(f"{self.base_url}{created['short_id']}/", body, format=body_format)
         self.assertEqual(response.status_code, expected_status, response.content)
 
     def test_quick_actions_visible_from_child_environment(self) -> None:
