@@ -27,6 +27,7 @@ from posthog.models import Team
 from products.logs.backend.alert_utils import MAX_BYTES_TO_READ
 from products.logs.backend.logs_query_runner import LIVE_LOGS_CHECKPOINT_QUERY, LogsFilterBuilder
 from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.presentation.filter_group_validation import normalize_filter_group
 
 
 @dataclass(frozen=True)
@@ -45,7 +46,10 @@ def _build_logs_query(alert: LogsAlertConfiguration, date_range: DateRange) -> L
     filters = alert.filters
     filter_group = filters.get("filterGroup")
     if filter_group:
-        pg = PropertyGroupFilter.model_validate(filter_group)
+        # Legacy/loose stored shapes (bare leaf list, or leaves placed directly under the
+        # top-level group) fail PropertyGroupFilter validation and crash the check every run.
+        # Normalize to the canonical nested shape first — same coercion the query API applies.
+        pg = PropertyGroupFilter.model_validate(normalize_filter_group(filter_group))
     else:
         pg = PropertyGroupFilter(
             type=FilterLogicalOperator.AND_,

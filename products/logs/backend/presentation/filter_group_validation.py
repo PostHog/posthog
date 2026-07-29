@@ -19,6 +19,40 @@ MAX_FILTER_GROUP_LEAF_VALUES = 256
 MAX_FILTER_GROUP_VALUE_LENGTH = 1024
 
 
+def _is_filter_group_node(node: Any) -> bool:
+    """True for a nested group node (`{"type": "AND"|"OR", "values": [...]}`),
+    False for a leaf property filter."""
+    return isinstance(node, dict) and node.get("type") in ("AND", "OR") and isinstance(node.get("values"), list)
+
+
+def normalize_filter_group(filter_group: Any) -> dict:
+    """Coerce loose/legacy `filterGroup` shapes into the canonical nested
+    `PropertyGroupFilter` shape — an outer group whose values are inner groups
+    whose values are leaf property filters.
+
+    Two loose shapes reach us from older clients and stored alert configs, and
+    both fail `PropertyGroupFilter` validation as-is (500 on the query endpoints,
+    a crash every check on the alerting worker):
+
+    - a bare list of leaf filters (early MCP payloads), and
+    - a single-level dict `{"type": "AND", "values": [<leaf>, ...]}` with leaf
+      filters placed directly under the top-level group instead of an inner group.
+
+    A group whose top-level values are already all nested groups is returned
+    unchanged, so canonical payloads are untouched.
+    """
+    if isinstance(filter_group, list):
+        if len(filter_group) > 0:
+            return {"type": "AND", "values": [{"type": "AND", "values": filter_group}]}
+        return {"type": "AND", "values": []}
+    if isinstance(filter_group, dict):
+        values = filter_group.get("values")
+        if isinstance(values, list) and len(values) > 0 and any(not _is_filter_group_node(v) for v in values):
+            return {"type": "AND", "values": [{"type": "AND", "values": values}]}
+        return filter_group
+    return {"type": "AND", "values": []}
+
+
 def filter_group_depth(node: Any, depth: int = 0) -> int:
     # Short-circuit once we've crossed the cap — we don't need the true depth,
     # just that it exceeds MAX_FILTER_GROUP_DEPTH. Prevents Python RecursionError

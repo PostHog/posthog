@@ -10,6 +10,8 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.schema import DateRange, FilterLogicalOperator
+
 from posthog.clickhouse.client import sync_execute
 
 from products.logs.backend.alert_check_query import (
@@ -19,6 +21,7 @@ from products.logs.backend.alert_check_query import (
     BatchedAlertCheckQuery,
     BatchedBucketedResult,
     BucketedCount,
+    _build_logs_query,
     _rolling_check_ranges,
     fetch_live_logs_checkpoint,
     is_projection_eligible,
@@ -1754,3 +1757,22 @@ class TestRollingCheckRanges(unittest.TestCase):
         for i in range(len(ranges) - 1):
             assert ranges[i + 1][0] - ranges[i][0] == dt.timedelta(minutes=cadence)
             assert ranges[i + 1][1] - ranges[i][1] == dt.timedelta(minutes=cadence)
+
+
+class TestBuildLogsQuery(unittest.TestCase):
+    DATE_RANGE = DateRange(date_from="2025-01-01T12:00:00+00:00", date_to="2025-01-01T12:05:00+00:00")
+
+    def test_legacy_flat_filter_group_does_not_raise_and_nests(self):
+        # Alerts stored before filterGroup validation could carry leaf filters directly under
+        # the top-level group. Left un-normalized, PropertyGroupFilter validation raised on every
+        # check, crash-looping the alert. _build_logs_query must coerce it to the nested shape.
+        leaf = {"type": "log_entry", "key": "message", "operator": "icontains", "value": "health"}
+        alert = LogsAlertConfiguration(filters={"filterGroup": {"type": "AND", "values": [leaf]}})
+
+        query = _build_logs_query(alert, self.DATE_RANGE)
+
+        assert query.filterGroup is not None
+        # Top-level value is now a group, not the bare leaf that failed validation.
+        inner = query.filterGroup.values[0]
+        assert inner.type == FilterLogicalOperator.AND_
+        assert inner.values[0].key == "message"

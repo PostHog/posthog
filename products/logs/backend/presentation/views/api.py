@@ -68,6 +68,7 @@ from products.logs.backend.logs_query_runner import (
 )
 from products.logs.backend.pattern_diff import run_patterns_diff
 from products.logs.backend.patterns_query_runner import PatternsQueryRunner
+from products.logs.backend.presentation.filter_group_validation import normalize_filter_group
 from products.logs.backend.presentation.views.alerts_api import LogsAlertViewSet
 from products.logs.backend.presentation.views.explain import LogExplainViewSet
 from products.logs.backend.presentation.views.metric_rules_api import LogsMetricRuleViewSet
@@ -1127,14 +1128,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
     @staticmethod
     def _normalize_filter_group(filter_group: object) -> dict:
-        """Normalize a flat filter array (from MCP) to the nested PropertyGroupFilter structure."""
-        if isinstance(filter_group, list):
-            if len(filter_group) > 0:
-                return {"type": "AND", "values": [{"type": "AND", "values": filter_group}]}
-            return {"type": "AND", "values": []}
-        if isinstance(filter_group, dict):
-            return filter_group
-        return {"type": "AND", "values": []}
+        """Normalize loose/legacy filterGroup shapes (a flat MCP array, or a
+        single-level dict with leaf filters directly under the top-level group)
+        to the nested PropertyGroupFilter structure."""
+        return normalize_filter_group(filter_group)
 
     def _filtered_logs_query(self, query_data: dict) -> LogsQuery:
         """The shared date-range + filters subset of LogsQuery used by aggregation actions."""
