@@ -58,7 +58,7 @@ from products.tasks.backend.models import (
     ChannelFeedMessage,
     CodeInvite,
     CodeInviteRedemption,
-    ComputeSource,
+    ComputeSource as ComputeSourceModel,
     SandboxCustomImage,
     SandboxEnvironment,
     SandboxSession,
@@ -84,6 +84,7 @@ _TASK_LOG_READ_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="
 # Value types (not ORM models), safe to expose. External callers compare against the
 # string-valued ``.status`` / ``.environment`` / ``.origin_product`` fields on the DTOs.
 TaskRunStatus = TaskRun.Status
+ComputeSource = ComputeSourceModel
 TaskRunEnvironment = TaskRun.Environment
 TaskOriginProduct = Task.OriginProduct
 TaskRuntime = Task.Runtime
