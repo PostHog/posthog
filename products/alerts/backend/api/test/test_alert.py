@@ -823,6 +823,49 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
+            ("relative_string", "2h", datetime(2026, 7, 29, 14, 0, tzinfo=UTC)),
+            ("absolute_datetime", "2026-07-30T09:30:00Z", datetime(2026, 7, 30, 9, 30, tzinfo=UTC)),
+        ]
+    )
+    @freeze_time("2026-07-29T12:34:56Z")
+    def test_create_alert_with_snoozed_until(self, _name: str, snoozed_until: str, expected: datetime) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": self.insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "name": "alert name",
+                "snoozed_until": snoozed_until,
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert response.json()["state"] == AlertState.SNOOZED
+        alert = AlertConfiguration.objects.get(pk=response.json()["id"])
+        assert alert.snoozed_until == expected
+
+    def test_create_alert_rejects_non_string_snoozed_until(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": self.insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "name": "alert name",
+                "snoozed_until": 123,
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == "snoozed_until"
+
+    @parameterized.expand(
+        [
             (
                 "invalid_condition",
                 {"condition": {"type": "bogus"}, "config": {"type": "TrendsAlertConfig", "series_index": 0}},

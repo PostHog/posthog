@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from typing import Annotated, Any, cast
 from zoneinfo import ZoneInfo
 
@@ -19,6 +20,7 @@ from rest_framework.response import Response
 from posthog.schema import (
     AlertCalculationInterval,
     AlertCondition,
+    AlertState,
     DetectorConfig,
     FunnelsAlertConfig,
     HogQLAlertConfig,
@@ -268,8 +270,26 @@ class AlertSubscriptionSerializer(serializers.ModelSerializer):
     }
 )
 class RelativeDateTimeField(serializers.DateTimeField):
-    def to_internal_value(self, data):
-        return data
+    """Accepts a relative date string ('2h', '1d') or an absolute datetime, resolved to UTC.
+
+    Resolving here rather than in the serializer's create/update keeps both write paths in
+    agreement. An unresolved relative string reaching the model's DateTimeField only fails at
+    insert time, as a Django ValidationError that escapes as a 500 rather than a 400.
+    """
+
+    def to_internal_value(self, data: Any) -> datetime:
+        if not isinstance(data, str):
+            raise ValidationError(f"{self.field_name} has to be passed in string format")
+
+        try:
+            # Store UTC because alert scheduling compares against the current UTC time. This is
+            # the same call the Slack snooze action makes, so "1d" means the same thing everywhere.
+            return relative_date_parse(data, ZoneInfo("UTC"), increase=True, always_truncate=True)
+        except (ValueError, TypeError, OverflowError):
+            raise ValidationError(
+                f"{self.field_name} is not a valid date. Pass a relative date string (e.g. '2h', '1d') "
+                "or an ISO 8601 datetime."
+            )
 
 
 class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
@@ -457,6 +477,11 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             threshold_instance = self.add_threshold(threshold_data, validated_data)
             validated_data["threshold"] = threshold_instance
 
+        if validated_data.get("snoozed_until") is not None and validated_data.get("enabled", True):
+            # Mirror the snooze transition update() applies, so an alert created already snoozed
+            # reports Snoozed rather than the Not firing default.
+            validated_data["state"] = AlertState.SNOOZED
+
         instance: AlertConfiguration = super().create(validated_data)
 
         for user in subscribed_users:
@@ -477,13 +502,11 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         if enabled_changed and validated_data["enabled"]:
             apply_enable(instance)
 
-        snoozed_until_param = validated_data.pop("snoozed_until", serializers.empty)
-        snooze_changed = snoozed_until_param is not serializers.empty
-        snoozed_until = None
-        if snooze_changed and snoozed_until_param is not None:
-            snoozed_until = relative_date_parse(
-                snoozed_until_param, ZoneInfo("UTC"), increase=True, always_truncate=True
-            )
+        # Already resolved to an absolute UTC datetime (or None to unsnooze) by RelativeDateTimeField.
+        snoozed_until = validated_data.pop("snoozed_until", serializers.empty)
+        snooze_changed = snoozed_until is not serializers.empty
+        if not snooze_changed:
+            snoozed_until = None
 
         conditions_or_threshold_changed = False
 
@@ -525,7 +548,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
         if snooze_changed:
             instance.snoozed_until = snoozed_until
-            if snoozed_until_param is None:
+            if snoozed_until is None:
                 apply_unsnooze(instance)
             else:
                 apply_snooze(instance)
@@ -612,12 +635,6 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             lags_n = preprocessing.get("lags_n")
             if lags_n is not None and (lags_n < 0 or lags_n > 10):
                 raise ValidationError("Lag features must be between 0 and 10.")
-
-    def validate_snoozed_until(self, value):
-        if value is not None and not isinstance(value, str):
-            raise ValidationError("snoozed_until has to be passed in string format")
-
-        return value
 
     def validate_insight(self, value):
         if not value:
