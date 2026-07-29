@@ -648,6 +648,7 @@ the row lists both.
 | zenduty                          | HTTP                        | requests                                                        | ✅                          |
 | zenloop                          | HTTP                        | requests                                                        | ✅                          |
 | zep                              | HTTP                        | requests                                                        | ✅                          |
+| zoho_crm                         | HTTP                        | requests                                                        | ✅                          |
 | zonka_feedback                   | HTTP                        | requests                                                        | ✅                          |
 | zoom                             | HTTP                        | requests                                                        | ✅                          |
 | zuora                            | HTTP                        | requests                                                        | ✅                          |
@@ -1413,7 +1414,6 @@ doesn't conflict with concurrent PRs.
 - zoho_billing
 - zoho_books
 - zoho_campaign
-- zoho_crm
 - zoho_desk
 - zoho_expense
 - zoho_inventory

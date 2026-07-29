@@ -575,6 +575,25 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "prefix", "engine", "source_type", "access_method", "supports_hogql", "description"]
 
 
+class DirectConnectionSourceOptionSerializer(serializers.Serializer):
+    """A source type that can be added as a direct (live-query) connection, with display metadata."""
+
+    source_type = serializers.ChoiceField(
+        choices=ExternalDataSourceType.choices,
+        read_only=True,
+        help_text="The source type to start a direct-connection setup for (e.g. 'Postgres', 'ClickHouse').",
+    )
+    label = serializers.CharField(  # type: ignore[assignment]  # field name intentionally shadows Field.label
+        read_only=True,
+        help_text="Human-readable name to show in the picker (falls back to the source type).",
+    )
+    icon_path = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Path to the source's icon asset, or null when the source ships no icon.",
+    )
+
+
 class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Schema identifier to update.")
     should_sync = serializers.BooleanField(required=False, help_text="Whether the schema should be queryable/synced.")
@@ -4446,6 +4465,26 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
 
         serializer = ExternalDataSourceConnectionOptionSerializer(queryset, many=True)
+        return Response(status=status.HTTP_200_OK, data=serializer.data)
+
+    @extend_schema(responses=DirectConnectionSourceOptionSerializer(many=True))
+    @action(methods=["GET"], detail=False, pagination_class=None, filter_backends=[])
+    def direct_connection_options(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Source types the user can add as a direct connection, driven by the direct-SQL capability
+        surface so the picker never drifts from the engines we actually support."""
+        direct_types = direct_capable_source_types()
+        options = [
+            {
+                "source_type": source_type,
+                "label": config.get("label") or source_type,
+                "icon_path": config.get("iconPath"),
+            }
+            for source_type, config in build_source_configs(include_tables=False).items()
+            if source_type in direct_types
+        ]
+        options.sort(key=lambda option: str(option["label"]).lower())
+
+        serializer = DirectConnectionSourceOptionSerializer(options, many=True)
         return Response(status=status.HTTP_200_OK, data=serializer.data)
 
     @action(methods=["PATCH"], detail=True)
