@@ -24,13 +24,27 @@ export const SidePanelAccessDetail = (): JSX.Element => {
 
     const logic = accessControlsLogic({ projectId })
     const { membersData, rolesData, membersDataLoading, rolesDataLoading, panelSubject } = useValues(logic)
-    const { loadMembers, loadRoles } = useActions(logic)
+    const { loadMembers, loadRoles, openAccessDetailPanel } = useActions(logic)
 
     // Panel options only survive until another tab is opened, so fall back to the selection the settings
     // page holds. Options still win, so deep links land on the right subject.
-    const subject = parseAccessDetailOptions(selectedTabOptions) ?? panelSubject
+    const optionsSubject = parseAccessDetailOptions(selectedTabOptions)
+    const subject = optionsSubject ?? panelSubject
     const scopeType: AccessScope = subject?.scopeType ?? 'member'
     const subjectId = subject?.subjectId
+
+    // Remember a subject that arrived through the options (a deep link), otherwise it would be lost as soon
+    // as another panel tab clears them.
+    useEffect(() => {
+        if (
+            optionsSubject &&
+            (optionsSubject.subjectId !== panelSubject?.subjectId ||
+                optionsSubject.scopeType !== panelSubject?.scopeType)
+        ) {
+            openAccessDetailPanel(optionsSubject.scopeType, optionsSubject.subjectId)
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [optionsSubject?.scopeType, optionsSubject?.subjectId])
 
     // The panel can outlive the settings page that opened it, so make sure the list it reads from is loaded.
     // Deliberately not using the logic's selected member/role — that state drives the settings page's own
