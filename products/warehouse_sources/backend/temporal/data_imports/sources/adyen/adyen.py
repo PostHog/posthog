@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.adyen.settings import (
     ADYEN_ENDPOINTS,
     AdyenApi,
