@@ -303,7 +303,11 @@ async fn run_worker(
                     )
                     .await;
                 }
-                ShuffleMessage::Seed { work, offset } => {
+                ShuffleMessage::Seed {
+                    work,
+                    offset,
+                    broker_ts_ms: _,
+                } => {
                     // Worker receipt is the first point that both proves this exact seed landed and
                     // orders its ceiling before even a zero-work handler can mark it processed.
                     // The dispatcher also records the delivered batch maximum, but that post-send
@@ -1322,6 +1326,7 @@ mod tombstone_redirect_tests {
             vec![ShuffleMessage::Seed {
                 work: Box::new(SeedWork::Reconcile(tile)),
                 offset: 5,
+                broker_ts_ms: None,
             }],
         )
         .await;
@@ -1358,6 +1363,7 @@ mod tombstone_redirect_tests {
                 ShuffleMessage::Seed {
                     work: Box::new(SeedWork::Reconcile(tile)),
                     offset: 5,
+                    broker_ts_ms: None,
                 },
                 ShuffleMessage::ReconcileDrain,
             ],

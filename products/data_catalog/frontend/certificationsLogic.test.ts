@@ -1,3 +1,5 @@
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
@@ -43,6 +45,9 @@ jest.mock('./generated/api', () => ({
     dataCatalogCertificationsDestroy: jest.fn(),
 }))
 
+// The whole logic module is mocked above; loadDatabase is a jest.fn at runtime.
+const mockLoadDatabase = (databaseTableListLogic as unknown as { loadDatabase: jest.Mock }).loadDatabase
+
 function buildCertification(overrides: Partial<DataCatalogCertificationApi>): DataCatalogCertificationApi {
     return {
         id: 'cert-1',
@@ -86,6 +91,8 @@ describe('certificationsLogic', () => {
         expect(logic.values.certifications.find((certification) => certification.id === 'cert-1')?.status).toEqual(
             'certified'
         )
+        // Badges elsewhere read certification state off the shared schema, so it must be refreshed.
+        expect(mockLoadDatabase).toHaveBeenCalledWith({ force: true })
     })
 
     it('removes the row when revoking', async () => {
@@ -95,5 +102,7 @@ describe('certificationsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.certifications.map((certification) => certification.id)).not.toContain('cert-1')
+        // Badges elsewhere read certification state off the shared schema, so it must be refreshed.
+        expect(mockLoadDatabase).toHaveBeenCalledWith({ force: true })
     })
 })
