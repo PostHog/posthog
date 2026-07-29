@@ -57,6 +57,12 @@ void guardNestingDepth(antlr4::CommonTokenStream* stream) {
   size_t bracket_depth = 0;
   size_t prefix_run = 0;
   for (antlr4::Token* token : stream->getTokens()) {
+    // Whitespace and comments sit on the hidden channel (see `WHITESPACE -> channel(HIDDEN)`
+    // in the lexer grammar). The parser skips them, so we must too — otherwise a hidden token
+    // between operators resets `prefix_run` and a spaced `- - - … 1` chain slips past the cap.
+    if (token->getChannel() != antlr4::Token::DEFAULT_CHANNEL) {
+      continue;
+    }
     size_t type = token->getType();
     if (type == HogQLParser::NOT || type == HogQLParser::DASH) {
       ++prefix_run;
