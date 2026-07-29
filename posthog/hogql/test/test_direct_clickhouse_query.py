@@ -83,7 +83,10 @@ class TestDirectClickHouseQuery(APIBaseTest):
         self._create_table(source)
 
         sql = self._from_database(source)
-        self.assertIn("SELECT *", sql)
+        # The pretty-printer puts the star on its own line (`SELECT\n    *\n`), so match on
+        # "SELECT" followed only by whitespace before the `*` rather than the literal substring
+        # "SELECT *" — a check that would otherwise never match either shape.
+        self.assertRegex(sql, r"SELECT\s*\*\s")
         self.assertNotIn("events.id AS id", sql)
         self.assertNotIn("events.team_id AS team_id", sql)
 
@@ -95,7 +98,7 @@ class TestDirectClickHouseQuery(APIBaseTest):
         self._create_table(source, enabled_columns=["id"])
 
         sql = self._from_database(source)
-        self.assertNotIn("SELECT *", sql)
+        self.assertNotRegex(sql, r"SELECT\s*\*\s")
         self.assertIn("events.id AS id", sql)
 
     def test_explicit_columns_still_expand_for_direct_connection(self):
@@ -106,7 +109,7 @@ class TestDirectClickHouseQuery(APIBaseTest):
         executor = HogQLQueryExecutor(query="SELECT id FROM events", team=self.team, connection_id=str(source.id))
         sql, _context = executor.generate_clickhouse_sql()
         self.assertIn("events.id AS id", sql.replace("`", ""))
-        self.assertNotIn("SELECT *", sql)
+        self.assertNotRegex(sql, r"SELECT\s*\*\s")
 
     def test_configured_database_overrides_a_stale_default_option(self):
         # Regression: a table synced before the source's database was set stored "default" in its
