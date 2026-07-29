@@ -54,22 +54,20 @@ export function pendingInputFromSession(session: WizardSessionDTOApi | null): Wi
     if (!session || session.is_stale || session.run_phase !== 'running') {
         return null
     }
-    const raw = session.pending_input as {
-        id?: string
-        asked_at?: string
-        question_count?: number
-        sensitive?: boolean
-        prompts?: string[]
-    } | null
+    const raw = session.pending_input
     if (!raw?.id) {
         return null
     }
+    // The prompt text goes straight into JSX, and the type is the serializer's promise rather than a
+    // runtime guarantee, so keep non-strings out: a row written before the field was typed would
+    // otherwise crash the render of an app-wide widget.
+    const prompts = Array.isArray(raw.prompts) ? raw.prompts.filter((p): p is string => typeof p === 'string') : []
     return {
         id: raw.id,
         askedAt: raw.asked_at ?? session.updated_at,
         questionCount: raw.question_count ?? 1,
         sensitive: raw.sensitive === true,
-        prompts: raw.sensitive === true ? [] : (raw.prompts ?? []),
+        prompts: raw.sensitive === true ? [] : prompts,
     }
 }
 
