@@ -67,6 +67,7 @@ from posthog.schema_enums import (
     CustomChannelField as CustomChannelField,
     CustomChannelOperator as CustomChannelOperator,
     DatabaseSchemaManagedViewTableKind as DatabaseSchemaManagedViewTableKind,
+    DatabaseSchemaTableCertificationStatus as DatabaseSchemaTableCertificationStatus,
     DatabaseSchemaTableType as DatabaseSchemaTableType,
     DatabaseSerializedFieldType as DatabaseSerializedFieldType,
     DataColorToken as DataColorToken,
@@ -4397,31 +4398,26 @@ class DatabaseSchemaField(BaseModel):
     type: DatabaseSerializedFieldType
 
 
-class DatabaseSchemaPostHogTable(BaseModel):
+class DatabaseSchemaTableCertification(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    fields: dict[str, DatabaseSchemaField]
-    id: str
-    name: str
-    row_count: float | None = None
-    type: Literal["posthog"] = "posthog"
-
-
-class DatabaseSchemaSystemTable(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
+    certified_at: str | None = None
+    certified_by: str | None = None
+    notes: str | None = None
+    status: DatabaseSchemaTableCertificationStatus = Field(
+        ...,
+        description=("Settled data catalog trust mark: 'certified' (prefer this source) or 'deprecated' (avoid it)."),
     )
-    fields: dict[str, DatabaseSchemaField]
-    id: str
-    name: str
-    row_count: float | None = None
-    type: Literal["system"] = "system"
 
 
 class DatabaseSchemaTableCommon(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
     )
     fields: dict[str, DatabaseSchemaField]
     id: str
@@ -14731,6 +14727,10 @@ class DatabaseSchemaBatchExportTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
+    )
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
@@ -14741,6 +14741,10 @@ class DatabaseSchemaBatchExportTable(BaseModel):
 class DatabaseSchemaDataWarehouseTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
     )
     fields: dict[str, DatabaseSchemaField]
     format: str | None = Field(
@@ -14763,6 +14767,36 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
         default=None,
         description=("Absent for a dual-mode source's virtual tables, which have no synced S3 backing."),
     )
+
+
+class DatabaseSchemaPostHogTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
+    )
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    name: str
+    row_count: float | None = None
+    type: Literal["posthog"] = "posthog"
+
+
+class DatabaseSchemaSystemTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
+    )
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    name: str
+    row_count: float | None = None
+    type: Literal["system"] = "system"
 
 
 class DocumentSimilarityQueryResponse(BaseModel):
@@ -24427,6 +24461,10 @@ class DatabaseSchemaEndpointTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
+    )
     fields: dict[str, DatabaseSchemaField]
     id: str
     name: str
@@ -24439,6 +24477,10 @@ class DatabaseSchemaEndpointTable(BaseModel):
 class DatabaseSchemaManagedViewTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
     )
     fields: dict[str, DatabaseSchemaField]
     id: str
@@ -24454,6 +24496,10 @@ class DatabaseSchemaMaterializedViewTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
+    )
     fields: dict[str, DatabaseSchemaField]
     id: str
     last_run_at: str | None = None
@@ -24467,6 +24513,10 @@ class DatabaseSchemaMaterializedViewTable(BaseModel):
 class DatabaseSchemaViewTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    certification: DatabaseSchemaTableCertification | None = Field(
+        default=None,
+        description=("Present only when the table or view carries a settled data catalog certification."),
     )
     fields: dict[str, DatabaseSchemaField]
     id: str

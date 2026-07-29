@@ -1444,6 +1444,7 @@ export enum SessionRecordingSidebarTab {
     INSPECTOR = 'inspector',
     NETWORK_WATERFALL = 'network-waterfall',
     LINKED_ISSUES = 'linked-issues',
+    SESSIONS = 'sessions',
 }
 
 export enum SessionRecordingSidebarStacking {
@@ -5467,6 +5468,7 @@ export const INTEGRATION_KINDS = [
     'firebase',
     'jira',
     'pinterest-ads',
+    'pardot',
     'customerio-app',
     'customerio-webhook',
     'customerio-track',

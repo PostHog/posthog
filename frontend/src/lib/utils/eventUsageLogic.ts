@@ -60,6 +60,7 @@ import {
     ExperimentHoldoutType,
     ExperimentIdType,
     ExperimentStatsMethod,
+    ExporterFormat,
     FilterLogicalOperator,
     FunnelCorrelation,
     HelpType,
@@ -612,6 +613,13 @@ export interface eventUsageLogicActions {
     ) => {
         dashboardId: number | undefined
         promptLabel: string
+    }
+    reportDashboardExported: (
+        dashboardId: number,
+        exportFormat: ExporterFormat
+    ) => {
+        dashboardId: number
+        exportFormat: ExporterFormat
     }
     reportDashboardFiltersChanged: (
         dashboard: DashboardType<QueryBasedInsightModel> | null,
@@ -2232,6 +2240,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             promptLabel,
             dashboardId,
         }),
+        reportDashboardExported: (dashboardId: number, exportFormat: ExporterFormat) => ({
+            dashboardId,
+            exportFormat,
+        }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
@@ -3128,7 +3140,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 refresh_age: insight?.last_refresh ? now().diff(insight?.last_refresh, 'seconds') : undefined,
                 filters,
                 variables,
-                tile: sanitizeTile(tile),
                 refresh_duration_ms: refreshDurationMs,
                 individual_refresh: individualRefresh,
                 ...sanitizedQuery,
@@ -3234,6 +3245,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 prompt_label: promptLabel,
                 dashboard_id: dashboardId,
                 source: 'web',
+            })
+        },
+        reportDashboardExported: async ({ dashboardId, exportFormat }) => {
+            posthog.capture('dashboard exported', {
+                dashboard_id: dashboardId,
+                export_format: exportFormat,
             })
         },
         reportUpgradeModalShown: async (payload) => {

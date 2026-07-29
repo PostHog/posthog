@@ -111,6 +111,7 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
         paginator_kind="search",
         method="POST",
         partition_key="created_at",
+        coerce_string_fields=["admin_assignee_id", "team_assignee_id"],
     ),
     "tickets": IntercomEndpointConfig(
         # `POST /tickets/search` mirrors contacts/conversations: it accepts
@@ -122,6 +123,7 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
         paginator_kind="search",
         method="POST",
         partition_key="created_at",
+        coerce_string_fields=["admin_assignee_id", "team_assignee_id"],
     ),
     "articles": IntercomEndpointConfig(
         name="articles",
