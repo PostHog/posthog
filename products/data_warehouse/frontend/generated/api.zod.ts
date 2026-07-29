@@ -1055,13 +1055,31 @@ export const warehouseViewLinkCreateBodyJoiningTableKeyMax = 400
 export const warehouseViewLinkCreateBodyFieldNameMax = 400
 
 export const WarehouseViewLinkCreateBody = /* @__PURE__ */ zod.object({
-    deleted: zod.boolean().nullish(),
-    source_table_name: zod.string().max(warehouseViewLinkCreateBodySourceTableNameMax),
-    source_table_key: zod.string().max(warehouseViewLinkCreateBodySourceTableKeyMax),
-    joining_table_name: zod.string().max(warehouseViewLinkCreateBodyJoiningTableNameMax),
-    joining_table_key: zod.string().max(warehouseViewLinkCreateBodyJoiningTableKeyMax),
-    field_name: zod.string().max(warehouseViewLinkCreateBodyFieldNameMax),
-    configuration: zod.unknown().optional(),
+    deleted: zod.boolean().nullish().describe('Whether this join has been soft-deleted.'),
+    source_table_name: zod
+        .string()
+        .max(warehouseViewLinkCreateBodySourceTableNameMax)
+        .describe('Name of the table the join starts from, for example events.'),
+    source_table_key: zod
+        .string()
+        .max(warehouseViewLinkCreateBodySourceTableKeyMax)
+        .describe('Column or HogQL expression on the source table used as the join key.'),
+    joining_table_name: zod
+        .string()
+        .max(warehouseViewLinkCreateBodyJoiningTableNameMax)
+        .describe('Name of the table or view being joined onto the source table.'),
+    joining_table_key: zod
+        .string()
+        .max(warehouseViewLinkCreateBodyJoiningTableKeyMax)
+        .describe('Column or HogQL expression on the joining table used as the join key.'),
+    field_name: zod
+        .string()
+        .max(warehouseViewLinkCreateBodyFieldNameMax)
+        .describe('Accessor added to the source table to reach the joined rows, for example person in events.person.'),
+    configuration: zod
+        .unknown()
+        .optional()
+        .describe('Optional join configuration, for example experiments optimization flags.'),
 })
 
 /**
@@ -1078,13 +1096,31 @@ export const warehouseViewLinkUpdateBodyJoiningTableKeyMax = 400
 export const warehouseViewLinkUpdateBodyFieldNameMax = 400
 
 export const WarehouseViewLinkUpdateBody = /* @__PURE__ */ zod.object({
-    deleted: zod.boolean().nullish(),
-    source_table_name: zod.string().max(warehouseViewLinkUpdateBodySourceTableNameMax),
-    source_table_key: zod.string().max(warehouseViewLinkUpdateBodySourceTableKeyMax),
-    joining_table_name: zod.string().max(warehouseViewLinkUpdateBodyJoiningTableNameMax),
-    joining_table_key: zod.string().max(warehouseViewLinkUpdateBodyJoiningTableKeyMax),
-    field_name: zod.string().max(warehouseViewLinkUpdateBodyFieldNameMax),
-    configuration: zod.unknown().optional(),
+    deleted: zod.boolean().nullish().describe('Whether this join has been soft-deleted.'),
+    source_table_name: zod
+        .string()
+        .max(warehouseViewLinkUpdateBodySourceTableNameMax)
+        .describe('Name of the table the join starts from, for example events.'),
+    source_table_key: zod
+        .string()
+        .max(warehouseViewLinkUpdateBodySourceTableKeyMax)
+        .describe('Column or HogQL expression on the source table used as the join key.'),
+    joining_table_name: zod
+        .string()
+        .max(warehouseViewLinkUpdateBodyJoiningTableNameMax)
+        .describe('Name of the table or view being joined onto the source table.'),
+    joining_table_key: zod
+        .string()
+        .max(warehouseViewLinkUpdateBodyJoiningTableKeyMax)
+        .describe('Column or HogQL expression on the joining table used as the join key.'),
+    field_name: zod
+        .string()
+        .max(warehouseViewLinkUpdateBodyFieldNameMax)
+        .describe('Accessor added to the source table to reach the joined rows, for example person in events.person.'),
+    configuration: zod
+        .unknown()
+        .optional()
+        .describe('Optional join configuration, for example experiments optimization flags.'),
 })
 
 /**
@@ -1101,13 +1137,36 @@ export const warehouseViewLinkPartialUpdateBodyJoiningTableKeyMax = 400
 export const warehouseViewLinkPartialUpdateBodyFieldNameMax = 400
 
 export const WarehouseViewLinkPartialUpdateBody = /* @__PURE__ */ zod.object({
-    deleted: zod.boolean().nullish(),
-    source_table_name: zod.string().max(warehouseViewLinkPartialUpdateBodySourceTableNameMax).optional(),
-    source_table_key: zod.string().max(warehouseViewLinkPartialUpdateBodySourceTableKeyMax).optional(),
-    joining_table_name: zod.string().max(warehouseViewLinkPartialUpdateBodyJoiningTableNameMax).optional(),
-    joining_table_key: zod.string().max(warehouseViewLinkPartialUpdateBodyJoiningTableKeyMax).optional(),
-    field_name: zod.string().max(warehouseViewLinkPartialUpdateBodyFieldNameMax).optional(),
-    configuration: zod.unknown().optional(),
+    deleted: zod.boolean().nullish().describe('Whether this join has been soft-deleted.'),
+    source_table_name: zod
+        .string()
+        .max(warehouseViewLinkPartialUpdateBodySourceTableNameMax)
+        .optional()
+        .describe('Name of the table the join starts from, for example events.'),
+    source_table_key: zod
+        .string()
+        .max(warehouseViewLinkPartialUpdateBodySourceTableKeyMax)
+        .optional()
+        .describe('Column or HogQL expression on the source table used as the join key.'),
+    joining_table_name: zod
+        .string()
+        .max(warehouseViewLinkPartialUpdateBodyJoiningTableNameMax)
+        .optional()
+        .describe('Name of the table or view being joined onto the source table.'),
+    joining_table_key: zod
+        .string()
+        .max(warehouseViewLinkPartialUpdateBodyJoiningTableKeyMax)
+        .optional()
+        .describe('Column or HogQL expression on the joining table used as the join key.'),
+    field_name: zod
+        .string()
+        .max(warehouseViewLinkPartialUpdateBodyFieldNameMax)
+        .optional()
+        .describe('Accessor added to the source table to reach the joined rows, for example person in events.person.'),
+    configuration: zod
+        .unknown()
+        .optional()
+        .describe('Optional join configuration, for example experiments optimization flags.'),
 })
 
 /**
@@ -1122,10 +1181,22 @@ export const warehouseViewLinkValidateCreateBodySourceTableNameMax = 255
 export const warehouseViewLinkValidateCreateBodySourceTableKeyMax = 255
 
 export const WarehouseViewLinkValidateCreateBody = /* @__PURE__ */ zod.object({
-    joining_table_name: zod.string().max(warehouseViewLinkValidateCreateBodyJoiningTableNameMax),
-    joining_table_key: zod.string().max(warehouseViewLinkValidateCreateBodyJoiningTableKeyMax),
-    source_table_name: zod.string().max(warehouseViewLinkValidateCreateBodySourceTableNameMax),
-    source_table_key: zod.string().max(warehouseViewLinkValidateCreateBodySourceTableKeyMax),
+    joining_table_name: zod
+        .string()
+        .max(warehouseViewLinkValidateCreateBodyJoiningTableNameMax)
+        .describe('Name of the table or view being joined onto the source table.'),
+    joining_table_key: zod
+        .string()
+        .max(warehouseViewLinkValidateCreateBodyJoiningTableKeyMax)
+        .describe('Column or HogQL expression on the joining table used as the join key.'),
+    source_table_name: zod
+        .string()
+        .max(warehouseViewLinkValidateCreateBodySourceTableNameMax)
+        .describe('Name of the table the join starts from, for example events.'),
+    source_table_key: zod
+        .string()
+        .max(warehouseViewLinkValidateCreateBodySourceTableKeyMax)
+        .describe('Column or HogQL expression on the source table used as the join key.'),
 })
 
 /**
@@ -1142,13 +1213,31 @@ export const warehouseViewLinksCreateBodyJoiningTableKeyMax = 400
 export const warehouseViewLinksCreateBodyFieldNameMax = 400
 
 export const WarehouseViewLinksCreateBody = /* @__PURE__ */ zod.object({
-    deleted: zod.boolean().nullish(),
-    source_table_name: zod.string().max(warehouseViewLinksCreateBodySourceTableNameMax),
-    source_table_key: zod.string().max(warehouseViewLinksCreateBodySourceTableKeyMax),
-    joining_table_name: zod.string().max(warehouseViewLinksCreateBodyJoiningTableNameMax),
-    joining_table_key: zod.string().max(warehouseViewLinksCreateBodyJoiningTableKeyMax),
-    field_name: zod.string().max(warehouseViewLinksCreateBodyFieldNameMax),
-    configuration: zod.unknown().optional(),
+    deleted: zod.boolean().nullish().describe('Whether this join has been soft-deleted.'),
+    source_table_name: zod
+        .string()
+        .max(warehouseViewLinksCreateBodySourceTableNameMax)
+        .describe('Name of the table the join starts from, for example events.'),
+    source_table_key: zod
+        .string()
+        .max(warehouseViewLinksCreateBodySourceTableKeyMax)
+        .describe('Column or HogQL expression on the source table used as the join key.'),
+    joining_table_name: zod
+        .string()
+        .max(warehouseViewLinksCreateBodyJoiningTableNameMax)
+        .describe('Name of the table or view being joined onto the source table.'),
+    joining_table_key: zod
+        .string()
+        .max(warehouseViewLinksCreateBodyJoiningTableKeyMax)
+        .describe('Column or HogQL expression on the joining table used as the join key.'),
+    field_name: zod
+        .string()
+        .max(warehouseViewLinksCreateBodyFieldNameMax)
+        .describe('Accessor added to the source table to reach the joined rows, for example person in events.person.'),
+    configuration: zod
+        .unknown()
+        .optional()
+        .describe('Optional join configuration, for example experiments optimization flags.'),
 })
 
 /**
@@ -1165,13 +1254,31 @@ export const warehouseViewLinksUpdateBodyJoiningTableKeyMax = 400
 export const warehouseViewLinksUpdateBodyFieldNameMax = 400
 
 export const WarehouseViewLinksUpdateBody = /* @__PURE__ */ zod.object({
-    deleted: zod.boolean().nullish(),
-    source_table_name: zod.string().max(warehouseViewLinksUpdateBodySourceTableNameMax),
-    source_table_key: zod.string().max(warehouseViewLinksUpdateBodySourceTableKeyMax),
-    joining_table_name: zod.string().max(warehouseViewLinksUpdateBodyJoiningTableNameMax),
-    joining_table_key: zod.string().max(warehouseViewLinksUpdateBodyJoiningTableKeyMax),
-    field_name: zod.string().max(warehouseViewLinksUpdateBodyFieldNameMax),
-    configuration: zod.unknown().optional(),
+    deleted: zod.boolean().nullish().describe('Whether this join has been soft-deleted.'),
+    source_table_name: zod
+        .string()
+        .max(warehouseViewLinksUpdateBodySourceTableNameMax)
+        .describe('Name of the table the join starts from, for example events.'),
+    source_table_key: zod
+        .string()
+        .max(warehouseViewLinksUpdateBodySourceTableKeyMax)
+        .describe('Column or HogQL expression on the source table used as the join key.'),
+    joining_table_name: zod
+        .string()
+        .max(warehouseViewLinksUpdateBodyJoiningTableNameMax)
+        .describe('Name of the table or view being joined onto the source table.'),
+    joining_table_key: zod
+        .string()
+        .max(warehouseViewLinksUpdateBodyJoiningTableKeyMax)
+        .describe('Column or HogQL expression on the joining table used as the join key.'),
+    field_name: zod
+        .string()
+        .max(warehouseViewLinksUpdateBodyFieldNameMax)
+        .describe('Accessor added to the source table to reach the joined rows, for example person in events.person.'),
+    configuration: zod
+        .unknown()
+        .optional()
+        .describe('Optional join configuration, for example experiments optimization flags.'),
 })
 
 /**
@@ -1188,13 +1295,36 @@ export const warehouseViewLinksPartialUpdateBodyJoiningTableKeyMax = 400
 export const warehouseViewLinksPartialUpdateBodyFieldNameMax = 400
 
 export const WarehouseViewLinksPartialUpdateBody = /* @__PURE__ */ zod.object({
-    deleted: zod.boolean().nullish(),
-    source_table_name: zod.string().max(warehouseViewLinksPartialUpdateBodySourceTableNameMax).optional(),
-    source_table_key: zod.string().max(warehouseViewLinksPartialUpdateBodySourceTableKeyMax).optional(),
-    joining_table_name: zod.string().max(warehouseViewLinksPartialUpdateBodyJoiningTableNameMax).optional(),
-    joining_table_key: zod.string().max(warehouseViewLinksPartialUpdateBodyJoiningTableKeyMax).optional(),
-    field_name: zod.string().max(warehouseViewLinksPartialUpdateBodyFieldNameMax).optional(),
-    configuration: zod.unknown().optional(),
+    deleted: zod.boolean().nullish().describe('Whether this join has been soft-deleted.'),
+    source_table_name: zod
+        .string()
+        .max(warehouseViewLinksPartialUpdateBodySourceTableNameMax)
+        .optional()
+        .describe('Name of the table the join starts from, for example events.'),
+    source_table_key: zod
+        .string()
+        .max(warehouseViewLinksPartialUpdateBodySourceTableKeyMax)
+        .optional()
+        .describe('Column or HogQL expression on the source table used as the join key.'),
+    joining_table_name: zod
+        .string()
+        .max(warehouseViewLinksPartialUpdateBodyJoiningTableNameMax)
+        .optional()
+        .describe('Name of the table or view being joined onto the source table.'),
+    joining_table_key: zod
+        .string()
+        .max(warehouseViewLinksPartialUpdateBodyJoiningTableKeyMax)
+        .optional()
+        .describe('Column or HogQL expression on the joining table used as the join key.'),
+    field_name: zod
+        .string()
+        .max(warehouseViewLinksPartialUpdateBodyFieldNameMax)
+        .optional()
+        .describe('Accessor added to the source table to reach the joined rows, for example person in events.person.'),
+    configuration: zod
+        .unknown()
+        .optional()
+        .describe('Optional join configuration, for example experiments optimization flags.'),
 })
 
 /**
@@ -1209,8 +1339,20 @@ export const warehouseViewLinksValidateCreateBodySourceTableNameMax = 255
 export const warehouseViewLinksValidateCreateBodySourceTableKeyMax = 255
 
 export const WarehouseViewLinksValidateCreateBody = /* @__PURE__ */ zod.object({
-    joining_table_name: zod.string().max(warehouseViewLinksValidateCreateBodyJoiningTableNameMax),
-    joining_table_key: zod.string().max(warehouseViewLinksValidateCreateBodyJoiningTableKeyMax),
-    source_table_name: zod.string().max(warehouseViewLinksValidateCreateBodySourceTableNameMax),
-    source_table_key: zod.string().max(warehouseViewLinksValidateCreateBodySourceTableKeyMax),
+    joining_table_name: zod
+        .string()
+        .max(warehouseViewLinksValidateCreateBodyJoiningTableNameMax)
+        .describe('Name of the table or view being joined onto the source table.'),
+    joining_table_key: zod
+        .string()
+        .max(warehouseViewLinksValidateCreateBodyJoiningTableKeyMax)
+        .describe('Column or HogQL expression on the joining table used as the join key.'),
+    source_table_name: zod
+        .string()
+        .max(warehouseViewLinksValidateCreateBodySourceTableNameMax)
+        .describe('Name of the table the join starts from, for example events.'),
+    source_table_key: zod
+        .string()
+        .max(warehouseViewLinksValidateCreateBodySourceTableKeyMax)
+        .describe('Column or HogQL expression on the source table used as the join key.'),
 })
