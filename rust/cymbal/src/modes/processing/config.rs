@@ -171,7 +171,10 @@ pub struct ProcessingConfig {
     // Fallback per-issue limit for teams that have never configured one, so a single
     // runaway issue is capped out of the box. A team opts out by saving 0. Set to 0 to
     // turn the fallback off for the whole deployment.
-    #[envconfig(from = "ERROR_TRACKING_DEFAULT_PER_ISSUE_RATE_LIMIT", default = "10000")]
+    #[envconfig(
+        from = "ERROR_TRACKING_DEFAULT_PER_ISSUE_RATE_LIMIT",
+        default = "10000"
+    )]
     pub error_tracking_default_per_issue_rate_limit: i32,
 
     #[envconfig(

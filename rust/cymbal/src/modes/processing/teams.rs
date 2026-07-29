@@ -5,10 +5,12 @@ use moka::sync::{Cache, CacheBuilder};
 use tracing::warn;
 
 use crate::{
-    error::UnhandledError, metric_consts::ANCILLARY_CACHE,
+    error::UnhandledError,
+    metric_consts::ANCILLARY_CACHE,
     modes::processing::config::ProcessingConfig,
     modes::processing::rules::assignment::AssignmentRule,
-    modes::processing::rules::bypass::BypassRule, modes::processing::rules::grouping::GroupingRule,
+    modes::processing::rules::bypass::BypassRule,
+    modes::processing::rules::grouping::GroupingRule,
     modes::processing::rules::rate_limit::{RateLimitDefaults, RateLimitSettings},
     modes::processing::rules::spike::SpikeDetectionConfig,
     modes::processing::rules::suppression::SuppressionRule,
