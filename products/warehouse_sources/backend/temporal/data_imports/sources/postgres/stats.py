@@ -35,12 +35,12 @@ import psycopg
 from psycopg import sql
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.database_stats import (
     DatabaseStatsCatalog,
     build_database_stats_source_response,
     snapshot_rows,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     _normalize_selected_schema,
     pg_connection,

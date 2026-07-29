@@ -1,0 +1,39 @@
+receivers:
+    prometheus:
+        config:
+            scrape_configs:
+                - job_name: 'custom'
+                  scrape_interval: 30s
+                  static_configs:
+                      - targets: ['legacy:8080']
+
+processors:
+    # Shed load instead of buffering unbounded memory when PostHog is unreachable.
+    memory_limiter:
+        check_interval: 1s
+        limit_mib: 512
+        spike_limit_mib: 128
+    batch:
+
+exporters:
+    otlphttp:
+        # The otlphttp exporter appends /v1/metrics to `endpoint`, but PostHog's
+        # public ingest route is /i/v1/metrics, so pin the per-signal path.
+        metrics_endpoint: '${env:POSTHOG_HOST:-https://us.i.posthog.com}${env:POSTHOG_INGEST_PATH:-/i/v1/metrics}'
+        compression: gzip
+        headers:
+            authorization: 'Bearer ${env:POSTHOG_API_KEY}'
+        retry_on_failure:
+            enabled: true
+
+extensions:
+    health_check:
+        endpoint: 0.0.0.0:13133
+
+service:
+    extensions: [health_check]
+    pipelines:
+        metrics:
+            receivers: [prometheus]
+            processors: [memory_limiter, batch]
+            exporters: [otlphttp]

@@ -32,11 +32,11 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().describe('Human-readable name for the batch export.'),
         model: zod
-            .enum(['events', 'persons', 'sessions'])
-            .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions')
+            .enum(['events', 'persons', 'sessions', 'hogql'])
+            .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql')
             .optional()
             .describe(
-                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions'
+                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .union([
@@ -636,11 +636,11 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().describe('Human-readable name for the batch export.'),
         model: zod
-            .enum(['events', 'persons', 'sessions'])
-            .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions')
+            .enum(['events', 'persons', 'sessions', 'hogql'])
+            .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql')
             .optional()
             .describe(
-                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions'
+                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .union([
@@ -993,11 +993,11 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().optional().describe('Human-readable name for the batch export.'),
         model: zod
-            .enum(['events', 'persons', 'sessions'])
-            .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions')
+            .enum(['events', 'persons', 'sessions', 'hogql'])
+            .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql')
             .optional()
             .describe(
-                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions'
+                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .union([
@@ -1359,14 +1359,16 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
         model: zod
             .union([
                 zod
-                    .enum(['events', 'persons', 'sessions'])
-                    .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions'),
+                    .enum(['events', 'persons', 'sessions', 'hogql'])
+                    .describe(
+                        '\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
+                    ),
                 zod.enum(['']),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Which model this BatchExport is exporting.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions'
+                'Which model this BatchExport is exporting.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .object({
@@ -1697,14 +1699,16 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
         model: zod
             .union([
                 zod
-                    .enum(['events', 'persons', 'sessions'])
-                    .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions'),
+                    .enum(['events', 'persons', 'sessions', 'hogql'])
+                    .describe(
+                        '\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
+                    ),
                 zod.enum(['']),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Which model this BatchExport is exporting.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions'
+                'Which model this BatchExport is exporting.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .object({
@@ -2054,14 +2058,16 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
         model: zod
             .union([
                 zod
-                    .enum(['events', 'persons', 'sessions'])
-                    .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions'),
+                    .enum(['events', 'persons', 'sessions', 'hogql'])
+                    .describe(
+                        '\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
+                    ),
                 zod.enum(['']),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Which model this BatchExport is exporting.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions'
+                'Which model this BatchExport is exporting.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .object({
@@ -2396,14 +2402,16 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
         model: zod
             .union([
                 zod
-                    .enum(['events', 'persons', 'sessions'])
-                    .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions'),
+                    .enum(['events', 'persons', 'sessions', 'hogql'])
+                    .describe(
+                        '\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
+                    ),
                 zod.enum(['']),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Which model this BatchExport is exporting.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions'
+                'Which model this BatchExport is exporting.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .object({

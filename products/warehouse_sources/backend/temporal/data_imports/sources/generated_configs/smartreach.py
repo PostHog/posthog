@@ -7,3 +7,4 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 @config.config
 class SmartreachSourceConfig(config.Config):
     api_key: str
+    team_id: str | None = None

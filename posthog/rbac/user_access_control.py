@@ -81,6 +81,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "session_recording",
     "sharing_configuration",
     "survey",
+    "ticket",
     "web_analytics",
     "activity_log",
     "error_tracking",
@@ -90,6 +91,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "tracing",
     "replay_scanner",
     "toolbar",
+    "llm_playground",
 )
 
 # Resource inheritance mapping - child resources inherit access from parent resources
@@ -107,6 +109,9 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "experiment_saved_metric": "experiment",
     "experiment_holdout": "experiment",
     "dashboard_template": "dashboard",
+    # Saved ticket views (the `conversation` scope) share the Support product's
+    # single "ticket" RBAC resource, so admins configure one control instead of two.
+    "conversation": "ticket",
     # Marketing analytics doesn't have its own RBAC resource yet — inherit from
     # web_analytics so the existing per-team controls actually gate it (matches
     # the frontend mapping in sceneTypes.ts: Scene.MarketingAnalytics ->
@@ -172,6 +177,9 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
     if resource == "warehouse_objects":
         # Umbrella label for both warehouse tables and views (both children inherit from this)
         return "data warehouse tables & views"
+    if resource == "llm_playground":
+        # The playground is a single page, not a collection of objects
+        return "LLM playground"
 
     # Default: replace underscores and add 's' for plural
     return f"{resource.replace('_', ' ')}s"

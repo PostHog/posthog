@@ -6,6 +6,7 @@ import { IconCornerDownRight } from '@posthog/icons'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import type { NotebookNodeRunTerminalStatus } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 
 import { Query } from '~/queries/Query/Query'
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
@@ -42,6 +43,9 @@ export type NotebookNodeSQLV2Attributes = {
     returnVariable: string
     runId?: string | null
     result?: NotebookNodeSQLV2Result | null
+    // How the run that produced `result` ended. An interrupt persists a partial result just
+    // like a completed run does, so the result alone can't tell the two apart on a reload.
+    runStatus?: NotebookNodeRunTerminalStatus | null
     outputTab?: OutputTab | null
     vizQuery?: DataVisualizationNode | null
 }
@@ -347,7 +351,7 @@ const Settings = ({
         hasResult: !!attributes.result,
         getContent: () => notebookLogic.values.content ?? null,
     })
-    const { isRunning, isInterrupting, operationBlockReason, activeRunLane } = useValues(dataLogic)
+    const { isRunning, isInterrupting, operationBlockReason } = useValues(dataLogic)
     const { runQuery, interruptRun } = useActions(dataLogic)
 
     return (
@@ -361,9 +365,7 @@ const Settings = ({
             runQueryLoading={isRunning}
             runQueryDisabledReason={operationBlockReason ?? undefined}
             runQueryTooltip="Run SQL query"
-            // Direct (no-sandbox) runs cannot be cancelled — there is no kernel to signal;
-            // they finish on their own bounded schedule. Stop applies to kernel-lane runs only.
-            onCancelQuery={activeRunLane === 'kernel' ? interruptRun : undefined}
+            onCancelQuery={interruptRun}
             cancelQueryLoading={isInterrupting}
         />
     )
@@ -390,6 +392,9 @@ export const NotebookNodeSQLV2 = createPostHogWidgetNode<NotebookNodeSQLV2Attrib
             default: null,
         },
         result: {
+            default: null,
+        },
+        runStatus: {
             default: null,
         },
         outputTab: {

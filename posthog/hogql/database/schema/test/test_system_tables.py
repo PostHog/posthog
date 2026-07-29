@@ -102,6 +102,7 @@ TEAM_ID_FILTER_PATTERNS = {
     "_account_resource_notebooks": "system__accounts.team_id",
     "_account_tagged_items": "system__accounts.team_id",
     "_account_custom_property_values": "system__accounts.team_id",
+    "_account_custom_property_values_history": "system__accounts.team_id",
 }
 
 
@@ -135,6 +136,7 @@ class TestSystemTablesTeamScoping(BaseTest):
             "_account_resource_notebooks",
             "_account_tagged_items",
             "_account_custom_property_values",
+            "_account_custom_property_values_history",
             # information_schema is a namespace of virtual catalog tables (tables/columns/
             # relationships/data_types) computed per-query from the caller's own Database object,
             # so it has no team_id column to isolate; behaviour is covered by TestInformationSchema.

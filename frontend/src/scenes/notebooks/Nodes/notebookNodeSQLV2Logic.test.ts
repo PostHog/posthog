@@ -178,14 +178,12 @@ describe('notebookNodeSQLV2Logic', () => {
             mount()
             logic.actions.runQuery('select 1')
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.activeRunLane).toEqual('direct')
             expect(notebookSettingsLogic.findMounted()?.values.showKernelInfo).toBe(false)
             expect(logic.values.pendingKernelStart).toBe(false)
             expect(toastSpy).not.toHaveBeenCalled()
 
             logic.actions.runQuery('select * from new_events', { new_events: { node_id: 'py', kind: 'local' } })
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.activeRunLane).toEqual('kernel')
             expect(notebookSettingsLogic.findMounted()?.values.showKernelInfo).toBe(true)
             expect(logic.values.pendingKernelStart).toBe(true)
             expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('Starting a compute sandbox'))
@@ -208,7 +206,7 @@ describe('notebookNodeSQLV2Logic', () => {
         expect(runSpy).toHaveBeenCalledWith('nb1', { node_id: 'n1', code: 'select 1', refs: {} })
         // runId is persisted so a reload/remount can recover the in-flight run; nodeId is
         // pinned so the markdown cell's fingerprint id can't drift away from the run's node_id.
-        expect(updateAttributes).toHaveBeenCalledWith({ nodeId: 'n1', runId: 'r1', result: null })
+        expect(updateAttributes).toHaveBeenCalledWith({ nodeId: 'n1', runId: 'r1', result: null, runStatus: null })
     })
 
     it('dispatches a python run with its node type and output name', async () => {
@@ -247,6 +245,7 @@ describe('notebookNodeSQLV2Logic', () => {
                 stderr: '',
                 media: [],
             },
+            runStatus: 'done',
         })
         expect(logic.values.isRunning).toBe(false)
     })
@@ -269,8 +268,11 @@ describe('notebookNodeSQLV2Logic', () => {
         })
         mount({ runId: 'r1', hasResult: false })
         await expectLogic(logic).toFinishAllListeners()
+        // The outcome is persisted with the partial result: without it a reload can't tell this
+        // apart from a completed run, since both leave a result behind.
         expect(updateAttributes).toHaveBeenCalledWith({
             result: expect.objectContaining({ stdout: 'partial output' }),
+            runStatus: 'interrupted',
         })
         expect(logic.values.runError).toBe('Run interrupted.')
         expect(logic.values.isRunning).toBe(false)

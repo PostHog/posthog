@@ -29,10 +29,6 @@ from typing import TYPE_CHECKING, Any, Generic
 import structlog
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ConfigType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.database_stats import (
     DATABASE_STATS_MARKER,
@@ -53,6 +49,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     sql_schema_metadata,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import prune_enabled_columns
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource

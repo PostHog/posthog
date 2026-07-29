@@ -80,6 +80,7 @@ rules:
                               |BatchExportBackfill
                               |BatchExportFileDownload
                               |BatchExportOnDemand
+                              |BatchExportSource
                               |BatchImport
                               |BriefConfig
                               |ButtonTile
@@ -191,6 +192,7 @@ rules:
                               |LogsAlertConfiguration
                               |LogsExclusionRule
                               |LogsMetricRule
+                              |LogsRetentionRule
                               |LogsView
                               |Loop
                               |LoopFire
@@ -288,6 +290,7 @@ rules:
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
+                              |TaskSession
                               |TaskThreadMessage
                               |TaskThreadMessageMention
                               |Channel
@@ -401,6 +404,7 @@ rules:
                         |BatchExportBackfill
                         |BatchExportFileDownload
                         |BatchExportOnDemand
+                        |BatchExportSource
                         |BatchImport
                         |BriefConfig
                         |ButtonTile
@@ -604,6 +608,7 @@ rules:
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
+                        |TaskSession
                         |TaskThreadMessage
                         |TaskThreadMessageMention
                         |Channel
@@ -897,6 +902,7 @@ rules:
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
                               |SignalUserAutonomyConfig
+                              |TaskPin
                               |UserPushToken
                               |WebauthnCredential
                           )$
@@ -951,6 +957,7 @@ rules:
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
                         |SignalUserAutonomyConfig
+                        |TaskPin
                         |UserPushToken
                         |WebauthnCredential
                     )$

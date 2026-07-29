@@ -19,21 +19,22 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.metrics import POST_LOAD_DURATION_SECONDS
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
     sync_engineering_analytics_views,
     sync_revenue_analytics_views,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import normalize_column_name
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import set_initial_sync_complete
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
         DeltaTableHelper,
     )
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 LOGGER = get_logger(__name__)
 
@@ -164,10 +165,10 @@ async def _seed_cdc_companion_from_snapshot(
         SCD2_VALID_FROM_COLUMN,
         SCD2_VALID_TO_COLUMN,
     )
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
         DeltaTableHelper,
     )
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
 
     snapshot_dt = await snapshot_delta_table_helper.get_delta_table()
     if snapshot_dt is None:
@@ -250,15 +251,12 @@ async def _seed_cdc_companion_from_snapshot(
     if total_rows == 0:
         return
 
-    file_uris = await companion_helper.get_file_uris()
-
     await run_post_load_operations(
         job=job,
         schema=schema,
         source=source,
         delta_table_helper=companion_helper,
         row_count=total_rows,
-        file_uris=file_uris,
         table_schema_dict=hogql_schema.to_hogql_types(),
         resource_name=companion_resource_name,
         logger=logger,
@@ -266,52 +264,15 @@ async def _seed_cdc_companion_from_snapshot(
     )
 
 
-async def run_post_load_operations(
-    job: ExternalDataJob,
+async def _run_delta_maintenance(
     schema: ExternalDataSchema,
-    source: "ExternalDataSource",
-    delta_table_helper: "Optional[DeltaTableHelper]",
-    row_count: int,
-    file_uris: list[str],
-    table_schema_dict: dict[str, str],
-    resource_name: str,
+    delta_table_helper: "DeltaTableHelper",
+    is_cdc_companion: bool,
     logger: FilteringBoundLogger,
-    last_incremental_field_value: Any = None,
-    resource: "Optional[SourceResponse]" = None,
-    cdc_table_mode: Optional[str] = None,
-    cdc_write_mode: Optional[str] = None,
 ) -> None:
-    """
-    Orchestrator function that runs all post-load operations:
-        1. Compact delta table (if exists)
-        2. Prepare S3 files for querying
-        3. Update last_synced_at timestamp
-        4. Notify revenue analytics (if applicable)
-        5. Finalize incremental field values
-        6. Validate schema and update table (or register CDC companion table)
-        7. Sync revenue analytics views (if applicable)
-    """
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
-        finalize_desc_sort_incremental_value,
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
+        is_transient_object_store_error,
     )
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
-        register_cdc_companion_table,
-        update_last_synced_at,
-        validate_schema_and_update_table,
-    )
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
-        POST_LOAD_DURATION_SECONDS,
-    )
-
-    if delta_table_helper is None or await delta_table_helper.get_delta_table() is None:
-        logger.debug("No deltalake table, not continuing with post-run ops")
-        return
-
-    # Detect CDC companion writes — scd2_append writes always go to the companion _cdc resource.
-    # In this case we must NOT touch schema.table (the snapshot table) and must register the companion
-    # table independently, otherwise we overwrite the snapshot queryable_folder with the SCD2 path.
-    is_cdc_companion = cdc_write_mode == "scd2_append"
 
     if schema.is_cdc:
         # CDC finals land once per tick per changed schema, so unconditional compaction would run
@@ -346,16 +307,35 @@ async def run_post_load_operations(
                         schema.id, schema.team_id, updates={watermark_key: new_version}
                     )
         except Exception as e:
-            capture_exception(e)
-            logger.exception(f"Delta maintenance failed: {e}", exc_info=e)
+            if is_transient_object_store_error(e):
+                # A rate-limited or connectivity blip talking to our own S3 bucket isn't a bug - the
+                # next tick's maintenance pass retries the same idempotent cleanup.
+                logger.warning(f"Delta maintenance skipped: transient object-store error: {e}")
+            else:
+                capture_exception(e)
+                logger.exception(f"Delta maintenance failed: {e}", exc_info=e)
     else:
         logger.debug("Triggering compaction and vacuuming on delta table")
         try:
             with POST_LOAD_DURATION_SECONDS.labels(operation="compact").time():
                 await delta_table_helper.compact_table()
         except Exception as e:
-            capture_exception(e)
-            logger.exception(f"Compaction failed: {e}", exc_info=e)
+            if is_transient_object_store_error(e):
+                logger.warning(f"Compaction skipped: transient object-store error: {e}")
+            else:
+                capture_exception(e)
+                logger.exception(f"Compaction failed: {e}", exc_info=e)
+
+
+async def _publish_queryable_files(
+    job: ExternalDataJob,
+    schema: ExternalDataSchema,
+    delta_table_helper: "DeltaTableHelper",
+    resource_name: str,
+    is_cdc_companion: bool,
+    logger: FilteringBoundLogger,
+) -> str:
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 
     if is_cdc_companion:
         # Look up the existing companion table's queryable_folder (not the main schema.table).
@@ -382,9 +362,12 @@ async def run_post_load_operations(
             lambda: schema.table.queryable_folder if schema.table else None
         )()
 
+    # File URIs are listed after delta maintenance so the queryable folder serves the compacted
+    # layout rather than the pre-compaction small files.
+    file_uris = await delta_table_helper.get_file_uris()
     logger.debug(f"Preparing S3 files - total parquet files: {len(file_uris)}")
     with POST_LOAD_DURATION_SECONDS.labels(operation="prepare_s3").time():
-        queryable_folder = await prepare_s3_files_for_querying(
+        return await prepare_s3_files_for_querying(
             await database_sync_to_async_pool(job.folder_path)(),
             resource_name,
             file_uris,
@@ -392,6 +375,20 @@ async def run_post_load_operations(
             existing_queryable_folder=existing_queryable_folder,
             logger=logger,
         )
+
+
+async def _finalize_sync_bookkeeping(
+    job: ExternalDataJob,
+    schema: ExternalDataSchema,
+    source: "ExternalDataSource",
+    resource: "Optional[SourceResponse]",
+    last_incremental_field_value: Any,
+    logger: FilteringBoundLogger,
+) -> None:
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
+        finalize_desc_sort_incremental_value,
+    )
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import update_last_synced_at
 
     logger.debug("Updating last synced at timestamp on schema")
     await update_last_synced_at(job_id=str(job.id), schema_id=str(schema.id), team_id=job.team_id)
@@ -405,6 +402,26 @@ async def run_post_load_operations(
 
     if resource is not None:
         await finalize_desc_sort_incremental_value(resource, schema, last_incremental_field_value, logger)
+
+
+async def _register_tables_and_seed(
+    job: ExternalDataJob,
+    schema: ExternalDataSchema,
+    source: "ExternalDataSource",
+    delta_table_helper: "DeltaTableHelper",
+    row_count: int,
+    table_schema_dict: dict[str, str],
+    resource_name: str,
+    resource: "Optional[SourceResponse]",
+    queryable_folder: str,
+    cdc_write_mode: Optional[str],
+    is_cdc_companion: bool,
+    logger: FilteringBoundLogger,
+) -> None:
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
+        register_cdc_companion_table,
+        validate_schema_and_update_table,
+    )
 
     if is_cdc_companion:
         logger.debug("Registering CDC companion table")
@@ -421,73 +438,151 @@ async def run_post_load_operations(
                 set_as_schema_table=schema.cdc_table_mode == "cdc_only",
             )
         logger.debug("Finished registering CDC companion table")
-    else:
-        # For cdc_only mode during the initial load, skip registering the consolidated
-        # DataWarehouseTable — only the _cdc companion table should be visible.
-        # The DeltaLake files still exist on S3 for the seeding step to read from.
-        is_cdc_only_initial = (
-            cdc_write_mode is None
-            and schema.sync_type == ExternalDataSchema.SyncType.CDC
-            and schema.cdc_table_mode == "cdc_only"
-        )
+        return
 
-        if not is_cdc_only_initial:
-            logger.debug("Validating schema and updating table")
-            with POST_LOAD_DURATION_SECONDS.labels(operation="validate_schema").time():
-                await validate_schema_and_update_table(
-                    run_id=str(job.id),
-                    team_id=job.team_id,
-                    schema_id=schema.id,
-                    table_schema_dict=table_schema_dict,
-                    row_count=row_count,
-                    queryable_folder=queryable_folder,
-                    table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
-                    primary_keys=resource.primary_keys if resource is not None else None,
-                )
-            logger.debug("Finished validating schema and updating table")
+    # For cdc_only mode during the initial load, skip registering the consolidated
+    # DataWarehouseTable — only the _cdc companion table should be visible.
+    # The DeltaLake files still exist on S3 for the seeding step to read from.
+    is_cdc_only_initial = (
+        cdc_write_mode is None
+        and schema.sync_type == ExternalDataSchema.SyncType.CDC
+        and schema.cdc_table_mode == "cdc_only"
+    )
 
-        # After the initial snapshot load for a CDC schema, seed the companion _cdc table
-        # with the snapshot rows as synthetic INSERT events.  Only fires when cdc_write_mode
-        # is None (initial non-CDC load), NOT on every CDC consolidated streaming batch.
-        should_seed = (
-            cdc_write_mode is None
-            and schema.sync_type == ExternalDataSchema.SyncType.CDC
-            and schema.cdc_table_mode in ("cdc_only", "both")
-            and delta_table_helper is not None
-        )
-        logger.info(
-            "cdc_seed_check",
-            should_seed=should_seed,
-            cdc_write_mode=cdc_write_mode,
-            sync_type=schema.sync_type,
-            cdc_table_mode=schema.cdc_table_mode,
-            has_delta_table_helper=delta_table_helper is not None,
-        )
-        if should_seed:
-            logger.info("Seeding CDC companion table from snapshot")
-            await _seed_cdc_companion_from_snapshot(
-                schema=schema,
-                job=job,
-                source=source,
-                snapshot_delta_table_helper=delta_table_helper,
-                logger=logger,
+    if not is_cdc_only_initial:
+        logger.debug("Validating schema and updating table")
+        with POST_LOAD_DURATION_SECONDS.labels(operation="validate_schema").time():
+            await validate_schema_and_update_table(
+                run_id=str(job.id),
+                team_id=job.team_id,
+                schema_id=schema.id,
+                table_schema_dict=table_schema_dict,
+                row_count=row_count,
+                queryable_folder=queryable_folder,
+                table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                primary_keys=resource.primary_keys if resource is not None else None,
             )
-            logger.info("Finished seeding CDC companion table from snapshot")
+        logger.debug("Finished validating schema and updating table")
 
+    # After the initial snapshot load for a CDC schema, seed the companion _cdc table
+    # with the snapshot rows as synthetic INSERT events.  Only fires when cdc_write_mode
+    # is None (initial non-CDC load), NOT on every CDC consolidated streaming batch.
+    should_seed = (
+        cdc_write_mode is None
+        and schema.sync_type == ExternalDataSchema.SyncType.CDC
+        and schema.cdc_table_mode in ("cdc_only", "both")
+    )
+    logger.info(
+        "cdc_seed_check",
+        should_seed=should_seed,
+        cdc_write_mode=cdc_write_mode,
+        sync_type=schema.sync_type,
+        cdc_table_mode=schema.cdc_table_mode,
+    )
+    if should_seed:
+        logger.info("Seeding CDC companion table from snapshot")
+        await _seed_cdc_companion_from_snapshot(
+            schema=schema,
+            job=job,
+            source=source,
+            snapshot_delta_table_helper=delta_table_helper,
+            logger=logger,
+        )
+        logger.info("Finished seeding CDC companion table from snapshot")
+
+
+async def _sync_dependent_views(
+    schema: ExternalDataSchema, source: "ExternalDataSource", logger: FilteringBoundLogger
+) -> None:
     logger.debug("Syncing revenue analytics views if needed")
     await database_sync_to_async_pool(sync_revenue_analytics_views)(schema, source)
 
     logger.debug("Syncing engineering analytics views if needed")
     await database_sync_to_async_pool(sync_engineering_analytics_views)(schema, source)
 
+
+async def _maybe_flag_repartition(
+    job: ExternalDataJob,
+    schema: ExternalDataSchema,
+    source: "ExternalDataSource",
+    delta_table_helper: "DeltaTableHelper",
+    is_cdc_companion: bool,
+    logger: FilteringBoundLogger,
+) -> None:
     # Measure partition sizes and flag the table for an in-place repartition if a partition has grown
     # past the memory-safe budget. CDC tables are excluded for now (their companion-table semantics
     # need separate validation). Detection never raises — it must not break post-load.
-    if not is_cdc_companion and schema.sync_type != ExternalDataSchema.SyncType.CDC:
-        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.repartition_controller import (
-            maybe_flag_for_repartition,
-        )
+    if is_cdc_companion or schema.sync_type == ExternalDataSchema.SyncType.CDC:
+        return
 
-        delta_table = await delta_table_helper.get_delta_table()
-        if delta_table is not None:
-            await maybe_flag_for_repartition(schema, source, job, delta_table, logger)
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
+        maybe_flag_for_repartition,
+    )
+
+    delta_table = await delta_table_helper.get_delta_table()
+    if delta_table is not None:
+        await maybe_flag_for_repartition(schema, source, job, delta_table, logger)
+
+
+async def run_post_load_operations(
+    job: ExternalDataJob,
+    schema: ExternalDataSchema,
+    source: "ExternalDataSource",
+    delta_table_helper: "Optional[DeltaTableHelper]",
+    row_count: int,
+    table_schema_dict: dict[str, str],
+    resource_name: str,
+    logger: FilteringBoundLogger,
+    last_incremental_field_value: Any = None,
+    resource: "Optional[SourceResponse]" = None,
+    cdc_write_mode: Optional[str] = None,
+) -> Optional[str]:
+    """
+    Orchestrator that runs all post-load operations, in order:
+        1. Delta maintenance (threshold-based for CDC schemas, unconditional compaction otherwise)
+        2. Prepare S3 files for querying
+        3. Sync bookkeeping (last_synced_at, revenue-ready notification, initial_sync_complete,
+           desc-sort incremental finalization)
+        4. Validate schema and update table (or register/seed the CDC companion table)
+        5. Sync dependent product views (revenue/engineering analytics)
+        6. Repartition detection
+
+    Returns the queryable folder the table now serves from, or None when there is no delta table.
+    """
+    if delta_table_helper is None or await delta_table_helper.get_delta_table() is None:
+        logger.debug("No deltalake table, not continuing with post-run ops")
+        return None
+
+    # Detect CDC companion writes — scd2_append writes always go to the companion _cdc resource.
+    # In this case we must NOT touch schema.table (the snapshot table) and must register the companion
+    # table independently, otherwise we overwrite the snapshot queryable_folder with the SCD2 path.
+    is_cdc_companion = cdc_write_mode == "scd2_append"
+
+    await _run_delta_maintenance(schema, delta_table_helper, is_cdc_companion, logger)
+
+    queryable_folder = await _publish_queryable_files(
+        job, schema, delta_table_helper, resource_name, is_cdc_companion, logger
+    )
+
+    await _finalize_sync_bookkeeping(job, schema, source, resource, last_incremental_field_value, logger)
+
+    await _register_tables_and_seed(
+        job=job,
+        schema=schema,
+        source=source,
+        delta_table_helper=delta_table_helper,
+        row_count=row_count,
+        table_schema_dict=table_schema_dict,
+        resource_name=resource_name,
+        resource=resource,
+        queryable_folder=queryable_folder,
+        cdc_write_mode=cdc_write_mode,
+        is_cdc_companion=is_cdc_companion,
+        logger=logger,
+    )
+
+    await _sync_dependent_views(schema, source, logger)
+
+    await _maybe_flag_repartition(job, schema, source, delta_table_helper, is_cdc_companion, logger)
+
+    return queryable_folder

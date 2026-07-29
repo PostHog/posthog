@@ -83,7 +83,8 @@ jobs:
             github.event_name == 'push' ||
             github.event_name == 'workflow_dispatch' ||
             (github.event.pull_request.head.repo.full_name == github.repository &&
-             github.event.pull_request.draft != true)
+             (github.event.pull_request.draft != true ||
+              startsWith(github.head_ref, 'trunk-merge/')))
         name: Determine need to run E2E checks
         outputs:
             # Debounce can veto a PR run whose SHA has already been superseded (see below).
@@ -1049,10 +1050,10 @@ jobs:
         timeout-minutes: 5
         needs: [changes, select-specs, playwright, playwright_tests]
         if: # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
-            always() && github.actor != 'dependabot[bot]' &&
+            ${{ !cancelled() && github.actor != 'dependabot[bot]' &&
             needs.changes.outputs.shouldRun == 'true' && (
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
-            (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
+            (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog')) }}
         steps:
             - name: Get telemetry app token
               id: telemetry-app-token
