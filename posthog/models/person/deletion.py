@@ -319,24 +319,35 @@ def tombstone_orphaned_ch_persons(
     return result
 
 
+_LIVE_PERSONS_BASE = """
+    SELECT id, max(version) AS max_version, argMax(created_at, version) AS created_at
+    FROM person
+    WHERE team_id = %(team_id)s
+    GROUP BY id
+    HAVING argMax(is_deleted, version) = 0
+"""
+
+_LIVE_PERSONS_SCOPED = """
+    SELECT id, max(version) AS max_version, argMax(created_at, version) AS created_at
+    FROM person
+    WHERE team_id = %(team_id)s AND id IN %(uuids)s
+    GROUP BY id
+    HAVING argMax(is_deleted, version) = 0
+"""
+
+
 def _ch_live_persons(team_id: int, uuids: Optional[list[str]]) -> dict[str, tuple[int, dt.datetime]]:
     """Map each non-deleted CH person id to its (max_version, created_at)."""
-    where = "team_id = %(team_id)s"
-    params: dict = {"team_id": team_id}
-    if uuids is not None:
-        where += " AND id IN %(uuids)s"
+    # Two static query literals rather than an interpolated WHERE — every value is
+    # bound through %(...)s params, so there's no user data in the SQL text itself.
+    params: dict[str, object] = {"team_id": team_id}
+    if uuids is None:
+        query = _LIVE_PERSONS_BASE
+    else:
+        query = _LIVE_PERSONS_SCOPED
         params["uuids"] = list(uuids)
 
-    rows = sync_execute(
-        f"""
-            SELECT id, max(version) AS max_version, argMax(created_at, version) AS created_at
-            FROM person
-            WHERE {where}
-            GROUP BY id
-            HAVING argMax(is_deleted, version) = 0
-        """,
-        params,
-    )
+    rows = sync_execute(query, params)
     return {str(row[0]): (int(row[1]), row[2]) for row in rows}
 
 
