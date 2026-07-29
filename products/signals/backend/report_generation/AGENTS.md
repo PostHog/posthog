@@ -87,7 +87,7 @@ charts path.
 - **Replace, not append.** `charts` is the report's whole set. On a re-research the previous charts
   are shown back as context (loaded from `SignalReport.charts` by `_load_previous_research`); the run
   keeps, refreshes, or drops them and the caller replaces the column with the result.
-- **Persistence is atomic with the prose.** `run_agentic_report_activity` only *resolves* the charts
+- **Persistence is atomic with the prose.** `run_agentic_report_activity` only _resolves_ the charts
   payload (`_resolve_report_charts_payload`) and returns it on `RunAgenticReportOutput.charts`; the
   column is written by the transition activity that also writes the title/summary
   (`mark_report_ready_activity` / `mark_report_pending_input_activity`), inside the same
