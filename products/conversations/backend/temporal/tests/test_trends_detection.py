@@ -22,7 +22,7 @@ from ee.models.rbac.access_control import AccessControl
 
 # UTC-aware: detection buckets by UTC hour and compares against timezone.now().
 FROZEN_NOW = datetime(2026, 7, 20, 14, 30, 0, tzinfo=UTC)
-# The last complete hour is 13:00–14:00; put ticket bursts here so they're scored.
+# The last complete hour is 13:00–14:00. Put ticket bursts here so they're scored.
 IN_WINDOW = FROZEN_NOW.replace(hour=13, minute=30, second=0, microsecond=0)
 
 
@@ -32,7 +32,7 @@ class TestTrendsDetection(BaseTest):
         self.team.conversations_enabled = True
         self.team.save()
         self._ticket_number = 0
-        # Both notification side effects are external boundaries — stub them so tests
+        # Both notification side effects are external boundaries. Stub them so tests
         # stay off ClickHouse capture and the notifications facade.
         self.capture_event = patch("products.conversations.backend.events.capture_incident_detected").start()
         self.create_notification = patch("products.notifications.backend.facade.api.create_notification").start()
@@ -48,7 +48,7 @@ class TestTrendsDetection(BaseTest):
                 widget_session_id=f"session-{self._ticket_number}",
                 distinct_id=f"person-{self._ticket_number}",
             )
-            # created_at is auto_now_add; override via queryset update to place it in the window.
+            # created_at is auto_now_add, so override via queryset update to place it in the window.
             Ticket.objects.filter(id=ticket.id).update(created_at=when)
 
     def _seed_history(self, *, days: int = 28) -> None:
@@ -58,7 +58,7 @@ class TestTrendsDetection(BaseTest):
             self._make_tickets(1, when=FROZEN_NOW.replace(hour=10, minute=0) - timedelta(days=day))
 
     def _make_rule(self, **kwargs: object) -> TicketAlertRule:
-        # TicketAlertRule uses the fail-closed manager; creation needs team context.
+        # TicketAlertRule uses the fail-closed manager, so creation needs team context.
         with team_scope(self.team.id):
             return TicketAlertRule.objects.create(team=self.team, **kwargs)
 
@@ -81,7 +81,7 @@ class TestTrendsDetection(BaseTest):
 
     def test_notification_targets_only_current_org_members(self) -> None:
         # A configured recipient who has left the org (stale id 999999) must be
-        # dropped; the remaining member is targeted individually.
+        # dropped, and the remaining member is targeted individually.
         member = User.objects.create_and_join(self.organization, "trends-member@posthog.com", None)
         self.team.conversations_settings = {"notification_recipients": [member.id, 999999]}
         self.team.save()
@@ -141,7 +141,7 @@ class TestTrendsDetection(BaseTest):
 
     def test_incident_auto_resolves_after_calm_runs(self) -> None:
         # 25 tickets keeps the team on the hourly path (>= 20/week), so the spike leaves
-        # the trailing 2h window a few hours later while staying under the 24h age cap —
+        # the trailing 2h window a few hours later while staying under the 24h age cap,
         # exercising the calm-run counter rather than the aged-out backstop.
         with freeze_time(FROZEN_NOW):
             self._seed_history()
@@ -161,7 +161,7 @@ class TestTrendsDetection(BaseTest):
 
     def test_aged_incident_stays_open_while_still_firing(self) -> None:
         # Force-resolving a still-firing incident would reopen and re-notify for the
-        # same continuous event; the age backstop must wait until the spike stops.
+        # same continuous event, so the age backstop must wait until the spike stops.
         with freeze_time(FROZEN_NOW):
             self._seed_history()
             self._make_tickets(8, when=IN_WINDOW)
@@ -176,7 +176,7 @@ class TestTrendsDetection(BaseTest):
         assert self.capture_event.call_count == 1
 
     def test_incident_dismissed_mid_run_is_not_resurrected(self) -> None:
-        # A run holds an in-memory snapshot of active incidents; a dismissal landing
+        # A run holds an in-memory snapshot of active incidents. A dismissal landing
         # between that snapshot and the run's write must win, not be overwritten.
         with freeze_time(FROZEN_NOW):
             self._seed_history()

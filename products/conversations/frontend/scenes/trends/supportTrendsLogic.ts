@@ -281,7 +281,7 @@ export const supportTrendsLogic = kea<supportTrendsLogicType>([
         },
         saveRule: async () => {
             // The Save button shows loading, but onPressEnter in the name field
-            // dispatches directly — guard against a double submit.
+            // dispatches directly, so guard against a double submit.
             if (values.ruleSaving) {
                 return
             }

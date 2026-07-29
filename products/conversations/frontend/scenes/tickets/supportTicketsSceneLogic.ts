@@ -472,7 +472,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 search: string,
                 aiEnabled: boolean
             ): Record<string, string> => {
-                // The current filters in the tickets list endpoint's query-param form —
+                // The current filters in the tickets list endpoint's query-param form,
                 // the shape TicketAlertRule.filters stores. Date/order params are
                 // deliberately excluded: an alert rule's window supplies the time bound.
                 const params: Record<string, string> = {}
@@ -559,7 +559,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         loadTickets: async (_, breakpoint) => {
             await breakpoint(300)
             // ruleFilterParams is the single source for row-filter params (it's also what
-            // "create alert rule from filters" stores); only time/order/pagination are added here.
+            // "create alert rule from filters" stores). Only time/order/pagination are added here.
             const params: Record<string, any> = { ...values.ruleFilterParams }
 
             if (props.distinctIds && props.distinctIds.length > 0) {

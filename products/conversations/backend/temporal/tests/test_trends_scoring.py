@@ -11,13 +11,13 @@ from products.conversations.backend.temporal.trends.scoring import (
     score_window,
 )
 
-# Fixed reference time; scoring only reads relative hourly offsets, never the wall clock.
+# Fixed reference time. Scoring only reads relative hourly offsets, never the wall clock.
 NOW = datetime(2026, 7, 20, 14, 30, 0)
 WINDOW_END = floor_to_hour(NOW)  # 14:00
 
 
 def _flat_baseline(per_hour: int, *, hours: int = 24 * 30) -> dict[datetime, int]:
-    """Every historical hour has the same count — a perfectly flat baseline."""
+    """Every historical hour has the same count (a perfectly flat baseline)."""
     return {WINDOW_END - timedelta(hours=i): per_hour for i in range(1, hours + 1)}
 
 
@@ -62,7 +62,7 @@ class TestScoreWindow:
         assert not result.fired
 
     def test_absolute_only_ignores_baseline(self) -> None:
-        # No baseline sample considered; fires purely on min_count in the window.
+        # No baseline sample is considered, so this fires purely on min_count in the window.
         hourly = {WINDOW_END - timedelta(hours=1): 5}
         result = score_window(hourly, NOW, 1, SpikeConfig(min_count=5), absolute_only=True)
         assert result.fired

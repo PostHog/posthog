@@ -784,7 +784,7 @@ export interface TicketIncidentApi {
     readonly zscore: number | null
     /** Detection snapshot: title, sample tickets, sparkline, channel mix. */
     readonly details: TicketIncidentDetailsApi
-    /** Consecutive evaluations below the calm threshold; the incident auto-resolves after several. */
+    /** Consecutive evaluations below the calm threshold. The incident auto-resolves after several. */
     readonly calm_run_count: number
     readonly created_at: string
 }

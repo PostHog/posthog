@@ -108,7 +108,7 @@ class TicketAlertRuleSerializer(serializers.ModelSerializer):
                 )
             raise serializers.ValidationError(f"Unknown filter keys: {', '.join(sorted(unknown))}.")
         # Value validation: a malformed value evaluates as "no filter", silently
-        # broadening the rule to all tickets — reject it at save time instead.
+        # broadening the rule to all tickets, so reject it at save time instead.
         errors = validate_rule_filter_values(value)
         if errors:
             raise serializers.ValidationError(errors)
@@ -118,7 +118,7 @@ class TicketAlertRuleSerializer(serializers.ModelSerializer):
         will_be_enabled = attrs.get("enabled", self.instance.enabled if self.instance else True)
         if will_be_enabled:
             team = self.context["get_team"]()
-            # Rows are stored under the canonical (parent) team id — count there.
+            # Rows are stored under the canonical (parent) team id, so count there.
             canonical_team_id = team.parent_team_id or team.id
             enabled_rules = TicketAlertRule.objects.filter(team_id=canonical_team_id, enabled=True)
             if self.instance is not None:
@@ -200,7 +200,7 @@ class TicketIncidentSerializer(serializers.ModelSerializer):
             },
             "zscore": {"help_text": "Robust z-score of the observed count against the baseline, when available."},
             "calm_run_count": {
-                "help_text": "Consecutive evaluations below the calm threshold; the incident auto-resolves after several."
+                "help_text": "Consecutive evaluations below the calm threshold. The incident auto-resolves after several."
             },
         }
 
@@ -219,7 +219,7 @@ class TicketIncidentSerializer(serializers.ModelSerializer):
 class TicketAlertRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
     # unscoped() at class level: the fail-closed manager has no team context at
-    # import time; safely_get_queryset applies the team filter on every request.
+    # import time. safely_get_queryset applies the team filter on every request.
     queryset = TicketAlertRule.objects.unscoped()
     serializer_class = TicketAlertRuleSerializer
     permission_classes = [IsAuthenticated, APIScopePermission]
@@ -267,7 +267,7 @@ class TicketIncidentViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSe
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["dismiss"]
     # unscoped() at class level: the fail-closed manager has no team context at
-    # import time; safely_get_queryset applies the team filter on every request.
+    # import time. safely_get_queryset applies the team filter on every request.
     queryset = TicketIncident.objects.unscoped()
     serializer_class = TicketIncidentSerializer
     permission_classes = [IsAuthenticated, APIScopePermission]

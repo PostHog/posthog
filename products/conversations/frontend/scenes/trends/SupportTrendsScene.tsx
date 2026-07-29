@@ -39,7 +39,7 @@ export const scene: SceneExport = {
     productKey: ProductKey.CONVERSATIONS,
 }
 
-/** LemonInput number fields emit NaN when cleared; ?? only catches null/undefined. */
+/** LemonInput number fields emit NaN when cleared, and ?? only catches null/undefined. */
 function finiteOr(value: number | undefined, fallback: number): number {
     return value != null && Number.isFinite(value) ? value : fallback
 }
@@ -103,7 +103,7 @@ function IncidentsTable({ incidents, loading }: { incidents: TicketIncidentApi[]
             width: 160,
             render: (_, incident) => {
                 const data = incident.details?.sparkline_hourly
-                // Generated API arrays are readonly; Sparkline wants a mutable number[].
+                // Generated API arrays are readonly, but Sparkline wants a mutable number[].
                 return data && data.length > 0 ? <Sparkline data={[...data]} className="h-8 w-36" /> : null
             },
         },

@@ -1,7 +1,7 @@
 """Run ticket trends/incident detection for one team, immediately and inline.
 
 Used for dogfooding: seed tickets, run this, then check the incidents API,
-the $conversation_incident_detected event, and the banner — no Temporal
+the $conversation_incident_detected event, and the banner. No Temporal
 worker or schedule required (detection is plain Django code).
 """
 

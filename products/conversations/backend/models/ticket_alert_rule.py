@@ -19,9 +19,9 @@ class TicketAlertRule(TeamScopedRootMixin, UUIDModel):
     )
 
     name = models.CharField(max_length=400)
-    # Ticket list filters in query-param form — the same key/value strings the tickets list
+    # Ticket list filters in query-param form: the same key/value strings the tickets list
     # endpoint accepts (status, priority, channel_source, tags, search, ...). Time and ordering
-    # params are ignored at evaluation time; the rule's window supplies the time bound.
+    # params are ignored at evaluation time because the rule's window supplies the time bound.
     filters = models.JSONField(default=dict, blank=True)
 
     window_minutes = models.PositiveIntegerField(default=120)

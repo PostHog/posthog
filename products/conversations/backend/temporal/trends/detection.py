@@ -2,7 +2,7 @@
 
 Runs per team from the trends analysis workflow. Evaluates the built-in series
 (overall volume, per channel, per priority) plus every enabled alert rule, then
-reconciles results against open ``TicketIncident`` rows — the open ACTIVE row is
+reconciles results against open ``TicketIncident`` rows. The open ACTIVE row is
 the dedup/cooldown, so a spike alerts once and auto-resolves once it calms.
 """
 
@@ -54,7 +54,7 @@ SERIES_DAYS = 30
 SAMPLE_TICKET_LIMIT = 5
 SPARKLINE_HOURS = 24
 # A dismissed incident suppresses re-fires of the same scope/dimension for this
-# long — otherwise a persisting spike would recreate the alert on the next run.
+# long, because otherwise a persisting spike would recreate the alert on the next run.
 DISMISS_SUPPRESSION_HOURS = 24
 
 
@@ -243,7 +243,7 @@ def _evaluate_rule(team: Team, rule: TicketAlertRule, now: datetime, history_sta
         )
     else:
         # Relative: build the rule's own hourly series for a baseline comparison.
-        # Whole hours only (rounded up — a 90-minute window evaluates as 2h);
+        # Whole hours only, rounded up (a 90-minute window evaluates as 2h).
         # Count(distinct) guards against tag-join fan-out from the filters.
         window_hours = min(max(math.ceil(window_minutes / 60), 1), 24)
         series_start = now - timedelta(days=SERIES_DAYS)
@@ -274,7 +274,7 @@ def _evaluate_rule(team: Team, rule: TicketAlertRule, now: datetime, history_sta
 def _notify_incident(team: Team, incident: TicketIncident, title: str) -> None:
     """Fire the customer-facing event and the in-app notification. Both are
     best-effort: a delivery hiccup must not fail the detection run."""
-    # Deferred: events pulls the HogQL query layer; notifications is another product's facade.
+    # Deferred: events pulls the HogQL query layer, and notifications is another product's facade.
     from products.conversations.backend.events import capture_incident_detected  # noqa: PLC0415
     from products.notifications.backend.facade.api import (  # noqa: PLC0415
         NotificationData,
@@ -293,8 +293,8 @@ def _notify_incident(team: Team, incident: TicketIncident, title: str) -> None:
     settings_dict = team.conversations_settings or {}
     if not settings_dict.get("trends_notifications_enabled", True):
         return
-    # Notify the configured recipients (the same user list new-ticket emails use);
-    # fall back to the whole team when none are configured. The stored ids are raw
+    # Notify the configured recipients (the same user list new-ticket emails use),
+    # falling back to the whole team when none are configured. The stored ids are raw
     # user ids with no auth attached, so filter to current org members who can access
     # this project. A stale id (user left the org or lost project access) must not
     # keep receiving this team's incident activity, matching the check the
@@ -365,8 +365,8 @@ def _reconcile(team: Team, evaluations: list[Evaluation], now: datetime, stats: 
         )
     }
     touched: set[tuple[str, str]] = set()
-    # Hierarchy: when overall volume fires, its incident carries the channel mix —
-    # suppress *new* channel/priority incidents this run so one event doesn't
+    # Hierarchy: when overall volume fires, its incident carries the channel mix.
+    # Suppress *new* channel/priority incidents this run so one event doesn't
     # produce three alerts. Existing slice incidents still update below.
     volume_fired = any(
         evaluation.scope == IncidentScope.VOLUME and evaluation.result.fired for evaluation in evaluations
@@ -401,7 +401,7 @@ def _reconcile(team: Team, evaluations: list[Evaluation], now: datetime, stats: 
                         details={"title": title, **evaluation.details},
                     )
             except IntegrityError:
-                # A concurrent run opened the incident first; it owns the alert.
+                # A concurrent run opened the incident first and owns the alert.
                 continue
             if evaluation.rule is not None:
                 TicketAlertRule.objects.for_team(team.id).filter(id=evaluation.rule.id).update(last_fired_at=now)
@@ -470,7 +470,7 @@ def run_detection(team_id: int) -> DetectionStats:
         series_start = now - timedelta(days=SERIES_DAYS)
         hourly_rows = _fetch_hourly_buckets(team.id, series_start)
         # Baseline days before the team's first-ever ticket are absence of history, not
-        # quiet — scoring excludes them. None once the team predates the fetch window.
+        # quiet, so scoring excludes them. None once the team predates the fetch window.
         first_ticket_at = (
             Ticket.objects.filter(team_id=team.id).order_by("created_at").values_list("created_at", flat=True).first()
         )

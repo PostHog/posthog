@@ -339,7 +339,7 @@ def capture_ticket_created(ticket: Ticket) -> None:
 
 def capture_incident_detected(incident: TicketIncident, team: Team, title: str) -> None:
     """A ticket-volume incident opened. Fired once per incident (the open ACTIVE
-    row dedupes re-fires); designed for HogFunction alert destinations, mirroring
+    row dedupes re-fires). Designed for HogFunction alert destinations, mirroring
     error tracking's ``$error_tracking_issue_spiking``."""
     details = incident.details or {}
     sample_tickets = details.get("sample_tickets") or []

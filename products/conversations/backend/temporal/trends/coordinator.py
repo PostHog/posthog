@@ -32,7 +32,7 @@ TRENDS_COORDINATOR_INTERVAL_MINUTES = 15
 # skipped by ScheduleOverlapPolicy.SKIP can't silently drop a team.
 TEAM_LOOKBACK_MINUTES = 35
 
-# Bounds coordinator fan-out; overflow teams roll to the next tick (a missed
+# Bounds coordinator fan-out. Overflow teams roll to the next tick (a missed
 # evaluation delays an alert by one interval, it doesn't lose it).
 MAX_TEAMS_PER_RUN = 200
 
@@ -57,9 +57,10 @@ class CollectEligibleTeamsOutput:
 
 
 def _is_master_flag_enabled(team: Team) -> bool:
-    # The flag is targeted by project group; release conditions can match on the project's `uuid`,
-    # so it must be in group_properties — the headless worker only sends what's listed here (unlike
-    # posthog-js, which auto-attaches full group properties). Without it a uuid filter never matches.
+    # The flag is targeted by project group, and release conditions can match on the project's
+    # `uuid`, so it must be in group_properties: the headless worker only sends what's listed here
+    # (unlike posthog-js, which auto-attaches full group properties), so a uuid filter would
+    # otherwise never match.
     try:
         return bool(
             posthoganalytics.feature_enabled(
@@ -89,7 +90,7 @@ def _collect_eligible_teams() -> list[int]:
     cutoff = now - timedelta(minutes=TEAM_LOOKBACK_MINUTES)
 
     recent_team_ids = set(Ticket.objects.filter(created_at__gte=cutoff).values_list("team_id", flat=True).distinct())
-    # Cross-team scan is the coordinator's job; per-team access happens in the child workflow.
+    # Cross-team scan is the coordinator's job. Per-team access happens in the child workflow.
     open_incident_team_ids = set(
         TicketIncident.objects.unscoped()
         .filter(status=IncidentStatus.ACTIVE)
@@ -130,9 +131,9 @@ class TicketTrendsCoordinatorWorkflow:
     """Coordinator: gates teams, fans out per-team analysis child workflows.
 
     Child workflow IDs are deterministic per team (`ticket-trends-<team_id>`), so a
-    still-running analysis conflicts on its id and the tick skips it — one analysis
-    per team at a time. ALLOW_DUPLICATE lets the next tick re-run the team after any
-    close (these are recurring evaluations, not one-shots)."""
+    still-running analysis conflicts on its id and the tick skips it, keeping one
+    analysis per team at a time. ALLOW_DUPLICATE lets the next tick re-run the team
+    after any close (these are recurring evaluations, not one-shots)."""
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> TrendsCoordinatorInput:

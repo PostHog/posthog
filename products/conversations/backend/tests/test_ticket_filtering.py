@@ -17,7 +17,7 @@ class TestTicketFiltering(APIBaseTest):
         return Ticket.objects.create(**defaults)
 
     def test_apply_ticket_filters_matches_list_endpoint(self):
-        # A rule stores the same query-param strings the list view uses; both must count
+        # A rule stores the same query-param strings the list view uses, and both must count
         # the same tickets so "create alert rule from filters" is faithful.
         self._make_ticket(1, channel_source=Channel.EMAIL, priority=Priority.HIGH)
         self._make_ticket(2, channel_source=Channel.EMAIL, priority=Priority.LOW)
@@ -38,7 +38,7 @@ class TestTicketFiltering(APIBaseTest):
         assert len(helper_ids) == 1  # only the email + high-priority ticket
 
     def test_rule_filter_params_keeps_only_allowed_keys(self):
-        # Time/order params would fight the rule's window; search is disallowed in
+        # Time/order params would fight the rule's window, and search is disallowed in
         # rules (unindexed comment scan on a recurring background job).
         cleaned = rule_filter_params(
             {

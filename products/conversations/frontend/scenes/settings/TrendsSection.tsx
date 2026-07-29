@@ -31,7 +31,7 @@ function NumberSettingInput({
     useEffect(() => setDraft(value), [value])
 
     const commit = (): void => {
-        // A cleared number input emits NaN (not undefined); never persist it —
+        // A cleared number input emits NaN (not undefined). Never persist it,
         // snap back to the saved value instead.
         if (draft == null || !Number.isFinite(draft)) {
             setDraft(value)

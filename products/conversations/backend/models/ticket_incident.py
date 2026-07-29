@@ -51,11 +51,11 @@ class TicketIncident(TeamScopedRootMixin, UUIDModel):
     # Null for absolute-only rule breaches, which have no baseline comparison.
     baseline_value = models.FloatField(null=True, blank=True)
     zscore = models.FloatField(null=True, blank=True)
-    # Context snapshot for the UI and alert payload: sample ticket numbers, hourly
-    # sparkline, channel mix — whatever the detector saw at fire time.
+    # Context snapshot for the UI and alert payload (sample ticket numbers, hourly
+    # sparkline, channel mix), whatever the detector saw at fire time.
     details = models.JSONField(default=dict, blank=True)
 
-    # Consecutive detector runs below the resolve threshold; auto-resolve triggers
+    # Consecutive detector runs below the resolve threshold. Auto-resolve triggers
     # once this reaches the detector's calm-run limit.
     calm_run_count = models.PositiveIntegerField(default=0)
 

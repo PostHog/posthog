@@ -38,7 +38,7 @@ class TestTicketAlertRuleAPI(APIBaseTest):
         assert data["created_by"]["id"] == self.user.pk
 
     def test_rejects_time_filter_keys(self):
-        # date_from would fight the rule's own window; the serializer must reject it.
+        # date_from would fight the rule's own window, so the serializer must reject it.
         response = self.client.post(self.base_url, self._valid_payload(filters={"date_from": "-7d"}), format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
@@ -47,7 +47,7 @@ class TestTicketAlertRuleAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_rejects_search_filter(self):
-        # search runs an unindexed comment scan; fine interactively, not on a
+        # search runs an unindexed comment scan, fine interactively but not on a
         # recurring background evaluation.
         response = self.client.post(self.base_url, self._valid_payload(filters={"search": "csv export"}), format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -63,13 +63,13 @@ class TestTicketAlertRuleAPI(APIBaseTest):
     )
     def test_rejects_malformed_filter_values(self, _name, filters):
         # A malformed value would evaluate as "no filter", silently broadening the
-        # rule to all tickets; it must be rejected at save time.
+        # rule to all tickets, so it must be rejected at save time.
         response = self.client.post(self.base_url, self._valid_payload(filters=filters), format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_put_is_not_allowed(self):
         # Full PUT would reset omitted fields (filters defaults to {}), silently
-        # clearing saved criteria — the viewset is PATCH-only like TicketViewViewSet.
+        # clearing saved criteria, so the viewset is PATCH-only like TicketViewViewSet.
         with team_scope(self.team.id):
             rule = TicketAlertRule.objects.create(team=self.team, name="Rule", filters={"channel_source": "email"})
         response = self.client.put(f"{self.base_url}{rule.id}/", self._valid_payload(), format="json")

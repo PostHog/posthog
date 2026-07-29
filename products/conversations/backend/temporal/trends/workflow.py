@@ -51,7 +51,7 @@ async def ticket_trends_detect_activity(input: TrendsAnalysisInput) -> TrendsAna
 
 @workflow.defn(name="ticket-trends-analysis")
 class TicketTrendsAnalysisWorkflow:
-    """Per-team ticket trends analysis. Phase 1 is detection only; the AI
+    """Per-team ticket trends analysis. Phase 1 is detection only. The AI
     clustering activities slot in here later as additional steps."""
 
     @staticmethod

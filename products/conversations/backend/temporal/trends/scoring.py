@@ -5,8 +5,8 @@ which keeps every threshold decision unit-testable.
 
 Method (mirroring the error-tracking spike detector and the anomaly-scout
 conventions): the observed window count is compared against a
-seasonality-matched baseline — the same window ending at the same clock time
-on each of the trailing days — using a robust z-score,
+seasonality-matched baseline (the same window ending at the same clock time
+on each of the trailing days) using a robust z-score,
 ``z = (x - median) / (1.4826 * MAD)``. A spike fires only when the count also
 clears an absolute floor and a multiple of the median, so quiet series can't
 alert off tiny wobbles.
@@ -24,13 +24,13 @@ DEFAULT_Z_THRESHOLD = 4.0
 DEFAULT_MULTIPLIER = 3.0
 DEFAULT_MIN_COUNT = 5
 # Below this many tickets in the trailing 7 days, hourly baselines are
-# meaningless — switch to a single trailing-24h window.
+# meaningless, so detection switches to a single trailing-24h window.
 LOW_VOLUME_WEEKLY_TOTAL = 20
 # Relative detection needs at least this many real baseline samples. Fewer
 # (young teams) and the sample is mostly phantom zeros from before the team's
 # first ticket, which deflates the median and fires on perfectly normal volume.
 MIN_BASELINE_DAYS = 7
-# An active incident is "calm" once observed < CALM_FACTOR × baseline; after
+# An active incident is "calm" once observed < CALM_FACTOR × baseline. After
 # CALM_RUNS_TO_RESOLVE consecutive calm evaluations it auto-resolves.
 CALM_FACTOR = 1.5
 CALM_RUNS_TO_RESOLVE = 4
@@ -53,8 +53,8 @@ class SpikeResult:
     # None when scored absolute-only (no baseline sample).
     baseline_median: float | None
     zscore: float | None
-    # True when the observed count sits below the calm threshold — used to
-    # advance an active incident toward auto-resolution.
+    # True when the observed count sits below the calm threshold, which
+    # advances an active incident toward auto-resolution.
     calm: bool
 
 
@@ -76,7 +76,7 @@ def _baseline_sample(
 ) -> list[int]:
     """Window sums ending at the same clock time on each of the prior ``baseline_days``
     days. Days whose window predates ``history_start`` (before the team's first ticket)
-    are excluded — those zeros are absence of history, not genuine quiet."""
+    are excluded because those zeros are absence of history, not genuine quiet."""
     samples = []
     for day in range(1, baseline_days + 1):
         sample_end = window_end - timedelta(days=day)
@@ -117,8 +117,8 @@ def score_window(
 
     sample = _baseline_sample(hourly, window_end, window_hours, baseline_days, history_start)
     if len(sample) < MIN_BASELINE_DAYS:
-        # Not enough history to say what "normal" looks like — never fire relative
-        # detection for a young team; absolute-only rules still work.
+        # Not enough history to say what "normal" looks like, so never fire
+        # relative detection for a young team. Absolute-only rules still work.
         return SpikeResult(
             fired=False,
             observed=observed,
@@ -136,7 +136,7 @@ def score_window(
         zscore = (observed - median) / (1.4826 * mad)
         fired = observed >= threshold and zscore >= config.z_threshold
     else:
-        # A flat baseline gives no dispersion to score against; the absolute
+        # A flat baseline gives no dispersion to score against, so the absolute
         # threshold alone has to carry the decision.
         fired = observed >= threshold
     return SpikeResult(
@@ -175,7 +175,7 @@ def score_builtin_volume(
 
 
 def _stronger(first: SpikeResult, second: SpikeResult) -> SpikeResult:
-    """Prefer a fired result; between two fired results, the higher ratio over baseline."""
+    """Prefer a fired result. Between two fired results, prefer the higher ratio over baseline."""
     if first.fired != second.fired:
         return first if first.fired else second
 

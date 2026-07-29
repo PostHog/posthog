@@ -283,7 +283,7 @@ class TestConversationEvents(BaseTest):
     @patch("products.conversations.backend.events.capture_internal")
     def test_capture_incident_detected_raises_on_rejected_event(self, _name, result, mock_capture):
         # The open incident row dedupes re-fires, so a silently dropped event would
-        # permanently lose the alert; the caller must see the failure.
+        # permanently lose the alert. The caller must see the failure.
         mock_capture.return_value = result
 
         with self.assertRaises(CaptureInternalError):

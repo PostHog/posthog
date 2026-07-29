@@ -50,7 +50,7 @@ export const incidentBannerLogic = kea<incidentBannerLogicType>([
     }),
     listeners(({ actions, cache }) => ({
         dismissIncident: async ({ incidentId }) => {
-            // The banner's close button can't show a spinner; swallow re-clicks instead.
+            // The banner's close button can't show a spinner, so swallow re-clicks instead.
             if (cache.dismissing) {
                 return
             }

@@ -32,10 +32,10 @@ MAX_TAG_FILTER_VALUES = 50
 # window supplies the time bound, and ordering/pagination don't affect counts.
 RULE_IGNORED_FILTER_KEYS = frozenset({"date_from", "date_to", "order_by", "limit", "offset", "view"})
 
-# The filter params a stored alert rule may use — the tickets-list row filters minus
-# the time/ordering ones above and minus `search`: its correlated icontains subquery
-# over comments is unindexed, acceptable once per interactive page load but not
-# re-run for every rule on every 15-minute background evaluation.
+# The filter params a stored alert rule may use: the tickets-list row filters minus
+# the time/ordering ones above and minus `search`, whose correlated icontains subquery
+# over comments is unindexed (acceptable once per interactive page load, but not
+# re-run for every rule on every 15-minute background evaluation).
 RULE_ALLOWED_FILTER_KEYS = frozenset(
     {
         "status",
@@ -53,8 +53,8 @@ RULE_ALLOWED_FILTER_KEYS = frozenset(
     }
 )
 
-# Rules re-evaluate every 15 minutes forever; tags_all adds one self-join per value,
-# so cap rule tag lists far below the interactive MAX_TAG_FILTER_VALUES.
+# Rules re-evaluate every 15 minutes forever and tags_all adds one self-join per
+# value, so cap rule tag lists far below the interactive MAX_TAG_FILTER_VALUES.
 MAX_RULE_TAG_VALUES = 10
 
 _RULE_VALID_SLA_VALUES = frozenset({"breached", "at-risk", "on-track"})
@@ -95,8 +95,8 @@ def validate_rule_filter_values(filters: Mapping[str, str]) -> list[str]:
     """Validate a stored alert rule's filter values, returning human-readable errors.
 
     The tickets list endpoint tolerates malformed values by silently skipping the
-    clause — fine interactively, but a persisted rule that silently broadens to
-    "all tickets" is a broken alert nobody notices. Reject bad values at save time.
+    clause, which is fine interactively, but a persisted rule that silently broadens
+    to "all tickets" is a broken alert nobody notices. Reject bad values at save time.
     """
     errors: list[str] = []
     for key, value in filters.items():
@@ -149,7 +149,7 @@ def apply_ticket_filters(queryset: QuerySet[Ticket], params: Mapping[str, str], 
 
     ``params`` uses the query-param string shape of the tickets list endpoint
     (comma-separated multi-values, JSON-encoded tag lists). Unknown keys are
-    ignored. Tag filters introduce join fan-out — aggregate with
+    ignored. Tag filters introduce join fan-out, so aggregate with
     ``Count(..., distinct=True)`` or keep the ``.distinct()`` applied here.
     """
     status_param = params.get("status")
@@ -230,9 +230,8 @@ def apply_ticket_filters(queryset: QuerySet[Ticket], params: Mapping[str, str], 
         if search.isdigit():
             queryset = queryset.filter(ticket_number=int(search))
         else:
-            # EXISTS subquery: matches any comment in the ticket's conversation.
             # Uses the (team_id, scope, item_id) composite index on Comment to
-            # narrow to per-ticket comments; EXISTS short-circuits on first match.
+            # narrow to per-ticket comments. EXISTS short-circuits on first match.
             # If this becomes slow at scale (10k+ candidate tickets with broad
             # filters), consider adding a GIN trigram index on Comment.content:
             #   GinIndex(name="comment_content_trigram", fields=["content"],
