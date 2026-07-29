@@ -8,7 +8,7 @@ import { SqlComboGraph } from './SqlComboGraph'
 import { SqlLineGraph } from './SqlLineGraph'
 import { canRenderSqlBarGraph, canRenderSqlComboGraph } from './sqlLineGraphAdapter'
 
-export type LineGraphProps = {
+export type SqlChartProps = {
     xData: AxisSeries<string> | null
     yData: AxisSeries<number | null>[] | AxisBreakdownSeries<number | null>[]
     visualizationType: ChartDisplayType
@@ -24,9 +24,9 @@ export type LineGraphProps = {
 
 /**
  * Picks the @posthog/quill-charts renderer for a SQL insight: combo for mixed bar + line/area
- * series, bar for bar-only, line/area otherwise.
+ * series, bar for bar-only, line/area otherwise. (Pie has its own wrapper — see PieChart.)
  */
-export function sqlChartComponentFor(props: LineGraphProps): (props: LineGraphProps) => JSX.Element {
+export function sqlChartComponentFor(props: SqlChartProps): (props: SqlChartProps) => JSX.Element {
     if (canRenderSqlComboGraph(props)) {
         return SqlComboGraph
     }
@@ -36,7 +36,9 @@ export function sqlChartComponentFor(props: LineGraphProps): (props: LineGraphPr
     return SqlLineGraph
 }
 
-export const LineGraph = (props: LineGraphProps): JSX.Element => {
+/** Entry point for rendering a non-pie SQL (DataVisualization) chart: dispatches line, area, bar,
+ *  stacked-bar, and combo series to the matching @posthog/quill-charts renderer. */
+export const SqlChart = (props: SqlChartProps): JSX.Element => {
     const Component = sqlChartComponentFor(props)
     return <Component {...props} />
 }

@@ -4,7 +4,7 @@ import { TimeSeriesComboChart } from '@posthog/quill-charts'
 
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
-import { LineGraphProps } from './LineGraph'
+import { SqlChartProps } from './SqlChart'
 import { SqlLineSeriesMeta, buildComboChartConfig } from './sqlLineGraphAdapter'
 import { useSqlChartModel } from './useSqlChartModel'
 
@@ -16,7 +16,7 @@ const handleChartError = makeChartErrorHandler('sql-combo-chart')
  * can't. Tooltip content (per-column formatting, total row) is configured in
  * {@link buildComboChartConfig}.
  */
-export const SqlComboGraph = (props: LineGraphProps): JSX.Element => {
+export const SqlComboGraph = (props: SqlChartProps): JSX.Element => {
     const model = useSqlChartModel(props, buildComboChartConfig)
 
     return (

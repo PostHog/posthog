@@ -9,7 +9,7 @@ import { useChartTheme } from 'lib/charts/hooks'
 
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
-import { LineGraphProps } from './LineGraph'
+import { SqlChartProps } from './SqlChart'
 import { formatSqlSeriesValue } from './sqlLineGraphAdapter'
 import { buildPieSeries, buildPieSlices, formatPieSliceCount } from './sqlPieGraphAdapter'
 
@@ -25,7 +25,7 @@ export const SqlPieGraph = ({
     chartSettings,
     presetChartHeight,
     className,
-}: LineGraphProps): JSX.Element => {
+}: SqlChartProps): JSX.Element => {
     const theme = useChartTheme()
 
     const slices = useMemo(() => buildPieSlices(xData, yData), [xData, yData])
