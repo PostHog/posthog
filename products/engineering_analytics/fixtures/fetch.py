@@ -28,7 +28,19 @@ from typing import Any
 FIXTURE_DIR = Path(__file__).parent
 
 # Only the fields the curated query builders in backend/logic/views read.
-PR_FIELDS = ("id", "number", "title", "state", "draft", "created_at", "updated_at", "merged_at", "closed_at")
+PR_FIELDS = (
+    "id",
+    "number",
+    "title",
+    "state",
+    "draft",
+    "created_at",
+    "updated_at",
+    "merged_at",
+    "closed_at",
+    # Keyed on by the runs builder to attribute a default-branch push to the PR that landed it.
+    "merge_commit_sha",
+)
 RUN_FIELDS = (
     "id",
     "name",

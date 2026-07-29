@@ -225,6 +225,78 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         )
         assert results == [(5000 + index, pr, commit_pr) for index, (_, _, _, pr, commit_pr) in enumerate(cases)]
 
+    def test_workflow_runs_view_resolves_default_branch_pushes_through_the_merge_commit(self) -> None:
+        # A default-branch push carries no association of its own, so commit_pr_number is the only
+        # attribution it gets. The merged PR's merge_commit_sha IS that run's head SHA, which
+        # resolves landings the (#NNNN) message suffix can't, but it must be read only off a
+        # MERGED PR, since GitHub fills it on an open one with a throwaway test-merge commit.
+        own = "PostHog/posthog"
+        cases: list[tuple[str, str, int | None]] = [
+            # (head_sha, commit message, expected commit_pr_number)
+            # The case only the join serves: a merge-commit landing, no (#NNNN) in the subject.
+            ("shaA", "fix: regenerate generated types", 101),
+            # An open PR's merge_commit_sha is a test merge, not a landing, so it must not attribute.
+            ("shaB", "chore: direct push", None),
+            # Join miss (no PR row for this SHA) still falls back to the message suffix.
+            ("shaC", "feat: thing (#103)", 103),
+            # Several merged PRs sharing one merge commit stay ONE run row, not one per PR.
+            ("shaD", "feat: stacked landing (#104)", 104),
+        ]
+        prs = [
+            _pr_row(
+                101,
+                "alice",
+                "closed",
+                0,
+                "2026-01-19 09:00:00",
+                merged_at="2026-01-20 09:00:00",
+                merge_commit_sha="shaA",
+            ),
+            _pr_row(102, "bob", "open", 0, "2026-01-19 09:00:00", merge_commit_sha="shaB"),
+            _pr_row(
+                104,
+                "carol",
+                "closed",
+                0,
+                "2026-01-19 09:00:00",
+                merged_at="2026-01-20 09:00:00",
+                merge_commit_sha="shaD",
+            ),
+            _pr_row(
+                105,
+                "dave",
+                "closed",
+                0,
+                "2026-01-19 09:00:00",
+                merged_at="2026-01-20 09:00:00",
+                merge_commit_sha="shaD",
+            ),
+        ]
+        runs = [
+            {
+                "id": 6000 + index,
+                "name": "CI",
+                "head_sha": head_sha,
+                "head_branch": "master",
+                "status": "completed",
+                "conclusion": "success",
+                "created_at": "2026-01-20 10:00:00",
+                "run_started_at": "2026-01-20 10:00:00",
+                "updated_at": "2026-01-20 10:30:00",
+                "run_attempt": 1,
+                "pull_requests": None,
+                "repository": json.dumps({"full_name": own, "id": repo_id(own)}),
+                "head_commit": json.dumps({"message": message}),
+            }
+            for index, (head_sha, message, _) in enumerate(cases)
+        ]
+        prs_table = self._create_table("github_pull_requests", PULL_REQUESTS_COLUMNS, prs)
+        runs_table = self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, runs)
+
+        query = workflow_runs.build_query(runs_table, pull_requests_table=prs_table)
+        results = self._select(f"SELECT id, commit_pr_number FROM ({query}) AS r ORDER BY id")
+        assert results == [(6000 + index, expected) for index, (_, _, expected) in enumerate(cases)]
+
     def test_workflow_runs_view_tolerates_all_nullable_columns(self) -> None:
         # Prod lands every column Nullable, so a single run can carry NULL across timestamps,
         # repository, pull_requests and run_attempt at once (e.g. a barely-started run). Driven

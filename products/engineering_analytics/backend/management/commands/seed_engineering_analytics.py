@@ -87,7 +87,8 @@ DEFAULT_PREFIX = "eng_analytics_seed"
 
 def _flatten_pr(pr: dict[str, Any]) -> dict[str, Any]:
     return {
-        **{key: pr[key] for key in PULL_REQUESTS_COLUMNS if key not in ("user", "head", "base", "labels", "draft")},
+        # .get() tolerates a pre-existing fixture captured before merge_commit_sha was kept.
+        **{key: pr.get(key) for key in PULL_REQUESTS_COLUMNS if key not in ("user", "head", "base", "labels", "draft")},
         "draft": int(bool(pr["draft"])),
         "user": json.dumps(pr["user"]),
         "head": json.dumps(pr["head"]),
@@ -236,13 +237,13 @@ _MASTER_DAYS = _MERGE_SPREAD_DAYS
 _MASTER_COMMITS_PER_DAY = 18
 # Each master push carries a downstream fork's open "sync from upstream" PR, because that is what
 # GitHub really sends: the association lists every PR in the fork network sharing the run's head SHA.
-# Seeding it keeps the demo honest about the only thing that makes a master run attributable, which is
-# the squash-merge suffix on its head commit and never the association (SPEC §6, "two PR keys").
+# Seeding it keeps the demo honest about what a master run is never attributable by, which is the
+# association (SPEC §6, "two PR keys").
 _FORK_REPO_ID = 778592526
 _FORK_PR_NUMBER = 1379
 
 
-def _demo_master_commits(anchor: datetime, merged_pr_numbers: Sequence[int]) -> list[dict[str, Any]]:
+def _demo_master_commits(anchor: datetime, merged_prs: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
     def iso(dt: datetime) -> str:
         return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -254,13 +255,21 @@ def _demo_master_commits(anchor: datetime, merged_pr_numbers: Sequence[int]) -> 
         age_minutes = (total - 1 - commit_index) * spacing_minutes + (commit_index * 37) % 90
         commit_time = anchor - timedelta(minutes=age_minutes)
         sha = f"aa57e2{commit_index:04d}" + "e" * 30
-        # Cite a PR that is really in the seeded snapshot, so following the run's fallback PR link
-        # lands on a PR page instead of dead-ending on "may not exist in the connected GitHub
-        # source". Cycling through the merged set is enough: the demo needs the link to resolve, not
-        # a faithful commit-to-merge history.
+        # Cite a PR that is really in the seeded snapshot, so following the run's PR link lands on a
+        # PR page instead of dead-ending on "may not exist in the connected GitHub source". Cycling
+        # through the merged set is enough: the demo needs the link to resolve, not a faithful
+        # commit-to-merge history.
+        pr = merged_prs[commit_index % len(merged_prs)] if merged_prs else None
+        # The first commit to cite a PR owns its merge commit, so that run resolves through the
+        # merge_commit_sha join; later citations reuse the number and exercise the message fallback.
+        # Every tenth join-backed commit drops the (#NNNN) suffix too, seeding the merge-commit
+        # landing that only the join can attribute.
+        joins_via_merge_sha = pr is not None and not pr.get("merge_commit_sha")
+        if pr is not None and joins_via_merge_sha:
+            pr["merge_commit_sha"] = sha
         subject = f"feat: seeded master commit {commit_index}"
-        if merged_pr_numbers:
-            subject += f" (#{merged_pr_numbers[commit_index % len(merged_pr_numbers)]})"
+        if pr is not None and not (joins_via_merge_sha and commit_index % 10 == 3):
+            subject += f" (#{pr['number']})"
         red_commit = commit_index % 9 == 4  # an occasional broken master push
         cancelled_commit = commit_index % 17 == 9  # a rare all-cancelled push (neutral dot)
         for wf_index, workflow in enumerate(_MASTER_WORKFLOWS):
@@ -923,8 +932,10 @@ class Command(BaseCommand):
         # scheduled/re-triggered runs span days, which pins the scatter's Y axis at 100h+ and crushes
         # every real duration to the baseline. PR-branch rows stay untouched.
         runs = [run for run in runs if run.get("head_branch") != "master"]
-        merged_pr_numbers = [pr["number"] for pr in prs if pr.get("merged_at")]
-        runs.extend(_demo_master_commits(_fixture_anchor(prs, runs), merged_pr_numbers))
+        # Passed as the PR rows, not just their numbers: seeding master stamps each cited PR's
+        # merge_commit_sha with the commit it landed, which is what the attribution join reads.
+        merged_prs = [pr for pr in prs if pr.get("merged_at")]
+        runs.extend(_demo_master_commits(_fixture_anchor(prs, runs), merged_prs))
 
         # Always normalize timestamps to a ClickHouse-friendly format; rebasing is optional.
         shift = timedelta(0) if options["keep_dates"] else self._rebase_delta(prs, runs)

@@ -41,7 +41,7 @@ export interface WorkflowRunRow {
     id: number
     headBranch: string | null
     headSha: string
-    /** The PR to link, already resolved from the run's association or its squash-merge commit. */
+    /** The PR to link, already resolved from the run's association or its merge commit. */
     prNumber: number | null
     repoOwner: string
     repoName: string

@@ -25,8 +25,8 @@ and LEFT JOINs it on ``run_id`` — the ``head_commit`` JSON is ``ifNull``-unwra
 
 Two PR keys, by design: ``pr_number`` is the runs builder's association-derived number (0 when the
 run has no own-repo ``pull_requests`` association — pushes to master, fork PRs), and
-``commit_pr_number`` is parsed from the squash-merge message's ``(#NNNN)`` suffix. The latter is how
-a master push run gets PR attribution at all, since its association is empty (SPEC §6). Both come
+``commit_pr_number`` resolves the merged PR that produced the head commit. The latter is how a
+master push run gets PR attribution at all, since its association is empty (SPEC §6). Both come
 straight off the runs builder, which defines each key once for every consumer.
 
 ``created_at_raw`` is the unparsed jobs ``created_at`` string riding alongside the parsed
@@ -44,7 +44,7 @@ from typing import TYPE_CHECKING
 
 from posthog.hogql.database.models import DateTimeDatabaseField, FieldOrTable, IntegerDatabaseField, StringDatabaseField
 
-from products.engineering_analytics.backend.logic.sources import resolve_job_cost_source_pairs
+from products.engineering_analytics.backend.logic.sources import resolve_job_source_tables
 from products.engineering_analytics.backend.logic.views import workflow_jobs, workflow_runs
 
 if TYPE_CHECKING:
@@ -103,12 +103,17 @@ def _head_commit_query(runs_table: str) -> str:
     """
 
 
-def build_query(*, jobs_table: str, runs_table: str) -> str:
+def build_query(*, jobs_table: str, runs_table: str, pull_requests_table: str | None = None) -> str:
     """The per-job-attempt history SELECT for one GitHub source: curated jobs LEFT JOIN curated runs,
     plus the run's commit attribution.
+
+    ``pull_requests_table`` is what lets the runs builder resolve ``commit_pr_number`` through the
+    merged PR's ``merge_commit_sha`` instead of the head commit's message. It is optional because
+    this view qualifies on jobs + runs alone (see ``resolve_job_source_tables``), so a repo can
+    reach it without a PR snapshot; without one, attribution falls back to the message suffix.
     """
     jobs = workflow_jobs.build_query(jobs_table)
-    runs = workflow_runs.build_query(runs_table)
+    runs = workflow_runs.build_query(runs_table, pull_requests_table=pull_requests_table)
     head_commits = _head_commit_query(runs_table)
 
     return f"""
@@ -145,10 +150,17 @@ def build_team_view(team: "Team") -> str | None:
     """The full view body for a team: every GitHub source with both runs and jobs synced, unioned.
 
     None when the team has no qualifying source (no view is created). Gated on the same
-    ``resolve_job_cost_source_pairs`` condition as ``job_costs`` so the exposed views stay coherent.
+    ``resolve_job_source_tables`` condition as ``job_costs`` so the exposed views stay coherent.
     """
-    pairs = resolve_job_cost_source_pairs(team)
-    if not pairs:
+    sources = resolve_job_source_tables(team)
+    if not sources:
         return None
-    selects = [build_query(jobs_table=jobs_table, runs_table=runs_table) for jobs_table, runs_table in pairs]
+    selects = [
+        build_query(
+            jobs_table=s.workflow_jobs,
+            runs_table=s.workflow_runs,
+            pull_requests_table=s.pull_requests,
+        )
+        for s in sources
+    ]
     return "\nUNION ALL\n".join(selects)

@@ -538,7 +538,7 @@ export interface WorkflowRunDetailApi {
     /** Pull request this run ran for, from the run's own-repo PR association; 0 when unattributed (a default-branch push, or a fork PR). */
     pr_number: number
     /**
-     * Pull request whose squash merge produced this run's head commit, parsed from the commit subject. Null when the commit carries no '(#NNNN)' suffix. The only PR attribution a default-branch push has — read pr_number first and fall back to this.
+     * Pull request whose merge produced this run's head commit, resolved through the merged pull request's merge commit and falling back to the commit subject's '(#NNNN)' suffix. Null when neither resolves. The only PR attribution a default-branch push has: read pr_number first and fall back to this.
      * @nullable
      */
     commit_pr_number: number | null
