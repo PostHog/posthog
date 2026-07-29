@@ -40,6 +40,7 @@ from products.signals.backend.scout_harness.skill_loader import (
 )
 from products.signals.backend.scout_harness.tools.run_metadata import (
     InvalidRunMetadataError,
+    record_run_metadata,
     validate_self_reported_updates,
 )
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
@@ -322,6 +323,27 @@ class TestValidateSelfReportedUpdates(SimpleTestCase):
         validate_self_reported_updates(
             {"has_agent_feedback": True, "followups_validated": 3, "confidence_drift": 0.25, "run_kind": "validation"}
         )
+
+
+class TestRecordRunMetadata(BaseTest):
+    def test_foreign_team_run_id_raises_and_writes_nothing(self) -> None:
+        # The write anchors to `team_id` via the fail-closed manager, so a foreign-team run id must
+        # resolve to "no row" and raise instead of merging — this is what breaks if the tool is ever
+        # loosened back to an unscoped manager. Unreachable through the endpoint tests, which 404 at
+        # the view's own team-scoped lookup before the tool runs.
+        other_org = Organization.objects.create(name="OtherOrg")
+        other_team = Team.objects.create(organization=other_org, name="OtherTeam")
+        with team_scope(other_team.id, canonical=True):
+            run = SignalScoutRun.objects.create(
+                team=other_team,
+                task_run=_make_task_run(other_team),
+                skill_name="signals-scout-general",
+                skill_version=1,
+                metadata={"model": "some-model"},
+            )
+        with pytest.raises(InvalidRunMetadataError, match="no longer exists"):
+            record_run_metadata(team_id=self.team.id, run_id=run.id, updates={"validation_run": True})
+        assert SignalScoutRun.all_teams.get(pk=run.id).metadata == {"model": "some-model"}
 
 
 class TestPromptBuilder(BaseTest):
