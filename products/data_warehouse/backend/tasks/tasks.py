@@ -43,9 +43,9 @@ EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS = 15 * 60
 # Generous bound on one digest build + synchronous send; the lock auto-expires
 # after this if a worker dies mid-flight.
 EXTERNAL_DATA_FAILURE_DIGEST_LOCK_TIMEOUT_SECONDS = 120
-# Live introspection of a large catalog plus the credential handshake can far exceed the
-# digest bound; the select_for_update guards make an overlap harmless, but keep the lock
-# long enough that it stays the normal exclusion mechanism.
+# Live introspection of a large catalog can far exceed the digest bound; the
+# select_for_update guards make an overlap harmless, but keep the lock long enough
+# that it stays the normal exclusion mechanism.
 MANAGED_WAREHOUSE_RECONCILE_LOCK_TIMEOUT_SECONDS = 600
 MANAGED_WAREHOUSE_RECONCILE_INTERVAL_SECONDS = 60
 
@@ -112,7 +112,6 @@ def reconcile_all_managed_warehouse_tables_task() -> None:
         return
     for row in rows:
         if team_state.cp_table_suffix(row) is None:
-            # Legacy shared tables can't be exposed as a per-project query connection.
             continue
         schedule_managed_warehouse_tables_reconcile(team_id=row.team_id, organization_id=row.organization_id)
 
