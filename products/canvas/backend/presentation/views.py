@@ -106,6 +106,13 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.filter(team_id=self.team_id, deleted=False)
+        # Channels are per-user for the personal kind: mirror the facade's
+        # `_visible_channel` rule so a canvas filed into someone else's personal
+        # channel is invisible (and unwritable) to everyone but its owner, for
+        # list and every detail action alike. The create() check alone is not
+        # enough — DRF resolves all detail actions off this queryset.
+        user_id = self.request.user.id if isinstance(self.request.user, User) else None
+        queryset = queryset.exclude(channel__channel_type="personal") | queryset.filter(channel__created_by_id=user_id)
         if self.action == "list":
             channel_id = self.request.query_params.get("channel")
             if channel_id:

@@ -5316,14 +5316,29 @@ def publish_channel_instructions(
             raise ChannelInstructionsVersionLimitError(max_version=MAX_CHANNEL_INSTRUCTIONS_VERSION)
         if current_latest is not None:
             ChannelInstructions.objects.filter(pk=current_latest.pk).update(is_latest=False)
-        published = ChannelInstructions.objects.create(
-            team_id=team_id,
-            channel_id=channel.id,
-            content=content,
-            version=current_version + 1,
-            is_latest=True,
-            created_by_id=user_id,
-        )
+        try:
+            # Nested savepoint: a lost-update race (the select_for_update above
+            # locks no row when none exists yet, and a concurrent delete clears
+            # is_latest without adding a lockable row) makes the insert collide
+            # with the (channel, version) uniqueness. Rolling back to the
+            # savepoint keeps this transaction usable so we can read the winner.
+            with transaction.atomic():
+                published = ChannelInstructions.objects.create(
+                    team_id=team_id,
+                    channel_id=channel.id,
+                    content=content,
+                    version=current_version + 1,
+                    is_latest=True,
+                    created_by_id=user_id,
+                )
+        except IntegrityError:
+            # Surface the race as the conflict the view maps to 409, not a 500.
+            latest = (
+                ChannelInstructions.objects.filter(channel_id=channel.id, deleted=False)
+                .order_by("-version", "-created_at", "-id")
+                .first()
+            )
+            raise ChannelInstructionsVersionConflictError(current_version=latest.version if latest is not None else 0)
         # Publishing produced a result, so drop the in-progress generation marker.
         ChannelContextGeneration.objects.filter(channel_id=channel.id).update(task_id=None)
     return _instructions_to_dto(published)

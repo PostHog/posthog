@@ -425,7 +425,14 @@ class CanvasBuildSerializer(serializers.Serializer):
     def get_artifact_url(self, build: Any) -> str | None:
         from products.canvas.backend.presentation.artifacts import create_canvas_artifact_url  # noqa: PLC0415
 
-        if build.status != build.STATUS_READY or not isinstance(build.manifest, dict):
+        # artifact_object_prefix is cleared by retention once a ready build's
+        # objects are pruned; the artifact view 404s on it, so don't advertise a
+        # URL that can't be served.
+        if (
+            build.status != build.STATUS_READY
+            or not build.artifact_object_prefix
+            or not isinstance(build.manifest, dict)
+        ):
             return None
         entry = build.manifest.get("entryHtml")
         if not isinstance(entry, str):

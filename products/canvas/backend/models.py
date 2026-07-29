@@ -132,6 +132,10 @@ class CanvasBuild(TeamScopedRootMixin, UUIDModel):
     pinned = models.BooleanField(default=False)
     attempt_count = models.PositiveIntegerField(default=0)
     lease_expires_at = models.DateTimeField(null=True, blank=True)
+    # Set every time the build is handed to the worker queue. The stuck-build
+    # sweeper keys redelivery staleness off this (not created_at), so a retry of
+    # an old failed build isn't mistaken for a lost enqueue.
+    enqueued_at = models.DateTimeField(default=timezone.now)
 
     created_at = models.DateTimeField(default=timezone.now)
     finished_at = models.DateTimeField(null=True, blank=True)

@@ -71,6 +71,21 @@ class TestChannelInstructions(ChannelExtrasBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert self.client.get(f"{self.base}/instructions/").json()["version"] == 0
 
+    def test_publish_race_surfaces_conflict_not_500(self):
+        # Simulate the lost-update race: a version row exists, but the guarded
+        # select_for_update sees no is_latest row (a concurrent publisher cleared
+        # it / a delete landed), so the publisher computes the same next version
+        # and the (channel, version) uniqueness fires. The API must answer 409,
+        # not leak a 500 from the unhandled IntegrityError.
+        from products.tasks.backend.models import ChannelInstructions
+
+        self.client.put(f"{self.base}/instructions/", {"content": "v1"}, format="json")
+        ChannelInstructions.objects.unscoped().filter(channel_id=self.channel.id).update(is_latest=False)
+
+        response = self.client.patch(f"{self.base}/instructions/", {"content": "v2"}, format="json")
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert "current_version" in response.json()
+
 
 class TestChannelContextGeneration(ChannelExtrasBaseTest):
     def test_get_and_set(self):

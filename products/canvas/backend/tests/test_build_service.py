@@ -155,6 +155,39 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
         build.refresh_from_db()
         assert build.status == CanvasBuild.STATUS_READY
 
+    def test_finalize_does_not_clobber_a_concurrent_cancel(self):
+        # The finalize transaction must re-claim the build row before marking it
+        # READY: a cancel that lands during the long build/upload phase (after the
+        # claim lock was released) turns the build FAILED/terminal, and the stale
+        # in-memory object must not flip it back to READY.
+        build = self._publish()
+
+        original_finalize = build_service._finalize_ready
+
+        def cancel_mid_finalize(*args, **kwargs):
+            # Simulate the worker losing the row to a cancel between the claim
+            # (lock released) and the finalize write.
+            CanvasBuild.objects.unscoped().filter(id=build.id).update(
+                status=CanvasBuild.STATUS_FAILED,
+                diagnostics=[{"severity": "warning", "code": "cancelled", "message": "cancelled"}],
+                finished_at=timezone.now(),
+                lease_expires_at=None,
+            )
+            return original_finalize(*args, **kwargs)
+
+        with (
+            patch.object(
+                build_service, "run_cloud_builder", return_value=_builder_result({"index.html": "<html></html>"})
+            ),
+            patch.object(build_service, "_finalize_ready", side_effect=cancel_mid_finalize),
+        ):
+            build_service.run_canvas_build(self.team.id, str(build.id))
+
+        build.refresh_from_db()
+        self.canvas.refresh_from_db()
+        assert build.status == CanvasBuild.STATUS_FAILED
+        assert self.canvas.published_build_id is None
+
 
 class TestSweeper(BuildServiceBaseTest):
     def test_lease_expired_building_is_requeued_then_failed(self):
@@ -183,7 +216,8 @@ class TestSweeper(BuildServiceBaseTest):
     def test_stale_queued_is_redelivered_then_failed(self):
         build = self._publish()
         CanvasBuild.objects.unscoped().filter(id=build.id).update(
-            created_at=timezone.now() - build_service.STALE_QUEUED_REDELIVERY_AFTER - timedelta(minutes=1)
+            created_at=timezone.now() - build_service.STALE_QUEUED_REDELIVERY_AFTER - timedelta(minutes=1),
+            enqueued_at=timezone.now() - build_service.STALE_QUEUED_REDELIVERY_AFTER - timedelta(minutes=1),
         )
         self.enqueue.reset_mock()
         with self.captureOnCommitCallbacks(execute=True):
@@ -192,12 +226,32 @@ class TestSweeper(BuildServiceBaseTest):
         self.enqueue.assert_called_once_with(self.team.id, str(build.id))
 
         CanvasBuild.objects.unscoped().filter(id=build.id).update(
-            created_at=timezone.now() - build_service.STALE_QUEUED_FAILURE_AFTER - timedelta(minutes=1)
+            created_at=timezone.now() - build_service.STALE_QUEUED_FAILURE_AFTER - timedelta(minutes=1),
+            enqueued_at=timezone.now() - build_service.STALE_QUEUED_FAILURE_AFTER - timedelta(minutes=1),
         )
         counts = build_service.sweep_canvas_builds()
         assert counts["failed"] == 1
         build.refresh_from_db()
         assert build.status == CanvasBuild.STATUS_FAILED
+
+    def test_freshly_retried_build_is_not_redelivered(self):
+        # A retry requeues a FAILED (hence old) build but leaves created_at alone.
+        # The sweeper must key staleness off when the row was last enqueued, not
+        # created, or it re-delivers a build a worker was already told about.
+        build = self._publish()
+        CanvasBuild.objects.unscoped().filter(id=build.id).update(
+            status=CanvasBuild.STATUS_FAILED,
+            created_at=timezone.now() - timedelta(hours=1),
+            finished_at=timezone.now() - timedelta(minutes=30),
+        )
+        build_service.act_on_build(self.canvas, build.id, "retry")
+        build.refresh_from_db()
+        assert build.status == CanvasBuild.STATUS_QUEUED
+
+        self.enqueue.reset_mock()
+        counts = build_service.sweep_canvas_builds()
+        assert counts["redelivered"] == 0
+        self.enqueue.assert_not_called()
 
     def test_live_builds_are_untouched(self):
         build = self._publish()
