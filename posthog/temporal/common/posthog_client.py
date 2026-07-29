@@ -78,7 +78,8 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             # worker), our own egress-budget backpressure (a deliberate "defer and retry later"
             # signal that our rate limiter already records via record_outbound_decision), errors
             # explicitly marked non-reportable (expected customer/upstream conditions, e.g. a REST
-            # API serving a login page instead of JSON), and expected-control-flow ApplicationErrors
+            # API serving a login page instead of JSON, or a transient upstream failure the caller
+            # already retried and Temporal will retry again), and expected-control-flow ApplicationErrors
             # (activity-retry-as-poll probes) are not defects — re-raise without reporting them to
             # error tracking.
             if (

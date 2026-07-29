@@ -325,9 +325,15 @@ async def _handle_import_error(
 
     Errors the source classifies as retryable (rate limits, transient 5xx) reach us only after
     the source's own retries are exhausted. Temporal retries the whole activity and the error is
-    transient and self-recovering, so we log at ``warning`` rather than ``exception`` to keep
-    this benign, recoverable failure out of error tracking. ``RESTClientRetryableError`` gets the
-    same treatment by type, since every REST-based source hits that condition already.
+    transient and self-recovering, so we log at ``warning`` rather than ``exception``.
+    ``RESTClientRetryableError`` gets the same treatment by type, since every REST-based source
+    hits that condition already.
+
+    The log level only decides how loud the job log is — it has no bearing on error tracking,
+    which captures whatever we re-raise from the activity interceptor unless the exception carries
+    the ``NonReportableError`` marker. That marker is why ``RESTClientRetryableError`` subclasses
+    ``TransientRetryExhaustedError``; errors matched by message through ``get_retryable_errors``
+    have no such marker and are still reported.
 
     Everything else is logged as an exception and re-raised so Temporal retries it as usual.
     """

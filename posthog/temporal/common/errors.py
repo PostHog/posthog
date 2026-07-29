@@ -6,9 +6,26 @@ from temporalio.exceptions import ApplicationError, FailureError
 class NonReportableError(Exception):
     """Marker for an expected, handled condition that must still fail the activity but should not
     be reported to error tracking. The activity interceptor re-raises these without capturing them,
-    the same way it skips cancellations and egress backpressure. Subclass it for a failure that is
-    always caused by the customer's config or the upstream API (never a PostHog defect) and that
-    retrying can't resolve, so a tracked exception would only be noise."""
+    the same way it skips cancellations and egress backpressure.
+
+    Subclass this directly for a failure that is always caused by the customer's config or the
+    upstream API (never a PostHog defect) and that retrying can't resolve, so a tracked exception
+    would only be noise. For the opposite case — a transient failure that retrying does resolve —
+    subclass ``TransientRetryExhaustedError`` below, so the two categories stay distinguishable.
+
+    Logging a failure at ``warning`` instead of ``exception`` does not keep it out of error
+    tracking: the interceptor captures whatever the activity re-raises, so an error only escapes
+    capture by carrying this marker."""
+
+
+class TransientRetryExhaustedError(NonReportableError):
+    """Marker for a transient upstream failure (a rate limit, a 5xx, a dropped connection) that
+    the raiser already retried to its own budget, and that the surrounding Temporal activity retry
+    is expected to recover from on a later attempt.
+
+    Unlike the failures that subclass ``NonReportableError`` directly, retrying is the resolution
+    here — the activity still has to fail so Temporal reschedules it, but a run that self-recovers
+    never had a defect worth tracking."""
 
 
 # Bound error strings so a multi-MB str(e) (ClickHouse 5xx body, Playwright HTML dump)

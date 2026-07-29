@@ -353,10 +353,14 @@ class TestRESTClient:
         mock_session.send.return_value = error
 
         client = RESTClient(base_url="https://api.example.com")
-        with pytest.raises(RESTClientRetryableError):
+        with pytest.raises(RESTClientRetryableError) as ctx:
             list(client.paginate(path="/items", paginator=SinglePagePaginator()))
 
         assert mock_session.send.call_count == 5
+        # Temporal retries the activity and the import recovers on its own, so the exhausted error
+        # must carry the marker the activity interceptor uses to skip error-tracking capture —
+        # without it every rate-limited REST source mints issues nobody can act on.
+        assert isinstance(ctx.value, NonReportableError)
 
     @pytest.mark.parametrize(
         "content",

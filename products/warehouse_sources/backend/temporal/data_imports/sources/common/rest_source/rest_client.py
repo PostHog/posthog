@@ -17,7 +17,7 @@ from requests.exceptions import (
 )
 from tenacity import RetryCallState, retry, retry_if_exception_type
 
-from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.errors import NonReportableError, TransientRetryExhaustedError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 
@@ -30,7 +30,17 @@ from .utils import resolve_request_url
 logger = logging.getLogger(__name__)
 
 
-class RESTClientRetryableError(Exception):
+class RESTClientRetryableError(TransientRetryExhaustedError):
+    """A response worth reissuing: a 429, a 5xx, a dropped or timed-out connection, or a body that
+    parsed as truncated.
+
+    Only reaches the activity once the tenacity loop below has exhausted its own attempts, after
+    which Temporal retries the whole activity and the import recovers on its own. Subclassing
+    ``TransientRetryExhaustedError`` keeps that self-recovering failure out of error tracking —
+    every REST-based source raises this, so capturing it buries genuine import defects under
+    rate-limit noise.
+    """
+
     def __init__(self, message: str, retry_after: Optional[float] = None) -> None:
         super().__init__(message)
         self.retry_after = retry_after
