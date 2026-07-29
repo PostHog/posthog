@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import * as wizardHogPng from '@posthog/brand/hoggies/png/wizard-hog'
+import * as wizardPng from '@posthog/brand/hoggies/png/wizard-1'
 import {
     IconCheckCircle,
     IconDashboard,
@@ -31,7 +31,7 @@ import {
 } from './installationProgressLogic'
 import { DetectedDashboard, wizardDashboardLogic } from './wizardDashboardLogic'
 
-const HedgehogWizardHog = pngHoggie(wizardHogPng)
+const HedgehogWizard = pngHoggie(wizardPng)
 
 // Timeline dot for a single step.
 function StepIcon({ status, prState }: { status: InstallationStepStatus; prState?: 'open' | 'merged' }): JSX.Element {
@@ -172,7 +172,7 @@ export function InstallationProgressContent({
                     </div>
                 </div>
                 <div className="flex items-start gap-1 shrink-0">
-                    {phase === 'completed' && <HedgehogWizardHog className="w-14 h-14 -my-2" aria-hidden="true" />}
+                    {phase === 'completed' && <HedgehogWizard className="w-14 h-14 -my-2" aria-hidden="true" />}
                     {/* Dismiss once the run is settled — mid-run, hiding the only progress surface
                         (the FAB is suppressed while this panel is mounted) would orphan a live run.
                         'idle' is dismissible too: it means the stream stopped permanently without ever

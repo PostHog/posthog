@@ -2,9 +2,9 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { type ComponentType, type ReactNode } from 'react'
 
-import * as chartHogPng from '@posthog/brand/hoggies/png/chart-hog'
+import * as chartPng from '@posthog/brand/hoggies/png/chart'
 import * as coffeeRunPng from '@posthog/brand/hoggies/png/coffee-run'
-import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import { IconCheck, IconChevronDown, IconCrown, IconInfo, IconLock, IconPeople, IconPerson } from '@posthog/icons'
 import { LemonModal, Tooltip } from '@posthog/lemon-ui'
 
@@ -27,7 +27,7 @@ import { isWebAnalyticsAchievementsEnabled } from './gating'
 import { webAnalyticsAchievementsLogic } from './webAnalyticsAchievementsLogic'
 import { webAnalyticsAchievementsPreferencesLogic } from './webAnalyticsAchievementsPreferencesLogic'
 
-const HedgehogChartHog = pngHoggie(chartHogPng)
+const HedgehogChart = pngHoggie(chartPng)
 const HedgehogCoffeeRun = pngHoggie(coffeeRunPng)
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
@@ -83,7 +83,7 @@ const TRACK_META: Record<string, TrackMeta> = {
         effortPhrase: (n, next) => `${humanFriendlyLargeNumber(n)} more to reach "${next}"`,
     },
     traffic: {
-        hog: HedgehogChartHog,
+        hog: HedgehogChart,
         objective: 'Grow your pageviews. This climbs automatically as your site gets more traffic.',
         unit: 'pageviews',
         effortPhrase: (n, next) => `${humanFriendlyLargeNumber(n)} more pageviews until "${next}"`,

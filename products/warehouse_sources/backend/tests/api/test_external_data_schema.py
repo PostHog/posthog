@@ -122,6 +122,45 @@ class TestExternalDataSchema(APIBaseTest):
             "detected_primary_keys": None,
         }
 
+    @parameterized.expand(
+        [
+            ("expected_source_error", Exception("Invalid API Key provided"), False),
+            ("unclassified_error", RuntimeError("schema parser exploded"), True),
+        ]
+    )
+    @mock.patch("products.warehouse_sources.backend.presentation.views.external_data_schema.capture_exception")
+    def test_incremental_fields_capture_depends_on_non_retryable_classification(
+        self, _name, raised_exception, should_capture, mock_capture_exception
+    ):
+        # `validate_credentials` above this call already probed the same connection successfully, so
+        # a failure the source itself classifies as non-retryable (e.g. bad credentials, an
+        # unreachable host) is an expected customer/upstream condition and must not flood error
+        # tracking - mirrors `refresh_schemas`'s equivalent classification.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+        with (
+            mock.patch.object(StripeSource, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(StripeSource, "get_schemas", side_effect=raised_exception),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+            )
+
+        assert response.status_code == 400
+        assert response.json()["message"] == str(raised_exception)
+        assert mock_capture_exception.called is should_capture
+
     def test_incremental_fields_probe_uses_schema_pin_over_source_pin(self):
         # A schema-level api_version override must win over the source pin in capability probes,
         # matching sync-time precedence — consolidating probe callers to the source pin would
@@ -3403,6 +3442,8 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         summary = response.json()["source"]
         assert summary["id"] == str(source.id)
         assert summary["source_type"] == source_type.value
+        # The schema page reads this to hide sync-history UI on direct-query sources.
+        assert summary["access_method"] == source.access_method
         assert summary["supports_column_selection"] is expected_column_selection
         assert summary["supports_row_filters"] is expected_row_filters
         assert "user_access_level" in summary

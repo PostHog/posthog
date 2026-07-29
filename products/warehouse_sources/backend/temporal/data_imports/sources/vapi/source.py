@@ -22,8 +22,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.vapi import VapiSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.vapi.settings import (
+    DEFAULT_VERSION,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SUPPORTED_VERSIONS,
     VAPI_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.vapi.vapi import (
@@ -36,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VapiSource(ResumableSource[VapiSourceConfig, VapiResumeConfig]):
+    supported_versions = SUPPORTED_VERSIONS
+    default_version = DEFAULT_VERSION
     api_docs_url = "https://docs.vapi.ai/api-reference"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -98,6 +102,8 @@ You can find your private API key in the [Vapi dashboard](https://dashboard.vapi
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
+        # Version-blind: the table set, incremental fields, and primary keys are identical across
+        # versions; only phone_numbers' request path/pagination differ, which discovery doesn't expose.
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = VAPI_ENDPOINTS[endpoint]
             has_incremental = len(endpoint_config.incremental_fields) > 0
@@ -118,6 +124,7 @@ You can find your private API key in the [Vapi dashboard](https://dashboard.vapi
     def validate_credentials(
         self, config: VapiSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
+        # Version-blind: the probe hits /assistant, which has no v2 variant, so it validates both pins.
         if validate_vapi_credentials(config.api_key):
             return True, None
 
@@ -135,6 +142,7 @@ You can find your private API key in the [Vapi dashboard](https://dashboard.vapi
         return vapi_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
+            api_version=self.resolve_api_version(inputs.api_version),
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,

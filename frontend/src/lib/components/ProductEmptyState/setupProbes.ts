@@ -6,10 +6,10 @@ import type { ProductSetupStatus } from './types'
 
 /**
  * A cheap, declarative approximation of a product's setup status, resolvable at
- * app boot from event counts alone. A product declares its probe as `setupProbe`
+ * app boot from event definitions. A product declares its probe as `setupProbe`
  * in its manifest; `build-products.mjs` aggregates them into `productSetupProbes`
- * (see `~/products`), and all of them are answered by ONE combined ClickHouse
- * count query (see `productSetupPreloadLogic`), so statuses are known before the
+ * (see `~/products`), and each one is answered by a Postgres-backed API call
+ * (see `productSetupPreloadLogic`), so statuses are known before the
  * user first opens the product and the loading spinner rarely shows.
  *
  * Keep each probe's semantics in sync with the product's own detection logic
@@ -18,7 +18,7 @@ import type { ProductSetupStatus } from './types'
  */
 export interface ProductSetupProbe {
     productKey: ProductKey
-    /** Any of these events existing (within the preload lookback window) means the product has real data. */
+    /** Any of these event definitions existing means the product has real data. */
     hasDataEvents: string[]
     /** Any of these existing (without `hasDataEvents`) means instrumented but no traffic yet. */
     waitingEvents?: string[]
@@ -26,15 +26,12 @@ export interface ProductSetupProbe {
     featureFlag?: FeatureFlagKey
 }
 
-export function statusFromProbeCounts(
-    probe: ProductSetupProbe,
-    countsByEvent: Record<string, number>
-): ProductSetupStatus {
-    if (probe.hasDataEvents.some((event) => (countsByEvent[event] ?? 0) > 0)) {
+export function statusFromProbeDefinitions(probe: ProductSetupProbe, eventNames: Set<string>): ProductSetupStatus {
+    if (probe.hasDataEvents.some((event) => eventNames.has(event))) {
         return 'has-data'
     }
 
-    if (probe.waitingEvents?.some((event) => (countsByEvent[event] ?? 0) > 0)) {
+    if (probe.waitingEvents?.some((event) => eventNames.has(event))) {
         return 'waiting-for-data'
     }
 
