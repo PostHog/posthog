@@ -552,9 +552,9 @@ class InviteSignupSerializer(serializers.Serializer):
                 code="sso_enforced",
             )
 
-        # The check above keys on the email's own domain; this one keys on the org: an org that requires
-        # a verified email domain only admits members on its verified domains, so a pre-existing
-        # outside-domain invite can't be accepted.
+        # The check above keys on the email's own domain; this one keys on the org:
+        # an org that requires a verified email domain only admits members on its verified domains,
+        # so a pre-existing outside-domain invite can't be accepted.
         if invite.target_email and OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(
             invite.target_email, invite.organization
         ):
@@ -969,9 +969,8 @@ def social_create_user(
         invite = lookup_invite_for_saml(email, organization_domain_id)
         invite_id = invite.id if invite else None
 
-    # Domain enforcement: an org that requires a verified email domain blocks logins and joins for
-    # emails outside its verified domains — existing memberships included. Checked here rather than in
-    # `social_auth_allowed` because that gate never sees the user's organizations.
+    # Domain enforcement blocks logins and joins for emails outside the org's verified domains.
+    # Lives here, not in `social_auth_allowed` — that gate never sees the user's organizations.
     enforcement_email = user.email if user else email
     organizations_to_check: list[Organization] = list(user.organizations.all()) if user else []
     invite_organization = _resolve_invite_organization(invite_id) if invite_id else None

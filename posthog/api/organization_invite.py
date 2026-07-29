@@ -136,9 +136,8 @@ class OrganizationInviteManager:
 
 def first_bulk_invite_error(errors: list[Any]) -> exceptions.ValidationError:
     """
-    A many=True ValidationError carries a list of per-row error dicts, which the exception handler
-    can't flatten into the standard {type, code, detail, attr} shape — clients would see the raw
-    dict repr. Re-raise the first failing row's error so bulk renders identically to single create.
+    A many=True error is a list of per-row dicts the exception handler can't flatten — clients would
+    see the raw dict. Re-raise the first error so bulk invite matches single invite error.
     """
     for row_errors in errors:
         if row_errors:

@@ -238,7 +238,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
     enforce_login_with_verified_domain = models.BooleanField(
         null=True,
         blank=True,
-        help_text="When True, invites and signups into this organization are restricted to email addresses on its verified domains. Existing members are unaffected.",
+        help_text="When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.",
     )
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
     members_can_create_projects = models.BooleanField(
