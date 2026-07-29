@@ -281,8 +281,11 @@ def experiment_error_handler(method: F) -> F:
             if user_message is None:
                 raise
 
-            # Get error code if available
-            error_code = ERROR_TYPE_TO_CODE.get(type(e))
+            # Fall back to the failure taxonomy as the error code so it reaches the client: DRF puts it
+            # on the response, and the async path copies it onto `query_status.error_code`. The frontend
+            # emits the terminal `experiment metric error` event and would otherwise have to infer the
+            # cause from the HTTP status.
+            error_code = ERROR_TYPE_TO_CODE.get(type(e)) or classify_experiment_query_error(e)
             raise ValidationError(user_message, code=error_code)
 
     return cast(F, wrapper)

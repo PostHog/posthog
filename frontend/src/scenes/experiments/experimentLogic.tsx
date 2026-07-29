@@ -409,9 +409,21 @@ const loadMetrics = async ({
 
                 erroredCount++
 
-                // No telemetry here: the terminal `experiment metric error` event is emitted by the
-                // backend (see products/experiments/backend/hogql_queries/error_handling.py), which
-                // classifies from typed exceptions instead of HTTP status codes.
+                // The client is the only place that sees every terminal failure: concurrency-limiter
+                // rejections, Celery retry exhaustion, and poll timeouts never reach the backend's
+                // experiment query runner, so it cannot emit its event for them.
+                eventUsageLogic.actions.reportExperimentMetricErrored(experimentId, metric, teamId, queryId, {
+                    duration_ms: Math.round(performance.now() - startTime),
+                    metric_index: metricIndex,
+                    is_primary: isPrimary,
+                    is_retry: isRetry,
+                    refresh_id: refreshId,
+                    metric_kind: metricKind,
+                    execution_mode: getExperimentExecutionMode(featureFlags),
+                    error_code: errorCode,
+                    status_code: statusCode,
+                    error_message: typeof errorDetail === 'string' ? errorDetail : (error.message ?? null),
+                })
 
                 onSetResults([...results])
             }

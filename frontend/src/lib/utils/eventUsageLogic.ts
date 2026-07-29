@@ -14,6 +14,7 @@ import { ProductTourEvent } from 'scenes/product-tours/constants'
 import { NewSurvey, SURVEY_CREATED_SOURCE, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
 
+import { QUERY_TIMEOUT_ERROR_MESSAGE } from '~/queries/query'
 import {
     Breakdown,
     ExperimentFunnelsQuery,
@@ -144,6 +145,59 @@ function getSourceProperties(source: ExperimentMetricSource): {
         math_type: source.math,
         has_math_hogql: !!source.math_hogql,
     }
+}
+
+/**
+ * Failure taxonomy for `experiment metric error`, mirroring `classify_experiment_query_error` in
+ * products/experiments/backend/hogql_queries/error_handling.py. Both emitters must produce the same
+ * values or the two can't be compared.
+ */
+const EXPERIMENT_METRIC_ERROR_TYPES = [
+    'timeout',
+    'out_of_memory',
+    'byte_limit',
+    'rate_limited',
+    'insufficient_data',
+    'validation_error',
+    'server_error',
+] as const
+
+export type ExperimentMetricErrorType = (typeof EXPERIMENT_METRIC_ERROR_TYPES)[number]
+
+/**
+ * Classify a metric query failure the client saw.
+ *
+ * The backend can only emit its own error event when the exception escapes the experiment query
+ * runner. Concurrency-limiter rejections, Celery retry exhaustion, and the client-side poll timeout
+ * all bypass that, so the client has to classify those itself. When the backend did classify the
+ * failure it forwards the taxonomy value as the DRF error code, which is why that wins over any
+ * inference from the HTTP status.
+ */
+export function classifyExperimentMetricError({
+    errorCode,
+    statusCode,
+    errorMessage,
+}: {
+    errorCode: string | null
+    statusCode: number | null
+    errorMessage: string | null
+}): ExperimentMetricErrorType {
+    if (errorCode && (EXPERIMENT_METRIC_ERROR_TYPES as readonly string[]).includes(errorCode)) {
+        return errorCode as ExperimentMetricErrorType
+    }
+    if (errorCode === 'memory_limit_exceeded') {
+        return 'out_of_memory'
+    }
+    if (errorMessage === QUERY_TIMEOUT_ERROR_MESSAGE) {
+        return 'timeout'
+    }
+    if (statusCode === 429) {
+        return 'rate_limited'
+    }
+    if (statusCode === 400) {
+        return 'validation_error'
+    }
+    return 'server_error'
 }
 
 export function getEventPropertiesForMetric(
@@ -1068,6 +1122,43 @@ export interface eventUsageLogicActions {
                   metric_index: number
                   metric_kind: string
                   refresh_id: string
+              }
+            | undefined
+        experimentId: ExperimentIdType
+        metric: ExperimentFunnelsQuery | ExperimentMetricUnion | ExperimentTrendsQuery
+        queryId: string | null | undefined
+        teamId: number | null | undefined
+    }
+    reportExperimentMetricErrored: (
+        experimentId: ExperimentIdType,
+        metric: ExperimentFunnelsQuery | ExperimentMetric | ExperimentTrendsQuery,
+        teamId?: number | null,
+        queryId?: string | null,
+        context?: {
+            duration_ms: number
+            error_code: string | null
+            error_message: string | null
+            execution_mode: 'async' | 'sync'
+            is_primary: boolean
+            is_retry: boolean
+            metric_index: number
+            metric_kind: string
+            refresh_id: string
+            status_code: number | null
+        }
+    ) => {
+        context:
+            | {
+                  duration_ms: number
+                  error_code: string | null
+                  error_message: string | null
+                  execution_mode: 'async' | 'sync'
+                  is_primary: boolean
+                  is_retry: boolean
+                  metric_index: number
+                  metric_kind: string
+                  refresh_id: string
+                  status_code: number | null
               }
             | undefined
         experimentId: ExperimentIdType
@@ -2403,6 +2494,30 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             queryId,
             context,
         }),
+        reportExperimentMetricErrored: (
+            experimentId: ExperimentIdType,
+            metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
+            teamId?: number | null,
+            queryId?: string | null,
+            context?: {
+                duration_ms: number
+                metric_index: number
+                is_primary: boolean
+                is_retry: boolean
+                refresh_id: string
+                metric_kind: string
+                execution_mode: 'sync' | 'async'
+                error_code: string | null
+                status_code: number | null
+                error_message: string | null
+            }
+        ) => ({
+            experimentId,
+            metric,
+            teamId,
+            queryId,
+            context,
+        }),
         reportExperimentResultsRefreshCompleted: (
             experimentId: ExperimentIdType,
             teamId: number | null | undefined,
@@ -3537,6 +3652,30 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 ...getEventPropertiesForMetric(metric),
                 metric,
                 ...context,
+            })
+        },
+        reportExperimentMetricErrored: ({ experimentId, metric, teamId, queryId, context }) => {
+            const { error_code, status_code, error_message, ...rest } = context ?? {}
+            posthog.capture('experiment metric error', {
+                experiment_id: experimentId,
+                team_id: teamId,
+                query_id: queryId,
+                ...getEventPropertiesForMetric(metric),
+                metric,
+                ...rest,
+                error_type: classifyExperimentMetricError({
+                    errorCode: error_code ?? null,
+                    statusCode: status_code ?? null,
+                    errorMessage: error_message ?? null,
+                }),
+                error_message: error_message?.slice(0, 500) ?? null,
+                error_code,
+                status_code,
+                context: 'ui',
+                // The backend emits this same event with mechanism "direct" when the failure escapes the
+                // query runner. Count "client" for how many failures users actually saw; "direct" carries
+                // the typed cause but double-counts ClickHouse capacity retries.
+                mechanism: 'client',
             })
         },
         reportExperimentResultsRefreshCompleted: ({ experimentId, teamId, context }) => {
