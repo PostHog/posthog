@@ -59,6 +59,55 @@
             },
             "required": ["name", "url"]
         },
+        "ConversationsResponseTargetsGetSchema": {
+            "type": "object",
+            "properties": {}
+        },
+        "ConversationsResponseTargetsUpdateSchema": {
+            "type": "object",
+            "properties": {
+                "groups": {
+                    "anyOf": [
+                        {
+                            "minItems": 1,
+                            "maxItems": 50,
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "label": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 100,
+                                        "description": "Display name for the group, e.g. \"Enterprise\". Must be unique across groups."
+                                    },
+                                    "tags": {
+                                        "maxItems": 100,
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 200
+                                        },
+                                        "description": "Ticket tags that map a ticket into this group. Matching is exact (no prefixes or substrings), a tag may appear in only one group, and the list may be empty (a placeholder tier)."
+                                    }
+                                },
+                                "required": ["label", "tags"]
+                            }
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The complete ordered ladder, highest priority first — this REPLACES the saved list, so include every group you want to keep (read the current ladder with the conversations-response-targets-get tool first). Tickets whose tags match no group rank with the FIRST group. Pass null to reset the team to the built-in example groups."
+                },
+                "confirm": {
+                    "description": "Omitted/false returns a preview without saving. Re-run with true to save.",
+                    "type": "boolean"
+                }
+            },
+            "required": ["groups"]
+        },
         "DebugMcpUiAppsSchema": {
             "type": "object",
             "properties": {

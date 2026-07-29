@@ -798,6 +798,23 @@ export class ApiClient {
                     body: JSON.stringify({ path_cleaning_filters: filters }),
                 })
             },
+
+            updateConversationsResponseTargetGroups: async ({
+                projectId,
+                groups,
+            }: {
+                projectId: string
+                groups: Array<{ label: string; tags: string[] }> | null
+            }): Promise<Result<Schemas.ProjectBackwardCompat>> => {
+                // The serializer merges conversations_settings keys into the existing
+                // JSONField, so sending only response_target_groups leaves the team's
+                // other conversations settings untouched. null resets to the built-in
+                // example groups.
+                return this.fetchJson<Schemas.ProjectBackwardCompat>(`${this.baseUrl}/api/projects/${projectId}/`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ conversations_settings: { response_target_groups: groups } }),
+                })
+            },
         }
     }
 

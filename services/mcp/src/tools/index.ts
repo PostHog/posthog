@@ -5,6 +5,8 @@ import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import resolveResource from './agentPlatform/resolveResource'
 // AI observability
 import getLLMCosts from './aiObservability/getLLMCosts'
+// Conversations (settings tools are hand-written; ticket/view CRUD is codegen)
+import { getResponseTargetsTool, updateResponseTargetsTool } from './conversations/responseTargets'
 // Debug
 import debugMcpUiApps from './debug/debugMcpUiApps'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
@@ -18,10 +20,9 @@ import submitFeedback from './feedback/submit'
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
 import queryInsight from './insights/query'
-
-import loopsReview from './loops/loopsReview'
 // Links (utility — builds canonical app URLs from the frontend's route table)
 import generateAppUrl from './links/generate-app-url'
+import loopsReview from './loops/loopsReview'
 // Notebooks (edit is hand-written — generated CRUD lives in generated/notebooks.ts)
 import notebookEdit from './notebooks/edit'
 // Organizations
@@ -77,6 +78,10 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'feature-flag-get-definition-by-key': featureFlagGetDefinitionByKey,
 
     'path-cleaning-rules-update': updatePathCleaning,
+
+    // Conversations settings (team-level response-target ladder)
+    'conversations-response-targets-get': getResponseTargetsTool,
+    'conversations-response-targets-update': updateResponseTargetsTool,
 
     // Experiments (results is hand-written; CRUD + lifecycle are codegen)
     'experiment-results-get': getExperimentResults,

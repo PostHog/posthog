@@ -813,3 +813,38 @@ export const EmailTemplateDesignPatchSchema = z.object({
                 'otherwise the template is left unchanged. Reference blocks by id so you never resend the whole design.'
         ),
 })
+
+const ResponseTargetGroupField = z.object({
+    label: z
+        .string()
+        .min(1)
+        .max(100)
+        .describe('Display name for the group, e.g. "Enterprise". Must be unique across groups.'),
+    tags: z
+        .array(z.string().min(1).max(200))
+        .max(100)
+        .describe(
+            'Ticket tags that map a ticket into this group. Matching is exact (no prefixes or substrings), a tag ' +
+                'may appear in only one group, and the list may be empty (a placeholder tier).'
+        ),
+})
+
+export const ConversationsResponseTargetsGetSchema = z.object({})
+
+export const ConversationsResponseTargetsUpdateSchema = z.object({
+    groups: z
+        .array(ResponseTargetGroupField)
+        .min(1)
+        .max(50)
+        .nullable()
+        .describe(
+            'The complete ordered ladder, highest priority first — this REPLACES the saved list, so include every ' +
+                'group you want to keep (read the current ladder with the conversations-response-targets-get tool ' +
+                'first). Tickets whose tags match no group rank with the FIRST group. Pass null to reset the team ' +
+                'to the built-in example groups.'
+        ),
+    confirm: z
+        .boolean()
+        .optional()
+        .describe('Omitted/false returns a preview without saving. Re-run with true to save.'),
+})

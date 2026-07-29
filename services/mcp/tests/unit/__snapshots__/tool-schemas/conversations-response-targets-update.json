@@ -1,0 +1,46 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "confirm": {
+            "description": "Omitted/false returns a preview without saving. Re-run with true to save.",
+            "type": "boolean"
+        },
+        "groups": {
+            "anyOf": [
+                {
+                    "items": {
+                        "properties": {
+                            "label": {
+                                "description": "Display name for the group, e.g. \"Enterprise\". Must be unique across groups.",
+                                "maxLength": 100,
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            "tags": {
+                                "description": "Ticket tags that map a ticket into this group. Matching is exact (no prefixes or substrings), a tag may appear in only one group, and the list may be empty (a placeholder tier).",
+                                "items": {
+                                    "maxLength": 200,
+                                    "minLength": 1,
+                                    "type": "string"
+                                },
+                                "maxItems": 100,
+                                "type": "array"
+                            }
+                        },
+                        "required": ["label", "tags"],
+                        "type": "object"
+                    },
+                    "maxItems": 50,
+                    "minItems": 1,
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The complete ordered ladder, highest priority first — this REPLACES the saved list, so include every group you want to keep (read the current ladder with the conversations-response-targets-get tool first). Tickets whose tags match no group rank with the FIRST group. Pass null to reset the team to the built-in example groups."
+        }
+    },
+    "required": ["groups"],
+    "type": "object"
+}
