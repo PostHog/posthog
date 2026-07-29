@@ -49,7 +49,6 @@ export const IncrementalFieldTypeEnumApi = {
 
 /**
  * * `never` - never
- * * `1min` - 1min
  * * `5min` - 5min
  * * `15min` - 15min
  * * `30min` - 30min
@@ -60,11 +59,11 @@ export const IncrementalFieldTypeEnumApi = {
  * * `7day` - 7day
  * * `30day` - 30day
  */
-export type SyncFrequencyEnumApi = (typeof SyncFrequencyEnumApi)[keyof typeof SyncFrequencyEnumApi]
+export type ExternalDataSchemaSyncFrequencyEnumApi =
+    (typeof ExternalDataSchemaSyncFrequencyEnumApi)[keyof typeof ExternalDataSchemaSyncFrequencyEnumApi]
 
-export const SyncFrequencyEnumApi = {
+export const ExternalDataSchemaSyncFrequencyEnumApi = {
     Never: 'never',
-    '1min': '1min',
     '5min': '5min',
     '15min': '15min',
     '30min': '30min',
@@ -186,10 +185,9 @@ export interface ExternalDataSchemaApi {
      * @nullable
      */
     incremental_field_lookback_seconds?: number | null
-    /** How often to sync.
+    /** How often to sync. The fastest sync frequency is 5 minutes.
      *
      * * `never` - never
-     * * `1min` - 1min
      * * `5min` - 5min
      * * `15min` - 15min
      * * `30min` - 30min
@@ -199,7 +197,7 @@ export interface ExternalDataSchemaApi {
      * * `24hour` - 24hour
      * * `7day` - 7day
      * * `30day` - 30day */
-    sync_frequency?: SyncFrequencyEnumApi | null
+    sync_frequency?: ExternalDataSchemaSyncFrequencyEnumApi | null
     /**
      * UTC time of day to run the sync (HH:MM:SS).
      * @nullable
@@ -339,10 +337,9 @@ export interface PatchedExternalDataSchemaApi {
      * @nullable
      */
     incremental_field_lookback_seconds?: number | null
-    /** How often to sync.
+    /** How often to sync. The fastest sync frequency is 5 minutes.
      *
      * * `never` - never
-     * * `1min` - 1min
      * * `5min` - 5min
      * * `15min` - 15min
      * * `30min` - 30min
@@ -352,7 +349,7 @@ export interface PatchedExternalDataSchemaApi {
      * * `24hour` - 24hour
      * * `7day` - 7day
      * * `30day` - 30day */
-    sync_frequency?: SyncFrequencyEnumApi | null
+    sync_frequency?: ExternalDataSchemaSyncFrequencyEnumApi | null
     /**
      * UTC time of day to run the sync (HH:MM:SS).
      * @nullable
