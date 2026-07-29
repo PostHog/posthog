@@ -185,7 +185,7 @@ export type AccountColumnGroup = {
     isFreeform?: boolean
 }
 
-export type AccountPickerColumnOption = AccountColumnOption & { groupLabel: string }
+export type AccountPickerColumnOption = AccountColumnOption & { groupLabel: string; isSelected: boolean }
 
 // Field types that point at joined tables/views (lazy joins, virtual tables,
 // user-defined data warehouse joins, saved queries). Each one surfaces as a
@@ -374,6 +374,7 @@ export interface accountsColumnConfigLogicValues {
     filteredColumnOptions: AccountPickerColumnOption[]
     pickerGroupKey: PickerGroupKey
     pickerSearch: string
+    pickerSearchPlaceholder: string
     pickerSqlInput: string
     querySelectColumns: string[]
     relationshipDefinitions: AccountRelationshipDefinitionApi[]
@@ -396,6 +397,9 @@ export interface accountsColumnConfigLogicActions {
         force?: boolean
     } // databaseTableListLogic
     loadJoins: () => any // joinsLogic
+    addSqlExpression: () => {
+        value: true
+    }
     hideColumnConfigurator: () => {
         value: true
     }
@@ -505,13 +509,15 @@ export interface accountsColumnConfigLogicMeta {
         ) => AccountColumnGroup[]
         activePickerGroup: (
             accountsColumnGroups: AccountColumnGroup[],
-            pickerGroupKey: any
+            pickerGroupKey: PickerGroupKey
         ) => AccountColumnGroup | null
         filteredColumnOptions: (
             accountsColumnGroups: AccountColumnGroup[],
-            activePickerGroup: any,
-            pickerSearch: any
+            activePickerGroup: AccountColumnGroup | null,
+            pickerSearch: string,
+            selectColumns: string[]
         ) => AccountPickerColumnOption[]
+        pickerSearchPlaceholder: (activePickerGroup: AccountColumnGroup | null) => string
         customPropertyDefinitionsById: (
             customPropertyDefinitions: CustomPropertyDefinitionApi[]
         ) => Record<string, CustomPropertyDefinitionApi>
@@ -576,6 +582,7 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         setPickerGroupKey: (key: PickerGroupKey) => ({ key }),
         setPickerSearch: (search: string) => ({ search }),
         setPickerSqlInput: (sqlInput: string) => ({ sqlInput }),
+        addSqlExpression: true,
     }),
     reducers({
         selectColumns: [
@@ -750,11 +757,12 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         ],
         // Null activePickerGroup means "All columns".
         filteredColumnOptions: [
-            (s) => [s.accountsColumnGroups, s.activePickerGroup, s.pickerSearch],
+            (s) => [s.accountsColumnGroups, s.activePickerGroup, s.pickerSearch, s.selectColumns],
             (
                 accountsColumnGroups: AccountColumnGroup[],
                 activePickerGroup: AccountColumnGroup | null,
-                pickerSearch: string
+                pickerSearch: string,
+                selectColumns: string[]
             ): AccountPickerColumnOption[] => {
                 if (activePickerGroup?.isFreeform) {
                     return []
@@ -763,12 +771,26 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                     ? [activePickerGroup]
                     : accountsColumnGroups.filter((group) => !group.isFreeform)
                 const query = pickerSearch.trim().toLowerCase()
+                const selected = new Set(selectColumns)
                 return searchableGroups.flatMap((group) =>
                     group.options
                         .filter((option) => !query || option.name.toLowerCase().includes(query))
-                        .map((option) => ({ ...option, groupLabel: group.label }))
+                        .map((option) => ({
+                            ...option,
+                            groupLabel: group.label,
+                            isSelected: selected.has(option.expression),
+                        }))
                 )
             },
+        ],
+        pickerSearchPlaceholder: [
+            (s) => [s.activePickerGroup],
+            (activePickerGroup: AccountColumnGroup | null): string =>
+                activePickerGroup?.isFreeform
+                    ? 'Use the SQL expression panel below'
+                    : activePickerGroup
+                      ? `Search ${activePickerGroup.label.toLowerCase()}`
+                      : 'Search all columns',
         ],
         customPropertyDefinitionsById: [
             (s) => [s.customPropertyDefinitions],
@@ -863,6 +885,13 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         resetColumns: () => {
             if (!objectsEqual(values.selectColumns, values.defaultSelectColumns)) {
                 actions.setSelectColumns(values.defaultSelectColumns)
+            }
+        },
+        addSqlExpression: () => {
+            const expression = values.pickerSqlInput.trim()
+            if (expression) {
+                actions.selectColumn(expression)
+                actions.setPickerSqlInput('')
             }
         },
     })),

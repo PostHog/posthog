@@ -362,32 +362,22 @@ function SelectedAccountColumn({
 }
 
 function AvailableColumnsPicker({ groups, loading }: { groups: AccountColumnGroup[]; loading: boolean }): JSX.Element {
-    const { selectColumns, pickerGroupKey, pickerSearch, pickerSqlInput, activePickerGroup, filteredColumnOptions } =
-        useValues(accountsColumnConfigLogic)
-    const { selectColumn, setPickerGroupKey, setPickerSearch, setPickerSqlInput } =
+    const {
+        pickerGroupKey,
+        pickerSearch,
+        pickerSqlInput,
+        pickerSearchPlaceholder,
+        activePickerGroup,
+        filteredColumnOptions,
+    } = useValues(accountsColumnConfigLogic)
+    const { selectColumn, setPickerGroupKey, setPickerSearch, setPickerSqlInput, addSqlExpression } =
         useActions(accountsColumnConfigLogic)
-
-    const isSelected = (expression: string): boolean => selectColumns.includes(expression)
-
-    const addSqlExpression = (): void => {
-        const expr = pickerSqlInput.trim()
-        if (expr) {
-            selectColumn(expr)
-            setPickerSqlInput('')
-        }
-    }
-
-    const searchPlaceholder = activePickerGroup?.isFreeform
-        ? 'Use the SQL expression panel below'
-        : activePickerGroup
-          ? `Search ${activePickerGroup.label.toLowerCase()}`
-          : 'Search all columns'
 
     return (
         <div className="flex flex-col gap-2">
             <LemonInput
                 type="search"
-                placeholder={searchPlaceholder}
+                placeholder={pickerSearchPlaceholder}
                 value={pickerSearch}
                 onChange={setPickerSearch}
                 disabled={activePickerGroup?.isFreeform}
@@ -408,7 +398,6 @@ function AvailableColumnsPicker({ groups, loading }: { groups: AccountColumnGrou
                     ) : (
                         <ul className="m-0 p-0 list-none">
                             {filteredColumnOptions.map((option) => {
-                                const already = isSelected(option.expression)
                                 return (
                                     <li
                                         key={`${option.groupLabel}::${option.expression}`}
@@ -417,8 +406,8 @@ function AvailableColumnsPicker({ groups, loading }: { groups: AccountColumnGrou
                                         <LemonButton
                                             fullWidth
                                             size="small"
-                                            onClick={() => !already && selectColumn(option.expression)}
-                                            disabledReason={already ? 'Already added' : undefined}
+                                            onClick={() => !option.isSelected && selectColumn(option.expression)}
+                                            disabledReason={option.isSelected ? 'Already added' : undefined}
                                             data-attr={`accounts-column-option-${option.name}`}
                                         >
                                             <span className="flex-1 font-mono">{option.name}</span>
