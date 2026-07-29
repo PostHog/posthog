@@ -70,7 +70,7 @@ export interface ConfigVersionApi {
     readonly created_by_email: string | null
     /** When this version was created. */
     created_at: string
-    /** Whether any EnrichmentLabelResult rows reference this version. Once true the version is frozen - prompt_text, model, input_fields, input_query, and output_fields can never change (FROZEN_FIELDS immutability). The label name is not frozen and can always be renamed. */
+    /** Whether any EnrichmentLabelResult rows reference this version. Informational only: the API never edits a version's content in place, it only creates a new one, so this doesn't gate anything. The label name is not part of a version's content and can always be renamed. */
     readonly has_results: boolean
 }
 
