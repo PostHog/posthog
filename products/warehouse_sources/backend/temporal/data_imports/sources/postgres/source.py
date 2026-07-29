@@ -434,7 +434,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "dashboard for this branch's connection settings, then re-enable the sync."
             ),
             "FATAL: no such database": None,
-            "does not exist": None,
+            # PostgreSQL's wording for a missing relation, column, schema, or role. Deterministic
+            # until the customer changes their database or the sync's selection, and common enough
+            # (renamed tables, dropped columns, providers rotating time-partitioned tables away)
+            # that it deserves a real message instead of surfacing the raw driver error.
+            "does not exist": (
+                "PostHog couldn't find a table, view, column, or schema it was asked to sync "
+                '(PostgreSQL reported "does not exist"). It was most likely renamed, dropped, or '
+                "replaced, which also happens when a database rotates time-partitioned tables. "
+                "Check that everything you selected to sync still exists, update the sync's selection "
+                "if it doesn't, then re-enable the sync."
+            ),
             "timestamp too small": None,
             "QueryTimeoutException": None,
             # Activity-layer twin of the `QueryTimeoutException` key above. That key only matches once

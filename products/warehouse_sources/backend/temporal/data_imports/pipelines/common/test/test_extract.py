@@ -1,4 +1,5 @@
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -8,12 +9,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
+from posthog.temporal.common.errors import is_non_reportable
+
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
+    NON_RETRYABLE_ERROR_RETRY_LIMIT,
     handle_corrupted_delta_log,
+    handle_non_retryable_error,
     handle_reset_or_full_refresh,
     persist_primary_keys,
     report_heartbeat_timeout,
@@ -245,6 +250,47 @@ class TestReportHeartbeatTimeoutRecording(BaseTest):
             assert event.host == "pod-abc"
             assert event.run_id == "run-1"
             assert event.gap_seconds == pytest.approx(gap_seconds)
+
+
+class TestHandleNonRetryableError:
+    def _patched_redis(self, attempts: int):
+        client = MagicMock(incr=AsyncMock(return_value=attempts), expire=AsyncMock())
+
+        @asynccontextmanager
+        async def _get_redis():
+            yield client
+
+        return patch(f"{_EXTRACT_MODULE}._get_redis", new=_get_redis)
+
+    def _call(self, error: Exception) -> None:
+        async_to_sync(handle_non_retryable_error)(
+            1, "source-1", "run-1", str(error), MagicMock(adebug=AsyncMock()), error
+        )
+
+    def test_retried_raw_error_is_not_reported(self):
+        # The raw driver error has to be re-raised unchanged so Temporal retries it and its message
+        # keeps driving the downstream classification, but the caller already blamed the customer's
+        # config, so it must not mint an error-tracking issue on every attempt.
+        error = ValueError('relation "realtime.messages_2026_07_23" does not exist')
+
+        with self._patched_redis(attempts=1), pytest.raises(ValueError) as exc_info:
+            self._call(error)
+
+        assert exc_info.value is error
+        assert is_non_reportable(error)
+
+    def test_give_up_is_not_reported_and_carries_the_message(self):
+        # Giving up must not be reported either, and must carry the classified message, since an
+        # empty NonRetryableException is untriageable wherever it does surface.
+        error = ValueError('relation "realtime.messages_2026_07_23" does not exist')
+
+        with self._patched_redis(attempts=NON_RETRYABLE_ERROR_RETRY_LIMIT + 1):
+            with pytest.raises(NonRetryableException) as exc_info:
+                self._call(error)
+
+        assert str(exc_info.value) == str(error)
+        assert exc_info.value.cause is error
+        assert is_non_reportable(exc_info.value)
 
 
 # transaction=True: handle_corrupted_delta_log writes to the DB from the async thread pool

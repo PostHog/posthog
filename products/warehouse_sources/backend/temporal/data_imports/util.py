@@ -10,13 +10,20 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions import capture_exception
 from posthog.settings.utils import get_from_env
+from posthog.temporal.common.errors import NonReportableError
 from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 
 
-class NonRetryableException(Exception):
+class NonRetryableException(NonReportableError):
+    """Terminal failure of a sync for a reason only the customer can fix (revoked credentials, a
+    dropped table, a source that doesn't support SSL). The job lands in FAILED with `latest_error`
+    telling them what to change, so a tracked exception on our side would only be noise, which is
+    why this subclasses `NonReportableError`. Consumers match on the class *name*
+    (`non_retryable_error_types`, `e.cause.type`), which the base class doesn't affect."""
+
     @property
     def cause(self) -> Optional[BaseException]:
         """Cause of the exception.

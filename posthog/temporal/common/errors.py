@@ -11,6 +11,24 @@ class NonReportableError(Exception):
     retrying can't resolve, so a tracked exception would only be noise."""
 
 
+_NON_REPORTABLE_ATTR = "__posthog_non_reportable__"
+
+
+def mark_non_reportable(exc: BaseException) -> None:
+    """Flag an exception instance as non-reportable when subclassing `NonReportableError` isn't an
+    option, typically a third-party driver exception we re-raise unchanged so that its type and
+    message keep driving downstream classification. Same bar as `NonReportableError`: only for a
+    condition already attributed to the customer's config or the upstream API."""
+    try:
+        setattr(exc, _NON_REPORTABLE_ATTR, True)
+    except AttributeError:
+        pass  # C-level exception types without a __dict__; falls back to being reported
+
+
+def is_non_reportable(exc: BaseException) -> bool:
+    return isinstance(exc, NonReportableError) or getattr(exc, _NON_REPORTABLE_ATTR, False) is True
+
+
 # Bound error strings so a multi-MB str(e) (ClickHouse 5xx body, Playwright HTML dump)
 # can't blow out Temporal's 2 MiB payload limit.
 MAX_ERROR_MESSAGE_CHARS = 8_000
