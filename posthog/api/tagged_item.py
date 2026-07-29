@@ -1,6 +1,7 @@
 import dataclasses
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Optional, cast
+from uuid import UUID
 
 from django.db import models
 from django.db.models import Prefetch, Q, QuerySet, prefetch_related_objects
@@ -282,6 +283,10 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
     # bulk tag edits, which leaves their behavior unchanged.
     bulk_tag_activity_scope: Optional[str] = None
 
+    # Request serializer for ``bulk_update_tags``. UUID-PK resources set the UUID variant and must
+    # also override the action's OpenAPI schema via ``@extend_schema_view`` on the viewset class.
+    bulk_update_tags_request_serializer_class: type[BulkUpdateTagsRequestSerializer] = BulkUpdateTagsRequestSerializer
+
     def _bulk_tag_activity_context(self) -> Optional[BulkTagActivityContext]:
         if not self.bulk_tag_activity_scope:
             return None
@@ -339,11 +344,11 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
         - "remove": Remove specific tags from each object
         - "set": Replace all tags on each object with the provided list
         """
-        serializer = BulkUpdateTagsRequestSerializer(data=request.data)
+        serializer = self.bulk_update_tags_request_serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
         validated = serializer.validated_data
 
-        validated_ids: list[int] = validated["ids"]
+        validated_ids: list[int | UUID] = validated["ids"]
         tag_action: str = validated["action"]
         tags: list[str] = validated["tags"]
 

@@ -18,16 +18,31 @@ export interface BulkUpdateTagsResult {
     skipped: Array<{ id: number | string; reason: string }>
 }
 
-export type BulkTaggableResource = 'feature_flags' | 'dashboards' | 'insights' | 'event_definitions'
+export type BulkTaggableResource =
+    | 'feature_flags'
+    | 'dashboards'
+    | 'insights'
+    | 'event_definitions'
+    | 'conversations/tickets'
 
 interface BulkUpdateTagsButtonProps {
     resource: BulkTaggableResource
-    // Integer PKs for most resources; event definitions are keyed by UUID strings.
+    // Integer PKs for most resources; event definitions and tickets are keyed by UUID strings.
     selectedIds: ReadonlyArray<number | string>
     onSuccess?: (result: BulkUpdateTagsResult) => void
+    /** Disables the trigger with an explanatory tooltip, for toolbars that render it before any selection exists. */
+    disabledReason?: string
+    /** Tooltip on the enabled trigger, e.g. a partial-selection warning. */
+    tooltip?: string
 }
 
-export function BulkUpdateTagsButton({ resource, selectedIds, onSuccess }: BulkUpdateTagsButtonProps): JSX.Element {
+export function BulkUpdateTagsButton({
+    resource,
+    selectedIds,
+    onSuccess,
+    disabledReason,
+    tooltip,
+}: BulkUpdateTagsButtonProps): JSX.Element {
     const [visible, setVisible] = useState(false)
     const [tagAction, setTagAction] = useState<BulkTagAction>('add')
     const [selectedTags, setSelectedTags] = useState<string[]>([])
@@ -128,7 +143,14 @@ export function BulkUpdateTagsButton({ resource, selectedIds, onSuccess }: BulkU
                 </div>
             }
         >
-            <LemonButton type="secondary" size="small" icon={<IconPencil />} onClick={open}>
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconPencil />}
+                onClick={open}
+                disabledReason={disabledReason}
+                tooltip={tooltip}
+            >
                 Update tags
             </LemonButton>
         </Popover>
