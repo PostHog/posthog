@@ -16,6 +16,7 @@ access goes through `database_sync_to_async(..., thread_sensitive=False)`; `@sco
 
 import uuid
 import logging
+import datetime
 from dataclasses import dataclass, field
 
 import posthoganalytics
@@ -388,6 +389,9 @@ class TrackReviewCompletedInput:
     head_sha: str
     run_index: int
     published: bool
+    # The workflow's start_time (ISO 8601) — one turn is one workflow execution, so this anchors
+    # the event's turn duration.
+    workflow_started_at: str
 
 
 @dataclass
@@ -1250,6 +1254,12 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
     findings = load_turn_findings(team_id=input.team_id, report_id=input.report_id, run_index=input.run_index)
     snapshot = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
     pr_meta = snapshot.pr_metadata if snapshot is not None else None
+    duration_seconds = round(
+        (
+            datetime.datetime.now(tz=datetime.UTC) - datetime.datetime.fromisoformat(input.workflow_started_at)
+        ).total_seconds(),
+        1,
+    )
     # Acting user when resolved and carrying a distinct_id, else the team — the same attribution
     # the TaskRun analytics use.
     acting_distinct_id = report.acting_user.distinct_id if report.acting_user is not None else None
@@ -1276,6 +1286,10 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
             "pr_deletions": pr_meta.deletions if pr_meta is not None else None,
             "pr_changed_files": pr_meta.changed_files if pr_meta is not None else None,
             "pr_commits": pr_meta.commits if pr_meta is not None else None,
+            # Added lines ReviewHog actually reviews (lockfiles/tests/generated filtered out) —
+            # the honest denominator for per-line cost.
+            "pr_reviewable_additions": count_reviewable_additions(snapshot.pr_files) if snapshot is not None else None,
+            "duration_seconds": duration_seconds,
         },
         groups=groups(team=report.team),
         send_feature_flags=True,

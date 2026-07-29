@@ -1,9 +1,11 @@
+from datetime import UTC, datetime, timedelta
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
+from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.persistence import (
@@ -57,6 +59,16 @@ class TestTrackReviewCompleted(BaseTest):
     def _review_report(self) -> str:
         return upsert_review_report(team_id=self.team.id, repository="o/r", pr_url=_PR_URL, pr_metadata=_pr_metadata())
 
+    def _tracking_input(self, report_id: str, *, published: bool = True) -> TrackReviewCompletedInput:
+        return TrackReviewCompletedInput(
+            team_id=self.team.id,
+            report_id=report_id,
+            head_sha="sha1",
+            run_index=1,
+            published=published,
+            workflow_started_at=(datetime.now(UTC) - timedelta(seconds=90)).isoformat(),
+        )
+
     @parameterized.expand([(True,), (False,)])
     def test_captures_the_turn_with_review_scoped_properties(self, published: bool) -> None:
         # Dashboards count reviews from this event's name and these exact properties — a rename,
@@ -68,7 +80,9 @@ class TestTrackReviewCompleted(BaseTest):
             head_sha="sha1",
             pr_metadata=_pr_metadata(),
             pr_comments=[],
-            pr_files=[],
+            # One reviewable file: raw PR additions (120) vs reviewable additions (80) must diverge
+            # so the assertions below can't pass with the two properties swapped.
+            pr_files=[PRFile(filename="a.py", status="modified", additions=80, deletions=10)],
         )
         issues = [_issue("1-1-1"), _issue("1-1-2")]
         persist_findings(team_id=self.team.id, report_id=report_id, issues=issues, run_index=1)
@@ -84,11 +98,7 @@ class TestTrackReviewCompleted(BaseTest):
         )
 
         with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
-            _track_review_completed(
-                TrackReviewCompletedInput(
-                    team_id=self.team.id, report_id=report_id, head_sha="sha1", run_index=1, published=published
-                )
-            )
+            _track_review_completed(self._tracking_input(report_id, published=published))
 
         capture.assert_called_once()
         kwargs = capture.call_args.kwargs
@@ -108,6 +118,8 @@ class TestTrackReviewCompleted(BaseTest):
         assert props["pr_deletions"] == 30
         assert props["pr_changed_files"] == 7
         assert props["pr_commits"] == 3
+        assert props["pr_reviewable_additions"] == 80
+        assert 90 <= props["duration_seconds"] < 600
 
     def test_missing_snapshot_still_captures_without_pr_size(self) -> None:
         # A turn whose pr_snapshot is unavailable must still count as a review — size props go
@@ -115,24 +127,19 @@ class TestTrackReviewCompleted(BaseTest):
         report_id = self._review_report()
 
         with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
-            _track_review_completed(
-                TrackReviewCompletedInput(
-                    team_id=self.team.id, report_id=report_id, head_sha="sha1", run_index=1, published=False
-                )
-            )
+            _track_review_completed(self._tracking_input(report_id, published=False))
 
         capture.assert_called_once()
         props = capture.call_args.kwargs["properties"]
         assert props["pr_additions"] is None
+        assert props["pr_reviewable_additions"] is None
         assert props["findings_total"] == 0
 
     def test_event_uuid_is_stable_across_retries(self) -> None:
         # A Temporal retry after a successful capture re-emits the event; a stable uuid lets
         # ingestion dedupe it instead of double-counting the review.
         report_id = self._review_report()
-        tracking_input = TrackReviewCompletedInput(
-            team_id=self.team.id, report_id=report_id, head_sha="sha1", run_index=1, published=True
-        )
+        tracking_input = self._tracking_input(report_id)
 
         with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
             _track_review_completed(tracking_input)
@@ -151,8 +158,4 @@ class TestTrackReviewCompleted(BaseTest):
             "products.review_hog.backend.temporal.activities.posthoganalytics.capture",
             side_effect=RuntimeError("analytics down"),
         ):
-            _track_review_completed_safe(
-                TrackReviewCompletedInput(
-                    team_id=self.team.id, report_id=report_id, head_sha="sha1", run_index=1, published=True
-                )
-            )
+            _track_review_completed_safe(self._tracking_input(report_id))

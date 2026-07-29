@@ -608,6 +608,7 @@ class ReviewPRWorkflow:
                     head_sha=head_sha,
                     run_index=meta.run_index,
                     published=posted,
+                    workflow_started_at=workflow.info().start_time.isoformat(),
                 ),
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,
