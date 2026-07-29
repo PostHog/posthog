@@ -157,6 +157,16 @@ class TestBuildReportPresentationPrompt:
         assert '"charts"' not in off
         assert '"charts"' in on
 
+    # A DataVisualizationNode carrying `display` but no `chartSettings` stores and validates
+    # cleanly, then draws every row at a single x position instead of a series. The guidance is
+    # the only thing that tells the agent to set the axes, so losing this line means every
+    # SQL-backed chart the pipeline authors renders wrong in the reader's inbox with nothing
+    # reporting a failure. The scout channel guards the same instruction in its own example.
+    def test_chart_guidance_names_the_axes_a_sql_graph_needs(self):
+        on = build_report_presentation_prompt(2, charts_enabled=True)
+        assert "chartSettings.xAxis.column" in on
+        assert "chartSettings.yAxis[].column" in on
+
     def test_previous_charts_context_only_rendered_when_enabled(self):
         chart = _make_chart()
         on = build_report_presentation_prompt(1, previous_charts=[chart], charts_enabled=True)
