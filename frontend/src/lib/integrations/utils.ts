@@ -28,6 +28,7 @@ import IconMetaAds from 'public/services/meta-ads.png'
 import IconPinterest from 'public/services/pinterest_ads.png'
 import IconPostgres from 'public/services/postgres.png'
 import IconReddit from 'public/services/reddit.png'
+import IconRedshift from 'public/services/redshift.png'
 import IconS3Compatible from 'public/services/s3-compatible.png'
 import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
@@ -77,6 +78,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     'aws-s3': IconAwsS3,
     's3-compatible': IconS3Compatible,
     snowflake: IconSnowflake,
+    redshift: IconRedshift,
 }
 
 // Brand marks that are solid black/monochrome on a transparent background — they vanish against a dark
@@ -123,6 +125,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'AWS S3'
         case 's3-compatible':
             return 'S3-compatible storage'
+        case 'redshift':
+            return 'Redshift'
         default:
             return capitalizeFirstLetter(kind)
     }

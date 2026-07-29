@@ -1,5 +1,6 @@
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
+import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { AWS_ONLY_REGION_OPTIONS, validateBucketName } from './common'
@@ -39,7 +40,7 @@ const REDSHIFT_FORM_ONLY_FIELDS = [
     'mode',
     'authorization_mode',
     // copy_inputs is re-assembled from the flat redshift_* fields in COPY mode and must not be
-    // carried over verbatim — otherwise switching a COPY export to INSERT leaks the stale object.
+    // carried over verbatim, otherwise switching a COPY export to INSERT leaks the stale object.
     'copy_inputs',
     'redshift_s3_bucket',
     'redshift_s3_key_prefix',
@@ -53,20 +54,18 @@ const REDSHIFT_FORM_ONLY_FIELDS = [
 
 export const redshiftDefinition: DestinationDefinition = {
     type: 'Redshift',
+    usesIntegration: true,
     defaults: () => ({
         mode: 'COPY',
         authorization_mode: 'IAMRole',
-        properties_data_type: 'SUPER',
+        properties_data_type: 'super',
     }),
-    requiredFields: ({ isNew }) => [
-        ...(isNew ? ['user'] : []),
-        ...(isNew ? ['password'] : []),
-        'host',
-        'port',
-        'database',
-        'schema',
-        'table_name',
-    ],
+    requiredFields: ({ isNew, formValues }) => {
+        if (isNew || formValues.integration_id) {
+            return [...(isNew ? ['integration_id'] : []), 'host', 'port', 'database', 'schema', 'table_name']
+        }
+        return ['host', 'port', 'database', 'schema', 'table_name']
+    },
     validate: (formValues) => {
         if (formValues.mode === 'COPY') {
             return { redshift_s3_bucket: validateBucketName(formValues.redshift_s3_bucket) }
@@ -82,8 +81,6 @@ export const redshiftDefinition: DestinationDefinition = {
             config[key] = value
         }
         config.mode = formValues.mode
-        // copy_inputs is rebuilt from the flat redshift_* fields in COPY mode and explicitly nulled
-        // in INSERT mode — never carried over from the deserialized form state.
         config.copy_inputs = formValues.mode === 'COPY' ? buildCopyInputs(formValues) : null
         return config
     },
@@ -113,15 +110,27 @@ export const redshiftDefinition: DestinationDefinition = {
     },
     eventTableOverrides: { teamIdHogql: 'toInt32(team_id)' },
     Fields: function RedshiftFields({ isNew, formValues }) {
+        const useIntegration = isNew || !!formValues.integration_id
+
         return (
             <>
-                <LemonField name="user" label="User">
-                    <LemonInput placeholder={isNew ? 'my-user' : 'Leave unchanged'} />
-                </LemonField>
+                {useIntegration ? (
+                    <LemonField name="integration_id" label="Connection">
+                        {({ value, onChange }) => (
+                            <IntegrationChoice integration="redshift" value={value} onChange={onChange} />
+                        )}
+                    </LemonField>
+                ) : (
+                    <>
+                        <LemonField name="user" label="User">
+                            <LemonInput placeholder={isNew ? 'my-user' : 'Leave unchanged'} />
+                        </LemonField>
 
-                <LemonField name="password" label="Password">
-                    <LemonInput placeholder={isNew ? 'my-password' : 'Leave unchanged'} type="password" />
-                </LemonField>
+                        <LemonField name="password" label="Password">
+                            <LemonInput placeholder={isNew ? 'my-password' : 'Leave unchanged'} type="password" />
+                        </LemonField>
+                    </>
+                )}
 
                 <LemonField name="host" label="Host">
                     <LemonInput placeholder="my-host" />

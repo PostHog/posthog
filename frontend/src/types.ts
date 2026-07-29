@@ -5475,6 +5475,7 @@ export const INTEGRATION_KINDS = [
     'aws-s3',
     's3-compatible',
     'snowflake',
+    'redshift',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
