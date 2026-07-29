@@ -403,17 +403,25 @@ describe('supportTicketSceneLogic tag pool refresh', () => {
         logic.mount()
         await expectLogic(logic).toDispatchActions(['setTicket'])
         expect(logic.values.availableTags).toEqual(['known'])
+        // Wait out lazyLoaders' deferred refetch, or it lands mid-test and makes the assertions below vacuous.
+        await expectLogic(tagsModel).toDispatchActions(['loadTagsSuccess'])
+        tagsListMock.mockClear()
     })
 
     // A newly typed tag is created globally on save, so the shared pool must reload to surface it
     // on other tickets; an already-known tag needs no reload.
     it('reloads the shared tag pool when a new tag was saved', async () => {
         ticketUpdateMock.mockResolvedValue({ ...loadedTicket(), tags: ['known', 'brand-new'] })
+        tagsListMock.mockResolvedValue(['known', 'brand-new'])
 
         logic.actions.setTags(['known', 'brand-new'])
         await expectLogic(logic, () => {
             logic.actions.updateTicket()
-        }).toDispatchActions(['setTicket', 'loadTags'])
+        }).toDispatchActions(['setTicket'])
+        await expectLogic(tagsModel).toDispatchActions(['loadTagsSuccess'])
+
+        expect(tagsListMock).toHaveBeenCalledTimes(1)
+        expect(logic.values.availableTags).toEqual(['known', 'brand-new'])
     })
 
     it('does not reload the tag pool when all saved tags are already known', async () => {
@@ -422,9 +430,10 @@ describe('supportTicketSceneLogic tag pool refresh', () => {
         logic.actions.setTags(['known'])
         await expectLogic(logic, () => {
             logic.actions.updateTicket()
-        })
-            .toDispatchActions(['setTicket'])
-            .toNotHaveDispatchedActions(['loadTags'])
+        }).toDispatchActions(['setTicket'])
+
+        expect(tagsListMock).not.toHaveBeenCalled()
+        expect(logic.values.availableTags).toEqual(['known'])
     })
 })
 
