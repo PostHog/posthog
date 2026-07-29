@@ -28,6 +28,7 @@ from posthog.sync import database_sync_to_async
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.report_charts import ReportChart
+from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.model_selection import ScoutModel
@@ -920,7 +921,8 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
     assert captured["context"].runtime_adapter == expected_runtime_adapter
     assert captured["context"].reasoning_effort == expected_reasoning_effort
     # The routed triple is also stamped on the bridge row's `metadata` (keys omitted when unset,
-    # `{}` on the default path) — the native API-side record of which model served the run.
+    # nothing at the top level on the default path) — the native API-side record of which model
+    # served the run.
     bridge = await database_sync_to_async(SignalScoutRun.objects.get)(team=ateam)
     expected_metadata = {
         key: value
@@ -931,7 +933,12 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
         )
         if value is not None
     }
-    assert bridge.metadata == expected_metadata
+    stamped = bridge.metadata or {}
+    runner_stamped = {key: value for key, value in stamped.items() if key != DERIVED_METADATA_KEY}
+    assert runner_stamped == expected_metadata
+    # Wiring guard: finalize actually stamps the derived region, which no direct unit test of
+    # `stamp_derived_metadata` can prove.
+    assert DERIVED_METADATA_KEY in stamped
     events = {c.kwargs["event"] for c in capture.call_args_list}
     assert events == {"signals_scout_run_started", "signals_scout_run_finished"}
     for call in capture.call_args_list:

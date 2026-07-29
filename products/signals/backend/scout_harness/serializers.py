@@ -47,6 +47,18 @@ from products.skills.backend.models.skills import LLMSkill
 # --- Run history -----------------------------------------------------------
 
 
+@extend_schema_field({"type": "object", "additionalProperties": True})
+class RunMetadataField(serializers.DictField):
+    """The run row's whole `metadata` column: runner-stamped string keys at the top level plus the
+    nested `derived` map of harness-computed booleans.
+
+    Declared as a free-form object rather than `DictField(child=CharField())` because the latter
+    coerces the nested `derived` map to its string repr on the way out, which turns a queryable
+    object into unparseable prose. Output-only: writes come from the runner at creation and from
+    `derived_metadata.stamp_derived_metadata` at finalize, never through this field.
+    """
+
+
 class SignalScoutRunSummarySerializer(serializers.Serializer):
     """Lightweight projection of a `SignalScoutRun` row used by `search-recent-runs`.
 
@@ -148,13 +160,17 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
             "edited no report."
         ),
     )
-    metadata = serializers.DictField(
-        child=serializers.CharField(),
+    metadata = RunMetadataField(
         help_text=(
-            "Scout-owned per-run context stamped at run start. Known keys today: `model`, "
-            "`runtime_adapter`, and `reasoning_effort` — the triple the run was routed on when the "
-            "`scouts-model-selection` gate (or a runtime pin) overrode the agent-server default. "
-            "Empty object when the run rode the default model, or for runs predating the field."
+            "Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner "
+            "at run start: `model`, `runtime_adapter`, and `reasoning_effort` — the triple the run "
+            "was routed on when the `scouts-model-selection` gate (or a runtime pin) overrode the "
+            "agent-server default. The nested `derived` object is the harness's own map of boolean "
+            "run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, "
+            "`has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer "
+            "'what kind of run was this?' instead of parsing the `summary` prose. Empty object when "
+            "the run rode the default model and never reached finalize, or for runs predating the "
+            "field."
         ),
     )
 

@@ -18,6 +18,7 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import STEP_SCOUT, resolve_agent_runtime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
 from products.signals.backend.scout_harness.limits import DEFAULT_MAX_RUNTIME_S, STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.model_selection import resolve_scout_model
@@ -531,7 +532,7 @@ async def _spawn_and_run(
         # discoverable trace for future-run dedupe. Failure paths skip this on
         # purpose — the bridge row keeps its empty default and the linked TaskRun
         # carries the error context.
-        await database_sync_to_async(_finalize_run_summary, thread_sensitive=False)(
+        await database_sync_to_async(_finalize_run_row, thread_sensitive=False)(
             run_id=run_id,
             team_id=team.parent_team_id or team.id,
             summary=result.summary,
@@ -866,10 +867,14 @@ def _capture_run_finished(
         )
 
 
-def _finalize_run_summary(*, run_id: Any, team_id: int, summary: str) -> None:
+def _finalize_run_row(*, run_id: Any, team_id: int, summary: str) -> None:
     # Targeted UPDATE rather than `.save()` — the row's other fields are untouched
     # by the agent's close-out, and `update()` skips the full model refresh.
     SignalScoutRun.objects.unscoped().filter(team_id=team_id, id=run_id).update(summary=summary)
+    # Stamped here rather than at each emit/edit site so the flags are computed once, from the
+    # run's settled output, in the same hop that persists the close-out. Best-effort inside, so
+    # a stamp failure never costs the summary write that already landed above.
+    stamp_derived_metadata(run_id=run_id, team_id=team_id)
 
 
 def _step_name(skill: LoadedSkill) -> str:

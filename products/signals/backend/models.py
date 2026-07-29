@@ -1267,12 +1267,17 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # report (pipeline-authored included), so an edited id is generally NOT one the run authored. Nullable
     # with a `[]` db_default so the AddField stays non-blocking on the populated table.
     edited_report_ids = models.JSONField(null=True, blank=True, default=list, db_default=[])
-    # Scout-owned per-run context stamped once at run creation — the native home for run
-    # dimensions that matter operationally but don't each warrant a dedicated column. Known keys
-    # today: `model` / `runtime_adapter` / `reasoning_effort`, the triple the run was routed on
-    # when the `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default;
-    # empty for default-model runs. Write-once at creation, not a mutable grab-bag — new keys
-    # (e.g. a future config-level model) should also be stamped by the runner at run start.
+    # Scout-owned per-run context — the native home for run dimensions that matter operationally
+    # but don't each warrant a dedicated column. Two regions, distinguished by who writes them.
+    # Top-level keys are stamped write-once by the runner at run creation (today: `model` /
+    # `runtime_adapter` / `reasoning_effort`, the triple the run was routed on when the
+    # `scouts-model-selection` gate or a runtime pin overrode the agent-server default; empty for
+    # default-model runs). New runner-known dimensions belong there, stamped by `_create_run_row`.
+    # The nested `derived` object is written once at finalize by
+    # `scout_harness/derived_metadata.py` and holds booleans the harness computes from the run's
+    # own output, so "what kind of run was this?" is a field lookup rather than prose parsing.
+    # Both regions are server-written: nothing here is scout-authored, which is what makes the
+    # column safe to query directly.
     # Nullable with a `{}` db_default so the AddField stays non-blocking on the populated table.
     metadata = models.JSONField(null=True, blank=True, default=dict, db_default={})
     created_at = models.DateTimeField(auto_now_add=True)
