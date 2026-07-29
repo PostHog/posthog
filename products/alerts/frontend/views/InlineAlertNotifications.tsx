@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect, useState } from 'react'
 
+import { LemonButton } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
@@ -152,6 +154,7 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         selectedType,
         slackChannelValue,
         webhookUrl,
+        testDeliveryResultLoading,
     } = useValues(logic)
     const {
         addPendingNotification,
@@ -162,6 +165,7 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         setSlackChannelValue,
         setWebhookUrl,
         loadIntegrations,
+        sendTestDelivery,
     } = useActions(logic)
 
     const buildPendingNotification = (): PendingAlertNotification | null => {
@@ -232,39 +236,58 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
     const urlInput = getUrlInput(selectedType)
 
     return (
-        <AlertNotificationDestinationEditor
-            destinations={{
-                showExisting: Boolean(alertId),
-                existingLoading: existingHogFunctionsLoading,
-                existing: existingDestinations,
-                pending: pendingDestinations,
-            }}
-            notificationType={{
-                options: ALERT_NOTIFICATION_TYPE_OPTIONS,
-                value: selectedType,
-                onChange: setSelectedType,
-            }}
-            slack={{
-                notificationType: ALERT_NOTIFICATION_TYPE_SLACK,
-                integrationsLoading,
-                integrationsFailed,
-                onRetryIntegrations: loadIntegrations,
-                integrations: slackIntegrations,
-                integration: selectedSlackIntegration,
-                onIntegrationChange: setSelectedSlackIntegrationId,
-                channelValue: slackChannelValue,
-                onChannelValueChange: setSlackChannelValue,
-            }}
-            url={urlInput ? { input: urlInput, value: webhookUrl, onChange: setWebhookUrl } : undefined}
-            add={{
-                onClick: handleAdd,
-                disabledReason: getAlertNotificationAddDisabledReason(
-                    selectedType,
-                    Boolean(selectedSlackIntegration),
-                    slackChannelValue,
-                    webhookUrl
-                ),
-            }}
-        />
+        <div className="space-y-2">
+            {existingHogFunctions.length > 0 ? (
+                <div className="flex justify-end">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={sendTestDelivery}
+                        loading={testDeliveryResultLoading}
+                        disabledReason={
+                            existingHogFunctions.some((destination) => destination.enabled)
+                                ? undefined
+                                : 'Enable a destination before sending a test.'
+                        }
+                    >
+                        Send test
+                    </LemonButton>
+                </div>
+            ) : null}
+            <AlertNotificationDestinationEditor
+                destinations={{
+                    showExisting: Boolean(alertId),
+                    existingLoading: existingHogFunctionsLoading,
+                    existing: existingDestinations,
+                    pending: pendingDestinations,
+                }}
+                notificationType={{
+                    options: ALERT_NOTIFICATION_TYPE_OPTIONS,
+                    value: selectedType,
+                    onChange: setSelectedType,
+                }}
+                slack={{
+                    notificationType: ALERT_NOTIFICATION_TYPE_SLACK,
+                    integrationsLoading,
+                    integrationsFailed,
+                    onRetryIntegrations: loadIntegrations,
+                    integrations: slackIntegrations,
+                    integration: selectedSlackIntegration,
+                    onIntegrationChange: setSelectedSlackIntegrationId,
+                    channelValue: slackChannelValue,
+                    onChannelValueChange: setSlackChannelValue,
+                }}
+                url={urlInput ? { input: urlInput, value: webhookUrl, onChange: setWebhookUrl } : undefined}
+                add={{
+                    onClick: handleAdd,
+                    disabledReason: getAlertNotificationAddDisabledReason(
+                        selectedType,
+                        Boolean(selectedSlackIntegration),
+                        slackChannelValue,
+                        webhookUrl
+                    ),
+                }}
+            />
+        </div>
     )
 }

@@ -11,7 +11,7 @@ from pydantic import (
     Field as PydanticField,
     RootModel,
 )
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
@@ -41,14 +41,16 @@ from posthog.helpers.trigram_search import (
 )
 from posthog.models import User
 from posthog.permissions import get_authenticator_scopes
+from posthog.rate_limit import AlertTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
 from posthog.tasks.alerts.schedule_restriction import validate_and_normalize_schedule_restriction
-from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_change
+from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_change, trigger_alert_hog_functions
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
+from products.alerts.backend.destinations import count_active_alert_destinations
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 from products.alerts.backend.evaluation.validation import (
@@ -65,6 +67,8 @@ from products.alerts.backend.insight_alert_state_machine import (
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.product_analytics.backend.models.insight import Insight
+
+INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
 
 
 def _validate_interval_entitlement(
@@ -892,6 +896,10 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
     )
 
 
+class AlertTestDeliveryResponseSerializer(serializers.Serializer):
+    destination_count = serializers.IntegerField(help_text="Number of active destinations queued for test delivery.")
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -1095,6 +1103,50 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         serializer = self.get_serializer(alerts, many=True)
         return Response(serializer.data)
+
+    @extend_schema(
+        request=None,
+        responses={202: AlertTestDeliveryResponseSerializer},
+        description="Queue a synthetic test notification for every active destination configured on this alert.",
+    )
+    @action(
+        detail=True,
+        methods=["POST"],
+        url_path="test-delivery",
+        required_scopes=["alert:write"],
+        throttle_classes=[AlertTestDeliveryThrottle],
+    )
+    def test_delivery(self, request, *args, **kwargs):
+        alert = self.get_object()
+        destination_count = count_active_alert_destinations(
+            team_id=alert.team_id,
+            alert_id=str(alert.id),
+            allowed_event_ids=(INSIGHT_ALERT_FIRING_EVENT,),
+        )
+        if destination_count == 0:
+            return Response(
+                {"detail": "This alert has no active destinations."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        trigger_alert_hog_functions(
+            alert,
+            {
+                "breaches": "Test alert from PostHog. No action is needed.",
+                "is_test": True,
+            },
+        )
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="insight alert test delivery scheduled",
+            properties={
+                **get_request_analytics_properties(request),
+                "alert_id": str(alert.id),
+                "destination_count": destination_count,
+                "team_id": alert.team_id,
+            },
+        )
+        return Response({"destination_count": destination_count}, status=status.HTTP_202_ACCEPTED)
 
     @extend_schema(
         request=AlertSimulateSerializer,

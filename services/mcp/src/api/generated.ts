@@ -8750,6 +8750,11 @@ export namespace Schemas {
       breakdown_results?: BreakdownSimulationResult[];
     }
 
+    export interface AlertTestDeliveryResponse {
+      /** Number of active destinations queued for test delivery. */
+      destination_count: number;
+    }
+
     /**
      * * `trace` - trace
      * * `generation` - generation

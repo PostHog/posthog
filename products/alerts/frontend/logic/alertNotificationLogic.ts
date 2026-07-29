@@ -10,6 +10,8 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { HogFunctionType, IntegrationType } from '~/types'
 
+import { alertsTestDeliveryCreate } from 'products/alerts/frontend/generated/api'
+import type { AlertTestDeliveryResponseApi } from 'products/alerts/frontend/generated/api.schemas'
 import {
     ALERT_NOTIFICATION_TYPE_DISCORD,
     ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS,
@@ -48,6 +50,8 @@ export interface alertNotificationLogicValues {
     selectedSlackIntegrationId: number | null
     selectedType: AlertNotificationType
     slackChannelValue: string | null
+    testDeliveryResult: AlertTestDeliveryResponseApi | null
+    testDeliveryResultLoading: boolean
     webhookUrl: string
 }
 
@@ -196,6 +200,21 @@ export interface alertNotificationLogicActions {
     removePendingNotification: (index: number) => {
         index: number
     }
+    sendTestDelivery: () => any
+    sendTestDeliveryFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    sendTestDeliverySuccess: (
+        testDeliveryResult: AlertTestDeliveryResponseApi,
+        payload?: any
+    ) => {
+        testDeliveryResult: AlertTestDeliveryResponseApi
+        payload?: any
+    }
     setPendingNotifications: (notifications: PendingAlertNotification[]) => {
         notifications: PendingAlertNotification[]
     }
@@ -323,7 +342,7 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
         ],
     }),
 
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         existingHogFunctions: [
             [] as HogFunctionType[],
             {
@@ -337,6 +356,17 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                         full: true,
                     })
                     return response.results
+                },
+            },
+        ],
+        testDeliveryResult: [
+            null as AlertTestDeliveryResponseApi | null,
+            {
+                sendTestDelivery: async () => {
+                    if (!props.alertId || values.currentProjectId === null) {
+                        throw new Error('Save the alert before sending a test.')
+                    }
+                    return alertsTestDeliveryCreate(String(values.currentProjectId), props.alertId)
                 },
             },
         ],
@@ -448,6 +478,14 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
             }
 
             actions.loadExistingHogFunctions()
+        },
+        sendTestDeliverySuccess: ({ testDeliveryResult }) => {
+            const count = testDeliveryResult.destination_count
+            lemonToast.success(`Test queued for ${count} ${count === 1 ? 'destination' : 'destinations'}.`)
+        },
+        sendTestDeliveryFailure: ({ errorObject }) => {
+            const detail = errorObject?.detail
+            lemonToast.error(typeof detail === 'string' ? detail : 'Unable to send the test. Try again.')
         },
     })),
 

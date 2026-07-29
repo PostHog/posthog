@@ -749,6 +749,11 @@ export interface PatchedAlertApi {
     readonly search_match_type?: SearchMatchTypeEnumApi | null
 }
 
+export interface AlertTestDeliveryResponseApi {
+    /** Number of active destinations queued for test delivery. */
+    destination_count: number
+}
+
 export interface AlertSimulateApi {
     /** Insight ID to simulate the detector on. */
     insight: number

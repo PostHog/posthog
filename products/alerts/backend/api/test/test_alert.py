@@ -6,6 +6,8 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest import mock
 
+from django.core.cache import cache
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -1443,6 +1445,104 @@ class TestAlertSimulate(APIBaseTest):
         assert AlertCheck.objects.count() == checks_before
 
 
+class TestAlertTestDelivery(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={
+                "query": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "trendsFilter": {"display": "BoldNumber"},
+                }
+            },
+        ).json()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            data={
+                "insight": insight["id"],
+                "name": "Testable alert",
+                "subscribed_users": [],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        self.alert = response.json()
+
+    def _create_destination(self, *, enabled: bool = True, alert_id: str | None = None) -> HogFunction:
+        return HogFunction.objects.create(
+            team=self.team,
+            name="Alert destination",
+            type="internal_destination",
+            template_id="template-webhook",
+            enabled=enabled,
+            inputs_schema=[],
+            inputs={},
+            hog="return event",
+            filters={
+                "events": [{"id": "$insight_alert_firing", "type": "events"}],
+                "properties": [
+                    {
+                        "key": "alert_id",
+                        "value": alert_id or self.alert["id"],
+                        "operator": "exact",
+                        "type": "event",
+                    }
+                ],
+            },
+        )
+
+    @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions")
+    def test_queues_test_delivery_for_active_destinations_without_changing_alert(self, mock_trigger) -> None:
+        self._create_destination()
+        self._create_destination()
+        self._create_destination(enabled=False)
+        self._create_destination(alert_id="00000000-0000-0000-0000-000000000000")
+        alert_before = AlertConfiguration.objects.get(id=self.alert["id"])
+
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}/test-delivery/")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.content
+        assert response.json() == {"destination_count": 2}
+        mock_trigger.assert_called_once_with(
+            mock.ANY,
+            {
+                "breaches": "Test alert from PostHog. No action is needed.",
+                "is_test": True,
+            },
+        )
+        alert_after = AlertConfiguration.objects.get(id=self.alert["id"])
+        assert alert_after.state == alert_before.state
+        assert alert_after.last_notified_at == alert_before.last_notified_at
+        assert AlertCheck.objects.filter(alert_configuration_id=self.alert["id"]).count() == 0
+
+    @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions")
+    def test_rejects_test_delivery_without_active_destinations(self, mock_trigger) -> None:
+        self._create_destination(enabled=False)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}/test-delivery/")
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json() == {"detail": "This alert has no active destinations."}
+        mock_trigger.assert_not_called()
+
+    @mock.patch("posthog.rate_limit.AlertTestDeliveryThrottle.rate", new="2/minute")
+    @mock.patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @mock.patch("products.alerts.backend.api.alert.trigger_alert_hog_functions")
+    def test_rate_limits_test_delivery_per_team(self, _mock_trigger, _rate_limit_enabled) -> None:
+        cache.clear()
+        self._create_destination()
+        endpoint = f"/api/projects/{self.team.id}/alerts/{self.alert['id']}/test-delivery/"
+
+        assert self.client.post(endpoint).status_code == status.HTTP_202_ACCEPTED
+        assert self.client.post(endpoint).status_code == status.HTTP_202_ACCEPTED
+        assert self.client.post(endpoint).status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        cache.clear()
+
+
 class TestAlertEventProperties(APIBaseTest):
     @parameterized.expand(
         [
@@ -1771,6 +1871,13 @@ class TestAlertAPIKeyAccess(APIBaseTest):
             (["alert:read"], "get", "/{alert_id}/", status.HTTP_200_OK, None),
             (["alert:read"], "delete", "/{alert_id}/", status.HTTP_403_FORBIDDEN, "alert:write"),
             (["alert:write"], "delete", "/{alert_id}/", status.HTTP_204_NO_CONTENT, None),
+            (
+                ["alert:read"],
+                "post",
+                "/{alert_id}/test-delivery/",
+                status.HTTP_403_FORBIDDEN,
+                "alert:write",
+            ),
         ]
     )
     def test_alert_api_key_access(self, scopes, http_method, endpoint_suffix, expected_status, error_scope):
