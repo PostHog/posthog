@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken'
 export enum PosthogJwtAudience {
     SUBSCRIPTION_PREFERENCES = 'posthog:messaging:subscription_preferences',
     WORKFLOWS_RESCHEDULE_PARKED = 'posthog:workflows:reschedule_parked',
+    INTEGRATION_GATEWAY = 'posthog:integration_gateway',
 }
 
 export class JWT {

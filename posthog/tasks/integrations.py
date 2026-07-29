@@ -1,3 +1,5 @@
+from django.conf import settings
+
 from celery import shared_task
 
 from posthog.models.integration import (
@@ -26,6 +28,8 @@ def refresh_integrations() -> int:
     oauth_integrations = defer_repository_cache_fields(
         Integration.objects.filter(kind__in=OauthIntegration.supported_kinds)
         .exclude(kind__in=["meta-ads", "resend"])
+        # Gateway-owned kinds are excluded so exactly one system refreshes each kind.
+        .exclude(kind__in=settings.INTEGRATION_GATEWAY_REFRESH_KINDS)
         .all()
     )
 

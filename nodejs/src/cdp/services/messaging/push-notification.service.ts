@@ -186,7 +186,7 @@ export class PushNotificationService {
         let firstError: string | undefined
         for (const integrationId of integrationIds) {
             try {
-                const integration = await this.integrationManager.get(integrationId)
+                const integration = await this.integrationManager.get(integrationId, invocation.teamId)
                 if (!integration || integration.team_id !== invocation.teamId) {
                     throw new Error('Push notification integration not found')
                 }

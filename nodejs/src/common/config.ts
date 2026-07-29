@@ -53,6 +53,7 @@ export enum PluginServerMode {
     cdp_hogflow_scheduler = 'cdp-hogflow-scheduler',
     email_reputation_evaluator = 'email-reputation-evaluator',
     ingestion_api = 'ingestion-api',
+    integration_gateway = 'integration-gateway',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(

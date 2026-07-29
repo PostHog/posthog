@@ -18,6 +18,7 @@ import { IngestionSessionReplayMlMirrorServer } from '~/servers/ingestion-sessio
 import { IngestionSessionReplayMlParquetSinkServer } from '~/servers/ingestion-session-replay-ml-parquet-sink-server'
 import { IngestionSessionReplayServer } from '~/servers/ingestion-session-replay-server'
 import { IngestionTracesServer } from '~/servers/ingestion-traces-server'
+import { IntegrationGatewayServer } from '~/servers/integration-gateway-server'
 import { RecordingApiServer } from '~/servers/recording-api-server'
 
 function createServer(): NodeServer {
@@ -62,6 +63,9 @@ function createServer(): NodeServer {
 
         case PluginServerMode.ingestion_traces:
             return new IngestionTracesServer()
+
+        case PluginServerMode.integration_gateway:
+            return new IntegrationGatewayServer()
 
         default:
             // CDP modes, evaluation scheduler, local dev (null), local-cdp
