@@ -20,7 +20,7 @@ import {
     aiTriageResultTagType,
     aiTriageTicketTypeLabel,
 } from '../../types'
-import { planLabel } from './planTags'
+import { DEFAULT_RESPONSE_TARGET_GROUPS, ResponseTargetGroup, responseTargetLabel } from './responseTargets'
 
 export type TicketColumnKey =
     | 'ticket_number'
@@ -29,7 +29,7 @@ export type TicketColumnKey =
     | 'status'
     | 'ai_triage'
     | 'priority'
-    | 'plan'
+    | 'response_target'
     | 'sla_due_at'
     | 'assignee'
     | 'channel'
@@ -41,15 +41,26 @@ interface TicketColumnDefinition {
     label: string
     /** Only offered (and only rendered) when AI suggestions are enabled for the team. */
     aiOnly?: boolean
-    /** Only offered (and only rendered) to PostHog staff — internal triage
-     *  concepts that aren't (yet) meaningful or configurable for customers. */
-    staffOnly?: boolean
     /** Hidden in embedded tables, which are already scoped to one person. */
     hiddenWhenEmbedded?: boolean
     /** Identifies the row, so it can't be hidden. */
     mandatory?: boolean
     column: LemonTableColumns<Ticket>[number]
 }
+
+const responseTargetRender =
+    (groups: ResponseTargetGroup[]) =>
+    (_: unknown, ticket: Ticket): JSX.Element => {
+        const label = responseTargetLabel(ticket.tags, groups)
+        return (
+            // Cap the cell at about the header's width ("Response target" +
+            // sort arrow) so a long group label can't blow the column out;
+            // the title attribute shows the full label on hover.
+            <span className="text-xs block max-w-36 truncate" title={label}>
+                {label}
+            </span>
+        )
+    }
 
 const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
     ticket_number: {
@@ -212,21 +223,13 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
                 ),
         },
     },
-    plan: {
-        label: 'Plan',
-        staffOnly: true,
+    response_target: {
+        label: 'Response target',
         column: {
-            title: 'Plan',
-            key: 'plan',
+            title: 'Response target',
+            key: 'response_target',
             sorter: true,
-            render: (_, ticket) => {
-                const label = planLabel(ticket.tags)
-                return (
-                    <span className="text-xs whitespace-nowrap" title={label}>
-                        {label}
-                    </span>
-                )
-            },
+            render: responseTargetRender(DEFAULT_RESPONSE_TARGET_GROUPS),
         },
     },
     sla_due_at: {
@@ -327,7 +330,7 @@ export const TICKET_COLUMN_ORDER: TicketColumnKey[] = [
     'status',
     'ai_triage',
     'priority',
-    'plan',
+    'response_target',
     'sla_due_at',
     'assignee',
     'channel',
@@ -349,18 +352,16 @@ export function isTicketColumnMandatory(key: TicketColumnKey): boolean {
 interface TicketColumnContext {
     aiEnabled: boolean
     embedded: boolean
-    /** Whether the viewer is PostHog staff (user.is_staff). */
-    staff: boolean
+    /** The team's response-target ladder (teamResponseTargetGroups); the
+     *  built-in default when omitted. */
+    responseTargetGroups?: ResponseTargetGroup[]
 }
 
 /** The columns a user can actually choose between, given the current context. */
-export function offerableTicketColumns({ aiEnabled, embedded, staff }: TicketColumnContext): TicketColumnKey[] {
+export function offerableTicketColumns({ aiEnabled, embedded }: TicketColumnContext): TicketColumnKey[] {
     return TICKET_COLUMN_ORDER.filter((key) => {
         const definition = TICKET_COLUMNS[key]
         if (definition.aiOnly && !aiEnabled) {
-            return false
-        }
-        if (definition.staffOnly && !staff) {
             return false
         }
         if (definition.hiddenWhenEmbedded && embedded) {
@@ -375,7 +376,16 @@ export function buildTicketColumns(
     context: TicketColumnContext
 ): LemonTableColumns<Ticket> {
     const visible = new Set(visibleColumns)
+    const { responseTargetGroups } = context
     return offerableTicketColumns(context)
         .filter((key) => visible.has(key) || isTicketColumnMandatory(key))
-        .map((key) => TICKET_COLUMNS[key].column)
+        .map((key) => {
+            const column = TICKET_COLUMNS[key].column
+            // The response-target cell labels tickets against the team's
+            // configured ladder rather than the static default.
+            if (key === 'response_target' && responseTargetGroups) {
+                return { ...column, render: responseTargetRender(responseTargetGroups) }
+            }
+            return column
+        })
 }

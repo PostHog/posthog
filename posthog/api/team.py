@@ -89,6 +89,7 @@ from posthog.utils import (
     safe_cache_set,
 )
 
+from products.conversations.backend.response_targets import validate_response_target_groups
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
 from products.feature_flags.backend.models.evaluation_context import (
@@ -1443,6 +1444,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 value["ai_reply_modes"] = cleaned_modes
             else:
                 raise serializers.ValidationError({"ai_reply_modes": "Must be an object or null."})
+        if "response_target_groups" in value:
+            value["response_target_groups"] = validate_response_target_groups(value["response_target_groups"])
         return value
 
     def validate_receive_org_level_activity_logs(self, value: bool | None) -> bool | None:

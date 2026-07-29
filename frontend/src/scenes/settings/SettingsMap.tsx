@@ -45,6 +45,7 @@ import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
+import { ResponseTargetsSection } from 'products/conversations/frontend/scenes/settings/ResponseTargetsSection'
 import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
 import { CustomerAnalyticsEventStream } from 'products/customer_analytics/frontend/components/EventStream/CustomerAnalyticsEventStream'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
@@ -1198,6 +1199,26 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'workflow',
                     'email',
                     'browser',
+                ],
+            },
+            {
+                id: 'conversations-response-targets',
+                title: 'Response targets',
+                description:
+                    'Response targets are grouped and sorted by tags. Define your tag-based priority groups here.',
+                component: <ResponseTargetsSection />,
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: [
+                    'conversation',
+                    'ticket',
+                    'support',
+                    'response',
+                    'target',
+                    'priority',
+                    'plan',
+                    'sla',
+                    'triage',
+                    'group',
                 ],
             },
             {

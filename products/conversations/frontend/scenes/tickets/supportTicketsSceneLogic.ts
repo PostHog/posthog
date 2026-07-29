@@ -200,8 +200,8 @@ export interface supportTicketsSceneLogicValues {
     hasActiveFilters: boolean
     loadedOrderBy: string | null
     orderBy: string
-    planCounts: Record<string, number> | null
     priorityFilter: TicketPriority[]
+    responseTargetCounts: Record<string, number> | null
     searchQuery: string
     selectedTicketIds: string[]
     selectedTickets: Ticket[]
@@ -287,11 +287,11 @@ export interface supportTicketsSceneLogicActions {
     setLoadedOrderBy: (orderBy: string) => {
         orderBy: string
     }
-    setPlanCounts: (counts: Record<string, number> | null) => {
-        counts: Record<string, number> | null
-    }
     setPriorityFilter: (priorities: TicketPriority[]) => {
         priorities: TicketPriority[]
+    }
+    setResponseTargetCounts: (counts: Record<string, number> | null) => {
+        counts: Record<string, number> | null
     }
     setSearchQuery: (query: string) => {
         query: string
@@ -394,7 +394,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         loadTickets: true,
         setTickets: (tickets: Ticket[]) => ({ tickets }),
         setTotalCount: (count: number) => ({ count }),
-        setPlanCounts: (counts: Record<string, number> | null) => ({ counts }),
+        setResponseTargetCounts: (counts: Record<string, number> | null) => ({ counts }),
         setLoadedOrderBy: (orderBy: string) => ({ orderBy }),
         setTicketsLoading: (loading: boolean) => ({ loading }),
         applyViewFilters: (filters: TicketViewFilters) => ({ filters }),
@@ -432,21 +432,21 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 setCurrentPage: (_, { page }) => page,
             },
         ],
-        // Per-plan-group ticket counts over the whole filtered result set (not
-        // just the page), keyed by plan rank. Present only on plan-ordered
-        // staff responses; the plan section headers read it.
-        planCounts: [
+        // Per-group ticket counts over the whole filtered result set (not
+        // just the page), keyed by response-target rank. Present only on
+        // response-target-ordered responses; the section headers read it.
+        responseTargetCounts: [
             null as Record<string, number> | null,
             {
-                setPlanCounts: (_, { counts }) => counts,
+                setResponseTargetCounts: (_, { counts }) => counts,
             },
         ],
         // The order_by the CURRENT tickets array was fetched with — updated in
         // lockstep with setTickets, so it describes the loaded data rather
-        // than the requested sort. The plan grouped view only engages once
-        // this says the rows really are plan-ordered, keeping the list flat
-        // while a sort change is in flight instead of grouping the previous
-        // sort's rows.
+        // than the requested sort. The response-target grouped view only
+        // engages once this says the rows really are response-target-ordered,
+        // keeping the list flat while a sort change is in flight instead of
+        // grouping the previous sort's rows.
         loadedOrderBy: [
             null as string | null,
             {
@@ -753,7 +753,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 const response = await api.conversationsTickets.list(params)
                 actions.setTickets(response.results || [])
                 actions.setTotalCount(response.count ?? response.results?.length ?? 0)
-                actions.setPlanCounts(response.plan_counts ?? null)
+                actions.setResponseTargetCounts(response.response_target_counts ?? null)
                 actions.setLoadedOrderBy(params.order_by as string)
             } catch {
                 lemonToast.error('Failed to load tickets')

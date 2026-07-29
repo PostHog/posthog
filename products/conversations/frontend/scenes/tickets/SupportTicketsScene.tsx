@@ -24,7 +24,6 @@ import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -50,7 +49,13 @@ import {
     statusMultiselectOptions,
     statusOptionsWithoutAll,
 } from '../../types'
-import { buildPlanGroupedRows, isPlanHeaderRow, TicketListRow, withPlanHeaderRows } from './planGroupedRows'
+import {
+    buildResponseTargetGroupedRows,
+    isResponseTargetHeaderRow,
+    TicketListRow,
+    withResponseTargetHeaderRows,
+} from './responseTargetGroupedRows'
+import { teamResponseTargetGroups } from './responseTargets'
 import { SUPPORT_TICKETS_PAGE_SIZE, supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 import { buildTicketColumns } from './ticketColumns'
 import { TicketColumnsDropdown } from './TicketColumnsDropdown'
@@ -104,7 +109,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
         ticketsLoading,
         currentPage,
         totalCount,
-        planCounts,
+        responseTargetCounts,
         loadedOrderBy,
         sorting,
         selectedTicketIds,
@@ -117,8 +122,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
     const { searchParams } = useValues(router)
     const { currentTeam } = useValues(teamLogic)
     const aiEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
-    const { user } = useValues(userLogic)
-    const staff = !!user?.is_staff
+    const responseTargetGroups = teamResponseTargetGroups(currentTeam)
 
     const getKey = useMemo(() => (t: Ticket) => t.id, [])
     const bulk = useBulkSelection<Ticket, string>({ pageRecords: tickets, getKey })
@@ -153,28 +157,39 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
         }
     }, [selectedTicketIds, selectedKeys, clearSelection])
 
-    // Sorting by Plan (staff-only) IS the grouped view: the server returns the
-    // page ordered by plan rank, so tier boundaries are contiguous and we
-    // interleave full-width group headers at each change (see planGroupedRows).
-    // Gate and direction both come from loadedOrderBy — the order_by the
-    // CURRENT tickets were fetched with — not from `sorting`, which flips the
-    // moment the user clicks while `tickets` still holds the previous sort's
-    // rows. Grouping engages (and orients its ladder) only once the loaded
-    // data really is plan-ordered, so the in-flight beat renders flat instead
-    // of grouping stale rows.
-    const planDesc = loadedOrderBy === '-plan'
-    const planGrouped = staff && sorting?.columnKey === 'plan' && (loadedOrderBy === 'plan' || planDesc)
+    // Sorting by Response target IS the grouped view: the server returns the
+    // page ordered by group rank, so tier boundaries are contiguous and we
+    // interleave full-width group headers at each change (see
+    // responseTargetGroupedRows). Gate and direction both come from
+    // loadedOrderBy — the order_by the CURRENT tickets were fetched with —
+    // not from `sorting`, which flips the moment the user clicks while
+    // `tickets` still holds the previous sort's rows. Grouping engages (and
+    // orients its ladder) only once the loaded data really is
+    // response-target-ordered, so the in-flight beat renders flat instead of
+    // grouping stale rows.
+    const responseTargetDesc = loadedOrderBy === '-response_target'
+    const responseTargetGrouped =
+        sorting?.columnKey === 'response_target' && (loadedOrderBy === 'response_target' || responseTargetDesc)
     const rows = useMemo<TicketListRow[]>(
         () =>
-            planGrouped
-                ? buildPlanGroupedRows(tickets, {
-                      desc: planDesc,
+            responseTargetGrouped
+                ? buildResponseTargetGroupedRows(tickets, {
+                      groups: responseTargetGroups,
+                      desc: responseTargetDesc,
                       isFirstPage: currentPage === 1,
                       isLastPage: currentPage * SUPPORT_TICKETS_PAGE_SIZE >= totalCount,
-                      counts: planCounts,
+                      counts: responseTargetCounts,
                   })
                 : tickets,
-        [planGrouped, planDesc, tickets, currentPage, totalCount, planCounts]
+        [
+            responseTargetGrouped,
+            responseTargetDesc,
+            responseTargetGroups,
+            tickets,
+            currentPage,
+            totalCount,
+            responseTargetCounts,
+        ]
     )
     // Shift-click ranges index into `tickets` (useBulkSelection's pageRecords),
     // not the rendered rows — header rows would offset the table's recordIndex.
@@ -205,16 +220,19 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
                 />
             ),
         }
-        const ticketColumns = [checkboxCol, ...buildTicketColumns(visibleColumns, { aiEnabled, embedded, staff })]
-        return planGrouped
-            ? withPlanHeaderRows(ticketColumns)
+        const ticketColumns = [
+            checkboxCol,
+            ...buildTicketColumns(visibleColumns, { aiEnabled, embedded, responseTargetGroups }),
+        ]
+        return responseTargetGrouped
+            ? withResponseTargetHeaderRows(ticketColumns)
             : (ticketColumns as unknown as LemonTableColumns<TicketListRow>)
     }, [
         visibleColumns,
         embedded,
         aiEnabled,
-        staff,
-        planGrouped,
+        responseTargetGroups,
+        responseTargetGrouped,
         ticketIndexById,
         isSomeOnPageSelected,
         isAllOnPageSelected,
@@ -238,7 +256,9 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
     return (
         <LemonTable<TicketListRow>
             dataSource={rows}
-            rowKey={(row) => (isPlanHeaderRow(row) ? `plan-header:${row.planHeader}` : row.id)}
+            rowKey={(row) =>
+                isResponseTargetHeaderRow(row) ? `response-target-header:${row.responseTargetHeader}` : row.id
+            }
             emptyState={emptyState}
             loading={ticketsLoading}
             // Keep rows clickable while a background refresh is in flight; the loading overlay
@@ -260,7 +280,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
                         : undefined,
             }}
             onRow={(ticket) => {
-                if (isPlanHeaderRow(ticket)) {
+                if (isResponseTargetHeaderRow(ticket)) {
                     return {}
                 }
                 // Carry the active filters / saved view (the list's query string) onto the
@@ -292,7 +312,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
             }}
             rowClassName={(row) =>
                 clsx(
-                    isPlanHeaderRow(row)
+                    isResponseTargetHeaderRow(row)
                         ? 'bg-surface-secondary'
                         : { 'bg-primary-alt-highlight': row.unread_team_count > 0 }
                 )

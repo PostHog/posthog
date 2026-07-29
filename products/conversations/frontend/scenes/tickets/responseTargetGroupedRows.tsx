@@ -1,56 +1,64 @@
 import { LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { Ticket } from '../../types'
-import { PLAN_GROUPS, planLabel } from './planTags'
+import { ResponseTargetGroup, responseTargetLabel } from './responseTargets'
 
 type TicketColumn = LemonTableColumn<Ticket, keyof Ticket | undefined>
 export type TicketListColumn = LemonTableColumn<TicketListRow, undefined>
 
-/** A synthetic full-width divider row shown above each plan group. `empty`
- *  marks groups that provably have no tickets matching the current filters;
- *  `count` is the group's filtered total across all pages (server-provided). */
-export interface PlanHeaderRow {
-    planHeader: string
+/** A synthetic full-width divider row shown above each response-target group.
+ *  `empty` marks groups that provably have no tickets matching the current
+ *  filters; `count` is the group's filtered total across all pages
+ *  (server-provided). */
+export interface ResponseTargetHeaderRow {
+    responseTargetHeader: string
     empty?: boolean
     count?: number
 }
 
 /** What the tickets table renders while grouped: tickets interleaved with
- *  plan-group headers. Mirrors DataTable's `DataTableRow` label-row pattern
- *  (frontend/src/queries/nodes/DataTable). */
-export type TicketListRow = Ticket | PlanHeaderRow
+ *  response-target group headers. Mirrors DataTable's `DataTableRow`
+ *  label-row pattern (frontend/src/queries/nodes/DataTable). */
+export type TicketListRow = Ticket | ResponseTargetHeaderRow
 
-export function isPlanHeaderRow(row: TicketListRow): row is PlanHeaderRow {
-    return 'planHeader' in row
+export function isResponseTargetHeaderRow(row: TicketListRow): row is ResponseTargetHeaderRow {
+    return 'responseTargetHeader' in row
 }
 
-interface PlanGroupingContext {
+interface ResponseTargetGroupingContext {
+    /** The ladder the rows were server-sorted against (the team's configured
+     *  groups, or the default). */
+    groups: ResponseTargetGroup[]
     desc: boolean
     /** Emptiness is only provable where the server-sorted sequence is known to
      *  be complete: before the first group on page 1, after the last group on
      *  the final page, and in gaps between groups adjacent on the same page. */
     isFirstPage: boolean
     isLastPage: boolean
-    /** Whole-result-set count per plan rank (the API's `plan_counts`); groups
-     *  absent from the map matched zero tickets. */
+    /** Whole-result-set count per group rank (the API's
+     *  `response_target_counts`); groups absent from the map matched zero
+     *  tickets. */
     counts?: Record<string, number> | null
 }
 
-/** Interleave a header above each run of same-plan tickets, plus headers (with
- *  an `empty` marker) for every ladder group that provably has no matching
- *  tickets. Assumes `tickets` is plan-ordered — see isPlanOrdered. */
-export function buildPlanGroupedRows(tickets: Ticket[], context: PlanGroupingContext): TicketListRow[] {
+/** Interleave a header above each run of same-group tickets, plus headers
+ *  (with an `empty` marker) for every ladder group that provably has no
+ *  matching tickets. Assumes `tickets` is response-target-ordered. */
+export function buildResponseTargetGroupedRows(
+    tickets: Ticket[],
+    context: ResponseTargetGroupingContext
+): TicketListRow[] {
     if (tickets.length === 0) {
         return []
     }
-    const { desc, isFirstPage, isLastPage, counts } = context
-    const ladder = PLAN_GROUPS.map((group) => group.label)
+    const { groups, desc, isFirstPage, isLastPage, counts } = context
+    const ladder = groups.map((group) => group.label)
     const rankByLabel = new Map(ladder.map((label, rank) => [label, rank]))
     if (desc) {
         ladder.reverse()
     }
-    const header = (label: string, empty?: boolean): PlanHeaderRow => {
-        const row: PlanHeaderRow = { planHeader: label }
+    const header = (label: string, empty?: boolean): ResponseTargetHeaderRow => {
+        const row: ResponseTargetHeaderRow = { responseTargetHeader: label }
         if (empty) {
             row.empty = true
         }
@@ -73,7 +81,7 @@ export function buildPlanGroupedRows(tickets: Ticket[], context: PlanGroupingCon
     }
 
     for (const ticket of tickets) {
-        const group = planLabel(ticket.tags)
+        const group = responseTargetLabel(ticket.tags, groups)
         if (group !== currentGroup) {
             // Gaps before the page's first group are provable only on page 1;
             // gaps between groups adjacent on this page are always provable.
@@ -96,11 +104,11 @@ export function buildPlanGroupedRows(tickets: Ticket[], context: PlanGroupingCon
 /** Adapt Ticket columns to the grouped row union: header rows render their
  *  label once, spanning every column (the remaining cells collapse to
  *  colSpan 0); ticket rows delegate to the original renderers untouched. */
-export function withPlanHeaderRows(columns: LemonTableColumns<Ticket>): TicketListColumn[] {
+export function withResponseTargetHeaderRows(columns: LemonTableColumns<Ticket>): TicketListColumn[] {
     return (columns as TicketColumn[]).map((column, index) => ({
         ...column,
         render: (value: any, row: TicketListRow, recordIndex: number, rowCount: number) => {
-            if (isPlanHeaderRow(row)) {
+            if (isResponseTargetHeaderRow(row)) {
                 if (index === 0) {
                     const matchNote =
                         row.empty || row.count === 0
@@ -111,7 +119,7 @@ export function withPlanHeaderRows(columns: LemonTableColumns<Ticket>): TicketLi
                     return {
                         children: (
                             <span className="text-xs font-semibold text-muted-alt">
-                                {row.planHeader}
+                                {row.responseTargetHeader}
                                 {matchNote && <span className="ml-2 font-normal text-muted">{matchNote}</span>}
                             </span>
                         ),

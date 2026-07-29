@@ -1609,6 +1609,68 @@ def team_api_test_factory():
             assert settings["widget_greeting_text"] == "Hello!"
             assert settings["widget_color"] == "#ff0000"
 
+        def test_conversations_settings_accepts_and_normalizes_response_target_groups(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {
+                    "conversations_settings": {
+                        "response_target_groups": [
+                            {"label": "  VIPs  ", "tags": [" vip ", "vip", "top_20"]},
+                            {"label": "Everyone else", "tags": []},
+                        ]
+                    }
+                },
+            )
+            assert response.status_code == status.HTTP_200_OK
+            # Labels/tags are stripped, tags deduped within a group; empty tag lists are allowed.
+            assert response.json()["conversations_settings"]["response_target_groups"] == [
+                {"label": "VIPs", "tags": ["vip", "top_20"]},
+                {"label": "Everyone else", "tags": []},
+            ]
+
+        def test_conversations_settings_null_response_target_groups_resets_to_default(self):
+            self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"response_target_groups": [{"label": "VIPs", "tags": ["vip"]}]}},
+            )
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"response_target_groups": None}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["conversations_settings"]["response_target_groups"] is None
+
+        @parameterized.expand(
+            [
+                ("not_a_list", {"label": "x"}),
+                ("empty_list", []),
+                ("item_not_a_dict", ["vip"]),
+                ("missing_label", [{"tags": ["vip"]}]),
+                ("blank_label", [{"label": "   ", "tags": ["vip"]}]),
+                ("label_not_a_string", [{"label": 7, "tags": ["vip"]}]),
+                ("label_too_long", [{"label": "x" * 101, "tags": ["vip"]}]),
+                ("tags_not_a_list", [{"label": "VIPs", "tags": "vip"}]),
+                ("tag_not_a_string", [{"label": "VIPs", "tags": [1]}]),
+                ("blank_tag", [{"label": "VIPs", "tags": ["  "]}]),
+                (
+                    "tag_in_two_groups",
+                    [{"label": "A", "tags": ["vip"]}, {"label": "B", "tags": ["vip"]}],
+                ),
+                (
+                    "duplicate_label",
+                    [{"label": "A", "tags": ["vip"]}, {"label": "A", "tags": ["beta"]}],
+                ),
+                ("too_many_groups", [{"label": f"g{i}", "tags": []} for i in range(51)]),
+                ("too_many_tags_in_group", [{"label": "A", "tags": [f"t{i}" for i in range(101)]}]),
+            ]
+        )
+        def test_conversations_settings_rejects_invalid_response_target_groups(self, _name, groups):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"response_target_groups": groups}},
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
         def test_conversations_settings_change_reports_event_per_setting(self):
             with patch("posthog.api.team.report_user_action") as mock_report:
                 response = self.client.patch(

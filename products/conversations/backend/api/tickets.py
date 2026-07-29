@@ -57,7 +57,7 @@ from products.conversations.backend.events import (
 from products.conversations.backend.models import EmailChannel, Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import _get_persons_by_email
-from products.conversations.backend.plan_tags import plan_rank_annotation
+from products.conversations.backend.response_targets import response_target_groups, response_target_rank_annotation
 
 from ee.models.rbac.role import Role
 
@@ -583,17 +583,18 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         }
         order_by = self.request.query_params.get("order_by", "-updated_at")
 
-        # Staff-only: rank by the plan-tag tiering (see backend/plan_tags.py),
-        # ties broken by SLA deadline (soonest first, no deadline last) so one
-        # click yields the triage order, then by -ticket_number (the same
-        # unique tiebreak the whitelisted orderings use below) — without a
-        # unique final key, rows tied on rank+SLA (e.g. no deadline) have no
-        # stable order and LimitOffsetPagination can skip or duplicate them
-        # across pages. Non-staff requests fall through to the default
-        # ordering like any other unknown order_by value.
-        if order_by in ("plan", "-plan") and self.request.user.is_staff:
-            return queryset.annotate(plan_rank=plan_rank_annotation()).order_by(
-                "-plan_rank" if order_by.startswith("-") else "plan_rank",
+        # Rank by the team's response-target tiering (see
+        # backend/response_targets.py — team-configurable, default ladder
+        # otherwise), ties broken by SLA deadline (soonest first, no deadline
+        # last) so one click yields the triage order, then by -ticket_number
+        # (the same unique tiebreak the whitelisted orderings use below) —
+        # without a unique final key, rows tied on rank+SLA (e.g. no deadline)
+        # have no stable order and LimitOffsetPagination can skip or duplicate
+        # them across pages.
+        if order_by in ("response_target", "-response_target"):
+            groups = response_target_groups(self.team)
+            return queryset.annotate(response_target_rank=response_target_rank_annotation(groups)).order_by(
+                "-response_target_rank" if order_by.startswith("-") else "response_target_rank",
                 F("sla_due_at").asc(nulls_last=True),
                 "-ticket_number",
             )
@@ -832,10 +833,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                     "-ticket_number",
                     "snoozed_until",
                     "-snoozed_until",
-                    "plan",
-                    "-plan",
+                    "response_target",
+                    "-response_target",
                 ],
-                description="Sort order. Prefix with `-` for descending. Defaults to `-updated_at`. `plan` (staff only) ranks by the plan-tag tiering with SLA tiebreak and adds a `plan_counts` object (per-plan-rank totals over the filtered result set) to the response; non-staff requests fall back to the default.",
+                description="Sort order. Prefix with `-` for descending. Defaults to `-updated_at`. `response_target` ranks by the team's response-target tag groups (configurable via conversations_settings.response_target_groups) with SLA tiebreak, and adds a `response_target_counts` object (per-group-rank totals over the filtered result set) to the response.",
             ),
         ],
     )
@@ -844,24 +845,24 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
 
-        # When plan-ordered (staff only — the annotation's presence is the
+        # When response-target-ordered (the annotation's presence is the
         # signal), also aggregate per-group counts over the same filtered
-        # queryset, so the plan section headers can show how many tickets
-        # match the current filters beyond the page. Count(distinct) because
-        # the tag filters' joins can multiply rows.
-        plan_counts: dict[str, int] | None = None
-        if "plan_rank" in queryset.query.annotations:
-            plan_counts = {
-                str(row["plan_rank"]): row["n"]
-                for row in queryset.order_by().values("plan_rank").annotate(n=Count("id", distinct=True))
+        # queryset, so the section headers can show how many tickets match
+        # the current filters beyond the page. Count(distinct) because the
+        # tag filters' joins can multiply rows.
+        response_target_counts: dict[str, int] | None = None
+        if "response_target_rank" in queryset.query.annotations:
+            response_target_counts = {
+                str(row["response_target_rank"]): row["n"]
+                for row in queryset.order_by().values("response_target_rank").annotate(n=Count("id", distinct=True))
             }
 
         if page is not None:
             self._attach_persons_to_tickets(page)
             serializer = self.get_serializer(page, many=True)
             response = self.get_paginated_response(serializer.data)
-            if plan_counts is not None:
-                response.data["plan_counts"] = plan_counts
+            if response_target_counts is not None:
+                response.data["response_target_counts"] = response_target_counts
             return response
 
         tickets = list(queryset)

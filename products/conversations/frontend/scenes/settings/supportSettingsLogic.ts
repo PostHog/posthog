@@ -12,6 +12,11 @@ import { SlackChannelType, UserBasicType } from '~/types'
 import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
 import { TicketChannel } from '../../types'
+import {
+    DEFAULT_RESPONSE_TARGET_GROUPS,
+    ResponseTargetGroup,
+    teamResponseTargetGroups,
+} from '../tickets/responseTargets'
 
 const BASE_AI_CHANNELS: TicketChannel[] = ['widget', 'email', 'slack']
 
@@ -51,6 +56,7 @@ export interface supportSettingsLogicValues {
     aiResolutionChannels: TicketChannel[]
     aiSuggestionsEnabled: boolean
     aiSuggestionsLoading: boolean
+    configuredResponseTargetGroups: ResponseTargetGroup[]
     conversationsDomains: string[]
     conversationsEnabledLoading: boolean
     domainInputValue: string
@@ -80,6 +86,10 @@ export interface supportSettingsLogicValues {
     newEmailFromName: string
     notificationRecipients: number[]
     placeholderTextValue: string | null
+    responseTargetGroupsCustomized: boolean
+    responseTargetGroupsDraft: ResponseTargetGroup[] | null
+    responseTargetGroupsError: string | null
+    responseTargetGroupsView: ResponseTargetGroup[]
     settingDefaultEmailConfigId: string | null
     slackAlertChannelId: string | null
     slackBotDisplayName: string | null
@@ -368,6 +378,9 @@ export interface supportSettingsLogicActions {
     savePlaceholderText: () => {
         value: true
     }
+    saveResponseTargetGroups: (groups: ResponseTargetGroup[] | null) => {
+        groups: ResponseTargetGroup[] | null
+    }
     saveSlackBotSettings: () => {
         value: true
     }
@@ -452,6 +465,9 @@ export interface supportSettingsLogicActions {
     setPlaceholderTextValue: (value: string | null) => {
         value: string | null
     }
+    setResponseTargetGroupsDraft: (groups: ResponseTargetGroup[] | null) => {
+        groups: ResponseTargetGroup[] | null
+    }
     setSlackAlertChannel: (channelId: string | null) => {
         channelId: string | null
     }
@@ -510,6 +526,13 @@ export interface supportSettingsLogicActions {
 export interface supportSettingsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         conversationsDomains: (currentTeam: TeamPublicType | TeamType | null) => string[]
+        configuredResponseTargetGroups: (currentTeam: TeamPublicType | TeamType | null) => ResponseTargetGroup[]
+        responseTargetGroupsCustomized: (configuredResponseTargetGroups: ResponseTargetGroup[]) => boolean
+        responseTargetGroupsView: (
+            responseTargetGroupsDraft: ResponseTargetGroup[] | null,
+            configuredResponseTargetGroups: ResponseTargetGroup[]
+        ) => ResponseTargetGroup[]
+        responseTargetGroupsError: (responseTargetGroupsDraft: ResponseTargetGroup[] | null) => string | null
         notificationRecipients: (currentTeam: TeamPublicType | TeamType | null) => number[]
         slackEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
         slackChannelIds: (currentTeam: TeamPublicType | TeamType | null) => string[]
@@ -582,6 +605,9 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         removeDomain: (index: number) => ({ index }),
         startEditDomain: (index: number) => ({ index }),
         cancelDomainEdit: true,
+        // Response-target ladder
+        setResponseTargetGroupsDraft: (groups: ResponseTargetGroup[] | null) => ({ groups }),
+        saveResponseTargetGroups: (groups: ResponseTargetGroup[] | null) => ({ groups }),
         setGreetingInputValue: (value: string | null) => ({ value }),
         saveGreetingText: true,
         // Identification form settings
@@ -703,6 +729,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 saveDomain: () => '',
                 cancelDomainEdit: () => '',
                 setIsAddingDomain: () => '',
+            },
+        ],
+        // Unsaved edits to the response-target ladder; null = pristine
+        // (render the saved/default ladder from the selector).
+        responseTargetGroupsDraft: [
+            null as ResponseTargetGroup[] | null,
+            {
+                setResponseTargetGroupsDraft: (_, { groups }) => groups,
             },
         ],
         greetingInputValue: [
@@ -968,6 +1002,63 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): string[] =>
                 currentTeam?.conversations_settings?.widget_domains || [],
         ],
+        // The saved ladder (team-configured, or the built-in default).
+        configuredResponseTargetGroups: [
+            (s) => [s.currentTeam],
+            (
+                currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
+            ): ResponseTargetGroup[] => teamResponseTargetGroups(currentTeam),
+        ],
+        // Whether the team has a saved custom ladder (vs the built-in default).
+        responseTargetGroupsCustomized: [
+            (s) => [s.configuredResponseTargetGroups],
+            (configured: ResponseTargetGroup[]): boolean => configured !== DEFAULT_RESPONSE_TARGET_GROUPS,
+        ],
+        // What the editor renders: the in-progress draft, else the saved ladder.
+        responseTargetGroupsView: [
+            (s) => [s.responseTargetGroupsDraft, s.configuredResponseTargetGroups],
+            (draft: ResponseTargetGroup[] | null, configured: ResponseTargetGroup[]): ResponseTargetGroup[] =>
+                draft ?? configured,
+        ],
+        // Client-side pre-check mirroring the serializer's rules, so the Save
+        // button can explain problems before a round trip.
+        responseTargetGroupsError: [
+            (s) => [s.responseTargetGroupsDraft],
+            (draft: ResponseTargetGroup[] | null): string | null => {
+                if (!draft) {
+                    return null
+                }
+                if (draft.length === 0) {
+                    return 'Add at least one group, or reset to the example groups.'
+                }
+                if (draft.length > 50) {
+                    return 'At most 50 groups are allowed.'
+                }
+                if (draft.some((group) => !group.label.trim())) {
+                    return 'Every group needs a label.'
+                }
+                if (draft.some((group) => group.label.trim().length > 100)) {
+                    return 'Group labels can be at most 100 characters.'
+                }
+                if (draft.some((group) => group.tags.length > 100)) {
+                    return 'At most 100 tags per group.'
+                }
+                if (draft.some((group) => group.tags.some((tag) => tag.trim().length > 200))) {
+                    return 'Tags can be at most 200 characters.'
+                }
+                const labels = draft.map((group) => group.label.trim())
+                if (new Set(labels).size !== labels.length) {
+                    return 'Group labels must be unique.'
+                }
+                // Compare trimmed, like the server does — " vip" and "vip" are the same tag.
+                const allTags = draft.flatMap((group) => [...new Set(group.tags.map((tag) => tag.trim()))])
+                const duplicate = allTags.find((tag, index) => allTags.indexOf(tag) !== index)
+                if (duplicate) {
+                    return `The tag "${duplicate}" is in more than one group — a tag can only rank one way.`
+                }
+                return null
+            },
+        ],
         notificationRecipients: [
             (s) => [s.currentTeam],
             (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): number[] =>
@@ -1202,6 +1293,20 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
                     widget_domains: newDomains,
+                },
+            })
+        },
+        saveResponseTargetGroups: ({ groups }) => {
+            // A ladder identical to the built-in examples stores as null
+            // ("not customized"), so the team follows future example updates
+            // instead of freezing a copy. This is how "Reset to examples"
+            // lands after the user confirms with Save.
+            const value =
+                groups && JSON.stringify(groups) === JSON.stringify(DEFAULT_RESPONSE_TARGET_GROUPS) ? null : groups
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    response_target_groups: value,
                 },
             })
         },
@@ -1622,7 +1727,13 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 lemonToast.error('Failed to save repository selection')
             }
         },
-        updateCurrentTeamSuccess: () => {
+        updateCurrentTeamSuccess: ({ payload }) => {
+            // Only a save that actually carried the ladder clears the draft —
+            // an unrelated team update (e.g. toggling another setting) must
+            // not discard minutes of unsaved reordering.
+            if (payload?.conversations_settings && 'response_target_groups' in payload.conversations_settings) {
+                actions.setResponseTargetGroupsDraft(null)
+            }
             actions.setGreetingInputValue(null)
             actions.setIdentificationFormTitleValue(null)
             actions.setIdentificationFormDescriptionValue(null)
