@@ -463,6 +463,8 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
     try:
         from django.conf import settings as django_settings
 
+        from temporalio.exceptions import WorkflowAlreadyStartedError
+
         from posthog.temporal.common.client import sync_connect
         from posthog.temporal.ducklake.ducklake_register_data_imports_workflow import (
             DuckLakeRegisterDataImportsInputs,
@@ -470,7 +472,10 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
         )
 
         temporal = sync_connect()
-        temporal.start_workflow(
+        # start_workflow is async on the client; we're in a sync consumer callback,
+        # so drive it through async_to_sync like the rest of the file's async calls.
+        # START is fire-and-forget — we don't need the execution result, just the start ack.
+        async_to_sync(temporal.start_workflow)(
             DuckLakeRegisterDataImportsWorkflow.run,
             DuckLakeRegisterDataImportsInputs(
                 team_id=export_signal.team_id,
@@ -486,6 +491,15 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
         )
         logger.info(
             "ducklake_registration_workflow_started",
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+            external_data_job_id=export_signal.job_id,
+        )
+    except WorkflowAlreadyStartedError:
+        # Same job already has a registration in flight (e.g. a V2 child, or a duplicate
+        # final-batch redelivery) — registration is already handled, nothing to do.
+        logger.info(
+            "ducklake_registration_workflow_already_started",
             team_id=export_signal.team_id,
             external_data_schema_id=export_signal.schema_id,
             external_data_job_id=export_signal.job_id,
