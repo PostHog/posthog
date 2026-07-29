@@ -132,6 +132,23 @@ class TestSlackFormatting(SimpleTestCase):
         assert first_link["url"] == "https://posthog.com"
         assert first_link["style"] == {"bold": True, "italic": True, "underline": True}
 
+    @parameterized.expand(
+        [
+            ("exclamation", "Hello world!", "Hello world!"),
+            ("period_and_hyphen", "v2.0 is out - grab it.", "v2.0 is out - grab it."),
+            ("parens_and_hash", "See item (3) #done", "See item (3) #done"),
+        ]
+    )
+    def test_outbound_text_fallback_drops_commonmark_escapes(self, _name: str, text: str, expected: str) -> None:
+        rich_content = {
+            "type": "doc",
+            "content": [{"type": "paragraph", "content": [{"type": "text", "text": text}]}],
+        }
+
+        slack_text, _ = rich_content_to_slack_payload(rich_content, "")
+
+        assert slack_text == expected
+
     def test_rich_content_roundtrip_preserves_line_breaks_and_paragraphs(self) -> None:
         rich_content = {
             "type": "doc",

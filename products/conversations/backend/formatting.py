@@ -26,6 +26,7 @@ _RE_MD_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 _RE_MD_MENTION = re.compile(r"@member:([a-f0-9-]+)")
 _RE_SINGLE_NEWLINE = re.compile(r"(?<!\n)\n(?!\n)")
 _RE_MD_ESCAPE = re.compile(r"([\\`*_{}\[\]()#+\-.!|])")
+_RE_MD_UNESCAPE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|])")
 _RE_ALT_ESCAPE = re.compile(r"([\\\]])")
 _RE_SLACK_EMOJI = re.compile(r":([a-z0-9_+\-]+):")
 
@@ -180,6 +181,11 @@ def content_to_slack_mrkdwn(content: str) -> str:
 
     for index, value in enumerate(bold_italic_matches):
         text = text.replace(f"\x00BI{index}\x00", f"*_{value}_*")
+
+    # Markdown syntax has been rewritten to Slack mrkdwn above, so drop the CommonMark
+    # backslash escapes left over from serialization — Slack mrkdwn doesn't use them and
+    # would otherwise show them literally (e.g. "world\!").
+    text = _RE_MD_UNESCAPE.sub(r"\1", text)
 
     def resolve_mention(match: re.Match) -> str:
         uuid_str = match.group(1)
