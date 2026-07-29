@@ -519,6 +519,11 @@ class ConversionGoalProcessor:
         math_property = getattr(self.goal, "math_property", None)
         if math_property:
             props.add(math_property)
+        # A property-sourced currency is folded into conversion_math_value by _to_base_currency, so the
+        # converted amount leaks it just as directly as math_property itself.
+        currency = getattr(self.goal, "math_property_revenue_currency", None)
+        if currency is not None and currency.property:
+            props.add(currency.property)
         return props
 
     def _precompute_properties_restricted_for_user(self) -> bool:
