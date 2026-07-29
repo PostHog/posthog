@@ -952,6 +952,27 @@ class TestGetSchemas:
         assert events_cols["id"] == ("UInt64", False)
         assert events_cols["name"] == ("Nullable(String)", True)
 
+    def test_discovery_query_excludes_alias_and_ephemeral_columns(self):
+        # A native `SELECT *` skips ALIAS/EPHEMERAL columns, but our `SELECT *` expands to an
+        # explicit column list — an included ALIAS whose expression can't resolve breaks the whole
+        # query with UNKNOWN_IDENTIFIER (code 47). The filter must stay in the discovery query.
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+
+        mock_client = self._make_mock_client([("events", "id", "UInt64")])
+        with patch.object(ch_module, "_get_client", return_value=mock_client):
+            ch_module.get_schemas(
+                host="localhost",
+                port=8443,
+                database="default",
+                user="default",
+                password="",
+                secure=True,
+                verify=True,
+            )
+
+        queries = [str(call.args[0]) for call in mock_client.query.call_args_list]
+        assert any("default_kind NOT IN ('ALIAS', 'EPHEMERAL')" in q for q in queries)
+
     def test_excludes_materialized_view_inner_tables(self):
         from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
 
