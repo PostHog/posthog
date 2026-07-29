@@ -125,14 +125,18 @@ export const updateResponseTargetsHandler: ToolBase<
     if (params.groups) {
         validateResponseTargetGroups(params.groups)
     }
-    const current = await readSavedGroups(context, projectId)
 
     if (!params.confirm) {
+        // Only the preview needs the current ladder (for an accurate message);
+        // a confirmed write PATCHes without the extra read.
+        const current = await readSavedGroups(context, projectId)
         const preview = params.groups
             ? `Would replace the team's ladder (currently ${
                   current ? `${current.length} group(s)` : 'the built-in examples'
               }) with ${params.groups.length} group(s): ${describeLadder(params.groups)}.`
-            : 'Would reset the team to the built-in example groups, discarding its custom ladder.'
+            : current
+              ? 'Would reset the team to the built-in example groups, discarding its custom ladder.'
+              : 'The team already follows the built-in example groups — saving this would be a no-op.'
         return {
             applied: false,
             groups: params.groups ?? null,

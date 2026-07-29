@@ -125,6 +125,30 @@ describe('conversations-response-targets-update', () => {
         expect(result.groups).toEqual(LADDER)
     })
 
+    it('skips the read and PATCHes directly on a confirmed write', async () => {
+        const get = vi.fn()
+        const context = mockContext({ conversationsSettings: null })
+        const inner = context.api.projects()
+        context.api.projects = () => ({ ...inner, get }) as any
+        const result = await updateResponseTargetsTool().handler(context, { groups: LADDER, confirm: true })
+        expect(result.applied).toBe(true)
+        expect(get).not.toHaveBeenCalled()
+    })
+
+    it('previews a reset as a no-op when the team already follows the examples', async () => {
+        const context = mockContext({ conversationsSettings: null })
+        const result = await updateResponseTargetsTool().handler(context, { groups: null })
+        expect(result.applied).toBe(false)
+        expect(result.message).toMatch(/no-op/i)
+    })
+
+    it('previews a reset as discarding the ladder only when one exists', async () => {
+        const context = mockContext({ conversationsSettings: { response_target_groups: LADDER } })
+        const result = await updateResponseTargetsTool().handler(context, { groups: null })
+        expect(result.applied).toBe(false)
+        expect(result.message).toMatch(/discarding its custom ladder/i)
+    })
+
     it('resets to the examples with groups null', async () => {
         const context = mockContext({ conversationsSettings: { response_target_groups: LADDER } })
         const result = await updateResponseTargetsTool().handler(context, { groups: null, confirm: true })
