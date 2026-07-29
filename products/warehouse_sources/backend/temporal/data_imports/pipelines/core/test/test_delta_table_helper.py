@@ -14,10 +14,12 @@ import deltalake
 import pyarrow.compute as pc
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import evolve_pyarrow_schema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
     DeltaTableHelper,
+    PrimaryKeysMissingFromDataError,
     _delta_merge_spill_kwargs,
     _first_per_pk_table,
     _realign_decimal_buffers,
@@ -661,6 +663,52 @@ class TestIncrementalBatchDeduplication:
         final = result.to_pyarrow_table()
         assert final.column("id").to_pylist() == [1]
         assert final.column("name").to_pylist() == ["second_copy"]
+
+
+class TestPrimaryKeysMissingFromBatch:
+    """A declared primary key that isn't a column in the batch must stop the merge.
+
+    Resolving to no keys leaves nothing to identify a row by, so the predicate degenerates to
+    `target._ph_partition_key = '<p>'` (or to an empty string when unpartitioned) and every source
+    row in the partition matches every target row in it — delta-rs rejects that as an ambiguous
+    multi-match, and where it doesn't, `when_matched_update_all` overwrites unrelated rows.
+    """
+
+    def _seed(self, delta_path: str, *, partitioned: bool) -> None:
+        seed: dict[str, Any] = {"uuid": ["a"], "name": ["old"]}
+        if partitioned:
+            seed[PARTITION_KEY] = ["p0"]
+        deltalake.write_deltalake(delta_path, pa.table(seed), partition_by=PARTITION_KEY if partitioned else None)
+
+    @pytest.mark.parametrize("partitioned", [False, True], ids=["flat", "partitioned"])
+    @pytest.mark.asyncio
+    async def test_incremental_merge_raises_when_declared_key_absent(self, partitioned: bool, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        self._seed(delta_path, partitioned=partitioned)
+
+        helper = _make_local_helper(delta_path)
+        batch_columns: dict[str, Any] = {"name": ["new1", "new2"]}
+        if partitioned:
+            batch_columns[PARTITION_KEY] = ["p0", "p0"]
+        batch = pa.table(batch_columns)
+
+        with pytest.raises(PrimaryKeysMissingFromDataError) as exc_info:
+            await helper.write_to_deltalake(
+                data=batch,
+                write_type="incremental",
+                should_overwrite_table=False,
+                primary_keys=["uuid"],
+            )
+
+        message = str(exc_info.value)
+        assert "uuid" in message
+        assert "name" in message  # available columns are listed for self-service fixing
+        assert [key for key in Any_Source_Errors if key in message], (
+            "exception message must stay matched by an Any_Source_Errors entry"
+        )
+        # The batch that couldn't be deduped is reported too, so a first sync isn't silent about it.
+        cast(AsyncMock, helper._logger.awarning).assert_awaited_once()
+        assert deltalake.DeltaTable(delta_path).to_pyarrow_table().num_rows == 1
 
 
 class TestUnpartitionedTableWithPartitionKeyColumn:

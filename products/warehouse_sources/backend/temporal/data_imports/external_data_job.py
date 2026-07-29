@@ -111,6 +111,14 @@ Any_Source_Errors: dict[str, str | None] = {
         "This table needs a primary key to sync incrementally, but none is set. Choose a primary key "
         "for the table in its sync settings, or switch it to full table replication, then re-enable the sync."
     ),
+    # Raised by `DeltaTableHelper` when none of the declared primary keys are columns in the
+    # extracted rows, so there is no safe merge predicate to build. The source keeps returning the
+    # same shape, so every retry replays the failure — pause and tell the user to fix the config.
+    "Primary keys not found in the data returned by the source": (
+        "We couldn't find this table's primary key in the data the source returns, so incremental "
+        "syncing can't match rows to update. Switch the table to full table replication, or pick a "
+        "primary key that exists in the data, then re-enable the sync."
+    ),
     "The primary keys for this table are not unique": (
         "The primary key set for this table isn't unique, so incremental syncing can't reliably match "
         "rows to update. Choose a unique primary key in the table's sync settings, or switch it to full "

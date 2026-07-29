@@ -81,6 +81,9 @@ NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
     "is too large to store in a Decimal128",
     # schema configured as incremental without a primary key — config error
     "Primary key required for incremental syncs",
+    # declared primary keys aren't columns in the extracted rows, so no merge predicate can
+    # identify a row — the source keeps returning the same shape, so a retry can't fix it
+    "Primary keys not found in the data returned by the source",
     # incoming values no longer fit the stored Delta column type
     # (SchemaColumnTypeChangedException) — only a reset and full re-sync can fix it
     "Source column type changed",

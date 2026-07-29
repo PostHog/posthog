@@ -71,6 +71,31 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     return isinstance(error, OSError) and any(needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS)
 
 
+class PrimaryKeysMissingFromDataError(Exception):
+    """None of the schema's declared primary keys are columns in the extracted rows.
+
+    Without a resolved key there is nothing left to identify a row by: the merge predicate
+    collapses to the partition key alone (or to an empty string on an unpartitioned table), so
+    every source row in a partition matches every target row in it. delta-rs rejects that with
+    "MERGE matched a target row with multiple source rows", and where it doesn't,
+    `when_matched_update_all` is free to overwrite the wrong rows. Retrying replays the same
+    mismatch, so the message is registered in ``Any_Source_Errors`` to pause the schema with
+    guidance instead of failing every scheduled sync.
+    """
+
+    def __init__(self, primary_keys: Sequence[Any], table: pa.Table) -> None:
+        super().__init__(
+            f"Primary keys not found in the data returned by the source: "
+            f"{', '.join(str(key) for key in primary_keys)}. "
+            f"Available columns: {', '.join(sorted(table.column_names)[:50])}"
+        )
+
+
+def _resolve_primary_keys(data: pa.Table, primary_keys: Sequence[Any]) -> list[str]:
+    """Declared primary keys, normalized and narrowed to those that are columns in this batch."""
+    return [n for key in primary_keys if (n := normalize_column_name(key)) in data.column_names]
+
+
 def _delta_merge_spill_kwargs() -> dict[str, int]:
     """delta-rs `merge` kwargs that let DataFusion spill to disk instead of OOMing on large merges.
 
@@ -390,8 +415,16 @@ class DeltaTableHelper:
         self, data: pa.Table, primary_keys: Sequence[Any], use_partitioning: bool
     ) -> pa.Table:
         """Drop all but the last occurrence of each PK (+ partition) tuple in a batch."""
-        dedupe_keys = [n for x in primary_keys if (n := normalize_column_name(x)) in data.column_names]
+        dedupe_keys = _resolve_primary_keys(data, primary_keys)
         if not dedupe_keys:
+            # Deduping on the partition key alone would collapse a whole partition to one row, so
+            # there is nothing safe to do here — but say so, because this same batch is what makes
+            # the merge predicate degenerate, and on a first sync nothing else reports it.
+            await self._logger.awarning(
+                f"write_to_deltalake: none of the declared primary keys "
+                f"({', '.join(str(key) for key in primary_keys)}) are columns in this batch, "
+                f"so it cannot be deduplicated"
+            )
             return data
         if use_partitioning:
             dedupe_keys.append(PARTITION_KEY)
@@ -459,6 +492,24 @@ class DeltaTableHelper:
             if not primary_keys or len(primary_keys) == 0:
                 raise Exception("Primary key required for incremental syncs")
 
+            # Narrow the declared keys to the ones actually present in the batch — a key that
+            # isn't a column can't go in the merge predicate. Resolving to nothing is fatal:
+            # the predicate would degenerate to the partition key alone (see
+            # PrimaryKeysMissingFromDataError), so stop before touching the table.
+            normalized_primary_keys = _resolve_primary_keys(data, primary_keys)
+            if not normalized_primary_keys:
+                raise PrimaryKeysMissingFromDataError(primary_keys, data)
+            if len(normalized_primary_keys) < len(primary_keys):
+                # A partial predicate still identifies rows more loosely than declared, which is
+                # the same wrong-row-update risk in miniature. Not fatal, but worth surfacing.
+                missing = [
+                    str(key) for key in primary_keys if normalize_column_name(key) not in normalized_primary_keys
+                ]
+                await self._logger.awarning(
+                    f"write_to_deltalake: declared primary keys {missing} are not columns in this "
+                    f"batch; merging on {normalized_primary_keys} alone"
+                )
+
             # The merge casts every source column to its stored column type; a scale-heavy decimal
             # column (e.g. decimal128(38, 32)) overflows that cast on larger values. Align to the
             # stored types up front so the merge cast is a no-op, or raise a clean reset signal.
@@ -467,14 +518,6 @@ class DeltaTableHelper:
             existing_delta_table = delta_table
 
             await self._logger.adebug(f"write_to_deltalake: merging...")
-
-            # Normalize keys and check the keys actually exist in the dataset
-            py_table_column_names = data.column_names
-            normalized_primary_keys: list[str] = []
-            for x in primary_keys:
-                n = normalize_column_name(x)
-                if n in py_table_column_names:
-                    normalized_primary_keys.append(n)
 
             predicate_ops = [f"source.{c} = target.{c}" for c in normalized_primary_keys]
             if use_partitioning:
@@ -657,12 +700,7 @@ class DeltaTableHelper:
         # Step 1: Close existing current rows for PKs in this batch
         if delta_table is not None and primary_keys and "valid_from" in data.column_names:
             existing_delta_table = delta_table
-            py_column_names = data.column_names
-            normalized_pks: list[str] = []
-            for x in primary_keys:
-                n = normalize_column_name(x)
-                if n in py_column_names:
-                    normalized_pks.append(n)
+            normalized_pks = _resolve_primary_keys(data, primary_keys)
 
             if normalized_pks:
                 # Use only the first row per PK to avoid ambiguous multi-match merge
