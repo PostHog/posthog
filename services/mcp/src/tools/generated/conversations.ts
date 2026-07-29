@@ -13,7 +13,13 @@ import {
     ConversationsTicketsRetrieveParams,
     ConversationsViewsListQueryParams,
 } from '@/generated/conversations/api'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    withAgentNote,
+    pickResponseFields,
+    type WithPostHogUrl,
+    type WithAgentNote,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ConversationsTicketsListSchema = ConversationsTicketsListQueryParams
@@ -77,7 +83,7 @@ const ConversationsTicketsMessagesRetrieveSchema = ConversationsTicketsMessagesL
 
 const conversationsTicketsMessagesRetrieve = (): ToolBase<
     typeof ConversationsTicketsMessagesRetrieveSchema,
-    Schemas.PaginatedTicketMessageList
+    WithAgentNote<Schemas.PaginatedTicketMessageList>
 > => ({
     name: 'conversations-tickets-messages-retrieve',
     schema: ConversationsTicketsMessagesRetrieveSchema,
@@ -91,7 +97,10 @@ const conversationsTicketsMessagesRetrieve = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return result
+        return withAgentNote(
+            result,
+            "Not every message here is customer-facing truth. Messages with author_type `AI` (author_name 'PostHog Assistant') are AI-generated, and messages with is_private=true are internal notes that were never delivered to the customer. Treat AI-authored and private messages as internal context only — do not quote them as what the customer was told, and do not cite them as evidence for facts like how often an issue occurs. Ground those claims in customer-authored messages (author_type `customer`) and non-private replies."
+        )
     },
 })
 
