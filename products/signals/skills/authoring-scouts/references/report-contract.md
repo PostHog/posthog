@@ -123,6 +123,7 @@ A reference inside a code span, a table cell, or a heading has no room to draw â
 **`charts` on an edit is the report's whole set, not an addition.**
 It replaces what the report had, the way `summary` replaces the summary â€” so send every chart you want kept, and re-send an id under a newer window to refresh that chart.
 Leave `charts` out entirely and the report keeps the ones it has; read the report first (`inbox-reports-retrieve` returns its `charts`) when you mean to add to them.
+Send `charts: []` to take every chart down, for when the finding has moved on and the old chart would now mislead.
 Cap is **20 charts per report** (and a combined query-size budget), which is far more than most reports should use. Each chart runs its query when the report is opened, so attach the ones that carry the argument rather than everything you looked at: three charts a reader studies beat a dozen they scroll past.
 
 ### Opening a draft PR (autostart)
