@@ -246,6 +246,7 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
             "team": self.team,
             "task_run": run,
             "origin_product": Task.OriginProduct.USER_CREATED,
+            "created_via_code": True,
             "cpu_cores": 4.0,
             "memory_gb": 16.0,
             "ttl_seconds": 6 * 60 * 60,
@@ -306,11 +307,21 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
         self._session(sandbox_id="sb-null", origin_product=None)
         self._session(sandbox_id="sb-known-other", origin_product=Task.OriginProduct.POSTHOG_AI)
         self._session(sandbox_id="sb-unknown", origin_product="future_product")
+        self._session(sandbox_id="sb-signal", origin_product=Task.OriginProduct.SIGNAL_REPORT)
 
         usage = get_task_sandbox_usage_by_team(self.BEGIN, self.END)
 
-        assert usage.seconds == [(self.team.id, 3 * 3600)]
+        assert usage.seconds == [(self.team.id, 4 * 3600)]
         assert usage.sandbox_compute_credits == []
+
+    def test_user_created_compute_requires_verified_code_provenance(self):
+        self._session(sandbox_id="sb-code", created_via_code=True)
+        self._session(sandbox_id="sb-not-code", created_via_code=False)
+        self._session(sandbox_id="sb-legacy", created_via_code=None)
+
+        usage = get_task_sandbox_usage_by_team(self.BEGIN, self.END)
+
+        assert usage.sandbox_compute_credits == [(self.team.id, 11)]
 
     def test_compute_credits_include_only_non_internal_loops(self):
         user_loop = Loop.objects.unscoped().create(

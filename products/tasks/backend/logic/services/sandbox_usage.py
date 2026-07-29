@@ -35,7 +35,6 @@ PROVISIONAL_MODAL_MEMORY_USD_PER_GIB_SECOND_WITH_MARGIN = Decimal("0.000002664")
 CREDITS_PER_USD = Decimal(100)
 BILLABLE_DIRECT_ORIGINS = frozenset(
     {
-        Task.OriginProduct.USER_CREATED,
         Task.OriginProduct.IMAGE_BUILDER,
         Task.OriginProduct.AUTOMATION,
     }
@@ -207,7 +206,10 @@ def get_task_sandbox_usage_by_team(begin: datetime, end: datetime) -> SandboxUsa
         is_billable_loop = (
             session.origin_product == Task.OriginProduct.LOOP and getattr(session, "task_loop_internal", None) is False
         )
-        if session.origin_product in BILLABLE_DIRECT_ORIGINS or is_billable_loop:
+        is_verified_code_run = (
+            session.origin_product == Task.OriginProduct.USER_CREATED and session.created_via_code is True
+        )
+        if session.origin_product in BILLABLE_DIRECT_ORIGINS or is_verified_code_run or is_billable_loop:
             billable_seconds = Decimal(ceil(seconds))
             if session.burstable:
                 assert session.cpu_request_cores is not None
