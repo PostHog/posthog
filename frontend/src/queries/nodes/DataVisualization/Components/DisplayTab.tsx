@@ -13,8 +13,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import { GoalLinesList } from 'lib/components/GoalLinesList'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ChartDisplayType } from '~/types'
 
@@ -41,19 +39,12 @@ export const DisplayTab = (): JSX.Element => {
     const { effectiveVisualizationType } = useValues(dataVisualizationLogic)
     const { goalLines, chartSettings } = useValues(displayLogic)
     const { addGoalLine, updateGoalLine, removeGoalLine, updateChartSettings } = useActions(displayLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const isStackedBarChart = effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
     const isPieChart = effectiveVisualizationType === ChartDisplayType.ActionsPie
     const isLineChart =
         effectiveVisualizationType === ChartDisplayType.ActionsLineGraph ||
         effectiveVisualizationType === ChartDisplayType.ActionsAreaGraph
-    // The line shape override only has an effect on the quill SQL charts, and only the style-refresh
-    // flag curves lines by default — without both there's no curvature to straighten.
-    const showLineStyle =
-        isLineChart &&
-        !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_SQL_CHARTS] &&
-        !!featureFlags[FEATURE_FLAGS.QUILL_CHART_STYLE_REFRESH]
 
     const renderYAxisSettings = (name: 'leftYAxisSettings' | 'rightYAxisSettings'): JSX.Element => {
         const labelPlaceholder = name === 'leftYAxisSettings' ? 'Left Y-axis label' : 'Right Y-axis label'
@@ -199,7 +190,7 @@ export const DisplayTab = (): JSX.Element => {
                                                 updateChartSettings({ showValuesOnSeries: value })
                                             }}
                                         />
-                                        {showLineStyle && (
+                                        {isLineChart && (
                                             <div className="flex flex-col gap-1">
                                                 <LemonLabel>Line style</LemonLabel>
                                                 <LemonSegmentedButton
