@@ -33,7 +33,7 @@ import { VariantScreenshot } from './VariantScreenshot'
 import { VariantTag } from './VariantTag'
 
 export function DistributionModal(): JSX.Element {
-    const { experiment, experimentLoading } = useValues(experimentLogic)
+    const { experiment, experimentLoading, isExperimentRunning } = useValues(experimentLogic)
     const { updateDistribution } = useActions(experimentLogic)
     const { closeDistributionModal } = useActions(modalsLogic)
     const { isDistributionModalOpen } = useValues(modalsLogic)
@@ -85,9 +85,21 @@ export function DistributionModal(): JSX.Element {
             }
         >
             <div className="flex flex-col gap-4">
-                <LemonBanner type="info">
-                    Adjusting variant distribution may impact the validity of your results. Adjust only if you're aware
-                    of how changes will affect your experiment.{' '}
+                <LemonBanner type={isExperimentRunning ? 'warning' : 'info'}>
+                    {isExperimentRunning ? (
+                        <>
+                            Changing the split on a running experiment doesn't reshuffle everyone. Users are assigned by
+                            a stable hash of their ID, so only the users in the part of the range you move switch
+                            variants. Everyone else keeps the variant they already had, and your results will mix data
+                            from before and after the change. To measure the new split on its own, move the experiment
+                            start date forward or reset the analysis once you've saved.{' '}
+                        </>
+                    ) : (
+                        <>
+                            Adjusting variant distribution may impact the validity of your results. Adjust only if
+                            you're aware of how changes will affect your experiment.{' '}
+                        </>
+                    )}
                     <Link to="https://posthog.com/docs/experiments/changing-distribution-after-rollout" target="_blank">
                         Read more
                     </Link>

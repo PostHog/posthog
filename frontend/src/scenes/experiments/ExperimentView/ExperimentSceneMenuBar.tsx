@@ -14,7 +14,6 @@ import {
     IconTrash,
     IconUnlock,
 } from '@posthog/icons'
-import { LemonDialog } from '@posthog/lemon-ui'
 
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
@@ -48,8 +47,8 @@ import {
     confirmArchiveExperiment,
     confirmDeleteExperiment,
     confirmFreezeExposure,
+    confirmResetExperiment,
     confirmUnfreezeExposure,
-    hasFrozenExposureStamps,
 } from '../experimentActions'
 import { experimentLogic } from '../experimentLogic'
 import { isExperimentExposureFrozen, isExperimentPaused } from '../experimentsLogic'
@@ -122,49 +121,7 @@ function ExperimentSceneMenuBarInner(): JSX.Element | null {
             onDelete: () => router.actions.push(urls.experiments()),
         })
 
-    const handleReset = (): void => {
-        LemonDialog.open({
-            title: 'Reset analysis?',
-            content: (
-                <>
-                    <div className="text-sm text-secondary max-w-md">
-                        <p>
-                            The experiment start and end dates will be reset and the experiment will go back to draft
-                            mode.
-                        </p>
-                        <p>
-                            All events collected thus far will still exist, but won't be applied to the experiment
-                            unless you manually change the start date after launching the experiment again.
-                        </p>
-                        {hasFrozenExposureStamps(experiment) ? (
-                            <p>
-                                The <b>exposure freeze is removed</b>: the flag serves its original release conditions
-                                again and the snapshot cohort is deleted. Everything else on the flag stays untouched.
-                            </p>
-                        ) : (
-                            <p>
-                                The <b>feature flag remains untouched</b>, so variants stay visible to users.
-                            </p>
-                        )}
-                    </div>
-                    {experiment.archived && (
-                        <div className="text-sm text-secondary">Resetting will also unarchive the experiment.</div>
-                    )}
-                </>
-            ),
-            primaryButton: {
-                children: 'Confirm',
-                type: 'primary',
-                onClick: resetRunningExperiment,
-                size: 'small',
-            },
-            secondaryButton: {
-                children: 'Cancel',
-                type: 'tertiary',
-                size: 'small',
-            },
-        })
-    }
+    const handleReset = (): void => confirmResetExperiment(experiment, resetRunningExperiment)
 
     const showCreateMenu = isExperimentLaunched
     const showStateMenu = showRunningState

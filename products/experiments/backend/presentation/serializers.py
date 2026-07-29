@@ -29,6 +29,7 @@ from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
+from products.experiments.backend.distribution_history import variant_split_changed_at
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import CreateExperimentInput
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
@@ -373,6 +374,15 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "conditions)."
         ),
     )
+    variant_split_changed_at = serializers.SerializerMethodField(
+        help_text=(
+            "When the split between the feature flag's variants was first changed after the experiment "
+            "launched, or null if it never was. Variant assignment is a deterministic hash, so moving the "
+            "split only switches the users in the band that moved and leaves results mixing both periods. "
+            "Changes to the overall rollout percentage don't count, because they admit or hold back users "
+            "without moving anyone between variants."
+        ),
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     flag_cleanup_task_id = serializers.UUIDField(
         read_only=True,
@@ -440,6 +450,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "status",
             "is_legacy",
             "can_freeze_exposure",
+            "variant_split_changed_at",
             "user_access_level",
         ]
         read_only_fields = [
@@ -453,6 +464,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "saved_metrics",
             "status",
             "can_freeze_exposure",
+            "variant_split_changed_at",
             "user_access_level",
         ]
 
@@ -468,6 +480,11 @@ class ExperimentSerializer(ExperimentBaseSerializer):
     @extend_schema_field(serializers.BooleanField())
     def get_can_freeze_exposure(self, obj: Experiment) -> bool:
         return obj.can_freeze_exposure
+
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
+    def get_variant_split_changed_at(self, obj: Experiment) -> str | None:
+        changed_at = variant_split_changed_at(obj)
+        return changed_at.isoformat() if changed_at else None
 
     @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):

@@ -1936,6 +1936,26 @@ describe('experimentLogic', () => {
                 expected: { key: 'running_but_no_rollout' },
             },
             {
+                desc: 'running experiment whose variant split changed after launch',
+                overrides: {
+                    start_date: '2020-01-01',
+                    end_date: undefined,
+                    feature_flag: { id: 1, key: 'flag', active: true, filters: multivariantFilters } as any,
+                    variant_split_changed_at: '2020-01-15T10:00:00Z',
+                },
+                expected: { key: 'distribution_changed_while_running', changedAt: '2020-01-15T10:00:00Z' },
+            },
+            {
+                desc: 'running experiment with disabled flag takes priority over a changed split',
+                overrides: {
+                    start_date: '2020-01-01',
+                    end_date: undefined,
+                    feature_flag: { id: 1, key: 'flag', active: false, filters: multivariantFilters } as any,
+                    variant_split_changed_at: '2020-01-15T10:00:00Z',
+                },
+                expected: { key: 'running_but_flag_disabled' },
+            },
+            {
                 desc: 'ended experiment with flag still distributing multiple variants',
                 overrides: {
                     start_date: '2020-01-01',

@@ -113,6 +113,53 @@ export function confirmUnfreezeExposure(onConfirm: () => Promise<void>): void {
     })
 }
 
+export function confirmResetExperiment(
+    experiment: Pick<Experiment, 'archived' | 'feature_flag'>,
+    onConfirm: () => void
+): void {
+    LemonDialog.open({
+        title: 'Reset analysis?',
+        content: (
+            <>
+                <div className="text-sm text-secondary max-w-md">
+                    <p>
+                        The experiment start and end dates will be reset and the experiment will go back to draft mode.
+                    </p>
+                    <p>
+                        All events collected thus far will still exist, but won't be applied to the experiment unless
+                        you manually change the start date after launching the experiment again.
+                    </p>
+                    {hasFrozenExposureStamps(experiment) ? (
+                        <p>
+                            The <b>exposure freeze is removed</b>: the flag serves its original release conditions again
+                            and the snapshot cohort is deleted. Everything else on the flag stays untouched.
+                        </p>
+                    ) : (
+                        <p>
+                            The <b>feature flag is left untouched</b>. Nobody is reassigned, so users keep seeing the
+                            same variant and the traffic each variant receives doesn't change.
+                        </p>
+                    )}
+                </div>
+                {experiment.archived && (
+                    <div className="text-sm text-secondary">Resetting will also unarchive the experiment.</div>
+                )}
+            </>
+        ),
+        primaryButton: {
+            children: 'Confirm',
+            type: 'primary',
+            onClick: onConfirm,
+            size: 'small',
+        },
+        secondaryButton: {
+            children: 'Cancel',
+            type: 'tertiary',
+            size: 'small',
+        },
+    })
+}
+
 export function confirmArchiveExperiment(
     experiment: Pick<Experiment, 'feature_flag'>,
     onConfirm: (disableFeatureFlag: boolean) => void

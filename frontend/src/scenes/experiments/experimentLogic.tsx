@@ -163,10 +163,13 @@ export type ExperimentWarningKey =
     | 'running_but_no_rollout'
     | 'ended_but_multiple_variants_rolled_out'
     | 'not_started_but_multiple_variants_rolled_out'
+    | 'distribution_changed_while_running'
 
 export interface ExperimentWarning {
     key: ExperimentWarningKey
     variantKey?: string | null
+    /** For `distribution_changed_while_running`: when the split was changed. */
+    changedAt?: string | null
 }
 
 export interface ExperimentLogicProps {
@@ -3827,6 +3830,13 @@ export const experimentLogic = kea<experimentLogicType>([
                         return { key: 'running_but_no_rollout' }
                     } else if (singleVariantShipped) {
                         return { key: 'running_but_single_variant_shipped', variantKey: shippedVariantKey }
+                    } else if (experiment.variant_split_changed_at) {
+                        // The server only reports a change made after start_date, so moving the start
+                        // date past it (or resetting the analysis) clears this warning.
+                        return {
+                            key: 'distribution_changed_while_running',
+                            changedAt: experiment.variant_split_changed_at,
+                        }
                     }
                 } else if (hasEnded(experiment)) {
                     if (

@@ -4947,6 +4947,8 @@ export interface Experiment {
     conclusion_comment?: string | null
     /** Desktop task opened to remove the experiment's flag code, when requested on end/ship. */
     flag_cleanup_task_id?: string | null
+    /** Server-computed: when the variant split was first changed after launch, null if it never was. */
+    variant_split_changed_at?: string | null
     user_access_level: AccessControlLevel
 }
 

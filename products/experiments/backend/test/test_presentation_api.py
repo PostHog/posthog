@@ -2639,6 +2639,57 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         flag.refresh_from_db()
         self.assertEqual([v["rollout_percentage"] for v in flag.variants], [60, 40])
 
+    def test_changing_the_split_on_a_running_experiment_is_reported(self):
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Split change",
+                "feature_flag_key": "ff-split-change",
+                "start_date": "2021-12-01T10:23",
+                "feature_flag": {
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 50},
+                                {"key": "test", "rollout_percentage": 50},
+                            ]
+                        }
+                    }
+                },
+            },
+        )
+        self.assertEqual(create.status_code, status.HTTP_201_CREATED, create.json())
+        experiment_id = create.json()["id"]
+        self.assertIsNone(create.json()["variant_split_changed_at"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}",
+            {
+                "feature_flag": {
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 70},
+                                {"key": "test", "rollout_percentage": 30},
+                            ]
+                        }
+                    }
+                },
+                "update_feature_flag_params": True,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        changed_at = response.json()["variant_split_changed_at"]
+        self.assertIsNotNone(changed_at)
+
+        # Moving the start date past the change is the escape hatch the warning offers.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}",
+            {"start_date": changed_at},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertIsNone(response.json()["variant_split_changed_at"])
+
     def test_feature_flag_object_payloads_and_continuity_live_on_the_flag(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
