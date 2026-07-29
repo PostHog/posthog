@@ -49,6 +49,27 @@ describe('mcp tool adapter extractors', () => {
             const templateRecord = { id: 'tpl-1', content: { email: { subject: 'Hi' } } }
             expect(parseInvocationOutputRecord({ input: {}, output: templateRecord })).toEqual(templateRecord)
         })
+
+        // The stream's field-wise output merge can fold an array-shaped partial output into the final
+        // envelope, leaving the blocks under numeric keys instead of `content`.
+        it('unwraps a merge-mangled envelope with numeric block keys', () => {
+            const record = parseInvocationOutputRecord({
+                input: { command: 'call navigate-user {}' },
+                output: {
+                    '0': { type: 'text', text: 'url: "http://localhost:8010/project/1/workflows/wf-1/workflow"' },
+                    isError: false,
+                },
+            })
+            expect(record).toEqual({ url: 'http://localhost:8010/project/1/workflows/wf-1/workflow' })
+        })
+
+        it('unwraps a bare array of text blocks', () => {
+            const record = parseInvocationOutputRecord({
+                input: {},
+                output: [{ type: 'text', text: 'id: wf-1\nstatus: draft' }],
+            })
+            expect(record).toEqual({ id: 'wf-1', status: 'draft' })
+        })
     })
 
     describe('extractVisualizationArtifact', () => {

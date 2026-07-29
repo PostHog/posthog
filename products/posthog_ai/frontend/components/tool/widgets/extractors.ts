@@ -59,17 +59,34 @@ export function parseToolOutputRecord(message: ToolCallMessage): Record<string, 
     return parseInvocationOutputRecord({ input: message.rawInput, output: message.rawOutput })
 }
 
-// A raw MCP result envelope (`{content: [{type: 'text', text}, ...], _meta?, isError?}`), as ACP
-// frames carry in `rawOutput` — the record itself is the encoded text inside the blocks. Distinct
-// from a domain record that happens to have a `content` field (e.g. an email template), where
-// `content` is an object, not an array of text blocks.
-function textFromMcpEnvelope(record: Record<string, unknown>): string | null {
-    const content = record.content
-    if (!Array.isArray(content) || content.length === 0) {
+// Envelope metadata keys that may accompany the content blocks without disqualifying the shape.
+const MCP_ENVELOPE_META_KEYS = new Set(['isError', '_meta', 'structuredContent'])
+
+// A raw MCP result envelope, as ACP frames carry in `rawOutput` — the record itself is the encoded
+// text inside `{type: 'text', text}` blocks. Three observed shapes: the canonical
+// `{content: [...blocks], _meta?, isError?}`, a bare `[...blocks]` array from a partial update, and
+// a merge of the two where the stream's field-wise output merge left the blocks under numeric keys
+// (`{0: block, isError}`). Distinct from a domain record that happens to have a `content` field
+// (e.g. an email template), where `content` is an object, not an array of text blocks.
+function textFromMcpEnvelope(output: unknown): string | null {
+    let blocks: unknown[] | null = Array.isArray(output) ? output : null
+    const record = asRecord(output)
+    if (!blocks && record) {
+        if (Array.isArray(record.content)) {
+            blocks = record.content
+        } else {
+            const keys = Object.keys(record)
+            const numericKeys = keys.filter((key) => /^\d+$/.test(key))
+            if (numericKeys.length > 0 && keys.every((key) => /^\d+$/.test(key) || MCP_ENVELOPE_META_KEYS.has(key))) {
+                blocks = numericKeys.sort((a, b) => Number(a) - Number(b)).map((key) => record[key])
+            }
+        }
+    }
+    if (!blocks || blocks.length === 0) {
         return null
     }
     const texts: string[] = []
-    for (const block of content) {
+    for (const block of blocks) {
         const text = asRecord(block)?.text
         if (typeof text !== 'string') {
             return null
@@ -86,8 +103,7 @@ export function parseInvocationOutputRecord(invocation: {
 }): Record<string, unknown> | null {
     const direct = asRecord(invocation.output)
     const text =
-        (direct ? textFromMcpEnvelope(direct) : null) ??
-        (typeof invocation.output === 'string' ? invocation.output : null)
+        textFromMcpEnvelope(invocation.output) ?? (typeof invocation.output === 'string' ? invocation.output : null)
     if (direct && text === null) {
         return direct
     }
