@@ -7,23 +7,22 @@ import { PlayerController } from '~/session-replay/recording-rasterizer/capture/
 import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
 import { CaptureConfig } from '~/session-replay/recording-rasterizer/types'
 
-jest.mock(
-    'puppeteer-capture',
-    () => {
-        const recorder = {
-            start: jest.fn().mockResolvedValue(undefined),
-            stop: jest.fn().mockResolvedValue(undefined),
-            waitForTimeout: jest.fn().mockResolvedValue(undefined),
-            on: jest.fn(),
-            off: jest.fn(),
-        }
-        return {
-            __mockRecorder: recorder,
-            capture: jest.fn().mockResolvedValue(recorder),
-        }
-    },
-    { virtual: true }
-)
+// Not `{ virtual: true }`: puppeteer-capture is a real dependency, and marking it virtual keys the mock by the raw
+// specifier rather than the resolved path. Any earlier test file in the same worker that loads the real module (an
+// automock of `capture/recorder` pulls it in transitively) then wins, and these tests drive the real capture library.
+jest.mock('puppeteer-capture', () => {
+    const recorder = {
+        start: jest.fn().mockResolvedValue(undefined),
+        stop: jest.fn().mockResolvedValue(undefined),
+        waitForTimeout: jest.fn().mockResolvedValue(undefined),
+        on: jest.fn(),
+        off: jest.fn(),
+    }
+    return {
+        __mockRecorder: recorder,
+        capture: jest.fn().mockResolvedValue(recorder),
+    }
+})
 
 jest.mock('~/session-replay/recording-rasterizer/logger', () => ({
     createLogger: () => ({
