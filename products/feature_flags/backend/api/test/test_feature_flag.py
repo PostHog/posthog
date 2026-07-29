@@ -2369,7 +2369,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # A payload that predates a FLAGS_SECRET_KEYS rotation (or is otherwise corrupt) fails to
         # decrypt with any configured key. Without explicit handling this becomes an unhandled 500
         # with an HTML body that SDKs can't parse as JSON — assert it's a typed JSON error instead.
-        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        # Decryption only runs on the personal-API-key path; a secret token gets the redacted
+        # marker and never reaches the decrypt call, so authenticate with a personal API key here.
         FeatureFlag.objects.create(
             team=self.team,
             key="my-remote-config-flag",
@@ -2382,10 +2383,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             is_remote_configuration=True,
             has_encrypted_payloads=True,
         )
+        auth_token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, scopes=["*"], secure_value=hash_key_value(auth_token))
         self.client.logout()
         response = self.client.get(
             f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
-            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+            headers={"authorization": f"Bearer {auth_token}"},
         )
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertEqual(response.json(), {"error": "Failed to decrypt flag payload"})

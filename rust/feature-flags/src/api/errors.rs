@@ -502,8 +502,9 @@ impl IntoResponse for FlagError {
                 tracing::warn!("Rayon semaphore acquisition timed out after {}ms", ms);
                 (StatusCode::GATEWAY_TIMEOUT, format!("Evaluation pool busy, timed out after {ms}ms. Please retry."))
             }
-            FlagError::RemoteConfigDecryptFailed(detail) => {
-                tracing::error!("Remote config decrypt failed: {}", detail);
+            FlagError::RemoteConfigDecryptFailed(_) => {
+                // The failure is already logged with project_id/flag_key context at the source in
+                // resolve_decrypted_payload; don't log it a second time here.
                 let response = AuthenticationErrorResponse {
                     error_type: "server_error".to_string(),
                     code: "remote_config_decrypt_failed".to_string(),
