@@ -136,6 +136,21 @@ SESSION_INIT_PROBE_HOSTS = (
     "mcp.posthog.com",
 )
 
+
+def _session_init_probe_hosts() -> list[str]:
+    """Hosts the startup-failure egress probe checks. Both gateway settings
+    are included: routed products call SANDBOX_AI_GATEWAY_URL, everything
+    else SANDBOX_LLM_GATEWAY_URL, and a block on either is this probe's
+    reason to exist.
+    """
+    hosts = list(SESSION_INIT_PROBE_HOSTS)
+    for setting_name in ("SANDBOX_LLM_GATEWAY_URL", "SANDBOX_AI_GATEWAY_URL"):
+        gateway_host = _hostname_from_url(getattr(settings, setting_name, None))
+        if gateway_host and gateway_host not in hosts:
+            hosts.insert(0, gateway_host)
+    return hosts
+
+
 # Modal region mapping based on cloud deployment
 MODAL_REGION_BY_DEPLOYMENT: dict[str | None, str] = {
     "EU": "eu-west",
@@ -949,6 +964,8 @@ class ModalSandbox(SandboxBase):
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        context_window: str | None = None,
+        fast_mode: bool | None = None,
         initial_permission_mode: str | None = None,
         mcp_servers_arg: str = "",
         relay_mcp_servers_arg: str = "",
@@ -966,6 +983,8 @@ class ModalSandbox(SandboxBase):
             provider=provider,
             model=model,
             reasoning_effort=reasoning_effort,
+            context_window=context_window,
+            fast_mode=fast_mode,
             initial_permission_mode=initial_permission_mode,
             event_ingest_token=event_ingest_token,
             event_ingest_url=event_ingest_url,
@@ -1051,10 +1070,7 @@ class ModalSandbox(SandboxBase):
         return diagnostics
 
     def _probe_session_init_egress(self) -> str:
-        hosts = list(SESSION_INIT_PROBE_HOSTS)
-        gateway_host = _hostname_from_url(getattr(settings, "SANDBOX_LLM_GATEWAY_URL", None))
-        if gateway_host and gateway_host not in hosts:
-            hosts.insert(0, gateway_host)
+        hosts = _session_init_probe_hosts()
         checks = "; ".join(
             f"printf '%s ' {shlex.quote(host)}; "
             f"curl -sS --max-time 3 -o /dev/null -w 'http_code=%{{http_code}}\\n' https://{host}/ 2>/dev/null || echo FAILED"
@@ -1076,6 +1092,8 @@ class ModalSandbox(SandboxBase):
         provider: str | None = None,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        context_window: str | None = None,
+        fast_mode: bool | None = None,
         initial_permission_mode: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
         relayed_mcp_servers: list[str] | None = None,
@@ -1150,9 +1168,11 @@ class ModalSandbox(SandboxBase):
             provider,
             model,
             reasoning_effort,
-            initial_permission_mode,
-            mcp_servers_arg,
-            relay_mcp_servers_arg,
+            context_window=context_window,
+            fast_mode=fast_mode,
+            initial_permission_mode=initial_permission_mode,
+            mcp_servers_arg=mcp_servers_arg,
+            relay_mcp_servers_arg=relay_mcp_servers_arg,
             allowed_domains=allowed_domains,
             event_ingest_token=event_ingest_token,
             event_ingest_url=event_ingest_url,

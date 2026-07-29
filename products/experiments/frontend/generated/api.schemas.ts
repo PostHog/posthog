@@ -1857,6 +1857,7 @@ export interface ExperimentFlagCleanupTaskApi {
 
 /**
  * * `manual` - Manual
+ * * `agent_mcp` - Agent (MCP)
  * * `cold_run` - Cold Run
  * * `stale_refresh` - Stale Refresh
  * * `auto_refresh` - Auto Refresh
@@ -1869,6 +1870,7 @@ export type TriggerEnumApi = (typeof TriggerEnumApi)[keyof typeof TriggerEnumApi
 
 export const TriggerEnumApi = {
     Manual: 'manual',
+    AgentMcp: 'agent_mcp',
     ColdRun: 'cold_run',
     StaleRefresh: 'stale_refresh',
     AutoRefresh: 'auto_refresh',
@@ -1885,6 +1887,7 @@ export interface RecalculateMetricsRequestApi {
     /** What triggered this recalculation (manual is the default for user-initiated runs)
      *
      * * `manual` - Manual
+     * * `agent_mcp` - Agent (MCP)
      * * `cold_run` - Cold Run
      * * `stale_refresh` - Stale Refresh
      * * `auto_refresh` - Auto Refresh
@@ -2000,6 +2003,7 @@ export interface ExperimentMetricsRecalculationApi {
     /** What triggered this recalculation
      *
      * * `manual` - Manual
+     * * `agent_mcp` - Agent (MCP)
      * * `cold_run` - Cold Run
      * * `stale_refresh` - Stale Refresh
      * * `auto_refresh` - Auto Refresh
