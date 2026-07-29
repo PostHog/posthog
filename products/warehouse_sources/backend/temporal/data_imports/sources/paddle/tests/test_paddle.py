@@ -10,6 +10,7 @@ from requests.adapters import HTTPAdapter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle import (
     PADDLE_BASE_URL,
+    REQUEST_TIMEOUT,
     PaddlePermissionError,
     PaddleResumeConfig,
     _format_paddle_datetime_query_value,
@@ -254,6 +255,30 @@ class TestPaddleSession:
         assert retry.is_retry("GET", 401) is False
         assert retry.is_retry("GET", 403) is False
         assert retry.is_retry("GET", 400) is False
+
+
+class TestRequestTimeout:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_every_request_is_bounded(self, MockSession) -> None:
+        session = MockSession.return_value
+        next_url = f"{PADDLE_BASE_URL}/transactions?after=t_1"
+        _wire(
+            session,
+            [
+                _response([{"id": "t_1"}], next_url=next_url),
+                _response([{"id": "t_2"}], next_url=None),
+            ],
+        )
+
+        _rows(_source("transactions", _make_manager()))
+
+        # Unbounded, a Paddle page that never comes back holds the import worker until the activity's
+        # start_to_close_timeout (days) with the schema stuck Running and no error. The bound must
+        # also carry onto the paginated follow-up requests, not just the first one.
+        assert [call.kwargs["timeout"] for call in session.send.call_args_list] == [
+            REQUEST_TIMEOUT,
+            REQUEST_TIMEOUT,
+        ]
 
 
 class TestFormatDatetimeQueryValue:

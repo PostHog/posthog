@@ -91,6 +91,12 @@ MAX_RETRY_AFTER_SECONDS = 300.0
 # rate-limited endpoint surfaces an error instead of sleeping on `Retry-After`.
 DEFAULT_RETRY_ATTEMPTS = 5
 
+# Fallback (connect, read) timeout for every request, so a source that doesn't configure one is
+# still bounded. A hang never raises, so without this an unresponsive host holds an import worker
+# until the activity's start_to_close_timeout — days, in practice. The read leg is generous because
+# some upstreams generate a page on demand; sources with tighter expectations pass their own.
+DEFAULT_REQUEST_TIMEOUT: tuple[float, float] = (10.0, 300.0)
+
 # Default network ports per scheme, used to compare a request URL's effective port against the
 # base origin's when host-pinning is enabled.
 _DEFAULT_PORTS = {"http": 80, "https": 443}
@@ -189,17 +195,17 @@ class RESTClient:
         max_retry_attempts: int = DEFAULT_RETRY_ATTEMPTS,
         allowed_hosts: Optional[list[str]] = None,
         allow_redirects: bool = True,
-        request_timeout: Optional[float | tuple[float, float]] = None,
+        request_timeout: Optional[float | tuple[float, float]] = DEFAULT_REQUEST_TIMEOUT,
     ) -> None:
         self.base_url = base_url or ""
         self.headers = headers or {}
         self.auth = auth
         self.paginator = paginator
         self._max_retry_attempts = max_retry_attempts
-        # Per-request (connect, read) timeout in seconds handed to ``session.send``. Left None,
-        # a request can hang forever — a source pointed at a server that accepts the connection
-        # then never responds would hold an import worker indefinitely. Sources talking to a
-        # customer-controlled host should set this so every sync request is bounded.
+        # Per-request (connect, read) timeout in seconds handed to ``session.send``, defaulting to
+        # ``DEFAULT_REQUEST_TIMEOUT`` so no caller is unbounded by omission. Passing None explicitly
+        # opts out and lets a request hang forever — a server that accepts the connection then never
+        # responds would hold an import worker indefinitely — so don't.
         self._request_timeout = request_timeout
         self._allow_redirects = allow_redirects
         # When set (even to an empty list), every outgoing request URL — including

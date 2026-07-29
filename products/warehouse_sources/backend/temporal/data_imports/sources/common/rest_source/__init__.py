@@ -19,7 +19,7 @@ from .config_setup import (
 from .jsonpath_utils import TJsonPath
 from .paginators import BasePaginator
 from .resource import Resource
-from .rest_client import DEFAULT_RETRY_ATTEMPTS, RESTClient
+from .rest_client import DEFAULT_REQUEST_TIMEOUT, DEFAULT_RETRY_ATTEMPTS, RESTClient
 from .typing import ClientConfig, Endpoint, EndpointResource, HTTPMethodBasic, ResolvedParam, RESTAPIConfig
 from .utils import exclude_keys  # noqa: F401
 
@@ -272,7 +272,9 @@ def create_resources(
             max_retry_attempts=client_config.get("max_retries", DEFAULT_RETRY_ATTEMPTS),
             allowed_hosts=client_config.get("allowed_hosts"),
             allow_redirects=client_config.get("allow_redirects", True),
-            request_timeout=client_config.get("request_timeout"),
+            # Absent from the config means "use the default bound", not "unbounded" — a missing key
+            # must never resolve to a request that can hang for the life of the activity.
+            request_timeout=client_config.get("request_timeout", DEFAULT_REQUEST_TIMEOUT),
         )
 
         hooks = create_response_hooks(endpoint_config.get("response_actions"))

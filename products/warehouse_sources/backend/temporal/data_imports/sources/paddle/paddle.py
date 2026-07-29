@@ -27,6 +27,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.paddle.set
 
 PADDLE_BASE_URL = "https://api.paddle.com"
 PAGE_SIZE = 200
+# A paginated page of 200 transactions can be slow to build, but a connect never should be. Bounding
+# both is what turns a stalled Paddle response into a raised timeout the 429/5xx retry can act on —
+# a hang raises nothing, so an unbounded request just sits there holding the import worker.
+REQUEST_TIMEOUT: tuple[float, float] = (10.0, 120.0)
 
 
 @dataclasses.dataclass
@@ -100,6 +104,7 @@ def paddle_source(
             "headers": {"Content-Type": "application/json"},
             "auth": {"type": "bearer", "token": api_key},
             "paginator": JSONResponsePaginator(next_url_path="meta.pagination.next"),
+            "request_timeout": REQUEST_TIMEOUT,
         },
         "resources": [
             {

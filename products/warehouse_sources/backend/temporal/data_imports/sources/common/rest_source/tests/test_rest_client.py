@@ -10,6 +10,10 @@ from requests.exceptions import ChunkedEncodingError, ProxyError, ReadTimeout
 
 from posthog.temporal.common.errors import NonReportableError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.exceptions import (
     IgnoreResponseException,
@@ -19,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    DEFAULT_REQUEST_TIMEOUT,
     MAX_RETRY_AFTER_SECONDS,
     RESTClient,
     RESTClientNonRetryableError,
@@ -559,6 +564,29 @@ class TestRESTClient:
         list(client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator()))
 
         assert mock_session.send.call_args.kwargs["timeout"] == (3.05, 30)
+
+    @patch("tenacity.nap.time.sleep")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+    )
+    def test_config_without_request_timeout_still_bounds_requests(self, MockSession, mock_sleep) -> None:
+        # Most sources don't configure a timeout, and `client_config.get("request_timeout")` used to
+        # resolve that absence to None — an unbounded request. A hang raises nothing, so the retry
+        # policy can't help and the schema sits Running with no rows until the activity's
+        # start_to_close_timeout (a week) expires.
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock(url="https://api.example.com/items")
+        mock_session.send.return_value = _make_response({"results": [{"id": 1}]})
+
+        config: RESTAPIConfig = {
+            "client": {"base_url": "https://api.example.com", "paginator": SinglePagePaginator()},
+            "resources": [{"name": "items", "endpoint": {"path": "/items", "data_selector": "results"}}],
+        }
+        resource = rest_api_resource(config, team_id=1, job_id="j", db_incremental_field_last_value=None)
+        list(resource)
+
+        assert mock_session.send.call_args.kwargs["timeout"] == DEFAULT_REQUEST_TIMEOUT
 
     @patch("tenacity.nap.time.sleep")
     @patch(
