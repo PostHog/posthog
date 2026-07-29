@@ -2,11 +2,12 @@ from collections.abc import Iterable
 from typing import Any, cast
 
 from django.conf import settings
+from django.db import InterfaceError, OperationalError
 from django.db.models import QuerySet
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
-from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing, KeyType
+from posthog.storage.hypercache import HyperCache, HyperCacheDependencyUnavailable, HyperCacheStoreMissing, KeyType
 from posthog.storage.llm_prompt_cache_keys import (
     parse_prompt_cache_key,
     prompt_label_cache_key,
@@ -30,6 +31,19 @@ from products.ai_observability.backend.models.llm_prompt import (
 
 # Used in tests; keep as module export.
 _serialize_prompt = serialize_prompt
+
+# Transient DB failures (e.g. a PgBouncer query_wait_timeout under pool pressure) that should
+# degrade to a cache miss rather than surfacing a 500, mirroring the Redis and S3 read tiers.
+_TRANSIENT_DB_ERRORS = (OperationalError, InterfaceError)
+
+
+class PromptCacheDatabaseUnavailable(HyperCacheDependencyUnavailable):
+    """Raised by the prompt ``load_fn`` when the Postgres tier is transiently unavailable.
+
+    Subclasses the storage-layer base so HyperCache degrades the read to a cache miss
+    (and skips the rebuild, keeping the existing entry) instead of bubbling a 500 —
+    the same way the Redis and S3 tiers already degrade.
+    """
 
 
 def _get_active_prompt_queryset_for_team_id(team_id: int) -> QuerySet[LLMPrompt]:
@@ -96,23 +110,26 @@ def _load_prompt_cache(cache_key: KeyType) -> dict[str, Any] | HyperCacheStoreMi
 
     team_id, prompt_name, version, label_name = parsed_key
 
-    if label_name is not None:
-        labeled_prompt = _get_labeled_prompt_from_db(team_id, prompt_name, label_name)
-        if labeled_prompt is None:
-            return HyperCacheStoreMissing()
-        return _serialize_labeled_prompt(labeled_prompt, label_name)
+    try:
+        if label_name is not None:
+            labeled_prompt = _get_labeled_prompt_from_db(team_id, prompt_name, label_name)
+            if labeled_prompt is None:
+                return HyperCacheStoreMissing()
+            return _serialize_labeled_prompt(labeled_prompt, label_name)
 
-    if version is None:
-        prompt = _get_latest_prompt_from_db(team_id, prompt_name)
+        if version is None:
+            prompt = _get_latest_prompt_from_db(team_id, prompt_name)
+            if prompt is None:
+                return HyperCacheStoreMissing()
+            return serialize_prompt(prompt, include_internal=True)
+
+        prompt = _get_prompt_version_from_db(team_id, prompt_name, version)
         if prompt is None:
             return HyperCacheStoreMissing()
-        return serialize_prompt(prompt, include_internal=True)
 
-    prompt = _get_prompt_version_from_db(team_id, prompt_name, version)
-    if prompt is None:
-        return HyperCacheStoreMissing()
-
-    return serialize_prompt_version(prompt, include_internal=True)
+        return serialize_prompt_version(prompt, include_internal=True)
+    except _TRANSIENT_DB_ERRORS as err:
+        raise PromptCacheDatabaseUnavailable(f"Prompt database unavailable loading {prompt_name}") from err
 
 
 llm_prompts_hypercache = HyperCache(
@@ -141,6 +158,22 @@ llm_prompts_label_hypercache = HyperCache(
 
 
 def get_prompt_by_name_from_cache(
+    team: Team,
+    prompt_name: str,
+    version: int | None = None,
+    label: str | None = None,
+) -> dict[str, Any] | None:
+    try:
+        return _get_prompt_by_name_from_cache(team, prompt_name, version, label)
+    except _TRANSIENT_DB_ERRORS as err:
+        # The direct DB fallbacks below bypass the hypercache tier, so a transient DB failure
+        # here (e.g. a PgBouncer query_wait_timeout) must degrade to a miss like the cache tiers
+        # rather than surfacing a 500 on this SDK-facing read.
+        capture_exception(err)
+        return None
+
+
+def _get_prompt_by_name_from_cache(
     team: Team,
     prompt_name: str,
     version: int | None = None,
