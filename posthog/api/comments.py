@@ -26,12 +26,22 @@ if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
 
 
+def _normalize_scope(scope: Any) -> Any:
+    """Match how the serializer will store a submitted scope.
+
+    `scope` is a CharField, so DRF trims surrounding whitespace before saving — comparing the
+    raw value here would let " Ticket " read as non-ticket while persisting as "Ticket".
+    """
+    return scope.strip() if isinstance(scope, str) else scope
+
+
 def _require_ticket_editor_access(
     *, team_id: int, item_id: str | None, user_access_control: "UserAccessControl"
 ) -> None:
-    """Comments with scope=conversations_ticket are ticket messages (see TicketViewSet.reply) —
-    enforce the same object-level RBAC here, since the generic comments API is the write path the
-    Support UI actually uses and isn't gated by TicketViewSet's own access control."""
+    """Ticket-carrying comments (customer messages and internal ticket discussions) are ticket
+    content (see TicketViewSet.reply) — enforce the same object-level RBAC here, since the generic
+    comments API is the write path the Support UI actually uses and isn't gated by TicketViewSet's
+    own access control."""
     if not item_id:
         return
 
@@ -140,7 +150,7 @@ class CommentSerializer(serializers.ModelSerializer):
         if instance:
             scopes_and_items.add((instance.scope, instance.item_id))
         for scope, item_id in scopes_and_items:
-            if scope == "conversations_ticket":
+            if scope in TICKET_COMMENT_SCOPES:
                 _require_ticket_editor_access(
                     team_id=self.context["get_team"]().id,
                     item_id=item_id,
@@ -299,7 +309,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         """
         candidate_scopes: set[Any] = set()
         if query_scope := request.GET.get("scope"):
-            candidate_scopes.add(query_scope)
+            candidate_scopes.add(_normalize_scope(query_scope))
         if pk := self.kwargs.get("pk"):
             try:
                 candidate_scopes.add(
@@ -309,7 +319,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                 return None
         if request.method not in ("GET", "HEAD", "OPTIONS") and isinstance(request.data, dict):
             if body_scope := request.data.get("scope"):
-                candidate_scopes.add(body_scope)
+                candidate_scopes.add(_normalize_scope(body_scope))
             # A reply is read back through its parent's thread, so the parent's stored scope
             # gates the write too — a non-ticket body scope must not attach a reply to a
             # ticket thread (nor a ticket reply to a non-ticket parent).
@@ -340,9 +350,41 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         context["get_user_access_control"] = lambda: self.user_access_control
         return context
 
+    def _require_ticket_viewer_access_for_pk(self) -> None:
+        """Gate a detail action on the ticket its target comment belongs to.
+
+        Detail actions carry no scope param, so the queryset-level ticket filter never runs for
+        them — and API scope access doesn't help a session caller denied the ticket. An item_id
+        that resolves to no ticket is left alone: the write path rejects those, so only fixtures
+        have them and there is no ticket content to protect.
+        """
+        from products.conversations.backend.models.ticket import (  # noqa: PLC0415 — keeps the generic comments API decoupled from the conversations product, only imported for ticket-scoped reads
+            Ticket,
+        )
+
+        pk = self.kwargs.get("pk")
+        if not pk:
+            return
+        try:
+            target = Comment.objects.filter(team_id=self.team_id, pk=pk).values_list("scope", "item_id").first()
+        except (ValueError, django_exceptions.ValidationError):
+            return
+        if not target:
+            return
+        scope, item_id = target
+        if scope not in TICKET_COMMENT_SCOPES or not item_id:
+            return
+        try:
+            ticket = Ticket.objects.get(team_id=self.team_id, id=item_id)
+        except (Ticket.DoesNotExist, ValueError, django_exceptions.ValidationError):
+            return
+        if not self.user_access_control.check_access_level_for_object(ticket, required_level="viewer"):
+            # Match the list path, where a denied ticket's comments are simply absent.
+            raise exceptions.NotFound()
+
     def _filter_ticket_scoped_queryset(self, queryset: QuerySet, item_id: str | None) -> QuerySet:
-        """conversations_ticket comments are ticket messages — restrict them to tickets the
-        caller has viewer access to, mirroring TicketViewSet's own object-level filtering."""
+        """Ticket-carrying comments are ticket content — restrict them to tickets the caller has
+        viewer access to, mirroring TicketViewSet's own object-level filtering."""
         from products.conversations.backend.models.ticket import (  # noqa: PLC0415 — keeps the generic comments API decoupled from the conversations product, only imported for ticket-scoped reads
             Ticket,
         )
@@ -381,14 +423,17 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         scope = params.get("scope")
         if scope:
             queryset = queryset.filter(scope=scope)
-            if scope == "conversations_ticket":
+            if scope in TICKET_COMMENT_SCOPES:
                 queryset = self._filter_ticket_scoped_queryset(queryset, params.get("item_id"))
         elif self.action in ("list", "count"):
             # Ticket-carrying comments (customer messages and internal ticket discussions) never
-            # appear in unscoped enumeration — only when explicitly requested by scope. Detail
-            # actions (retrieve, thread, send_to_slack, ...) pin an object by pk, where ticket
-            # API scope access is enforced by dangerously_get_required_scopes instead.
+            # appear in unscoped enumeration — only when explicitly requested by scope.
             queryset = queryset.exclude(scope__in=TICKET_COMMENT_SCOPES)
+        else:
+            # Detail actions (retrieve, thread, send_to_slack, ...) carry no scope param, so the
+            # branch above never gates them — and API scope access doesn't cover session callers
+            # denied the ticket. Check the pk target's own ticket instead.
+            self._require_ticket_viewer_access_for_pk()
 
         if params.get("item_id"):
             queryset = queryset.filter(item_id=params.get("item_id"))
@@ -446,7 +491,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         comment = self.get_object()
         if not comment.is_task:
             raise exceptions.ValidationError("Only tasks can be marked complete")
-        if comment.scope == "conversations_ticket":
+        if comment.scope in TICKET_COMMENT_SCOPES:
             _require_ticket_editor_access(
                 team_id=self.team_id, item_id=comment.item_id, user_access_control=self.user_access_control
             )
@@ -472,7 +517,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         comment = self.get_object()
         if not comment.is_task:
             raise exceptions.ValidationError("Only tasks can be reopened")
-        if comment.scope == "conversations_ticket":
+        if comment.scope in TICKET_COMMENT_SCOPES:
             _require_ticket_editor_access(
                 team_id=self.team_id, item_id=comment.item_id, user_access_control=self.user_access_control
             )

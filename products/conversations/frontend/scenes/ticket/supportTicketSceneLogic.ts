@@ -470,7 +470,6 @@ export interface supportTicketSceneLogicMeta {
         eventsQuery: (ticket: Ticket | null) => DataTableNode | null
         exceptionsQuery: (ticket: Ticket | null) => DataTableNode | null
         latestAiMessage: (chatMessages: ChatMessage[]) => ChatMessage | null
-        sidePanelContext: (ticket: Ticket | null) => SidePanelSceneContext | null
     }
 }
 
@@ -857,10 +856,19 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.ticket, s.featureFlags],
             (ticket: Ticket | null, featureFlags: FeatureFlagsSet): SidePanelSceneContext | null =>
-                ticket?.id && featureFlags[FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC]
+                ticket?.id
                     ? {
-                          activity_scope: ActivityScope.TICKET,
-                          activity_item_id: `${ticket.id}`,
+                          access_control_resource: 'ticket',
+                          access_control_resource_id: `${ticket.id}`,
+                          // Scoping the discussion thread to the ticket is still flag-gated; the
+                          // access control fields above are not, so the panel stays gated on
+                          // ticket access either way.
+                          ...(featureFlags[FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC]
+                              ? {
+                                    activity_scope: ActivityScope.TICKET,
+                                    activity_item_id: `${ticket.id}`,
+                                }
+                              : {}),
                       }
                     : null,
         ],
@@ -1039,17 +1047,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     }
                 }
                 return null
-            },
-        ],
-        [SIDE_PANEL_CONTEXT_KEY]: [
-            (s) => [s.ticket],
-            (ticket: Ticket | null): SidePanelSceneContext | null => {
-                return ticket?.id
-                    ? {
-                          access_control_resource: 'ticket',
-                          access_control_resource_id: `${ticket.id}`,
-                      }
-                    : null
             },
         ],
     }),
