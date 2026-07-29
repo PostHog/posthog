@@ -475,6 +475,14 @@ class TestDevLoginAPI(APIBaseTest):
         response = self.client.post("/api/login/dev", {"create_fresh_account": True})
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=False)
+    def test_dev_login_disabled_returns_404_regardless_of_body(self):
+        # A body that would normally fail field validation (no email, no
+        # create_fresh_account) must still surface as 404, not a 400, so the
+        # endpoint's existence isn't leaked by request-shape differences.
+        response = self.client.post("/api/login/dev", {})
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     @override_settings(DEBUG=False, ALLOW_DEV_LOGIN=True)
     def test_dev_login_hidden_when_not_debug(self):
         response = self.client.get("/api/login/dev")

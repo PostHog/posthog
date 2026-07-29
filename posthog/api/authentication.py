@@ -522,6 +522,11 @@ class DevLoginSerializer(serializers.Serializer):
         return {"success": True}
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
+        # Gate first, before any field-level validation: when dev login is disabled the
+        # endpoint must look nonexistent (404) regardless of the request body, so a
+        # missing-email 400 can't leak that the route exists.
+        if not is_dev_login_allowed():
+            raise Http404()
         if not data.get("create_fresh_account") and not data.get("email"):
             raise serializers.ValidationError(
                 {"email": serializers.ErrorDetail("This field is required.", code="required")}
