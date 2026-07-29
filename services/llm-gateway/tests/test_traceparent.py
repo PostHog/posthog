@@ -56,13 +56,14 @@ class TestApplyCapturesTraceparent:
 class TestRebuildRequestContextCarriesTraceparent:
     def test_survives_the_handler_rebuild(self):
         # handler.py replaces the context mid-request; the traceparent must survive it.
-        try:
-            set_request_context(RequestContext(request_id="r4"))
-            request = SimpleNamespace(headers={"traceparent": VALID_TRACEPARENT})
-            apply_posthog_context_from_headers(request)
+        set_request_context(RequestContext(request_id="r4"))
+        request = SimpleNamespace(headers={"traceparent": VALID_TRACEPARENT})
+        apply_posthog_context_from_headers(request)
 
-            rebuild_request_context("llm_gateway")
+        rebuild_request_context("llm_gateway")
 
-            assert get_traceparent_trace_id() == VALID_TRACE_UUID
-        finally:
-            set_request_context(RequestContext(request_id="r4"))
+        assert get_traceparent_trace_id() == VALID_TRACE_UUID
+
+        rebuild_request_context("llm_gateway")
+
+        assert get_traceparent_trace_id() == VALID_TRACE_UUID

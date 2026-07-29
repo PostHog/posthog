@@ -170,15 +170,11 @@ def extract_posthog_use_bedrock_fallback_from_headers(request: Request) -> bool 
 
 
 def rebuild_request_context(product: str) -> None:
-    set_request_context(
-        RequestContext(
-            request_id=get_request_id(),
-            product=product,
-            posthog_properties=get_posthog_properties(),
-            posthog_flags=get_posthog_flags(),
-            traceparent_trace_id=get_traceparent_trace_id(),
-        )
-    )
+    ctx = request_context_var.get()
+    if ctx is None:
+        set_request_context(RequestContext(request_id="", product=product))
+        return
+    set_request_context(replace(ctx, product=product))
 
 
 def apply_posthog_context_from_headers(request: Request) -> None:
