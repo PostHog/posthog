@@ -1,5 +1,10 @@
 DEFAULT_ACTIVITY_EVENT = {"kind": "EventsNode", "event": "$pageview", "name": "$pageview"}
 
+# Mirrors frontend `SLACK_ARCHIVES_ORIGIN` in accountLinksLogic.ts. PostHog-internal: hardcodes our
+# own workspace, so Slack links are wrong for any other team. Replace with the per-team workspace
+# URL (from the conversations bot's auth.test) before GA — see COMPROMISES.md.
+SLACK_ARCHIVES_ORIGIN = "https://posthog.slack.com/archives"
+
 # Mirrors frontend `FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP`.
 CUSTOMER_ANALYTICS_CSP_FLAG = "customer-analytics-csp"
 
