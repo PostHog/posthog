@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_commerce.adobe_commerce import (
     HOST_NOT_ALLOWED_ERROR,
+    HTTPS_REQUIRED_ERROR,
     INCOMPLETE_CREDENTIALS_ERROR,
     AdobeCommerceCredentials,
     AdobeCommerceResumeConfig,
@@ -164,6 +165,7 @@ class AdobeCommerceSource(ResumableSource[AdobeCommerceSourceConfig, AdobeCommer
             "401 Client Error": "Adobe Commerce rejected the credentials. Check the access token (or admin login) is valid and the integration has read access to this data. On Magento 2.4.4 and later, also enable 'Allow OAuth Access Tokens to be used as standalone Bearer tokens'.",
             "403 Client Error": "Your Adobe Commerce integration does not have read access to this data. Grant it under System > Extensions > Integrations, then reconnect.",
             HOST_NOT_ALLOWED_ERROR: "The Adobe Commerce store URL is not allowed. Use your store's public URL.",
+            HTTPS_REQUIRED_ERROR: "The Adobe Commerce store URL must use HTTPS so your credentials aren't sent in the clear. Update the store URL and reconnect.",
             INCOMPLETE_CREDENTIALS_ERROR: "Adobe Commerce credentials are incomplete. Please re-enter them and reconnect.",
         }
 

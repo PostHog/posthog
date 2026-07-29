@@ -47,6 +47,7 @@ MAGENTO_DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 HOST_NOT_ALLOWED_ERROR = "Adobe Commerce store URL is not allowed"
 INCOMPLETE_CREDENTIALS_ERROR = "Adobe Commerce credentials are incomplete"
+HTTPS_REQUIRED_ERROR = "Adobe Commerce store URL must use HTTPS"
 
 # A store code is a Magento code: letters, digits and underscores, starting with a letter.
 _STORE_CODE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*$")
@@ -111,13 +112,18 @@ def normalize_store_url(store_url: str) -> str:
 
     scheme_match = _SCHEME_RE.match(cleaned)
     if scheme_match:
-        if scheme_match.group(1).lower() not in ("http", "https"):
+        scheme = scheme_match.group(1).lower()
+        # Every request carries the integration token or admin login, so refuse plaintext
+        # transport before a credential-bearing URL is ever built.
+        if scheme == "http":
+            raise ValueError(HTTPS_REQUIRED_ERROR)
+        if scheme != "https":
             raise ValueError(f"Invalid Adobe Commerce store URL: {store_url!r}")
     else:
         cleaned = f"https://{cleaned}"
 
     parsed = urlparse(cleaned)
-    if parsed.scheme.lower() not in ("http", "https") or not parsed.hostname:
+    if parsed.scheme.lower() != "https" or not parsed.hostname:
         raise ValueError(f"Invalid Adobe Commerce store URL: {store_url!r}")
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ValueError(f"Invalid Adobe Commerce store URL: {store_url!r}")

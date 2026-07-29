@@ -120,11 +120,22 @@ class TestNormalizeStoreUrl:
             ("pasted_rest_root", "https://store.example.com/rest", "https://store.example.com"),
             ("explicit_port", "https://store.example.com:8443", "https://store.example.com:8443"),
             ("whitespace", "  https://store.example.com  ", "https://store.example.com"),
-            ("http_kept", "http://store.example.com", "http://store.example.com"),
         ]
     )
     def test_accepts_and_cleans_valid_input(self, _name: str, raw: str, expected: str) -> None:
         assert normalize_store_url(raw) == expected
+
+    @parameterized.expand(
+        [
+            ("http_scheme", "http://store.example.com"),
+            ("http_uppercase", "HTTP://store.example.com"),
+        ]
+    )
+    def test_rejects_plaintext_http(self, _name: str, raw: str) -> None:
+        # Credentials ride every request, so plaintext transport must be refused with a message
+        # that tells the merchant to switch to HTTPS rather than a generic "invalid URL".
+        with pytest.raises(ValueError, match="must use HTTPS"):
+            normalize_store_url(raw)
 
     @parameterized.expand(
         [
