@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 import requests
@@ -435,31 +435,37 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
 
     redirect_uris = " ".join(metadata.get("redirect_uris", []))
     logo_uri = metadata.get("logo_uri") or None
-    verification = _resolve_verification_token(metadata, url)
-    resolved_scopes = _resolve_scopes(metadata)
-    resolved_optional_scopes = _resolve_optional_scopes(metadata)
 
-    app = OAuthApplication(
-        name=client_name,
-        redirect_uris=redirect_uris,
-        client_type=AbstractApplication.CLIENT_PUBLIC,
-        # CIMD clients authenticate with PKCE and are never told this value. It exists only
-        # so the row never carries a secret an unauthenticated caller could guess.
-        client_secret=generate_client_secret(),
-        authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE,
-        algorithm="RS256",
-        skip_authorization=False,
-        is_cimd_client=True,
-        cimd_metadata_url=url,
-        cimd_metadata_last_fetched=timezone.now(),
-        logo_uri=logo_uri,
-        organization=verification.organization if verification else None,
-        scopes=resolved_scopes if resolved_scopes is not None else [],
-        optional_scopes=resolved_optional_scopes if resolved_optional_scopes is not None else [],
-        user=None,
-    )
-    app.full_clean()
-    app.save()
+    # Claiming a token's URL is permanent, so it must not outlive a create that then fails: a
+    # document that never yields an application would otherwise burn the binding for the token's
+    # real owner, with no way to release it.
+    with transaction.atomic():
+        verification = _resolve_verification_token(metadata, url)
+        resolved_scopes = _resolve_scopes(metadata)
+        resolved_optional_scopes = _resolve_optional_scopes(metadata)
+
+        app = OAuthApplication(
+            name=client_name,
+            redirect_uris=redirect_uris,
+            client_type=AbstractApplication.CLIENT_PUBLIC,
+            # CIMD clients authenticate with PKCE and are never told this value. It exists only
+            # so the row never carries a secret an unauthenticated caller could guess.
+            client_secret=generate_client_secret(),
+            authorization_grant_type=AbstractApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            skip_authorization=False,
+            is_cimd_client=True,
+            cimd_metadata_url=url,
+            cimd_metadata_last_fetched=timezone.now(),
+            logo_uri=logo_uri,
+            organization=verification.organization if verification else None,
+            scopes=resolved_scopes if resolved_scopes is not None else [],
+            optional_scopes=resolved_optional_scopes if resolved_optional_scopes is not None else [],
+            user=None,
+        )
+        app.full_clean()
+        app.save()
+
     if verification is not None:
         _touch_verification_token(verification)
     return app
