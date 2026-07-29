@@ -1,8 +1,10 @@
+import json
 import dataclasses
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Prefetch
 
 import pydantic
 import structlog
@@ -161,6 +163,112 @@ def set_default_slack_notification_channel(team_id: int, value: str | None) -> N
         team_id=team_id,
         defaults={"default_slack_notification_channel": value or None},
     )
+
+
+@dataclasses.dataclass(frozen=True)
+class LinkedSignalReport:
+    """A report reachable from a source record, reduced to what a reader outside signals needs.
+
+    Omits the summary: callers embed these in another product's payload, where a report's full
+    prose would dwarf the record it hangs off, and `id` is enough to fetch the rest.
+    """
+
+    id: str
+    title: str | None
+    status: str
+    priority: str | None
+    actionability: str | None
+    already_addressed: bool | None
+    implementation_pr_url: str | None
+    implementation_pr_merged: bool
+    updated_at: datetime
+
+
+def linked_reports_for_source(*, team: Team, source_product: str, source_id: str) -> list[LinkedSignalReport]:
+    """Live reports whose signals came from one source record, most recently updated first.
+
+    Reads the ClickHouse signal store, so callers on a latency-sensitive path should treat this as
+    optional context and degrade to no reports rather than propagate a failure.
+
+    Only deleted reports are dropped, as terminal. Every other status is returned, suppressed
+    included, since a dismissed report still answers "what does the inbox know about this record".
+    """
+    from products.signals.backend.implementation_pr import (
+        fetch_implementation_pr_state_for_reports,  # noqa: PLC0415 — keeps the model layer off the facade import path
+    )
+    from products.signals.backend.models import SignalReport, SignalReportArtefact  # noqa: PLC0415 — as above
+    from products.signals.backend.temporal.signal_queries import (
+        fetch_live_report_ids_for_source_ids,  # noqa: PLC0415 — as above
+    )
+
+    report_ids = fetch_live_report_ids_for_source_ids(team, [source_id], source_product).get(source_id, [])
+    if not report_ids:
+        return []
+
+    reports = list(
+        SignalReport.objects.filter(team=team, id__in=report_ids)
+        .exclude(status=SignalReport.Status.DELETED)
+        .prefetch_related(
+            Prefetch(
+                "artefacts",
+                queryset=SignalReportArtefact.objects.filter(
+                    type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT
+                ).order_by("-created_at"),
+                to_attr="prefetched_priority_artefacts",
+            ),
+            Prefetch(
+                "artefacts",
+                queryset=SignalReportArtefact.objects.filter(
+                    type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT
+                ).order_by("-created_at"),
+                to_attr="prefetched_actionability_artefacts",
+            ),
+        )
+        .order_by("-updated_at")
+    )
+    if not reports:
+        return []
+
+    pr_by_report = fetch_implementation_pr_state_for_reports([str(report.id) for report in reports])
+
+    linked = []
+    for report in reports:
+        actionability = _latest_judgment(report, "prefetched_actionability_artefacts")
+        priority = _latest_judgment(report, "prefetched_priority_artefacts")
+        pr = pr_by_report.get(str(report.id))
+        linked.append(
+            LinkedSignalReport(
+                id=str(report.id),
+                title=report.title,
+                status=report.status,
+                priority=_typed_key(priority, "priority", str),
+                actionability=_typed_key(actionability, "actionability", str),
+                already_addressed=_typed_key(actionability, "already_addressed", bool),
+                implementation_pr_url=pr.url if pr else None,
+                implementation_pr_merged=bool(pr and pr.merged),
+                updated_at=report.updated_at,
+            )
+        )
+    return linked
+
+
+def _latest_judgment(report, prefetch_attr: str) -> dict | None:
+    artefacts = getattr(report, prefetch_attr, None) or []
+    if not artefacts:
+        return None
+    try:
+        content = json.loads(artefacts[0].content)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+    return content if isinstance(content, dict) else None
+
+
+def _typed_key(data: dict | None, key: str, expected: type):
+    # Judgment artefacts are LLM-written JSON, so a key can be present with the wrong type.
+    if data is None:
+        return None
+    value = data.get(key)
+    return value if isinstance(value, expected) else None
 
 
 # ---------------------------------------------------------------------------

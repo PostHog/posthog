@@ -125,6 +125,17 @@ export const ConversationsTicketsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const conversationsTicketsRetrieveQueryIncludeLinkedReportsDefault = true
+
+export const ConversationsTicketsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    include_linked_reports: zod
+        .boolean()
+        .default(conversationsTicketsRetrieveQueryIncludeLinkedReportsDefault)
+        .describe(
+            "Whether to resolve the Self-driving reports linked to this ticket. Defaults to true. Pass false to skip the lookup when you already have them, or don't need them."
+        ),
+})
+
 export const ConversationsTicketsPartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe("The ticket's UUID or its numeric ticket number."),
     project_id: zod
@@ -168,6 +179,10 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
 
 /**
  * Return the message thread for a ticket, ordered chronologically (paginated).
+ *
+ * Linked Self-driving reports ride alongside `results` rather than in it: they aren't messages,
+ * and counting them as rows would break the offsets a caller pages with. They accompany the
+ * first page only, since that is where a thread read starts and they don't vary by page.
  */
 export const ConversationsTicketsMessagesListParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe("The ticket's UUID or its numeric ticket number."),
@@ -178,7 +193,15 @@ export const ConversationsTicketsMessagesListParams = /* @__PURE__ */ zod.object
         ),
 })
 
+export const conversationsTicketsMessagesListQueryIncludeLinkedReportsDefault = true
+
 export const ConversationsTicketsMessagesListQueryParams = /* @__PURE__ */ zod.object({
+    include_linked_reports: zod
+        .boolean()
+        .default(conversationsTicketsMessagesListQueryIncludeLinkedReportsDefault)
+        .describe(
+            "Whether to resolve the Self-driving reports linked to this ticket. Defaults to true. Pass false to skip the lookup when you already have them, or don't need them."
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })

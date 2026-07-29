@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
+import dataclasses
 from collections.abc import Sequence
 from datetime import timedelta
 from typing import Any
@@ -84,6 +85,44 @@ class TicketMessageSerializer(serializers.Serializer):
         read_only=True, help_text="True for internal notes not visible to the customer."
     )
     created_at = serializers.DateTimeField(read_only=True)
+
+
+class TicketLinkedReportSerializer(serializers.Serializer):
+    """An inbox report the Self-driving agent produced from this ticket (output-only)."""
+
+    id = serializers.UUIDField(
+        read_only=True, help_text="Signal report UUID. Read the full report with inbox-reports-retrieve."
+    )
+    title = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Report title, usually a conventional-commit style summary of the fix.",
+    )
+    status = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "One of: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. "
+            "'suppressed' means a human dismissed it."
+        ),
+    )
+    priority = serializers.CharField(
+        read_only=True, allow_null=True, help_text="P0 (highest) to P4, when the report has been prioritized."
+    )
+    actionability = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="How actionable the agent judged the report, e.g. immediately_actionable.",
+    )
+    already_addressed = serializers.BooleanField(
+        read_only=True, allow_null=True, help_text="True when the agent judged the underlying issue already fixed."
+    )
+    implementation_pr_url = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Pull request opened to fix the issue, if one exists."
+    )
+    implementation_pr_merged = serializers.BooleanField(
+        read_only=True, help_text="True once that pull request has merged, meaning the fix has shipped."
+    )
+    updated_at = serializers.DateTimeField(read_only=True, help_text="When the report last changed.")
 
 
 class TicketReplyRequestSerializer(serializers.Serializer):
@@ -348,6 +387,16 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
         return None
 
 
+class TicketDetailSerializer(TicketSerializer):
+    """A single ticket, plus the context that is too expensive to resolve for a whole page of them."""
+
+    linked_reports = TicketLinkedReportSerializer(many=True, read_only=True)
+
+    class Meta(TicketSerializer.Meta):
+        fields = [*TicketSerializer.Meta.fields, "linked_reports"]
+        read_only_fields = [*TicketSerializer.Meta.read_only_fields, "linked_reports"]
+
+
 TICKET_ID_PARAM = OpenApiParameter(
     name="id",
     type=OpenApiTypes.STR,
@@ -355,9 +404,21 @@ TICKET_ID_PARAM = OpenApiParameter(
     description="The ticket's UUID or its numeric ticket number.",
 )
 
+INCLUDE_LINKED_REPORTS_PARAM = OpenApiParameter(
+    name="include_linked_reports",
+    type=OpenApiTypes.BOOL,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    default=True,
+    description=(
+        "Whether to resolve the Self-driving reports linked to this ticket. Defaults to true. "
+        "Pass false to skip the lookup when you already have them, or don't need them."
+    ),
+)
+
 
 @extend_schema_view(
-    retrieve=extend_schema(parameters=[TICKET_ID_PARAM]),
+    retrieve=extend_schema(parameters=[TICKET_ID_PARAM, INCLUDE_LINKED_REPORTS_PARAM]),
     update=extend_schema(parameters=[TICKET_ID_PARAM]),
     partial_update=extend_schema(parameters=[TICKET_ID_PARAM]),
     destroy=extend_schema(parameters=[TICKET_ID_PARAM]),
@@ -650,6 +711,34 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         context["team"] = self.team
         return context
 
+    def get_serializer_class(self):
+        # Detail reads only. Resolving linked reports costs a ClickHouse query per ticket, which a
+        # page of them can't absorb, and `update` echoes the ticket back rather than reporting on it.
+        if self.action == "retrieve":
+            return TicketDetailSerializer
+        return super().get_serializer_class()
+
+    def _linked_reports(self, ticket: Ticket) -> list[dict]:
+        """Self-driving reports raised from this ticket, as plain dicts. Never raises.
+
+        Supplementary context, so a signals or ClickHouse failure returns nothing rather than
+        taking the ticket read down with it. The ticket UI opts out because it loads reports itself.
+        """
+        if self.request.query_params.get("include_linked_reports", "true").strip().lower() in ("false", "0"):
+            return []
+        try:
+            from products.signals.backend.facade.api import (
+                linked_reports_for_source,  # noqa: PLC0415 — keeps the signals import (and its temporal/tiktoken deps) off the conversations import path
+            )
+
+            reports = linked_reports_for_source(
+                team=self.team, source_product="conversations", source_id=str(ticket.id)
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(ticket.id)})
+            return []
+        return [dataclasses.asdict(report) for report in reports]
+
     @extend_schema(exclude=True)
     def create(self, *args, **kwargs):
         # Tickets are created through their channel (widget, email, Slack, etc.) or the
@@ -887,6 +976,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             )
         except Exception as e:
             capture_exception(e, {"ticket_id": str(instance.id)})
+
+        instance.linked_reports = self._linked_reports(instance)
 
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
@@ -1175,12 +1266,17 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         return Response({"count": count})
 
     @extend_schema(
-        parameters=[TICKET_ID_PARAM],
+        parameters=[TICKET_ID_PARAM, INCLUDE_LINKED_REPORTS_PARAM],
         responses={200: TicketMessageSerializer(many=True)},
     )
     @action(detail=True, methods=["get"], pagination_class=TicketMessagePagination)
     def messages(self, request, *args, **kwargs):
-        """Return the message thread for a ticket, ordered chronologically (paginated)."""
+        """Return the message thread for a ticket, ordered chronologically (paginated).
+
+        Linked Self-driving reports ride alongside `results` rather than in it: they aren't messages,
+        and counting them as rows would break the offsets a caller pages with. They accompany the
+        first page only, since that is where a thread read starts and they don't vary by page.
+        """
         ticket = self.get_object()
 
         comments = (
@@ -1201,8 +1297,19 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         data = TicketMessageSerializer(message_list, many=True).data
 
         if page is not None:
-            return self.get_paginated_response(data)
+            response = self.get_paginated_response(data)
+            linked_reports = self._linked_reports(ticket) if self._is_first_message_page(request) else []
+            response.data["linked_reports"] = TicketLinkedReportSerializer(linked_reports, many=True).data
+            return response
         return Response(data)
+
+    @staticmethod
+    def _is_first_message_page(request) -> bool:
+        # An unparseable offset is page one for the paginator too, so agree with it rather than 400.
+        try:
+            return int(request.query_params.get("offset") or 0) <= 0
+        except ValueError:
+            return True
 
     def _serialize_message(self, comment: Comment, ticket: Ticket) -> dict:
         item_context = comment.item_context or {}

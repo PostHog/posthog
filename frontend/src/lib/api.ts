@@ -7110,8 +7110,8 @@ const api = {
             return await new ApiRequest().conversationsTickets().withQueryString(params).get()
         },
 
-        async get(ticketId: string): Promise<any> {
-            return await new ApiRequest().conversationsTicket(ticketId).get()
+        async get(ticketId: string, params: { include_linked_reports?: boolean } = {}): Promise<any> {
+            return await new ApiRequest().conversationsTicket(ticketId).withQueryString(params).get()
         },
 
         async create(data: {

@@ -20,6 +20,7 @@ import type {
     ConversationsListParams,
     ConversationsTicketsListParams,
     ConversationsTicketsMessagesListParams,
+    ConversationsTicketsRetrieveParams,
     ConversationsViewsListParams,
     MessageApi,
     MessageMinimalApi,
@@ -33,6 +34,7 @@ import type {
     SandboxMessageResponseApi,
     SandboxOpenApi,
     TicketApi,
+    TicketDetailApi,
     TicketMessageApi,
     TicketReplyRequestApi,
     TicketViewApi,
@@ -321,8 +323,24 @@ export const conversationsTicketsList = async (
     })
 }
 
-export const getConversationsTicketsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/conversations/tickets/${id}/`
+export const getConversationsTicketsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: ConversationsTicketsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/conversations/tickets/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/conversations/tickets/${id}/`
 }
 
 /**
@@ -331,9 +349,10 @@ export const getConversationsTicketsRetrieveUrl = (projectId: string, id: string
 export const conversationsTicketsRetrieve = async (
     projectId: string,
     id: string,
+    params?: ConversationsTicketsRetrieveParams,
     options?: RequestInit
-): Promise<TicketApi> => {
-    return apiMutator<TicketApi>(getConversationsTicketsRetrieveUrl(projectId, id), {
+): Promise<TicketDetailApi> => {
+    return apiMutator<TicketDetailApi>(getConversationsTicketsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -436,6 +455,10 @@ export const getConversationsTicketsMessagesListUrl = (
 
 /**
  * Return the message thread for a ticket, ordered chronologically (paginated).
+ *
+ * Linked Self-driving reports ride alongside `results` rather than in it: they aren't messages,
+ * and counting them as rows would break the offsets a caller pages with. They accompany the
+ * first page only, since that is where a thread read starts and they don't vary by page.
  */
 export const conversationsTicketsMessagesList = async (
     projectId: string,

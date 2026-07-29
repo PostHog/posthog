@@ -34,6 +34,7 @@ from products.conversations.backend.api.tickets import TicketReplyRequestSeriali
 from products.conversations.backend.models import Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import PERSON_EMAIL_LOOKUP_QUERY, _get_persons_by_email
+from products.signals.backend.facade.api import LinkedSignalReport
 
 from ee.clickhouse.materialized_columns.columns import get_bloom_filter_lower_index_name
 from ee.models.rbac.access_control import AccessControl
@@ -2634,3 +2635,126 @@ class TestTicketAccessControl(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, expected_status, response.json())
+
+
+class TestTicketLinkedReports(APIBaseTest):
+    """Self-driving reports must reach API and MCP readers alongside the ticket they came from."""
+
+    def setUp(self):
+        super().setUp()
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="test-session",
+            distinct_id="user-1",
+            status=Status.NEW,
+        )
+        self.detail_url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/"
+        self.messages_url = f"{self.detail_url}messages/"
+
+    def _report(self) -> LinkedSignalReport:
+        return LinkedSignalReport(
+            id="019fa376-4812-7e14-b5d8-6b9394ba1607",
+            title="fix(integrations): attach OAuth integration to initiating project",
+            status="ready",
+            priority="P2",
+            actionability="immediately_actionable",
+            already_addressed=False,
+            implementation_pr_url="https://github.com/PostHog/posthog/pull/73901",
+            implementation_pr_merged=False,
+            updated_at=timezone.now(),
+        )
+
+    @patch("products.signals.backend.facade.api.linked_reports_for_source")
+    def test_retrieve_returns_linked_reports(self, mock_linked_reports):
+        mock_linked_reports.return_value = [self._report()]
+
+        response = self.client.get(self.detail_url)
+
+        assert response.status_code == status.HTTP_200_OK
+        reports = response.json()["linked_reports"]
+        assert len(reports) == 1
+        assert reports[0]["id"] == "019fa376-4812-7e14-b5d8-6b9394ba1607"
+        assert reports[0]["status"] == "ready"
+        assert reports[0]["priority"] == "P2"
+        assert reports[0]["implementation_pr_url"] == "https://github.com/PostHog/posthog/pull/73901"
+        assert reports[0]["implementation_pr_merged"] is False
+        assert mock_linked_reports.call_args.kwargs["source_product"] == "conversations"
+        assert mock_linked_reports.call_args.kwargs["source_id"] == str(self.ticket.id)
+
+    @parameterized.expand(
+        [
+            ("omitted", None, True),
+            ("true", "true", True),
+            ("false", "false", False),
+            ("zero", "0", False),
+        ]
+    )
+    @patch("products.signals.backend.facade.api.linked_reports_for_source")
+    def test_include_linked_reports_param_gates_the_lookup(
+        self, _name, param_value, should_resolve, mock_linked_reports
+    ):
+        mock_linked_reports.return_value = [self._report()]
+        query = "" if param_value is None else f"?include_linked_reports={param_value}"
+
+        response = self.client.get(f"{self.detail_url}{query}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_linked_reports.called is should_resolve
+        assert len(response.json()["linked_reports"]) == (1 if should_resolve else 0)
+
+    @patch("products.signals.backend.facade.api.linked_reports_for_source")
+    def test_signals_failure_does_not_break_the_ticket_read(self, mock_linked_reports):
+        mock_linked_reports.side_effect = Exception("ClickHouse unavailable")
+
+        response = self.client.get(self.detail_url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["linked_reports"] == []
+
+    @patch("products.signals.backend.facade.api.linked_reports_for_source")
+    def test_list_does_not_resolve_linked_reports(self, mock_linked_reports):
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_linked_reports.called is False
+        assert "linked_reports" not in response.json()["results"][0]
+
+    @patch("products.signals.backend.facade.api.linked_reports_for_source")
+    def test_messages_carries_reports_beside_results_not_in_them(self, mock_linked_reports):
+        mock_linked_reports.return_value = [self._report()]
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Hello",
+            item_context={"author_type": "customer"},
+        )
+
+        response = self.client.get(self.messages_url)
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["count"] == 1
+        assert len(body["results"]) == 1
+        assert body["results"][0]["content"] == "Hello"
+        assert len(body["linked_reports"]) == 1
+        assert body["linked_reports"][0]["title"].startswith("fix(integrations)")
+
+    @patch("products.signals.backend.facade.api.linked_reports_for_source")
+    def test_messages_resolves_reports_on_the_first_page_only(self, mock_linked_reports):
+        mock_linked_reports.return_value = [self._report()]
+        for index in range(3):
+            Comment.objects.create(
+                team=self.team,
+                scope="conversations_ticket",
+                item_id=str(self.ticket.id),
+                content=f"Message {index}",
+                item_context={"author_type": "customer"},
+            )
+
+        response = self.client.get(f"{self.messages_url}?limit=1&offset=2")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_linked_reports.called is False
+        assert response.json()["linked_reports"] == []

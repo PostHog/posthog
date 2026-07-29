@@ -74,8 +74,10 @@ export const ticketPreviewLogic = kea<ticketPreviewLogicType>([
                 loadPreview: async (): Promise<TicketPreview> => {
                     try {
                         const teamId = String(getCurrentTeamId())
+                        // The preview shows messages only, so skip resolving linked reports for it.
                         const first = await conversationsTicketsMessagesList(teamId, props.ticketId, {
                             limit: TICKET_PREVIEW_MESSAGE_COUNT,
+                            include_linked_reports: false,
                         })
 
                         // Short threads fit entirely in the first batch, so there's no tail to fetch.

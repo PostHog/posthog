@@ -11,6 +11,7 @@ import {
     ConversationsTicketsReplyCreateBody,
     ConversationsTicketsReplyCreateParams,
     ConversationsTicketsRetrieveParams,
+    ConversationsTicketsRetrieveQueryParams,
     ConversationsViewsListQueryParams,
 } from '@/generated/conversations/api'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
@@ -87,6 +88,7 @@ const conversationsTicketsMessagesRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/${encodeURIComponent(String(params.id))}/messages/`,
             query: {
+                include_linked_reports: params.include_linked_reports,
                 limit: params.limit,
                 offset: params.offset,
             },
@@ -126,23 +128,29 @@ const conversationsTicketsReplyCreate = (): ToolBase<
     },
 })
 
-const ConversationsTicketsRetrieveSchema = ConversationsTicketsRetrieveParams.omit({ project_id: true })
+const ConversationsTicketsRetrieveSchema = ConversationsTicketsRetrieveParams.omit({ project_id: true }).extend(
+    ConversationsTicketsRetrieveQueryParams.shape
+)
 
 const conversationsTicketsRetrieve = (): ToolBase<
     typeof ConversationsTicketsRetrieveSchema,
-    WithPostHogUrl<Schemas.Ticket>
+    WithPostHogUrl<Schemas.TicketDetail>
 > => ({
     name: 'conversations-tickets-retrieve',
     schema: ConversationsTicketsRetrieveSchema,
     handler: async (context: Context, params: z.infer<typeof ConversationsTicketsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.Ticket>({
+        const result = await context.api.request<Schemas.TicketDetail>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/${encodeURIComponent(String(params.id))}/`,
+            query: {
+                include_linked_reports: params.include_linked_reports,
+            },
         })
         const filtered = pickResponseFields(result, [
             'id',
             'ticket_number',
+            'linked_reports',
             'status',
             'priority',
             'channel_source',

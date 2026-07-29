@@ -983,7 +983,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 return
             }
             try {
-                const ticket = await api.conversationsTickets.get(props.id.toString())
+                // `loadLinkedReports` fetches these itself, with the statuses and shape the thread renders.
+                const ticket = await api.conversationsTickets.get(props.id.toString(), {
+                    include_linked_reports: false,
+                })
 
                 // If accessed via UUID, redirect to ticket_number URL for cleaner URLs
                 const isUuid = props.id.toString().includes('-')

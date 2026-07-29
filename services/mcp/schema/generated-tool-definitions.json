@@ -1321,7 +1321,7 @@
         }
     },
     "conversations-tickets-messages-retrieve": {
-        "description": "Return a support ticket's message thread, ordered chronologically. The response is paginated (default 50, max 200 per page) — use the limit and offset query params to page through long threads, and read count/next from the response envelope. Includes all messages from the customer, team members, and AI, as well as private internal notes. Each message contains author_type, author_name, content, and an is_private flag indicating internal notes.",
+        "description": "Return a support ticket's message thread, ordered chronologically. The response is paginated (default 50, max 200 per page) — use the limit and offset query params to page through long threads, and read count/next from the response envelope. Includes all messages from the customer, team members, and AI, as well as private internal notes. Each message contains author_type, author_name, content, and an is_private flag indicating internal notes. The first page also carries linked_reports alongside results: investigations the Self-driving agent ran against this ticket, which are not messages and nobody sent them. Read them with the thread — one often explains the reported problem better than the replies do, and its implementation_pr_url says whether a fix is proposed or shipped.",
         "category": "Conversations",
         "feature": "conversations",
         "summary": "Read support ticket messages",
@@ -1349,7 +1349,7 @@
         }
     },
     "conversations-tickets-retrieve": {
-        "description": "Get a specific support ticket by ID or ticket number. Returns full ticket details including status, priority, assignee, message count, channel info, person data, and session context.",
+        "description": "Get a specific support ticket by ID or ticket number. Returns full ticket details including status, priority, assignee, message count, channel info, person data, and session context. Also returns linked_reports: investigations the Self-driving agent already ran against this ticket, each with the issue it found and, when one exists, the pull request opened to fix it. Read those before diagnosing a ticket yourself or answering the customer — a report often has the root cause, and its implementation_pr_url tells you whether a fix is proposed or already shipped. Fetch a report's full findings with inbox-reports-retrieve. An empty list means the agent found nothing for this ticket.",
         "category": "Conversations",
         "feature": "conversations",
         "summary": "Get support ticket",

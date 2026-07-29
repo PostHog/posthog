@@ -785,6 +785,140 @@ export interface PaginatedTicketListApi {
 }
 
 /**
+ * An inbox report the Self-driving agent produced from this ticket (output-only).
+ */
+export interface TicketLinkedReportApi {
+    /** Signal report UUID. Read the full report with inbox-reports-retrieve. */
+    readonly id: string
+    /**
+     * Report title, usually a conventional-commit style summary of the fix.
+     * @nullable
+     */
+    readonly title: string | null
+    /** One of: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. 'suppressed' means a human dismissed it. */
+    readonly status: string
+    /**
+     * P0 (highest) to P4, when the report has been prioritized.
+     * @nullable
+     */
+    readonly priority: string | null
+    /**
+     * How actionable the agent judged the report, e.g. immediately_actionable.
+     * @nullable
+     */
+    readonly actionability: string | null
+    /**
+     * True when the agent judged the underlying issue already fixed.
+     * @nullable
+     */
+    readonly already_addressed: boolean | null
+    /**
+     * Pull request opened to fix the issue, if one exists.
+     * @nullable
+     */
+    readonly implementation_pr_url: string | null
+    /** True once that pull request has merged, meaning the fix has shipped. */
+    readonly implementation_pr_merged: boolean
+    /** When the report last changed. */
+    readonly updated_at: string
+}
+
+/**
+ * A single ticket, plus the context that is too expensive to resolve for a whole page of them.
+ */
+export interface TicketDetailApi {
+    readonly id: string
+    readonly ticket_number: number
+    readonly channel_source: ChannelSourceEnumApi
+    readonly channel_detail: ChannelDetailEnumApi | null
+    readonly distinct_id: string
+    /** Ticket status: new, open, pending, on_hold, or resolved
+     *
+     * * `new` - New
+     * * `open` - Open
+     * * `pending` - Pending
+     * * `on_hold` - On hold
+     * * `resolved` - Resolved */
+    status?: TicketStatusEnumApi
+    /** Ticket priority: low, medium, high, or critical. Null if unset.
+     *
+     * * `low` - Low
+     * * `medium` - Medium
+     * * `high` - High
+     * * `critical` - Critical */
+    priority?: TicketPriorityEnumApi | BlankEnumApi | null
+    readonly assignee: TicketAssignmentApi
+    /** Customer-provided traits such as name and email */
+    anonymous_traits?: unknown
+    /**
+     * Trust signal indicating whether the ticket's claimed identity was attested by the server (widget HMAC, SPF-authenticated email, or a signature-validated platform webhook). True when verified, false when assessed but not attested, null when unknown (e.g. created before this signal existed).
+     * @nullable
+     */
+    readonly identity_verified: boolean | null
+    ai_resolved?: boolean
+    /** @nullable */
+    escalation_reason?: string | null
+    /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.). */
+    readonly ai_triage: unknown
+    readonly created_at: string
+    readonly updated_at: string
+    readonly message_count: number
+    /** @nullable */
+    readonly last_message_at: string | null
+    /** @nullable */
+    readonly last_message_text: string | null
+    readonly unread_team_count: number
+    readonly unread_customer_count: number
+    /** @nullable */
+    readonly session_id: string | null
+    readonly session_context: unknown
+    /**
+     * SLA deadline set via workflows. Null means no SLA.
+     * @nullable
+     */
+    sla_due_at?: string | null
+    /** @nullable */
+    snoozed_until?: string | null
+    /** @nullable */
+    readonly slack_channel_id: string | null
+    /** @nullable */
+    readonly slack_thread_ts: string | null
+    /** @nullable */
+    readonly slack_team_id: string | null
+    /** @nullable */
+    readonly email_subject: string | null
+    /** @nullable */
+    readonly email_from: string | null
+    /** @nullable */
+    readonly email_to: string | null
+    readonly cc_participants: unknown
+    /** @nullable */
+    readonly github_repo: string | null
+    /** @nullable */
+    readonly github_issue_number: number | null
+    /** @nullable */
+    readonly zendesk_ticket_id: number | null
+    /**
+     * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
+     * @nullable
+     */
+    readonly organization_id: string | null
+    /**
+     * How organization_id was resolved: 'person' (from the requester's identity) or 'slack_channel_account' (inferred from the customer analytics account linked to the ticket's Slack channel). Null when organization_id is unset.
+     * @nullable
+     */
+    readonly organization_id_source: string | null
+    readonly person: TicketPersonApi | null
+    tags?: unknown[]
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+    readonly linked_reports: readonly TicketLinkedReportApi[]
+}
+
+/**
  * Mixin for serializers to add user access control fields
  */
 export interface PatchedTicketApi {
@@ -1305,7 +1439,18 @@ export const ConversationsTicketsListSla = {
     OnTrack: 'on-track',
 } as const
 
+export type ConversationsTicketsRetrieveParams = {
+    /**
+     * Whether to resolve the Self-driving reports linked to this ticket. Defaults to true. Pass false to skip the lookup when you already have them, or don't need them.
+     */
+    include_linked_reports?: boolean
+}
+
 export type ConversationsTicketsMessagesListParams = {
+    /**
+     * Whether to resolve the Self-driving reports linked to this ticket. Defaults to true. Pass false to skip the lookup when you already have them, or don't need them.
+     */
+    include_linked_reports?: boolean
     /**
      * Number of results to return per page.
      */
