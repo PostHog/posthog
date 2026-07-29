@@ -1,5 +1,4 @@
 use posthog_cli::{
-    api::releases::ReleaseIdentity,
     sourcemaps::{
         content::SourceMapContent,
         inject::{inject_pairs, inject_pairs_legacy},
@@ -242,26 +241,25 @@ fn test_reinject_is_idempotent() {
 }
 
 #[test]
-fn test_inject_with_release_embeds_identity_in_source() {
-    // Injecting with a release identity must embed `_posthogRelease` (name + version) into the JS
+fn test_inject_with_release_embeds_id_in_source() {
+    // Injecting with a release id must embed `_posthogRelease` (the release row id) into the JS
     // chunk itself — that global is the SDK's only source of the release — and must leave the
-    // release out of the sourcemap.
+    // release out of the sourcemap so the symbol set stays release-independent.
     let case_path = get_case_path("inject");
     let pairs =
         read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs");
     assert_eq!(pairs.len(), 1);
-    let release = ReleaseIdentity {
-        name: "my-app".to_string(),
-        version: "9.9.9".to_string(),
-    };
+    let release_id = "019fa8ff-feb3-0000-e5bd-09104bcd0188";
 
-    let injected_pairs = inject_pairs(pairs, Some(&release)).expect("Failed to inject pairs");
+    let injected_pairs = inject_pairs(pairs, Some(release_id)).expect("Failed to inject pairs");
     let first_pair = injected_pairs.first().expect("Failed to get first pair");
 
     let source = &first_pair.source.inner.content;
     assert!(source.contains("_posthogRelease"), "source: {source}");
-    assert!(source.contains(r#""my-app""#), "source: {source}");
-    assert!(source.contains(r#""9.9.9""#), "source: {source}");
+    assert!(
+        source.contains(&format!(r#""{release_id}""#)),
+        "source: {source}"
+    );
     assert!(first_pair.source.get_chunk_id().is_some());
     assert!(first_pair.sourcemap.get_release_id().is_none());
 }

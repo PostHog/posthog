@@ -89,6 +89,7 @@ impl From<ProcessArgs> for (InjectArgs, upload::Args) {
             release: args.release,
             conflict: args.conflict,
             upload_concurrency: args.upload_concurrency,
+            experimental_release_injection: args.experimental_release_injection,
         };
 
         (inject_args, upload_args)

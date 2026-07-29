@@ -37,6 +37,23 @@ pub struct SymbolSetUpload {
     pub release_id: Option<String>,
 
     pub data: Vec<u8>,
+
+    /// Release-independent content hash to send instead of hashing `data`. The experimental
+    /// mechanism injects `_posthogRelease` into the uploaded bytes, so hashing `data` would make
+    /// the hash change every release for otherwise-identical code. Setting this to a hash derived
+    /// from the content-addressed chunk id keeps re-uploads idempotent across releases. When
+    /// `None`, the hash is computed from `data` (the legacy behavior).
+    pub content_hash: Option<String>,
+}
+
+impl SymbolSetUpload {
+    /// The hash the server dedupes on: the release-independent override when present, otherwise a
+    /// hash of the uploaded bytes.
+    fn content_hash(&self) -> String {
+        self.content_hash
+            .clone()
+            .unwrap_or_else(|| content_hash([&self.data]))
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -120,6 +137,7 @@ pub fn upload_with_retry_and_concurrency(
                     chunk_id: s.chunk_id.clone(),
                     release_id: None,
                     data: s.data,
+                    content_hash: s.content_hash,
                 })
                 .collect();
             upload_inner(
@@ -184,7 +202,7 @@ fn upload_inner(
                         "Got a chunk ID back from posthog that we didn't expect!"
                     ))?;
 
-                    let content_hash = content_hash([&upload.data]);
+                    let content_hash = upload.content_hash();
                     upload_to_s3(data.presigned_url.clone(), &upload.data)?;
                     Ok((data.symbol_set_id, content_hash))
                 })
@@ -364,6 +382,7 @@ impl SymbolSetUpload {
             chunk_id: self.chunk_id.clone(),
             release_id: self.release_id.clone(),
             data: vec![],
+            content_hash: self.content_hash.clone(),
         }
     }
 }
@@ -380,7 +399,7 @@ impl CreateSymbolSetRequest {
         Self {
             chunk_id: inner.chunk_id.clone(),
             release_id: inner.release_id.clone(),
-            content_hash: content_hash([&inner.data]),
+            content_hash: inner.content_hash(),
         }
     }
 }
@@ -492,6 +511,30 @@ mod tests {
             .count();
 
         assert_eq!(retry_logs, 2);
+    }
+
+    fn upload_with(data: &[u8], content_hash: Option<&str>) -> SymbolSetUpload {
+        SymbolSetUpload {
+            chunk_id: "chunk".to_string(),
+            release_id: None,
+            data: data.to_vec(),
+            content_hash: content_hash.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn request_uses_content_hash_override_when_present() {
+        // The override is what makes experimental re-uploads idempotent: identical code under a new
+        // release keeps the same override even though `data` (with the embedded release) differs.
+        let request =
+            CreateSymbolSetRequest::new(&upload_with(b"bytes-with-release-a", Some("ref-hash")));
+        assert_eq!(request.content_hash, "ref-hash");
+    }
+
+    #[test]
+    fn request_falls_back_to_hashing_data_without_override() {
+        let request = CreateSymbolSetRequest::new(&upload_with(b"bytes", None));
+        assert_eq!(request.content_hash, content_hash([b"bytes".as_slice()]));
     }
 
     #[test]

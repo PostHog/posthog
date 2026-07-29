@@ -29,16 +29,6 @@ pub struct ReleaseBuilder {
     metadata: HashMap<String, Value>,
 }
 
-/// The (name, version) pair that identifies a release, resolved locally (git/flags/CI env)
-/// with no API call. This is what the CLI injects into JS chunks so the SDK can emit it on
-/// events; the server resolves it to a release row later. Distinct from `Release`, which is
-/// a persisted row with a DB id.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReleaseIdentity {
-    pub name: String,
-    pub version: String,
-}
-
 // Internal, what we send to the API
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CreateReleaseRequest {
@@ -129,18 +119,6 @@ impl ReleaseBuilder {
 
     pub fn can_create(&self) -> bool {
         self.version.is_some() && self.name.is_some()
-    }
-
-    /// The resolved (name, version) identity, if both are present. Unlike `fetch_or_create`,
-    /// this never touches the network — it just reads what the builder already holds.
-    pub fn identity(&self) -> Option<ReleaseIdentity> {
-        match (&self.name, &self.version) {
-            (Some(name), Some(version)) => Some(ReleaseIdentity {
-                name: name.clone(),
-                version: version.clone(),
-            }),
-            _ => None,
-        }
     }
 
     pub fn missing(&self) -> Vec<&str> {

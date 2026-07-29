@@ -4,7 +4,7 @@ use tracing::{info, warn};
 use walkdir::DirEntry;
 
 use crate::{
-    api::releases::{Release, ReleaseBuilder, ReleaseIdentity},
+    api::releases::{Release, ReleaseBuilder},
     sourcemaps::{
         args::{FileSelectionArgs, ReleaseArgs},
         constant::CHUNK_ID_NAMESPACE,
@@ -76,22 +76,27 @@ pub fn inject_impl(
         bail!("no source files found");
     }
 
-    if *experimental_release_injection {
-        // Resolve the release identity locally — no API call, so inject works offline and never
-        // creates a release row. The (name, version) travels inside each chunk for the SDK to
-        // emit; the server resolves it to a release later.
-        let identity = resolve_release_identity(release.clone(), existing_release)?;
-        pairs = inject_pairs(pairs, identity.as_ref())?;
+    // Both mechanisms attribute chunks to a release row. Reuse the release the caller already
+    // resolved (the `process` command shares one across inject and upload), otherwise fetch or
+    // create one over the API. This is why experimental inject is online: the release id it bakes
+    // into each chunk only exists once the row does.
+    let created_release_id = if let Some(r) = existing_release {
+        Some(r.id.to_string())
     } else {
-        // Legacy path: fetch or create a release over the API and stamp its id into the sourcemap.
-        let created_release_id = if let Some(r) = existing_release {
-            Some(r.id.to_string())
-        } else {
-            let cwd = std::env::current_dir()?;
-            get_release_for_maps(&cwd, release.clone(), pairs.iter().map(|p| &p.sourcemap))?
-                .as_ref()
-                .map(|r| r.id.to_string())
-        };
+        let cwd = std::env::current_dir()?;
+        get_release_for_maps(&cwd, release.clone(), pairs.iter().map(|p| &p.sourcemap))?
+            .as_ref()
+            .map(|r| r.id.to_string())
+    };
+
+    if *experimental_release_injection {
+        // Content-addressed chunk ids, with the release id baked into each chunk as
+        // `_posthogRelease` so the SDK emits it on every event. The release id is deliberately not
+        // stamped into the sourcemap, so the symbol set stays release-independent and is shared by
+        // every release of the same code.
+        pairs = inject_pairs(pairs, created_release_id.as_deref())?;
+    } else {
+        // Legacy path: a random per-build chunk id with the release id stamped into the sourcemap.
         pairs = inject_pairs_legacy(pairs, created_release_id)?;
     }
 
@@ -103,17 +108,18 @@ pub fn inject_impl(
     Ok(())
 }
 
-/// Experimental injection: content-addressed chunk ids plus an optional `_posthogRelease` payload.
+/// Experimental injection: content-addressed chunk ids plus an optional `_posthogRelease` id baked
+/// into each chunk.
 pub fn inject_pairs(
     mut pairs: Vec<SourcePair>,
-    release: Option<&ReleaseIdentity>,
+    release_id: Option<&str>,
 ) -> Result<Vec<SourcePair>> {
     for pair in &mut pairs {
         // Chunk ids are content-addressed and stable, so a chunk that already carries one is
         // already injected — leave it untouched (idempotent re-injection).
         if pair.get_chunk_id().is_none() {
             let chunk_id = stable_chunk_id(&pair.source.inner.content);
-            pair.add_chunk_id(chunk_id, release)?;
+            pair.add_chunk_id(chunk_id, release_id)?;
         }
     }
 
@@ -149,28 +155,6 @@ pub fn inject_pairs_legacy(
 /// sets stay stable — no per-build random id.
 fn stable_chunk_id(source_content: &str) -> String {
     uuid::Uuid::new_v5(&CHUNK_ID_NAMESPACE, source_content.as_bytes()).to_string()
-}
-
-/// Resolve the release identity for injection without any network call. When a release was
-/// already fetched upstream (the `process` command) we reuse its (name, version); otherwise we
-/// derive it locally from flags and git/CI metadata, exactly as release creation would.
-fn resolve_release_identity(
-    release: ReleaseArgs,
-    existing_release: Option<&Release>,
-) -> Result<Option<ReleaseIdentity>> {
-    if let Some(r) = existing_release {
-        return Ok(Some(ReleaseIdentity {
-            name: r.project.clone(),
-            version: r.version.clone(),
-        }));
-    }
-
-    let cwd = std::env::current_dir()?;
-    let release_args_were_provided =
-        release.name.is_some() || release.version.is_some() || release.build.is_some();
-    let mut builder: ReleaseBuilder = release.into();
-    add_git_info_to_release_builder(&cwd, &mut builder, release_args_were_provided)?;
-    Ok(builder.identity())
 }
 
 pub fn get_release_for_maps<'a>(

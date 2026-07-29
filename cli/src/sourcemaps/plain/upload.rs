@@ -24,7 +24,7 @@ use crate::{
         plain::inject::is_javascript_file,
         source_pairs::read_pairs,
     },
-    utils::files::{delete_files, FileSelection},
+    utils::files::{content_hash, delete_files, FileSelection},
 };
 
 #[derive(clap::Args, Clone)]
@@ -59,6 +59,22 @@ pub struct Args {
     /// DEPRECATED - this flag is a no-op. Use top-level `--skip-ssl-verification` instead.
     #[arg(long)]
     pub skip_ssl_verification: bool,
+
+    /// EXPERIMENTAL: pair with the matching `inject` flag. The release is still registered (for its
+    /// metadata) but is not stamped onto the symbol sets, and each symbol set is deduped by a
+    /// release-independent hash so re-uploading identical code under a new release is a no-op rather
+    /// than a conflict. When unset (the default), upload behaves exactly as before. Also settable via
+    /// `POSTHOG_CLI_EXPERIMENTAL_RELEASE_INJECTION`.
+    #[arg(
+        long,
+        env = "POSTHOG_CLI_EXPERIMENTAL_RELEASE_INJECTION",
+        value_parser = clap::builder::BoolishValueParser::new(),
+        num_args = 0..=1,
+        require_equals = true,
+        default_value = "false",
+        default_missing_value = "true",
+    )]
+    pub experimental_release_injection: bool,
 }
 
 pub fn upload_cmd(args: &Args) -> Result<()> {
@@ -85,7 +101,9 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
         .collect::<Vec<_>>();
     info!("Found {} chunks to upload", pairs.len());
 
-    // Reuse the pre-resolved release if available, otherwise fetch or create one
+    // Reuse the pre-resolved release if available, otherwise fetch or create one. This registers
+    // the release and its git metadata even in experimental mode, where the release then travels
+    // to events via the injected `_posthogRelease` rather than through the symbol set.
     let created_release_id = if let Some(r) = existing_release {
         Some(r.id.to_string())
     } else {
@@ -98,10 +116,14 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
         .map(|r| r.id.to_string())
     };
 
-    // Override release_id if we created/fetched one
-    if let Some(ref release_id) = created_release_id {
-        for pair in &mut pairs {
-            pair.set_release_id(Some(release_id.clone()));
+    // Legacy binds each symbol set to the release. Experimental keeps symbol sets
+    // release-independent (content-addressed and shared across releases), so it never stamps a
+    // release id onto them, which is what lets the same chunk id serve every release.
+    if !args.experimental_release_injection {
+        if let Some(ref release_id) = created_release_id {
+            for pair in &mut pairs {
+                pair.set_release_id(Some(release_id.clone()));
+            }
         }
     }
 
@@ -129,11 +151,20 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
     }
     let empty_skipped = empty_pairs.len();
 
-    let uploads = valid_pairs
+    let mut uploads = valid_pairs
         .into_iter()
         .map(TryInto::try_into)
         .collect::<Result<Vec<SymbolSetUpload>>>()
         .context("While preparing files for upload")?;
+
+    // The uploaded bytes carry the injected `_posthogRelease`, so their raw hash changes every
+    // release. Dedupe instead on the content-addressed chunk id, which is derived from the
+    // pre-injection source and is therefore identical across releases of the same code.
+    if args.experimental_release_injection {
+        for upload in &mut uploads {
+            upload.content_hash = Some(content_hash([upload.chunk_id.as_bytes()]));
+        }
+    }
 
     let file_count = uploads.len();
     let total_bytes: usize = uploads.iter().map(|u| u.data.len()).sum();
