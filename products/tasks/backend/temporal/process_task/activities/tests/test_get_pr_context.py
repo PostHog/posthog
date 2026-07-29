@@ -7,7 +7,7 @@ from django.core.exceptions import ObjectDoesNotExist
 
 from parameterized import parameterized
 
-from products.tasks.backend.exceptions import TaskInvalidStateError
+from products.tasks.backend.exceptions import ProcessTaskTransientError
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import (
     GetPrContextInput,
     GetPrContextOutput,
@@ -45,6 +45,11 @@ class TestComputePrFingerprint:
             ("ci_status", "pending", "failing"),
             ("review_decision", None, "changes_requested"),
             ("state", "open", "closed"),
+            # A new head commit failing with the same coarse ci_status as its
+            # predecessor must still read as a change — without the SHA, an agent
+            # push that fails again would hash identically to the previous failure
+            # and the follow-up would never re-fire.
+            ("head_sha", "aaa111", "bbb222"),
         ]
     )
     def test_changes_when_actionable_field_changes(self, field, before, after):
@@ -155,7 +160,7 @@ class TestGetPrContextActivity:
             "url": pr_url,
             "state": "open",
             "ci_status": "failing",
-            "review_decision": None,
+            "review_decision": "changes_requested",
             "unresolved_threads": 1,
         }
         integration = MagicMock()
@@ -169,6 +174,11 @@ class TestGetPrContextActivity:
         assert result.pr_url == pr_url
         assert result.pr_state == "open"
         assert result.fingerprint == compute_pr_fingerprint(snapshot)
+        # The actionable signals must flow through — the CI follow-up loop keys
+        # its fire/skip decision on them.
+        assert result.ci_status == "failing"
+        assert result.changes_requested is True
+        assert result.unresolved_threads == 1
         integration.get_pull_request_snapshot.assert_called_once_with(pr_url)
 
     @pytest.mark.django_db
@@ -216,7 +226,9 @@ class TestGetPrContextActivity:
         assert result.pr_state == "unknown"
 
     @pytest.mark.django_db
-    def test_raises_task_invalid_state_when_github_call_raises(self, test_task_run):
+    def test_raises_transient_error_when_github_call_raises(self, test_task_run):
+        # A failed GitHub fetch must be retryable — raising a fatal, non-retryable error here
+        # would permanently kill the follow-up run over a transient GitHub hiccup.
         pr_url = "https://github.com/org/repo/pull/1"
         test_task_run.output = {"pr_url": pr_url}
         test_task_run.save(update_fields=["output"])
@@ -226,8 +238,9 @@ class TestGetPrContextActivity:
 
         ctx = self._ctx(run_id=str(test_task_run.id))
         with patch(f"{GET_PR_CONTEXT_MODULE}.get_github_integration", return_value=integration):
-            with pytest.raises(TaskInvalidStateError):
+            with pytest.raises(ProcessTaskTransientError) as exc_info:
                 self._run(ctx)
+        assert exc_info.value.non_retryable is False
 
     @pytest.mark.django_db
     def test_ci_status_change_yields_different_fingerprint(self, test_task_run):

@@ -6,8 +6,10 @@
 #![allow(clippy::disallowed_methods)]
 
 use std::cell::Cell;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
 use metrics::{counter, histogram};
@@ -22,16 +24,19 @@ use tracing::warn;
 
 use super::column_families::{self, Cf, OpaqueCf};
 use super::keys::{
-    self, MergeAppliedKey, MergeDrainKey, PendingTransferKey, Stage2Key, TombstoneKey,
+    self, MergeAppliedKey, MergeDrainKey, PendingTransferKey, Stage2CohortPrefix, Stage2DirtyKey,
+    Stage2Key, Stage2TransferredRegisterKey, Stage2TransferredRegisterPersonPrefix, TombstoneKey,
+    STAGE2_DIRTY_KEY_LEN,
 };
 use super::keyspace::{
     BehavioralKey, Keyspace, Meta, PersonPrefix, PersonRecordKey, META_SCHEMA_VERSION,
 };
 use super::staged::{StagedBatch, StagedOp};
 use crate::observability::metrics::{
-    CHECKPOINT_DURATION_SECONDS, STORE_ERRORS_TOTAL, STORE_READS_TOTAL,
-    STORE_READ_DURATION_SECONDS, STORE_SCHEMA_MISMATCH_WIPES_TOTAL, STORE_WRITE_BATCH_TOTAL,
-    STORE_WRITE_DURATION_SECONDS, WAL_FSYNC_DURATION_SECONDS, WAL_FSYNC_ERRORS_TOTAL,
+    CHECKPOINT_DURATION_SECONDS, STAGE2_SCAN_UNDECODABLE_KEYS_TOTAL, STORE_ERRORS_TOTAL,
+    STORE_READS_TOTAL, STORE_READ_DURATION_SECONDS, STORE_SCHEMA_MISMATCH_WIPES_TOTAL,
+    STORE_WRITE_BATCH_TOTAL, STORE_WRITE_DURATION_SECONDS, WAL_FSYNC_DURATION_SECONDS,
+    WAL_FSYNC_ERRORS_TOTAL,
 };
 
 /// On-disk store schema version, stamped into `cf_meta` at first open and checked on every reopen.
@@ -156,6 +161,13 @@ pub enum StoreError {
         actual: usize,
     },
 
+    #[error("decoding {kind} value: expected {expected} bytes, got {actual}")]
+    ValueDecode {
+        kind: &'static str,
+        expected: usize,
+        actual: usize,
+    },
+
     /// A key of the right length that matches none of the keyspace's known literals (closed-set
     /// keyspaces like `cf_meta`). Distinct from [`Self::KeyDecode`], which reports a length mismatch.
     #[error("unknown {kind} key: matches no known literal")]
@@ -174,6 +186,88 @@ pub enum StoreError {
 /// One scanned key/value pair as raw bytes — the merge-CF GC decodes each per CF.
 pub type RawKv = (Vec<u8>, Vec<u8>);
 
+#[derive(Debug, Default)]
+struct Stage2DirtyTracking {
+    /// The set of cohort prefixes with a reconcile drain currently capturing dirty rows. At most one
+    /// job per prefix ever holds a lease (admission supersedes same `(partition, team, cohort)`, and
+    /// the partition worker is serial), so a set — not a refcount — models the real invariant.
+    active: RwLock<HashSet<Stage2CohortPrefix>>,
+    active_count: AtomicUsize,
+}
+
+impl Stage2DirtyTracking {
+    fn acquire(self: &Arc<Self>, prefix: Stage2CohortPrefix) -> Stage2DirtyTrackingGuard {
+        let mut active = self
+            .active
+            .write()
+            .expect("Stage 2 dirty-tracking lock is not held across fallible work");
+        let inserted = active.insert(prefix);
+        debug_assert!(
+            inserted,
+            "a cohort prefix cannot hold two dirty-tracking leases"
+        );
+        self.active_count.fetch_add(1, Ordering::Release);
+        Stage2DirtyTrackingGuard {
+            tracking: self.clone(),
+            prefix,
+        }
+    }
+
+    /// Cheap pre-check for the hot write path: whether any drain is capturing at all. A `false` lets
+    /// a reconcile-disabled pipeline skip decoding the Stage 2 key entirely.
+    fn any_active(&self) -> bool {
+        self.active_count.load(Ordering::Acquire) != 0
+    }
+
+    fn is_active(&self, prefix: Stage2CohortPrefix) -> bool {
+        if !self.any_active() {
+            return false;
+        }
+        self.active
+            .read()
+            .expect("Stage 2 dirty-tracking lock is not held across fallible work")
+            .contains(&prefix)
+    }
+
+    /// The dirty marker to stage for a `cf_stage2` write, or `None` when no drain tracks its cohort.
+    /// The single home of the "is this cohort captured / which marker do we write" decision, shared by
+    /// the live-event [`BatchBuilder`] path and the owned [`StagedBatch`] apply path so the rule for
+    /// emitting a marker cannot drift between them.
+    fn dirty_marker(&self, key: &Stage2Key) -> Option<[u8; STAGE2_DIRTY_KEY_LEN]> {
+        self.is_active(key.cohort_prefix())
+            .then(|| Stage2DirtyKey::new(*key).encode())
+    }
+
+    fn release(&self, prefix: Stage2CohortPrefix) {
+        let removed = self
+            .active
+            .write()
+            .expect("Stage 2 dirty-tracking lock is not held across fallible work")
+            .remove(&prefix);
+        debug_assert!(removed, "every dirty-tracking guard owns one active lease");
+        let previous = self.active_count.fetch_sub(1, Ordering::Release);
+        debug_assert!(previous > 0, "dirty-tracking reference count underflow");
+    }
+}
+
+/// In-memory lease enabling per-person dirty capture for one active reconcile cohort.
+///
+/// The lease is owned by the queued job. Dropping the job on completion, supersession, rebalance,
+/// or shutdown disables future capture. Already-written markers are safe for GC to reclaim because
+/// a replayed job starts from a full cohort scan.
+#[must_use]
+#[derive(Debug)]
+pub struct Stage2DirtyTrackingGuard {
+    tracking: Arc<Stage2DirtyTracking>,
+    prefix: Stage2CohortPrefix,
+}
+
+impl Drop for Stage2DirtyTrackingGuard {
+    fn drop(&mut self) {
+        self.tracking.release(self.prefix);
+    }
+}
+
 /// Handle to the per-process state store.
 ///
 /// Writes have two layers. The closure-based [`Self::write_batch`] is for synchronous callers that
@@ -190,6 +284,7 @@ pub struct CohortStore {
     db_opts: Arc<Options>,
     /// See [`StoreConfig::read_sample_ratio`]; `>= 1`.
     read_sample_ratio: u32,
+    dirty_tracking: Arc<Stage2DirtyTracking>,
 }
 
 impl CohortStore {
@@ -264,6 +359,7 @@ impl CohortStore {
             db_opts: Arc::new(db_opts.clone()),
             // Floor at 1: `next % ratio` must not divide by zero.
             read_sample_ratio: config.read_sample_ratio.max(1),
+            dirty_tracking: Arc::new(Stage2DirtyTracking::default()),
         })
     }
 
@@ -433,6 +529,58 @@ impl CohortStore {
         self.get(Cf::Stage2, &key.encode())
     }
 
+    /// Enable coalescing dirty-person capture for one active reconcile cohort until the returned
+    /// lease is dropped. This is process-local by design: a crash replays the held reconcile tile
+    /// and starts a fresh full scan, so correctness never depends on preserving an inactive marker.
+    pub fn track_stage2_dirty(&self, prefix: Stage2CohortPrefix) -> Stage2DirtyTrackingGuard {
+        self.dirty_tracking.acquire(prefix)
+    }
+
+    /// Whether this process currently owns a reconcile scan for `prefix`.
+    ///
+    /// Stage 2 GC uses this to distinguish live dirty work from metadata left by a completed,
+    /// discarded, or rebalanced job. Partition-worker serialization prevents a lease transition
+    /// from racing the corresponding GC tick.
+    pub(crate) fn is_stage2_dirty_tracking_active(&self, prefix: Stage2CohortPrefix) -> bool {
+        self.dirty_tracking.is_active(prefix)
+    }
+
+    pub fn get_stage2_transferred_register(
+        &self,
+        key: &Stage2TransferredRegisterKey,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
+        self.get(Cf::Stage2, &key.encode())
+    }
+
+    /// Batch-read transferred-register inventory values, preserving input order.
+    pub fn multi_get_stage2_transferred_registers(
+        &self,
+        keys: &[Stage2TransferredRegisterKey],
+    ) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
+        if keys.is_empty() {
+            return Ok(Vec::new());
+        }
+        let handle = self.cf(Cf::Stage2)?;
+        let encoded: Vec<_> = keys.iter().map(|key| key.encode()).collect();
+        let started = Instant::now();
+        let results = self
+            .db
+            .multi_get_cf(encoded.iter().map(|key| (handle, key.as_slice())));
+        record_multi_get(started, keys.len());
+        results
+            .into_iter()
+            .map(|result| {
+                result.map_err(|source| {
+                    counter!(STORE_ERRORS_TOTAL, "op" => OP_MULTI_GET).increment(1);
+                    StoreError::Backend {
+                        op: OP_MULTI_GET,
+                        source,
+                    }
+                })
+            })
+            .collect()
+    }
+
     /// Batch-read several `cf_stage2` values in one call, preserving input order.
     pub fn multi_get_stage2(&self, keys: &[Stage2Key]) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
         // An empty batch is not a read: skip it so it records no phantom read-latency sample.
@@ -460,6 +608,148 @@ impl CohortStore {
             .collect()
     }
 
+    /// Scan up to `limit` keys in one partition/team/cohort slice of `cf_stage2`, in person order,
+    /// resuming strictly after `start_after` when it decodes as a key in that slice.
+    ///
+    /// Corrupt keys are counted and skipped. The scan continues until it collects `limit` valid
+    /// keys or exhausts the prefix, so a short result proves there are no later decodable rows.
+    pub fn scan_stage2_cohort(
+        &self,
+        prefix: Stage2CohortPrefix,
+        start_after: Option<&[u8]>,
+        limit: usize,
+    ) -> Result<Vec<Stage2Key>, StoreError> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let (prefix_start, prefix_end) = prefix.range();
+        let begin = match start_after {
+            Some(cursor)
+                if cursor >= prefix_start.as_slice()
+                    && cursor < prefix_end.as_slice()
+                    && Stage2Key::decode(cursor).is_ok() =>
+            {
+                successor(cursor)
+            }
+            _ => prefix_start,
+        };
+        let handle = self.cf(Cf::Stage2)?;
+
+        let mut read_opts = ReadOptions::default();
+        read_opts.set_iterate_upper_bound(prefix_end);
+        let iter = self.db.iterator_cf_opt(
+            handle,
+            read_opts,
+            IteratorMode::From(&begin, Direction::Forward),
+        );
+        let mut out = Vec::with_capacity(limit.min(1024));
+        for item in iter {
+            if out.len() == limit {
+                break;
+            }
+            let (key_bytes, _value) = item.map_err(|source| {
+                counter!(STORE_ERRORS_TOTAL, "op" => OP_SCAN).increment(1);
+                StoreError::Backend {
+                    op: OP_SCAN,
+                    source,
+                }
+            })?;
+            if Stage2DirtyKey::decode(&key_bytes).is_ok()
+                || Stage2TransferredRegisterKey::decode(&key_bytes).is_ok()
+            {
+                // Metadata is the partition tail, so no Stage 2 row can follow it. This is reachable
+                // only for the all-ones row prefix; ordinary cohort ranges end earlier.
+                break;
+            }
+            match Stage2Key::decode(&key_bytes) {
+                Ok(key) => out.push(key),
+                Err(_) => counter!(STAGE2_SCAN_UNDECODABLE_KEYS_TOTAL).increment(1),
+            }
+        }
+        Ok(out)
+    }
+
+    /// Scan up to `limit` dirty-person markers for one Stage 2 cohort, resuming strictly after a
+    /// marker in that same prefix. A malformed key inside the reserved namespace is an error: the
+    /// reconciler must stop rather than mistake corruption for an empty dirty set.
+    pub fn scan_stage2_dirty(
+        &self,
+        prefix: Stage2CohortPrefix,
+        start_after: Option<&[u8]>,
+        limit: usize,
+    ) -> Result<Vec<Stage2DirtyKey>, StoreError> {
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+
+        let dirty_prefix = prefix.dirty_prefix();
+        let (prefix_start, prefix_end) = dirty_prefix.range();
+        let begin = match start_after {
+            Some(cursor)
+                if cursor >= prefix_start.as_slice()
+                    && cursor < prefix_end.as_slice()
+                    && Stage2DirtyKey::decode(cursor).is_ok() =>
+            {
+                successor(cursor)
+            }
+            _ => prefix_start,
+        };
+        let handle = self.cf(Cf::Stage2)?;
+        let mut read_opts = ReadOptions::default();
+        read_opts.set_iterate_upper_bound(prefix_end);
+        let iter = self.db.iterator_cf_opt(
+            handle,
+            read_opts,
+            IteratorMode::From(&begin, Direction::Forward),
+        );
+
+        let mut out = Vec::with_capacity(limit.min(1024));
+        for item in iter.take(limit) {
+            let (key_bytes, _value) = item.map_err(|source| {
+                counter!(STORE_ERRORS_TOTAL, "op" => OP_SCAN).increment(1);
+                StoreError::Backend {
+                    op: OP_SCAN,
+                    source,
+                }
+            })?;
+            out.push(Stage2DirtyKey::decode(&key_bytes)?);
+        }
+        Ok(out)
+    }
+
+    /// Scan the catalog-independent transferred-register inventory for one person.
+    pub fn scan_stage2_transferred_registers(
+        &self,
+        prefix: Stage2TransferredRegisterPersonPrefix,
+    ) -> Result<Vec<(Stage2TransferredRegisterKey, Vec<u8>)>, StoreError> {
+        let (prefix_start, prefix_end) = prefix.range();
+        let handle = self.cf(Cf::Stage2)?;
+        let mut read_opts = ReadOptions::default();
+        read_opts.set_iterate_upper_bound(prefix_end);
+        let iter = self.db.iterator_cf_opt(
+            handle,
+            read_opts,
+            IteratorMode::From(&prefix_start, Direction::Forward),
+        );
+
+        let mut out = Vec::new();
+        for item in iter {
+            let (key_bytes, value) = item.map_err(|source| {
+                counter!(STORE_ERRORS_TOTAL, "op" => OP_SCAN).increment(1);
+                StoreError::Backend {
+                    op: OP_SCAN,
+                    source,
+                }
+            })?;
+            out.push((
+                Stage2TransferredRegisterKey::decode(&key_bytes)?,
+                value.to_vec(),
+            ));
+        }
+        Ok(out)
+    }
+
     /// Apply writes across CFs in one atomic `WriteBatch`.
     pub fn write_batch<F>(&self, build: F) -> Result<(), StoreError>
     where
@@ -475,6 +765,7 @@ impl CohortStore {
             merge_applied: self.cf(Cf::MergeApplied)?,
             merge_tombstones: self.cf(Cf::MergeTombstones)?,
             meta: self.cf(Cf::Meta)?,
+            dirty_tracking: &self.dirty_tracking,
         };
         build(&mut builder);
         self.commit(builder.batch, OP_WRITE_BATCH)
@@ -491,13 +782,36 @@ impl CohortStore {
             match op {
                 StagedOp::Put { cf, key, value } => {
                     batch.put_cf(self.cf(*cf)?, key, value);
+                    self.mark_staged_stage2_dirty(&mut batch, *cf, key);
                 }
                 StagedOp::Delete { cf, key } => {
                     batch.delete_cf(self.cf(*cf)?, key);
+                    self.mark_staged_stage2_dirty(&mut batch, *cf, key);
                 }
             }
         }
         self.commit(batch, OP_WRITE_BATCH)
+    }
+
+    fn mark_staged_stage2_dirty(&self, batch: &mut WriteBatch, cf: Cf, encoded_key: &[u8]) {
+        if !matches!(cf, Cf::Stage2) {
+            return;
+        }
+        // Skip decoding the key on the hot write path when no reconcile drain is capturing dirties.
+        if !self.dirty_tracking.any_active() {
+            return;
+        }
+        let Ok(key) = Stage2Key::decode(encoded_key) else {
+            return;
+        };
+        if let Some(marker) = self.dirty_tracking.dirty_marker(&key) {
+            batch.put_cf(
+                self.cf(Cf::Stage2)
+                    .expect("the Stage 2 CF was opened before applying a batch"),
+                marker,
+                [],
+            );
+        }
     }
 
     pub fn get_merge_drain_applied(
@@ -906,6 +1220,7 @@ pub struct BatchBuilder<'db> {
     merge_applied: &'db ColumnFamily,
     merge_tombstones: &'db ColumnFamily,
     meta: &'db ColumnFamily,
+    dirty_tracking: &'db Stage2DirtyTracking,
 }
 
 impl<'db> BatchBuilder<'db> {
@@ -947,9 +1262,29 @@ impl<'db> BatchBuilder<'db> {
 
     pub fn put_stage2(&mut self, key: &Stage2Key, value: &[u8]) {
         self.batch.put_cf(self.stage2, key.encode(), value);
+        self.mark_stage2_dirty(key);
     }
 
     pub fn delete_stage2(&mut self, key: &Stage2Key) {
+        self.batch.delete_cf(self.stage2, key.encode());
+        self.mark_stage2_dirty(key);
+    }
+
+    /// Clear a reconcile dirty marker without creating another marker.
+    pub fn delete_stage2_dirty(&mut self, key: &Stage2DirtyKey) {
+        self.batch.delete_cf(self.stage2, key.encode());
+    }
+
+    /// Preserve a merge-carried register independently of the receiver's current catalog.
+    pub fn put_stage2_transferred_register(
+        &mut self,
+        key: &Stage2TransferredRegisterKey,
+        value: &[u8],
+    ) {
+        self.batch.put_cf(self.stage2, key.encode(), value);
+    }
+
+    pub fn delete_stage2_transferred_register(&mut self, key: &Stage2TransferredRegisterKey) {
         self.batch.delete_cf(self.stage2, key.encode());
     }
 
@@ -1000,6 +1335,17 @@ impl<'db> BatchBuilder<'db> {
     /// Raw put by pre-encoded key bytes. Restricted to [`OpaqueCf`].
     pub fn put_raw(&mut self, cf: OpaqueCf, key: &[u8], value: &[u8]) {
         self.batch.put_cf(self.handle(cf.cf()), key, value);
+        if matches!(cf, OpaqueCf::Stage2) {
+            if let Ok(key) = Stage2Key::decode(key) {
+                self.mark_stage2_dirty(&key);
+            }
+        }
+    }
+
+    fn mark_stage2_dirty(&mut self, key: &Stage2Key) {
+        if let Some(marker) = self.dirty_tracking.dirty_marker(key) {
+            self.batch.put_cf(self.stage2, marker, []);
+        }
     }
 }
 
@@ -1426,6 +1772,333 @@ mod tests {
         assert!(
             store.multi_get_stage2(&[]).unwrap().is_empty(),
             "an empty key set reads no values",
+        );
+    }
+
+    #[test]
+    fn stage2_mutations_atomically_coalesce_one_dirty_marker_per_person() {
+        let dir = TempDir::new().unwrap();
+        let store = CohortStore::open(&StoreConfig {
+            path: dir.path().join("db"),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+        let key = |person_id: u128, cohort_id: u64| Stage2Key {
+            partition_id: 3,
+            team_id: 7,
+            cohort_id,
+            person_id: Uuid::from_u128(person_id),
+        };
+        let watched = key(1, 100);
+        let prefix = watched.cohort_prefix();
+        let _tracking = store.track_stage2_dirty(prefix);
+        assert!(store
+            .scan_stage2_dirty(prefix, None, 10)
+            .unwrap()
+            .is_empty());
+
+        store
+            .write_batch(|batch| {
+                batch.put_stage2(&watched, b"member");
+                batch.put_stage2(&watched, b"member-again");
+                batch.put_stage2(&key(2, 100), b"second person");
+                batch.put_stage2(&key(1, 101), b"other cohort");
+            })
+            .unwrap();
+        assert_eq!(
+            store
+                .scan_stage2_dirty(prefix, None, 10)
+                .unwrap()
+                .into_iter()
+                .map(Stage2DirtyKey::stage2_key)
+                .collect::<Vec<_>>(),
+            vec![watched, key(2, 100)],
+            "repeated writes coalesce and another cohort stays outside the prefix",
+        );
+
+        let mut staged = StagedBatch::default();
+        staged.delete_stage2(&watched);
+        store.apply(&staged).unwrap();
+        assert!(store.get_stage2(&watched).unwrap().is_none());
+        assert_eq!(
+            store.scan_stage2_dirty(prefix, None, 10).unwrap().len(),
+            2,
+            "a delete retains the coalesced marker even though the row is gone",
+        );
+
+        store
+            .write_batch(|batch| {
+                batch.delete_stage2_dirty(&Stage2DirtyKey::new(watched));
+                batch.delete_stage2_dirty(&Stage2DirtyKey::new(key(2, 100)));
+            })
+            .unwrap();
+        assert!(store
+            .scan_stage2_dirty(prefix, None, 10)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn stage2_dirty_capture_is_scoped_to_the_tracking_lease() {
+        let dir = TempDir::new().unwrap();
+        let store = CohortStore::open(&StoreConfig {
+            path: dir.path().join("db"),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+        let key = Stage2Key {
+            partition_id: 3,
+            team_id: 7,
+            cohort_id: 100,
+            person_id: Uuid::from_u128(1),
+        };
+        let prefix = key.cohort_prefix();
+
+        store
+            .write_batch(|batch| batch.put_stage2(&key, b"before"))
+            .unwrap();
+        assert!(store
+            .scan_stage2_dirty(prefix, None, 10)
+            .unwrap()
+            .is_empty());
+
+        let tracking = store.track_stage2_dirty(prefix);
+        let mut staged = StagedBatch::default();
+        staged.put_stage2(&key, b"during");
+        store.apply(&staged).unwrap();
+        assert_eq!(store.scan_stage2_dirty(prefix, None, 10).unwrap().len(), 1);
+        store
+            .write_batch(|batch| batch.delete_stage2_dirty(&Stage2DirtyKey::new(key)))
+            .unwrap();
+        drop(tracking);
+
+        store
+            .write_batch(|batch| batch.put_stage2(&key, b"after"))
+            .unwrap();
+        assert!(
+            store
+                .scan_stage2_dirty(prefix, None, 10)
+                .unwrap()
+                .is_empty(),
+            "idle Stage 2 writes do not accumulate permanent dirty metadata",
+        );
+    }
+
+    #[test]
+    fn scan_stage2_dirty_is_bounded_and_resumable() {
+        let dir = TempDir::new().unwrap();
+        let store = CohortStore::open(&StoreConfig {
+            path: dir.path().join("db"),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+        let key = |person_id: u128| Stage2Key {
+            partition_id: 3,
+            team_id: 7,
+            cohort_id: 100,
+            person_id: Uuid::from_u128(person_id),
+        };
+        let prefix = key(1).cohort_prefix();
+        let _tracking = store.track_stage2_dirty(prefix);
+        store
+            .write_batch(|batch| {
+                for person_id in 1..=4 {
+                    batch.put_stage2(&key(person_id), b"member");
+                }
+            })
+            .unwrap();
+
+        let first = store.scan_stage2_dirty(prefix, None, 2).unwrap();
+        assert_eq!(
+            first
+                .iter()
+                .map(|dirty| dirty.stage2_key().person_id)
+                .collect::<Vec<_>>(),
+            vec![Uuid::from_u128(1), Uuid::from_u128(2)],
+        );
+        let cursor = first.last().unwrap().encode();
+        let second = store.scan_stage2_dirty(prefix, Some(&cursor), 2).unwrap();
+        assert_eq!(
+            second
+                .iter()
+                .map(|dirty| dirty.stage2_key().person_id)
+                .collect::<Vec<_>>(),
+            vec![Uuid::from_u128(3), Uuid::from_u128(4)],
+        );
+        let cursor = second.last().unwrap().encode();
+        assert!(store
+            .scan_stage2_dirty(prefix, Some(&cursor), 2)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn transferred_register_inventory_scans_one_person_in_cohort_order() {
+        let dir = TempDir::new().unwrap();
+        let store = CohortStore::open(&StoreConfig {
+            path: dir.path().join("transferred-register-scan"),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+        let person_id = Uuid::from_u128(7);
+        let prefix = Stage2TransferredRegisterPersonPrefix::new(3, 7, person_id);
+        store
+            .write_batch(|batch| {
+                for cohort_id in [9, 2, 5] {
+                    batch.put_stage2_transferred_register(
+                        &Stage2TransferredRegisterKey::new(Stage2Key {
+                            partition_id: 3,
+                            team_id: 7,
+                            cohort_id,
+                            person_id,
+                        }),
+                        &[cohort_id as u8],
+                    );
+                }
+                batch.put_stage2_transferred_register(
+                    &Stage2TransferredRegisterKey::new(Stage2Key {
+                        partition_id: 3,
+                        team_id: 7,
+                        cohort_id: 1,
+                        person_id: Uuid::from_u128(8),
+                    }),
+                    b"foreign",
+                );
+            })
+            .unwrap();
+
+        let rows = store.scan_stage2_transferred_registers(prefix).unwrap();
+        assert_eq!(
+            rows.iter()
+                .map(|(key, value)| (key.stage2_key().cohort_id, value.clone()))
+                .collect::<Vec<_>>(),
+            vec![(2, vec![2]), (5, vec![5]), (9, vec![9])],
+        );
+    }
+
+    #[test]
+    fn scan_stage2_cohort_is_bounded_resumable_and_skips_corrupt_keys() {
+        let dir = TempDir::new().unwrap();
+        let store = CohortStore::open(&StoreConfig {
+            path: dir.path().join("db"),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+        let prefix = Stage2CohortPrefix {
+            partition_id: 3,
+            team_id: 7,
+            cohort_id: 100,
+        };
+        let key = |partition_id: u16, team_id: u64, cohort_id: u64, person: u128| Stage2Key {
+            partition_id,
+            team_id,
+            cohort_id,
+            person_id: Uuid::from_u128(person),
+        };
+
+        store
+            .write_batch(|batch| {
+                for person in 1..=4 {
+                    batch.put_stage2(&key(3, 7, 100, person), b"member");
+                }
+                batch.put_stage2(&key(3, 7, 101, 1), b"other-cohort");
+                batch.put_stage2(&key(3, 8, 100, 1), b"other-team");
+                batch.put_stage2(&key(4, 7, 100, 1), b"other-partition");
+            })
+            .unwrap();
+
+        // This malformed key is inside the prefix range and sorts before person 1. It must not
+        // consume the valid-key page limit or make the scan fail.
+        let mut malformed = prefix.encode().to_vec();
+        malformed.extend_from_slice(&[0; 15]);
+        store
+            .db
+            .put_cf(store.cf(Cf::Stage2).unwrap(), malformed, b"corrupt-prefix")
+            .unwrap();
+        let mut malformed_tail = prefix.encode().to_vec();
+        malformed_tail.extend_from_slice(Uuid::from_u128(5).as_bytes());
+        malformed_tail.push(0);
+        store
+            .db
+            .put_cf(
+                store.cf(Cf::Stage2).unwrap(),
+                &malformed_tail,
+                b"corrupt-tail",
+            )
+            .unwrap();
+
+        let first = store.scan_stage2_cohort(prefix, None, 2).unwrap();
+        assert_eq!(
+            first.iter().map(|key| key.person_id).collect::<Vec<_>>(),
+            vec![Uuid::from_u128(1), Uuid::from_u128(2)],
+        );
+
+        let cursor = first.last().unwrap().encode().to_vec();
+        let second = store.scan_stage2_cohort(prefix, Some(&cursor), 2).unwrap();
+        assert_eq!(
+            second.iter().map(|key| key.person_id).collect::<Vec<_>>(),
+            vec![Uuid::from_u128(3), Uuid::from_u128(4)],
+        );
+
+        let last = second.last().unwrap().encode().to_vec();
+        assert!(
+            store
+                .scan_stage2_cohort(prefix, Some(&last), 10)
+                .unwrap()
+                .is_empty(),
+            "the cohort prefix is exhausted after person 4",
+        );
+
+        assert_eq!(
+            store
+                .scan_stage2_cohort(prefix, Some(&malformed_tail), 10)
+                .unwrap()
+                .len(),
+            4,
+            "an in-prefix cursor must decode before it can skip rows",
+        );
+
+        let foreign_cursor = key(3, 7, 101, 1).encode();
+        assert_eq!(
+            store
+                .scan_stage2_cohort(prefix, Some(&foreign_cursor), 10)
+                .unwrap()
+                .len(),
+            4,
+            "an out-of-prefix cursor starts a fresh scan",
+        );
+        assert!(store
+            .scan_stage2_cohort(prefix, None, 0)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn scan_stage2_cohort_includes_the_all_ones_key() {
+        let dir = TempDir::new().unwrap();
+        let store = CohortStore::open(&StoreConfig {
+            path: dir.path().join("db"),
+            ..StoreConfig::default()
+        })
+        .unwrap();
+        let prefix = Stage2CohortPrefix {
+            partition_id: u16::MAX,
+            team_id: u64::MAX,
+            cohort_id: u64::MAX,
+        };
+        let key = Stage2Key {
+            partition_id: u16::MAX,
+            team_id: u64::MAX,
+            cohort_id: u64::MAX,
+            person_id: Uuid::from_u128(u128::MAX),
+        };
+        store
+            .write_batch(|batch| batch.put_stage2(&key, b"max"))
+            .unwrap();
+
+        assert_eq!(
+            store.scan_stage2_cohort(prefix, None, 1).unwrap(),
+            vec![key]
         );
     }
 

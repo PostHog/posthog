@@ -8,6 +8,8 @@
 ## Changes
 
 <!-- If there are frontend changes, please include screenshots. -->
+<!-- PostHog employees: `hogli pr:upload-image <file>` uploads to the public PostHog/pr-assets repo and prints markdown to paste here. Never upload customer data, secrets, or internal info. -->
+
 <!-- If a reference design was involved, include a link to the relevant Figma frame! -->
 
 ## How did you test this code?
@@ -38,6 +40,10 @@
 
 **Autonomy:** Human-driven (agent-assisted) - or - Fully autonomous
 
+<!-- Definition of done (agents): not done until each gate below holds. Verify against the named artifact or skill — don't assume. Add gates as the PR touches more areas.
+     - Patch coverage: the lines this PR changed are covered, or the uncovered ones are justified under "How did you test this code?". Don't pad untouched code to lift the number. Check the "🧪 Backend test coverage" PR comment (and its patch-coverage artifact).
+-->
+
 <!-- Keep this short: 1-3 short paragraphs or a handful of bullets — not an exhaustive log. Include:
      - tools/agent used and link to session. List the agent and tool names used, but do not include tool call results.
      - skills invoked: always explicitly call out any repo-provided or public skills (e.g. /django-migrations, /improving-drf-endpoints) that were invoked while producing this PR. This helps reviewers judge where and how the code was shaped by an agent.
@@ -66,7 +72,15 @@
 - Do NOT claim manual testing you haven't done.
 - GitHub PR descriptions render markdown, not fixed-width text. Do not hard-wrap prose at a column width or use space-aligned tables — use real markdown tables, headings, and fenced code blocks, and let GitHub flow the text.
 - Use GitHub's rich markdown when it makes review faster, never as decoration:
-  - If the change alters a flow or topology (CI wiring, pipelines, state machines, request paths), include before/after mermaid diagrams as two separate `flowchart LR` blocks, with the before diagram first. Keep them simple: a syntax error renders as an error block. Skip diagrams for trivial changes.
+  - If the change alters a flow or topology (CI wiring, pipelines, state machines, request paths), include before/after mermaid diagrams as two separate `flowchart` blocks, before first. Pick `TD` (tall pipelines) or `LR` (wide paths). Keep them simple; a syntax error renders as an error block. Skip for trivial changes.
+    - Brand the nodes with PostHog colors: use the hex directly (mermaid can't read CSS vars), and pair every `fill` with a text `color` so nodes stay legible in GitHub light and dark.
+      ```
+      classDef phBlue fill:#1d4aff,stroke:#1d4aff,color:#fff;
+      classDef phRed fill:#f54e00,stroke:#f54e00,color:#fff;
+      classDef phYellow fill:#f9bd2b,stroke:#f9bd2b,color:#000;
+      classDef phGray fill:#e5e7eb,stroke:#c7ccd1,color:#000;
+      ```
+      Assign by role (`class NodeA,NodeB phBlue;`): `phBlue` agents/primary, `phRed` APIs/external, `phYellow` entry+exit, `phGray` data/artifacts. Shape by kind: `{{hexagon}}` agents, `[rect]` steps.
   - Use alerts (`> [!WARNING]`, `> [!NOTE]`) for behavior changes and risk callouts.
   - If you have to include long supporting content (test output, logs), collapse it in `<details>` blocks.
   - Use fenced `diff` code blocks for config before/after.

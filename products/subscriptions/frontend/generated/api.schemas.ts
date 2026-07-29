@@ -21,6 +21,50 @@ export const ResourceTypeEnumApi = {
 } as const
 
 /**
+ * * `since_last_sent` - Since last report
+ * * `last_n_days` - Last N days
+ * * `days_ago_range` - Between X and Y days ago
+ */
+export type AIWindowConfigModeEnumApi = (typeof AIWindowConfigModeEnumApi)[keyof typeof AIWindowConfigModeEnumApi]
+
+export const AIWindowConfigModeEnumApi = {
+    SinceLastSent: 'since_last_sent',
+    LastNDays: 'last_n_days',
+    DaysAgoRange: 'days_ago_range',
+} as const
+
+export interface AIWindowConfigApi {
+    /** What the report analyzes each run:
+     * * `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test/manual sends don't move the anchor)
+     * * `last_n_days` — a fixed trailing window of start_days_ago days
+     * * `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago
+     *
+     * * `since_last_sent` - Since last report
+     * * `last_n_days` - Last N days
+     * * `days_ago_range` - Between X and Y days ago */
+    mode?: AIWindowConfigModeEnumApi
+    /**
+     * Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365.
+     * @minimum 1
+     * @maximum 365
+     * @nullable
+     */
+    start_days_ago?: number | null
+    /**
+     * Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365.
+     * @minimum 0
+     * @maximum 365
+     * @nullable
+     */
+    end_days_ago?: number | null
+}
+
+export interface AIPromptConfigApi {
+    /** Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous scheduled delivery). */
+    window?: AIWindowConfigApi
+}
+
+/**
  * * `email` - Email
  * * `slack` - Slack
  */
@@ -155,6 +199,8 @@ export interface SubscriptionApi {
      * @nullable
      */
     prompt?: string | null
+    /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
+    ai_prompt_config?: AIPromptConfigApi
     /** Delivery channel: email or slack.
      *
      * * `email` - Email
@@ -227,6 +273,8 @@ export interface SubscriptionApi {
      * @nullable
      */
     invite_message?: string | null
+    /** Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected. */
+    send_test_now?: boolean
     /** Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated. */
     summary_enabled?: boolean
     /**
@@ -299,6 +347,8 @@ export interface PatchedSubscriptionApi {
      * @nullable
      */
     prompt?: string | null
+    /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
+    ai_prompt_config?: AIPromptConfigApi
     /** Delivery channel: email or slack.
      *
      * * `email` - Email
@@ -371,6 +421,8 @@ export interface PatchedSubscriptionApi {
      * @nullable
      */
     invite_message?: string | null
+    /** Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected. */
+    send_test_now?: boolean
     /** Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated. */
     summary_enabled?: boolean
     /**
@@ -503,9 +555,17 @@ export type SubscriptionsListParams = {
      */
     dashboard?: number
     /**
+     * Filter to subscriptions on insights that are tiles of the given dashboard ID.
+     */
+    dashboard_tiles?: number
+    /**
      * Filter by insight ID.
      */
     insight?: number
+    /**
+     * Filter by a comma-separated list of insight IDs.
+     */
+    insights?: string
     /**
      * Number of results to return per page.
      */

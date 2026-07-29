@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { HedgehogMoney } from '@posthog/brand/hoggies'
+import * as moneyPng from '@posthog/brand/hoggies/png/money'
 import { IconArrowRight } from '@posthog/icons'
 import { LemonButton, LemonCard, Link } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -19,6 +20,8 @@ import { marketingAnalyticsSettingsLogic } from '../../web-analytics/tabs/market
 import { AddSourceStep } from './AddSourceStep'
 import { MarketingOnboardingStep, marketingOnboardingLogic } from './marketingOnboardingLogic'
 import { MarketingWizardStepper } from './MarketingWizardStepper'
+
+const HedgehogMoney = pngHoggie(moneyPng)
 
 interface OnboardingProps {
     completeOnboarding: () => void

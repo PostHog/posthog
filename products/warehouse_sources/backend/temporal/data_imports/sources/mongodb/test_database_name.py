@@ -3,7 +3,9 @@ from unittest.mock import patch
 
 from pymongo.errors import InvalidURI, OperationFailure, ServerSelectionTimeoutError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mongodb import (
+    MongoDBSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     DATABASE_NAME_REQUIRED_ERROR,
     _parse_connection_string,

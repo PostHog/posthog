@@ -83,7 +83,7 @@ const TASK_RUN_STREAM_BODY = [
 ].join('')
 
 const meta: Meta = {
-    title: 'Scenes-Other/Onboarding/Legacy Install Step',
+    title: 'Scenes-Other/Onboarding/Legacy/Install Step',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',

@@ -189,8 +189,9 @@ class TestEndpointOpenAPISpec(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("variables", request_schema.get("required", []))
 
     def test_build_variables_schema_marks_breakdown_required_on_insight(self):
-        """Breakdown variables are enforced at run time on both inline and materialized
-        insight endpoints, so the spec marks them required on both paths."""
+        """The spec marks breakdown variables required on both inline and materialized
+        insight endpoints so generated clients always send them; run-time enforcement
+        currently applies to materialized endpoints only."""
         from products.endpoints.backend.openapi import _build_variables_schema
 
         trends_query = {

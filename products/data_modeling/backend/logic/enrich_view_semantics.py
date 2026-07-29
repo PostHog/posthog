@@ -31,7 +31,6 @@ from posthog.llm.semantic_enrichment import (
     MAX_PROMPT_CHARS,
     bound_prompt_over_columns,
     collapse_untrusted,
-    enrichment_enabled,
     generate_json_completion,
     get_team_business_context,
     upsert_column_annotation,
@@ -48,7 +47,6 @@ from products.warehouse_sources.backend.facade.models import DataWarehouseTable,
 
 logger = structlog.get_logger(__name__)
 
-VIEW_ENRICHMENT_FEATURE_FLAG = "data-modeling-semantic-enrichment"
 # Reuse the warehouse gateway product tag — no new llm-gateway config/deploy needed. Telemetry (below)
 # distinguishes the two surfaces, and billing can split later if it ever needs to.
 GATEWAY_PRODUCT: Product = "warehouse_semantic_enrichment"
@@ -313,8 +311,6 @@ def enrich_view_semantics_sync(team_id: int, saved_query_id: str) -> dict[str, A
         log.info("view_enrichment.skipped", reason=reason)
         return {"status": "skipped", "reason": reason}
 
-    if not enrichment_enabled(team, VIEW_ENRICHMENT_FEATURE_FLAG):
-        return skip("flag_disabled")
     # Respect the org's AI data-processing opt-out: this ships view metadata and core memory to the LLM.
     if team.organization.is_ai_data_processing_approved is not True:
         return skip("ai_data_processing_not_approved")
@@ -446,23 +442,19 @@ def _upsert(saved_query: DataWarehouseSavedQuery, team_id: int, column_name: str
 
 
 def enrichment_gates_pass(saved_query: DataWarehouseSavedQuery) -> bool:
-    """Feature-flag + AI-processing-approval gate shared by the save- and materialization-dispatch paths.
+    """AI-processing-approval gate shared by the save- and materialization-dispatch paths.
 
-    Both paths use this so a team where enrichment is off (or AI processing isn't approved) never enqueues
-    a workflow. The activity re-checks the same gates as the source of truth.
+    Both paths use this so a team that hasn't approved AI processing never enqueues a workflow. The
+    activity re-checks the same gate as the source of truth.
     """
-    team = saved_query.team
-    return (
-        enrichment_enabled(team, VIEW_ENRICHMENT_FEATURE_FLAG)
-        and team.organization.is_ai_data_processing_approved is True
-    )
+    return saved_query.team.organization.is_ai_data_processing_approved is True
 
 
 def view_ready_for_enrichment(saved_query: DataWarehouseSavedQuery) -> bool:
     """The content half of the dispatch decision: enrichable view whose descriptions could have changed.
 
     Not deleted/test/managed, has a query and columns, and its enrichment hash differs from the stored one.
-    The team half (flag + AI consent) is `enrichment_gates_pass`. Split out so a backfill can check the
+    The team half (AI consent) is `enrichment_gates_pass`. Split out so a backfill can check the
     team gate once per team and this once per view.
     """
     if saved_query.deleted or saved_query.is_test or saved_query.managed_viewset_id:

@@ -1,5 +1,7 @@
 from posthog.test.base import BaseTest, ClickhouseTestMixin, cleanup_materialized_columns, materialized
 
+from django.conf import settings
+
 from parameterized import parameterized
 
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
@@ -112,12 +114,16 @@ class TestRestrictPropertiesInHogQL(BaseTest):
         sql, values = self._compile_select_with_values(
             "SELECT properties.secret_field, properties.public_field FROM events"
         )
-        assert "JSONDropKeys" in sql
-        # the denied property is parameterised by JSONDropKeys, never inlined as a literal;
-        # the allowed property is extracted by name (also parameterised)
+        assert "NULL AS secret_field" in sql
+        assert "public_field" in sql
         assert "'secret_field'" not in sql
-        self._assert_value_present(values, "secret_field")
-        self._assert_value_present(values, "public_field")
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            assert "JSONDropKeys" not in sql
+            assert not any("secret_field" in str(v) for v in values.values())
+        else:
+            assert "JSONDropKeys" in sql
+            self._assert_value_present(values, "secret_field")
+            self._assert_value_present(values, "public_field")
 
     def test_user_override_allows_access(self):
         # default: none

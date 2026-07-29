@@ -8,12 +8,12 @@ from django.utils import timezone
 from asgiref.sync import sync_to_async
 from pydantic import BaseModel, ConfigDict, Field
 
-from posthog.api.tagged_item import set_tags_on_object
 from posthog.exceptions_capture import capture_exception
 from posthog.models import OrganizationMembership
 from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 
+from products.customer_analytics.backend.facade.api import _set_tags
 from products.customer_analytics.backend.logic import relationships as relationships_logic
 from products.customer_analytics.backend.models import Account, AccountRelationshipDefinition
 from products.notebooks.backend.models import Notebook, ResourceNotebook
@@ -281,7 +281,7 @@ class UpsertAccountTool(MaxTool):
                 properties=properties,
             )
             if action.tags is not None:
-                set_tags_on_object(action.tags, account)
+                _set_tags(action.tags, account, actor=self._user)
             if action.relationships:
                 self._apply_relationship_assignments(account, action.relationships)
         return account
@@ -300,7 +300,7 @@ class UpsertAccountTool(MaxTool):
         with transaction.atomic():
             account = Account.objects.update_account(account, **update_kwargs)
             if action.tags is not None:
-                set_tags_on_object(action.tags, account)
+                _set_tags(action.tags, account, actor=self._user)
             if action.relationships:
                 self._apply_relationship_assignments(account, action.relationships)
         return account

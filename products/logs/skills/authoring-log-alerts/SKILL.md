@@ -33,7 +33,7 @@ are trying to land thresholds that fire 0–3 times per week on real production 
 | `posthog:logs-count-ranges`                                           | Adaptive time-bucketed counts for a filter.                                   | Step 3 — baseline. |
 | `posthog:logs-alerts-simulate-create`                                 | Replay a draft config against `-7d` history with full state machine.          | Step 4 — validate. |
 | `posthog:logs-alerts-create`                                          | Persist the alert.                                                            | Step 5 — ship.     |
-| `posthog:logs-alerts-destinations-create`                             | Wire the alert to Slack or webhook.                                           | Step 5 — ship.     |
+| `posthog:logs-alerts-destinations-create`                             | Wire the alert to Slack, webhook, or Microsoft Teams.                         | Step 5: ship.      |
 
 Do **not** call `posthog:query-logs` during authoring. You need distributions, not rows. Reserve `posthog:query-logs` for
 the very end if the user asks "show me a sample of what would have fired" — `limit: 10` is plenty.
@@ -143,7 +143,12 @@ Once a draft simulates cleanly:
 1. Call `posthog:logs-alerts-create` with the validated config. Use a name like `<service> error rate (auto)` so the
    user can see at a glance which alerts came from this skill.
 2. Call `posthog:logs-alerts-destinations-create` to wire it to a notification target. **An alert with no destination
-   is silent.** Always confirm the channel name or webhook URL with the user before attaching — never wire
+   is silent.** Supported destination fields:
+   - Slack: `type: "slack"`, `slack_workspace_id`, and `slack_channel_id`. `slack_channel_name` is optional.
+   - Webhook: `type: "webhook"` and `webhook_url`.
+   - Microsoft Teams: `type: "teams"` and `webhook_url`.
+
+   Always confirm the channel name or webhook URL with the user before attaching. Never wire
    an auto-generated alert to a production channel without explicit confirmation. If the user is unsure,
    suggest a low-traffic testing channel for the first few alerts.
 

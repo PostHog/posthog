@@ -3,10 +3,10 @@ import { useActions, useValues } from 'kea'
 import { IconChevronDown, IconPlay } from '@posthog/icons'
 import { LemonButton, LemonMenuItems, LemonMenuOverlay } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { notebookSettingsLogic } from '../../Notebook/notebookSettingsLogic'
+import { isKernelUiEnabled } from '../../utils'
 import { NotebookRunMode, buildRunMenuItems } from './runMenuItems'
 
 export type HogqlSqlRunMode = NotebookRunMode
@@ -36,7 +36,7 @@ export const HogqlSqlRunMenu = ({
 
     const hogqlRunMenuItems: LemonMenuItems = [...buildRunMenuItems(onRun)]
 
-    if (featureFlags[FEATURE_FLAGS.NOTEBOOK_PYTHON]) {
+    if (isKernelUiEnabled(featureFlags)) {
         hogqlRunMenuItems.push({
             label: 'Toggle kernel info',
             onClick: () => setShowKernelInfo(!showKernelInfo),

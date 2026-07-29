@@ -69,7 +69,8 @@ export function UnitPicker(): JSX.Element {
 
     const displayValue = useMemo(() => {
         let displayValue: React.ReactNode = 'None'
-        if (effectiveAxisFormat) {
+        // 'numeric' is the explicit "None" option, so keep the "None" label rather than its empty short symbol.
+        if (effectiveAxisFormat && effectiveAxisFormat !== 'numeric') {
             displayValue = INSIGHT_UNIT_OPTIONS_SHORT[effectiveAxisFormat]
         }
         if (trendsFilter?.aggregationAxisPrefix?.length) {

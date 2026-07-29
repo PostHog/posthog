@@ -180,9 +180,11 @@ export function serializeNode(node: NotebookBlockNode): string {
 function serializeNodeUncached(node: NotebookBlockNode): string {
     if (node.type === 'heading') {
         const [firstLine, ...followingLines] = serializeInlineNodes(node.children).split('\n')
-        return [`${'#'.repeat(node.level ?? 1)} ${firstLine}`, ...followingLines.map(escapeMarkdownLineStart)].join(
-            '\n'
-        )
+        const linePrefix = node.blockquote ? '> ' : ''
+        return [
+            `${linePrefix}${'#'.repeat(node.level ?? 1)} ${firstLine}`,
+            ...followingLines.map((followingLine) => `${linePrefix}${escapeMarkdownLineStart(followingLine)}`),
+        ].join('\n')
     }
     if (node.type === 'paragraph') {
         return escapeMarkdownBlockLines(serializeInlineNodes(node.children))
@@ -608,13 +610,33 @@ function parseBlock(lines: string[], lineIndex: number): BlockParseResult {
         if (isListLine(stripBlockquoteMarker(line))) {
             return parseBlockquotedListBlock(lines, lineIndex)
         }
+        if (COMPONENT_START_REGEX.test(stripAllBlockquoteMarkers(line))) {
+            return parseBlockquotedComponentBlock(lines, lineIndex)
+        }
+
+        // The heading marker needs its trailing space (`> ## `), which stripBlockquoteMarker trims.
+        const quotedHeadingMatch = line.replace(/^\s*>\s?/, '').match(HEADING_REGEX)
+        if (quotedHeadingMatch) {
+            return {
+                node: {
+                    id: '',
+                    type: 'heading',
+                    level: quotedHeadingMatch[1].length as NotebookTextBlockNode['level'],
+                    blockquote: true,
+                    children: parseInlineMarkdown(quotedHeadingMatch[2]),
+                },
+                nextLineIndex: lineIndex + 1,
+            }
+        }
 
         const quoteLines: string[] = []
         let nextLineIndex = lineIndex
         while (
             nextLineIndex < lines.length &&
             lines[nextLineIndex].trim().startsWith('>') &&
-            !isListLine(stripBlockquoteMarker(lines[nextLineIndex]))
+            !isListLine(stripBlockquoteMarker(lines[nextLineIndex])) &&
+            !HEADING_REGEX.test(lines[nextLineIndex].replace(/^\s*>\s?/, '')) &&
+            !COMPONENT_START_REGEX.test(stripAllBlockquoteMarkers(lines[nextLineIndex]))
         ) {
             quoteLines.push(stripBlockquoteMarker(lines[nextLineIndex]))
             nextLineIndex += 1
@@ -674,6 +696,34 @@ function isListLine(line: string): boolean {
 
 function stripBlockquoteMarker(line: string): string {
     return line.trim().replace(/^>\s?/, '')
+}
+
+function stripAllBlockquoteMarkers(line: string): string {
+    let stripped = stripBlockquoteMarker(line)
+    while (stripped.trim().startsWith('>')) {
+        stripped = stripBlockquoteMarker(stripped)
+    }
+    return stripped
+}
+
+// Component tags have no blockquote representation in this model, so a quoted tag line (as
+// produced by older legacy-notebook conversions, e.g. `> <Query … />`) is parsed as the
+// component itself, broken out of the quote. Treating it as quote text would degrade the tag
+// to escaped literal text on the next save, permanently destroying the node.
+function parseBlockquotedComponentBlock(lines: string[], lineIndex: number): BlockParseResult {
+    const strippedLines: string[] = []
+    let end = lineIndex
+    while (end < lines.length && lines[end].trim().startsWith('>')) {
+        strippedLines.push(stripAllBlockquoteMarkers(lines[end]))
+        end += 1
+    }
+
+    const result = parseComponentBlock(strippedLines, 0)
+    return {
+        ...result,
+        nextLineIndex: lineIndex + result.nextLineIndex,
+        error: result.error ? { ...result.error, line: lineIndex + result.error.line } : undefined,
+    }
 }
 
 function parseBlockquotedListBlock(lines: string[], lineIndex: number): BlockParseResult {

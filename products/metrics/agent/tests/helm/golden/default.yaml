@@ -1,0 +1,213 @@
+---
+# Source: posthog-metrics-agent/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+    name: test-release-posthog-metrics-agent
+    labels:
+        helm.sh/chart: posthog-metrics-agent-0.1.0
+        app.kubernetes.io/name: posthog-metrics-agent
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.1.0"
+        app.kubernetes.io/managed-by: Helm
+---
+# Source: posthog-metrics-agent/templates/secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+    name: test-release-posthog-metrics-agent
+    labels:
+        helm.sh/chart: posthog-metrics-agent-0.1.0
+        app.kubernetes.io/name: posthog-metrics-agent
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.1.0"
+        app.kubernetes.io/managed-by: Helm
+type: Opaque
+data:
+    posthog-api-key: cGhjX3Rlc3Q=
+---
+# Source: posthog-metrics-agent/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: test-release-posthog-metrics-agent
+    labels:
+        helm.sh/chart: posthog-metrics-agent-0.1.0
+        app.kubernetes.io/name: posthog-metrics-agent
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.1.0"
+        app.kubernetes.io/managed-by: Helm
+data:
+    config.yaml: |
+        receivers:
+            prometheus:
+                config:
+                    scrape_configs:
+                        - job_name: kubernetes-pods
+                          scrape_interval: 15s
+                          # OpenMetrics first so exemplars (trace links) survive the scrape.
+                          scrape_protocols: [OpenMetricsText1.0.0, OpenMetricsText0.0.1, PrometheusText0.0.4]
+                          kubernetes_sd_configs:
+                              - role: pod
+                          relabel_configs:
+                              - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+                                action: keep
+                                regex: 'true'
+                              - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+                                action: replace
+                                regex: (.+)
+                                target_label: __metrics_path__
+                              - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+                                action: replace
+                                regex: ([^:]+)(?::\d+)?;(\d+)
+                                replacement: $$1:$$2
+                                target_label: __address__
+                              - source_labels: [__meta_kubernetes_namespace]
+                                action: replace
+                                target_label: namespace
+                              - source_labels: [__meta_kubernetes_pod_name]
+                                action: replace
+                                target_label: pod
+        processors:
+            # Shed load instead of buffering unbounded memory when PostHog is unreachable.
+            memory_limiter:
+                check_interval: 1s
+                limit_mib: 512
+                spike_limit_mib: 128
+            batch:
+        exporters:
+            otlphttp:
+                # The otlphttp exporter appends /v1/metrics to `endpoint`, but PostHog's
+                # public ingest route is /i/v1/metrics, so pin the per-signal path.
+                metrics_endpoint: 'https://us.i.posthog.com/i/v1/metrics'
+                compression: gzip
+                headers:
+                    authorization: 'Bearer ${env:POSTHOG_API_KEY}'
+                retry_on_failure:
+                    enabled: true
+        extensions:
+            health_check:
+                endpoint: 0.0.0.0:13133
+        service:
+            extensions: [health_check]
+            pipelines:
+                metrics:
+                    receivers: [prometheus]
+                    processors: [memory_limiter, batch]
+                    exporters: [otlphttp]
+---
+# Source: posthog-metrics-agent/templates/clusterrole.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+    name: test-release-posthog-metrics-agent
+    labels:
+        helm.sh/chart: posthog-metrics-agent-0.1.0
+        app.kubernetes.io/name: posthog-metrics-agent
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.1.0"
+        app.kubernetes.io/managed-by: Helm
+rules:
+    # Prometheus kubernetes_sd needs to watch scrape targets across the cluster.
+    - apiGroups: ['']
+      resources: [pods, services, endpoints, nodes]
+      verbs: [get, list, watch]
+    - apiGroups: [discovery.k8s.io]
+      resources: [endpointslices]
+      verbs: [get, list, watch]
+---
+# Source: posthog-metrics-agent/templates/clusterrolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+    name: test-release-posthog-metrics-agent
+    labels:
+        helm.sh/chart: posthog-metrics-agent-0.1.0
+        app.kubernetes.io/name: posthog-metrics-agent
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.1.0"
+        app.kubernetes.io/managed-by: Helm
+roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: ClusterRole
+    name: test-release-posthog-metrics-agent
+subjects:
+    - kind: ServiceAccount
+      name: test-release-posthog-metrics-agent
+      namespace: default
+---
+# Source: posthog-metrics-agent/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: test-release-posthog-metrics-agent
+    labels:
+        helm.sh/chart: posthog-metrics-agent-0.1.0
+        app.kubernetes.io/name: posthog-metrics-agent
+        app.kubernetes.io/instance: test-release
+        app.kubernetes.io/version: "0.1.0"
+        app.kubernetes.io/managed-by: Helm
+spec:
+    # A single replica by design: multiple replicas would scrape every target
+    # multiple times and double-count all metrics.
+    replicas: 1
+    selector:
+        matchLabels:
+            app.kubernetes.io/name: posthog-metrics-agent
+            app.kubernetes.io/instance: test-release
+    template:
+        metadata:
+            labels:
+                app.kubernetes.io/name: posthog-metrics-agent
+                app.kubernetes.io/instance: test-release
+            annotations:
+                checksum/config: 1411c19dbd295f3baa0b938200623d437042a8fbba649ea037b24def467025bb
+                # Covers the chart-managed Secret so an API key rotation rolls the pod.
+                checksum/secret: e89605c80663cb97ad49cb086ea1470e13424ba9ac0f44429337d2f4e2eff7fe
+        spec:
+            serviceAccountName: test-release-posthog-metrics-agent
+            securityContext:
+                runAsNonRoot: true
+                seccompProfile:
+                    type: RuntimeDefault
+            containers:
+                - name: agent
+                  image: 'posthog/metrics-agent:0.1.0'
+                  imagePullPolicy: IfNotPresent
+                  securityContext:
+                      allowPrivilegeEscalation: false
+                      capabilities:
+                          drop:
+                              - ALL
+                  env:
+                      - name: POSTHOG_API_KEY
+                        valueFrom:
+                            secretKeyRef:
+                                name: test-release-posthog-metrics-agent
+                                key: posthog-api-key
+                  volumeMounts:
+                      - name: config
+                        mountPath: /etc/posthog/config.yaml
+                        subPath: config.yaml
+                        readOnly: true
+                  ports:
+                      - name: health
+                        containerPort: 13133
+                  livenessProbe:
+                      httpGet:
+                          path: /
+                          port: health
+                  readinessProbe:
+                      httpGet:
+                          path: /
+                          port: health
+                  resources:
+                      limits:
+                        memory: 512Mi
+                      requests:
+                        cpu: 100m
+                        memory: 256Mi
+            volumes:
+                - name: config
+                  configMap:
+                      name: test-release-posthog-metrics-agent

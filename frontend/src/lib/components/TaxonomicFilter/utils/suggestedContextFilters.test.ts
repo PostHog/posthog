@@ -50,6 +50,14 @@ describe('suggestedContextFilters', () => {
             ).toHaveLength(1)
         })
 
+        it('drops a recent whose value is excluded for its group, keeping others', () => {
+            const items = [recent(EventProperties, 'message'), recent(EventProperties, 'plan')]
+            const out = filterRecentsForContext(items, [EventProperties], undefined, undefined, {
+                [EventProperties]: ['message'],
+            })
+            expect(names(out)).toEqual(['plan'])
+        })
+
         it('dedups by storage key and strips the property filter when selecting a key only', () => {
             const items = [
                 recent(EventProperties, 'plan', { propertyFilter: { operator: PropertyOperator.Exact } }),

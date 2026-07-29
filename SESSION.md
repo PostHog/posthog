@@ -1,4 +1,0 @@
-# SESSION — deferred issues (PR #67940, decouple heartbeat)
-
-- **`run_pauser_loop` executes blocking librdkafka FFI on a tokio worker thread.** The 3-thread runtime is already saturated by sync RocksDB reads (gate report §3); a wedged `pause()`/`resume()` call parks one of three threads. It no longer gates the heartbeat (that runs on the consume loop), but under thread starvation the re-assertion could lag. Optional hardening: `spawn_blocking` inside the pauser loop, or a dedicated single-thread runtime for the pauser.
-- **`EventDispatcher::dispatch` (blocking) has zero production callers** — ~30 test call sites in `consumers/events.rs` + 1 in `tests/sweep_worker.rs`. Follow-up (per haacked, explicitly deferred out of #67940): migrate tests to `dispatch_events_nonblocking` and delete `dispatch` so there's a single dispatch path to maintain.

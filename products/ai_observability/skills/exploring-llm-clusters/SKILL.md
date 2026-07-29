@@ -89,7 +89,7 @@ SELECT
     toString(properties.$ai_clustering_job_name) AS job_name,
     toString(properties.$ai_window_start) AS window_start,
     toString(properties.$ai_window_end) AS window_end,
-    toIntOrNull(toString(properties.$ai_total_items_analyzed)) AS total_items,
+    toFloat64OrNull(toString(properties.$ai_total_items_analyzed)) AS total_items,
     timestamp
 FROM events
 WHERE event IN ('$ai_trace_clusters', '$ai_generation_clusters', '$ai_evaluation_clusters')
@@ -109,7 +109,7 @@ SELECT
     toString(properties.$ai_clustering_job_name) AS job_name,
     toString(properties.$ai_window_start) AS window_start,
     toString(properties.$ai_window_end) AS window_end,
-    toIntOrNull(toString(properties.$ai_total_items_analyzed)) AS total_items,
+    toFloat64OrNull(toString(properties.$ai_total_items_analyzed)) AS total_items,
     properties.$ai_clusters AS clusters,
     properties.$ai_clustering_params AS params,
     timestamp

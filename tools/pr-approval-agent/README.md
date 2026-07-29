@@ -3,6 +3,11 @@
 AI-assisted PR approval for PostHog.
 Deterministic safety gates first, then Claude reviews for showstoppers.
 
+> [!NOTE]
+> This directory (together with `.stamphog/`) is vendored into other repos — e.g. [MLHog](https://github.com/PostHog/MLHog/tree/master/tools/pr-approval-agent) — each documenting its intentional local changes in its own copy of this README. When you change the engine or policy format here, those copies stay stale until someone re-syncs them, so give the owning teams a heads-up (or re-sync yourself: diff, re-copy, re-apply their documented local changes).
+> A policy that declares a `hogli-resolver` ownership source additionally needs the sibling `tools/owners` package vendored.
+> The legacy `gh-codeowners` / `ph-product` ownership formats were removed together with the `CODEOWNERS-soft` migration, so a vendored copy whose policy still declares them must migrate to `hogli-resolver` (adopting `owners.yaml` + `tools/owners`) as part of the re-sync — or skip the re-sync and keep its previous engine until it's ready. The policy loader rejects unknown formats loudly at startup, so a missed migration fails closed rather than silently skipping the ownership source.
+
 ## Usage
 
 Add the `stamphog` label to a non-draft PR.
@@ -62,10 +67,14 @@ Deny-list (hard gate)
   │
   ▼
 Size ceiling (hard gate)
-  - >500 substantive lines or >20 substantive files → too large for auto-review
+  - >800 substantive lines or >30 substantive files → too large for auto-review
+    (limits derived from 90 days of denial outcomes: the friction cluster of
+    denied-yet-merged-unchanged PRs sits at 500-750 substantive lines, and past
+    ~800 the merged-unchanged rate collapses, so escalation is genuinely right)
   - Docs (.md/.txt/.rst anywhere; artifact-extension files under docs/),
     snapshots (.snap/.ambr, __snapshots__/), images,
-    `.lock`-extension files (e.g. `yarn.lock`), and generated/ artifacts
+    `.lock`-extension files (e.g. `yarn.lock`), tests (test dirs and
+    .test/.spec/_test files), and generated/ artifacts
     (regenerated-artifact extensions only: .ts/.tsx/.js/.jsx/.json/.md/.snap/.pyi/.txt)
     don't count toward the ceiling — they inflate diffs without adding review
     surface. Note: `pnpm-lock.yaml` and `package-lock.json` are not `.lock`-extension
@@ -117,12 +126,13 @@ LLM Review
     describe an earlier snapshot of the PR and are never independent review
     signal. Quoted stamphog verdicts in other reviewers' comments are treated
     as history, not tampering
-  - For non-trivial changes, expects at least one independent reviewer (an
-    agent reviewer like Codex/Greptile/Claude, or a teammate) to have passed
-    over the current head; escalates otherwise. No independent review needed
-    for trivial changes (docs, tests, config/lockfile, typo/comment fixes) or
-    for small single-area changes (T1a/T1b) with tests by owning-team authors
-    with no outstanding reviewer concerns — humans approve those unchanged
+  - For changes entering risky territory (migrations, billing, auth, and
+    similar; the full list lives in `.stamphog/review-guidance.md`), expects
+    independent assurance over the risky part on the current head: a
+    substantive reviewer pass, or an owning-team / STRONG-familiarity author;
+    escalates otherwise. Outside risky territory no independent review is
+    required, regardless of size tier. We move fast and fix forward, and the
+    LLM's own reading suffices for contained, reversible changes
   - Gates are authoritative — LLM can tighten but never loosen
   │
   ▼
@@ -131,6 +141,8 @@ Final verdict → GitHub review (approve) or sticky comment (everything else)
 
 The bot never posts request-changes.
 Approvals are posted as real PR reviews (they must count toward branch protection).
+An approval is posted once, as the Stamphog app (`stamphog[bot]`), carrying the review body.
+This identity was confirmed to satisfy branch protection, so the earlier bodyless `github-actions[bot]` fallback approval has been dropped and every stamphog action now runs under the app token.
 Every other verdict (REFUSED, ESCALATE, WAIT, ERROR) goes into a single sticky comment that is updated in place on each run, with a counter of how many verdicts the comment has carried (failure notes append without bumping it) — repeated refusals don't stack up as separate review comments on the PR.
 
 ## Tiers
@@ -198,12 +210,13 @@ If the check hasn't completed yet when stamphog runs, stamphog refuses with a me
 
 Ownership context for the LLM (not a hard gate). The sources are declared in
 `.stamphog/policy.yml` under `ownership:` and read from the master checkout: a
-`gh-codeowners` source (`.github/CODEOWNERS-soft`, last-match-wins) plus a
-`ph-product` source (`products/*/product.yaml` owners). A file's owning teams
-are the union across all sources, so stamphog sees the same merged view the
-reviewer auto-assigner builds. Cross-team typo/test/comment fixes are fine, as
-are small well-tested behavioral fixes (T1a/T1b) with no outstanding reviewer
-concerns; API contract, data model, and larger behavioral changes get escalated.
+`hogli-resolver` source that resolves ownership through the shared hogli
+resolver over the distributed `owners.yaml` / `product.yaml` files. A file's
+owning teams are the union across all sources, so stamphog sees the same merged
+view the reviewer auto-assigner builds. Cross-team typo/test/comment fixes are
+fine, as are small well-tested behavioral fixes (T1a/T1b) with no outstanding
+reviewer concerns; API contract, data model, and larger behavioral changes get
+escalated.
 
 ## Versioning
 

@@ -635,8 +635,8 @@ _REF_TOOLS = {
     "feature-flag-get-all",
     "external-data-schemas-partial-update",
     "read-data-schema",
-    "signals-scout-runs-list",
-    "signals-scout-emit-signal",
+    "scout-runs-list",
+    "scout-emit-signal",
 }
 _REF_SKILLS = {"finding-experiments", "creating-experiments"}
 

@@ -80,8 +80,18 @@ def _ensure_sourcebatch_tables(django_db_setup, django_db_blocker):
                     is_resume BOOLEAN NOT NULL DEFAULT FALSE,
                     is_first_ever_sync BOOLEAN NOT NULL DEFAULT FALSE,
                     metadata JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+                    latest_state VARCHAR(32) NOT NULL DEFAULT 'pending',
+                    latest_attempt SMALLINT NOT NULL DEFAULT 0,
+                    state_changed_at TIMESTAMPTZ,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
                 )
+            """)
+            # Self-heal pre-existing test DBs where CREATE TABLE IF NOT EXISTS is a no-op.
+            cur.execute(f"""
+                ALTER TABLE {BATCH_TABLE}
+                    ADD COLUMN IF NOT EXISTS latest_state VARCHAR(32) NOT NULL DEFAULT 'pending',
+                    ADD COLUMN IF NOT EXISTS latest_attempt SMALLINT NOT NULL DEFAULT 0,
+                    ADD COLUMN IF NOT EXISTS state_changed_at TIMESTAMPTZ
             """)
             cur.execute(f"""
                 CREATE TABLE IF NOT EXISTS {STATUS_TABLE} (

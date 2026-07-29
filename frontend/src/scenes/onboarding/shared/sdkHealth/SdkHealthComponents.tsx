@@ -68,7 +68,7 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
                     {record.isOutdated ? (
                         <Tooltip placement="right" title={record.statusReason}>
                             <LemonTag type="danger" className="shrink-0 cursor-help">
-                                Outdated
+                                {record.migrationRequired ? 'Migration required' : 'Outdated'}
                             </LemonTag>
                         </Tooltip>
                     ) : record.isCurrentOrNewer ? (
@@ -117,6 +117,7 @@ export function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
     const sdk = augmentedData[sdkType]!
     const links = SDK_DOCS_LINKS[sdkType]
     const sdkName = SDK_TYPE_READABLE_NAME[sdkType]
+    const migrationReason = sdk.migrationRequired ? sdk.allReleases[0]?.statusReason : undefined
 
     return (
         <div className="flex flex-col mb-4 p-2">
@@ -133,6 +134,7 @@ export function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
                         }
                     >
                         <small className="cursor-help">Latest version available: {sdk.currentVersion}</small>
+                        {migrationReason && <small className="block text-muted-alt">{migrationReason}</small>}
                     </Tooltip>
                 </div>
 

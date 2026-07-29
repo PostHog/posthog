@@ -2,7 +2,7 @@
 
 Before asking clarifying questions, gather evidence directly. Most diagnostics in this skill can be
 confirmed or ruled out by data — the agent has `execute-sql`, `experiment-stats`,
-`feature-flags-activity-retrieve`, and `activity-log-list` and should use them. Treat user-facing
+`feature-flags-activity-retrieve`, and `advanced-activity-logs-list` and should use them. Treat user-facing
 questions as a fallback for when MCP cannot answer.
 
 Run this snapshot once and reuse the results across the dispatch table in `SKILL.md`.
@@ -123,7 +123,7 @@ event-side identity signals, not the activity log.
 
 - **`feature-flags-activity-retrieve { id: <feature_flag_id> }`** — recent flag edits and their diffs.
   Most "why did the numbers change?" surprises trace back to a variant-distribution change visible here.
-- **`activity-log-list { scope: "Experiment", item_id: <experiment_id> }`** — experiment-level edits as
+- **`advanced-activity-logs-list { scopes: ["Experiment"], item_ids: [<experiment_id>] }`** — experiment-level edits as
   a timeline (the response currently doesn't carry a change diff, so use it for _who/when_, not
   _what_).
 

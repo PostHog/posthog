@@ -3,23 +3,23 @@ import './WizardModeShell.scss'
 import type { ComponentType, ReactNode } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
-import { WIZARD_HOG_URL } from 'scenes/onboarding/shared/wizardHog'
+import { WizardHog } from 'scenes/onboarding/shared/wizardHog'
 
-import androidImage from '../../legacy/sdks/logos/android.svg'
-import angularImage from '../../legacy/sdks/logos/angular.svg'
-import { AstroLogo } from '../../legacy/sdks/logos/AstroLogo'
-import djangoImage from '../../legacy/sdks/logos/django.svg'
-import flaskImage from '../../legacy/sdks/logos/flask.svg'
-import { IOSLogo } from '../../legacy/sdks/logos/IOSLogo'
-import laravelImage from '../../legacy/sdks/logos/laravel.svg'
-import nextjsImage from '../../legacy/sdks/logos/nextjs.svg'
-import nuxtImage from '../../legacy/sdks/logos/nuxt.svg'
-import pythonImage from '../../legacy/sdks/logos/python.svg'
-import railsImage from '../../legacy/sdks/logos/rails.svg'
-import reactImage from '../../legacy/sdks/logos/react.svg'
-import { ReactRouterLogo } from '../../legacy/sdks/logos/ReactRouterLogo'
-import svelteImage from '../../legacy/sdks/logos/svelte.svg'
-import vueImage from '../../legacy/sdks/logos/vue.svg'
+import androidImage from '../logos/android.svg'
+import angularImage from '../logos/angular.svg'
+import { AstroLogo } from '../logos/AstroLogo'
+import djangoImage from '../logos/django.svg'
+import flaskImage from '../logos/flask.svg'
+import { IOSLogo } from '../logos/IOSLogo'
+import laravelImage from '../logos/laravel.svg'
+import nextjsImage from '../logos/nextjs.svg'
+import nuxtImage from '../logos/nuxt.svg'
+import pythonImage from '../logos/python.svg'
+import railsImage from '../logos/rails.svg'
+import reactImage from '../logos/react.svg'
+import { ReactRouterLogo } from '../logos/ReactRouterLogo'
+import svelteImage from '../logos/svelte.svg'
+import vueImage from '../logos/vue.svg'
 
 // Frameworks the wizard can set up — the same whichever way it runs, so both modes show them.
 const WIZARD_FRAMEWORKS: { name: string; icon: string | ComponentType }[] = [
@@ -87,10 +87,8 @@ export function WizardModeShell({
     return (
         <div className="flex gap-6" data-attr={dataAttr}>
             {!hideHog && (
-                <img
+                <WizardHog
                     key={`hog-${hogCastKey}`}
-                    src={WIZARD_HOG_URL}
-                    alt="PostHog wizard hedgehog"
                     className={cn(
                         'w-28 h-28 hidden sm:block shrink-0 self-center',
                         hogCastKey > 0 && 'WizardModeShell__hogCast'

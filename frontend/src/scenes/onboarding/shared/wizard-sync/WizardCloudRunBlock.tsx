@@ -6,7 +6,7 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelpers'
-import { useWizardCommand } from 'scenes/onboarding/shared/SetupWizardBanner'
+import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 
 import { activeCloudRunLogic } from './activeCloudRunLogic'
 import { InstallationProgressView } from './InstallationProgressView'
@@ -67,6 +67,7 @@ export function WizardCloudRunBlock({
     if (activeCloudRun) {
         return (
             <InstallationProgressView
+                mode="cloud"
                 runId={activeCloudRun.runId}
                 taskId={activeCloudRun.taskId}
                 onRetryLocally={onRetryLocally}

@@ -3,7 +3,16 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCheckCircle, IconGlobe, IconList } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonLabel, LemonModal, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCheckbox,
+    LemonLabel,
+    LemonModal,
+    LemonSelect,
+    LemonTextArea,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -13,8 +22,10 @@ import { groupsModel } from '~/models/groupsModel'
 import { ExperimentConclusion } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
+import { hasFrozenExposureStamps } from '../experimentActions'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
+import { getExperimentVariants } from '../utils'
 import { VariantTag } from './VariantTag'
 
 function ConclusionForm(): JSX.Element {
@@ -204,23 +215,35 @@ export function FinishExperimentModal(): JSX.Element {
     const { isFinishExperimentModalOpen } = useValues(modalsLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { featureFlags } = useValues(featureFlagLogic)
-    const conclusionFirst = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_END_MODAL_CONCLUSION_FIRST]
 
     const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()
     const [releaseToEveryone, setReleaseToEveryone] = useState<boolean>(false)
+    const [openCleanupPr, setOpenCleanupPr] = useState<boolean>(false)
+
+    // The cleanup PR runs as a PostHog Desktop task, so the user needs Code access on top of the rollout flag.
+    const cleanupPrAvailable =
+        !!featureFlags[FEATURE_FLAGS.EXPERIMENT_FLAG_CLEANUP_PR] && !!featureFlags[FEATURE_FLAGS.TASKS]
 
     const aggregationTargetName =
         experiment.filters.aggregation_group_type_index != null
             ? aggregationLabel(experiment.filters.aggregation_group_type_index).plural
             : 'users'
 
+    const handleClose = (): void => {
+        setOpenCleanupPr(false)
+        restoreUnmodifiedExperiment()
+        closeFinishExperimentModal()
+    }
+
     const handleEndExperiment = (): void => {
+        const withCleanupPr = cleanupPrAvailable && openCleanupPr
         if (isSingleVariantShipped || !selectedVariantKey) {
-            endExperimentWithoutShipping()
+            endExperimentWithoutShipping(withCleanupPr)
         } else {
             finishExperiment({
                 selectedVariantKey,
                 releaseToEveryone,
+                openCleanupPr: withCleanupPr,
             })
         }
     }
@@ -246,21 +269,12 @@ export function FinishExperimentModal(): JSX.Element {
         <>
             <LemonModal
                 isOpen={isFinishExperimentModalOpen}
-                onClose={() => {
-                    restoreUnmodifiedExperiment()
-                    closeFinishExperimentModal()
-                }}
+                onClose={handleClose}
                 width={600}
                 title="End experiment"
                 footer={
                     <div className="flex items-center gap-2">
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => {
-                                restoreUnmodifiedExperiment()
-                                closeFinishExperimentModal()
-                            }}
-                        >
+                        <LemonButton type="secondary" onClick={handleClose}>
                             Cancel
                         </LemonButton>
                         <LemonButton
@@ -275,7 +289,6 @@ export function FinishExperimentModal(): JSX.Element {
                 }
             >
                 <div className="space-y-4">
-                    {conclusionFirst && <ConclusionForm />}
                     {isSingleVariantShipped ? (
                         <div>
                             <LemonBanner type="info" className="mb-4">
@@ -288,6 +301,13 @@ export function FinishExperimentModal(): JSX.Element {
                         </div>
                     ) : (
                         <>
+                            {hasFrozenExposureStamps(experiment) && (
+                                <LemonBanner type="info">
+                                    Exposure is frozen for this experiment. If you end it without shipping a variant,
+                                    the feature flag keeps serving variants only to the frozen snapshot of
+                                    already-enrolled users. Shipping a variant removes the freeze.
+                                </LemonBanner>
+                            )}
                             <div>
                                 <LemonLabel showOptional>Variant to keep</LemonLabel>
                                 <div className="text-xs text-muted mb-1">
@@ -303,16 +323,14 @@ export function FinishExperimentModal(): JSX.Element {
                                             setSelectedVariantKey(variantKey)
                                         }}
                                         allowClear={true}
-                                        options={
-                                            experiment.feature_flag?.filters.multivariate?.variants?.map(({ key }) => ({
-                                                value: key,
-                                                label: (
-                                                    <div className="deprecated-space-x-2 inline-flex">
-                                                        <VariantTag variantKey={key} />
-                                                    </div>
-                                                ),
-                                            })) || []
-                                        }
+                                        options={getExperimentVariants(experiment).map(({ key }) => ({
+                                            value: key,
+                                            label: (
+                                                <div className="deprecated-space-x-2 inline-flex">
+                                                    <VariantTag variantKey={key} />
+                                                </div>
+                                            ),
+                                        }))}
                                     />
                                 </div>
                             </div>
@@ -374,7 +392,19 @@ export function FinishExperimentModal(): JSX.Element {
                             )}
                         </>
                     )}
-                    {!conclusionFirst && <ConclusionForm />}
+                    <ConclusionForm />
+                    {cleanupPrAvailable && (
+                        <LemonCheckbox
+                            checked={openCleanupPr}
+                            onChange={setOpenCleanupPr}
+                            data-attr="experiment-open-cleanup-pr"
+                            label={
+                                <span>
+                                    Open a draft PR removing <code>{experiment.feature_flag?.key}</code> from your code
+                                </span>
+                            }
+                        />
+                    )}
                     {!isSingleVariantShipped && (
                         <LemonBanner type="info" className="mb-4">
                             For more precise control over your release, adjust the rollout percentage and release

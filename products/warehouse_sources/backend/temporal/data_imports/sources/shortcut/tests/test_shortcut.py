@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -13,26 +14,59 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.s
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.shortcut import (
     SHORTCUT_BASE_URL,
-    ShortcutRetryableError,
     _build_search_body,
     _format_incremental_value,
-    _parse_response,
-    get_rows,
     shortcut_source,
     validate_credentials,
 )
 
+# RESTClient builds its request session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the shortcut module.
+SHORTCUT_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.shortcut.make_tracked_session"
+)
+# Neutralize tenacity's backoff sleeps so the retry path runs instantly.
+SLEEP_PATCH = "tenacity.nap.time.sleep"
 
-def _make_response(json_data: Any = None, status_code: int = 200) -> mock.Mock:
-    response = mock.Mock()
-    response.status_code = status_code
-    response.ok = 200 <= status_code < 300
-    response.json.return_value = json_data
-    response.text = str(json_data)
-    error_response = Response()
-    error_response.status_code = status_code
-    response.raise_for_status = mock.Mock(side_effect=HTTPError(f"{status_code} Client Error", response=error_response))
-    return response
+
+def _response(body: Any, status_code: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = json.dumps(body).encode()
+    return resp
+
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and snapshot each request's method/url/json/auth AT SEND TIME.
+
+    The framework builds a single ``Request`` and mutates it in place across pages, so inspecting it
+    after the run shows only the final state — snapshot a copy when each request is prepared instead.
+    """
+    session.headers = {}
+    snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        snapshots.append(
+            {
+                "method": request.method,
+                "url": request.url,
+                "json": request.json,
+                "params": dict(request.params or {}),
+                "auth": request.auth,
+            }
+        )
+        prepared = mock.MagicMock()
+        prepared.url = request.url
+        return prepared
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return snapshots
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
 
 
 class TestFormatIncrementalValue:
@@ -80,39 +114,129 @@ class TestBuildSearchBody:
         assert body == {}
 
 
-class TestParseResponse:
+class TestRequests:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_get_endpoint_yields_full_list_in_one_request(self, MockSession) -> None:
+        session = MockSession.return_value
+        rows = [{"id": 1}, {"id": 2}]
+        snaps = _wire(session, [_response(rows)])
+
+        result = _rows(shortcut_source("token", "members", 1, "j"))
+
+        assert result == rows
+        assert session.send.call_count == 1
+        assert snaps[0]["method"] == "GET"
+        assert snaps[0]["url"] == f"{SHORTCUT_BASE_URL}/members"
+        # A flat GET carries no request body.
+        assert snaps[0]["json"] is None
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_auth_uses_shortcut_token_header_and_content_headers(self, MockSession) -> None:
+        session = MockSession.return_value
+        snaps = _wire(session, [_response([{"id": 1}])])
+
+        _rows(shortcut_source("secret-token", "members", 1, "j"))
+
+        auth = snaps[0]["auth"]
+        assert auth.name == "Shortcut-Token"
+        assert auth.location == "header"
+        assert auth.api_key == "secret-token"
+        # Non-secret content headers ride on the session, not the redacted auth.
+        assert session.headers.get("Accept") == "application/json"
+        assert session.headers.get("Content-Type") == "application/json"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stories_uses_post_with_incremental_body(self, MockSession) -> None:
+        session = MockSession.return_value
+        snaps = _wire(session, [_response([{"id": 10}])])
+
+        result = _rows(
+            shortcut_source(
+                "token",
+                "stories",
+                1,
+                "j",
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
+                incremental_field="updated_at",
+            )
+        )
+
+        assert result == [{"id": 10}]
+        assert snaps[0]["method"] == "POST"
+        assert snaps[0]["url"] == f"{SHORTCUT_BASE_URL}/stories/search"
+        # The server-side timestamp filter rides in the POST body, not the query string.
+        assert snaps[0]["json"] == {"updated_at_start": "2026-01-02T03:04:05Z"}
+        assert snaps[0]["params"] == {}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stories_full_refresh_sends_empty_body(self, MockSession) -> None:
+        session = MockSession.return_value
+        snaps = _wire(session, [_response([{"id": 10}])])
+
+        _rows(shortcut_source("token", "stories", 1, "j"))
+
+        assert snaps[0]["method"] == "POST"
+        assert snaps[0]["json"] == {}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_list_yields_nothing(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([])])
+
+        assert _rows(shortcut_source("token", "epics", 1, "j")) == []
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_list_response_fails_loud(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"unexpected": "shape"})])
+
+        # A 200 body that isn't the expected bare array means the API shape changed — fail loud
+        # rather than syncing the stray object as a single row.
+        with pytest.raises(ValueError, match="list response body"):
+            _rows(shortcut_source("token", "epics", 1, "j"))
+
+
+class TestRetryAndErrorClassification:
     @pytest.mark.parametrize("status_code", [429, 500, 502, 503])
-    def test_retryable_statuses_raise(self, status_code: int) -> None:
-        with pytest.raises(ShortcutRetryableError):
-            _parse_response(_make_response(status_code=status_code), "url", mock.Mock())
+    @mock.patch(SLEEP_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retryable_statuses_are_retried_then_succeed(self, MockSession, _mock_sleep, status_code: int) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"error": "transient"}, status_code), _response([{"id": 7}])])
+
+        result = _rows(shortcut_source("token", "members", 1, "j"))
+
+        assert result == [{"id": 7}]
+        # First attempt hit the retryable status, second attempt succeeded.
+        assert session.send.call_count == 2
 
     @pytest.mark.parametrize("status_code", [400, 401, 403, 404])
-    def test_client_errors_raise_for_status(self, status_code: int) -> None:
-        with pytest.raises(HTTPError):
-            _parse_response(_make_response(status_code=status_code), "url", mock.Mock())
+    @mock.patch(SLEEP_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_client_errors_raise_without_retry(self, MockSession, _mock_sleep, status_code: int) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"error": "nope"}, status_code)])
 
-    def test_success_returns_json(self) -> None:
-        result = _parse_response(_make_response(json_data=[{"id": 1}]), "url", mock.Mock())
-        assert result == [{"id": 1}]
+        with pytest.raises(HTTPError):
+            _rows(shortcut_source("token", "members", 1, "j"))
+
+        assert session.send.call_count == 1
 
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
-        "status_code, expected_valid",
+        "status_code, expected_valid, message_substr",
         [
-            (200, True),
-            (401, False),
-            (403, False),
-            (418, False),
+            (200, True, None),
+            (401, False, "Invalid Shortcut API token"),
+            (403, False, "does not have access"),
+            (418, False, "unexpected status: 418"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.shortcut.make_tracked_session"
-    )
-    def test_status_mapping(self, mock_session_factory, status_code: int, expected_valid: bool) -> None:
-        session = mock.Mock()
-        session.get.return_value = _make_response(json_data={"id": "x"}, status_code=status_code)
-        mock_session_factory.return_value.__enter__.return_value = session
+    @mock.patch(SHORTCUT_SESSION_PATCH)
+    def test_status_mapping(self, mock_session, status_code, expected_valid, message_substr) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
 
         is_valid, error = validate_credentials("token")
 
@@ -120,81 +244,23 @@ class TestValidateCredentials:
         if expected_valid:
             assert error is None
         else:
-            assert error is not None
-        session.get.assert_called_once()
-        assert session.get.call_args[0][0] == f"{SHORTCUT_BASE_URL}/member"
+            assert message_substr in (error or "")
+        assert mock_session.return_value.get.call_args.args[0] == f"{SHORTCUT_BASE_URL}/member"
+
+    @mock.patch(SHORTCUT_SESSION_PATCH)
+    def test_transport_error_is_not_valid(self, mock_session) -> None:
+        mock_session.return_value.get.side_effect = Exception("boom")
+
+        is_valid, error = validate_credentials("token")
+
+        assert is_valid is False
+        assert error is not None
 
 
-class TestGetRows:
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.shortcut.make_tracked_session"
-    )
-    def test_get_endpoint_yields_full_list(self, mock_session_factory) -> None:
-        session = mock.Mock()
-        rows = [{"id": 1}, {"id": 2}]
-        session.request.return_value = _make_response(json_data=rows)
-        mock_session_factory.return_value.__enter__.return_value = session
-
-        batches = list(get_rows("token", "members", mock.Mock()))
-
-        assert batches == [rows]
-        method, url = session.request.call_args[0]
-        assert method == "GET"
-        assert url == f"{SHORTCUT_BASE_URL}/members"
-        assert session.request.call_args.kwargs["json"] is None
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.shortcut.make_tracked_session"
-    )
-    def test_stories_uses_post_with_incremental_body(self, mock_session_factory) -> None:
-        session = mock.Mock()
-        session.request.return_value = _make_response(json_data=[{"id": 10}])
-        mock_session_factory.return_value.__enter__.return_value = session
-
-        batches = list(
-            get_rows(
-                "token",
-                "stories",
-                mock.Mock(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
-                incremental_field="updated_at",
-            )
-        )
-
-        assert batches == [[{"id": 10}]]
-        method, url = session.request.call_args[0]
-        assert method == "POST"
-        assert url == f"{SHORTCUT_BASE_URL}/stories/search"
-        assert session.request.call_args.kwargs["json"] == {"updated_at_start": "2026-01-02T03:04:05Z"}
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.shortcut.make_tracked_session"
-    )
-    def test_empty_list_yields_nothing(self, mock_session_factory) -> None:
-        session = mock.Mock()
-        session.request.return_value = _make_response(json_data=[])
-        mock_session_factory.return_value.__enter__.return_value = session
-
-        assert list(get_rows("token", "epics", mock.Mock())) == []
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.shortcut.shortcut.make_tracked_session"
-    )
-    def test_non_list_response_yields_nothing(self, mock_session_factory) -> None:
-        session = mock.Mock()
-        session.request.return_value = _make_response(json_data={"unexpected": "shape"})
-        mock_session_factory.return_value.__enter__.return_value = session
-        logger = mock.Mock()
-
-        assert list(get_rows("token", "epics", logger)) == []
-        logger.warning.assert_called_once()
-
-
-class TestShortcutSource:
+class TestShortcutSourceShape:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = shortcut_source("token", endpoint, mock.Mock())
+        response = shortcut_source("token", endpoint, 1, "j")
 
         assert response.name == endpoint
         assert response.primary_keys == ["id"]

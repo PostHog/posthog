@@ -71,7 +71,15 @@ from products.event_definitions.backend.models.schema import (
     SchemaPropertyGroup,
     SchemaPropertyGroupProperty,
 )
-from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
+from products.experiments.backend.facade.timeseries import backfill_experiment_timeseries
+from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
+from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentSavedMetric,
+    ExperimentTimeseriesRecalculation,
+    ExperimentToSavedMetric,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, get_or_create_datawarehouse_credential
@@ -1178,154 +1186,7 @@ class HedgeboxMatrix(Matrix):
             metadata={"type": "secondary"},
         )
 
-        # Experiments and shared metrics
-
-        # Shared metrics
-        new_shared_funnel = ExperimentSavedMetric.objects.create(
-            team=team,
-            name="Pageview engagement",
-            description="Users who have multiple pageviews in a session",
-            query={
-                "kind": "ExperimentMetric",
-                "metric_type": "funnel",
-                "uuid": str(uuid.uuid4()),
-                "series": [
-                    {"kind": "EventsNode", "event": "$pageview"},
-                    {"kind": "EventsNode", "event": "$pageview"},
-                ],
-                "goal": "increase",
-                "conversion_window": 1,
-                "conversion_window_unit": "day",
-            },
-            created_by=user,
-        )
-
-        new_shared_mean = ExperimentSavedMetric.objects.create(
-            team=team,
-            name="Files uploaded per user",
-            description="Mean count of file uploads",
-            query={
-                "kind": "ExperimentMetric",
-                "metric_type": "mean",
-                "uuid": str(uuid.uuid4()),
-                "source": {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
-                "goal": "increase",
-            },
-            created_by=user,
-        )
-
-        new_shared_ratio = ExperimentSavedMetric.objects.create(
-            team=team,
-            name="Delete-to-upload ratio",
-            description="Ratio of file deletions to uploads",
-            query={
-                "kind": "ExperimentMetric",
-                "metric_type": "ratio",
-                "uuid": str(uuid.uuid4()),
-                "numerator": {"kind": "EventsNode", "event": EVENT_DELETED_FILE},
-                "denominator": {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
-                "goal": "increase",
-            },
-            created_by=user,
-        )
-
-        new_shared_retention = ExperimentSavedMetric.objects.create(
-            team=team,
-            name="7-day user retention",
-            description="Users who return after 7 days",
-            query={
-                "kind": "ExperimentMetric",
-                "metric_type": "retention",
-                "uuid": str(uuid.uuid4()),
-                "goal": "increase",
-                "start_event": {"kind": "EventsNode", "event": "$pageview"},
-                "start_handling": "first_seen",
-                "completion_event": {"kind": "EventsNode", "event": "$pageview", "math": "total"},
-                "retention_window_start": 1,
-                "retention_window_end": 7,
-                "retention_window_unit": "day",
-            },
-            created_by=user,
-        )
-
-        new_experiment_metrics_ordered_uuids = [str(uuid.uuid4()) for _ in range(4)]
-
-        # New experiment with one metric of each type, configured to show as many
-        # different UI states as possible
-        # Primary metrics are one time metrics, secondary metrics are shared metrics
-        new_experiment = Experiment.objects.create(
-            team=team,
-            name="File engagement boost",
-            description="Testing features to increase file uploads, sharing, and overall user engagement with files.",
-            feature_flag=file_engagement_flag,
-            created_by=user,
-            metrics=[
-                {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "funnel",
-                    "uuid": new_experiment_metrics_ordered_uuids[0],
-                    "name": "Upload activation",
-                    "series": [
-                        {"kind": "EventsNode", "event": "$pageview"},
-                        {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
-                    ],
-                    "goal": "increase",
-                    "conversion_window": 7,
-                    "conversion_window_unit": "day",
-                },
-                {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "mean",
-                    "uuid": new_experiment_metrics_ordered_uuids[1],
-                    "name": "Active sessions per user",
-                    "source": {"kind": "EventsNode", "event": "$pageview"},
-                    "goal": "increase",
-                },
-                {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "ratio",
-                    "uuid": new_experiment_metrics_ordered_uuids[2],
-                    "name": "Download-to-upload ratio",
-                    "numerator": {"kind": "EventsNode", "event": EVENT_DOWNLOADED_FILE},
-                    "denominator": {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
-                    "goal": "increase",
-                },
-                {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "retention",
-                    "uuid": new_experiment_metrics_ordered_uuids[3],
-                    "name": "7-day user retention",
-                    "goal": "increase",
-                    "start_event": {"kind": "EventsNode", "event": "$pageview"},
-                    "start_handling": "first_seen",
-                    "completion_event": {"kind": "EventsNode", "event": "$pageview", "math": "total"},
-                    "retention_window_start": 1,
-                    "retention_window_end": 7,
-                    "retention_window_unit": "day",
-                },
-            ],
-            primary_metrics_ordered_uuids=new_experiment_metrics_ordered_uuids,
-            secondary_metrics_ordered_uuids=[
-                new_shared_funnel.query["uuid"],
-                new_shared_mean.query["uuid"],
-                new_shared_ratio.query["uuid"],
-                new_shared_retention.query["uuid"],
-            ],
-            parameters={
-                "recommended_sample_size": int(len(self.clusters) * 0.40),
-                "minimum_detectable_effect": 10,
-            },
-            scheduling_config={"timeseries": True},
-            start_date=self.file_engagement_experiment_start,
-            end_date=None,
-            created_at=file_engagement_flag.created_at,
-        )
-
-        # Link ONLY new format shared metrics to new experiment as secondary
-        for metric in [new_shared_funnel, new_shared_mean, new_shared_ratio, new_shared_retention]:
-            ExperimentToSavedMetric.objects.create(
-                experiment=new_experiment, saved_metric=metric, metadata={"type": "secondary"}
-            )
+        self._set_up_file_engagement_experiment(team, user, file_engagement_flag)
 
         # --- Additional experiments for coverage of various states ---
 
@@ -1589,8 +1450,6 @@ class HedgeboxMatrix(Matrix):
             created_at=bias_warning_flag.created_at,
         )
 
-        self._set_up_demo_data_warehouse_tables(team, user)
-
         # Endpoints
         try:
             weekly_signups_endpoint = Endpoint.objects.create(
@@ -1743,6 +1602,200 @@ class HedgeboxMatrix(Matrix):
         self._set_up_error_tracking_demo_data(team)
 
         self._set_up_demo_oauth_application(team, user)
+
+    def _set_up_file_engagement_experiment(self, team: "Team", user: "User", flag: FeatureFlag) -> None:
+        """Create the "File engagement boost" experiment, its shared metrics, and its timeseries data.
+
+        Experiment dates derive from the flag rather than matrix state, so this can be re-run standalone
+        against an already-seeded team (delete the experiment, then call this with the existing flag).
+        The timeseries backfill is bounded by the matrix clock, which is where the simulated data ends.
+        """
+        # The flag is created 2h before the experiment starts — see create_experiment_flag call sites.
+        start_date = flag.created_at + dt.timedelta(hours=2)
+
+        # Shared metrics
+        new_shared_funnel = ExperimentSavedMetric.objects.create(
+            team=team,
+            name="Pageview engagement",
+            description="Users who have multiple pageviews in a session",
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "funnel",
+                "uuid": str(uuid.uuid4()),
+                "series": [
+                    {"kind": "EventsNode", "event": "$pageview"},
+                    {"kind": "EventsNode", "event": "$pageview"},
+                ],
+                "goal": "increase",
+                "conversion_window": 1,
+                "conversion_window_unit": "day",
+            },
+            created_by=user,
+        )
+
+        new_shared_mean = ExperimentSavedMetric.objects.create(
+            team=team,
+            name="Files uploaded per user",
+            description="Mean count of file uploads",
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": str(uuid.uuid4()),
+                "source": {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
+                "goal": "increase",
+            },
+            created_by=user,
+        )
+
+        new_shared_ratio = ExperimentSavedMetric.objects.create(
+            team=team,
+            name="Delete-to-upload ratio",
+            description="Ratio of file deletions to uploads",
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "ratio",
+                "uuid": str(uuid.uuid4()),
+                "numerator": {"kind": "EventsNode", "event": EVENT_DELETED_FILE},
+                "denominator": {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
+                "goal": "increase",
+            },
+            created_by=user,
+        )
+
+        new_shared_retention = ExperimentSavedMetric.objects.create(
+            team=team,
+            name="7-day user retention",
+            description="Users who return after 7 days",
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "retention",
+                "uuid": str(uuid.uuid4()),
+                "goal": "increase",
+                "start_event": {"kind": "EventsNode", "event": "$pageview"},
+                "start_handling": "first_seen",
+                "completion_event": {"kind": "EventsNode", "event": "$pageview", "math": "total"},
+                "retention_window_start": 1,
+                "retention_window_end": 7,
+                "retention_window_unit": "day",
+            },
+            created_by=user,
+        )
+
+        new_experiment_metrics_ordered_uuids = [str(uuid.uuid4()) for _ in range(4)]
+
+        # One metric of each type, configured to show as many different UI states as possible
+        metrics: list[dict[str, Any]] = [
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "funnel",
+                "uuid": new_experiment_metrics_ordered_uuids[0],
+                "name": "Upload activation",
+                "series": [
+                    {"kind": "EventsNode", "event": "$pageview"},
+                    {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
+                ],
+                "goal": "increase",
+                "conversion_window": 7,
+                "conversion_window_unit": "day",
+            },
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": new_experiment_metrics_ordered_uuids[1],
+                "name": "Active sessions per user",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+                "goal": "increase",
+            },
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "ratio",
+                "uuid": new_experiment_metrics_ordered_uuids[2],
+                "name": "Download-to-upload ratio",
+                "numerator": {"kind": "EventsNode", "event": EVENT_DOWNLOADED_FILE},
+                "denominator": {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
+                "goal": "increase",
+            },
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "retention",
+                "uuid": new_experiment_metrics_ordered_uuids[3],
+                "name": "7-day user retention",
+                "goal": "increase",
+                "start_event": {"kind": "EventsNode", "event": "$pageview"},
+                "start_handling": "first_seen",
+                "completion_event": {"kind": "EventsNode", "event": "$pageview", "math": "total"},
+                "retention_window_start": 1,
+                "retention_window_end": 7,
+                "retention_window_unit": "day",
+            },
+        ]
+
+        # New experiment; primary metrics are one time metrics, secondary metrics are shared metrics
+        new_experiment = Experiment.objects.create(
+            team=team,
+            name="File engagement boost",
+            description="Testing features to increase file uploads, sharing, and overall user engagement with files.",
+            feature_flag=flag,
+            created_by=user,
+            metrics=metrics,
+            primary_metrics_ordered_uuids=new_experiment_metrics_ordered_uuids,
+            secondary_metrics_ordered_uuids=[
+                new_shared_funnel.query["uuid"],
+                new_shared_mean.query["uuid"],
+                new_shared_ratio.query["uuid"],
+                new_shared_retention.query["uuid"],
+            ],
+            parameters={
+                "recommended_sample_size": int(len(self.clusters) * 0.40),
+                "minimum_detectable_effect": 10,
+            },
+            scheduling_config={"timeseries": True},
+            start_date=start_date,
+            end_date=None,
+            created_at=flag.created_at,
+        )
+
+        # Link ONLY new format shared metrics to new experiment as secondary
+        for metric in [new_shared_funnel, new_shared_mean, new_shared_ratio, new_shared_retention]:
+            ExperimentToSavedMetric.objects.create(
+                experiment=new_experiment, saved_metric=metric, metadata={"type": "secondary"}
+            )
+
+        # Inline metrics need stored fingerprints (normally stamped by the experiment service on
+        # create/launch) — the timeseries endpoint looks results up by them.
+        for metric_dict in metrics:
+            metric_dict["fingerprint"] = compute_metric_fingerprint(
+                metric_dict,
+                new_experiment.start_date,
+                get_experiment_stats_method(new_experiment),
+                new_experiment.exposure_criteria,
+                only_count_matured_users=new_experiment.only_count_matured_users,
+                excluded_variants=new_experiment.excluded_variants or [],
+            )
+        new_experiment.metrics = metrics
+        new_experiment.save(update_fields=["metrics"])
+
+        # Seed timeseries for the first metric so the day-by-day view has data out of the box.
+        # Skipped in tests: one ClickHouse query per experiment day is too slow for CI seeding.
+        if settings.TEST:
+            return
+        timeseries_metric = metrics[0]
+        recalculation = ExperimentTimeseriesRecalculation.objects.create(
+            team=team,
+            experiment=new_experiment,
+            metric=timeseries_metric,
+            fingerprint=timeseries_metric["fingerprint"],
+            status=ExperimentTimeseriesRecalculation.Status.PENDING,
+        )
+        try:
+            # Simulated data ends at the matrix clock. The experiment is running (no end_date),
+            # so without this bound the backfill runs one ClickHouse query per day between the
+            # simulated clock and the real today — empty results, and slow enough to hang demo
+            # generation when the clock is pinned to the past.
+            backfill_experiment_timeseries(str(recalculation.id), backfill_until=self.now.date())
+        except Exception as e:
+            # Timeseries are nice-to-have; never fail demo generation over them
+            capture_exception(e)
 
     def _set_up_demo_oauth_application(self, team: "Team", user: "User") -> None:
         # This app is first-party (skips OAuth consent, issues tokens scoped to all of the user's orgs) and
@@ -2078,29 +2131,81 @@ class HedgeboxMatrix(Matrix):
             "after": [{"number": line_number + index + 1, "line": line} for index, line in enumerate(post_context)],
         }
 
-    def _set_up_demo_data_warehouse_tables(self, team: "Team", user: "User") -> None:
-        if settings.TEST or not settings.OBJECT_STORAGE_ENABLED:
-            return
+    _DEMO_EXTENDED_PROPERTIES_TABLE = "extended_properties"
 
-        access_key = settings.OBJECT_STORAGE_ACCESS_KEY_ID
-        access_secret = settings.OBJECT_STORAGE_SECRET_ACCESS_KEY
-        if not access_key or not access_secret or not settings.OBJECT_STORAGE_ENDPOINT:
+    @staticmethod
+    def _demo_data_warehouse_storage_ready() -> bool:
+        if settings.TEST or not settings.OBJECT_STORAGE_ENABLED:
+            return False
+        if (
+            not settings.OBJECT_STORAGE_ACCESS_KEY_ID
+            or not settings.OBJECT_STORAGE_SECRET_ACCESS_KEY
+            or not settings.OBJECT_STORAGE_ENDPOINT
+        ):
+            return False
+        return True
+
+    def demo_data_warehouse_tables_need_saving(self, source_team_id: int) -> bool:
+        if not self._demo_data_warehouse_storage_ready():
+            return False
+        try:
+            # extended_properties is written last, so its presence means the whole set is already saved.
+            key = self._demo_warehouse_object_key(source_team_id, self._DEMO_EXTENDED_PROPERTIES_TABLE)
+            return object_storage.head_object(key) is None
+        except Exception as err:
+            # Never let a storage hiccup block the demo signup flow — just skip warehouse setup this time.
+            capture_exception(err)
+            return False
+
+    def save_demo_data_warehouse_tables(self, source_team: "Team") -> None:
+        if not self._demo_data_warehouse_storage_ready():
+            return
+        for table_spec in self._demo_data_warehouse_table_specs():
+            try:
+                rows = self._collect_demo_data_warehouse_rows(table_spec)
+                self._write_demo_data_warehouse_csv(
+                    source_team.pk, table_spec.name, tuple(table_spec.columns.keys()), rows
+                )
+            except Exception as err:
+                capture_exception(err)
+        try:
+            rows = self._collect_demo_extended_person_rows()
+            self._write_demo_data_warehouse_csv(
+                source_team.pk,
+                self._DEMO_EXTENDED_PROPERTIES_TABLE,
+                tuple(self._demo_extended_person_properties_columns().keys()),
+                rows,
+            )
+        except Exception as err:
+            capture_exception(err)
+
+    def register_demo_data_warehouse_tables(self, team: "Team", user: "User", source_team_id: int) -> None:
+        if not self._demo_data_warehouse_storage_ready():
             return
 
         credential = get_or_create_datawarehouse_credential(
             team_id=team.pk,
-            access_key=access_key,
-            access_secret=access_secret,
+            access_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            access_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         )
         for table_spec in self._demo_data_warehouse_table_specs():
             try:
-                rows = self._collect_demo_data_warehouse_rows(table_spec)
-                self._upsert_demo_data_warehouse_table(team, user, credential, table_spec, rows)
+                self._register_demo_data_warehouse_table(
+                    team, user, credential, table_spec.name, table_spec.columns, source_team_id
+                )
             except Exception as err:
                 capture_exception(err)
 
         try:
-            self._upsert_demo_extended_person_properties_table(team, user, credential)
+            self._register_demo_data_warehouse_table(
+                team,
+                user,
+                credential,
+                self._DEMO_EXTENDED_PROPERTIES_TABLE,
+                self._demo_extended_person_properties_columns(),
+                source_team_id,
+            )
+            self._upsert_demo_extended_person_properties_join(team, self._DEMO_EXTENDED_PROPERTIES_TABLE)
         except Exception as err:
             capture_exception(err)
 
@@ -2245,19 +2350,6 @@ class HedgeboxMatrix(Matrix):
 
         return rows
 
-    def _upsert_demo_extended_person_properties_table(self, team: "Team", user: "User", credential) -> None:
-        table_name = "extended_properties"
-        rows = self._collect_demo_extended_person_rows()
-        self._upsert_demo_data_warehouse_table_contents(
-            team=team,
-            user=user,
-            credential=credential,
-            table_name=table_name,
-            columns=self._demo_extended_person_properties_columns(),
-            rows=rows,
-        )
-        self._upsert_demo_extended_person_properties_join(team, table_name)
-
     @staticmethod
     def _upsert_demo_extended_person_properties_join(team: "Team", table_name: str) -> None:
         existing_join = (
@@ -2288,36 +2380,36 @@ class HedgeboxMatrix(Matrix):
             field_name=table_name,
         )
 
-    def _upsert_demo_data_warehouse_table(
+    @staticmethod
+    def _demo_warehouse_s3_prefix(source_team_id: int, table_name: str) -> str:
+        return f"data-warehouse/demo_{table_name}/team_{source_team_id}"
+
+    @classmethod
+    def _demo_warehouse_object_key(cls, source_team_id: int, table_name: str) -> str:
+        return f"{cls._demo_warehouse_s3_prefix(source_team_id, table_name)}/{table_name}.csv"
+
+    def _write_demo_data_warehouse_csv(
         self,
-        team: "Team",
-        user: "User",
-        credential,
-        table_spec: DemoDataWarehouseTableSpec,
+        source_team_id: int,
+        table_name: str,
+        headers: tuple[str, ...],
         rows: list[tuple[Any, ...]],
     ) -> None:
-        self._upsert_demo_data_warehouse_table_contents(
-            team=team,
-            user=user,
-            credential=credential,
-            table_name=table_spec.name,
-            columns=table_spec.columns,
-            rows=rows,
+        object_storage.write(
+            self._demo_warehouse_object_key(source_team_id, table_name),
+            self._warehouse_rows_to_csv(rows, headers=headers),
         )
 
-    def _upsert_demo_data_warehouse_table_contents(
+    def _register_demo_data_warehouse_table(
         self,
         team: "Team",
         user: "User",
         credential,
         table_name: str,
         columns: dict[str, str],
-        rows: list[tuple[Any, ...]],
+        source_team_id: int,
     ) -> None:
-        s3_prefix = f"data-warehouse/demo_{table_name}/team_{team.pk}"
-        object_key = f"{s3_prefix}/{table_name}.csv"
-        object_storage.write(object_key, self._warehouse_rows_to_csv(rows, headers=tuple(columns.keys())))
-
+        s3_prefix = self._demo_warehouse_s3_prefix(source_team_id, table_name)
         url_pattern = f"{self._warehouse_endpoint()}/{settings.OBJECT_STORAGE_BUCKET}/{s3_prefix}/*.csv"
         existing_table = DataWarehouseTable.objects.filter(team=team, name=table_name).first()
         if existing_table:

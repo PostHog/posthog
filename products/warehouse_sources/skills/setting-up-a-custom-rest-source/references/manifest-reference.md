@@ -3,6 +3,16 @@
 The manifest is a JSON `RESTAPIConfig`. The generic REST engine consumes it directly, so every field below maps to a
 real engine behavior. Only the fields the engine reads are documented here; unknown keys are ignored.
 
+## Contents
+
+- Top-level shape
+- Auth
+- Endpoint fields
+- Paginators
+- Incremental sync
+- Parent/child fan-out
+- Worked examples
+
 ## Top-level shape
 
 ```json

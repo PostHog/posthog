@@ -29,7 +29,7 @@ const buildAccount = (overrides: Partial<AccountApi> = {}): AccountApi => ({
     name: 'Acme',
     external_id: 'ext-1',
     properties: {
-        csm: { id: 1, email: 'csm@example.com' },
+        hubspot_deal_id: 'deal-1',
         billing_id: 'cus_123',
     },
     tags: [],
@@ -80,7 +80,7 @@ describe('accountLinksLogic', () => {
         await mountWith(
             buildAccount({
                 external_id: 'ext-1',
-                properties: { csm: { id: 1, email: 'csm@example.com' }, billing_id: 'old' },
+                properties: { hubspot_deal_id: 'deal-1', billing_id: 'old' },
             })
         )
         const updated = buildAccount({ external_id: 'ext-2' })
@@ -100,7 +100,7 @@ describe('accountLinksLogic', () => {
         expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(TEAM, 'acc-1', {
             external_id: 'ext-2',
             properties: {
-                csm: { id: 1, email: 'csm@example.com' },
+                hubspot_deal_id: 'deal-1',
                 billing_id: 'new',
                 slack_channel_id: 'C9',
                 usage_dashboard_link: null,

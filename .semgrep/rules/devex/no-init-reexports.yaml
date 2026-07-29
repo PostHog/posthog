@@ -1,0 +1,108 @@
+rules:
+    - id: no-init-reexports
+      message: |
+          Eager top-level re-export in __init__.py. Importing this package pulls its whole
+          submodule subtree onto the import path — every entrypoint (web, celery, temporal,
+          CI, shell) pays that cost, and cross-package re-exports are a common source of import
+          cycles. Prefer deep imports from the module that defines the name. If you need a
+          convenience alias, make it lazy (PEP 562 module __getattr__) or move it under
+          `if TYPE_CHECKING:` when it's only needed for typing.
+
+          Genuine public-API / registration boundaries are exempt by path: Django model
+          aggregators (**/models/), facades (**/facade/), Celery autoimport (**/tasks/), Django
+          admin (**/admin/), and Temporal worker wiring (**/temporal/). For a deliberate curated
+          surface not covered by those, add `# nosemgrep: no-init-reexports` with a one-line why.
+
+          This is a ratchet: existing re-exports are grandfathered under paths.exclude and are
+          fine to leave as-is — there is no cleanup obligation. The list just freezes today's set
+          so no *new* package picks up the pattern. If you happen to convert one to deep imports,
+          drop its line; don't add new lines to grow it.
+      severity: ERROR
+      languages: [python]
+      paths:
+          include:
+              - '**/__init__.py'
+          exclude:
+              # existing ruff exemptions (settings star-imports, generated stubs)
+              - 'posthog/settings/**'
+              - '**/generated/**'
+              # Django flat-namespace model aggregators — idiomatic, load-bearing for admin,
+              # migrations, and the app registry
+              - '**/models/**'
+              # facade = the enforced public-API boundary (import-linter "presentation must use facade")
+              - '**/facade/**'
+              # import-for-side-effect registration: importing the package IS the registration
+              - '**/tasks/__init__.py' # Celery autoimport
+              - '**/admin/__init__.py' # Django admin
+              - '**/temporal/**' # Temporal worker wiring (activities/workflows)
+              # small reviewed registries
+              - 'posthog/cdp/templates/__init__.py'
+              - 'posthog/hogql/functions/__init__.py'
+              # --- grandfathered existing re-exports (ratchet baseline; not a backlog) ---
+              - 'common/hogvm/python/stl/__init__.py'
+              - 'ee/hogai/artifacts/__init__.py'
+              - 'ee/hogai/chat_agent/slash_commands/commands/feedback/__init__.py'
+              - 'ee/hogai/context/__init__.py'
+              - 'ee/hogai/context/account/__init__.py'
+              - 'ee/hogai/context/activity_log/__init__.py'
+              - 'ee/hogai/context/entity_search/__init__.py'
+              - 'ee/hogai/context/error_tracking/__init__.py'
+              - 'ee/hogai/context/experiment/__init__.py'
+              - 'ee/hogai/context/feature_flag/__init__.py'
+              - 'ee/hogai/context/insight/format/__init__.py'
+              - 'ee/hogai/context/survey/__init__.py'
+              - 'ee/hogai/core/agent_modes/__init__.py'
+              - 'ee/hogai/core/loop_graph/__init__.py'
+              - 'ee/hogai/eval/scorers/__init__.py'
+              - 'ee/hogai/tools/create_notebook/__init__.py'
+              - 'ee/hogai/tools/read_data/__init__.py'
+              - 'ee/hogai/tools/read_taxonomy/__init__.py'
+              - 'ee/hogai/utils/conversation_summarizer/__init__.py'
+              - 'ee/hogai/utils/types/__init__.py'
+              - 'posthog/api/advanced_activity_logs/__init__.py'
+              - 'posthog/clickhouse/logs/__init__.py'
+              - 'posthog/clickhouse/metrics/__init__.py'
+              - 'posthog/clickhouse/traces/__init__.py'
+              - 'posthog/dags/common/__init__.py'
+              - 'posthog/ducklake/verification/__init__.py'
+              - 'posthog/helpers/__init__.py'
+              - 'posthog/hogql_queries/insights/funnels/__init__.py'
+              - 'posthog/plugins/__init__.py'
+              - 'posthog/queries/properties_timeline/__init__.py'
+              - 'products/ai_observability/backend/api/__init__.py'
+              - 'products/ai_observability/backend/providers/formatters/tools_handler/__init__.py'
+              - 'products/ai_observability/backend/summarization/llm/__init__.py'
+              - 'products/ai_observability/backend/text_repr/__init__.py'
+              - 'products/ai_observability/backend/text_repr/formatters/__init__.py'
+              - 'products/business_knowledge/backend/api/__init__.py'
+              - 'products/conversations/backend/api/__init__.py'
+              - 'products/demo/backend/logic/legacy/__init__.py'
+              - 'products/demo/backend/logic/matrix/__init__.py'
+              - 'products/demo/backend/logic/products/__init__.py'
+              - 'products/demo/backend/logic/products/hedgebox/__init__.py'
+              - 'products/demo/backend/logic/products/spikegpt/__init__.py'
+              - 'products/error_tracking/backend/logic/recommendations/__init__.py'
+              - 'products/error_tracking/backend/logic/tools/__init__.py'
+              - 'products/legal_documents/backend/logic/__init__.py'
+              - 'products/posthog_ai/backend/api/__init__.py'
+              - 'products/posthog_ai/eval_harness/scorers/__init__.py'
+              - 'products/product_analytics/backend/api/__init__.py'
+              - 'products/product_tours/backend/api/__init__.py'
+              - 'products/product_tours/backend/generate_tour_content/__init__.py'
+              - 'products/product_tours/backend/llm/__init__.py'
+              - 'products/revenue_analytics/backend/views/schemas/__init__.py'
+              - 'products/revenue_analytics/backend/views/sources/events/__init__.py'
+              - 'products/revenue_analytics/backend/views/sources/stripe/__init__.py'
+              - 'products/surveys/backend/llm/__init__.py'
+              - 'products/surveys/backend/summarization/__init__.py'
+              - 'products/surveys/backend/summarization/llm/__init__.py'
+              - 'products/web_analytics/backend/api/__init__.py'
+              - 'products/wizard/backend/logic/__init__.py'
+              - 'products/workflows/backend/providers/__init__.py'
+      # Column-0 anchor: only flag eager, top-level re-exports. Indented ones (TYPE_CHECKING,
+      # try/except ImportError, function-local) are already lazy and intentionally skipped.
+      pattern-regex: '(?m)^from\s+\.'
+      metadata:
+          category: best-practice
+          subcategory:
+              - audit

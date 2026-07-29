@@ -243,7 +243,7 @@ Direct `git commit` and `git push` commands are blocked in the sandbox to ensure
 If an agent attempts to run `git commit` or `git push`, it will see:
 
 ```text
-git commit is disabled in PostHog Code: commits must be signed.
+git commit is disabled in PostHog Desktop: commits must be signed.
 To commit: stage changes with 'git add', then call the git_signed_commit tool.
 To force-push after a rebase/conflict fix: call the git_signed_rewrite tool.
 ```
@@ -260,6 +260,31 @@ Agents should stage changes with `git add`, then use the `git_signed_commit` too
 | Network   | Configurable via `SandboxEnvironment`  | Host network via `host.docker.internal` |
 | Image     | `ghcr.io/posthog/posthog-sandbox-base` | Local Dockerfile build                  |
 | Auth      | Modal connect token                    | No token needed                         |
+
+### Runtime selection (gVisor vs Modal VM)
+
+Production sandboxes run on one of two Modal runtimes,
+chosen per run in `get_task_processing_context` (`_is_modal_vm_sandbox_enabled`)
+and forked in `provision_sandbox`:
+
+- **gVisor** (`SandboxTemplate.DEFAULT_BASE`) — the historical default: a gVisor kernel-sandboxed container.
+- **Modal VM** (`SandboxTemplate.VM_BASE`) — a kernel microVM that also bakes in Docker-in-Docker,
+  so the agent can run nested containers.
+  Custom base images layer on this base, and it is what image-builder runs execute on.
+
+Selection is driven by the `tasks-modal-vm-sandbox` flag's JSON payload,
+which carries two origin allowlists:
+
+- `origin_products` — origins allowed on the VM runtime when a custom image is resolved for the run
+  (custom images cannot run under gVisor).
+- `default_base_origin_products` — origins that default to the bare VM base image **even without a custom image**.
+  This is the knob for making the VM runtime the default for standard cloud runs;
+  we widen it origin-by-origin (and, later, the flag's release condition) as the rollout expands.
+
+Runs with a restricted-egress `SandboxEnvironment` (a custom domain allowlist) always stay on gVisor —
+Modal's outbound domain allowlist is a gVisor-only feature.
+The `use_modal_vm_sandbox` run-state key force-selects the VM runtime for trusted server-created runs
+(image builders) and is never accepted from client input.
 
 ### Network access
 
@@ -303,7 +328,35 @@ Domain restrictions are enforced at the syscall level by `agentsh` via ptrace �
 the agent cannot bypass them through proxy settings or DNS tricks.
 
 Environments can also be managed via the REST API (`SandboxEnvironmentViewSet`)
-or the PostHog Code settings UI.
+or the PostHog Desktop settings UI.
+
+### Custom base images
+
+Teams can bake their own tools and dependencies into a custom base image (`SandboxCustomImage`)
+and select it as a cloud environment's base via `SandboxEnvironment.custom_image`.
+Custom images always layer on top of the published VM sandbox base —
+agent tooling, git guard, and the VM runtime are always present —
+and the whole mechanism is gated on the Modal VM runtime being available:
+the `sandbox_custom_images` API returns 403 (and the PostHog Desktop UI hides the feature)
+unless the `tasks-modal-vm-sandbox` flag is enabled for the org
+with `user_created` in its `origin_products` payload allowlist,
+since custom-image sandboxes cannot run under gVisor.
+
+The flow, driven from the PostHog Desktop Environments → Cloud tab:
+
+1. Creating an image spawns an interactive **image-builder agent task**
+   (`custom_image_builder_id` in the run state, VM runtime forced)
+   that iterates inside the real VM base and maintains a declarative spec
+   (`SandboxImageSpec`: `apt_packages`, `run_commands`, `env`) at `/tmp/workspace/image-spec.yaml`.
+2. "Save & build" reads the spec from the builder sandbox (or accepts it inline via
+   `POST /api/projects/:id/sandbox_custom_images/:id/build/`), then the
+   `build-sandbox-image` Temporal workflow runs an LLM security scan of the spec,
+   builds it layered on the VM base, and publishes it as a Modal named image
+   (`Image.publish()` / `Image.from_name()`).
+3. Runs using an environment with a ready custom image provision their sandbox
+   from the published image (`SandboxConfig.custom_image_name`),
+   falling back to the standard base if the image can't be loaded.
+   Repo-setup snapshots are skipped for custom-image runs; resume snapshots still apply.
 
 ## Local development
 

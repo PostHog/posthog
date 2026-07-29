@@ -30,31 +30,35 @@ const PersonProfileCanvas = ({ person, attachTo }: PersonProfileCanvasProps): JS
         }),
         [id, person.distinct_ids]
     )
-    const customerProfileLogicProps = {
-        attrs,
-        scope: CustomerProfileScope.PERSON,
-        key: `person-${id}`,
-        canvasShortId: shortId,
-    }
+    const customerProfileLogicProps = useMemo(
+        () => ({
+            attrs,
+            scope: CustomerProfileScope.PERSON,
+            key: `person-${id}`,
+            canvasShortId: shortId,
+        }),
+        [attrs, id, shortId]
+    )
     const { content } = useValues(customerProfileLogic(customerProfileLogicProps))
-
-    const personFilter: AnyPropertyFilter[] = [
-        {
-            type: PropertyFilterType.EventMetadata,
-            key: 'person_id',
-            value: id,
-            operator: PropertyOperator.Exact,
-        },
-    ]
 
     useOnMountEffect(() => {
         reportPersonProfileViewed()
     })
-    const notebookLogicProps: NotebookLogicProps = {
-        shortId,
-        mode,
-        canvasFiltersOverride: personFilter,
-    }
+    const notebookLogicProps: NotebookLogicProps = useMemo(() => {
+        const personFilter: AnyPropertyFilter[] = [
+            {
+                type: PropertyFilterType.EventMetadata,
+                key: 'person_id',
+                value: id,
+                operator: PropertyOperator.Exact,
+            },
+        ]
+        return {
+            shortId,
+            mode,
+            canvasFiltersOverride: personFilter,
+        }
+    }, [id, shortId, mode])
     const mountedNotebookLogic = notebookLogic(notebookLogicProps)
     useAttachedLogic(mountedNotebookLogic, attachTo)
 

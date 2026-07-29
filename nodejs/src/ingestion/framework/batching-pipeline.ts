@@ -1,6 +1,6 @@
 import pLimit from 'p-limit'
 
-import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
+import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { createOkContext } from './helpers'
 import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { PipelineResult, isOkResult } from './results'
@@ -18,13 +18,19 @@ export interface BeforeBatchInput<TInput, CInput, CBatch = Record<never, object>
     batchContext: { batchId: number } & CBatch
 }
 
+/**
+ * What a beforeBatch pipeline produces. Hooks may enrich elements (values or
+ * contexts) and the batch context, but must return exactly as many elements as
+ * they received — batch completion tracking counts messages, so a changed
+ * element count is a broken framework invariant and feed() throws.
+ */
 export interface BeforeBatchOutput<TInput, CInput, CBatch> {
     elements: OkResultWithContext<TInput, CInput>[]
     batchContext: CBatch & { batchId: number }
 }
 
 export interface AfterBatchInput<TOutput, COutput, CBatch, R extends string = never> {
-    elements: BatchPipelineResultWithContext<TOutput, COutput, R>
+    elements: ChunkPipelineResultWithContext<TOutput, COutput, R>
     batchContext: CBatch
     batchId: number
 }
@@ -79,8 +85,11 @@ interface TrackedBatch<TOutput, CBatch, COutput, R extends string = never> {
  * the collector matches them to their batch and fires hooks.
  *
  * Lifecycle:
- * - feed() runs beforeBatch which returns mapped elements and side effects.
- *   Elements are tagged with messageId, then fed to the sub-pipeline.
+ * - feed() with zero elements is a no-op that returns ok — no batch is
+ *   registered and no hooks run (a zero-message batch could never complete).
+ * - feed() runs beforeBatch which returns enriched elements (same count as
+ *   fed — count changes throw) and side effects. Elements are tagged with
+ *   messageId, then fed to the sub-pipeline.
  * - next() collects results. When all messages in a batch complete, calls
  *   afterBatch with the batchContext and ordered results, then returns a
  *   BatchResult with concatenated side effects.
@@ -114,7 +123,7 @@ export class BatchingPipeline<
     private feedEpoch = 0
     private batches = new Map<number, TrackedBatch<TOutput, CBatchOutput, COutput, R>>()
     private messageIdToBatchId = new Map<number, number>()
-    private completedResults: BatchResult<BatchPipelineResultWithContext<TOutput, COutput, R>>[] = []
+    private completedResults: BatchResult<ChunkPipelineResultWithContext<TOutput, COutput, R>>[] = []
 
     // With concurrentBatches > 1, callers (e.g. HTTP request handlers in the
     // ingestion API server) invoke feed()/next() concurrently, but the
@@ -131,7 +140,7 @@ export class BatchingPipeline<
     private options: BatchingPipelineOptions
 
     constructor(
-        private subPipeline: BatchPipeline<
+        private subPipeline: ChunkPipeline<
             TInput & CBatchOutput & { batchId: number },
             TOutput,
             CInput & BatchingContext,
@@ -163,6 +172,16 @@ export class BatchingPipeline<
     }
 
     private async feedSerialized(elements: OkResultWithContext<TInput, CInput>[]): Promise<FeedResult> {
+        // An empty feed has no messages that could ever complete a batch:
+        // completion is only detected in pump()'s result loop, so registering a
+        // zero-message batch would occupy a concurrentBatches slot forever and
+        // trip the "null with N in-flight batches" corruption guard on the next
+        // pull. Skip it entirely — no batchId consumed, no hooks run, nothing
+        // registered — so there are no side effects to surface either.
+        if (elements.length === 0) {
+            return { ok: true }
+        }
+
         if (this.batches.size >= this.options.concurrentBatches) {
             return {
                 ok: false,
@@ -186,6 +205,19 @@ export class BatchingPipeline<
 
         const { elements: mappedElements, batchContext } = beforeResult.result.value
         const beforeSideEffects = beforeResult.context.sideEffects
+
+        // beforeBatch may enrich elements and batch context but must not change
+        // the element count: a shrunken batch (worst case zero elements) could
+        // never complete and would leak its concurrentBatches slot forever.
+        // That's a broken framework invariant, not an outcome a driver may
+        // handle, so throw instead of returning a FeedResult — mirroring
+        // BaseChunkPipeline's count-mismatch throw for chunk steps. Nothing has
+        // been registered yet, so the throw leaves no phantom batch behind.
+        if (mappedElements.length !== elements.length) {
+            throw new Error(
+                `batching_pipeline beforeBatch changed element count (${elements.length} -> ${mappedElements.length}) for batch ${batchId}`
+            )
+        }
 
         const messageIds: number[] = []
         const inflight = new Set<number>()
@@ -227,7 +259,7 @@ export class BatchingPipeline<
         return { ok: true }
     }
 
-    next(): Promise<BatchResult<BatchPipelineResultWithContext<TOutput, COutput, R>> | null> {
+    next(): Promise<BatchResult<ChunkPipelineResultWithContext<TOutput, COutput, R>> | null> {
         // Serialize so exactly one caller pumps the sub-pipeline at a time,
         // restoring the single-caller assumption the stages were written under.
         // With one concurrent batch the caller is already sequential, so the
@@ -236,7 +268,7 @@ export class BatchingPipeline<
         return this.pumpLimit(() => this.pump())
     }
 
-    private async pump(): Promise<BatchResult<BatchPipelineResultWithContext<TOutput, COutput, R>> | null> {
+    private async pump(): Promise<BatchResult<ChunkPipelineResultWithContext<TOutput, COutput, R>> | null> {
         // Re-check after acquiring the pump: a previous pump iteration may have
         // completed additional batches while this caller was waiting.
         if (this.completedResults.length > 0) {

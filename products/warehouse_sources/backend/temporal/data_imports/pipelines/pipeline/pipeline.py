@@ -28,11 +28,16 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     cdp_producer_clear_chunks,
     cleanup_memory,
     finalize_desc_sort_incremental_value,
+    handle_corrupted_delta_log,
     handle_reset_or_full_refresh,
+    persist_primary_keys,
+    person_property_sink_clear_chunks,
     reset_rows_synced_if_needed,
+    resolve_primary_keys,
     run_pre_write_defensive_compact,
     setup_row_tracking_with_billing_check,
     should_check_shutdown,
+    stage_chunk_for_person_property_sink,
     update_incremental_field_values,
     update_row_tracking_after_batch,
     validate_incremental_sync,
@@ -42,13 +47,22 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.l
     notify_revenue_analytics_that_sync_has_completed,
     supports_partial_data_loading,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import sync_revenue_analytics_views
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
+    sync_engineering_analytics_views,
+    sync_revenue_analytics_views,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
     DeltaTableHelper,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.person_property_row_sink import (
+    PersonPropertyRowSink,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.table_stats import (
+    record_source_item_stats,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     PipelineResult,
     ResumableData,
@@ -166,9 +180,10 @@ class PipelineNonDLT(Generic[ResumableData]):
         self._resource = source_response
         self._resource_name = source_response.name
 
-        # Allow user-specified primary keys to override auto-detected ones
-        if schema.primary_key_columns:
-            self._resource.primary_keys = schema.primary_key_columns
+        # Persisted PK (user override or earlier detection) > live-detected > `id` fallback. Keeps
+        # the merge key stable across runs when live detection (e.g. Snowflake SHOW PRIMARY KEYS)
+        # intermittently returns nothing.
+        self._resource.primary_keys = resolve_primary_keys(schema, self._resource)
 
         self._job = job
         self._reset_pipeline = reset_pipeline
@@ -190,10 +205,20 @@ class PipelineNonDLT(Generic[ResumableData]):
             self._logger,
             chunk_size=source_response.chunk_size,
             chunk_size_bytes=source_response.chunk_size_bytes,
+            source_type=self._source.source_type,
+            team_id=self._job.team_id,
+            schema_name=self._schema.name,
         )
         self._internal_schema = HogQLSchema()
         self._cdp_producer = CDPProducer(
             team_id=self._job.team_id, schema_id=self._schema.id, job_id=job_id, logger=self._logger
+        )
+        self._person_property_sink = PersonPropertyRowSink(
+            team_id=self._job.team_id,
+            schema_id=self._schema.id,
+            job_id=job_id,
+            logger=self._logger,
+            is_incremental=self._is_incremental,
         )
         self._shutdown_monitor = shutdown_monitor
         self._last_incremental_field_value: Any = None
@@ -216,10 +241,13 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         try:
             await cdp_producer_clear_chunks(self._cdp_producer)
+            await person_property_sink_clear_chunks(self._person_property_sink)
 
             await reset_rows_synced_if_needed(self._job, self._is_incremental, self._reset_pipeline, should_resume)
 
             validate_incremental_sync(self._is_incremental, self._resource)
+
+            await persist_primary_keys(self._schema, self._resource, self._is_incremental, self._logger)
 
             await setup_row_tracking_with_billing_check(
                 self._job.team_id,
@@ -234,8 +262,17 @@ class PipelineNonDLT(Generic[ResumableData]):
             row_count = 0
             chunk_index = 0
 
+            # Revive a corrupt-`_delta_log` table (from an interrupted repartition swap or OOM-crashed
+            # merge) before extraction so it self-heals in this run instead of looping forever.
+            await handle_corrupted_delta_log(self._schema, self._job, self._delta_table_helper, self._logger)
+
             await handle_reset_or_full_refresh(
-                self._reset_pipeline, should_resume, self._schema, self._delta_table_helper, self._logger
+                self._reset_pipeline,
+                should_resume,
+                self._schema,
+                self._delta_table_helper,
+                self._logger,
+                webhook_only=self._resource.webhook_only,
             )
 
             # If the schema has no DWH table, it's a first ever sync
@@ -253,6 +290,14 @@ class PipelineNonDLT(Generic[ResumableData]):
 
             async for item in async_iterate(self._resource.items()):
                 py_table = None
+
+                record_source_item_stats(
+                    item,
+                    source_type=self._source.source_type,
+                    logger=self._logger,
+                    team_id=self._job.team_id,
+                    schema_name=self._schema.name,
+                )
 
                 self._batcher.batch(item)
 
@@ -293,11 +338,14 @@ class PipelineNonDLT(Generic[ResumableData]):
 
             await self._persist_observed_columns()
 
-            await self._post_run_operations(row_count=row_count)
+            prepared_queryable_folder = await self._post_run_operations(row_count=row_count)
 
             await advance_xmin_state(self._resource, self._schema, self._logger)
 
-            return {"should_trigger_cdp_producer": await self._cdp_producer.should_produce_table()}
+            result = PipelineResult(should_trigger_cdp_producer=await self._cdp_producer.should_produce_table())
+            if isinstance(prepared_queryable_folder, str):
+                result["prepared_queryable_folder"] = prepared_queryable_folder
+            return result
         finally:
             # Help reduce the memory footprint of each job. This is best-effort cleanup:
             # `get_delta_table` does object-storage I/O, so a transient storage blip here
@@ -384,6 +432,7 @@ class PipelineNonDLT(Generic[ResumableData]):
         self._internal_schema.add_pyarrow_table(pa_table)
 
         await write_chunk_for_cdp_producer(self._cdp_producer, index, pa_table)
+        await stage_chunk_for_person_property_sink(self._person_property_sink, index, pa_table)
 
         (
             self._last_incremental_field_value,
@@ -462,12 +511,12 @@ class PipelineNonDLT(Generic[ResumableData]):
             table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
         )
 
-    async def _post_run_operations(self, row_count: int):
+    async def _post_run_operations(self, row_count: int) -> str | None:
         delta_table = await self._delta_table_helper.get_delta_table()
 
         if delta_table is None:
             await self._logger.adebug("No deltalake table, not continuing with post-run ops")
-            return
+            return None
 
         await self._logger.adebug("Triggering compaction and vacuuming on delta table")
         try:
@@ -546,6 +595,11 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         await self._logger.adebug("Syncing revenue analytics views")
         await database_sync_to_async_pool(sync_revenue_analytics_views)(self._schema, self._source)
+
+        await self._logger.adebug("Syncing engineering analytics views")
+        await database_sync_to_async_pool(sync_engineering_analytics_views)(self._schema, self._source)
+
+        return queryable_folder
 
 
 def _estimate_size(obj: Any) -> int:

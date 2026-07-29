@@ -1,0 +1,22 @@
+{
+    "name": "@posthog/products-data-catalog",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
+    },
+    "dependencies": {
+        "kea": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:"
+    },
+    "devDependencies": {
+        "@storybook/react": "catalog:"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "catalog:",
+        "@types/react": "*",
+        "clsx": "*",
+        "fast-equals": "catalog:",
+        "fuse.js": "*",
+        "react": "*"
+    }
+}

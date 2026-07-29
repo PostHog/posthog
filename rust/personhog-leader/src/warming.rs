@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -12,7 +13,7 @@ use tokio::time::timeout;
 use personhog_coordination::error::{Error as CoordError, Result as CoordResult};
 use personhog_proto::personhog::types::v1::Person;
 
-use crate::cache::{CachedPerson, PartitionedCache, PersonCacheKey};
+use crate::cache::{CachedPerson, DirtyIndex, DirtyMark, PartitionedCache, PersonCacheKey};
 
 /// Retry policy for transient warming-metadata failures.
 #[derive(Clone, Copy)]
@@ -113,7 +114,7 @@ pub struct WarmingConfig {
 /// durable-progress marker. Two callers reuse it: the warming consume loop
 /// (which seeks explicitly per partition) and a short-lived OffsetFetch
 /// query against the writer's group (which never subscribes or consumes).
-fn make_consumer(
+pub(crate) fn make_consumer(
     kafka: &KafkaConfig,
     group_id: &str,
 ) -> Result<StreamConsumer, rdkafka::error::KafkaError> {
@@ -136,34 +137,62 @@ fn make_consumer(
 /// Query the writer consumer group's committed offset for a partition.
 /// Returns `None` if the writer has no commit yet for the partition
 /// (typical for a freshly-created topic).
-///
-/// The OffsetFetch RPC inside `committed_offsets` is synchronous in rdkafka
-/// and parks the calling thread for up to `timeout`. We run it on the
-/// blocking pool so a slow broker can't stall the tokio runtime.
 async fn fetch_writer_committed_offset(
     kafka: &KafkaConfig,
     writer_group: &str,
     topic: &str,
-    partition: i32,
+    partition: u32,
     timeout: Duration,
 ) -> CoordResult<Option<i64>> {
+    let offsets =
+        fetch_writer_committed_offsets(kafka, writer_group, topic, &[partition], timeout).await?;
+    Ok(offsets.get(&partition).copied())
+}
+
+/// Query the writer consumer group's committed offsets for many partitions
+/// in one OffsetFetch round-trip, with one short-lived consumer for the
+/// whole batch. Partitions without a commit are absent from the result.
+/// The batch shape suits the dirty-index prune loop, which polls every
+/// owned partition on a cadence — per-partition consumers would be
+/// constant churn.
+///
+/// The OffsetFetch RPC inside `committed_offsets` is synchronous in rdkafka
+/// and parks the calling thread for up to `timeout`. We run it on the
+/// blocking pool so a slow broker can't stall the tokio runtime.
+pub async fn fetch_writer_committed_offsets(
+    kafka: &KafkaConfig,
+    writer_group: &str,
+    topic: &str,
+    partitions: &[u32],
+    timeout: Duration,
+) -> CoordResult<HashMap<u32, i64>> {
+    if partitions.is_empty() {
+        return Ok(HashMap::new());
+    }
     let kafka = kafka.clone();
     let writer_group = writer_group.to_string();
     let topic = topic.to_string();
+    let partitions = partitions.to_vec();
     tokio::task::spawn_blocking(move || {
         let consumer = make_consumer(&kafka, &writer_group)
             .map_err(|e| CoordError::invalid_state(format!("create offset query consumer: {e}")))?;
         let mut tpl = TopicPartitionList::new();
-        tpl.add_partition(&topic, partition);
+        for partition in &partitions {
+            tpl.add_partition(&topic, *partition as i32);
+        }
         let committed = consumer
             .committed_offsets(tpl, timeout)
             .map_err(|e| CoordError::invalid_state(format!("committed_offsets for group: {e}")))?;
-        Ok(committed
-            .find_partition(&topic, partition)
-            .and_then(|tp| match tp.offset() {
-                Offset::Offset(o) => Some(o),
-                _ => None,
-            }))
+        let mut offsets = HashMap::new();
+        for partition in partitions {
+            if let Some(Offset::Offset(offset)) = committed
+                .find_partition(&topic, partition as i32)
+                .map(|tp| tp.offset())
+            {
+                offsets.insert(partition, offset);
+            }
+        }
+        Ok(offsets)
     })
     .await
     .map_err(|e| CoordError::invalid_state(format!("offset query join: {e}")))?
@@ -208,6 +237,7 @@ fn resolve_start_offset(committed: Option<i64>, earliest: i64, lookback: i64) ->
 pub async fn warm_from_kafka(
     cfg: &WarmingConfig,
     cache: &PartitionedCache,
+    dirty_index: &DirtyIndex,
     partition: u32,
 ) -> CoordResult<()> {
     let start = Instant::now();
@@ -223,7 +253,7 @@ pub async fn warm_from_kafka(
             &cfg.kafka,
             &cfg.writer_consumer_group,
             &cfg.topic,
-            partition_i32,
+            partition,
             cfg.committed_offsets_timeout,
         )
         .await
@@ -293,7 +323,7 @@ pub async fn warm_from_kafka(
     // entire range warms successfully. Any decode/IO failure mid-range
     // aborts warming with no observable cache mutation, which keeps a
     // partial cache from masking PG fallback reads.
-    let mut buffered: Vec<(PersonCacheKey, CachedPerson)> = Vec::new();
+    let mut buffered: Vec<(PersonCacheKey, CachedPerson, i64)> = Vec::new();
     let mut last_offset: i64 = -1;
 
     loop {
@@ -317,25 +347,16 @@ pub async fn warm_from_kafka(
             let person = <Person as ProtoMessage>::decode(payload).map_err(|e| {
                 CoordError::invalid_state(format!("warm decode failed at offset {offset}: {e}"))
             })?;
-            let properties = serde_json::from_slice(&person.properties).map_err(|e| {
+            let cached = CachedPerson::try_from(person).map_err(|e| {
                 CoordError::invalid_state(format!(
                     "warm properties decode failed at offset {offset}: {e}"
                 ))
             })?;
-            let cached = CachedPerson {
-                id: person.id,
-                uuid: person.uuid,
-                team_id: person.team_id,
-                properties,
-                created_at: person.created_at,
-                version: person.version,
-                is_identified: person.is_identified,
-            };
             let key = PersonCacheKey {
                 team_id: cached.team_id,
                 person_id: cached.id,
             };
-            buffered.push((key, cached));
+            buffered.push((key, cached, offset));
         } else {
             // The writer never produces null-payload (tombstone) records
             // to `personhog_updates` today. If one ever appears it would
@@ -357,6 +378,27 @@ pub async fn warm_from_kafka(
         }
     }
 
+    // Records at or above the writer's committed offset are not yet in PG:
+    // seed the dirty index so that, if the cache later evicts them, a miss
+    // recovers from the changelog instead of trusting a stale PG row. With
+    // no committed offset the writer has applied nothing, so every record
+    // is marked. Seeding happens before the install publishes the
+    // partition, so no request can observe the cache without the marks.
+    let mut seeded = 0u64;
+    for (key, cached, offset) in &buffered {
+        if committed_offset.is_none_or(|committed| *offset >= committed) {
+            dirty_index.mark(
+                key.clone(),
+                DirtyMark {
+                    version: cached.version,
+                    offset: *offset,
+                    partition,
+                },
+            );
+            seeded += 1;
+        }
+    }
+
     // Atomic install: the populated `PersonCache` is built first, then a
     // single `DashMap::insert` publishes it. The previous pattern
     // (`create_partition` + per-record `put` loop) created a window
@@ -366,13 +408,17 @@ pub async fn warm_from_kafka(
     // yet persisted. Atomicity here removes the dependency on the
     // protocol invariant ("no reads during Warming") for correctness.
     let count = buffered.len() as u64;
-    cache.install_warmed_partition(partition, buffered);
+    cache.install_warmed_partition(
+        partition,
+        buffered.into_iter().map(|(key, cached, _)| (key, cached)),
+    );
 
     let elapsed = start.elapsed();
     tracing::info!(
         pod = cfg.pod_name,
         partition,
         messages = count,
+        dirty_seeded = seeded,
         hwm,
         start_offset,
         elapsed_ms = elapsed.as_millis() as u64,
