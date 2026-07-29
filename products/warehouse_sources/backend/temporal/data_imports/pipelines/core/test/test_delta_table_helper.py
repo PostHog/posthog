@@ -602,6 +602,12 @@ def _seed_partitioned_table(delta_path: str) -> None:
 
 def _batch_with_not_null_status(ids: list[int], names: list[str]) -> pa.Table:
     """An incoming batch the way a SQL source builds one for an upstream NOT NULL column."""
+    fields: list[pa.Field] = [
+        pa.field("id", pa.int64()),
+        pa.field("name", pa.string()),
+        pa.field("status", pa.string(), nullable=False),
+        pa.field(PARTITION_KEY, pa.string()),
+    ]
     return pa.table(
         {
             "id": pa.array(ids),
@@ -609,14 +615,7 @@ def _batch_with_not_null_status(ids: list[int], names: list[str]) -> pa.Table:
             "status": pa.array(["live"] * len(ids)),
             PARTITION_KEY: pa.array(["p0"] * len(ids)),
         },
-        schema=pa.schema(
-            [
-                pa.field("id", pa.int64()),
-                pa.field("name", pa.string()),
-                pa.field("status", pa.string(), nullable=False),
-                pa.field(PARTITION_KEY, pa.string()),
-            ]
-        ),
+        schema=pa.schema(fields),
     )
 
 
