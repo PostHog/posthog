@@ -18,6 +18,7 @@ import { Breadcrumb } from '~/types'
 import type { TeamPublicType, TeamType } from '../../types'
 
 export const PEOPLE_LIST_CONTEXT_KEY = 'people-list'
+export const PERSONS_QUERY_UNIQUE_KEY = 'persons-query'
 
 function buildDefaultQuery(personLastSeenAtEnabled: boolean): DataTableNode {
     const columns = [...defaultDataTableColumns(NodeKind.ActorsQuery, personLastSeenAtEnabled), 'person.$delete']

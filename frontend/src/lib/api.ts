@@ -174,6 +174,8 @@ import {
     OrganizationMemberScopedApiKeysResponse,
     OrganizationMemberType,
     OrganizationType,
+    PersonBulkDeleteRequest,
+    PersonBulkDeleteResponse,
     PersonListParams,
     PersonType,
     PersonalAPIKeyType,
@@ -3774,6 +3776,9 @@ const api = {
                 },
             })
             return response.results
+        },
+        async bulkDelete(data: PersonBulkDeleteRequest): Promise<PersonBulkDeleteResponse> {
+            return await new ApiRequest().persons().withAction('bulk_delete').create({ data })
         },
     },
 

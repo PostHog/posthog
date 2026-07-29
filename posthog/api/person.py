@@ -47,10 +47,12 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.person.bulk_delete import (
+    count_persons_matching_filter,
     delete_persons_profile,
     queue_person_event_deletion,
     queue_person_recording_deletion,
     resolve_persons_for_deletion,
+    resolve_persons_for_deletion_by_filter,
 )
 from posthog.models.person.deletion import reset_deleted_person_distinct_ids
 from posthog.models.person.missing_person import MissingPerson
@@ -185,6 +187,41 @@ class PersonDeletePropertyRequestSerializer(serializers.Serializer):
         return fields
 
 
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "string"},
+            {"type": "number"},
+            {"type": "boolean"},
+            {"type": "array", "items": {"type": "string"}},
+        ]
+    }
+)
+class PersonFilterValueField(serializers.JSONField):
+    pass
+
+
+class PersonBulkDeleteFilterSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="The person property to filter on, or the cohort ID when `type` is `cohort`.")
+    value = PersonFilterValueField(
+        required=False,
+        help_text="The value to compare against. A list for operators like `exact` with multiple options.",
+    )
+    operator = serializers.CharField(
+        required=False,
+        help_text="Comparison operator, for example `exact`, `icontains`, `gt`, `is_set`. Defaults to `exact`.",
+    )
+
+    def get_fields(self):
+        fields = super().get_fields()
+        # Named `type` to match the person filter format used by the persons list endpoint.
+        fields["type"] = serializers.CharField(
+            required=False,
+            help_text="Either `person` (filter on a person property) or `cohort`. Defaults to `person`.",
+        )
+        return fields
+
+
 class PersonBulkDeleteRequestSerializer(serializers.Serializer):
     ids = serializers.ListField(
         child=serializers.CharField(),
@@ -195,6 +232,28 @@ class PersonBulkDeleteRequestSerializer(serializers.Serializer):
         child=serializers.CharField(),
         required=False,
         help_text="A list of distinct IDs whose associated persons will be deleted (max 1000).",
+    )
+    properties = serializers.ListField(
+        child=PersonBulkDeleteFilterSerializer(),
+        required=False,
+        help_text=(
+            "Person property filters describing which persons to delete, in the same format as the "
+            "`properties` parameter of the persons list endpoint. Deletes one page of up to 1000 matching "
+            "persons per call, so repeat the same request while `has_more` is true to delete the rest."
+        ),
+    )
+    search = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        help_text="Restrict the persons to delete to those matching this search term. Can be combined with `properties`.",
+    )
+    dry_run = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "If true, nothing is deleted and `persons_found` reports how many persons the request would "
+            "delete in total. Use this to confirm the scope of a filter before running it."
+        ),
     )
     delete_events = serializers.BooleanField(
         required=False,
@@ -214,9 +273,16 @@ class PersonBulkDeleteRequestSerializer(serializers.Serializer):
 
 
 class PersonBulkDeleteResponseSerializer(serializers.Serializer):
-    persons_found = serializers.IntegerField(help_text="Number of persons matched by the provided IDs or distinct IDs.")
+    persons_found = serializers.IntegerField(
+        help_text="Number of persons matched by this call. When `dry_run` is true, the total number of "
+        "persons the filter matches."
+    )
     persons_deleted = serializers.IntegerField(
-        help_text="Number of person records deleted from the database. 0 if keep_person was true."
+        help_text="Number of person records deleted from the database. 0 if keep_person or dry_run was true."
+    )
+    has_more = serializers.BooleanField(
+        help_text="Whether more persons still match the filter. Repeat the same request until this is false. "
+        "Always false when deleting by explicit IDs."
     )
     events_queued_for_deletion = serializers.BooleanField(
         help_text="Whether event deletion was requested for the matched persons. "
@@ -231,6 +297,28 @@ class PersonBulkDeleteResponseSerializer(serializers.Serializer):
         required=False,
         help_text="Persons that could not be deleted. Each entry contains 'person_uuid'. Contact support if this persists.",
     )
+
+
+# `hogql` filters are deliberately not accepted when selecting persons to delete — an arbitrary
+# expression is too blunt an instrument for an irreversible bulk operation.
+DELETABLE_PERSON_FILTER_TYPES = {"person", "cohort"}
+
+
+def _normalize_person_filter_properties(properties: builtins.list[dict]) -> builtins.list[dict]:
+    normalized: builtins.list[dict] = []
+    for prop in properties:
+        prop_type = prop.get("type") or "person"
+        if prop_type not in DELETABLE_PERSON_FILTER_TYPES:
+            raise ValidationError(
+                f"Unsupported filter type '{prop_type}'. Persons can only be selected for deletion "
+                "by person property or cohort filters."
+            )
+        normalized_prop = {**prop, "type": prop_type}
+        if prop_type != "cohort":
+            # Legacy person filters default to the "exact" operator; ActorsQuery requires it explicitly.
+            normalized_prop.setdefault("operator", "exact")
+        normalized.append(normalized_prop)
+    return normalized
 
 
 class PersonSplitRequestSerializer(serializers.Serializer):
@@ -657,20 +745,27 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=False, required_scopes=["person:write"])
     def bulk_delete(self, request: request.Request, pk=None, **kwargs):
         """
-        This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 1000 IDs per call. Only events captured before the request will be deleted.
-        """
+        This endpoint allows you to bulk delete persons, either by the PostHog person IDs, by distinct IDs, or by a person filter.
 
-        delete_events = bool(request.data.get("delete_events"))
-        delete_recordings = bool(request.data.get("delete_recordings"))
-        keep_person = bool(request.data.get("keep_person"))
+        With `ids` or `distinct_ids` you can pass in a maximum of 1000 IDs per call. With `properties` and/or `search`
+        the matching persons are resolved server-side: each call deletes up to 1000 matching persons and returns
+        `has_more`, so you repeat the same request until `has_more` is false rather than enumerating IDs yourself.
+        Send `dry_run` first to see how many persons a filter matches. Only events captured before the request will be deleted.
+        """
+        serializer = PersonBulkDeleteRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        validated = serializer.validated_data
 
         summary = self._bulk_delete_persons(
             request=request,
-            distinct_ids=request.data.get("distinct_ids"),
-            ids=request.data.get("ids"),
-            delete_events=delete_events,
-            delete_recordings=delete_recordings,
-            keep_person=keep_person,
+            distinct_ids=validated.get("distinct_ids"),
+            ids=validated.get("ids"),
+            properties=validated.get("properties"),
+            search=validated.get("search"),
+            dry_run=validated["dry_run"],
+            delete_events=validated["delete_events"],
+            delete_recordings=validated["delete_recordings"],
+            keep_person=validated["keep_person"],
         )
 
         return response.Response(data=summary, status=202)
@@ -680,20 +775,51 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request: request.Request,
         distinct_ids: builtins.list[str] | None = None,
         ids: builtins.list[str] | None = None,
+        properties: builtins.list[dict] | None = None,
+        search: str | None = None,
+        dry_run: bool = False,
         delete_events: bool = False,
         delete_recordings: bool = False,
         keep_person: bool = False,
     ) -> dict[str, Any]:
+        has_filter = bool(properties) or bool(search)
         if distinct_ids and ids:
             raise ValidationError("You must provide either distinct_ids or ids, not both")
+        if has_filter and (distinct_ids or ids):
+            raise ValidationError(
+                "You must provide either a properties/search filter or explicit distinct_ids/ids, not both"
+            )
         if distinct_ids and len(distinct_ids) > 1000:
             raise ValidationError("You can only pass 1000 distinct_ids in one call")
         if ids and len(ids) > 1000:
             raise ValidationError("You can only pass 1000 ids in one call")
-        if not distinct_ids and not ids:
-            raise ValidationError("You need to specify either distinct_ids or ids")
+        if not distinct_ids and not ids and not has_filter:
+            raise ValidationError("You need to specify either distinct_ids or ids, or a properties/search filter")
 
-        persons = resolve_persons_for_deletion(self.team_id, ids, distinct_ids)
+        has_more = False
+        if has_filter:
+            person_properties = _normalize_person_filter_properties(properties or [])
+            if dry_run:
+                return {
+                    "persons_found": count_persons_matching_filter(self.team, person_properties, search),
+                    "persons_deleted": 0,
+                    "has_more": False,
+                    "events_queued_for_deletion": False,
+                    "recordings_queued_for_deletion": False,
+                    "deletion_errors": [],
+                }
+            persons, has_more = resolve_persons_for_deletion_by_filter(self.team, person_properties, search)
+        else:
+            persons = resolve_persons_for_deletion(self.team_id, ids, distinct_ids)
+            if dry_run:
+                return {
+                    "persons_found": len(persons),
+                    "persons_deleted": 0,
+                    "has_more": False,
+                    "events_queued_for_deletion": False,
+                    "recordings_queued_for_deletion": False,
+                    "deletion_errors": [],
+                }
 
         persons_deleted = 0
         errors: builtins.list[dict[str, str]] = []
@@ -716,6 +842,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return {
             "persons_found": len(persons),
             "persons_deleted": persons_deleted,
+            "has_more": has_more,
             "events_queued_for_deletion": delete_events and len(persons) > 0,
             "recordings_queued_for_deletion": delete_recordings and len(persons) > 0,
             "deletion_errors": errors,

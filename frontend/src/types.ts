@@ -1655,6 +1655,29 @@ export interface PersonListParams {
     limit?: number
 }
 
+export interface PersonBulkDeleteRequest {
+    ids?: string[]
+    distinct_ids?: string[]
+    /** Person property filters selecting which persons to delete, resolved server-side. */
+    properties?: AnyPropertyFilter[]
+    search?: string
+    /** Return how many persons the filter matches without deleting anything. */
+    dry_run?: boolean
+    delete_events?: boolean
+    delete_recordings?: boolean
+    keep_person?: boolean
+}
+
+export interface PersonBulkDeleteResponse {
+    persons_found: number
+    persons_deleted: number
+    /** Whether more persons still match the filter, meaning the same request should be repeated. */
+    has_more: boolean
+    events_queued_for_deletion: boolean
+    recordings_queued_for_deletion: boolean
+    deletion_errors: { person_uuid: string }[]
+}
+
 export type SearchableEntity =
     | 'action'
     | 'cohort'

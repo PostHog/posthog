@@ -4,7 +4,7 @@ import builtins
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from django.conf import settings
 
@@ -26,6 +26,11 @@ from posthog.models.person.util import (
 from posthog.models.user import User
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.session_replay.delete_recordings.types import DeletionConfig, RecordingsWithPersonInput
+
+if TYPE_CHECKING:
+    from posthog.schema import ActorsQuery
+
+    from posthog.models.team import Team
 
 logger = structlog.get_logger(__name__)
 
@@ -54,6 +59,71 @@ def resolve_persons_for_deletion(
         return _fetch_persons_by_distinct_ids_via_personhog(team_id, cast(builtins.list[str], distinct_ids))
 
     return personhog_call("resolve_persons_for_deletion", _fetch, caller_tag="persons/deletion-resolve")
+
+
+# Persons resolved per call when deleting by filter, so one filtered call costs roughly the
+# same as one explicit-ID call. Callers repeat the same filter until nothing matches.
+FILTER_DELETE_PAGE_SIZE = 1000
+
+
+def _actors_query_for_filter(
+    properties: builtins.list[dict],
+    search: str | None,
+    *,
+    limit: int | None = None,
+) -> "ActorsQuery":
+    from posthog.schema import ActorsQuery  # noqa: PLC0415 — keeps the heavy schema module off the import path
+
+    return ActorsQuery(
+        select=["id"],
+        properties=properties,
+        search=search or None,
+        orderBy=["created_at DESC", "id DESC"],
+        limit=limit,
+    )
+
+
+def count_persons_matching_filter(team: "Team", properties: builtins.list[dict], search: str | None) -> int:
+    """Total number of persons a filter matches, for showing before an irreversible delete."""
+    from posthog.hogql import ast  # noqa: PLC0415 — keeps the query engine off the import path
+    from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
+
+    from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner  # noqa: PLC0415
+
+    inner = ActorsQueryRunner(team=team, query=_actors_query_for_filter(properties, search)).to_query()
+    inner.limit = None
+    inner.offset = None
+    count_query = ast.SelectQuery(
+        select=[ast.Call(name="count", args=[])],
+        select_from=ast.JoinExpr(table=inner),
+    )
+    return execute_hogql_query(count_query, team=team).results[0][0]
+
+
+def resolve_persons_for_deletion_by_filter(
+    team: "Team",
+    properties: builtins.list[dict],
+    search: str | None,
+) -> tuple[builtins.list[Person], bool]:
+    """Resolve one page of persons matching a person filter, and whether more pages remain.
+
+    Candidate IDs come from ClickHouse but the Persons themselves are materialized via
+    personhog, so a person whose deletion tombstone hasn't been ingested yet drops out of the
+    page instead of being deleted twice. Paging always starts at offset 0 — deleted persons
+    leave the result set, so the next call naturally sees the next page.
+    """
+    from posthog.hogql_queries.actors_query_runner import (  # noqa: PLC0415 — keeps the query engine off the import path
+        ActorsQueryRunner,
+    )
+
+    query = _actors_query_for_filter(properties, search, limit=FILTER_DELETE_PAGE_SIZE)
+    # .calculate() applies the paginator but skips the insight-caching wrapper, as in the list endpoint.
+    actors_response = ActorsQueryRunner(team=team, query=query).calculate()
+    uuids = [str(row[0]) for row in actors_response.results]
+    has_more = (
+        bool(actors_response.hasMore) if actors_response.hasMore is not None else len(uuids) >= FILTER_DELETE_PAGE_SIZE
+    )
+    return resolve_persons_for_deletion(team.pk, uuids, None), has_more
 
 
 def delete_persons_profile(

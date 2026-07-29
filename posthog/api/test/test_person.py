@@ -678,6 +678,89 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(data["deletion_errors"], [])
         self.assertEqual(AsyncDeletion.objects.filter(team_id=self.team.id).count(), 0)
 
+    def _create_persons_for_filter_deletion(self) -> tuple[Person, Person, Person]:
+        chrome_1 = _create_person(
+            team=self.team, distinct_ids=["chrome_1"], properties={"$os": "Chrome"}, immediate=True
+        )
+        chrome_2 = _create_person(
+            team=self.team, distinct_ids=["chrome_2"], properties={"$os": "Chrome"}, immediate=True
+        )
+        safari = _create_person(team=self.team, distinct_ids=["safari_1"], properties={"$os": "Safari"}, immediate=True)
+        flush_persons_and_events()
+        return chrome_1, chrome_2, safari
+
+    def test_bulk_delete_by_property_filter_only_deletes_matching_persons(self):
+        chrome_1, chrome_2, safari = self._create_persons_for_filter_deletion()
+
+        response = self.client.post(
+            "/api/person/bulk_delete/",
+            {"properties": [{"type": "person", "key": "$os", "value": "Chrome", "operator": "exact"}]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
+        data = response.json()
+        self.assertEqual(data["persons_found"], 2)
+        self.assertEqual(data["persons_deleted"], 2)
+        self.assertFalse(data["has_more"])
+        self.assertIsNone(get_person_by_uuid(self.team.pk, str(chrome_1.uuid)))
+        self.assertIsNone(get_person_by_uuid(self.team.pk, str(chrome_2.uuid)))
+        self.assertIsNotNone(get_person_by_uuid(self.team.pk, str(safari.uuid)))
+
+    def test_bulk_delete_by_filter_reports_has_more_when_a_page_is_full(self):
+        self._create_persons_for_filter_deletion()
+
+        with mock.patch("posthog.models.person.bulk_delete.FILTER_DELETE_PAGE_SIZE", 1):
+            response = self.client.post(
+                "/api/person/bulk_delete/",
+                {"properties": [{"type": "person", "key": "$os", "value": "Chrome", "operator": "exact"}]},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
+        data = response.json()
+        self.assertEqual(data["persons_deleted"], 1)
+        self.assertTrue(data["has_more"])
+
+    def test_bulk_delete_by_filter_dry_run_counts_without_deleting(self):
+        chrome_1, chrome_2, _ = self._create_persons_for_filter_deletion()
+
+        response = self.client.post(
+            "/api/person/bulk_delete/",
+            {
+                "properties": [{"type": "person", "key": "$os", "value": "Chrome", "operator": "exact"}],
+                "dry_run": True,
+                "delete_events": True,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED, response.content)
+        data = response.json()
+        self.assertEqual(data["persons_found"], 2)
+        self.assertEqual(data["persons_deleted"], 0)
+        self.assertFalse(data["events_queued_for_deletion"])
+        self.assertIsNotNone(get_person_by_uuid(self.team.pk, str(chrome_1.uuid)))
+        self.assertIsNotNone(get_person_by_uuid(self.team.pk, str(chrome_2.uuid)))
+        self.assertEqual(AsyncDeletion.objects.filter(team_id=self.team.id).count(), 0)
+
+    @parameterized.expand(
+        [
+            (
+                "hogql_filter_type",
+                {"properties": [{"type": "hogql", "key": "1 = 1"}]},
+                "Unsupported filter type",
+            ),
+            (
+                "filter_combined_with_ids",
+                {"properties": [{"type": "person", "key": "$os", "value": "Chrome"}], "ids": [str(uuid4())]},
+                "not both",
+            ),
+        ]
+    )
+    def test_bulk_delete_rejects_invalid_filter_selector(self, _name, payload, expected_message):
+        response = self.client.post("/api/person/bulk_delete/", payload)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertIn(expected_message, str(response.content))
+
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_deletion_status_lists_pending_deletions(self):
         person = _create_person(

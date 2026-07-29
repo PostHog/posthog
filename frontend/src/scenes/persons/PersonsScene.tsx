@@ -1,6 +1,6 @@
 import { useActions, useAsyncActions, useValues } from 'kea'
 
-import { IconRewind } from '@posthog/icons'
+import { IconRewind, IconTrash } from '@posthog/icons'
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
@@ -22,13 +22,15 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { Query } from '~/queries/Query/Query'
 import { ActorsQuery, ProductKey } from '~/queries/schema/schema-general'
-import { ActivityTab, CustomerProfileScope, OnboardingStepKey } from '~/types'
+import { ActivityTab, AnyPropertyFilter, CustomerProfileScope, OnboardingStepKey } from '~/types'
 
 import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
 import { PersonDisplayNameNudgeBanner } from 'products/customer_analytics/frontend/components/PersonDisplayNameNudgeBanner'
 import { customerProfileConfigLogic } from 'products/customer_analytics/frontend/customerProfileConfigLogic'
 
-import { personsSceneLogic } from './personsSceneLogic'
+import { personsBulkDeleteLogic } from './personsBulkDeleteLogic'
+import { PersonsBulkDeleteModal } from './PersonsBulkDeleteModal'
+import { PERSONS_QUERY_UNIQUE_KEY, personsSceneLogic } from './personsSceneLogic'
 
 export const scene: SceneExport = {
     component: PersonsScene,
@@ -42,7 +44,8 @@ export function PersonsScene(): JSX.Element {
     const { resetDeletedDistinctId } = useAsyncActions(personsSceneLogic)
     const { currentTeam, baseCurrency } = useValues(teamLogic)
     const { loadConfigs } = useActions(customerProfileConfigLogic({ scope: CustomerProfileScope.PERSON }))
-    const queryUniqueKey = 'persons-query'
+    const { openModal: openBulkDeleteModal } = useActions(personsBulkDeleteLogic)
+    const queryUniqueKey = PERSONS_QUERY_UNIQUE_KEY
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
 
     // A UUID-shaped search that returns nothing is often a session ID typed into the wrong field.
@@ -50,6 +53,12 @@ export function PersonsScene(): JSX.Element {
     const rawSearch: unknown = (query.source as Partial<ActorsQuery> | undefined)?.search
     const searchTerm = typeof rawSearch === 'string' ? rawSearch.trim() : undefined
     const searchLooksLikeSessionId = !!searchTerm && isUUIDLike(searchTerm)
+
+    // Deleting by filter is only offered once the table is narrowed down, so nobody can wipe every
+    // person in the project with two clicks.
+    const properties = ((query.source as Partial<ActorsQuery> | undefined)?.properties ?? []) as AnyPropertyFilter[]
+    const bulkDeleteDisabledReason = !properties.length && !searchTerm ? 'Filter or search the table first' : undefined
+    const onBulkDelete = (): void => openBulkDeleteModal({ properties, search: searchTerm })
 
     useOnMountEffect(() => {
         loadConfigs()
@@ -90,6 +99,17 @@ export function PersonsScene(): JSX.Element {
                         >
                             <IconRewind />
                             Reset a deleted person
+                        </SceneMenuBarItem>
+                        <SceneMenuBarItem
+                            variant="destructive"
+                            opensFloatingUi
+                            onClick={onBulkDelete}
+                            disabled={!!bulkDeleteDisabledReason}
+                            tooltip={bulkDeleteDisabledReason}
+                            data-attr="persons-menubar-bulk-delete"
+                        >
+                            <IconTrash />
+                            Delete matching persons
                         </SceneMenuBarItem>
                     </SceneMenuBarMenu>
                 </SceneMenuBar>
@@ -134,6 +154,17 @@ export function PersonsScene(): JSX.Element {
                                 >
                                     <IconRewind />
                                     Reset a deleted person...
+                                </ButtonPrimitive>
+                                <ButtonPrimitive
+                                    menuItem
+                                    variant="danger"
+                                    disabled={!!bulkDeleteDisabledReason}
+                                    tooltip={bulkDeleteDisabledReason}
+                                    onClick={onBulkDelete}
+                                    data-attr="persons-bulk-delete"
+                                >
+                                    <IconTrash />
+                                    Delete matching persons...
                                 </ButtonPrimitive>
                             </ScenePanelActionsSection>
                         </ScenePanel>
@@ -190,6 +221,7 @@ export function PersonsScene(): JSX.Element {
                 }}
                 dataAttr="persons-table"
             />
+            <PersonsBulkDeleteModal />
         </SceneContent>
     )
 }
