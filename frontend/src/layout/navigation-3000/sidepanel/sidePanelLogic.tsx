@@ -98,11 +98,18 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.Support)
                 }
 
+                // Notebooks and discussions attach to a specific object, so they have nothing to show on the
+                // access control settings page and would only render their "not supported here" state.
+                const notApplicable: SidePanelTab[] = isAccessControlSettings
+                    ? [SidePanelTab.Notebooks, SidePanelTab.Discussion]
+                    : []
+                const applicableTabs = tabs.filter((tab) => !notApplicable.includes(tab))
+
                 if (!currentTeam) {
-                    return tabs.filter((tab) => !TABS_REQUIRING_A_TEAM.includes(tab))
+                    return applicableTabs.filter((tab) => !TABS_REQUIRING_A_TEAM.includes(tab))
                 }
 
-                return tabs
+                return applicableTabs
             },
         ],
 
