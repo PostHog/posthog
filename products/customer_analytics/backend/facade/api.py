@@ -2203,9 +2203,15 @@ def get_account_support_tickets(
 ) -> list[TicketSummary] | None:
     """Support tickets (from the conversations product) for an accessible account, newest activity
     first. None when the parent account isn't accessible (→ 404); an empty list when the account
-    has no linked customer org key, or has one but no matching tickets."""
+    has no linked customer org key, or has one but no matching tickets.
+
+    Raises :class:`ResourceForbiddenError` (→ 403) when the caller can read the account but not
+    tickets — this endpoint is authorized as ``account`` while the payload is ticket content, so
+    the ``ticket`` resource has to be gated separately or this path bypasses its RBAC."""
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return None
+    if not user_access_control.check_access_level_for_resource("ticket", "viewer"):
+        raise ResourceForbiddenError()
     account = _resolve_account(team_id, account_id=account_id)
     if account is None or not account.external_id:
         return []

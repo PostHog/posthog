@@ -973,14 +973,29 @@ class AccountViewSet(
     @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: SupportTicketSerializer(many=True)})
     @action(methods=["GET"], detail=True, pagination_class=None)
     def support_tickets(self, request: Request, *args, **kwargs) -> Response:
-        tickets = api.get_account_support_tickets(
-            self.team_id,
-            self.kwargs["pk"],
-            user_access_control=self.user_access_control,
-        )
+        try:
+            tickets = api.get_account_support_tickets(
+                self.team_id,
+                self.kwargs["pk"],
+                user_access_control=self.user_access_control,
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied()
         if tickets is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(SupportTicketSerializer(instance=tickets, many=True).data)
+
+    def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
+        super_method = getattr(super(), "dangerously_get_required_scopes", None)
+        if callable(super_method):
+            mixin_result = super_method(request, view)
+            if mixin_result is not None:
+                return mixin_result
+        # Ticket content behind an account-scoped viewset — a token holding only
+        # account:read must not read it.
+        if view.action == "support_tickets":
+            return ["account:read", "ticket:read"]
+        return None
 
     def create(self, request: Request, *args, **kwargs) -> Response:
         serializer = AccountSerializer(data=request.data)

@@ -2683,3 +2683,36 @@ class TestAccountSupportTicketViewSet(APIBaseTest):
 
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
         self.assertEqual(response.json(), [])
+
+    def test_account_viewer_denied_tickets_cannot_read_them(self):
+        Ticket.objects.create(
+            team=self.team,
+            ticket_number=9,
+            widget_session_id="s9",
+            distinct_id="d9",
+            organization_id="acme-1",
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        viewer = User.objects.create_and_join(self.organization, "ticket-denied@posthog.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=viewer, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="customer_analytics",
+            resource_id=None,
+            access_level="viewer",
+            organization_member=membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="ticket",
+            resource_id=None,
+            access_level="none",
+            organization_member=membership,
+        )
+        self.client.force_login(viewer)
+
+        self.assertEqual(status.HTTP_403_FORBIDDEN, self.client.get(self.endpoint).status_code)
