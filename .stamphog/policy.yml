@@ -186,7 +186,7 @@ dismiss:
         - 'readme'
         - 'changelog'
     test_regex: '(?:^|/)(?:__tests__|tests?|fixtures)/|(?:^|/)test_[^/]+\.py$|_test\.(py|go)$|\.test\.(ts|tsx|js|jsx)$|\.spec\.(ts|tsx|js|jsx)$|(?:^|/)conftest\.py$'
-    generated_regex: '(?:^|/)generated/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$|\.gen\.(ts|tsx|js|jsx)$|\.generated\.(ts|tsx|js|jsx)$|^frontend/src/queries/schema/'
+    generated_regex: '(?:^|/)generated/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$|(?:^|/)generated\.(ts|tsx|js|jsx)$|\.gen\.(ts|tsx|js|jsx)$|\.generated\.(ts|tsx|js|jsx)$|^frontend/src/queries/schema/'
 overrides:
     'size_gate.max_files':
         ceiling: 50
