@@ -1,8 +1,9 @@
 """Routes for the agentic provisioning namespace, included from ``ee/urls.py``.
 
 Partner endpoints live under ``/api/agentic/`` and are ``csrf_exempt`` (they
-authenticate with a bearer token or PKCE, never a session cookie). The consent
-and login routes are browser-facing and keep CSRF protection.
+authenticate with a signed client assertion, client credentials, PKCE, or an OAuth
+access token, never a session cookie). The consent and login routes are
+browser-facing and keep CSRF protection.
 """
 
 from django.urls import path
@@ -11,6 +12,11 @@ from django.views.decorators.csrf import csrf_exempt
 from ee.api.agentic_provisioning import views
 
 urlpatterns = [
+    path(
+        "api/agentic/provisioning/client_registration",
+        csrf_exempt(views.ClientRegistrationView.as_view()),
+        name="agentic_provisioning_client_registration",
+    ),
     path(
         "api/agentic/provisioning/account_requests",
         csrf_exempt(views.AccountRequestsView.as_view()),
