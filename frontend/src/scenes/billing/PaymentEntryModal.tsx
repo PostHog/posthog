@@ -22,7 +22,16 @@ export const PaymentForm = (): JSX.Element => {
     const handleSubmit = async (event: React.MouseEvent<HTMLElement>): Promise<void> => {
         clearErrors()
         event.preventDefault()
+        // Stripe.js never became usable: no publishable key, a blocked script, or a load failure.
+        // Returning quietly leaves a button that does nothing at all, which reads as a broken app
+        // and gives neither the user nor a support ticket anything to go on.
         if (!stripe || !elements) {
+            setStripeError('Payment form could not be loaded. Disable any ad blocker, reload the page, and try again.')
+            posthog.captureException(new Error('payment entry stripe unavailable'), {
+                has_stripe: !!stripe,
+                has_elements: !!elements,
+                has_public_key: !!window.STRIPE_PUBLIC_KEY,
+            })
             return
         }
         setLoading(true)
@@ -77,7 +86,12 @@ export const PaymentEntryModal = (): JSX.Element => {
                 const publicKey = window.STRIPE_PUBLIC_KEY!
                 setStripePromise(await loadStripe(publicKey))
             }
-            void loadStripeJs()
+            // `loadStripe` rejects outright when the key is missing (an instance without Stripe
+            // configured, e.g. local dev), so without a catch this is an unhandled rejection and the
+            // only symptom is an inert form.
+            void loadStripeJs().catch((error) => {
+                posthog.captureException(new Error('payment entry stripe load failed', { cause: error }))
+            })
         }
     }, [paymentEntryModalOpen, stripePromise])
 
