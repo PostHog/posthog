@@ -58,7 +58,7 @@ dependencies = [
     "drf-extensions~=0.8.0",
     "drf-spectacular~=0.29.0",
     "geoip2==4.6.0",
-    "google-ads==30.1.0",
+    "google-ads==31.2.0",
     "google-cloud-bigquery==3.26",
     "google-cloud-bigquery-storage==2.32.0",
     "google-cloud-iam==2.21",
@@ -293,7 +293,7 @@ hogql-parser-parity = [
 required-version = ">=0.10.2"
 add-bounds = "major"
 exclude-newer = "7 days"
-exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false }
+exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
 
 [tool.uv.workspace]
 members = ["tools/hogli", "tools/owners"]
@@ -563,6 +563,7 @@ ignore_imports = [
     "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.alert_state_machine",
     "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.models",
     "products.logs.backend.presentation.views.metric_rules_api -> products.logs.backend.models",
+    "products.logs.backend.presentation.views.retention_api -> products.logs.backend.models",
     "products.logs.backend.presentation.views.sampling_api -> products.logs.backend.models",
     "products.logs.backend.presentation.views.views_api -> products.logs.backend.models",
     # logs presentation isolation (temporary): cross-product imports the moved viewsets
@@ -589,6 +590,7 @@ ignore_imports = [
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_references",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_runs",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_serializers",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_state",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.client",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.sql_v2",
     # TODO: data_warehouse presentation wave — the structural move landed the viewsets under

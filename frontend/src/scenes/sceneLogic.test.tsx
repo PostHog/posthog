@@ -81,6 +81,17 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.featureFlag('123'))
     })
 
+    it('redirects the old /code_review path to /code-review, preserving the ?review= deep link and hash', async () => {
+        router.actions.push('/code_review', { review: 'r-9' }, { panel: 'max:inspect' })
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.codeReview())
+        // ?review=<report id> is a permanent public contract baked into GitHub PR comments — the
+        // redirect must carry it across so those links keep opening the right report. The hash
+        // carries global side-panel state, so it has to survive the redirect too.
+        expect(router.values.searchParams.review).toEqual('r-9')
+        expect(router.values.hashParams.panel).toEqual('max:inspect')
+    })
+
     it('persists the loaded scenes', async () => {
         const expectedAnnotation = partial({
             component: expect.any(Function),

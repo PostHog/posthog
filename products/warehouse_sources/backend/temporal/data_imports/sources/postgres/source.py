@@ -24,10 +24,6 @@ from posthog.exceptions_capture import capture_exception
 
 from products.data_warehouse.backend.facade.api import reconcile_postgres_schemas
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     SSHTunnelMixin,
@@ -37,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
 )
@@ -716,6 +713,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "sync, then re-enable the sync."
             ),
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `get_rows` already retries a mid-stream drop in-process (reconnect, or fall back to
+        # offset chunking) — see `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` in postgres.py. It only
+        # reaches here once that in-process handling gives up (e.g. a full-table scan can't safely
+        # resume once rows have been yielded, since OFFSET has no stable ORDER BY to resume from).
+        # Temporal then retries the whole activity and the failure is transient and
+        # self-recovering, so classify it here too — otherwise `_handle_import_error` logs it at
+        # `exception` on every occurrence, flooding error tracking with a self-recovering failure
+        # (e.g. a cloud provider terminating a backend for maintenance or failover).
+        return {"terminating connection due to"}
 
     def reconcile_schema_metadata(
         self,

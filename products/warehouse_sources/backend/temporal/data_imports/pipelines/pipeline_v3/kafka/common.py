@@ -5,7 +5,7 @@ from typing import Any, Literal, Optional
 from posthog.kafka_client.client import _KafkaProducer
 from posthog.kafka_client.routing import KafkaClusterProfile, get_producer
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
 )
