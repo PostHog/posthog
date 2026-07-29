@@ -91,7 +91,7 @@ function SummaryCard({
                 </span>
             </div>
             {expanded && (
-                <LemonMarkdown lowKeyHeadings disableImages disableDocsRedirect className="text-sm px-4 pb-4">
+                <LemonMarkdown lowKeyHeadings disableImages disableDocsRedirect className="text-sm px-4 pt-3 pb-4">
                     {summary.content}
                 </LemonMarkdown>
             )}
