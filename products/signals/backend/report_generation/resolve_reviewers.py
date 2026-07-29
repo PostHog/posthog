@@ -232,14 +232,9 @@ def _rank_scored_candidates(
 ) -> list[_ResolvedReviewer]:
     scores = _score_candidates(login_weights, activity_by_login)
 
-    # Activity-only owners (in the area map, but with no blame or agent-proposed weight) only
-    # ever carry a broad "Recently active in <area>" justification, and the area lookup can walk
-    # up to shallow, monorepo-wide paths — so surfacing them next to a live reviewer just pads
-    # the list with noise. Drop them when a weighted candidate is itself still active in the area
-    # (that candidate is the real reviewer). Keep them only when every weighted candidate is stale
-    # or absent — then the area's current contributors are the best reviewer we have. Recency, not
-    # bare map membership, decides "active": the area cache is served while a rebuild is scheduled,
-    # so an entry can have aged past the window, which is exactly when the fallback still matters.
+    # Activity-only owners are a last resort: only surface them when no weighted (blame/agent)
+    # candidate is still active in the area, so we don't pad noise next to a live reviewer.
+    # Recency, not map membership, decides "active" — the cached area map can be stale.
     def _weighted_candidate_still_active(login: str) -> bool:
         activity = activity_by_login.get(login)
         return activity is not None and activity.days_since_last_commit < ACTIVITY_WINDOW_DAYS
