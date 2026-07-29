@@ -64,16 +64,37 @@ describe('relationshipsLogic', () => {
         proposals: DataCatalogRelationshipProposalApi[],
         joins: { id: string; source_table_name?: string }[]
     ): Promise<void> {
-        ;(dataCatalogRelationshipProposalsList as jest.Mock).mockResolvedValue({ results: proposals })
+        ;(dataCatalogRelationshipProposalsList as jest.Mock).mockResolvedValue({
+            results: proposals,
+            count: proposals.filter((proposal) => proposal.status === 'proposed').length,
+        })
         ;(api.dataWarehouseViewLinks.list as jest.Mock).mockResolvedValue({ results: joins })
         initKeaTests()
         logic = relationshipsLogic()
         logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPendingCountSuccess'])
+        // The full proposal/join payloads load only when the Relationships tab is viewed.
+        logic.actions.loadProposals()
+        logic.actions.loadJoins()
         await expectLogic(logic).toDispatchActions(['loadProposalsSuccess', 'loadJoinsSuccess'])
     }
 
     beforeEach(() => {
         jest.clearAllMocks()
+    })
+
+    it('loads only the lightweight badge count on mount, not the full proposal payloads', async () => {
+        ;(dataCatalogRelationshipProposalsList as jest.Mock).mockResolvedValue({ results: [], count: 3 })
+        ;(api.dataWarehouseViewLinks.list as jest.Mock).mockResolvedValue({ results: [] })
+        initKeaTests()
+        logic = relationshipsLogic()
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadPendingCountSuccess'])
+            .toNotHaveDispatchedActions(['loadProposals', 'loadJoins'])
+        expect(logic.values.pendingCount).toEqual(3)
+        expect(dataCatalogRelationshipProposalsList).toHaveBeenCalledWith('1', { status: 'proposed', limit: 1 })
     })
 
     it('folds an accepted proposal into its created join and tags it via-catalog', async () => {

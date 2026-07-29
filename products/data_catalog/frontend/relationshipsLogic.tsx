@@ -1,8 +1,10 @@
 import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { urls } from 'scenes/urls'
 
 import { DataWarehouseViewLink } from '~/types'
 
@@ -48,6 +50,7 @@ export interface relationshipsLogicValues {
     joins: DataWarehouseViewLink[]
     joinsLoading: boolean
     pendingCount: number
+    pendingCountLoading: boolean
     proposals: DataCatalogRelationshipProposalApi[]
     proposalsLoading: boolean
     rows: RelationshipRow[]
@@ -72,6 +75,21 @@ export interface relationshipsLogicActions {
         payload?: any
     ) => {
         joins: DataWarehouseViewLink[]
+        payload?: any
+    }
+    loadPendingCount: () => any
+    loadPendingCountFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPendingCountSuccess: (
+        pendingCount: number,
+        payload?: any
+    ) => {
+        pendingCount: number
         payload?: any
     }
     loadProposals: () => any
@@ -113,7 +131,6 @@ export interface relationshipsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         rows: (proposals: DataCatalogRelationshipProposalApi[], joins: DataWarehouseViewLink[]) => RelationshipRow[]
         filteredRows: (rows: RelationshipRow[], statusFilter: RelationshipStatusFilter) => RelationshipRow[]
-        pendingCount: (proposals: DataCatalogRelationshipProposalApi[]) => number
     }
 }
 
@@ -133,6 +150,20 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
         setActionInFlight: (id: string, inFlight: boolean) => ({ id, inFlight }),
     }),
     loaders(() => ({
+        // Badge count only — never pull the full proposal payloads (unbounded reasoning/evidence)
+        // just to render a number on a tab the user may never open.
+        pendingCount: [
+            0,
+            {
+                loadPendingCount: async () => {
+                    const response = await dataCatalogRelationshipProposalsList(projectId(), {
+                        status: 'proposed',
+                        limit: 1,
+                    })
+                    return response.count ?? 0
+                },
+            },
+        ],
         proposals: [
             [] as DataCatalogRelationshipProposalApi[],
             {
@@ -249,11 +280,6 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
             (rows: RelationshipRow[], statusFilter: RelationshipStatusFilter) =>
                 statusFilter === 'all' ? rows : rows.filter((row) => row.rowStatus === statusFilter),
         ],
-        pendingCount: [
-            (s) => [s.proposals],
-            (proposals: DataCatalogRelationshipProposalApi[]) =>
-                proposals.filter((proposal) => proposal.status === 'proposed').length,
-        ],
     }),
     listeners(({ values, actions }) => ({
         acceptProposal: async ({ id }) => {
@@ -266,6 +292,7 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
                 lemonToast.success('Relationship accepted and promoted to a warehouse join')
                 actions.loadProposals()
                 actions.loadJoins()
+                actions.loadPendingCount()
             } catch (error) {
                 lemonToast.error(apiErrorDetail(error) || 'Could not accept the relationship. Try again.')
             } finally {
@@ -283,6 +310,7 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
                 })
                 lemonToast.success('Relationship rejected')
                 actions.loadProposals()
+                actions.loadPendingCount()
             } catch (error) {
                 lemonToast.error(apiErrorDetail(error) || 'Could not reject the relationship. Try again.')
             } finally {
@@ -290,8 +318,16 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
             }
         },
     })),
+    urlToAction(({ actions }) => ({
+        // Load the full proposals and joins only when the Relationships tab is actually viewed.
+        [urls.dataCatalog()]: (_, searchParams) => {
+            if (searchParams.tab === 'relationships') {
+                actions.loadProposals()
+                actions.loadJoins()
+            }
+        },
+    })),
     afterMount(({ actions }) => {
-        actions.loadProposals()
-        actions.loadJoins()
+        actions.loadPendingCount()
     }),
 ])
