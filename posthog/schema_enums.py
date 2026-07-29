@@ -853,6 +853,11 @@ class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_SUBSCRIPTION = "revenue_analytics_subscription"
 
 
+class DatabaseSchemaTableCertificationStatus(StrEnum):
+    CERTIFIED = "certified"
+    DEPRECATED = "deprecated"
+
+
 class DatabaseSchemaTableType(StrEnum):
     POSTHOG = "posthog"
     SYSTEM = "system"
