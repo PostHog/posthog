@@ -47204,6 +47204,12 @@ export namespace Schemas {
       status: WizardTaskDTOStatusEnum;
     }
 
+    export interface WizardSessionUserDTO {
+      id: number;
+      first_name: string;
+      email: string;
+    }
+
     /**
      * @nullable
      */
@@ -47231,6 +47237,8 @@ export namespace Schemas {
       event_plan: WizardSessionDTOEventPlan;
       /** @nullable */
       error: WizardSessionDTOError;
+      /** The user who initiated this wizard run (null for runs created before attribution existed). Lets the UI name whose run it is. */
+      created_by: WizardSessionUserDTO | null;
       created_at: string;
       updated_at: string;
       is_stale: boolean;
