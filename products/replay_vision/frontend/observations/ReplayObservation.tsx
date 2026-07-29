@@ -10,7 +10,6 @@ import {
     IconExpand,
     IconGear,
     IconInfo,
-    IconRefresh,
     IconSparkles,
     IconThoughtBubble,
     IconVideoCamera,
@@ -49,6 +48,7 @@ import {
     readResult,
 } from '../components/ObservationCard'
 import { ObservationProgressBar } from '../components/ObservationProgressBar'
+import { ObservationRetryButton } from '../components/ObservationRetryButton'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import { replayScannerLogic } from '../replay_scanners/replayScannerLogic'
@@ -66,7 +66,6 @@ import {
     OBSERVATION_TRIGGER_TAG,
     type ScannerType,
 } from '../replay_scanners/types'
-import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { ObservationLabelControl } from './ObservationLabelControl'
 import { neighborFilterParams, observationDetailUrl, replayObservationLogic } from './replayObservationLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
@@ -353,17 +352,15 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                 </LabeledRow>
                             )}
                             <div>
-                                <LemonButton
-                                    type="primary"
-                                    size="small"
-                                    icon={<IconRefresh />}
-                                    onClick={() => retryObservation()}
+                                <ObservationRetryButton
+                                    errorReason={observation.error_reason}
+                                    onRetry={() => retryObservation()}
                                     loading={retrying}
-                                    disabledReason={getReplayVisionEditDisabledReason(scanner?.user_access_level)}
-                                    data-attr="vision-observation-detail-retry"
-                                >
-                                    Retry scan
-                                </LemonButton>
+                                    userAccessLevel={scanner?.user_access_level}
+                                    emphasis="primary"
+                                    size="small"
+                                    dataAttr="vision-observation-detail-retry"
+                                />
                             </div>
                         </div>
                     )}

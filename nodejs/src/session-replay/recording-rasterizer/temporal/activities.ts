@@ -22,7 +22,9 @@ import { elapsed } from '~/session-replay/recording-rasterizer/utils'
 
 function toActivityError(err: unknown): Error {
     if (err instanceof RasterizationError && !err.retryable) {
-        return ApplicationFailure.nonRetryable(err.message, 'NON_RETRYABLE', err)
+        // The code travels as the failure type so a caller can tell a recording that can never render (NO_SNAPSHOTS,
+        // INVALID_INPUT) from one that merely ran out of retries, and report the difference to the user.
+        return ApplicationFailure.nonRetryable(err.message, err.code, err)
     }
     return err instanceof Error ? err : new Error(String(err))
 }

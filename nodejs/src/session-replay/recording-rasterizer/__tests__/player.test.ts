@@ -153,6 +153,37 @@ describe('PlayerController', () => {
         await expect(startPromise).rejects.toBeInstanceOf(RasterizationError)
     })
 
+    it('waitForStart() overrides the player and marks NO_SNAPSHOTS non-retryable', async () => {
+        // The in-page player reports NO_SNAPSHOTS as retryable, but the same session and time window resolves to the
+        // same empty block set every attempt, so honoring that burns the whole retry budget to reach one answer.
+        const mp = mockCapturePage()
+        const controller = new PlayerController(mp.capturePage, mockBlockProxy, jest.fn())
+        await controller.load(basePlayerConfig())
+
+        const startPromise = controller.waitForStart(basePlayerConfig(), 5000)
+
+        mp._emit({
+            type: 'error',
+            code: 'NO_SNAPSHOTS',
+            message: 'No snapshots after processing',
+            retryable: true,
+        })
+
+        await expect(startPromise).rejects.toMatchObject({ code: 'NO_SNAPSHOTS', retryable: false })
+    })
+
+    it('waitForStart() keeps a genuinely transient player error retryable', async () => {
+        const mp = mockCapturePage()
+        const controller = new PlayerController(mp.capturePage, mockBlockProxy, jest.fn())
+        await controller.load(basePlayerConfig())
+
+        const startPromise = controller.waitForStart(basePlayerConfig(), 5000)
+
+        mp._emit({ type: 'error', code: 'DATA_LOAD_FAILED', message: 'block fetch 503', retryable: true })
+
+        await expect(startPromise).rejects.toMatchObject({ code: 'DATA_LOAD_FAILED', retryable: true })
+    })
+
     it('isEnded() returns true after ended message', async () => {
         const mp = mockCapturePage()
         const controller = new PlayerController(mp.capturePage, mockBlockProxy, jest.fn())

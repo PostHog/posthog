@@ -19,6 +19,7 @@ from structlog.testing import capture_logs
 from temporalio.exceptions import (
     ActivityError,
     ApplicationError,
+    ChildWorkflowError,
     TimeoutError as TemporalTimeoutError,
     TimeoutType,
 )
@@ -83,6 +84,7 @@ from products.replay_vision.backend.temporal.errors import (
     IneligibleSessionKind,
     ScannerFailureError,
 )
+from products.replay_vision.backend.temporal.gemini import classify_gemini_error
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants import (
     REDIS_INDEX_KEY as _GEMINI_REDIS_INDEX_KEY,
     REDIS_KEY_PREFIX as _GEMINI_REDIS_KEY_PREFIX,
@@ -128,6 +130,7 @@ from products.replay_vision.backend.temporal.types import (
 from products.replay_vision.backend.temporal.workflow import (
     _activity_timeout_kind,
     _extract_kind_for_type,
+    _failure_type,
     _root_cause_message,
 )
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
@@ -2217,6 +2220,39 @@ def _wrap_in_activity_error(cause: ApplicationError) -> ActivityError:
     return activity_err
 
 
+def _wrap_in_child_workflow_error(cause: BaseException) -> ChildWorkflowError:
+    """Same idea one level up: what a failing child workflow raises into the parent's `except` block."""
+    child_err = ChildWorkflowError.__new__(ChildWorkflowError)
+    child_err.__cause__ = cause
+    return child_err
+
+
+class TestClassifyGeminiError:
+    """An unclassified provider error lands as `internal_error`, which sends the user to support over an outage they
+    could just retry. These cases pin the mapping that keeps it out of that bucket."""
+
+    @parameterized.expand(
+        [
+            ("rate_limited", 429, FailureKind.PROVIDER_TRANSIENT),
+            ("server_error", 500, FailureKind.PROVIDER_TRANSIENT),
+            ("bad_gateway", 502, FailureKind.PROVIDER_TRANSIENT),
+            ("unavailable", 503, FailureKind.PROVIDER_TRANSIENT),
+            ("gateway_timeout", 504, FailureKind.PROVIDER_TRANSIENT),
+            ("request_timeout", 408, FailureKind.PROVIDER_TRANSIENT),
+            ("bad_request", 400, FailureKind.PROVIDER_REJECTED),
+            ("permission_denied", 403, FailureKind.PROVIDER_REJECTED),
+            ("payload_too_large", 413, FailureKind.PROVIDER_REJECTED),
+        ]
+    )
+    def test_maps_api_error_status_codes(self, _label: str, code: int, expected: FailureKind) -> None:
+        assert classify_gemini_error(APIError(code, {"error": {"message": "boom"}})) is expected
+
+    def test_leaves_non_provider_exceptions_unclassified(self) -> None:
+        # Claiming a kind here would be worse than the status quo: a PostHog bug would be blamed on the provider,
+        # and for the transient kinds it would burn the retry budget before failing anyway.
+        assert classify_gemini_error(ValueError("bad arg")) is None
+
+
 class TestWorkflowErrorHelpers:
     """Unit tests for the workflow's exception-classification helpers."""
 
@@ -2254,15 +2290,22 @@ class TestWorkflowErrorHelpers:
     def test_root_cause_message_falls_back_to_str_for_bare_exceptions(self) -> None:
         assert _root_cause_message(ValueError("bad arg")) == "bad arg"
 
+    def test_failure_type_survives_a_child_workflow_wrap(self) -> None:
+        # The rasterizer's code reaches the parent through ChildWorkflowError -> ActivityError -> ApplicationError.
+        # Losing it to that wrapping is what makes an unrenderable recording look like a generic render failure.
+        leaf = ApplicationError("No snapshots after processing", type="NO_SNAPSHOTS", non_retryable=True)
+        wrapped = _wrap_in_child_workflow_error(_wrap_in_activity_error(leaf))
+        assert _failure_type(wrapped) == "NO_SNAPSHOTS"
+
     @parameterized.expand(
         [
             ("provider_call_timeout", "call_scanner_provider_activity", True, "provider_transient"),
             ("upload_timeout", "replay_vision_upload_video_to_gemini_activity", True, "provider_transient"),
-            ("other_activity_timeout", "replay_vision_fetch_session_events_activity", True, None),
+            ("other_activity_timeout", "replay_vision_fetch_session_events_activity", True, "infra_transient"),
             ("provider_call_non_timeout", "call_scanner_provider_activity", False, None),
         ]
     )
-    def test_activity_timeout_kind_maps_provider_activity_timeouts(
+    def test_activity_timeout_kind_separates_provider_from_our_own_infra(
         self, _label: str, activity_type: str, timed_out: bool, expected: str | None
     ) -> None:
         err = ActivityError(

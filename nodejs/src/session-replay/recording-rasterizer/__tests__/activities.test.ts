@@ -202,7 +202,9 @@ describe('rasterizeRecordingActivity', () => {
 
             await expect(rasterizeRecordingActivity(baseInput())).rejects.toThrow('No snapshot data')
 
-            expect(ApplicationFailure.nonRetryable).toHaveBeenCalledWith('No snapshot data', 'NON_RETRYABLE', error)
+            // Callers classify on the code to tell an unrenderable recording apart from a render that ran out of
+            // retries, so it has to travel as the failure type.
+            expect(ApplicationFailure.nonRetryable).toHaveBeenCalledWith('No snapshot data', 'NO_SNAPSHOTS', error)
         })
 
         it('re-throws retryable RasterizationError as plain Error (Temporal retries)', async () => {

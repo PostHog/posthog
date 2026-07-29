@@ -41,6 +41,8 @@ from products.replay_vision.backend.temporal.errors import (
     INELIGIBLE_SESSION_ERROR_TYPE,
     SCANNER_FAILURE_ERROR_TYPE,
     FailureKind,
+    IneligibleSessionError,
+    IneligibleSessionKind,
     ScannerFailureError,
 )
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
@@ -102,15 +104,18 @@ _ENSURE_ASSET_RETRY = common.RetryPolicy(
 # Deterministic failures opt out via ScannerFailureError's non_retryable flag; only transient kinds re-run.
 _UPLOAD_RETRY = common.RetryPolicy(
     initial_interval=dt.timedelta(seconds=2),
-    maximum_interval=dt.timedelta(seconds=30),
+    maximum_interval=dt.timedelta(seconds=60),
     maximum_attempts=3,
 )
 
 # Workflow-level retries only cover transient transport failures; schema/semantic errors are non-retryable.
+# A provider rate limit or 5xx arrives classified (see `classify_gemini_error`), which is what makes these attempts
+# reachable at all. The interval ceiling buys coverage across a quota window; `schedule_to_close` on the call site
+# keeps four long attempts from eating the whole workflow budget.
 _PROVIDER_CALL_RETRY = common.RetryPolicy(
     initial_interval=dt.timedelta(seconds=2),
-    maximum_interval=dt.timedelta(seconds=30),
-    maximum_attempts=3,
+    maximum_interval=dt.timedelta(seconds=60),
+    maximum_attempts=4,
 )
 
 # Cleanup is best-effort; the cleanup sweep handles persistent failures.
@@ -137,19 +142,33 @@ _PROVIDER_TIMEOUT_ACTIVITY_TYPES = frozenset(
     {"replay_vision_upload_video_to_gemini_activity", "call_scanner_provider_activity"}
 )
 
+# The rasterizer sends its own `RasterizationError.code` as the ApplicationError type. This one means the recording
+# holds no renderable snapshots, which is a property of the recording rather than of the render attempt.
+_RASTERIZER_NO_SNAPSHOTS_TYPE = "NO_SNAPSHOTS"
+
 
 def _activity_timeout_kind(e: BaseException) -> str | None:
-    """Map a start-to-close/heartbeat timeout of a provider-facing activity to `provider_transient`."""
-    if not isinstance(e, ActivityError) or e.activity_type not in _PROVIDER_TIMEOUT_ACTIVITY_TYPES:
+    """Map an activity start-to-close/heartbeat timeout onto whichever side ran out of time."""
+    if not isinstance(e, ActivityError) or not isinstance(e.cause, TemporalTimeoutError):
         return None
-    return FailureKind.PROVIDER_TRANSIENT.value if isinstance(e.cause, TemporalTimeoutError) else None
+    if e.activity_type in _PROVIDER_TIMEOUT_ACTIVITY_TYPES:
+        return FailureKind.PROVIDER_TRANSIENT.value
+    # Every other activity here talks to our own dependencies (ClickHouse, Postgres, Redis, object storage). A
+    # timeout against those is capacity, so it recovers on a retry; `internal_error` would send the user to support.
+    return FailureKind.INFRA_TRANSIENT.value
+
+
+def _failure_type(e: BaseException) -> str | None:
+    """The `type` off an ApplicationError, surviving Temporal's ActivityError / ChildWorkflowError wrapping."""
+    cause = unwrap_temporal_cause(e) or e
+    return getattr(cause, "type", None)
 
 
 def _extract_kind_for_type(e: BaseException, expected_type: str) -> str | None:
     """Pull a kind string off a kinded ApplicationError, surviving Temporal's ActivityError wrap."""
-    cause = unwrap_temporal_cause(e) or e
-    if getattr(cause, "type", None) != expected_type:
+    if _failure_type(e) != expected_type:
         return None
+    cause = unwrap_temporal_cause(e) or e
     details = getattr(cause, "details", None)
     return details[0] if details else None
 
@@ -237,6 +256,8 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 upload_video_to_gemini_activity,
                 UploadVideoToGeminiInputs(asset_id=asset_result.asset_id),
                 start_to_close_timeout=dt.timedelta(minutes=10),
+                # Bounds the whole retry chain, so three slow attempts can't consume the phases behind this one.
+                schedule_to_close_timeout=dt.timedelta(minutes=20),
                 heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=_UPLOAD_RETRY,
             )
@@ -251,6 +272,8 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 ),
                 # Multi-turn tool conversation (video + on-demand event lookups) needs more headroom than a single call.
                 start_to_close_timeout=dt.timedelta(minutes=10),
+                # Bounds the whole retry chain, so four slow attempts can't overrun the workflow's own timeout.
+                schedule_to_close_timeout=dt.timedelta(minutes=25),
                 heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=_PROVIDER_CALL_RETRY,
             )
@@ -351,7 +374,10 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                 retry_policy=common.RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                execution_timeout=dt.timedelta(minutes=30),
+                # Temporal counts the whole retry chain against this, and the child's own render activity is allowed
+                # 30 minutes. Keep this comfortably above that, or a slow first render leaves no room to schedule a
+                # second one and the retries above go unspent exactly when a recording needs them.
+                execution_timeout=dt.timedelta(minutes=40),
                 search_attributes=TypedSearchAttributes(
                     search_attributes=[
                         SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=inputs.team_id),
@@ -360,6 +386,11 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 ),
             )
         except Exception as e:
+            if _failure_type(e) == _RASTERIZER_NO_SNAPSHOTS_TYPE:
+                # Replay metadata exists but the snapshot blocks hold nothing to draw. That is the same class of
+                # "nothing to analyze" as a session with no events, which we already gate as ineligible, so calling
+                # it a failure would point the user at support over a recording that can never produce a video.
+                raise IneligibleSessionError(_root_cause_message(e), kind=IneligibleSessionKind.NO_SNAPSHOTS) from e
             # Re-classify the rasterizer's failure so the user sees a rasterizer label, not a generic "internal error".
             raise ScannerFailureError(_root_cause_message(e), kind=FailureKind.RASTERIZATION_FAILED) from e
 

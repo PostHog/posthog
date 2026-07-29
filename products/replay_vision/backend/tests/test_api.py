@@ -34,6 +34,7 @@ from products.replay_vision.backend.models.vision_action import VisionAction
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
 from products.replay_vision.backend.temporal.constants import (
+    APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
     build_apply_scanner_workflow_id,
 )
@@ -1309,6 +1310,56 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(sorted(body["available_tags"]), ["onboarding", "support", "surprise"])
         self.assertIsNone(body["monitor"])
         self.assertIsNone(body["scorer"])
+        self.assertIsNone(body["summarizer"])
+
+    def test_stats_summarizer_facet_rankings(self) -> None:
+        summarizer = self._create_scanner(
+            name="journeys",
+            scanner_type=ScannerType.SUMMARIZER,
+            scanner_config={"prompt": "p", "length": "medium"},
+        )
+        for idx, (friction, keywords) in enumerate(
+            [
+                (["checkout stalls"], ["checkout"]),
+                (["checkout stalls", "filter reset"], ["checkout", "filters"]),
+                # Keywords without friction: the friction rate's numerator and denominator must differ here.
+                ([], ["browsing"]),
+                ([], []),
+            ]
+        ):
+            ReplayObservation.objects.create(
+                scanner=summarizer,
+                session_id=f"sess-{idx}",
+                scanner_snapshot=_snapshot_for(summarizer),
+                triggered_by=ObservationTrigger.SCHEDULE,
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=timezone.now(),
+                scanner_result={
+                    "model_output": {
+                        "scanner_type": "summarizer",
+                        "title": "t",
+                        "summary": "s",
+                        "friction_points": friction,
+                        "keywords": keywords,
+                        "confidence": 0.5,
+                    },
+                    "signals_count": 0,
+                },
+            )
+        resp = self.client.get(f"{self.observations_url(str(summarizer.id))}stats/")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["summarizer"]["total_with_facets"], 3)
+        self.assertEqual(body["summarizer"]["total_with_friction"], 2)
+        self.assertEqual(
+            body["summarizer"]["friction_ranked"],
+            [{"term": "checkout stalls", "count": 2}, {"term": "filter reset", "count": 1}],
+        )
+        self.assertEqual(
+            body["summarizer"]["keyword_ranked"],
+            [{"term": "checkout", "count": 2}, {"term": "browsing", "count": 1}, {"term": "filters", "count": 1}],
+        )
+        self.assertIsNone(body["classifier"])
 
     def test_filterset_status_multi_value(self) -> None:
         self._create_observation(session_id="ok", status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
@@ -1618,7 +1669,7 @@ class TestObserveAction(_VisionAPITestCase):
         args, kwargs = start_workflow.call_args
         self.assertEqual(args[0], APPLY_SCANNER_WORKFLOW_NAME)
         self.assertEqual(kwargs["id"], expected_workflow_id)
-        self.assertEqual(kwargs["execution_timeout"], timedelta(hours=1))
+        self.assertEqual(kwargs["execution_timeout"], APPLY_SCANNER_EXECUTION_TIMEOUT)
         inputs = args[1]
         self.assertEqual(inputs.scanner_id, self.scanner.id)
         self.assertEqual(inputs.session_id, "sess-42")

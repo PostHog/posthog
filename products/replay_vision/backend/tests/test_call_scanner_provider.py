@@ -6,10 +6,11 @@ from pydantic import BaseModel
 
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _maybe_create_video_cache,
+    _run_mission_attempts,
     _run_steps,
     _step_config,
 )
-from products.replay_vision.backend.temporal.errors import ScannerFailureError
+from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.scanners.base import MissionStep
 
 _LABELS = {"provider": "gemini", "model": "gemini-3-flash-preview", "scanner_type": "monitor"}
@@ -195,8 +196,24 @@ async def test_failed_non_required_step_is_rolled_back_so_the_next_step_stays_cl
 async def test_required_step_failure_raises_validation_error() -> None:
     steps = [MissionStep(name="core", instruction="c", response_model=_Core)]
     client = _FakeClient([_Resp(text="bad"), _Resp(text="still bad")])
-    with pytest.raises(ScannerFailureError, match="Required step 'core'"):
+    with pytest.raises(ScannerFailureError, match="Required step 'core'") as caught:
         await _run(client, steps)
+    assert caught.value.kind is FailureKind.VALIDATION_FAILED
+
+
+@pytest.mark.asyncio
+async def test_required_step_with_no_candidates_blames_the_provider_not_the_prompt() -> None:
+    # Zero candidates is the provider declining to answer about this video, not a schema problem. Reporting it as
+    # a validation failure would tell the user to rewrite a prompt that was never involved.
+    class _Empty:
+        candidates: list[Any] = []
+        text = None
+
+    steps = [MissionStep(name="core", instruction="c", response_model=_Core)]
+    client = _FakeClient([_Empty(), _Empty()])  # type: ignore[list-item]
+    with pytest.raises(ScannerFailureError) as caught:
+        await _run(client, steps)
+    assert caught.value.kind is FailureKind.PROVIDER_REJECTED
 
 
 @pytest.mark.asyncio
@@ -208,6 +225,49 @@ async def test_semantic_validate_hook_triggers_a_re_prompt() -> None:
     client = _FakeClient([_Resp(text='{"verdict":"no"}'), _Resp(text='{"verdict":"yes"}')])
     out = await _run(client, steps)
     assert out["core"].verdict == "yes"
+
+
+class TestMissionAttempts:
+    """The per-step re-prompt argues with the model inside one conversation; this is the clean-slate re-ask around it."""
+
+    @staticmethod
+    def _failing_run(kind: FailureKind, fail_times: int) -> tuple[Any, list[str | None]]:
+        calls: list[str | None] = []
+
+        async def run(*, cache_name: str | None) -> dict[str, BaseModel]:
+            calls.append(cache_name)
+            if len(calls) <= fail_times:
+                raise ScannerFailureError("rejected", kind=kind)
+            return {"core": _Core(verdict="yes")}
+
+        return run, calls
+
+    @pytest.mark.asyncio
+    async def test_validation_failure_gets_one_clean_re_ask(self) -> None:
+        run, calls = self._failing_run(FailureKind.VALIDATION_FAILED, fail_times=1)
+        out = await _run_mission_attempts(run=run, cache=None, model="m")
+        assert cast(_Core, out["core"]).verdict == "yes"
+        assert len(calls) == 2
+
+    @pytest.mark.asyncio
+    async def test_re_asking_is_bounded(self) -> None:
+        run, calls = self._failing_run(FailureKind.VALIDATION_FAILED, fail_times=99)
+        with pytest.raises(ScannerFailureError):
+            await _run_mission_attempts(run=run, cache=None, model="m")
+        assert len(calls) == 2
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "kind",
+        [FailureKind.PROVIDER_REJECTED, FailureKind.PROVIDER_TRANSIENT, FailureKind.INTERNAL_ERROR],
+    )
+    async def test_other_kinds_are_not_re_asked(self, kind: FailureKind) -> None:
+        # Re-asking these would double the video spend for nothing: the provider isn't going to change its mind
+        # mid-activity, and Temporal already owns the retry for the transient ones.
+        run, calls = self._failing_run(kind, fail_times=1)
+        with pytest.raises(ScannerFailureError):
+            await _run_mission_attempts(run=run, cache=None, model="m")
+        assert len(calls) == 1
 
 
 class TestStepConfig:
