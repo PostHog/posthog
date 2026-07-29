@@ -67,10 +67,9 @@ export function SidebarItemsSetting(): JSX.Element {
     const { setSidebarSectionShown, setSidebarItemShown } = useActions(uiCustomizationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const renderItemSwitch = (item: SidebarCustomizableItem, sectionHiddenReason?: string | false): JSX.Element => {
+    const renderItemSwitch = (item: SidebarCustomizableItem): JSX.Element => {
         const { key } = item
         if (!key) {
-            // Locked items stay visible even when their section is hidden, so no section reason here.
             return (
                 <LemonSwitch
                     key={item.label}
@@ -91,7 +90,6 @@ export function SidebarItemsSetting(): JSX.Element {
                 checked={isSidebarItemShown(key)}
                 onChange={(checked) => setSidebarItemShown(key, checked)}
                 loading={userLoading}
-                disabledReason={sectionHiddenReason || undefined}
                 label={<ItemLabel icon={item.icon} label={item.label} description={item.description} />}
                 bordered
                 fullWidth
@@ -103,15 +101,17 @@ export function SidebarItemsSetting(): JSX.Element {
     return (
         <div className="flex flex-col gap-4 max-w-160">
             {SIDEBAR_CUSTOMIZABLE_SECTIONS.map((section) => {
-                const sectionShown = isSidebarSectionShown(section.key)
                 const items = section.items.filter(
                     (item) => !item.flag || (featureFlags as Record<string, boolean | string>)[item.flag]
                 )
-                return (
-                    <div key={section.key} className="flex flex-col gap-2">
+                // A section with no items of its own is a single sidebar element, so it toggles
+                // directly rather than heading a group.
+                if (items.length === 0) {
+                    return (
                         <LemonSwitch
+                            key={section.key}
                             className="py-2"
-                            checked={sectionShown}
+                            checked={isSidebarSectionShown(section.key)}
                             onChange={(checked) => setSidebarSectionShown(section.key, checked)}
                             loading={userLoading}
                             label={
@@ -125,16 +125,12 @@ export function SidebarItemsSetting(): JSX.Element {
                             fullWidth
                             data-attr={`sidebar-customization-section-${section.key}`}
                         />
-                        {items.length > 0 && (
-                            <div className="flex flex-col gap-2 pl-8">
-                                {items.map((item) =>
-                                    renderItemSwitch(
-                                        item,
-                                        !sectionShown && `Hidden because the ${section.label} section is hidden`
-                                    )
-                                )}
-                            </div>
-                        )}
+                    )
+                }
+                return (
+                    <div key={section.key} className="flex flex-col gap-2">
+                        <LemonLabel>{section.label}</LemonLabel>
+                        {items.map((item) => renderItemSwitch(item))}
                     </div>
                 )
             })}

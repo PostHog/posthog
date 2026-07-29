@@ -83,7 +83,8 @@ export const customProductsLogic = kea<customProductsLogicType>([
     listeners(({ actions, values }) => ({
         setToolEnabled: async ({ productPath, enabled }) => {
             posthog.capture('sidebar my tools changed', { product_path: productPath, enabled })
-            // Optimistic update with a placeholder row, replaced by real server data below.
+            // Placeholder row: every consumer reads `product_path` only, so the fields the server
+            // would fill in are never looked at and there is nothing to reconcile on success.
             const now = new Date().toISOString()
             const withoutTool = values.customProducts.filter((item) => item.product_path !== productPath)
             actions.loadCustomProductsSuccess(
@@ -107,8 +108,10 @@ export const customProductsLogic = kea<customProductsLogicType>([
             } catch (error) {
                 console.error('Failed to save tool changes:', error)
                 lemonToast.error('Failed to save some changes. Try again?')
+                // Only refetch to undo the failed toggle. Refetching on success would race a
+                // toggle the user made while this call was in flight, reverting it on screen.
+                actions.loadCustomProducts()
             }
-            actions.loadCustomProducts()
         },
     })),
 ])
