@@ -84,14 +84,14 @@ class BackfillProvisioningConfigMigrationTest(TestMigrations):
     )
     def test_capability_backfill(self, app_attr: str, key: str, expected: bool) -> None:
         app = self.OAuthApplication.objects.get(pk=getattr(self, app_attr).pk)
-        assert app.provisioning_config[key] is expected
+        assert app._provisioning_config[key] is expected
 
     def test_rate_limits_and_source_carry_over(self) -> None:
-        config = self.OAuthApplication.objects.get(pk=self.vouched.pk).provisioning_config
+        config = self.OAuthApplication.objects.get(pk=self.vouched.pk)._provisioning_config
         assert config["rate_limits"]["account_requests"] == 250
         assert config["rate_limit_source"] == "admin"
 
     def test_non_partner_app_is_left_empty(self) -> None:
         # Backfilling every row would hand an ordinary OAuth app a config it should never have,
         # and the empty object is what makes "never granted" the default.
-        assert self.OAuthApplication.objects.get(pk=self.plain.pk).provisioning_config == {}
+        assert self.OAuthApplication.objects.get(pk=self.plain.pk)._provisioning_config == {}
