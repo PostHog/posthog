@@ -8,6 +8,7 @@ import { LemonButton, LemonDialog, LemonMenu, LemonSwitch, Link, Tooltip } from 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
+import type { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -32,34 +33,35 @@ interface InsightAlertsProps {
 
 interface AlertRowMenuProps {
     alert: AlertType
+    destinationCount: number
     deleting: boolean
     onDelete: () => void
 }
 
-function AlertRowMenu({ alert, deleting, onDelete }: AlertRowMenuProps): JSX.Element {
+function AlertRowMenu({ alert, destinationCount, deleting, onDelete }: AlertRowMenuProps): JSX.Element {
     const notificationLogic = alertNotificationLogic({ alertId: alert.id, loadDestinations: false })
     const { testDeliveryResultLoading } = useValues(notificationLogic)
     const { sendTestDelivery } = useActions(notificationLogic)
 
+    const canTestDelivery = alert.subscribed_users.some((user) => Boolean(user.email)) || destinationCount > 0
+    const menuItems: LemonMenuItems = [
+        canTestDelivery && {
+            label: 'Test delivery',
+            'data-attr': 'insight-alert-row-send-test',
+            disabledReason: testDeliveryResultLoading ? 'Sending test delivery…' : null,
+            onClick: sendTestDelivery,
+        },
+        {
+            label: 'Delete',
+            status: 'danger' as const,
+            'data-attr': 'insight-alert-row-delete',
+            disabledReason: deleting ? 'Deleting…' : null,
+            onClick: onDelete,
+        },
+    ]
+
     return (
-        <LemonMenu
-            items={[
-                {
-                    label: 'Test delivery',
-                    'data-attr': 'insight-alert-row-send-test',
-                    disabledReason: testDeliveryResultLoading ? 'Sending test delivery…' : null,
-                    onClick: sendTestDelivery,
-                },
-                {
-                    label: 'Delete',
-                    status: 'danger',
-                    'data-attr': 'insight-alert-row-delete',
-                    disabledReason: deleting ? 'Deleting…' : null,
-                    onClick: onDelete,
-                },
-            ]}
-            placement="bottom-end"
-        >
+        <LemonMenu items={menuItems} placement="bottom-end">
             <LemonButton
                 type="tertiary"
                 size="small"
@@ -82,6 +84,7 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
         alertsCount,
         isFiltering,
         togglingAlertIds,
+        alertDestinationCounts,
     } = useValues(logic)
 
     const { alert } = useValues(alertLogic({ alertId }))
@@ -197,6 +200,7 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
             render: (_, alert) => (
                 <AlertRowMenu
                     alert={alert}
+                    destinationCount={alertDestinationCounts[alert.id] ?? 0}
                     deleting={deletingAlertIds.has(alert.id)}
                     onDelete={() => {
                         LemonDialog.open({

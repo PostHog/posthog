@@ -147,6 +147,9 @@ export function EditAlertModalV2({
     const { existingHogFunctions, pendingNotifications, testDeliveryResultLoading } = useValues(notificationLogic)
     const { sendTestDelivery } = useActions(notificationLogic)
     const hasPendingNotifications = inlineNotificationsEnabled && pendingNotifications.length > 0
+    const hasTestDeliveryTargets =
+        (alert?.subscribed_users?.some((user) => Boolean(user.email)) ?? false) ||
+        existingHogFunctions.some((hogFunction) => hogFunction.enabled)
 
     const handleClose = useCallback(() => {
         clearSimulation()
@@ -271,6 +274,7 @@ export function EditAlertModalV2({
             testDeliveryDisabledReason={
                 alertFormChanged || hasPendingNotifications ? 'Save changes before testing.' : undefined
             }
+            showTestDelivery={hasTestDeliveryTargets}
         />
     )
 

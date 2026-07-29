@@ -11,6 +11,7 @@ import { AlertState } from '~/queries/schema/schema-general'
 
 import { AlertType } from '../types'
 import { AlertLogicProps } from './alertLogic'
+import { buildAlertFilterConfig } from './alertNotifications'
 
 export interface AlertsLogicProps extends AlertLogicProps {}
 
@@ -35,6 +36,8 @@ export interface alertsLogicValues {
         results: AlertType[]
     }
     alertsResponseLoading: boolean
+    alertDestinationCounts: Record<string, number>
+    alertDestinationCountsLoading: boolean
     alertsSortedByState: AlertType[]
     deletingAlertIds: Set<string>
     filters: AlertsFilters
@@ -69,6 +72,21 @@ export interface alertsLogicActions {
             results: AlertType[]
         }
         payload?: any
+    }
+    loadAlertDestinationCounts: (alerts: AlertType[]) => AlertType[]
+    loadAlertDestinationCountsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadAlertDestinationCountsSuccess: (
+        alertDestinationCounts: Record<string, number>,
+        payload?: AlertType[]
+    ) => {
+        alertDestinationCounts: Record<string, number>
+        payload?: AlertType[]
     }
     setAlertDeleting: (
         alertId: string,
@@ -196,6 +214,36 @@ export const alertsLogic = kea<alertsLogicType>([
                 },
             },
         ],
+        alertDestinationCounts: [
+            {} as Record<string, number>,
+            {
+                loadAlertDestinationCounts: async (alerts: AlertType[]) => {
+                    if (alerts.length === 0) {
+                        return {}
+                    }
+                    const alertIds = new Set(alerts.map((alert) => alert.id))
+                    const response = await api.hogFunctions.list({
+                        types: ['internal_destination'],
+                        filter_groups: alerts.map((alert) => buildAlertFilterConfig(alert.id)),
+                        full: true,
+                        limit: 500,
+                    })
+                    return response.results.reduce<Record<string, number>>((counts, hogFunction) => {
+                        if (!hogFunction.enabled) {
+                            return counts
+                        }
+                        const alertIdProperty = hogFunction.filters?.properties?.find(
+                            (property) => property.key === 'alert_id'
+                        )
+                        const alertId = alertIdProperty?.value
+                        if (typeof alertId === 'string' && alertIds.has(alertId)) {
+                            counts[alertId] = (counts[alertId] ?? 0) + 1
+                        }
+                        return counts
+                    }, {})
+                },
+            },
+        ],
     })),
 
     selectors(({ actions }) => ({
@@ -267,6 +315,9 @@ export const alertsLogic = kea<alertsLogicType>([
             } finally {
                 actions.setAlertToggling(alert.id, false)
             }
+        },
+        loadAlertsSuccess: ({ alertsResponse }) => {
+            actions.loadAlertDestinationCounts(alertsResponse.results)
         },
     })),
 
