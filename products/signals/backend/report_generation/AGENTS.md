@@ -81,7 +81,8 @@ Will be reworked into an eval harness — keeping it now preserves coverage of t
 
 - `python manage.py select_repo`
   Uses the team's actual GitHub integrations to list candidate repos.
-- `python manage.py select_repo --repos PostHog/posthog PostHog/posthog-js PostHog/posthog-python` Bypasses integrations and uses an explicit candidate list.
+- `python manage.py select_repo --repos PostHog/posthog PostHog/posthog-js PostHog/posthog-python`
+  Bypasses integrations and uses an explicit candidate list.
 
 Use this command when changing prompt logic in `select_repo.py`.
 
