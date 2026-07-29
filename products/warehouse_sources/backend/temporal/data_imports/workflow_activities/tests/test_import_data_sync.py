@@ -250,6 +250,38 @@ async def test_schema_column_type_changed_routes_through_handler_without_source_
     logger.aexception.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_non_retryable_error_honors_source_opt_out_of_grace_period():
+    # A source can classify its own non-retryable errors as a permanent condition (e.g. Paddle's
+    # 403 "API key lacks permissions") rather than a possibly-transient blip, via
+    # should_retry_non_retryable_errors() returning False. _handle_import_error must thread that
+    # through to handle_non_retryable_error so the job fails on the first occurrence instead of
+    # burning the grace-period retries meant for sources that want them.
+    error = Exception("403 Client Error: Forbidden for url: https://api.paddle.com/transactions")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {"403 Client Error: Forbidden for url: https://api.paddle.com": ""}
+    source.get_retryable_errors.return_value = set()
+    source.should_retry_non_retryable_errors.return_value = False
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", autospec=True) as handle_mock,
+    ):
+        handle_mock.side_effect = NonRetryableException()
+        with pytest.raises(NonRetryableException):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    handle_mock.assert_awaited_once()
+    assert handle_mock.await_args is not None
+    assert handle_mock.await_args.args[5] is error
+    assert handle_mock.await_args.args[6] is False
+
+
 def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -> mock.MagicMock:
     schema = mock.MagicMock()
     schema.should_use_incremental_field = True

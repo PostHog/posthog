@@ -334,6 +334,7 @@ async def _handle_import_error(
     """
     source_cls = SourceRegistry.get_source(job_inputs.job_type)
     error_msg = str(error)
+    retry_before_giving_up = source_cls.should_retry_non_retryable_errors()
 
     # The shared REST engine raises RESTClientNonRetryableError only for responses retrying can
     # never turn into data (a non-JSON body on an otherwise-successful response). Honor that
@@ -341,7 +342,13 @@ async def _handle_import_error(
     # source listing the message in get_non_retryable_errors.
     if isinstance(error, RESTClientNonRetryableError):
         await handle_non_retryable_error(
-            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+            job_inputs.team_id,
+            str(job_inputs.source_id),
+            job_inputs.run_id,
+            error_msg,
+            logger,
+            error,
+            retry_before_giving_up,
         )
 
     # Raised in shared pipeline code when incoming data can't be cast into the stored (narrower)
@@ -350,7 +357,13 @@ async def _handle_import_error(
     # relying on each source listing the message in get_non_retryable_errors.
     if isinstance(error, SchemaColumnTypeChangedException):
         await handle_non_retryable_error(
-            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+            job_inputs.team_id,
+            str(job_inputs.source_id),
+            job_inputs.run_id,
+            error_msg,
+            logger,
+            error,
+            retry_before_giving_up,
         )
 
     # An OAuth `Integration.access_token`/`refresh_token` that still looks like Fernet ciphertext
@@ -360,7 +373,13 @@ async def _handle_import_error(
     # get_non_retryable_errors to recognise this message.
     if isinstance(error, UndecryptedIntegrationSecretError):
         await handle_non_retryable_error(
-            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+            job_inputs.team_id,
+            str(job_inputs.source_id),
+            job_inputs.run_id,
+            error_msg,
+            logger,
+            error,
+            retry_before_giving_up,
         )
 
     # RESTClientRetryableError only escapes the shared REST engine's own tenacity retry loop once
@@ -377,7 +396,13 @@ async def _handle_import_error(
     non_retryable_errors = source_cls.get_non_retryable_errors()
     if any(match in error_msg for match in non_retryable_errors):
         await handle_non_retryable_error(
-            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
+            job_inputs.team_id,
+            str(job_inputs.source_id),
+            job_inputs.run_id,
+            error_msg,
+            logger,
+            error,
+            retry_before_giving_up,
         )
 
     retryable_errors = source_cls.get_retryable_errors()

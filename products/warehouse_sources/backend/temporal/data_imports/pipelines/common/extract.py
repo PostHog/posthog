@@ -196,7 +196,12 @@ async def handle_non_retryable_error(
     error_msg: str,
     logger: FilteringBoundLogger,
     error: Exception,
+    retry_before_giving_up: bool = True,
 ) -> NoReturn:
+    if not retry_before_giving_up:
+        await logger.adebug(f"Non-retryable error, source opted out of grace-period retries. error={error_msg}")
+        raise NonRetryableException() from error
+
     async with _get_redis() as redis_client:
         if redis_client is None:
             await logger.adebug(f"Failed to get Redis client for non-retryable error tracking. error={error_msg}")

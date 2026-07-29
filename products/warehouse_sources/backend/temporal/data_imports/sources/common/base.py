@@ -211,6 +211,18 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return set()
 
+    def should_retry_non_retryable_errors(self) -> bool:
+        """Whether a `get_non_retryable_errors()` match still gets a few grace-period retries
+        across activity attempts (see `handle_non_retryable_error`) before giving up.
+
+        Defaults to `True`: some non-retryable classifications turn out to be a transient blip
+        (a gateway reboot, a momentary auth hiccup) that clears up on a later attempt. Override
+        to `False` when the source's non-retryable errors are a static, permanent condition (e.g.
+        a revoked API key permission) where the grace period only delays an inevitable failure.
+        """
+
+        return True
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         """Curated, documentation-sourced descriptions for this source's well-known tables/endpoints.
 

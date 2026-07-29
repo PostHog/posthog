@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     handle_corrupted_delta_log,
+    handle_non_retryable_error,
     handle_reset_or_full_refresh,
     persist_primary_keys,
     report_heartbeat_timeout,
@@ -245,6 +246,30 @@ class TestReportHeartbeatTimeoutRecording(BaseTest):
             assert event.host == "pod-abc"
             assert event.run_id == "run-1"
             assert event.gap_seconds == pytest.approx(gap_seconds)
+
+
+class TestHandleNonRetryableError:
+    def test_retry_before_giving_up_false_skips_grace_period(self):
+        # A source whose non-retryable errors are a permanent condition (e.g. a revoked API key
+        # permission) must fail on the very first occurrence instead of going through the
+        # Redis-backed grace period meant to absorb a transient blip (a gateway reboot, a
+        # momentary auth hiccup) for sources that opt into it.
+        error = ValueError("403 Client Error: Forbidden for url: https://api.paddle.com/transactions")
+
+        with patch(f"{_EXTRACT_MODULE}._get_redis") as mock_get_redis:
+            with pytest.raises(NonRetryableException) as exc_info:
+                async_to_sync(handle_non_retryable_error)(
+                    team_id=1,
+                    source_id="source-1",
+                    run_id="run-1",
+                    error_msg=str(error),
+                    logger=MagicMock(adebug=AsyncMock()),
+                    error=error,
+                    retry_before_giving_up=False,
+                )
+
+        assert exc_info.value.__cause__ is error
+        mock_get_redis.assert_not_called()
 
 
 # transaction=True: handle_corrupted_delta_log writes to the DB from the async thread pool
