@@ -3,7 +3,7 @@ import { useEffect } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 import { elapsedSecondsFrom } from 'lib/utils/datetime'
-import { activeStep, pipClass, syncHeadline, toneTextClass } from 'scenes/onboarding/shared/wizard-sync/helpers'
+import { currentTaskLabel, pipClass, syncHeadline, toneTextClass } from 'scenes/onboarding/shared/wizard-sync/helpers'
 import { installationProgressLogic } from 'scenes/onboarding/shared/wizard-sync/installationProgressLogic'
 import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/shared/wizard-sync/wizardActiveSessionDetectorLogic'
 import { StatusGlyph } from 'scenes/onboarding/shared/wizard-sync/WizardSyncCard'
@@ -33,7 +33,9 @@ function InstallationCard({ workflowId }: { workflowId: string }): JSX.Element {
     const endMs = isTerminal && latestSession ? new Date(latestSession.updated_at).getTime() : now
     const elapsedSeconds = latestSession ? elapsedSecondsFrom(latestSession.started_at, endMs) : 0
 
-    const step = activeStep(installationProgress.steps)
+    // `currentTaskLabel` over the raw step so a run waiting on the user surfaces the question
+    // it is blocked on, which is the whole point of noticing it from here.
+    const detail = currentTaskLabel(installationProgress)
     return (
         <>
             <button
@@ -51,7 +53,7 @@ function InstallationCard({ workflowId }: { workflowId: string }): JSX.Element {
                         {syncHeadline(installationProgress)}
                     </span>
                 </div>
-                {step && <p className="m-0 text-xs text-secondary truncate w-full">{step.detail ?? step.label}</p>}
+                {detail && <p className="m-0 text-xs text-secondary truncate w-full">{detail}</p>}
                 {installationProgress.steps.length > 0 && (
                     <div className="flex items-center gap-1 w-full">
                         {installationProgress.steps.map((s) => (
