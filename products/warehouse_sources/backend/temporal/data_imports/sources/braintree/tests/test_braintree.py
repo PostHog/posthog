@@ -47,6 +47,12 @@ def _edge(node_id: str) -> dict[str, Any]:
     return {"cursor": f"cur-{node_id}", "node": {"id": node_id, "createdAt": "2024-01-01T00:00:00Z"}}
 
 
+class TestPageSize:
+    def test_page_size_does_not_exceed_braintree_limit(self):
+        # Braintree's GraphQL search fields reject `first` above 50.
+        assert PAGE_SIZE <= 50
+
+
 class TestBaseUrl:
     def test_production_and_sandbox_hosts(self):
         assert _base_url("production") == "https://payments.braintree-api.com/graphql"
