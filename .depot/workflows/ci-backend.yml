@@ -97,10 +97,11 @@ on:
         # Draft PRs run the snob-selected Django subset (≤3 shards); turbo-tests
         # still skip drafts. Ready PRs run the full matrices — the merge gate —
         # and ready_for_review re-triggers them when a PR leaves draft. Add the
-        # `run-ci-backend` label (labeled/unlabeled re-trigger) to force the full
-        # matrices on a draft; the `no-ci` label silences the workflow on a draft
-        # entirely. Mirrors canonical.
-        types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+        # `run-ci-backend` label to force the full matrices on a draft; the
+        # `no-ci` label silences the workflow on a draft entirely. No
+        # labeled/unlabeled triggers, so a label takes effect from the next push
+        # or from ready_for_review. Mirrors canonical.
+        types: [opened, synchronize, reopened, ready_for_review]
 concurrency:
     # PRs: one active run per branch, cancel stale. Push: per-SHA so master
     # pushes never cancel each other (check-migrations always completes).
@@ -552,6 +553,7 @@ jobs:
     # trusted on a draft (legacy graph impact, turbo-discover or selector failure,
     # a selector full-run signal), the draft skips the heavy matrices entirely —
     # the pre-selection draft behavior — and defers to the ready full run.
+    # hogli-lint: not-a-required-gate - selects draft coverage and emits no required check.
     #
     # Depot shadow note: canonical uploads /tmp/selection.json for its
     # test-selection-verdict job. The depot shadow strips that job (and all
@@ -2089,17 +2091,10 @@ jobs:
                     local label="$1"
                     local result="$2"
 
-                    if [[ "$result" == "success" || "$result" == "skipped" ]]; then
-                      return
+                    if [[ "$result" != "success" && "$result" != "skipped" ]]; then
+                      echo "::error::$label did not succeed (result: '$result')."
+                      exit 1
                     fi
-
-                    if [[ "$result" == "cancelled" ]]; then
-                      echo "::error::$label was cancelled or timed out."
-                    else
-                      echo "::error::$label failed with result '$result'."
-                    fi
-
-                    exit 1
                   }
 
                   # Upstream jobs whose failure would otherwise only cascade into django
