@@ -2,12 +2,11 @@ use opentelemetry_proto::tonic::common::v1::{any_value, KeyValue};
 use opentelemetry_proto::tonic::resource::v1::Resource;
 use uuid::Uuid;
 
-/// Span-level keys checked in order. The Vercel AI SDK serializes
-/// `experimental_telemetry.metadata.posthog_distinct_id` as
-/// `ai.telemetry.metadata.posthog_distinct_id`, which is the canonical
-/// per-call way to attribute an event to a user.
+/// Span-level keys checked in order. AI SDK metadata and runtime context are
+/// both per-call, so they can identify spans from multi-tenant processes.
 const SPAN_DISTINCT_ID_KEYS: &[&str] = &[
     "ai.telemetry.metadata.posthog_distinct_id",
+    "ai.settings.context.posthog_distinct_id",
     "posthog.distinct_id",
     "user.id",
 ];
@@ -87,6 +86,19 @@ mod tests {
     fn test_span_metadata_distinct_id_wins_over_resource() {
         let span_attrs = vec![string_kv(
             "ai.telemetry.metadata.posthog_distinct_id",
+            "span-user",
+        )];
+        let resource = resource_with(vec![string_kv("posthog.distinct_id", "resource-user")]);
+        assert_eq!(
+            extract_distinct_id_for_span(&span_attrs, Some(&resource), "fallback"),
+            "span-user"
+        );
+    }
+
+    #[test]
+    fn test_span_runtime_context_distinct_id_wins_over_resource() {
+        let span_attrs = vec![string_kv(
+            "ai.settings.context.posthog_distinct_id",
             "span-user",
         )];
         let resource = resource_with(vec![string_kv("posthog.distinct_id", "resource-user")]);
