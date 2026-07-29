@@ -54,7 +54,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.async_iterate import async_iterate
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
+    DeltaTableHelper,
+    is_transient_object_store_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import setup_partitioning
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_row_sink import (
@@ -454,8 +457,13 @@ class PipelineNonDLT(Generic[ResumableData]):
         try:
             await self._delta_table_helper.compact_table()
         except Exception as e:
-            capture_exception(e)
-            await self._logger.aexception(f"Compaction failed: {e}", exc_info=e)
+            if is_transient_object_store_error(e):
+                # A rate-limited or connectivity blip compacting/vacuuming our own S3 bucket isn't a
+                # bug - the next sync's post-run compaction retries the same idempotent cleanup.
+                await self._logger.awarning(f"Compaction skipped: transient object-store error: {e}")
+            else:
+                capture_exception(e)
+                await self._logger.aexception(f"Compaction failed: {e}", exc_info=e)
 
         file_uris = await self._delta_table_helper.get_file_uris()
         await self._logger.adebug(f"Preparing S3 files - total parquet files: {len(file_uris)}")

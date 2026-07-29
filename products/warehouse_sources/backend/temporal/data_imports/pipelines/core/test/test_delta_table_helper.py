@@ -14,7 +14,10 @@ import deltalake
 import pyarrow.compute as pc
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import evolve_pyarrow_schema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    SchemaColumnTypeChangedException,
+    evolve_pyarrow_schema,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
     DeltaTableHelper,
@@ -597,6 +600,74 @@ class TestLegacyDltTableReconciliation:
         final = result.to_pyarrow_table()
         assert final.num_rows == 3
         assert set(final.column("id").to_pylist()) == {1, 2, 3}
+
+
+class TestAppendDecimalReconciliation:
+    """Appending a decimal column that outgrew decimal128 must reconcile to the stored type.
+
+    A batch whose numeric column exceeds decimal128 is promoted to decimal256, which
+    `evolve_pyarrow_schema` renders to text for the Delta write. Arrow emits scientific
+    notation for scale-heavy zeros (e.g. '0E-18'), which delta-rs can't parse back into
+    the stored decimal — an opaque, infinitely-retrying DeltaError on the append path.
+    """
+
+    def _seed_decimal_table(self, delta_path: str) -> deltalake.DeltaTable:
+        table = pa.table(
+            {"id": pa.array([1], type=pa.int64()), "amount": pa.array([Decimal("1.5")], type=pa.decimal128(38, 10))}
+        )
+        deltalake.write_deltalake(delta_path, table)
+        return deltalake.DeltaTable(delta_path)
+
+    @pytest.mark.asyncio
+    async def test_scale_heavy_batch_is_rounded_to_stored_type(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        dt = self._seed_decimal_table(delta_path)
+        helper = _make_local_helper(delta_path)
+
+        # Values fit decimal128's integer budget but carry more scale than the stored column,
+        # so they land as decimal256 and evolve renders them to text (the zero as '0E-18').
+        batch = evolve_pyarrow_schema(
+            pa.table(
+                {
+                    "id": pa.array([2, 3], type=pa.int64()),
+                    "amount": pa.array(
+                        [Decimal("0.12345678901234567890"), Decimal("0E-18")], type=pa.decimal256(76, 20)
+                    ),
+                }
+            ),
+            dt.schema(),
+        )
+        assert pa.types.is_string(batch.schema.field("amount").type)
+
+        result = await helper.write_to_deltalake(
+            data=batch, write_type="append", should_overwrite_table=False, primary_keys=None
+        )
+
+        final = result.to_pyarrow_table()
+        assert final.schema.field("amount").type == pa.decimal128(38, 10)
+        assert set(final.column("id").to_pylist()) == {1, 2, 3}
+        assert Decimal("0") in final.column("amount").to_pylist()
+
+    @pytest.mark.asyncio
+    async def test_integer_overflow_batch_raises_clean_non_retryable(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        dt = self._seed_decimal_table(delta_path)
+        helper = _make_local_helper(delta_path)
+
+        batch = evolve_pyarrow_schema(
+            pa.table(
+                {
+                    "id": pa.array([2, 3], type=pa.int64()),
+                    "amount": pa.array([Decimal("1" + "0" * 35 + ".5"), Decimal("0E-18")], type=pa.decimal256(76, 18)),
+                }
+            ),
+            dt.schema(),
+        )
+
+        with pytest.raises(SchemaColumnTypeChangedException):
+            await helper.write_to_deltalake(
+                data=batch, write_type="append", should_overwrite_table=False, primary_keys=None
+            )
 
 
 class TestIncrementalBatchDeduplication:
