@@ -73,9 +73,10 @@ from products.replay_vision.backend.queries import (
     refresh_scanner_estimate,
 )
 from products.replay_vision.backend.quota import (
+    CreditBudget,
     ScannerSpend,
     compute_quota_snapshot,
-    credits_used_by_scanner,
+    compute_scanner_budgets,
     current_period_bounds,
     sum_enabled_scanner_estimated_credits,
 )
@@ -396,9 +397,11 @@ class ReplayScannerSerializer(UserAccessControlSerializerMixin, serializers.Mode
             root = self.root
             instance = root.instance if isinstance(root, serializers.ListSerializer) else None
             scanner_ids = [s.id for s in instance] if instance is not None else [scanner.id]
-            totals = credits_used_by_scanner(self.context["get_team"]().organization_id, scanner_ids)
+            totals = compute_scanner_budgets(self.context["get_team"]().organization_id, scanner_ids)
             self.context["_scanner_credits_used"] = totals
-        return totals.get(scanner.id, ScannerSpend(0, 0))
+        return totals.get(
+            scanner.id, ScannerSpend(credits=0, observations=0, budget=CreditBudget(credit_limit=None, credits_used=0))
+        )
 
     @extend_schema_field(serializers.IntegerField())
     def get_credits_this_month(self, scanner: ReplayScanner) -> int:

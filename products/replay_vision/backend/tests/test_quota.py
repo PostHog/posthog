@@ -21,7 +21,12 @@ from products.replay_vision.backend.models.replay_observation_usage import Repla
 from products.replay_vision.backend.models.replay_quota_grant import ReplayQuotaGrant
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import ReplayScannerPromptSuggestion
-from products.replay_vision.backend.quota import MONTHLY_CREDIT_QUOTA, compute_quota_snapshot
+from products.replay_vision.backend.quota import (
+    MONTHLY_CREDIT_QUOTA,
+    compute_quota_snapshot,
+    compute_scanner_budget,
+    compute_scanner_budgets,
+)
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
 
 
@@ -78,6 +83,7 @@ class _VisionQuotaTestCase(APIBaseTest):
             defaults={
                 "organization_id": observation.team.organization_id,
                 "team_id": observation.team_id,
+                "scanner_id": observation.scanner_id,
                 "observation_created_at": observation.created_at,
                 "model": model,
                 "credits": observation_credits_for_model(model),
@@ -241,6 +247,80 @@ class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
         )
         self._make_receipt(observation)
         assert compute_quota_snapshot(organization_id=self.organization.id).credits_used == 15
+
+
+class TestComputeScannerBudget(_VisionQuotaTestCase):
+    def _other_scanner(self) -> ReplayScanner:
+        return ReplayScanner.objects.create(
+            team=self.team,
+            name="other-scanner",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_6_FLASH,
+        )
+
+    def test_no_limit_set_is_uncapped(self) -> None:
+        budget = compute_scanner_budget(self.scanner)
+        assert budget.credit_limit is None
+        assert budget.remaining is None
+        assert not budget.exhausted
+        assert not budget.would_exceed(10**9)
+
+    @parameterized.expand(
+        [
+            (ObservationStatus.SUCCEEDED, 15),
+            (ObservationStatus.PENDING, 15),
+            (ObservationStatus.RUNNING, 15),
+            (ObservationStatus.FAILED, 0),
+            (ObservationStatus.INELIGIBLE, 0),
+        ]
+    )
+    def test_counts_settled_receipts_and_in_flight_reservations(self, status: ObservationStatus, expected: int) -> None:
+        is_in_flight = status in (ObservationStatus.PENDING, ObservationStatus.RUNNING)
+        self._make_observation(status=status, completed_at=None if is_in_flight else timezone.now())
+        assert compute_scanner_budget(self.scanner).credits_used == expected
+
+    def test_another_scanners_spend_does_not_count(self) -> None:
+        other = self._other_scanner()
+        observation = ReplayObservation.objects.create(
+            scanner=other,
+            team=self.team,
+            session_id="other-sess",
+            status=ObservationStatus.SUCCEEDED,
+            scanner_snapshot=_snapshot_for(other),
+            triggered_by=ObservationTrigger.ON_DEMAND,
+            completed_at=timezone.now(),
+        )
+        self._make_receipt(observation)
+        assert compute_scanner_budget(self.scanner).credits_used == 0
+        assert compute_scanner_budget(other).credits_used == 15
+
+    def test_receipts_without_a_scanner_count_toward_nobody(self) -> None:
+        observation = self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
+        ReplayObservationUsage.objects.filter(observation_id=observation.id).update(scanner_id=None)
+        ReplayObservation.objects.filter(pk=observation.pk).delete()
+        assert compute_scanner_budget(self.scanner).credits_used == 0
+
+    def test_spend_in_a_previous_period_does_not_count(self) -> None:
+        last_month = start_of_month(datetime.now(UTC)) - timedelta(days=1)
+        self._make_observation(status=ObservationStatus.SUCCEEDED, created_at=last_month, completed_at=last_month)
+        assert compute_scanner_budget(self.scanner).credits_used == 0
+
+
+class TestComputeScannerBudgets(_VisionQuotaTestCase):
+    def test_returns_an_entry_for_every_requested_scanner_including_unspent(self) -> None:
+        unspent = ReplayScanner.objects.create(
+            team=self.team,
+            name="unspent-scanner",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_6_FLASH,
+        )
+        self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
+        result = compute_scanner_budgets(self.organization.id, [self.scanner.id, unspent.id])
+        assert result[self.scanner.id].credits == 15
+        assert result[unspent.id].credits == 0
+        assert result[unspent.id].observations == 0
 
 
 class TestBillingSyncedQuota(_VisionQuotaTestCase):

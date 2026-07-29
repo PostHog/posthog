@@ -24,6 +24,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationTrigger,
     ReplayObservation,
 )
+from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     ScannerModel,
@@ -2419,6 +2420,18 @@ class TestScannerSpend(_VisionAPITestCase):
         )
         if created_at is not None:
             ReplayObservation.objects.filter(pk=observation.pk).update(created_at=created_at)
+            observation.refresh_from_db()
+        # Mirror production: credits_this_month reads the receipt ledger, not the observation row.
+        model = observation.scanner_snapshot.get("model", "")
+        ReplayObservationUsage.objects.create(
+            observation_id=observation.id,
+            organization_id=observation.team.organization_id,
+            team_id=observation.team_id,
+            scanner_id=observation.scanner_id,
+            observation_created_at=observation.created_at,
+            model=model,
+            credits=observation_credits_for_model(model),
+        )
         return observation
 
     def _credits_by_name(self, response_json: dict) -> dict[str, int]:
