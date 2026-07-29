@@ -29,7 +29,7 @@ from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.integration import GitHubUserAuthorization
 from posthog.models.oauth import OAuthApplication
 
-from . import GITHUB_GRANT_CACHE_PREFIX
+from ee.api.agentic_provisioning.constants import GITHUB_GRANT_CACHE_PREFIX
 
 logger = structlog.get_logger(__name__)
 

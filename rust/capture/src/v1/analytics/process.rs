@@ -152,16 +152,15 @@ pub async fn process_batch(
     //      legacy runs its GRL BEFORE overflow stamping. Both set overflow on
     //      AnalyticsMain/Destination::Overflow only, so the end state matches,
     //      but the pass order differs.
-    //   2. v1 skips events with `force_disable_person_processing` already set
-    //      before consulting the limiter (see apply_token_distinct_id_limits);
-    //      legacy does not skip.
-    //   3. Lane assignment is assign-then-reroute in v1 versus a single
+    //   2. Lane assignment is assign-then-reroute in v1 versus a single
     //      `DataType::from_event_name` match in legacy.
-    // Import is unaffected by all three: the GRL never runs (guard below) and no
+    // Both paths consult the same shared limiter for every non-dropped event, so
+    // per-key counts are identical regardless of which pipeline serves the key.
+    // Import is unaffected by both: the GRL never runs (guard below) and no
     // overflowable lane is reachable, so behavior is identical across paths.
     if state.capture_mode.applies_global_rate_limit() {
         if let Some(ref limiter) = state.global_rate_limiter_token_distinctid {
-            apply_token_distinct_id_limits(limiter, context, &mut events).await;
+            let _ = apply_token_distinct_id_limits(limiter, context, &mut events).await;
         }
     }
 
@@ -815,22 +814,49 @@ async fn apply_restrictions(
     }
 }
 
+/// Per-batch tally of how the shared global rate limiter classified each
+/// evaluated event. All three fields count events (not distinct_ids), so
+/// `allowed + limited + already_disabled` equals the number of non-Drop events
+/// consulted -- the invariant that keeps the emitted counters commensurable
+/// with the legacy path's per-event counter.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct TokenDistinctIdTally {
+    allowed: u64,
+    limited: u64,
+    already_disabled: u64,
+}
+
 async fn apply_token_distinct_id_limits(
     limiter: &GlobalRateLimiter,
     context: &RequestContext,
     events: &mut [WrappedEvent],
-) {
+) -> TokenDistinctIdTally {
     let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
+    let mut limited_event_count: u64 = 0;
     let mut allowed_count: u64 = 0;
+    let mut already_disabled_count: u64 = 0;
 
     for event in events.iter_mut() {
-        if event.result != EventResult::Ok || event.force_disable_person_processing {
+        if event.result != EventResult::Ok {
             continue;
         }
         let cache_key =
             GlobalRateLimitKey::TokenDistinctId(&context.api_token, &event.event.distinct_id)
                 .to_cache_key();
-        if limiter.is_limited(&cache_key, 1).await.is_some() {
+        let limited = limiter.is_limited(&cache_key, 1).await.is_some();
+
+        // Person processing is already off for this event (illegal distinct_id,
+        // an ops restriction, or burst overflow stamping upstream). Its volume
+        // still counts toward the shared window above -- v0 and v1 feed one
+        // limiter instance, so both must consult it for every non-dropped event
+        // to keep the per-key counts identical. The stamps below would be
+        // redundant here, so skip them.
+        if event.force_disable_person_processing {
+            already_disabled_count += 1;
+            continue;
+        }
+
+        if limited {
             event.result = EventResult::Warning;
             // Disables person processing -- sink will null partition key for Main/Overflow.
             event.force_disable_person_processing = true;
@@ -844,6 +870,7 @@ async fn apply_token_distinct_id_limits(
                 event.destination = Destination::Overflow;
             }
             limited_distinct_ids.insert(event.event.distinct_id.as_str());
+            limited_event_count += 1;
         } else {
             allowed_count += 1;
         }
@@ -858,8 +885,17 @@ async fn apply_token_distinct_id_limits(
         .increment(allowed_count);
     }
 
-    if !limited_distinct_ids.is_empty() {
-        let limited_count = limited_distinct_ids.len();
+    if already_disabled_count > 0 {
+        metrics::counter!(
+            CAPTURE_V1_RATE_LIMITER,
+            "limiter" => "token_distinct_id",
+            "outcome" => "already_disabled",
+        )
+        .increment(already_disabled_count);
+    }
+
+    if limited_event_count > 0 {
+        let distinct_id_count = limited_distinct_ids.len();
         let ids: Vec<&str> = limited_distinct_ids.iter().copied().collect();
         let preview: String = if ids.len() > 10 {
             format!("{}...", ids[..10].join(", "))
@@ -872,13 +908,20 @@ async fn apply_token_distinct_id_limits(
             "limiter" => "token_distinct_id",
             "outcome" => "limited",
         )
-        .increment(limited_count as u64);
+        .increment(limited_event_count);
 
         crate::ctx_log!(Level::WARN, context,
-            limited_count = limited_count,
+            limited_event_count = limited_event_count,
+            distinct_id_count = distinct_id_count,
             distinct_ids = %preview,
             "events rate limited by distinct_id -- person processing disabled"
         );
+    }
+
+    TokenDistinctIdTally {
+        allowed: allowed_count,
+        limited: limited_event_count,
+        already_disabled: already_disabled_count,
     }
 }
 
@@ -2224,14 +2267,25 @@ mod tests {
         EvalResult, GlobalRateLimitResponse, GlobalRateLimiter as CommonGlobalRateLimiterTrait,
     };
     use std::collections::HashSet;
+    use std::sync::{Arc as StdArc, Mutex};
+
+    // Records every key the limiter was consulted with, in order, so a test can
+    // assert the exact evaluation set (proves v0/v1 counter parity).
+    type CallLog = StdArc<Mutex<Vec<String>>>;
 
     struct MockLimiter {
         limited_keys: HashSet<String>,
+        calls: CallLog,
     }
 
     impl MockLimiter {
-        fn new(limited_keys: HashSet<String>) -> Self {
-            Self { limited_keys }
+        fn new(limited_keys: HashSet<String>) -> (Self, CallLog) {
+            let calls: CallLog = StdArc::new(Mutex::new(Vec::new()));
+            let mock = Self {
+                limited_keys,
+                calls: calls.clone(),
+            };
+            (mock, calls)
         }
     }
 
@@ -2243,6 +2297,7 @@ mod tests {
             _count: u64,
             _timestamp: Option<DateTime<Utc>>,
         ) -> EvalResult {
+            self.calls.lock().unwrap().push(key.to_string());
             if self.limited_keys.contains(key) {
                 EvalResult::Limited(GlobalRateLimitResponse {
                     key: key.to_string(),
@@ -2274,8 +2329,13 @@ mod tests {
     }
 
     fn mock_limiter(limited_keys: Vec<&str>) -> GlobalRateLimiter {
+        mock_limiter_with_log(limited_keys).0
+    }
+
+    fn mock_limiter_with_log(limited_keys: Vec<&str>) -> (GlobalRateLimiter, CallLog) {
         let keys: HashSet<String> = limited_keys.into_iter().map(String::from).collect();
-        GlobalRateLimiter::new_with(MockLimiter::new(keys))
+        let (mock, calls) = MockLimiter::new(keys);
+        (GlobalRateLimiter::new_with(mock), calls)
     }
 
     fn td_context() -> RequestContext {
@@ -2397,8 +2457,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn td_limits_skips_events_already_flagged_force_disable_pp() {
-        let limiter = mock_limiter(vec!["phc_tok:user-1"]);
+    async fn td_limits_evaluates_but_does_not_restamp_force_disable_pp() {
+        // An event that already has person processing disabled (illegal
+        // distinct_id, ops restriction, or burst overflow) is still consulted
+        // against the shared limiter -- its volume must count toward the per-key
+        // window exactly as it does on the legacy path -- but the redundant
+        // stamping (Warning result, overflow reroute) is skipped.
+        let (limiter, calls) = mock_limiter_with_log(vec!["phc_tok:user-1"]);
         let ctx = td_context();
         let mut events = vec![
             wrapped_event("$pageview", "user-1"),
@@ -2410,9 +2475,18 @@ mod tests {
 
         apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
 
-        // Already-flagged event not re-evaluated: result stays Ok, details unchanged
+        // Already-flagged event WAS evaluated against the limiter...
+        assert!(
+            calls
+                .lock()
+                .unwrap()
+                .contains(&"phc_tok:user-1".to_string()),
+            "already-disabled event must still be consulted so its volume counts"
+        );
+        // ...but its stamping is untouched: result stays Ok, no overflow reroute.
         let flagged = find_by_did(&events, "user-1");
         assert_eq!(flagged.result, EventResult::Ok);
+        assert_eq!(flagged.destination, Destination::AnalyticsMain);
         assert!(flagged.force_disable_person_processing);
         assert_eq!(flagged.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
         // Unflagged event passes (not in limiter's limited keys)
@@ -2420,6 +2494,76 @@ mod tests {
         assert_eq!(normal.result, EventResult::Ok);
         assert!(!normal.force_disable_person_processing);
         assert!(normal.details.is_none());
+    }
+
+    #[tokio::test]
+    async fn td_limits_evaluates_every_non_dropped_event() {
+        // Parity with legacy (`events::analytics`): the shared limiter is
+        // consulted for every non-Drop event and only those, so per-key counts
+        // are identical regardless of which pipeline serves the key.
+        let (limiter, calls) = mock_limiter_with_log(vec![]);
+        let ctx = td_context();
+        let mut events = vec![
+            wrapped_event("$pageview", "user-1"),
+            wrapped_event("$identify", "user-2"),
+            wrapped_event("$autocapture", "user-3"),
+        ];
+        // user-2 already has person processing disabled upstream.
+        events[1].force_disable_person_processing = true;
+        // user-3 was dropped by an earlier stage.
+        events[2].result = EventResult::Drop;
+        events[2].destination = Destination::Drop;
+
+        let tally = apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
+
+        let mut seen = calls.lock().unwrap().clone();
+        seen.sort();
+        assert_eq!(
+            seen,
+            vec!["phc_tok:user-1".to_string(), "phc_tok:user-2".to_string()],
+            "limiter must be consulted for every non-Drop event and no others"
+        );
+        assert_eq!(
+            tally,
+            TokenDistinctIdTally {
+                allowed: 1,
+                limited: 0,
+                already_disabled: 1,
+            }
+        );
+        // Invariant: the tally accounts for exactly the evaluated (non-Drop) events.
+        assert_eq!(
+            tally.allowed + tally.limited + tally.already_disabled,
+            seen.len() as u64
+        );
+    }
+
+    #[tokio::test]
+    async fn td_limits_counter_units_are_events_not_distinct_ids() {
+        // Regression: `outcome="limited"` must count events, matching
+        // `outcome="allowed"` and the legacy per-event counter. Three events
+        // share one over-limit distinct_id and one shares another; the tally
+        // must report 4 limited events across 2 distinct_ids, not 2.
+        let limiter = mock_limiter(vec!["phc_tok:hot-1", "phc_tok:hot-2"]);
+        let ctx = td_context();
+        let mut events = vec![
+            wrapped_event("$pageview", "hot-1"),
+            wrapped_event("$pageview", "hot-1"),
+            wrapped_event("$pageview", "hot-1"),
+            wrapped_event("$pageview", "hot-2"),
+            wrapped_event("$pageview", "cool-1"),
+        ];
+
+        let tally = apply_token_distinct_id_limits(&limiter, &ctx, &mut events).await;
+
+        assert_eq!(
+            tally,
+            TokenDistinctIdTally {
+                allowed: 1,
+                limited: 4,
+                already_disabled: 0,
+            }
+        );
     }
 
     #[tokio::test]
