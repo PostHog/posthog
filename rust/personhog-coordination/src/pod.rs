@@ -514,9 +514,25 @@ impl PodHandle {
         self.watch_handoff_loop(stream, cancel, initial).await
     }
 
-    /// Release every locally held partition — warmed or fenced — through
-    /// the handler, clearing the pod's local ownership state. Purely
-    /// local: no etcd writes, callable with no lease.
+    /// Fence, quiesce, and release every locally held partition —
+    /// warmed or fenced — through the handler, clearing the pod's local
+    /// ownership state. Purely local: no etcd writes, callable with no
+    /// lease.
+    ///
+    /// The order per partition is load-bearing: `release_partition`
+    /// unfences and drops the cache without waiting, so releasing first
+    /// would let a write admitted before the lease was lost complete
+    /// its produce and ack after the replacement owner's warm — an
+    /// acked write the new owner never sees. Draining first (fence,
+    /// then wait for the inflight counter) guarantees that once this
+    /// returns, nothing this pod admitted can ack. Each drain is
+    /// bounded by the drain timeout; a partition that cannot quiesce
+    /// fails the fence, which the caller poisons — the process restart
+    /// then clears the stuck in-flight work by death, exactly as the
+    /// pre-supervisor design did. The window before the lease loss is
+    /// even *detected* (up to one heartbeat tick) remains the
+    /// documented zombie residual; this closes only the part the local
+    /// fence itself controls.
     async fn self_fence_locally(&self) -> Result<()> {
         let held: HashSet<u32> = {
             let warmed = self.warmed_partitions.lock().await;
@@ -528,6 +544,16 @@ impl PodHandle {
                 .collect()
         };
         for partition in held {
+            tokio::time::timeout(
+                self.config.drain_timeout,
+                self.handler.drain_partition_inflight(partition),
+            )
+            .await
+            .map_err(|_| {
+                Error::invalid_state(format!(
+                    "self-fence drain timed out for partition {partition}"
+                ))
+            })??;
             self.handler.release_partition(partition).await?;
             self.warmed_partitions.lock().await.remove(&partition);
             self.fenced_partitions.lock().await.remove(&partition);

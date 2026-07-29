@@ -131,7 +131,11 @@ async fn pod_self_fences_locally_and_rejoins_after_lease_loss() {
 
     // Lease loss must self-fence: the held partition is released
     // locally before any rejoin, because the coordinator already treats
-    // the expired lease as death and may be reassigning.
+    // the expired lease as death and may be reassigning. The fence must
+    // drain before it releases — release alone unfences and drops the
+    // cache without waiting, letting an already-admitted write ack
+    // after the replacement owner's warm — so `Drained` must precede
+    // `Released` in the fence sequence.
     wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
         let events = Arc::clone(&events);
         async move {
@@ -143,6 +147,19 @@ async fn pod_self_fences_locally_and_rejoins_after_lease_loss() {
         }
     })
     .await;
+    {
+        let events = events.lock().await;
+        let drained = events
+            .iter()
+            .position(|e| matches!(e, HandoffEvent::Drained(0)));
+        let released = events
+            .iter()
+            .position(|e| matches!(e, HandoffEvent::Released(0)));
+        assert!(
+            matches!((drained, released), (Some(d), Some(r)) if d < r),
+            "the self-fence must drain (fence + quiesce) before releasing: {events:?}"
+        );
+    }
 
     // The supervisor then rejoins as a fresh participant instead of
     // dying: the pod re-registers, and startup convergence re-warms the
