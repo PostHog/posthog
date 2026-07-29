@@ -40,4 +40,48 @@ describe('runnerPanelLogic', () => {
         expect(logic.values.activeCreation).toBe(null)
         expect(logic.values.historyExpanded).toBe(false)
     })
+
+    // An embedded panel (Max's side panel) must survive a full page load: the open run is remembered
+    // per browser tab and restored on remount, so following a link out of the chat doesn't lose it.
+    describe('embedded-panel persistence across reloads', () => {
+        const remount = (panelId?: string): ReturnType<typeof runnerPanelLogic.build> => {
+            logic.unmount()
+            initKeaTests()
+            logic = runnerPanelLogic({ panelId })
+            logic.mount()
+            return logic
+        }
+
+        beforeEach(() => {
+            sessionStorage.clear()
+            logic.unmount()
+            logic = runnerPanelLogic({ panelId: 'sidepanel' })
+            logic.mount()
+        })
+
+        it('restores a bound run on a fresh mount and clears it when dismissed', () => {
+            logic.actions.setActiveCreation({ streamKey: 'run-1', taskId: 'task-1', runId: 'run-1' })
+
+            remount('sidepanel')
+            expect(logic.values.activeCreation).toEqual({ streamKey: 'run-1', taskId: 'task-1', runId: 'run-1' })
+
+            logic.actions.goBack()
+            remount('sidepanel')
+            expect(logic.values.activeCreation).toBe(null)
+        })
+
+        it('does not persist a pending creation that has no server run to rebind', () => {
+            logic.actions.setActiveCreation({ streamKey: 'optimistic-1' })
+
+            remount('sidepanel')
+            expect(logic.values.activeCreation).toBe(null)
+        })
+
+        it('the scene singleton stays URL-driven and never restores from storage', () => {
+            logic.actions.setActiveCreation({ streamKey: 'run-1', taskId: 'task-1', runId: 'run-1' })
+
+            remount(undefined)
+            expect(logic.values.activeCreation).toBe(null)
+        })
+    })
 })

@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 // The optimistic run opened on send, before the task/run exist. `streamKey` is the client key the pending
 // `RunSurface` (and its seeded `runStreamLogic`) bind to; `taskId`/`runId` are filled once known (reserved
@@ -61,6 +61,41 @@ export type runnerPanelLogicType = MakeLogicType<
     runnerPanelLogicMeta
 >
 
+// Embedded panels (Max's side panel) remember their open run per browser tab so a full page load —
+// e.g. following a link the assistant produced — restores it. Session-scoped on purpose: a new tab
+// or browser session starts at the composer. The scene singleton is URL-driven and never persists.
+const storageKey = (panelId: string): string => `posthog_ai_runner_panel_active_creation:${panelId}`
+
+function persistActiveCreation(panelId: string | undefined, creation: ActiveCreation | null): void {
+    if (!panelId) {
+        return
+    }
+    try {
+        // Only a creation bound to a server run can be rebound after a reload; optimistic
+        // pre-run creations have nothing to restore.
+        if (creation?.taskId && creation.runId) {
+            sessionStorage.setItem(storageKey(panelId), JSON.stringify(creation))
+        } else if (!creation) {
+            sessionStorage.removeItem(storageKey(panelId))
+        }
+    } catch {
+        // sessionStorage might be unavailable
+    }
+}
+
+function readPersistedActiveCreation(panelId: string | undefined): ActiveCreation | null {
+    if (!panelId) {
+        return null
+    }
+    try {
+        const stored = sessionStorage.getItem(storageKey(panelId))
+        const parsed = stored ? JSON.parse(stored) : null
+        return parsed?.streamKey && parsed?.taskId && parsed?.runId ? (parsed as ActiveCreation) : null
+    } catch {
+        return null
+    }
+}
+
 export const runnerPanelLogic = kea<runnerPanelLogicType>([
     path(['products', 'posthog_ai', 'frontend', 'logics', 'runnerPanelLogic']),
     props({} as RunnerPanelLogicProps),
@@ -114,17 +149,21 @@ export const runnerPanelLogic = kea<runnerPanelLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         // Opening a task (from the composer or from history) collapses the history list so the run takes
         // over the panel, and remembers whether it came from there — read-then-clear works because
         // reducers for this same dispatch run before listeners.
-        setActiveCreation: () => {
+        setActiveCreation: ({ creation }) => {
+            persistActiveCreation(props.panelId, creation)
             if (values.historyExpanded) {
                 actions.setCameFromHistory(true)
                 actions.setHistoryExpanded(false)
             } else {
                 actions.setCameFromHistory(false)
             }
+        },
+        clearActiveCreation: () => {
+            persistActiveCreation(props.panelId, null)
         },
         // Back walks run -> history-or-composer -> composer.
         goBack: () => {
@@ -138,4 +177,13 @@ export const runnerPanelLogic = kea<runnerPanelLogicType>([
             }
         },
     })),
+
+    afterMount(({ actions, values, props }) => {
+        if (!values.activeCreation) {
+            const restored = readPersistedActiveCreation(props.panelId)
+            if (restored) {
+                actions.setActiveCreation(restored)
+            }
+        }
+    }),
 ])

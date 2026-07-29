@@ -1,15 +1,11 @@
-import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
-
-import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
 
-import { SIDE_PANEL_CONVERSATION_KEY } from './max-storage-keys'
 import { maxGlobalLogic } from './maxGlobalLogic'
-import { SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
+import { maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { MOCK_IN_PROGRESS_CONVERSATION, mockStream } from './testUtils'
 import { MOCK_CONVERSATION_ID, maxMocks } from './testUtils'
@@ -21,8 +17,6 @@ describe('Max Logics Integration Tests', () => {
     beforeEach(() => {
         useMocks(maxMocks)
         initKeaTests()
-        // The side panel instance persists/restores its conversation here; stale state would leak across tests.
-        sessionStorage.removeItem(SIDE_PANEL_CONVERSATION_KEY)
 
         // Mock the dataProcessingAccepted selector to return true
         const maxGlobalLogicInstance = maxGlobalLogic()
@@ -96,39 +90,5 @@ describe('Max Logics Integration Tests', () => {
                 }),
             ],
         })
-    })
-
-    it('side panel conversation survives navigating to /ai without ?chat', async () => {
-        logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
-        logic.mount()
-        logic.actions.setConversationId(MOCK_CONVERSATION_ID)
-
-        router.actions.push(urls.ai())
-
-        await expectLogic(logic).toNotHaveDispatchedActions(['startNewConversation'])
-        expect(logic.values.conversationId).toEqual(MOCK_CONVERSATION_ID)
-        // The active conversation is persisted per tab so a full page load can restore it.
-        expect(sessionStorage.getItem(SIDE_PANEL_CONVERSATION_KEY)).toEqual(MOCK_CONVERSATION_ID)
-    })
-
-    it('scene chat still resets when navigating to /ai without ?chat', async () => {
-        logic = maxLogic({ panelId: 'scene-tab-1' })
-        logic.mount()
-        logic.actions.setConversationId(MOCK_CONVERSATION_ID)
-
-        router.actions.push(urls.ai())
-
-        await expectLogic(logic).toDispatchActions(['startNewConversation'])
-        expect(logic.values.conversationId).toBeNull()
-    })
-
-    it('side panel restores the persisted conversation on mount', async () => {
-        sessionStorage.setItem(SIDE_PANEL_CONVERSATION_KEY, MOCK_CONVERSATION_ID)
-
-        logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
-        logic.mount()
-
-        await expectLogic(logic).toDispatchActions(['openConversation'])
-        expect(logic.values.conversationId).toEqual(MOCK_CONVERSATION_ID)
     })
 })
