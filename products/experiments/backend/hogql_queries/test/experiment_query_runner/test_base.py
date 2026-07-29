@@ -2234,6 +2234,106 @@ class TestExperimentQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.number_of_samples, 3)  # 3 unique groups exposed to test
 
     @freeze_time("2020-01-01T12:00:00Z")
+    def test_group_aggregation_excludes_events_without_a_group_key(self):
+        feature_flag = self.create_feature_flag()
+        feature_flag.filters["aggregation_group_type_index"] = 0
+        feature_flag.save()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag, start_date=datetime(2020, 1, 1), end_date=datetime(2020, 1, 10)
+        )
+        experiment.stats_config = {"method": "frequentist"}
+
+        metric = ExperimentMeanMetric(source=EventsNode(event="purchase"))
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Two groups per variant, plus users on control whose events carry no group at all.
+        # The group-less users must drop out entirely instead of merging into one
+        # empty-string group that control counts as a third sample.
+        for variant, group_keys in [("control", ["org:0", "org:1"]), ("test", ["org:2", "org:3"])]:
+            for group_index, group_key in enumerate(group_keys):
+                create_group(
+                    team_id=self.team.pk,
+                    group_type_index=0,
+                    group_key=group_key,
+                    properties={"name": group_key},
+                )
+                for purchase_index in range(group_index + 1):
+                    self._create_group_exposure_and_purchase(
+                        feature_flag=feature_flag,
+                        variant=variant,
+                        distinct_id=f"user_{group_key}_{purchase_index}",
+                        group_key=group_key,
+                    )
+
+        for user_index in range(5):
+            distinct_id = f"user_no_group_{user_index}"
+            _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=distinct_id,
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "control",
+                    "$feature_flag_response": "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=distinct_id,
+                timestamp="2020-01-03T12:00:00Z",
+                properties={feature_flag_property: "control"},
+            )
+
+        flush_persons_and_events()
+
+        result = ExperimentQueryRunner(
+            query=ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric),
+            team=self.team,
+        ).calculate()
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(result.baseline.number_of_samples, 2)
+        self.assertEqual(result.baseline.sum, 3)
+        self.assertEqual(result.variant_results[0].number_of_samples, 2)
+        self.assertEqual(result.variant_results[0].sum, 3)
+
+    def _create_group_exposure_and_purchase(
+        self, *, feature_flag, variant: str, distinct_id: str, group_key: str
+    ) -> None:
+        feature_flag_property = f"$feature/{feature_flag.key}"
+        groups = {"$group_0": group_key, "$groups": {"organization": group_key}}
+        _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id=distinct_id,
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                feature_flag_property: variant,
+                "$feature_flag_response": variant,
+                "$feature_flag": feature_flag.key,
+                **groups,
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id=distinct_id,
+            timestamp="2020-01-03T12:00:00Z",
+            properties={feature_flag_property: variant, **groups},
+        )
+
+    @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_mean_metric_with_parametric_aggregation(self):
         """Test that parametric aggregations like quantile work in mean metrics.

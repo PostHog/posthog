@@ -334,3 +334,20 @@ def get_entity_key(group_type_index: Optional[int]) -> str:
     if isinstance(group_type_index, int):
         return f"$group_{group_type_index}"
     return "person_id"
+
+
+def build_entity_key_present_filter(entity_key: str) -> Optional[ast.Expr]:
+    """
+    Returns a filter keeping only events that actually carry the aggregation entity, or None
+    when no filter is needed.
+
+    Group-aggregated experiments key on the raw `$group_{index}` event column, which is an
+    empty string on events captured without `$groups`. Unfiltered, every such event collapses
+    into one empty-string "group" that the analysis counts as a single equally-weighted
+    sample. A group can only be read off the event itself, so there's nothing to fall back to —
+    the event has to be excluded. `person_id` is always resolved, so persons need no filter.
+    """
+    if entity_key == "person_id":
+        return None
+
+    return parse_expr("notEmpty({entity_key})", placeholders={"entity_key": parse_expr(entity_key)})

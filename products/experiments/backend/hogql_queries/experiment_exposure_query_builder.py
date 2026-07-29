@@ -10,6 +10,7 @@ from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import event_or_action_to_filter
 from products.experiments.backend.hogql_queries.breakdown_injector import BreakdownInjector
 from products.experiments.backend.hogql_queries.experiment_query_context import ExperimentQueryContext
+from products.experiments.backend.hogql_queries.exposure_query_logic import build_entity_key_present_filter
 
 
 def _optimize_and_chain(expr: ast.Expr) -> ast.Expr:
@@ -230,6 +231,11 @@ class ExposureQueryBuilder:
 
         return event_predicate
 
+    def _build_entity_key_present_filter(self) -> ast.Expr:
+        """Keeps group-aggregated experiments from bucketing group-less events into one fake group."""
+        entity_key_filter = build_entity_key_present_filter(self.context.entity_key)
+        return entity_key_filter if entity_key_filter is not None else ast.Constant(value=True)
+
     def build_exposure_predicate(self) -> ast.Expr:
         """
         Builds the exposure predicate as an AST expression.
@@ -242,6 +248,7 @@ class ExposureQueryBuilder:
                 AND {event_predicate}
                 AND {test_accounts_filter}
                 AND {variant_property} IN {variants}
+                AND {entity_key_present_filter}
                 """,
                 placeholders={
                     "date_from": self.context.date_range_query.date_from_as_hogql(),
@@ -250,6 +257,7 @@ class ExposureQueryBuilder:
                     "variant_property": self.build_variant_property(),
                     "variants": ast.Constant(value=list(self.context.variants)),
                     "test_accounts_filter": self.build_test_accounts_filter(),
+                    "entity_key_present_filter": self._build_entity_key_present_filter(),
                 },
             )
         )
@@ -383,23 +391,27 @@ class ExposureQueryBuilder:
         # (UTC-day-aligned). The experiment_date_from/to placeholders tighten
         # the scan to the actual experiment dates so that variant aggregation
         # only considers events within the experiment.
-        query_string = """
+        entity_key_present_filter = build_entity_key_present_filter(self.context.entity_key)
+        entity_key_condition = "AND {entity_key_present_filter}" if entity_key_present_filter is not None else ""
+
+        query_string = f"""
             SELECT
-                {entity_key} AS entity_id,
-                {variant_expr} AS variant,
+                {{entity_key}} AS entity_id,
+                {{variant_expr}} AS variant,
                 min(timestamp) AS first_exposure_time,
                 max(timestamp) AS last_exposure_time,
                 argMin(uuid, timestamp) AS exposure_event_uuid,
                 argMin(`$session_id`, timestamp) AS exposure_session_id,
                 [] AS breakdown_value
             FROM events
-            WHERE timestamp >= {time_window_min}
-                AND timestamp < {time_window_max}
-                AND timestamp >= {experiment_date_from}
-                AND timestamp <= {experiment_date_to}
-                AND {event_predicate}
-                AND {test_accounts_filter}
-                AND {variant_property} IN {variants}
+            WHERE timestamp >= {{time_window_min}}
+                AND timestamp < {{time_window_max}}
+                AND timestamp >= {{experiment_date_from}}
+                AND timestamp <= {{experiment_date_to}}
+                AND {{event_predicate}}
+                AND {{test_accounts_filter}}
+                AND {{variant_property}} IN {{variants}}
+                {entity_key_condition}
             GROUP BY entity_id
         """
 
@@ -413,6 +425,8 @@ class ExposureQueryBuilder:
             "experiment_date_from": self.context.date_range_query.date_from_as_hogql(),
             "experiment_date_to": self.context.date_range_query.date_to_as_hogql(),
         }
+        if entity_key_present_filter is not None:
+            placeholders["entity_key_present_filter"] = entity_key_present_filter
 
         return query_string, placeholders
 
