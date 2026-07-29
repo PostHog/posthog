@@ -253,7 +253,6 @@ import type {
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
-import type { OptOutEntry } from 'products/workflows/frontend/OptOuts/types'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 import type { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type {
@@ -1991,14 +1990,6 @@ export class ApiRequest {
 
     public messagingPreferencesLink(): ApiRequest {
         return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('generate_link')
-    }
-
-    public messagingPreferencesOptOuts(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('opt_outs')
-    }
-
-    public messagingPreferencesAddOptOut(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('add_opt_out')
     }
 
     public hogFlows(): ApiRequest {
@@ -6653,20 +6644,6 @@ const api = {
                 },
             })
             return response.preferences_url || null
-        },
-        async getMessageOptOuts(categoryKey?: string, page?: number): Promise<CountedPaginatedResponse<OptOutEntry>> {
-            return await new ApiRequest()
-                .messagingPreferencesOptOuts()
-                .withQueryString({
-                    category_key: categoryKey,
-                    page: page || 1,
-                })
-                .get()
-        },
-        async addOptOut(identifier: string, categoryKey?: string): Promise<OptOutEntry> {
-            return await new ApiRequest().messagingPreferencesAddOptOut().create({
-                data: { identifier, category_key: categoryKey },
-            })
         },
     },
     hogFlows: {
