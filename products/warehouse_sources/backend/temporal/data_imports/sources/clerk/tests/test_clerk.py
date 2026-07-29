@@ -11,8 +11,13 @@ from requests import Request, Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.clerk import (
     ClerkPaginator,
     ClerkResumeConfig,
+    _convert_timestamps,
+    _strip_sensitive_fields,
     clerk_source,
+    get_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.settings import CLERK_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 
@@ -111,6 +116,27 @@ class TestClerkPaginator:
         paginator = ClerkPaginator(limit=100)
         paginator.set_resume_state({})
         assert paginator._offset == 0
+
+    @pytest.mark.parametrize(
+        ("label", "response_body", "has_next", "expected_offset"),
+        [
+            ("full_page", {"m2m_tokens": [{"id": f"mt{i}"} for i in range(100)], "total_count": 250}, True, 100),
+            ("terminal_page", {"m2m_tokens": [{"id": "mt1"}], "total_count": 1}, False, 0),
+            # Reading the default `data` key here would see zero rows and stop after page one.
+            ("wrong_key_is_not_read", {"data": [{"id": f"mt{i}"} for i in range(100)]}, False, 0),
+        ],
+    )
+    def test_update_state_with_custom_data_key(
+        self, label: str, response_body: Any, has_next: bool, expected_offset: int
+    ) -> None:
+        paginator = ClerkPaginator(limit=100, data_key="m2m_tokens")
+        response = MagicMock()
+        response.json.return_value = response_body
+
+        paginator.update_state(response)
+
+        assert paginator._has_next_page is has_next
+        assert paginator._offset == expected_offset
 
 
 def _make_http_response(body: Any, status_code: int = 200) -> Response:
@@ -241,3 +267,122 @@ class TestClerkSourceResumeBehavior:
         as_json = json.dumps(dataclasses.asdict(cfg))
         reconstituted = ClerkResumeConfig(**json.loads(as_json))
         assert reconstituted == cfg
+
+
+class TestClerkEndpoints:
+    @pytest.mark.parametrize("endpoint", sorted(CLERK_ENDPOINTS))
+    def test_resource_targets_the_configured_path(self, endpoint: str) -> None:
+        config = CLERK_ENDPOINTS[endpoint]
+        resource = get_resource(endpoint)
+        endpoint_definition = cast(Endpoint, resource["endpoint"])
+
+        assert resource["table_name"] == endpoint
+        assert endpoint_definition["path"] == config.path
+        assert config.path.startswith("/")
+        # Rows are only found under the wrapper key the endpoint actually uses; the default
+        # `data` selector silently yields nothing for /m2m_tokens.
+        assert endpoint_definition.get("data_selector") == (config.data_key if config.is_wrapped_response else None)
+
+    @pytest.mark.parametrize(
+        "item",
+        [
+            # sessions
+            {"created_at": 1700000000000, "expire_at": 1700000600000, "abandon_at": None},
+            # api_keys / m2m_tokens
+            {"created_at": 1700000000000, "expiration": 1700000600000, "last_used_at": 1700000300000},
+            # commerce_subscription_items
+            {"period_start": 1700000000000, "period_end": 1700000600000, "ended_at": 1700000300000},
+            # saml_connections
+            {"idp_certificate_issued_at": 1700000000000, "idp_certificate_expires_at": 1700000600000},
+        ],
+    )
+    def test_millisecond_timestamps_are_converted_to_seconds(self, item: dict[str, Any]) -> None:
+        # Left unconverted these land ~1000x in the future, which breaks the datetime partitioning
+        # the source declares on created_at.
+        converted = _convert_timestamps(dict(item))
+
+        for field, value in item.items():
+            assert converted[field] == (value // 1000 if value is not None else None)
+
+    @pytest.mark.parametrize(
+        "item,paths,expected",
+        [
+            # top-level redeemable link on invitations / organization_invitations
+            (
+                {"id": "inv_1", "email_address": "a@b.com", "url": "https://clerk.example/accept?ticket=secret"},
+                ("url",),
+                {"id": "inv_1", "email_address": "a@b.com"},
+            ),
+            # nested link on waitlist_entries
+            (
+                {"id": "wl_1", "invitation": {"id": "inv_2", "url": "https://clerk.example/accept?ticket=secret"}},
+                ("invitation.url",),
+                {"id": "wl_1", "invitation": {"id": "inv_2"}},
+            ),
+            # nested field absent (no invitation was sent) — nothing to strip, no crash
+            (
+                {"id": "wl_1", "invitation": None},
+                ("invitation.url",),
+                {"id": "wl_1", "invitation": None},
+            ),
+        ],
+    )
+    def test_sensitive_url_fields_are_stripped(
+        self, item: dict[str, Any], paths: tuple[str, ...], expected: dict[str, Any]
+    ) -> None:
+        # Redeemable invitation links must never reach the warehouse table, where any viewer
+        # could copy one and accept the invitation.
+        assert _strip_sensitive_fields(dict(item), paths) == expected
+
+
+class TestClerkSourceResponse:
+    def _source_response(self, endpoint: str) -> Any:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+        return clerk_source(
+            secret_key="sk_live_test",
+            endpoint=endpoint,
+            team_id=123,
+            job_id="test_job",
+            resumable_source_manager=manager,
+        )
+
+    @pytest.mark.parametrize("endpoint", sorted(CLERK_ENDPOINTS))
+    def test_partitioning_matches_endpoint_config(self, endpoint: str) -> None:
+        # Endpoints whose objects carry no creation timestamp must not declare a datetime
+        # partition, or every row lands in the same fallback bucket.
+        expected_key = CLERK_ENDPOINTS[endpoint].partition_key
+        response = self._source_response(endpoint)
+
+        assert response.primary_keys == ["id"]
+        if expected_key is None:
+            assert response.partition_keys is None
+            assert response.partition_mode is None
+        else:
+            assert response.partition_keys == [expected_key]
+            assert response.partition_mode == "datetime"
+            assert response.partition_format == "week"
+
+    def test_rows_are_read_from_the_endpoints_wrapper_key(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+        response = _make_http_response({"m2m_tokens": [{"id": "mt_1", "created_at": 1700000000000}], "total_count": 1})
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+        ) as MockSession:
+            mock_session = MockSession.return_value
+            mock_session.headers = {}
+            mock_session.prepare_request.side_effect = lambda req: req
+            mock_session.send.return_value = response
+
+            source_response = clerk_source(
+                secret_key="sk_live_test",
+                endpoint="m2m_tokens",
+                team_id=123,
+                job_id="test_job",
+                resumable_source_manager=manager,
+            )
+            pages = list(cast(Iterable[Any], source_response.items()))
+
+        assert pages == [[{"id": "mt_1", "created_at": 1700000000}]]
