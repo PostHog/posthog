@@ -38,7 +38,7 @@ import { type CSSProperties, type PointerEvent as ReactPointerEvent, useCallback
 import { IconComment, IconImage } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
 
-import { createMarkdownNotebookRegistry } from 'lib/components/MarkdownNotebook'
+import { QUERY_SQL_INSERT_COMMAND_KEY, createMarkdownNotebookRegistry } from 'lib/components/MarkdownNotebook'
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
 import { isDiscussionCommentProps } from 'lib/components/MarkdownNotebook/markdown'
 import {
@@ -283,6 +283,15 @@ export function getMarkdownRegistryForFeatureFlags(featureFlags: FeatureFlagsSet
         }
     }
     return { components }
+}
+
+// The editor's built-in insert commands live outside the registry, so hiding a node's tag is not
+// enough to keep it out of the menu: a built-in that inserts the same tag has to be dropped by key.
+export function getHiddenInsertCommandKeysForFeatureFlags(featureFlags: FeatureFlagsSet): string[] {
+    // The built-in SQL command inserts a legacy `<Query>` HogQL cell, which SQLV2 replaces: it runs
+    // through the sandbox, names a dataframe other cells can reference, and keeps run history.
+    // Offering both would put two entries labeled "SQL" in the menu.
+    return featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS] ? [QUERY_SQL_INSERT_COMMAND_KEY] : []
 }
 
 export function getMarkdownNotebookNodeTitle(

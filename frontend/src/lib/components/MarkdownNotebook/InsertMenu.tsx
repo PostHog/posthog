@@ -47,6 +47,17 @@ export function getInsertMenuOptionDomId(menuId: string, commandKey: string): st
     return `${menuId}-option-${commandKey}`
 }
 
+/** Exported so a caller whose registry supersedes the built-in SQL command can hide it by key
+ * without hard-coding the string, which would silently stop matching if the key were renamed. */
+export const QUERY_SQL_INSERT_COMMAND_KEY = 'query-sql'
+
+export function omitInsertCommands(commands: InsertCommand[], hiddenKeys: string[] | undefined): InsertCommand[] {
+    if (!hiddenKeys?.length) {
+        return commands
+    }
+    return commands.filter((command) => !hiddenKeys.includes(command.key))
+}
+
 export function InsertMenu({
     id,
     query,
@@ -391,7 +402,7 @@ export function buildInsertCommands(
 
     const sqlCommands: InsertCommand[] = [
         {
-            key: 'query-sql',
+            key: QUERY_SQL_INSERT_COMMAND_KEY,
             label: 'SQL',
             category: commonCategory,
             icon: <IconDatabase />,

@@ -208,6 +208,26 @@ describe('notebook cell tools', () => {
         expect(state.saveBodies).toHaveLength(0)
     })
 
+    // The legacy SQL cell: a Query node rendering HogQL results without a run, a dataframe name, or
+    // run history. Reachable only through the component escape hatch, so it is blocked there too.
+    it.each([
+        ['a SQL chart', { kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery', query: 'select 1' } }],
+        ['a SQL result table', { kind: 'DataTableNode', source: { kind: 'HogQLQuery', query: 'select 1' } }],
+    ])('component cell rejects %s, directing SQL to a sql cell', async (_label, query) => {
+        const state = makeState('# Doc\n')
+        const context = createMockContext(state)
+
+        await expect(
+            addCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                cell_type: 'component',
+                tag_name: 'Query',
+                props: { query },
+            })
+        ).rejects.toThrow(/cell_type 'sql'/)
+        expect(state.saveBodies).toHaveLength(0)
+    })
+
     it('rejects legacy rich-text notebooks', async () => {
         const state = makeState('unused')
         const context = createMockContext(state)

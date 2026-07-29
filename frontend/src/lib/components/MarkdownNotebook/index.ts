@@ -1,6 +1,7 @@
 export { MarkdownNotebook } from './MarkdownNotebook'
 export type { MarkdownNotebookAskAIRequest, MarkdownNotebookProps } from './MarkdownNotebook'
 export type { InsertCommand, MarkdownNotebookInsertMenuApi } from './editorTypes'
+export { QUERY_SQL_INSERT_COMMAND_KEY, buildInsertCommands, omitInsertCommands } from './InsertMenu'
 export {
     getMarkdownNotebookDefaultRegistry,
     createMarkdownNotebookRegistry,
