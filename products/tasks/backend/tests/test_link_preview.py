@@ -96,6 +96,20 @@ class TestGetTaskLinkPreview(TestCase):
 
         self.assertIsNone(facade.get_task_link_preview(channel.id, task.id))
 
+    def test_internal_task_does_not_resolve(self):
+        # `internal` tasks are system-generated and "not exposed to end users".
+        channel = self._make_channel()
+        task = self._make_task(channel, internal=True)
+
+        self.assertIsNone(facade.get_task_link_preview(channel.id, task.id))
+
+    def test_task_in_personal_channel_does_not_resolve(self):
+        # A user's private `#me` feed is not a shareable artifact.
+        channel = self._make_channel(name="me", channel_type=Channel.ChannelType.PERSONAL)
+        task = self._make_task(channel)
+
+        self.assertIsNone(facade.get_task_link_preview(channel.id, task.id))
+
 
 class TestCodeChannelTaskLinkPage(TestCase):
     """Wiring guard: the public `/code/channel/.../tasks/...` route renders OG tags and

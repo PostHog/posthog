@@ -4944,7 +4944,10 @@ def get_task_link_preview(channel_id: str | UUID, task_id: str | UUID) -> contra
     dashboard), so it is intentionally not team-scoped — link-unfurl requests arrive
     unauthenticated. Returns ``None`` when either id is malformed, the task is missing or
     soft-deleted, or the task doesn't belong to the given channel, letting the caller fall
-    back to a generic preview.
+    back to a generic preview. Also refuses to preview ``internal`` tasks (system-generated,
+    "not exposed to end users") and tasks in ``PERSONAL`` channels (a user's private ``#me``
+    feed) — those aren't shareable artifacts, so they stay out of a public unfurl even if
+    their link leaks.
     """
     try:
         task_uuid = UUID(str(task_id))
@@ -4953,11 +4956,13 @@ def get_task_link_preview(channel_id: str | UUID, task_id: str | UUID) -> contra
         return None
 
     task = (
-        Task.objects.filter(id=task_uuid, channel_id=channel_uuid, deleted=False)
+        Task.objects.filter(id=task_uuid, channel_id=channel_uuid, deleted=False, internal=False)
         .select_related("channel", "created_by")
         .first()
     )
     if task is None or task.channel is None or task.channel.deleted:
+        return None
+    if task.channel.channel_type == Channel.ChannelType.PERSONAL:
         return None
 
     creator = task.created_by
