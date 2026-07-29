@@ -456,20 +456,23 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
-        renameFilter: async ({ custom_name }, breakpoint) => {
-            if (!values.selectedFilter) {
-                return
+        renameFilter: ({ custom_name }) => {
+            const selectedFilter = values.selectedFilter as LocalFilter | null
+            if (selectedFilter) {
+                // `updateFilter` matches rows by array position, which `order` isn't guaranteed to be
+                const indexByUuid = selectedFilter.uuid
+                    ? values.localFilters.findIndex((filter) => filter.uuid === selectedFilter.uuid)
+                    : -1
+
+                actions.updateFilter({
+                    ...selectedFilter,
+                    index: indexByUuid === -1 ? selectedFilter.order : indexByUuid,
+                    custom_name,
+                } as EntityFilter & {
+                    index: number
+                })
             }
-
-            await breakpoint(100)
-
-            actions.updateFilter({
-                ...values.selectedFilter,
-                index: values.selectedFilter?.order,
-                custom_name,
-            } as EntityFilter & {
-                index: number
-            })
+            // Always close, so a rename that can't be applied doesn't strand the user in an open modal
             actions.hideModal()
         },
         hideModal: () => {

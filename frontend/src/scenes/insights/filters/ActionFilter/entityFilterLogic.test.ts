@@ -67,12 +67,24 @@ describe('entityFilterLogic', () => {
             )
         })
 
-        it('closes modal after renaming', () => {
-            expectLogic(logic, () => {
-                logic.actions.renameFilter('Custom event name')
-            })
-                .toDispatchActions(['renameFilter', 'hideModal'])
-                .toMatchValues({ modalVisible: false })
+        it('applies the rename and closes the modal without yielding', () => {
+            logic.actions.selectFilter(logic.values.localFilters[0])
+            logic.actions.showModal()
+
+            logic.actions.renameFilter('Custom event name')
+
+            // Deliberately not awaited: anything deferred past this tick can be dropped by the
+            // user dismissing the modal, which silently loses the rename
+            expect(logic.values.localFilters[0].custom_name).toEqual('Custom event name')
+            expect(logic.values.modalVisible).toBe(false)
+        })
+
+        it('closes the modal even when no series is selected', () => {
+            logic.actions.showModal()
+
+            logic.actions.renameFilter('Custom event name')
+
+            expect(logic.values.modalVisible).toBe(false)
         })
     })
 
