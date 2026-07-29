@@ -26238,6 +26238,20 @@ export namespace Schemas {
       statistics: EvaluationSummaryStatistics;
     }
 
+    export interface EvaluationSummaryThrottleResponse {
+      /** Error category */
+      type: string;
+      /** Machine-readable error code */
+      code: string;
+      /** Why the request was throttled */
+      detail: string;
+      /**
+         * Related request field, when applicable
+         * @nullable
+         */
+      attr: string | null;
+    }
+
     export interface EventDefinitionBasic {
       id: string;
       name: string;
