@@ -9,6 +9,7 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "HogQLLexer.h"
 #include "HogQLParser.h"
@@ -35,27 +36,39 @@ using namespace std;
 static constexpr size_t MAX_PARSER_DEPTH = 1000;
 
 // Reject pathologically deep nesting BEFORE handing the stream to ANTLR. HogQL's grammar
-// recurses two ways: on bracket nesting — parentheses (`(((…`), arrays/subqueries (`[[[…`),
-// Hog blocks (`{{{…`) — and on runs of prefix operators, each of which recurses on its
-// operand: `NOT NOT … 1` (`ColumnExprNot`) and `- - - … 1` (`ColumnExprNegate`). ANTLR's
-// generated parser recurses on both with no built-in cap, and — worse for brackets — its
-// ALL(*) prediction explores the ambiguous `(` alternatives before any rule-entry hook
-// fires, so deeply nested input either exhausts the native stack (an uncatchable SIGSEGV)
-// or drives prediction into effectively unbounded work. A parse-tree listener can't help:
-// the bracket runaway happens in prediction, before the parse tree exists. Lexing, by
-// contrast, is iterative, so a linear pre-scan of the already-lexed token stream is
-// crash-safe and surfaces a clean SyntaxError.
+// recurses on bracket nesting — parentheses (`(((…`), arrays/subqueries (`[[[…`), Hog blocks
+// (`{{{…`) — and on runs of prefix operators, each recursing on its operand: `NOT NOT … 1`
+// (`ColumnExprNot`) and `- - - … 1` (`ColumnExprNegate`). ANTLR's generated parser recurses
+// on both with no built-in cap, and — worse for brackets — its ALL(*) prediction explores
+// the ambiguous `(` alternatives before any rule-entry hook fires, so deeply nested input
+// either exhausts the native stack (an uncatchable SIGSEGV) or drives prediction into
+// effectively unbounded work. A parse-tree listener can't help: the bracket runaway happens
+// in prediction, before the parse tree exists. Lexing, by contrast, is iterative, so a
+// linear pre-scan of the already-lexed token stream is crash-safe and surfaces a clean
+// SyntaxError.
 //
-// Depth is `bracket_depth + prefix_run`: brackets track open/close normally, and
-// `prefix_run` counts *consecutive* prefix operators — the only way prefixes stack into
-// deep recursion, since a non-prefix token (or the operand) ends the chain. Scattered
-// prefixes like `NOT a AND NOT b` reset the run at each operand and never accumulate, so
-// there are no false positives on real queries; only genuine `NOT NOT …` / `- - -…` runs
-// or deep brackets trip the cap.
+// `depth` tracks live recursion: each open bracket is +1 until its close, and a prefix
+// operator is +1 while its operand is still being parsed. Consecutive prefixes accumulate
+// in `prefix_run`. A prefix's operand can itself be a bracketed group, and the prefix
+// frames stay live for that whole group — so at a bracket open we fold the pending
+// `prefix_run` into the bracket's contribution and push it, unwinding the whole lot at the
+// matching close. This catches the combined `999 NOT + 999 (` case (~2000 real frames)
+// that a separate bracket/prefix count would miss, while a prefix run ending on a plain
+// atom (`NOT a`) is transient and dropped — so scattered `NOT a AND NOT b` never
+// accumulates and there are no false positives on real queries.
+//
+// Not covered: recursive *statement* productions (`if (1) if (1) … return 1`, which nest
+// `ifStmt → statement → ifStmt`) have no delimiter token, so a token scan can't bound them
+// without either parsing or false-positiving on legitimate sequential statements. Client
+// selection of this backend as primary is gated at the API layer (see
+// `sanitize_client_parser_mode` in parser.py), so the only untrusted reach into cpp is the
+// rust-wheel-missing fallback; this scan is a best-effort defense for that path, not a
+// complete recursion guard.
 void guardNestingDepth(antlr4::CommonTokenStream* stream) {
   stream->fill();
-  size_t bracket_depth = 0;
+  size_t depth = 0;
   size_t prefix_run = 0;
+  vector<size_t> bracket_contributions;  // per open bracket: amount to unwind on its close
   for (antlr4::Token* token : stream->getTokens()) {
     // Whitespace and comments sit on the hidden channel (see `WHITESPACE -> channel(HIDDEN)`
     // in the lexer grammar). The parser skips them, so we must too — otherwise a hidden token
@@ -64,26 +77,38 @@ void guardNestingDepth(antlr4::CommonTokenStream* stream) {
       continue;
     }
     size_t type = token->getType();
-    if (type == HogQLParser::NOT || type == HogQLParser::DASH) {
-      ++prefix_run;
-    } else {
-      prefix_run = 0;
-      switch (type) {
-        case HogQLParser::LPAREN:
-        case HogQLParser::LBRACKET:
-        case HogQLParser::LBRACE:
-          ++bracket_depth;
-          break;
-        case HogQLParser::RPAREN:
-        case HogQLParser::RBRACKET:
-        case HogQLParser::RBRACE:
-          if (bracket_depth > 0) --bracket_depth;
-          break;
-        default:
-          break;
+    switch (type) {
+      case HogQLParser::NOT:
+      case HogQLParser::DASH:
+        ++prefix_run;
+        break;
+      case HogQLParser::LPAREN:
+      case HogQLParser::LBRACKET:
+      case HogQLParser::LBRACE: {
+        // The bracket begins the operand of any pending prefixes, so those prefix frames
+        // stay live for the whole group. Fold them in with the bracket and remember the
+        // total so the matching close unwinds exactly this much.
+        size_t contribution = 1 + prefix_run;
+        depth += contribution;
+        bracket_contributions.push_back(contribution);
+        prefix_run = 0;
+        break;
       }
+      case HogQLParser::RPAREN:
+      case HogQLParser::RBRACKET:
+      case HogQLParser::RBRACE:
+        prefix_run = 0;
+        if (!bracket_contributions.empty()) {
+          depth -= bracket_contributions.back();
+          bracket_contributions.pop_back();
+        }
+        break;
+      default:
+        // Plain atom: any pending prefixes had an atomic operand, a transient frame — drop it.
+        prefix_run = 0;
+        break;
     }
-    if (bracket_depth + prefix_run > MAX_PARSER_DEPTH) {
+    if (depth + prefix_run > MAX_PARSER_DEPTH) {
       // Point at the token that tripped the cap so downstream tooling highlights where
       // nesting ran away, matching the real-position errors the Rust guard reports.
       throw SyntaxError("input too deeply nested", token->getStartIndex(), token->getStartIndex());
