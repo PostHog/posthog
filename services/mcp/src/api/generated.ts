@@ -27383,6 +27383,13 @@ export namespace Schemas {
       user_access_level?: AccessControlLevel | null;
     }
 
+    export interface ExposureSourceRisk {
+      /** The server-side `$lib` values seen, largest share first. */
+      libs: string[];
+      /** Share of exposed entities whose first exposure came from a server-side SDK (0-100). */
+      server_side_percentage: number;
+    }
+
     export type SampleRatioMismatchExpected = {[key: string]: number};
 
     export interface SampleRatioMismatch {
@@ -27401,6 +27408,7 @@ export namespace Schemas {
     export interface ExperimentExposureQueryResponse {
       bias_risk?: BiasRisk | null;
       date_range: DateRange;
+      exposure_source_risk?: ExposureSourceRisk | null;
       kind?: 'ExperimentExposureQuery';
       sample_ratio_mismatch?: SampleRatioMismatch | null;
       timeseries: ExperimentExposureTimeSeries[];
@@ -57819,6 +57827,7 @@ export namespace Schemas {
     export interface QueryResponseAlternative19 {
       bias_risk?: BiasRisk | null;
       date_range: DateRange;
+      exposure_source_risk?: ExposureSourceRisk | null;
       kind?: 'ExperimentExposureQuery';
       sample_ratio_mismatch?: SampleRatioMismatch | null;
       timeseries: ExperimentExposureTimeSeries[];
