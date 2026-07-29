@@ -87,6 +87,7 @@ class _FakeSession:
         self._route = route
         self.gets: list[str] = []
         self.posts: list[tuple[str, Any]] = []
+        self.post_timeouts: list[Any] = []
 
     def _resolve(self, url: str) -> Any:
         key = _request_key(url)
@@ -101,6 +102,7 @@ class _FakeSession:
 
     def post(self, url: str, **kwargs: Any) -> Any:
         self.posts.append((_request_key(url), kwargs.get("json")))
+        self.post_timeouts.append(kwargs.get("timeout"))
         return self._resolve(url)
 
 
@@ -329,6 +331,14 @@ class TestTokenManager:
         manager = AdobeCommerceTokenManager(cast(Any, session), "https://s.example.com/rest/V1", ADMIN_CREDENTIALS)
         with pytest.raises(AdobeCommerceConfigurationError):
             manager.get_token()
+
+    def test_token_request_timeout_is_bounded_for_inline_validation(self) -> None:
+        # The exchange runs inline during validation, so its request timeout must bound the
+        # connect/header wait too — not inherit the 120s data timeout a hostile store could stall on.
+        session = _FakeSession({"/rest/V1/integration/admin/token": _make_response(200, "minted-token")})
+        manager = AdobeCommerceTokenManager(cast(Any, session), "https://s.example.com/rest/V1", ADMIN_CREDENTIALS)
+        manager.get_token()
+        assert session.post_timeouts[0] == adobe_commerce.TOKEN_DOWNLOAD_SECONDS
 
     def test_bad_admin_password_surfaces_as_http_error(self) -> None:
         session = _FakeSession({"/rest/V1/integration/admin/token": _make_response(401, {"message": "bad"})})

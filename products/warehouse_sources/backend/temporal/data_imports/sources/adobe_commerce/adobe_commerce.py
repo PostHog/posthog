@@ -314,7 +314,10 @@ class AdobeCommerceTokenManager:
             f"{self._base_url}/integration/admin/token",
             json={"username": self._credentials.username, "password": self._credentials.password},
             headers={"Content-Type": "application/json", "Accept": "application/json"},
-            timeout=REQUEST_TIMEOUT_SECONDS,
+            # `requests` applies this per socket op, so it also bounds the connect and
+            # response-header wait — a hostile store can't stall the exchange before the body cap
+            # kicks in while validation runs inline on the API thread.
+            timeout=TOKEN_DOWNLOAD_SECONDS,
             allow_redirects=False,
             stream=True,
         )
