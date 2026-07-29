@@ -29,7 +29,11 @@ from posthog.hogql.escape_sql import (
     quote_clickhouse_identifier,
     safe_identifier,
 )
-from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
+from posthog.hogql.functions import (
+    ADD_OR_NULL_DATETIME_FUNCTIONS,
+    ARRAY_RESULT_FUNCTION_STRING_ARG,
+    FIRST_ARG_DATETIME_FUNCTIONS,
+)
 from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
@@ -187,6 +191,17 @@ class ClickHousePrinter(BasePrinter):
                     args.append(f"ifNull(toString({self.visit(arg)}), '')")
         elif node.name == "toJSONString":
             args = [self._visit_json_function_argument(arg) for arg in node_args]
+        elif node.name in ARRAY_RESULT_FUNCTION_STRING_ARG:
+            # ClickHouse can't put an array inside a Nullable, so a Nullable input to an array-returning function is
+            # rejected when the query is planned. Coerce it: a NULL string reads as empty, and the function returns
+            # what it returns for an empty input (`[]` for the JSON extracts, `['']` for the splits).
+            string_arg = ARRAY_RESULT_FUNCTION_STRING_ARG[node.name]
+            args = [
+                f"ifNull({self.visit(arg)}, '')"
+                if idx == string_arg and self._needs_null_coercion(arg)
+                else self.visit(arg)
+                for idx, arg in enumerate(node_args)
+            ]
         else:
             args = [self.visit(arg) for arg in node_args]
 
@@ -300,6 +315,20 @@ class ClickHousePrinter(BasePrinter):
         args_part = f"({', '.join(args)}{order_by_part})"
         filter_part = f" FILTER (WHERE {self.visit(node.filter_expr)})" if node.filter_expr else ""
         return f"{relevant_clickhouse_name}{params_part}{args_part}{filter_part}"
+
+    def _needs_null_coercion(self, node: ast.Expr) -> bool:
+        """Whether an expression still has to be coerced before a context that rejects Nullable.
+
+        `_is_nullable` is deliberately conservative, and our type system propagates the inner nullability through
+        `ifNull`/`coalesce` even though those return a non-Nullable value when their fallback is a literal. Recognize
+        that shape so a query which already made the value null-safe isn't wrapped a second time.
+        """
+        if not self._is_nullable(node):
+            return False
+        if isinstance(node, ast.Call) and node.name.lower() in ("ifnull", "coalesce") and len(node.args) > 1:
+            fallback = node.args[-1]
+            return not isinstance(fallback, ast.Constant) or fallback.value is None
+        return True
 
     def _render_posthog_function_call(self, node: ast.Call, func_meta) -> str:
         args = [self.visit(arg) for arg in node.args]

@@ -1113,6 +1113,51 @@ class TestPrinter(BaseTest):
             ),
         )
 
+    @parameterized.expand(
+        [
+            ("json keys", "JSONExtractKeys(properties.blob)", "JSONExtractKeys(ifNull("),
+            (
+                "split of a cast",
+                "splitByChar('.', toString(toFloat(properties['$browser_version'])))",
+                ", ifNull(toString(",
+            ),
+            ("split of a lowered property", "splitByChar('@', lower(properties.email))", ", ifNull(lower("),
+        ]
+    )
+    def test_array_returning_function_coerces_nullable_argument(self, _name: str, expr: str, expected: str):
+        # ClickHouse can't put an array inside a Nullable, so it rejects the whole query when a nullable value — every
+        # property read is one — reaches a function returning an array.
+        self.assertIn(expected, self._expr(expr))
+
+    def test_array_returning_function_keeps_non_nullable_argument_bare(self):
+        self.assertEqual(self._expr("splitByChar(',', event)"), "splitByChar(%(hogql_val_0)s, events.event)")
+
+    def test_array_returning_function_does_not_coerce_twice(self):
+        # A query that already made the value null-safe keeps the shape it asked for.
+        self.assertNotIn("ifNull(coalesce(", self._expr("splitByChar(',', coalesce(properties.tags, ''))"))
+
+    def test_array_returning_function_coerces_materialized_property(self):
+        try:
+            from ee.clickhouse.materialized_columns.analyze import materialize
+        except ModuleNotFoundError:
+            # EE not available? Assume we're good
+            self.assertEqual(1 + 2, 3)
+            return
+
+        materialize("events", "pp_email")
+        self.assertIn("ifNull(lower(", self._expr("splitByChar('@', lower(properties.pp_email))"))
+
+    def test_array_returning_function_over_property_executes_on_clickhouse(self):
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql = prepare_and_print_ast(
+            parse_select(
+                "select splitByChar('@', lower(properties.email))[2], JSONExtractKeys(properties.blob) from events"
+            ),
+            context,
+            "clickhouse",
+        )[0]
+        sync_execute(sql, context.values)
+
     def test_property_groups(self):
         context = HogQLContext(
             team_id=self.team.pk,
