@@ -677,6 +677,20 @@ class TestObservationStateActivities:
         assert receipt.model == observation.scanner_snapshot["model"]
         assert receipt.credits == observation_credits_for_model(observation.scanner_snapshot["model"])
 
+    def test_mark_succeeded_receipt_records_the_scanner(self) -> None:
+        scanner = _make_scanner()
+        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
+        result = ScannerResult(model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9))
+
+        mark_observation_succeeded_activity(
+            MarkObservationSucceededInputs(
+                observation_id=observation.id, scanner_result=result, scanner_type=ScannerType.MONITOR
+            )
+        )
+
+        receipt = ReplayObservationUsage.objects.get(observation_id=observation.id)
+        assert receipt.scanner_id == scanner.id
+
     def test_mark_succeeded_usage_receipt_is_idempotent(self) -> None:
         scanner = _make_scanner()
         observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())

@@ -257,6 +257,7 @@ class TestPromptEvaluation(_VisionAPITestCase):
         # The retried run charged the org's quota exactly once, priced by the re-run's model.
         receipts = ReplayObservationUsage.objects.filter(organization_id=self.team.organization_id)
         self.assertEqual(receipts.count(), 1)
+        self.assertEqual(receipts.get().scanner_id, self.scanner.id)
         self.assertEqual(
             compute_quota_snapshot(self.team.organization_id).credits_used,
             observation_credits_for_model(self.scanner.model),
