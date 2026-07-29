@@ -17,7 +17,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 
 if TYPE_CHECKING:
-    from posthog.schema import DateRange
+    from posthog.schema import DateRange, IntervalType
 
     from posthog.models.team import Team
     from posthog.models.user import User
@@ -66,10 +66,15 @@ def validate_mcp_analytics_access(team: "Team", user: "User") -> bool:
     return UserAccessControl(user=user, team=team).assert_access_level_for_resource("mcp_analytics", "viewer")
 
 
-def mcp_query_date_range(team: "Team", date_range: "DateRange | None") -> QueryDateRange:
+def mcp_query_date_range(
+    team: "Team", date_range: "DateRange | None", interval: "IntervalType | None" = None
+) -> QueryDateRange:
+    # Runners that bucket should pass their interval: QueryDateRange only leaves a relative
+    # date_from untruncated at minute and second granularity, so without it a "last hour" window
+    # starts at the top of the hour and pulls up to an extra interval of calls.
     return QueryDateRange(
         date_range=date_range,
         team=team,
-        interval=None,
+        interval=interval,
         now=datetime.now(team.timezone_info),
     )

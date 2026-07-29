@@ -63,7 +63,7 @@ class MCPToolCallsAndErrorsQueryRunner(AnalyticsQueryRunner[MCPToolCallsAndError
 
     @cached_property
     def query_date_range(self) -> QueryDateRange:
-        return mcp_query_date_range(self.team, self.query.dateRange)
+        return mcp_query_date_range(self.team, self.query.dateRange, self.query.interval)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         # toString keeps the bucket a plain project-timezone wall clock. A bare dateTrunc returns a

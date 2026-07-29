@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
@@ -78,6 +79,24 @@ class TestMCPToolCallsAndErrorsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cli
         )
 
         assert [r.bucket for r in results] == ["2026-07-21 11:00:00", "2026-07-21 12:00:00"]
+
+    def test_minute_interval_keeps_the_window_exact(self) -> None:
+        # QueryDateRange only leaves a relative date_from untruncated at minute/second granularity,
+        # so a runner that drops the interval widens "last hour" back to the top of the hour.
+        with freeze_time("2026-07-21 18:30:00"):
+            # 10:15 Pacific sits inside the truncated window (top of the hour, 10:00) but outside
+            # the exact one (11:30 minus an hour, 10:30).
+            self._emit(timestamp=datetime(2026, 7, 21, 17, 15, tzinfo=UTC))
+            self._emit(timestamp=datetime(2026, 7, 21, 18, 10, tzinfo=UTC))
+
+            results = self._run(
+                MCPToolCallsAndErrorsQuery(
+                    dateRange=DateRange(date_from="-1h"),
+                    interval=IntervalType.MINUTE,
+                )
+            )
+
+        assert [r.bucket for r in results] == ["2026-07-21 11:10:00"]
 
     def test_property_filters_scope_the_series(self) -> None:
         self._emit(timestamp=datetime(2026, 7, 21, 18, 0, tzinfo=UTC), tool_name="query_run")
