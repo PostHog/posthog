@@ -1,0 +1,30 @@
+import { useActions, useValues } from 'kea'
+import type { ChangeEvent } from 'react'
+
+import { IconSearch } from '@posthog/icons'
+
+import { InputGroup, InputGroupAddon, InputGroupInput } from 'lib/ui/quill'
+
+import { issueFiltersLogic } from './issueFiltersLogic'
+
+export function IssueSearchInput(): JSX.Element {
+    const { searchInput } = useValues(issueFiltersLogic)
+    const { setSearchInput } = useActions(issueFiltersLogic)
+
+    return (
+        <div className="w-64 max-w-full shrink-0">
+            <InputGroup>
+                <InputGroupAddon>
+                    <IconSearch />
+                </InputGroupAddon>
+                <InputGroupInput
+                    type="search"
+                    value={searchInput}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => setSearchInput(event.target.value)}
+                    placeholder="Search issues"
+                    aria-label="Search issues"
+                />
+            </InputGroup>
+        </div>
+    )
+}

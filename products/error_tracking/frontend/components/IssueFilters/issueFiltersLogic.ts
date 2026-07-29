@@ -1,5 +1,5 @@
 import { deepEqual as equal } from 'fast-equals'
-import { MakeLogicType, actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { SelectedQuickFilter, quickFiltersSectionLogic } from 'lib/components/QuickFilters'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
@@ -29,6 +29,7 @@ export interface issueFiltersLogicValues {
     filterGroup: UniversalFiltersGroup
     filterTestAccounts: boolean
     mergedFilterGroup: UniversalFiltersGroup
+    searchInput: string
     searchQuery: string
 }
 
@@ -42,6 +43,9 @@ export interface issueFiltersLogicActions {
     }
     setFilterTestAccounts: (filterTestAccounts: boolean) => {
         filterTestAccounts: boolean
+    }
+    setSearchInput: (searchInput: string) => {
+        searchInput: string
     }
     setSearchQuery: (searchQuery: string) => {
         searchQuery: string
@@ -83,6 +87,7 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
 
     actions({
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
+        setSearchInput: (searchInput: string) => ({ searchInput }),
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
@@ -107,6 +112,13 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
                 setFilterTestAccounts: (_, { filterTestAccounts }) => filterTestAccounts,
             },
         ],
+        searchInput: [
+            DEFAULT_SEARCH_QUERY as string,
+            {
+                setSearchInput: (_, { searchInput }) => searchInput,
+                setSearchQuery: (_, { searchQuery }) => searchQuery,
+            },
+        ],
         searchQuery: [
             DEFAULT_SEARCH_QUERY as string,
             {
@@ -114,6 +126,14 @@ export const issueFiltersLogic = kea<issueFiltersLogicType>([
             },
         ],
     }),
+    listeners(({ actions, values }) => ({
+        setSearchInput: async ({ searchInput }, breakpoint) => {
+            await breakpoint(250)
+            if (values.searchInput === searchInput) {
+                actions.setSearchQuery(searchInput)
+            }
+        },
+    })),
     selectors({
         mergedFilterGroup: [
             (s) => [s.filterGroup, s.selectedQuickFilters],

@@ -25,6 +25,7 @@ export function IssuesFilters(): JSX.Element {
                     </div>
                 </div>
                 <div className="flex w-full flex-wrap items-center gap-1">
+                    <ErrorFilters.Search />
                     <ErrorFilters.FilterGroup activeFiltersInline />
                     <div className="ml-auto shrink-0">
                         <IssueSortButton />
