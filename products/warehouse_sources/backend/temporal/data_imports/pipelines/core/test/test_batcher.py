@@ -4,13 +4,13 @@ from unittest import mock
 import pyarrow as pa
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import (
     Batcher,
     _column_offset_pressure,
     _max_offset_pressure,
     _split_table,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.table_stats import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import (
     _column_payload_bytes,
     table_payload_bytes,
 )

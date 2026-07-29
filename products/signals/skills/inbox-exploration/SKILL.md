@@ -103,7 +103,7 @@ three people the report-research flow flagged as best-placed to act on this repo
 the strongest signal you have that a report matters to the user _personally_, and you should
 lean on it when triaging.
 
-How the flag is produced (see `report_generation/resolve_reviewers.py`):
+How the flag is produced:
 
 1. While researching a report, the agent identifies the GitHub commits most relevant to the
    underlying signals (e.g. commits that touched the failing code path).

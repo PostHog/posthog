@@ -14,14 +14,14 @@ import deltalake
 import pyarrow.compute as pc
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import evolve_pyarrow_schema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
     DeltaTableHelper,
     _delta_merge_spill_kwargs,
     _first_per_pk_table,
     _realign_decimal_buffers,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import evolve_pyarrow_schema
 
 
 def _decimal_array(values: list, *, precision: int = 10, scale: int = 2, misaligned: bool) -> pa.Array:
@@ -155,7 +155,7 @@ class TestStorageOptionsCommitSafety:
                 DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME=allow_unsafe,
             ),
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper.ensure_bucket_exists"
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper.ensure_bucket_exists"
             ),
         ):
             options = helper.get_storage_options()
@@ -358,7 +358,7 @@ class TestGetDeltaTableUnrecoverableErrors:
         s3_cm.__aenter__ = AsyncMock(return_value=s3)
         s3_cm.__aexit__ = AsyncMock(return_value=False)
 
-        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper"
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper"
         with (
             patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value=delta_uri)),
             patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
@@ -388,7 +388,7 @@ class TestGetDeltaTableUnrecoverableErrors:
         helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
         delta_uri = "s3://bucket/team_id/job_id/t"
 
-        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper"
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper"
         with (
             patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value=delta_uri)),
             patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
@@ -901,7 +901,7 @@ class TestVacuumIfStale:
     async def test_vacuum_cadence(
         self, _name: str, last_version: int | None, expect_vacuum: bool, expected_return: int | None
     ):
-        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper"
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper"
         helper = self._helper()
         table = MagicMock()
         table.version = MagicMock(return_value=150)
@@ -957,7 +957,7 @@ class TestRunMaintenance:
 
 
 class TestIsTableCorrupted:
-    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper"
+    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper"
 
     def _helper(self) -> DeltaTableHelper:
         return DeltaTableHelper("t", MagicMock(), MagicMock(adebug=AsyncMock()), False)

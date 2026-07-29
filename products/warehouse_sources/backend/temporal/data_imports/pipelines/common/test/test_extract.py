@@ -405,7 +405,7 @@ class TestHandleCorruptedDeltaLog:
             _get_credentials=MagicMock(return_value={}),
         )
 
-        repartition_module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.repartition"
+        repartition_module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition"
         repartition_table_module = (
             "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table"
         )

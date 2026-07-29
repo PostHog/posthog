@@ -17,7 +17,7 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -32,7 +32,7 @@ def _patch_async_producer_scope(mock_producer):
         yield mock_producer
 
     return patch(
-        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer.async_producer_scope",
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.async_producer_scope",
         _scope,
     )
 
@@ -311,7 +311,7 @@ async def test_should_produce_table_posthog_database_connection_failure_stays_re
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.AsyncMock())
 
     with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer.HogFunction.objects"
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.HogFunction.objects"
     ) as mock_hog_function_objects:
         mock_hog_function_objects.filter.side_effect = DjangoOperationalError("[Errno -2] Name or service not known")
         with pytest.raises(PostHogInternalDatabaseError) as exc_info:
@@ -325,7 +325,7 @@ async def test_should_produce_table_posthog_database_connection_failure_stays_re
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
+@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.aget_s3_client")
 async def test_produce_to_kafka_from_s3_includes_table_name(mock_get_s3_client, team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
@@ -375,7 +375,7 @@ async def test_produce_to_kafka_from_s3_includes_table_name(mock_get_s3_client, 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
+@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.aget_s3_client")
 async def test_produce_to_kafka_from_s3_success(mock_get_s3_client, team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
@@ -439,7 +439,7 @@ async def test_produce_to_kafka_from_s3_success(mock_get_s3_client, team):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
+@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.aget_s3_client")
 async def test_produce_to_kafka_from_s3_with_no_files(mock_get_s3_client, team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
@@ -475,8 +475,8 @@ async def test_produce_to_kafka_from_s3_with_no_files(mock_get_s3_client, team):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
-@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer.capture_exception")
+@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.aget_s3_client")
+@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.capture_exception")
 async def test_produce_to_kafka_from_s3_kafka_failure(mock_capture_exception, mock_get_s3_client, team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
@@ -524,8 +524,8 @@ async def test_produce_to_kafka_from_s3_kafka_failure(mock_capture_exception, mo
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
-@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer.capture_exception")
+@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.aget_s3_client")
+@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.capture_exception")
 async def test_produce_to_kafka_from_s3_s3_read_failure(mock_capture_exception, mock_get_s3_client, team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
@@ -566,7 +566,7 @@ async def test_produce_to_kafka_from_s3_s3_read_failure(mock_capture_exception, 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
+@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.aget_s3_client")
 async def test_produce_to_kafka_from_s3_with_large_batch(mock_get_s3_client, team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
@@ -632,7 +632,7 @@ async def test_write_chunk_for_cdp_producer(team):
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="test_job", logger=mock.AsyncMock())
 
     with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer.write_table"
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.write_table"
     ) as mock_write_table:
         with patch.object(producer, "_get_fs", return_value=mock_fs):
             await producer.write_chunk_for_cdp_producer(chunk=5, table=test_data)
@@ -665,7 +665,7 @@ async def test_write_chunk_for_cdp_producer_with_empty_table(team):
     producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="test_job", logger=mock.AsyncMock())
 
     with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer.write_table"
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.write_table"
     ) as mock_write_table:
         with patch.object(producer, "_get_fs", return_value=mock_fs):
             await producer.write_chunk_for_cdp_producer(chunk=0, table=test_data)
@@ -675,7 +675,7 @@ async def test_write_chunk_for_cdp_producer_with_empty_table(team):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
+@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.aget_s3_client")
 async def test_clear_s3_chunks_with_files(mock_get_s3_client, team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
@@ -704,7 +704,7 @@ async def test_clear_s3_chunks_with_files(mock_get_s3_client, team):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
+@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.aget_s3_client")
 async def test_clear_s3_chunks_with_no_files(mock_get_s3_client, team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
@@ -730,7 +730,7 @@ async def test_clear_s3_chunks_with_no_files(mock_get_s3_client, team):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer.aget_s3_client")
+@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.aget_s3_client")
 async def test_clear_s3_chunks_handles_file_not_found_on_delete(mock_get_s3_client, team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
@@ -800,7 +800,7 @@ async def test_serialize_json_fallback_to_standard_json(team):
     record = {"id": 1, "custom": CustomObject()}
 
     with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer.orjson.dumps"
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.orjson.dumps"
     ) as mock_orjson:
         mock_orjson.side_effect = TypeError("Cannot serialize")
         result = producer._serialize_json(record)
@@ -837,7 +837,7 @@ async def test_serialize_json_fallback_with_stringify(team):
     record = {UnserializableKey(): UnserializableValue()}
 
     with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer.orjson.dumps"
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.orjson.dumps"
     ) as mock_orjson:
         mock_orjson.side_effect = TypeError("Cannot serialize")
         result = producer._serialize_json(record)
@@ -868,7 +868,7 @@ async def test_serialize_json_raises_on_non_dict_unsupported(team):
     record = CompletelyUnserializable()
 
     with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer.orjson.dumps"
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.orjson.dumps"
     ) as mock_orjson:
         mock_orjson.side_effect = TypeError("Cannot serialize")
         with pytest.raises(ValueError, match="Could not serialize record to JSON"):
