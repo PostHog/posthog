@@ -138,7 +138,7 @@ SELECT
     normalizeQuery(query) AS query_shape,
     normalizeQuery(lc_query__query) AS hogql_shape
 FROM {SOURCE_TABLE}
-WHERE event_date = toDate('{day}') AND is_initial_query
+WHERE event_date = toDate('{day}')
 SETTINGS s3_truncate_on_insert = 1, max_threads = {config.max_threads}
 """
 
