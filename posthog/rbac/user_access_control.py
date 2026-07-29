@@ -1156,14 +1156,12 @@ class UserAccessControl:
 
         for resource_id, rows in rows_by_resource_id.items():
             resource = cast(APIScopeObject, rows[0].resource)
+            effective = resolve_object_access_level(resource, rows)
 
-            if resolve_object_access_level(resource, rows) == NO_ACCESS_LEVEL:
+            if effective == NO_ACCESS_LEVEL:
                 blocked_resource_ids.add(resource_id)
-
-            # A member/role grant lets the user see the object even without resource-level access.
-            specific_rows = [ac for ac in rows if ac.role_id is not None or ac.organization_member_id is not None]
-            specific_level = resolve_object_access_level(resource, specific_rows)
-            if specific_level is not None and specific_level != NO_ACCESS_LEVEL:
+            elif any(ac.role_id is not None or ac.organization_member_id is not None for ac in rows):
+                # A member/role grant lets the user see the object even without resource-level access.
                 allowed_resource_ids.add(resource_id)
 
         return blocked_resource_ids, allowed_resource_ids
@@ -1244,14 +1242,9 @@ class UserAccessControl:
         )
 
         # Subquery to check whether the user has "none" for this specific FileSystem.
-        #
-        # NOTE: this is a conservative approximation of the specificity precedence that
-        # resolve_object_access_level applies elsewhere (member -> max roles -> object default):
-        # it hides the item whenever *any* matching row is "none". That can over-hide a file
-        # when a member/role grant coexists with a lower-tier "none" (e.g. member=editor but a
-        # role the user is in has "none" on the same object). It never over-exposes, so it is
-        # safe; the authoritative check is check_access_level_for_object. Tightening this to full
-        # precedence in SQL is tracked as follow-up.
+        # Approximates resolve_object_access_level in SQL: any matching "none" row hides the
+        # item, so a grant in a more specific tier can be over-hidden here — but never
+        # over-exposed. The authoritative check is check_access_level_for_object.
         is_none_subquery = (
             AccessControl.objects.filter(
                 team_id=OuterRef("team_id"),
