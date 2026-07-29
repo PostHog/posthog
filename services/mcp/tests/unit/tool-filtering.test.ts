@@ -792,6 +792,40 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).not.toContain('notebooks-partial-update')
     })
 
+    it('revamped-py-notebooks flag swaps the notebook surface without duplicates', () => {
+        // Flag ON: the cell tools take over create/read/edit — the model never sees two
+        // tools for the same job. Flag OFF: only the legacy surface.
+        const off = getToolsForFeatures({ featureFlags: { 'revamped-py-notebooks': false } })
+        expect(off).toContain('notebooks-create')
+        expect(off).toContain('notebooks-retrieve')
+        expect(off).not.toContain('notebooks-create-markdown')
+        expect(off).not.toContain('notebooks-add-cell')
+        expect(off).not.toContain('notebooks-get')
+
+        const on = getToolsForFeatures({ featureFlags: { 'revamped-py-notebooks': true } })
+        expect(on).toContain('notebooks-create-markdown')
+        expect(on).toContain('notebooks-add-cell')
+        expect(on).toContain('notebooks-update-cell')
+        expect(on).toContain('notebooks-delete-cell')
+        expect(on).toContain('notebooks-run-cell-result')
+        expect(on).toContain('notebooks-get')
+        expect(on).toContain('notebooks-list-frames')
+        expect(on).toContain('notebooks-configure-compute')
+        expect(on).not.toContain('notebooks-create')
+        expect(on).not.toContain('notebooks-retrieve')
+        expect(on).not.toContain('notebooks-run-cell')
+
+        // notebook-edit keeps its collaboration gate but retires under the cell tools.
+        const collabOnly = getToolsForFeatures({
+            featureFlags: { 'notebooks-collaboration': true, 'revamped-py-notebooks': false },
+        })
+        expect(collabOnly).toContain('notebook-edit')
+        const both = getToolsForFeatures({
+            featureFlags: { 'notebooks-collaboration': true, 'revamped-py-notebooks': true },
+        })
+        expect(both).not.toContain('notebook-edit')
+    })
+
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const flags = getRequiredFeatureFlags()
         expect(flags).toEqual(
@@ -804,6 +838,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'user-interviews',
                 'customer-analytics-csp',
                 'notebooks-collaboration',
+                'revamped-py-notebooks',
                 'replay-vision',
                 'tasks',
                 'dashboard-widgets',
@@ -820,10 +855,11 @@ describe('Tool Filtering - Feature Flags', () => {
                 'loops',
                 'review-hog',
                 'warehouse-person-properties',
+                'review-hog',
                 'streamlit-apps',
             ])
         )
-        expect(flags).toHaveLength(25)
+        expect(flags).toHaveLength(26)
     })
 
     it('every loops tool is gated on the loops flag', () => {
