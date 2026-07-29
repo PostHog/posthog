@@ -838,7 +838,7 @@ def test_load_property_removal_request_rejects_empty_properties():
     config = DataDeletionRequestConfig(request_id=str(request.pk))
     context = build_op_context()
 
-    with pytest.raises(Exception, match="no properties or person_properties specified"):
+    with pytest.raises(Exception, match="no properties, person_properties or prefix patterns specified"):
         load_property_removal_request(context, config)
 
 
@@ -1321,6 +1321,63 @@ def test_full_job_property_removal(cluster: ClickhouseCluster):
     # Status transitioned to COMPLETED
     request.refresh_from_db()
     assert request.status == RequestStatus.COMPLETED
+
+
+@pytest.mark.django_db
+def test_full_job_property_removal_expands_prefix_patterns(cluster: ClickhouseCluster):
+    """A prefix pattern scrubs a whole property family without the names being enumerated by hand."""
+    now = datetime.now()
+    start_time = now - timedelta(days=7)
+    end_time = now + timedelta(minutes=1)
+
+    props_obj = {
+        "$geoip_city_name": "Berlin",
+        "$geoip_country_code": "DE",
+        "$initial_geoip_city_name": "Berlin",
+        "$geoip_disable": False,
+        "geoip_lookalike": "not a match",
+        "keep": "yes",
+    }
+    events = [
+        (PROP_TEAM_ID, "prefix_event", uuid4(), now - timedelta(hours=i), json.dumps(props_obj)) for i in range(20)
+    ]
+    cluster.any_host(partial(_insert_events_with_properties, events)).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=["prefix_event"],
+        property_prefixes=["$geoip_", "$initial_geoip_"],
+        excluded_properties=["$geoip_disable"],
+        start_time=start_time,
+        end_time=end_time,
+        status=RequestStatus.APPROVED,
+    )
+
+    result = data_deletion_request_property_removal.execute_in_process(
+        run_config={"ops": {"load_property_removal_request": {"config": {"request_id": str(request.pk)}}}},
+        resources={"cluster": cluster},
+    )
+    assert result.success
+
+    assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "prefix_event")).result() == 20
+    for props in cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "prefix_event")).result():
+        assert "$geoip_city_name" not in props
+        assert "$geoip_country_code" not in props
+        assert "$initial_geoip_city_name" not in props
+        assert "$geoip_disable" in props, "the exclusion list must hold this one back"
+        assert "geoip_lookalike" in props, "a prefix anchors at the start of the name"
+        assert "keep" in props
+
+    request.refresh_from_db()
+    assert request.status == RequestStatus.COMPLETED
+    resolved = request.resolved_properties
+    assert resolved is not None
+    assert sorted(resolved["properties"]) == [
+        "$geoip_city_name",
+        "$geoip_country_code",
+        "$initial_geoip_city_name",
+    ]
 
 
 @pytest.mark.django_db

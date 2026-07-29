@@ -30,6 +30,7 @@ from posthog.models.data_deletion_request import (
     AUTO_APPROVE_INTERVAL_MINUTES,
     DataDeletionRequest,
     ExecutionMode,
+    PropertyPrefixExpansionError,
     RequestStatus,
     RequestType,
     auto_approve_pending_requests,
@@ -37,6 +38,7 @@ from posthog.models.data_deletion_request import (
     event_match_sql_fragment,
     event_removal_where,
     jsonhas_expr,
+    resolve_property_keys_for_execution,
     verify_queued_request,
 )
 from posthog.models.event.deletion import events_data_tables
@@ -546,10 +548,9 @@ def load_property_removal_request(
                 f"Request {config.request_id} is not an approved property_removal request.",
             )
 
-        person_properties = list(request.person_properties or [])
-        if not request.properties and not person_properties:
+        if not request.has_property_targets():
             raise dagster.Failure(
-                f"Request {config.request_id} has no properties or person_properties specified.",
+                f"Request {config.request_id} has no properties, person_properties or prefix patterns specified.",
             )
 
         _record_execution_attempt(request, context.run_id)
@@ -560,21 +561,50 @@ def load_property_removal_request(
             request.property_removal_marker = timezone.now()
             request.save(update_fields=["property_removal_marker", "updated_at"])
 
+    # Expanding prefixes scans the request's scope in ClickHouse, so it runs outside the transaction
+    # above rather than holding that row lock for the length of the query.
+    try:
+        resolved = resolve_property_keys_for_execution(request)
+    except PropertyPrefixExpansionError as exc:
+        raise dagster.Failure(description=str(exc)) from exc
+    if not resolved.properties and not resolved.person_properties:
+        raise dagster.Failure(
+            description=(
+                f"Request {config.request_id}: nothing to remove. The prefix patterns matched no property "
+                f"names in the request's scope."
+            )
+        )
+
     events_desc = "<all events>" if request.delete_all_events else f"{request.events}"
     context.log.info(
         f"Processing property removal {request.pk}: "
         f"team_id={request.team_id}, events={events_desc}, "
-        f"properties={request.properties}, person_properties={person_properties}, "
+        f"properties={resolved.properties}, person_properties={resolved.person_properties}, "
         f"time_range={request.start_time} to {request.end_time}"
     )
+    if request.all_property_prefixes:
+        # Logged in full so the operator can check what the patterns caught against what the customer
+        # asked for, rather than trusting the pattern.
+        context.log.info(
+            f"Prefix patterns {request.all_property_prefixes} "
+            f"({'reused from the first attempt' if resolved.reused else 'expanded now'}): "
+            f"properties matched {resolved.matched_properties}, "
+            f"person_properties matched {resolved.matched_person_properties}, "
+            f"kept by exclusion {resolved.kept_by_exclusion}"
+        )
     context.add_output_metadata(
         {
             "team_id": dagster.MetadataValue.int(request.team_id),
             "events": dagster.MetadataValue.text(
                 "<all events>" if request.delete_all_events else ", ".join(request.events)
             ),
-            "properties": dagster.MetadataValue.text(", ".join(request.properties)),
-            "person_properties": dagster.MetadataValue.text(", ".join(person_properties)),
+            "properties": dagster.MetadataValue.text(", ".join(resolved.properties)),
+            "person_properties": dagster.MetadataValue.text(", ".join(resolved.person_properties)),
+            "property_prefixes": dagster.MetadataValue.text(", ".join(request.all_property_prefixes)),
+            "prefix_matched": dagster.MetadataValue.text(
+                ", ".join([*resolved.matched_properties, *resolved.matched_person_properties])
+            ),
+            "kept_by_exclusion": dagster.MetadataValue.text(", ".join(resolved.kept_by_exclusion)),
             "start_time": dagster.MetadataValue.text(str(request.start_time)),
             "end_time": dagster.MetadataValue.text(str(request.end_time)),
             "delete_all_events": dagster.MetadataValue.bool(request.delete_all_events),
@@ -589,8 +619,8 @@ def load_property_removal_request(
         start_time=request.start_time,
         end_time=request.end_time,
         events=request.events,
-        properties=request.properties,
-        person_properties=person_properties,
+        properties=resolved.properties,
+        person_properties=resolved.person_properties,
         delete_all_events=request.delete_all_events,
         hogql_predicate=request.hogql_predicate or "",
         inserted_at_marker=request.property_removal_marker,

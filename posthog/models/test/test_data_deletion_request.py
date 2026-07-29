@@ -426,6 +426,104 @@ def test_property_presence_where_includes_materialized_columns(team):
     assert "`mat_$ip` != ''" in rendered
 
 
+def _prefix_removal_request(**overrides) -> DataDeletionRequest:
+    kwargs = {
+        "request_type": RequestType.PROPERTY_REMOVAL,
+        "events": ["$pageview"],
+        "property_prefixes": ["$geoip_", "$initial_geoip_"],
+        "excluded_properties": ["$geoip_disable"],
+        "start_time": datetime(2026, 4, 1),
+        "end_time": datetime(2026, 4, 15),
+    }
+    kwargs.update(overrides)
+    return DataDeletionRequest(**_base_kwargs(**kwargs))
+
+
+@pytest.mark.parametrize(
+    "builder",
+    [
+        lambda request: ddr._property_presence_where(request),
+        lambda request: ddr.build_deletion_count_query(request),
+    ],
+    ids=["presence_where", "count_query"],
+)
+def test_prefix_patterns_reach_the_generated_sql(builder):
+    from posthog.clickhouse.client.escape import substitute_params_for_display
+
+    request = _prefix_removal_request(person_property_prefixes=["$initial_"])
+    predicate, params = builder(request)
+    rendered = substitute_params_for_display(predicate, params)
+
+    assert "startsWith(key, '$geoip_')" in rendered
+    assert "startsWith(key, '$initial_geoip_')" in rendered
+    assert "JSONExtractKeys(properties)" in rendered
+    assert "JSONExtractKeys(person_properties)" in rendered
+    assert "NOT has(['$geoip_disable'], key)" in rendered
+    assert "%(" not in rendered
+
+
+def test_prefix_only_request_needs_no_explicit_property_names():
+    request = _prefix_removal_request()
+
+    assert request.has_property_targets()
+    request.clean()
+    ddr._property_presence_where(request)
+
+
+@pytest.mark.parametrize(
+    "prefixes",
+    [[""], ["  "], ["$geoip_", ""]],
+    ids=["empty", "whitespace", "one_of_two"],
+)
+def test_blank_prefix_pattern_is_rejected(prefixes):
+    request = _prefix_removal_request(property_prefixes=prefixes)
+
+    with pytest.raises(ValidationError, match="blank prefix pattern"):
+        request.clean()
+
+
+@pytest.mark.parametrize(
+    "explicit,matched,excluded,expected",
+    [
+        (["$ip"], ["$geoip_city", "$geoip_disable"], ["$geoip_disable"], ["$ip", "$geoip_city"]),
+        ([], ["$geoip_city", "$geoip_city"], [], ["$geoip_city"]),
+        (["$geoip_city"], ["$geoip_city"], [], ["$geoip_city"]),
+        (["$geoip_disable"], [], ["$geoip_disable"], []),
+    ],
+    ids=["exclusion_applied", "duplicate_matches", "explicit_and_matched", "exclusion_beats_explicit"],
+)
+def test_merge_property_keys(explicit, matched, excluded, expected):
+    assert ddr._merge_property_keys(explicit, matched, excluded) == expected
+
+
+def test_expansion_is_recorded_once_and_reused_by_retries(team):
+    request = DataDeletionRequest.objects.create(
+        **_base_kwargs(
+            team_id=team.id,
+            request_type=RequestType.PROPERTY_REMOVAL,
+            events=["$pageview"],
+            property_prefixes=["$geoip_"],
+        )
+    )
+
+    with patch.object(ddr, "_expand_prefixes_for_column", return_value=["$geoip_city"]):
+        first = ddr.resolve_property_keys_for_execution(request)
+
+    assert first.properties == ["$geoip_city"]
+    assert not first.reused
+
+    # A second attempt must not widen the set: rows an earlier attempt already cleaned are skipped by
+    # the copy pass, so any extra name would be left behind on them.
+    def _must_not_expand(*args, **kwargs):
+        raise AssertionError("a retry must reuse the recorded expansion")
+
+    with patch.object(ddr, "_expand_prefixes_for_column", _must_not_expand):
+        second = ddr.resolve_property_keys_for_execution(DataDeletionRequest.objects.get(pk=request.pk))
+
+    assert second.properties == ["$geoip_city"]
+    assert second.reused
+
+
 def _person_kwargs(**overrides) -> dict:
     kwargs = {
         "team_id": TEAM_ID,

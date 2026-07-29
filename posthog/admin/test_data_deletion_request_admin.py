@@ -300,13 +300,14 @@ class TestDataDeletionRequestAdminSubmitView(BaseTest):
         self.factory = RequestFactory()
         self.admin = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
 
-    def _property_removal_request(self, properties=None, person_properties=None):
+    def _property_removal_request(self, properties=None, person_properties=None, property_prefixes=None):
         return DataDeletionRequest.objects.create(
             team_id=self.team.id,
             request_type=RequestType.PROPERTY_REMOVAL,
             events=["$pageview"],
             properties=properties or [],
             person_properties=person_properties or [],
+            property_prefixes=property_prefixes or [],
             start_time=datetime.now() - timedelta(days=7),
             end_time=datetime.now(),
             status=RequestStatus.DRAFT,
@@ -333,33 +334,21 @@ class TestDataDeletionRequestAdminSubmitView(BaseTest):
         }
         return DataDeletionRequest.objects.create(**fields)
 
-    def test_submit_with_properties_only_succeeds(self):
-        request = self._property_removal_request(properties=["$ip"])
+    @parameterized.expand(
+        [
+            ("properties_only", {"properties": ["$ip"]}, RequestStatus.PENDING),
+            ("person_properties_only", {"person_properties": ["email"]}, RequestStatus.PENDING),
+            ("both_properties", {"properties": ["$ip"], "person_properties": ["email"]}, RequestStatus.PENDING),
+            ("prefixes_only", {"property_prefixes": ["$geoip_"]}, RequestStatus.PENDING),
+            ("nothing_targeted", {}, RequestStatus.DRAFT),
+        ]
+    )
+    def test_submit_requires_something_to_remove(self, _name, fields, expected_status):
+        request = self._property_removal_request(**fields)
         response = self._call_submit(request)
         self.assertEqual(response.status_code, 302)
         request.refresh_from_db()
-        self.assertEqual(request.status, RequestStatus.PENDING)
-
-    def test_submit_with_person_properties_only_succeeds(self):
-        request = self._property_removal_request(person_properties=["email"])
-        response = self._call_submit(request)
-        self.assertEqual(response.status_code, 302)
-        request.refresh_from_db()
-        self.assertEqual(request.status, RequestStatus.PENDING)
-
-    def test_submit_with_both_properties_succeeds(self):
-        request = self._property_removal_request(properties=["$ip"], person_properties=["email"])
-        response = self._call_submit(request)
-        self.assertEqual(response.status_code, 302)
-        request.refresh_from_db()
-        self.assertEqual(request.status, RequestStatus.PENDING)
-
-    def test_submit_with_both_empty_is_rejected(self):
-        request = self._property_removal_request(properties=[], person_properties=[])
-        response = self._call_submit(request)
-        self.assertEqual(response.status_code, 302)
-        request.refresh_from_db()
-        self.assertEqual(request.status, RequestStatus.DRAFT)
+        self.assertEqual(request.status, expected_status)
 
     def test_submit_get_exposes_can_submit_flag(self):
         ok = self._property_removal_request(properties=["$ip"])

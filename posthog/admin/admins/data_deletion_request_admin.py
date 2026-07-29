@@ -18,6 +18,7 @@ from posthog.models.data_deletion_request import (
     RequestType,
     build_deletion_count_query,
     count_remaining_for_request,
+    expand_property_prefixes,
     fetch_deletion_stats,
     invalidate_compiled_predicate_cache,
     refresh_deletion_stats,
@@ -29,6 +30,9 @@ CRITERIA_FIELDS = {
     "delete_all_events",
     "properties",
     "person_properties",
+    "property_prefixes",
+    "person_property_prefixes",
+    "excluded_properties",
     "start_time",
     "end_time",
     "hogql_predicate",
@@ -63,6 +67,9 @@ EDITABLE_FIELDS = (
     "delete_all_events",
     "properties",
     "person_properties",
+    "property_prefixes",
+    "person_property_prefixes",
+    "excluded_properties",
     "hogql_predicate",
     "notes",
 )
@@ -197,12 +204,30 @@ class DataDeletionRequestForm(forms.ModelForm):
     )
     properties = ArrayTextareaField(
         required=False,
-        help_text="One property name per line. You can also paste a JSON array. Required for property removal requests when person_properties is empty.",
+        help_text="One property name per line. You can also paste a JSON array. A property removal "
+        "request needs at least one of properties, person_properties, or a prefix pattern.",
     )
     person_properties = ArrayTextareaField(
         required=False,
         help_text="One property name per line. You can also paste a JSON array. "
-        "Properties to remove from events.person_properties. Required for property removal requests when properties is empty.",
+        "Properties to remove from events.person_properties.",
+    )
+    property_prefixes = ArrayTextareaField(
+        required=False,
+        help_text="One prefix pattern per line, matching property names in events.properties. "
+        "For example $geoip_ covers every property whose name starts with it. Patterns are expanded "
+        "against the property names actually present in this request's scope when the job starts, so "
+        "nothing has to be enumerated by hand. Top-level names only, so a nested path like sub.prop "
+        "still has to be named exactly.",
+    )
+    person_property_prefixes = ArrayTextareaField(
+        required=False,
+        help_text="One prefix pattern per line, matching property names in events.person_properties.",
+    )
+    excluded_properties = ArrayTextareaField(
+        required=False,
+        help_text="One property name per line to keep, even when a prefix pattern matches it. "
+        "Applies to both properties and person_properties.",
     )
     hogql_predicate = forms.CharField(
         required=False,
@@ -268,6 +293,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         "last_executed_at",
         "last_dagster_run",
         "rendered_count_query",
+        "resolved_property_names",
     )
     ordering = ("-created_at",)
     change_form_template = "admin/posthog/datadeletionrequest/change_form.html"
@@ -286,6 +312,10 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                     "delete_all_events",
                     "properties",
                     "person_properties",
+                    "property_prefixes",
+                    "person_property_prefixes",
+                    "excluded_properties",
+                    "resolved_property_names",
                     "hogql_predicate",
                     "notes",
                 ),
@@ -368,6 +398,21 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             return obj.last_dagster_run_id
         return format_html('<a href="{}" target="_blank" rel="noopener">{}</a>', url, obj.last_dagster_run_id)
 
+    @admin.display(description="Resolved property names")
+    def resolved_property_names(self, obj: DataDeletionRequest) -> str:
+        """Show the expansion the deletion job recorded, so the scrub's real scope is auditable."""
+        resolved = obj.resolved_properties or {}
+        if not resolved:
+            return "— (recorded when the deletion job first runs)"
+        return format_html(
+            "<div>properties: <code>{}</code></div><div>person_properties: <code>{}</code></div>"
+            "<div>kept by exclusion: <code>{}</code></div><div>resolved at: {}</div>",
+            ", ".join(resolved.get("properties") or []) or "none",
+            ", ".join(resolved.get("person_properties") or []) or "none",
+            ", ".join(resolved.get("kept_by_exclusion") or []) or "none",
+            resolved.get("resolved_at") or "unknown",
+        )
+
     @admin.display(description="Count query (ready to paste)")
     def rendered_count_query(self, obj: DataDeletionRequest) -> str:
         """Show the fully-substituted ClickHouse COUNT query operators can copy/paste."""
@@ -417,12 +462,20 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             # Rows cleaned under the old criteria are ordinary candidates for the new ones —
             # a stale marker would make the copy pass skip them as "already cleaned".
             obj.property_removal_marker = None
+            # Same reason the marker goes: the recorded expansion describes the old criteria, and
+            # execution reuses it verbatim rather than expanding the new patterns.
+            obj.resolved_properties = None
             if obj.status != RequestStatus.DRAFT:
                 obj.status = RequestStatus.DRAFT
                 messages.warning(request, "Deletion criteria were changed — status has been reset to draft.")
-        if obj.request_type == RequestType.EVENT_REMOVAL and (obj.properties or obj.person_properties):
+        if obj.request_type == RequestType.EVENT_REMOVAL and (
+            obj.properties or obj.person_properties or obj.all_property_prefixes or obj.excluded_properties
+        ):
             obj.properties = []
             obj.person_properties = []
+            obj.property_prefixes = []
+            obj.person_property_prefixes = []
+            obj.excluded_properties = []
             messages.info(request, "Properties cleared — event removal requests do not use properties.")
         if obj.request_type == RequestType.PERSON_REMOVAL and (
             obj.events or obj.delete_all_events or obj.hogql_predicate
@@ -453,9 +506,11 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         extra_context = extra_context or {}
         obj = self.get_object(request, object_id)
         if obj:
-            if obj.request_type == RequestType.PROPERTY_REMOVAL and not obj.properties and not obj.person_properties:
+            if obj.request_type == RequestType.PROPERTY_REMOVAL and not obj.has_property_targets():
                 messages.warning(
-                    request, "This is a property removal request but no properties or person_properties are specified."
+                    request,
+                    "This is a property removal request but no properties, person_properties or prefix "
+                    "patterns are specified.",
                 )
             if obj.request_type == RequestType.PERSON_REMOVAL:
                 if not (obj.person_uuids or obj.person_distinct_ids):
@@ -489,6 +544,15 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                 "admin:posthog_datadeletionrequest_preview_stats", args=[obj.pk]
             )
             extra_context["is_clickhouse_team"] = request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists()
+            extra_context["has_property_prefixes"] = bool(obj.all_property_prefixes)
+            extra_context["expand_prefixes_url"] = reverse(
+                "admin:posthog_datadeletionrequest_expand_prefixes", args=[obj.pk]
+            )
+            prefix_expansion = request.session.pop("data_deletion_prefix_expansion", None)
+            if prefix_expansion and str(prefix_expansion.get("obj_pk")) != str(obj.pk):
+                prefix_expansion = None
+            extra_context["prefix_expansion"] = prefix_expansion
+
             preview_stats = request.session.pop("data_deletion_preview_stats", None)
             if preview_stats and str(preview_stats.get("obj_pk")) != str(obj.pk):
                 # Belongs to a different request — drop it rather than mislead the operator.
@@ -519,6 +583,11 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                 "<path:object_id>/preview-stats/",
                 self.admin_site.admin_view(self.preview_stats_view),
                 name="posthog_datadeletionrequest_preview_stats",
+            ),
+            path(
+                "<path:object_id>/expand-prefixes/",
+                self.admin_site.admin_view(self.expand_prefixes_view),
+                name="posthog_datadeletionrequest_expand_prefixes",
             ),
             path(
                 "<path:object_id>/approve/",
@@ -552,9 +621,7 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             messages.error(request, "Only draft requests can be submitted.")
             return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
-        missing_properties = (
-            obj.request_type == RequestType.PROPERTY_REMOVAL and not obj.properties and not obj.person_properties
-        )
+        missing_properties = obj.request_type == RequestType.PROPERTY_REMOVAL and not obj.has_property_targets()
         missing_person_selectors = obj.request_type == RequestType.PERSON_REMOVAL and not (
             obj.person_uuids or obj.person_distinct_ids
         )
@@ -571,7 +638,8 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             if missing_properties:
                 messages.error(
                     request,
-                    "Cannot submit: property removal request requires at least one property or person_property.",
+                    "Cannot submit: property removal request requires at least one property, "
+                    "person_property, or prefix pattern.",
                 )
                 return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
             if missing_person_selectors:
@@ -712,6 +780,51 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         except Exception as e:
             messages.error(request, f"Failed to preview stats: {e}")
 
+        return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+    def expand_prefixes_view(self, request, object_id):
+        """Show what the request's prefix patterns currently match, without saving anything.
+
+        Execution expands the patterns itself and records what it used. This is the same expansion run
+        early, so an operator can compare the matched names against the customer's ask before the
+        deletion is approved rather than after.
+        """
+        obj = self.get_object(request, object_id)
+        if not obj:
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_changelist"))
+
+        if request.method != "POST":
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        if not obj.all_property_prefixes:
+            messages.error(request, "This request has no prefix patterns to expand.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+        if obj.start_time is None or obj.end_time is None:
+            messages.error(request, "Set a start and end time first — patterns are expanded within the time range.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        try:
+            resolved = expand_property_prefixes(obj, user_id=request.user.id)
+        except Exception as e:
+            messages.error(request, f"Failed to expand prefix patterns: {e}")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        matched = [*resolved.matched_properties, *resolved.matched_person_properties]
+        request.session["data_deletion_prefix_expansion"] = {
+            "obj_pk": str(obj.pk),
+            "properties": resolved.matched_properties,
+            "person_properties": resolved.matched_person_properties,
+            "kept_by_exclusion": resolved.kept_by_exclusion,
+            "expanded_at": timezone.now().isoformat(),
+        }
+        if matched:
+            messages.info(request, f"{len(matched)} property name(s) matched the prefix patterns. Nothing was saved.")
+        else:
+            messages.warning(
+                request,
+                "No property names matched the prefix patterns in this request's scope. "
+                "Check the patterns, the event list and the time range.",
+            )
         return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
 
     def approve_view(self, request, object_id):

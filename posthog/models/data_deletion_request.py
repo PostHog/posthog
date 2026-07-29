@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
@@ -21,6 +21,43 @@ def jsonhas_expr(prop: str, param_prefix: str, column: str = "properties") -> st
     parts = prop.split(".")
     args = ", ".join(f"%({param_prefix}_{i})s" for i in range(len(parts)))
     return f"JSONHas({column}, {args})"
+
+
+def prefix_match_condition(prefixes: list[str], excluded: list[str], param_prefix: str) -> tuple[str, dict]:
+    """Build a ClickHouse boolean over a property name bound to ``key``, true when a prefix matches.
+
+    Meant to be used inside a lambda over a row's key set (``arrayExists`` to test presence,
+    ``arrayFilter`` to collect the matches), so the same rule drives both. ``excluded`` holds back
+    exact names the prefixes would otherwise catch, which is what makes "every ``$geoip_*`` except
+    ``$geoip_disable``" expressible.
+    """
+    starts = " OR ".join(f"startsWith(key, %({param_prefix}{i})s)" for i in range(len(prefixes)))
+    condition = f"({starts})" if len(prefixes) > 1 else starts
+    params: dict = {f"{param_prefix}{i}": prefix for i, prefix in enumerate(prefixes)}
+    if excluded:
+        condition = f"{condition} AND NOT has(%({param_prefix}excluded)s, key)"
+        params[f"{param_prefix}excluded"] = excluded
+    return condition, params
+
+
+def prefix_presence_expr(
+    prefixes: list[str],
+    excluded: list[str],
+    param_prefix: str,
+    column: str = "properties",
+) -> tuple[str, dict]:
+    """Presence check over a JSON property column: does the row carry any key matching a prefix?
+
+    Prefix patterns can't be turned into a fixed key list up front, so presence is evaluated
+    against each row's own key set rather than the ``JSONHas`` checks used for exact names. Reads
+    the column as a JSON string, so this targets the legacy ``events`` schema only — the deletion
+    job works from expanded key names instead (see ``expand_property_prefixes``).
+
+    Only top-level names are considered; a nested path like ``sub.prop`` still has to be named
+    exactly.
+    """
+    condition, params = prefix_match_condition(prefixes, excluded, param_prefix)
+    return f"arrayExists(key -> {condition}, JSONExtractKeys({column}))", params
 
 
 def compile_hogql_predicate(obj, use_new_events_schema: bool = False) -> tuple[str, dict]:
@@ -264,14 +301,44 @@ class DataDeletionRequest(UUIDModel):
         models.CharField(max_length=1024),
         blank=True,
         default=list,
-        help_text="Property names to remove from events.properties. Required for property_removal requests when person_properties is empty.",
+        help_text="Property names to remove from events.properties. A property_removal request needs at "
+        "least one of properties, person_properties, or a prefix pattern.",
     )
     person_properties = ArrayField(
         models.CharField(max_length=1024),
         blank=True,
         null=True,
         default=list,
-        help_text="Property names to remove from events.person_properties. Required for property_removal requests when properties is empty.",
+        help_text="Property names to remove from events.person_properties. A property_removal request "
+        "needs at least one of properties, person_properties, or a prefix pattern.",
+    )
+    property_prefixes = ArrayField(
+        models.CharField(max_length=1024),
+        blank=True,
+        default=list,
+        help_text="Prefix patterns matching property names to remove from events.properties, e.g. "
+        "$geoip_ matches every property whose name starts with it. Expanded against the names actually "
+        "present in the request's scope when the deletion job starts. Top-level names only.",
+    )
+    person_property_prefixes = ArrayField(
+        models.CharField(max_length=1024),
+        blank=True,
+        default=list,
+        help_text="Prefix patterns matching property names to remove from events.person_properties.",
+    )
+    excluded_properties = ArrayField(
+        models.CharField(max_length=1024),
+        blank=True,
+        default=list,
+        help_text="Exact property names to keep, even when a prefix pattern matches them. Applies to "
+        "both properties and person_properties.",
+    )
+    resolved_properties = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="The property names the prefix patterns expanded to, recorded on the first execution "
+        "attempt and reused verbatim by every retry so re-runs agree on what is being removed. Cleared "
+        "when deletion criteria change.",
     )
     person_uuids = ArrayField(
         models.UUIDField(),
@@ -423,6 +490,15 @@ class DataDeletionRequest(UUIDModel):
         instance._loaded_team_id = instance.team_id
         return instance
 
+    @property
+    def all_property_prefixes(self) -> list[str]:
+        """Every prefix pattern on the request, across both property columns."""
+        return [*(self.property_prefixes or []), *(self.person_property_prefixes or [])]
+
+    def has_property_targets(self) -> bool:
+        """Does this request name anything to remove from matching events?"""
+        return bool(self.properties or self.person_properties or self.all_property_prefixes)
+
     def clean(self) -> None:
         super().clean()
         if self._loaded_team_id is not None and self.team_id != self._loaded_team_id:
@@ -451,6 +527,11 @@ class DataDeletionRequest(UUIDModel):
         self._require_time_range()
         self._validate_event_scope(verb="match")
         self._reject_person_fields()
+        for prefix in self.all_property_prefixes:
+            if not prefix.strip():
+                raise ValidationError(
+                    {"property_prefixes": "A blank prefix pattern matches every property. Remove it."}
+                )
 
     def _validate_event_scope(self, *, verb: str) -> None:
         if self.delete_all_events and self.events:
@@ -484,6 +565,10 @@ class DataDeletionRequest(UUIDModel):
             raise ValidationError({"properties": "properties are not valid for person_removal."})
         if self.person_properties:
             raise ValidationError({"person_properties": "person_properties are not valid for person_removal."})
+        if self.all_property_prefixes or self.excluded_properties:
+            raise ValidationError(
+                {"property_prefixes": "Prefix patterns and exclusions are not valid for person_removal."}
+            )
         if self.hogql_predicate:
             raise ValidationError({"hogql_predicate": "hogql_predicate is not valid for person_removal."})
 
@@ -518,6 +603,10 @@ def _build_property_filter(obj) -> tuple[str, dict]:
     ``events.person_properties`` (using ``pp_`` param prefix).  The two
     presence checks are ORed so the stats count includes every event that
     carries at least one target key in either column.
+
+    Prefix patterns contribute a further presence check per column, evaluated against each row's
+    own key set rather than the expanded key list. So the count an operator fetches reflects the
+    prefix rule against live data, which is what makes an incomplete scrub visible afterwards.
     """
     event_clause = event_match_sql_fragment(obj)
     params: dict = event_match_params(obj)
@@ -548,14 +637,200 @@ def _build_property_filter(obj) -> tuple[str, dict]:
             for j, part in enumerate(prop.split(".")):
                 params[f"pp_{i}_{j}"] = part
 
+    excluded = list(obj.excluded_properties or [])
+    if obj.property_prefixes:
+        expr, prefix_params = prefix_presence_expr(obj.property_prefixes, excluded, "pfx_")
+        presence_clauses.append(expr)
+        params.update(prefix_params)
+    if obj.person_property_prefixes:
+        expr, prefix_params = prefix_presence_expr(
+            obj.person_property_prefixes, excluded, "ppfx_", column="person_properties"
+        )
+        presence_clauses.append(expr)
+        params.update(prefix_params)
+
     if not presence_clauses:
-        raise ValueError("Cannot build property filter: both properties and person_properties are empty.")
+        raise ValueError("Cannot build property filter: no properties, person_properties or prefix patterns.")
 
     property_clause = (
         f"AND ({' OR '.join(presence_clauses)})" if len(presence_clauses) > 1 else f"AND {presence_clauses[0]}"
     )
     filter_clause = f"{event_clause} {property_clause}".strip()
     return _append_hogql_predicate(filter_clause, params, obj)
+
+
+# Every expanded key becomes a JSONDropKeys argument in the deletion mutation, and a prefix that
+# reaches this many distinct names is far wider than any PII scrub an operator meant to write.
+MAX_EXPANDED_PROPERTY_KEYS = 500
+_PREFIX_EXPANSION_MAX_EXECUTION_TIME = 900
+
+
+class PropertyPrefixExpansionError(Exception):
+    """A prefix pattern matched more property names than one request should carry."""
+
+
+@dataclass
+class ResolvedPropertyKeys:
+    """The concrete property names a property_removal request removes, per column."""
+
+    properties: list[str]
+    person_properties: list[str]
+    # Names the prefix patterns contributed, so an operator can see what the pattern actually caught.
+    matched_properties: list[str] = field(default_factory=list)
+    matched_person_properties: list[str] = field(default_factory=list)
+    # Exclusions that really held a matched name back, rather than every exclusion on the request.
+    kept_by_exclusion: list[str] = field(default_factory=list)
+    reused: bool = False
+
+
+def _expand_prefixes_for_column(
+    request: "DataDeletionRequest",
+    column: str,
+    prefixes: list[str],
+    *,
+    user_id: int | None = None,
+) -> list[str]:
+    """Distinct property names in the request's scope whose name starts with one of ``prefixes``."""
+    from posthog.clickhouse.client import sync_execute
+    from posthog.clickhouse.client.connection import ClickHouseUser
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+    from posthog.clickhouse.workload import Workload
+
+    event_clause, params = _build_event_filter(request)
+    # Exclusions are applied by the caller in Python so it can report which ones actually held a
+    # name back; the query collects every prefix match.
+    condition, condition_params = prefix_match_condition(prefixes, [], "expand_")
+    params.update(condition_params)
+    params["key_limit"] = MAX_EXPANDED_PROPERTY_KEYS + 1
+
+    # nosemgrep: clickhouse-fstring-param-audit (column is a caller-chosen literal; clauses come from internal helpers)
+    # The subquery alias deliberately differs from the lambda's parameter name: reusing it would make
+    # the alias reference itself, which the ClickHouse analyzer rejects as a cyclic alias.
+    sql = f"""
+        SELECT DISTINCT property_key FROM (
+            SELECT arrayJoin(arrayFilter(key -> {condition}, JSONExtractKeys({column}))) AS property_key
+            FROM events
+            WHERE team_id = %(team_id)s
+              AND timestamp >= %(start_time)s
+              AND timestamp < %(end_time)s
+              {event_clause}
+        )
+        ORDER BY property_key
+        LIMIT %(key_limit)s
+        """
+    with tags_context(
+        product=Product.INTERNAL,
+        feature=Feature.DATA_DELETION,
+        team_id=request.team_id,
+        user_id=user_id,
+        workload=Workload.OFFLINE,
+        query_type="delete_expand_property_prefixes",
+    ):
+        rows = sync_execute(
+            sql,
+            params,
+            team_id=request.team_id,
+            readonly=True,
+            workload=Workload.OFFLINE,
+            ch_user=ClickHouseUser.META,
+            settings={"max_execution_time": _PREFIX_EXPANSION_MAX_EXECUTION_TIME},
+        )
+
+    keys = [row[0] for row in rows]
+    if len(keys) > MAX_EXPANDED_PROPERTY_KEYS:
+        raise PropertyPrefixExpansionError(
+            f"{prefixes} match more than {MAX_EXPANDED_PROPERTY_KEYS} distinct names in "
+            f"events.{column}. Narrow the prefixes or split the request."
+        )
+    return keys
+
+
+def _merge_property_keys(explicit: list[str], matched: list[str], excluded: list[str]) -> list[str]:
+    """Explicit names first, then prefix matches, minus the exclusions and any duplicates.
+
+    An exclusion wins over an explicitly named property too. The two together are contradictory, and
+    keeping data the operator asked to keep is the recoverable side of that contradiction.
+    """
+    seen = set(excluded)
+    merged: list[str] = []
+    for key in [*explicit, *matched]:
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(key)
+    return merged
+
+
+def expand_property_prefixes(request: "DataDeletionRequest", *, user_id: int | None = None) -> ResolvedPropertyKeys:
+    """Resolve prefix patterns into the property names actually present in the request's scope.
+
+    Expanding against ClickHouse rather than the team's property definitions means the result covers
+    what the events really carry, which is the set a compliance scrub has to be complete over.
+    Requests with no prefix patterns resolve to their explicit lists without querying anything.
+    """
+    excluded = list(request.excluded_properties or [])
+    matched = (
+        _expand_prefixes_for_column(request, "properties", list(request.property_prefixes), user_id=user_id)
+        if request.property_prefixes
+        else []
+    )
+    matched_person = (
+        _expand_prefixes_for_column(
+            request, "person_properties", list(request.person_property_prefixes), user_id=user_id
+        )
+        if request.person_property_prefixes
+        else []
+    )
+    excluded_set = set(excluded)
+    return ResolvedPropertyKeys(
+        properties=_merge_property_keys(list(request.properties or []), matched, excluded),
+        person_properties=_merge_property_keys(list(request.person_properties or []), matched_person, excluded),
+        matched_properties=matched,
+        matched_person_properties=matched_person,
+        kept_by_exclusion=sorted({key for key in [*matched, *matched_person] if key in excluded_set}),
+    )
+
+
+def stored_resolved_property_keys(request: "DataDeletionRequest") -> ResolvedPropertyKeys | None:
+    """The expansion an earlier execution attempt recorded, or None when there isn't one."""
+    stored = request.resolved_properties or None
+    if not stored:
+        return None
+    return ResolvedPropertyKeys(
+        properties=list(stored.get("properties") or []),
+        person_properties=list(stored.get("person_properties") or []),
+        matched_properties=list(stored.get("matched_properties") or []),
+        matched_person_properties=list(stored.get("matched_person_properties") or []),
+        kept_by_exclusion=list(stored.get("kept_by_exclusion") or []),
+        reused=True,
+    )
+
+
+def resolve_property_keys_for_execution(
+    request: "DataDeletionRequest", *, user_id: int | None = None
+) -> ResolvedPropertyKeys:
+    """The property names to remove, expanded once per request and reused by every retry.
+
+    Retries have to remove exactly the set the first attempt did. The copy pass skips rows that
+    already have a cleaned twin, so a second, wider expansion would leave its extra names behind on
+    every row an earlier attempt rewrote. The first expansion is therefore persisted and reused
+    verbatim, the same way ``property_removal_marker`` is, and both are cleared together when the
+    request's criteria change.
+    """
+    stored = stored_resolved_property_keys(request)
+    if stored is not None:
+        return stored
+    resolved = expand_property_prefixes(request, user_id=user_id)
+    request.resolved_properties = {
+        "properties": resolved.properties,
+        "person_properties": resolved.person_properties,
+        "matched_properties": resolved.matched_properties,
+        "matched_person_properties": resolved.matched_person_properties,
+        "kept_by_exclusion": resolved.kept_by_exclusion,
+        "resolved_at": timezone.now().isoformat(),
+    }
+    request.save(update_fields=["resolved_properties", "updated_at"])
+    return resolved
 
 
 def _event_count_query_template(extra_filter: str) -> str:
@@ -685,9 +960,10 @@ def fetch_event_deletion_stats(obj: "DataDeletionRequest", *, user_id: int | Non
 
 def fetch_property_deletion_stats(obj: "DataDeletionRequest", *, user_id: int | None = None) -> dict:
     """Count events with matching properties and affected parts for a property removal request."""
-    if not obj.properties and not obj.person_properties:
+    if not obj.has_property_targets():
         raise ValueError(
-            "Cannot fetch stats for a property removal request with no properties or person_properties specified."
+            "Cannot fetch stats for a property removal request with no properties, person_properties "
+            "or prefix patterns specified."
         )
     extra_filter, params = _build_property_filter(obj)
     return _fetch_stats(obj.team_id, extra_filter, params, user_id=user_id)
@@ -788,15 +1064,23 @@ def _mat_col_presence_clauses(mat_cols: list[tuple[str, bool]]) -> list[str]:
     return [f"`{name}` != ''" for name, _ in mat_cols]
 
 
-def discover_affected_mat_columns(properties: list[str], table_column: str) -> list[tuple[str, bool]]:
+def discover_affected_mat_columns(
+    properties: list[str],
+    table_column: str,
+    prefixes: list[str] | None = None,
+    excluded: list[str] | None = None,
+) -> list[tuple[str, bool]]:
     """DEFAULT-materialized columns on the distributed ``events`` table for the given properties.
 
     Returns ``(column_name, is_nullable)`` for columns whose comment follows the
     ``column_materializer::<table_column>::<prop>`` convention. Mirrors ``_get_affected_mat_columns``
     in the deletion job so verification counts a row as dirty on the same terms the deletion does — a
     value left in a materialized column after its JSON key is gone still counts.
+
+    ``prefixes`` matches the materialized property name against the request's prefix patterns, so a
+    prefix-scoped request finds its columns without expanding the patterns first.
     """
-    if not properties:
+    if not properties and not prefixes:
         return []
 
     from django.conf import settings as django_settings
@@ -820,10 +1104,16 @@ def discover_affected_mat_columns(properties: list[str], table_column: str) -> l
         ch_user=ClickHouseUser.META,
     )
     target = set(properties)
+    excluded_set = set(excluded or [])
     result: list[tuple[str, bool]] = []
     for name, comment, is_nullable in rows:
         details = MaterializedColumnDetails.from_column_comment(comment)
-        if details.table_column == table_column and details.property_name in target:
+        if details.table_column != table_column:
+            continue
+        prop = details.property_name
+        if prop in excluded_set:
+            continue
+        if prop in target or any(prop.startswith(prefix) for prefix in prefixes or []):
             result.append((name, bool(is_nullable)))
     return result
 
@@ -857,6 +1147,17 @@ def _property_presence_where(
             params[f"pp_{i}_{j}"] = part
     if person_mat_cols:
         presence.extend(_mat_col_presence_clauses(person_mat_cols))
+    excluded = list(request.excluded_properties or [])
+    if request.property_prefixes:
+        expr, prefix_params = prefix_presence_expr(list(request.property_prefixes), excluded, "pfx_")
+        presence.append(expr)
+        params.update(prefix_params)
+    if request.person_property_prefixes:
+        expr, prefix_params = prefix_presence_expr(
+            list(request.person_property_prefixes), excluded, "ppfx_", column="person_properties"
+        )
+        presence.append(expr)
+        params.update(prefix_params)
     if presence:
         parts.append(f"AND ({' OR '.join(presence)})")
 
@@ -868,14 +1169,27 @@ def _property_presence_where(
 
 
 def count_remaining_property_events(request: "DataDeletionRequest") -> int:
-    """Count events that still carry any of a property-removal request's target properties."""
+    """Count events that still carry any of a property-removal request's target properties.
+
+    Prefix patterns are evaluated against live data rather than the expansion the deletion ran with,
+    so a name that arrived in the range after the scrub keeps this count above zero. That is the
+    point: it says the family isn't clean and the operator needs a follow-up request.
+    """
     from posthog.clickhouse.client import sync_execute
     from posthog.clickhouse.client.connection import ClickHouseUser
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
     from posthog.clickhouse.workload import Workload
 
-    mat_cols = discover_affected_mat_columns(request.properties or [], "properties")
-    person_mat_cols = discover_affected_mat_columns(request.person_properties or [], "person_properties")
+    excluded = list(request.excluded_properties or [])
+    mat_cols = discover_affected_mat_columns(
+        request.properties or [], "properties", list(request.property_prefixes or []), excluded
+    )
+    person_mat_cols = discover_affected_mat_columns(
+        request.person_properties or [],
+        "person_properties",
+        list(request.person_property_prefixes or []),
+        excluded,
+    )
     predicate, params = _property_presence_where(request, mat_cols, person_mat_cols)
     with tags_context(
         product=Product.INTERNAL,

@@ -26,6 +26,33 @@
     </fieldset>
     {% endif %}
 
+    {% if has_property_prefixes %}
+    <fieldset style="margin: 20px 0; padding: 16px; border: 1px solid #ccc; border-radius: 4px;">
+        <h2>Prefix patterns</h2>
+        <ul style="margin: 8px 0 8px 20px;">
+            {% for prefix in original.all_property_prefixes %}
+                <li><code>{{ prefix }}</code></li>
+            {% endfor %}
+        </ul>
+        <p style="color: #666; margin: 4px 0;">Patterns are expanded against the property names present in this request's scope when the deletion job starts. Expand them now to check what they catch.</p>
+        <div style="margin-top: 12px;">
+            <button type="submit" formaction="{{ expand_prefixes_url }}" formmethod="post" formnovalidate class="button" style="padding: 8px 14px;">Expand prefixes (don't save)</button>
+        </div>
+    </fieldset>
+    {% endif %}
+
+    {% if prefix_expansion %}
+    <fieldset style="margin: 20px 0; padding: 16px; border: 1px dashed #0c5460; border-radius: 4px; background: #d1ecf1; color: #0c5460;">
+        <h2 style="color: #0c5460;">Prefix expansion (not saved)</h2>
+        <table style="border-collapse: collapse; width: 100%;">
+            <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #bee5eb;">properties</th><td style="padding: 6px 8px; border-bottom: 1px solid #bee5eb;">{% for prop in prefix_expansion.properties %}<code>{{ prop }}</code> {% empty %}none{% endfor %}</td></tr>
+            <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #bee5eb;">person_properties</th><td style="padding: 6px 8px; border-bottom: 1px solid #bee5eb;">{% for prop in prefix_expansion.person_properties %}<code>{{ prop }}</code> {% empty %}none{% endfor %}</td></tr>
+            <tr><th style="text-align: left; padding: 6px 8px; border-bottom: 1px solid #bee5eb;">Kept by exclusion</th><td style="padding: 6px 8px; border-bottom: 1px solid #bee5eb;">{% for prop in prefix_expansion.kept_by_exclusion %}<code>{{ prop }}</code> {% empty %}none{% endfor %}</td></tr>
+            <tr><th style="text-align: left; padding: 6px 8px;">Expanded at</th><td style="padding: 6px 8px;">{{ prefix_expansion.expanded_at }}</td></tr>
+        </table>
+    </fieldset>
+    {% endif %}
+
     {% comment %}
        Stats are calculated from this page (works for any status). These buttons use
        formaction= to post the surrounding admin <form> to the stats views.
