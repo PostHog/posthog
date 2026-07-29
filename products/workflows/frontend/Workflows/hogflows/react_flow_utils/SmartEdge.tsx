@@ -235,9 +235,10 @@ export function SmartEdge({
     ...props
 }: EdgeProps): JSX.Element {
     const edges = useEdges()
-    const { animatingEdgePair, mode } = useValues(hogFlowEditorLogic)
+    const { animatingEdgePair } = useValues(hogFlowEditorLogic)
 
-    const isAnimating = mode === 'test' && animatingEdgePair === `${source}->${target}`
+    // The pair is only ever set by a test run (manual or agent-driven), so animate in any mode.
+    const isAnimating = animatingEdgePair === `${source}->${target}`
     const animPathRef = useRef<SVGPathElement>(null)
 
     // Use the programmatic function to get the smart step path

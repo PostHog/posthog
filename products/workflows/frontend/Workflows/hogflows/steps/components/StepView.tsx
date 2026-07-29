@@ -86,7 +86,8 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
 
     const hasValidationError = actionValidationErrorsById[action.id]?.valid === false
     const hasValidationWarning = Object.keys(actionValidationErrorsById[action.id]?.warnings ?? {}).length > 0
-    const isAnimationTarget = mode === 'test' && animatingEdgePair?.endsWith(`->${action.id}`)
+    // The pair is only ever set by a test run (manual or agent-driven), so animate in any mode.
+    const isAnimationTarget = animatingEdgePair?.endsWith(`->${action.id}`)
 
     return (
         <div

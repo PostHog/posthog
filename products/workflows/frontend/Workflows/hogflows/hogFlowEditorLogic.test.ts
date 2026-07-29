@@ -2,6 +2,8 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
+import { toolStreamEventsLogic } from 'products/posthog_ai/frontend/api/logics'
+
 import { computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
 
@@ -627,6 +629,88 @@ describe('hogFlowEditorLogic', () => {
             logic.actions.setEdges(edges)
             logic.actions.showDropzones()
             expect(branchJoinDropzones()).toEqual(expected)
+        })
+    })
+
+    // The agent test-running the open workflow over MCP animates the same green path the manual
+    // test panel does, so the user sees which step is being exercised.
+    describe('agent-driven test animation', () => {
+        const testRunEvent = (
+            args: Record<string, unknown>,
+            output: Record<string, unknown>,
+            overrides: Partial<import('products/posthog_ai/frontend/api/types').ToolStreamEvent> = {}
+        ): import('products/posthog_ai/frontend/api/types').ToolStreamEvent => ({
+            streamKey: 'run-1',
+            toolCallId: 'tc-test',
+            toolName: 'workflows-test-run',
+            rawToolName: 'exec',
+            phase: 'completed',
+            invocation: {
+                toolCallId: 'tc-test',
+                rawServerName: 'posthog',
+                rawToolName: 'exec',
+                input: { command: `call workflows-test-run ${JSON.stringify(args)}` },
+                output: { content: [{ type: 'text', text: JSON.stringify(output) }], isError: false },
+                status: 'completed',
+            } as unknown as import('products/posthog_ai/frontend/api/types').ToolStreamEvent['invocation'],
+            source: 'live',
+            ...overrides,
+        })
+
+        const makeTestNode = (id: string, type: string): HogFlowActionNode =>
+            ({
+                id,
+                type: 'action',
+                data: { id, type, name: id, description: '', config: {} } as unknown as HogFlowAction,
+                position: { x: 0, y: 0 },
+                handles: [],
+            }) as HogFlowActionNode
+
+        beforeEach(() => {
+            logic.unmount()
+            logic = hogFlowEditorLogic({ id: 'test-flow' } as any)
+            logic.mount()
+            logic.actions.setNodesRaw([
+                makeTestNode('trigger', 'trigger'),
+                makeTestNode('branch', 'conditional_branch'),
+                makeTestNode('exit', 'exit'),
+            ])
+        })
+
+        it.each([
+            [
+                'animates the tested edge',
+                { id: 'test-flow', current_action_id: 'branch' },
+                { nextActionId: 'exit' },
+                {},
+                'branch->exit',
+            ],
+            [
+                'falls back to the trigger node when no current_action_id',
+                { id: 'test-flow' },
+                { nextActionId: 'branch' },
+                {},
+                'trigger->branch',
+            ],
+            [
+                'ignores tests of other workflows',
+                { id: 'other-flow', current_action_id: 'branch' },
+                { nextActionId: 'exit' },
+                {},
+                null,
+            ],
+            [
+                'ignores replayed events',
+                { id: 'test-flow', current_action_id: 'branch' },
+                { nextActionId: 'exit' },
+                { source: 'replay' as const },
+                null,
+            ],
+        ])('%s', async (_label, args, output, overrides, expectedPair) => {
+            toolStreamEventsLogic.actions.emitToolEvent(testRunEvent(args, output, overrides))
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.animatingEdgePair).toEqual(expectedPair)
         })
     })
 })

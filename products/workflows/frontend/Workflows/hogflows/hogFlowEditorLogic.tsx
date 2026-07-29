@@ -25,6 +25,9 @@ import { objectsEqual, reconcileById } from 'lib/utils/objects'
 import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { urls } from 'scenes/urls'
 
+import { toolStreamEventsLogic } from 'products/posthog_ai/frontend/api/logics'
+import { parseExecCall, parseExecCommand, parseInvocationOutputRecord } from 'products/posthog_ai/frontend/api/tools'
+
 import type { HogFunctionTemplateType, UserBasicType } from '../../../../../frontend/src/types'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import type { MessageCategory } from '../../OptOuts/optOutCategoriesLogic'
@@ -190,6 +193,9 @@ export interface hogFlowEditorLogicActions {
     loadCategories: () => {
         value: true
     } // optOutCategoriesLogic
+    emitToolEvent: (event: import('products/posthog_ai/frontend/types/streamTypes').ToolStreamEvent) => {
+        event: import('products/posthog_ai/frontend/types/streamTypes').ToolStreamEvent
+    } // toolStreamEventsLogic
     loadWorkflowSuccess: (
         originalWorkflow:
             | HogFlow
@@ -1949,6 +1955,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             ['setWorkflowInfo', 'setWorkflowAction', 'setWorkflowActionEdges', 'loadWorkflowSuccess'],
             optOutCategoriesLogic(),
             ['loadCategories'],
+            toolStreamEventsLogic,
+            ['emitToolEvent'],
         ],
     })),
     actions({
@@ -2176,7 +2184,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
     })),
-    listeners(({ values, actions }) => {
+    listeners(({ values, actions, props }) => {
         let animationTimeout: ReturnType<typeof setTimeout> | null = null
         return {
             onEdgesChange: ({ edges }) => {
@@ -2193,6 +2201,37 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     animationTimeout = null
                     actions.clearAnimatingEdgePair()
                 }, 1500)
+            },
+
+            // The agent test-running this workflow over MCP animates the same green path the manual
+            // test panel does, so the user watches which step is being exercised.
+            emitToolEvent: ({ event }) => {
+                if (event.phase !== 'completed' || event.source !== 'live' || event.toolName !== 'workflows-test-run') {
+                    return
+                }
+                const command = typeof event.invocation.input.command === 'string' ? event.invocation.input.command : ''
+                const { verb, rest } = parseExecCommand(command)
+                if (verb !== 'call') {
+                    return
+                }
+                let args: Record<string, unknown>
+                try {
+                    args = JSON.parse(parseExecCall(rest).args || '{}')
+                } catch {
+                    return
+                }
+                if (args.id !== props.id) {
+                    return
+                }
+                const record = parseInvocationOutputRecord(event.invocation)
+                const nextActionId = typeof record?.nextActionId === 'string' ? record.nextActionId : null
+                const fromActionId =
+                    typeof args.current_action_id === 'string'
+                        ? args.current_action_id
+                        : values.nodes.find((node) => node.data.type === 'trigger')?.id
+                if (nextActionId && fromActionId) {
+                    actions.setAnimatingEdgePair(fromActionId, nextActionId)
+                }
             },
 
             resetFlowFromHogFlow: ({ hogFlow }) => {
