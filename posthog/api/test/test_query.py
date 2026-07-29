@@ -18,6 +18,7 @@ from django.conf import settings
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import APIException
 
 from posthog.schema import (
     CachedEventsQueryResponse,
@@ -76,7 +77,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         # The circuit breaker replays a remembered timeout for the whole backoff window without
         # touching ClickHouse. Reporting those here turned one real timeout into one reported error
         # per suppressed retry.
-        error = ClickHouseQueryTimeOut()
+        error: APIException = ClickHouseQueryTimeOut()
         if served_from_query_failure_cache:
             error = build_failure_exception(
                 QueryFailureRecord(
