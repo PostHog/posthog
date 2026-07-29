@@ -24,6 +24,7 @@ from posthog.permissions import get_authenticator_scopes
 
 from products.signals.backend.artefact_schemas import ActionabilityChoice, Priority
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
+from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.tools.emit import (
     MAX_FINDING_ID_LENGTH,
@@ -34,6 +35,7 @@ from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_
 from products.signals.backend.scout_harness.tools.report import MAX_REPORT_TITLE_LENGTH, MAX_SUGGESTED_REVIEWERS
 from products.signals.backend.scout_harness.tools.runs import DEFAULT_FINDINGS_WINDOW_HOURS, MAX_FINDINGS_WINDOW_HOURS
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
+from products.signals.backend.serializers import ReportChartSerializer
 from products.skills.backend.api.skill_serializers import (
     MAX_SKILL_FILE_COUNT,
     LLMSkillFileInputSerializer,
@@ -904,6 +906,16 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "It also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold."
         ),
     )
+    charts = serializers.ListField(
+        required=False,
+        child=ReportChartSerializer(),
+        max_length=MAX_REPORT_CHARTS,
+        help_text=(
+            "Optional charts to attach to the report — the inbox renders them inline, so a metric move "
+            "is something the reader sees rather than a number they take on trust. Attach one whenever "
+            "the finding rests on a trend, a spike, or a comparison you already queried."
+        ),
+    )
 
 
 class EmitReportResponseSerializer(serializers.Serializer):
@@ -974,6 +986,16 @@ class EditReportRequestSerializer(serializers.Serializer):
             "empty list is a no-op (existing reviewers are left untouched, never cleared)."
         ),
     )
+    charts = serializers.ListField(
+        required=False,
+        child=ReportChartSerializer(),
+        max_length=MAX_REPORT_CHARTS,
+        help_text=(
+            "The full set of charts the report should show. Replaces the report's charts rather than "
+            "adding to them, the way `summary` replaces the summary — so send every chart you want "
+            "kept. Omit the field to leave the report's existing charts untouched."
+        ),
+    )
 
 
 class EditReportResponseSerializer(serializers.Serializer):
@@ -984,6 +1006,9 @@ class EditReportResponseSerializer(serializers.Serializer):
     )
     note_appended = serializers.BooleanField(help_text="Whether a note artefact was appended.")
     reviewers_set = serializers.BooleanField(help_text="Whether the report's suggested reviewers were replaced.")
+    charts_set = serializers.IntegerField(
+        help_text="How many charts the report now shows, or 0 if charts were untouched."
+    )
 
 
 # --- Project profile ------------------------------------------------------

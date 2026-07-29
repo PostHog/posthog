@@ -217,7 +217,7 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     (`reviewer/status_comment.py`) is posted at kickoff, edited with stage progress, and rewritten with the
     outcome: the full found counts, what was published, and — when the urgency threshold held findings back —
     whose threshold it was (the author's / the requester's / the default, from `resolved_from`) plus a
-    "View them in PostHog" deep link to the exact report (`/project/<team>/code_review?review=<report id>`,
+    "View them in PostHog" deep link to the exact report (`/project/<team>/code-review?review=<report id>`,
     a **permanent public contract** — the frontend URL sync and `report_deep_link` must keep agreeing on it).
 
 ---
@@ -482,7 +482,7 @@ caller. See [DECISIONS.md](./DECISIONS.md) for each trigger's auth / scope / ide
 viewer is the **acting user OR the PR's author** — `author_login` compared case-insensitively against the
 viewer's linked GitHub login (`User.get_github_login()`, the reverse of the author→user mapping the reviewer
 runs under; no linked login → acting-user match only). `scope=everyone` is the whole project; `retrieve` is
-project-wide so any listed review opens. A specific report is linkable at `/code_review?review=<report id>`
+project-wide so any listed review opens. A specific report is linkable at `/code-review?review=<report id>`
 (mirrored to/from the drawer by `reviewHogSettingsLogic`'s URL sync; the status comment's held-back link
 targets it, so the param is a permanent contract). The drawer buckets a review's findings into published vs
 below-threshold by the detail's stored `run_urgency_threshold` — the viewer's current setting is only the

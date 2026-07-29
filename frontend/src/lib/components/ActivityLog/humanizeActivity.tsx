@@ -142,10 +142,21 @@ export function userNameForLogItem(logItem: ActivityLogItem): string {
         return 'PostHog'
     }
     if (logItem.was_impersonated) {
-        const impersonatedUserName = logItem.user ? fullName(logItem.user) : 'a user'
-        return `PostHog Support (as ${impersonatedUserName})`
+        return `PostHog Support (as ${nameOrEmailForUser(logItem.user, 'a user')})`
     }
-    return logItem.user ? fullName(logItem.user) : 'A user'
+    return nameOrEmailForUser(logItem.user, 'A user')
+}
+
+// The user's name can be blank (e.g. SCIM-provisioned members whose IdP omits a name), so fall
+// back to their email — which is always in the payload — before the generic placeholder.
+function nameOrEmailForUser(
+    user: Pick<UserBasicType, 'email' | 'first_name' | 'last_name'> | undefined,
+    fallback: string
+): string {
+    if (!user) {
+        return fallback
+    }
+    return fullName(user) || user.email || fallback
 }
 
 const NO_PLURAL_SCOPES: ActivityScope[] = [ActivityScope.DATA_MANAGEMENT]

@@ -233,6 +233,8 @@ export enum Scene {
     OrganizationPendingDeletion = 'OrganizationPendingDeletion',
     ProjectPendingDeletion = 'ProjectPendingDeletion',
     CustomerJourneyTemplates = 'CustomerJourneyTemplates',
+    SupportTicketDetail = 'SupportTicketDetail',
+    SupportSettings = 'SupportSettings',
 }
 
 export type SceneComponent<T> = (props: T) => JSX.Element | null
@@ -389,6 +391,10 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.Survey]: AccessControlResourceType.Survey,
     [Scene.Surveys]: AccessControlResourceType.Survey,
 
+    // Support (conversations)
+    [Scene.SupportTickets]: AccessControlResourceType.Ticket,
+    [Scene.SupportTicketDetail]: AccessControlResourceType.Ticket,
+
     // Endpoints
     [Scene.EndpointsScene]: AccessControlResourceType.Endpoint,
 
@@ -423,7 +429,7 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.AIObservabilityDatasets]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityEvaluation]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityEvaluations]: AccessControlResourceType.LlmAnalytics,
-    [Scene.AIObservabilityPlayground]: AccessControlResourceType.LlmAnalytics,
+    [Scene.AIObservabilityPlayground]: AccessControlResourceType.LlmPlayground,
     [Scene.AIObservabilityTag]: AccessControlResourceType.Tagger,
     [Scene.AIObservabilityTags]: AccessControlResourceType.Tagger,
     [Scene.AIObservabilityTrace]: AccessControlResourceType.LlmAnalytics,

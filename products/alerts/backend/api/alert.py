@@ -2,6 +2,7 @@ import uuid
 from typing import Annotated, Any, cast
 from zoneinfo import ZoneInfo
 
+from django.db import transaction
 from django.db.models import OuterRef, Q, QuerySet, Subquery
 
 import posthoganalytics
@@ -18,7 +19,6 @@ from rest_framework.response import Response
 from posthog.schema import (
     AlertCalculationInterval,
     AlertCondition,
-    AlertState,
     DetectorConfig,
     FunnelsAlertConfig,
     HogQLAlertConfig,
@@ -55,6 +55,13 @@ from products.alerts.backend.evaluation.validation import (
     THRESHOLD_BOUNDS_REQUIRED_MESSAGE,
     should_default_check_ongoing_interval,
     validate_alert_config,
+)
+from products.alerts.backend.insight_alert_state_machine import (
+    apply_disable,
+    apply_enable,
+    apply_snooze,
+    apply_threshold_change,
+    apply_unsnooze,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.product_analytics.backend.models.insight import Insight
@@ -463,29 +470,19 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         )
         return instance
 
+    @transaction.atomic
     def update(self, instance, validated_data):
-        if "snoozed_until" in validated_data:
-            snoozed_until_param = validated_data.pop("snoozed_until")
+        enabled_changed = "enabled" in validated_data and validated_data["enabled"] != instance.enabled
+        resulting_enabled = validated_data.get("enabled", instance.enabled)
+        if enabled_changed and validated_data["enabled"]:
+            apply_enable(instance)
 
-            if snoozed_until_param is None:
-                instance.state = AlertState.NOT_FIRING
-                instance.snoozed_until = None
-            else:
-                # always store snoozed_until as UTC time
-                # as we look at current UTC time to check when to run alerts
-                snoozed_until = relative_date_parse(
-                    snoozed_until_param, ZoneInfo("UTC"), increase=True, always_truncate=True
-                )
-                instance.state = AlertState.SNOOZED
-                instance.snoozed_until = snoozed_until
-
-            AlertCheck.objects.create(
-                alert_configuration=instance,
-                calculated_value=None,
-                condition=instance.condition,
-                targets_notified={},
-                state=instance.state,
-                error=None,
+        snoozed_until_param = validated_data.pop("snoozed_until", serializers.empty)
+        snooze_changed = snoozed_until_param is not serializers.empty
+        snoozed_until = None
+        if snooze_changed and snoozed_until_param is not None:
+            snoozed_until = relative_date_parse(
+                snoozed_until_param, ZoneInfo("UTC"), increase=True, always_truncate=True
             )
 
         conditions_or_threshold_changed = False
@@ -522,7 +519,29 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             and validated_data["calculation_interval"] != instance.calculation_interval
         )
         if conditions_or_threshold_changed or calculation_interval_changed:
-            instance.mark_for_recheck(reset_state=conditions_or_threshold_changed)
+            if conditions_or_threshold_changed:
+                apply_threshold_change(instance)
+            instance.next_check_at = None
+
+        if snooze_changed:
+            instance.snoozed_until = snoozed_until
+            if snoozed_until_param is None:
+                apply_unsnooze(instance)
+            else:
+                apply_snooze(instance)
+
+        if not resulting_enabled:
+            apply_disable(instance)
+
+        if snooze_changed:
+            AlertCheck.objects.create(
+                alert_configuration=instance,
+                calculated_value=None,
+                condition=instance.condition,
+                targets_notified={},
+                state=instance.state,
+                error=None,
+            )
 
         schedule_restriction_changed = False
         if "schedule_restriction" in validated_data:
