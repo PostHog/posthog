@@ -417,10 +417,15 @@ def _row_to_dict(row: dict[str, Any], dimensions: list[str], iter_date: dt.date 
         # partition in the warehouse. The iterator already calls one day at a time, so
         # any row returned belongs to that day — inject it explicitly here.
         out["date"] = iter_date
-    out["clicks"] = row.get("clicks", 0)
-    out["impressions"] = row.get("impressions", 0)
-    out["ctr"] = row.get("ctr", 0.0)
-    out["position"] = row.get("position", 0.0)
+    # Pin each metric to its numeric type. Google serializes an exact-zero `ctr`/`position` as a
+    # JSON integer (`0`, not `0.0`), so a day where every row has zero clicks yields an all-int
+    # column that the pipeline stores as int64 — then a later day's fractional rate arrives as
+    # double and can't cast into that int64 column, failing the sync until a full reset. Coercing
+    # the rates to float (and the counts to int) keeps the stored Delta type stable across days.
+    out["clicks"] = int(row.get("clicks", 0))
+    out["impressions"] = int(row.get("impressions", 0))
+    out["ctr"] = float(row.get("ctr", 0.0))
+    out["position"] = float(row.get("position", 0.0))
     return out
 
 
