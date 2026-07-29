@@ -1,7 +1,7 @@
+import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { fetch } from '~/common/utils/request'
 import { RedisPool } from '~/types'
 
-import { IntegrationDecryptor } from '../crypto'
 import { IntegrationRepository } from '../repository'
 import { IntegrationRow } from '../types'
 import { nowSecs } from './expiry'
@@ -53,15 +53,15 @@ function setup(
         config?: Partial<RefreshManagerConfig>
     } = {}
 ) {
-    const decryptor = new IntegrationDecryptor([SALT], [], [])
+    const encryptedFields = new EncryptedFields(SALT)
     const row: IntegrationRow = {
         id: 1,
         team_id: 2,
         kind: 'hubspot',
         config: { refreshed_at: nowSecs() - 3000, expires_in: 3600 },
         sensitive_config: {
-            access_token: decryptor.encryptLeaf('old-access'),
-            refresh_token: decryptor.encryptLeaf('old-refresh'),
+            access_token: encryptedFields.encrypt('old-access'),
+            refresh_token: encryptedFields.encrypt('old-refresh'),
         },
         ...opts.rowOverrides,
     }
@@ -76,14 +76,14 @@ function setup(
         acquire: jest.fn().mockResolvedValue(client),
         release: jest.fn().mockResolvedValue(undefined),
     } as unknown as RedisPool
-    const manager = new RefreshManager(repository, decryptor, redisPool, makeConfig(opts.config), ['hubspot'])
-    return { manager, repository, decryptor, row, client }
+    const manager = new RefreshManager(repository, encryptedFields, redisPool, makeConfig(opts.config), ['hubspot'])
+    return { manager, repository, encryptedFields, row, client }
 }
 
 describe('RefreshManager', () => {
     it('refreshes an expired token, re-encrypting the new tokens and writing them back', async () => {
         mockTokenResponse(200, { access_token: 'new-access', expires_in: 1800, refresh_token: 'new-refresh' })
-        const { manager, repository, decryptor, row } = setup()
+        const { manager, repository, encryptedFields, row } = setup()
 
         const result = await manager.refresh(row)
 
@@ -93,10 +93,10 @@ describe('RefreshManager', () => {
         expect(newConfig.expires_in).toBe(1800)
         expect(newConfig.refreshed_at).toBeGreaterThan(nowSecs() - 5)
         // Written back encrypted (never plaintext), and Django-readable via the primary key.
-        expect(decryptor.decryptLeaf(newSensitive.access_token)).toBe('new-access')
-        expect(decryptor.decryptLeaf(newSensitive.refresh_token)).toBe('new-refresh')
+        expect(encryptedFields.decrypt(newSensitive.access_token)).toBe('new-access')
+        expect(encryptedFields.decrypt(newSensitive.refresh_token)).toBe('new-refresh')
         // The returned row carries the refreshed credentials for the read path.
-        expect(decryptor.decryptLeaf(result.sensitive_config.access_token)).toBe('new-access')
+        expect(encryptedFields.decrypt(result.sensitive_config.access_token)).toBe('new-access')
 
         const [url, options] = mockFetch.mock.calls[0]
         expect(url).toBe('https://oauth.test/token')
@@ -125,25 +125,23 @@ describe('RefreshManager', () => {
 
     it('marks the integration failed and serves the old token when the provider errors', async () => {
         mockTokenResponse(400, { error: 'invalid_grant' })
-        const { manager, repository, decryptor, row } = setup()
+        const { manager, repository, encryptedFields, row } = setup()
         const result = await manager.refresh(row)
         expect(repository.markRefreshFailed).toHaveBeenCalledWith(1)
         expect(repository.updateAfterRefresh).not.toHaveBeenCalled()
-        expect(decryptor.decryptLeaf(result.sensitive_config.access_token)).toBe('old-access')
+        expect(encryptedFields.decrypt(result.sensitive_config.access_token)).toBe('old-access')
     })
 
     it('marks failed when the integration has no stored refresh_token', async () => {
-        const decryptorForSeed = new IntegrationDecryptor([SALT], [], [])
-        const { manager, repository } = setup({
-            rowOverrides: { sensitive_config: { access_token: decryptorForSeed.encryptLeaf('old-access') } },
-        })
+        const seed = new EncryptedFields(SALT)
         const row: IntegrationRow = {
             id: 1,
             team_id: 2,
             kind: 'hubspot',
             config: { refreshed_at: nowSecs() - 3000, expires_in: 3600 },
-            sensitive_config: { access_token: decryptorForSeed.encryptLeaf('old-access') },
+            sensitive_config: { access_token: seed.encrypt('old-access') },
         }
+        const { manager, repository } = setup({ rowOverrides: { sensitive_config: row.sensitive_config } })
         // fetchOne re-reads the (also refresh-token-less) row under the lock.
         ;(repository.fetchOne as jest.Mock).mockResolvedValue(row)
         await manager.refresh(row)

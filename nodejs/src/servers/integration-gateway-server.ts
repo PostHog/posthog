@@ -1,3 +1,4 @@
+import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
@@ -5,7 +6,6 @@ import { logger } from '~/common/utils/logger'
 import { GatewayAuth } from '~/integration-gateway/auth'
 import { CredentialCache } from '~/integration-gateway/cache'
 import { IntegrationGatewayConfig, getDefaultIntegrationGatewayConfig, splitCsv } from '~/integration-gateway/config'
-import { IntegrationDecryptor } from '~/integration-gateway/crypto'
 import { IntegrationService } from '~/integration-gateway/integration.service'
 import { RefreshManager } from '~/integration-gateway/refresh/manager'
 import { IntegrationRepository } from '~/integration-gateway/repository'
@@ -50,12 +50,12 @@ export class IntegrationGatewayServer implements NodeServer {
     }
 
     private startServices(): Promise<void> {
-        // Build the decryptor first so a bad ENCRYPTION_SALT_KEYS fails loudly at boot rather than
-        // as opaque per-request errors.
-        const decryptor = new IntegrationDecryptor(
-            splitCsv(this.config.ENCRYPTION_SALT_KEYS),
-            [...splitCsv(this.config.SECRET_KEY), ...splitCsv(this.config.SECRET_KEY_FALLBACKS)],
-            splitCsv(this.config.SALT_KEY)
+        // Reuse the shared EncryptedFields helper (same key derivation as Django + CDP), with the
+        // legacy PBKDF2 secret/salt keys enabled so pre-salt-keys rows stay readable.
+        const encryptedFields = new EncryptedFields(
+            this.config.ENCRYPTION_SALT_KEYS,
+            [this.config.SECRET_KEY, this.config.SECRET_KEY_FALLBACKS].filter(Boolean).join(','),
+            this.config.SALT_KEY
         )
 
         this.postgres = new PostgresRouter(this.config, 'integration-gateway')
@@ -75,11 +75,11 @@ export class IntegrationGatewayServer implements NodeServer {
                 poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
                 poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
             })
-            refreshManager = new RefreshManager(repository, decryptor, this.redisPool, this.config, refreshKinds)
+            refreshManager = new RefreshManager(repository, encryptedFields, this.redisPool, this.config, refreshKinds)
             logger.info('🔑', '[integration-gateway] just-in-time token refresh enabled', { kinds: refreshKinds })
         }
 
-        const service = new IntegrationService(repository, decryptor, cache, refreshManager)
+        const service = new IntegrationService(repository, encryptedFields, cache, refreshManager)
         const auth = new GatewayAuth(
             `${this.config.INTEGRATION_GATEWAY_JWT_SECRET},${this.config.INTEGRATION_GATEWAY_JWT_SECRET_FALLBACKS}`
         )

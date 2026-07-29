@@ -3,13 +3,14 @@ import supertest from 'supertest'
 import express from 'ultimate-express'
 
 import { insertIntegration } from '~/cdp/_tests/fixtures'
+import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
 
 import { GatewayAuth } from './auth'
 import { CredentialCache } from './cache'
-import { IntegrationDecryptor } from './crypto'
 import { IntegrationService } from './integration.service'
 import { IntegrationRepository } from './repository'
 import { createGatewayRouter } from './router'
@@ -24,12 +25,12 @@ function mint(teamId: number): string {
 
 describe('integration gateway credential API', () => {
     let hub: Hub
-    let decryptor: IntegrationDecryptor
+    let encryptedFields: EncryptedFields
     let teamId: number
 
-    const buildApp = (maxBatchSize = 100): express.Express => {
-        const repository = new IntegrationRepository(hub.postgres)
-        const service = new IntegrationService(repository, decryptor, new CredentialCache(30, 1000), null)
+    // A cache is shared across requests to one app so the cache-hit test can observe staleness.
+    const buildApp = (maxBatchSize = 100, cache = new CredentialCache(30, 1000)): express.Express => {
+        const service = new IntegrationService(new IntegrationRepository(hub.postgres), encryptedFields, cache, null)
         const app = express()
         app.use(express.json())
         app.use('/', createGatewayRouter({ service, auth: new GatewayAuth(SECRET), maxBatchSize }))
@@ -39,7 +40,7 @@ describe('integration gateway credential API', () => {
     beforeEach(async () => {
         hub = await createHub()
         await resetTestDatabase()
-        decryptor = new IntegrationDecryptor([SALT], [], [])
+        encryptedFields = new EncryptedFields(SALT)
         const team = await getTeam(hub.postgres, 2)
         teamId = await createTeam(hub.postgres, team!.organization_id)
     })
@@ -52,7 +53,7 @@ describe('integration gateway credential API', () => {
         const integration = await insertIntegration(hub.postgres, teamId, {
             kind: 'slack',
             config: { team: 'T-1234' },
-            sensitive_config: { access_token: decryptor.encryptLeaf('xoxb-secret-token'), not_encrypted: 'plain' },
+            sensitive_config: { access_token: encryptedFields.encrypt('xoxb-secret-token'), not_encrypted: 'plain' },
         })
 
         const res = await supertest(buildApp())
@@ -71,22 +72,57 @@ describe('integration gateway credential API', () => {
         expect(got.config.team).toBe('T-1234')
     })
 
-    it('renders a row owned by a different team as null (not distinguishable from missing)', async () => {
+    it('resolves owned ids and renders wrong-team and missing ids as null in one batch', async () => {
         const team = await getTeam(hub.postgres, 2)
         const otherTeam = await createTeam(hub.postgres, team!.organization_id)
-        const integration = await insertIntegration(hub.postgres, otherTeam, {
+        const owned = await insertIntegration(hub.postgres, teamId, {
             kind: 'slack',
-            sensitive_config: { access_token: decryptor.encryptLeaf('x') },
+            sensitive_config: { access_token: encryptedFields.encrypt('mine') },
         })
+        const otherTeamsRow = await insertIntegration(hub.postgres, otherTeam, {
+            kind: 'slack',
+            sensitive_config: { access_token: encryptedFields.encrypt('theirs') },
+        })
+        const missingId = 999999
 
         const res = await supertest(buildApp())
             .post('/api/v1/credentials/fetch')
             .set('authorization', `Bearer ${mint(teamId)}`)
-            .send({ integration_ids: [integration.id] })
+            .send({ integration_ids: [owned.id, otherTeamsRow.id, missingId] })
 
         expect(res.status).toBe(200)
-        expect(res.body.integrations).toHaveProperty(String(integration.id))
-        expect(res.body.integrations[String(integration.id)]).toBeNull()
+        expect(res.body.integrations[String(owned.id)].sensitive_config.access_token).toBe('mine')
+        // Wrong-team and missing are both present-as-key but null — indistinguishable on purpose.
+        expect(res.body.integrations[String(otherTeamsRow.id)]).toBeNull()
+        expect(res.body.integrations[String(missingId)]).toBeNull()
+    })
+
+    it('serves a cached value within TTL even after the DB row changes', async () => {
+        const integration = await insertIntegration(hub.postgres, teamId, {
+            kind: 'slack',
+            sensitive_config: { access_token: encryptedFields.encrypt('first') },
+        })
+        const app = buildApp() // one app => one shared cache across both requests
+
+        const first = await supertest(app)
+            .post('/api/v1/credentials/fetch')
+            .set('authorization', `Bearer ${mint(teamId)}`)
+            .send({ integration_ids: [integration.id] })
+        expect(first.body.integrations[String(integration.id)].sensitive_config.access_token).toBe('first')
+
+        // Mutate the row directly; a cache hit must still return the original value.
+        await hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_integration SET sensitive_config = jsonb_set(sensitive_config, '{access_token}', $1::jsonb) WHERE id = $2`,
+            [JSON.stringify(encryptedFields.encrypt('second')), integration.id],
+            'test-mutate-integration'
+        )
+
+        const second = await supertest(app)
+            .post('/api/v1/credentials/fetch')
+            .set('authorization', `Bearer ${mint(teamId)}`)
+            .send({ integration_ids: [integration.id] })
+        expect(second.body.integrations[String(integration.id)].sensitive_config.access_token).toBe('first')
     })
 
     it.each([
