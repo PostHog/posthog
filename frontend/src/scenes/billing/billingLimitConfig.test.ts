@@ -3,12 +3,16 @@ import { BillingProductV2Type, BillingType, StartupProgramLabel } from '~/types'
 import { BillingLimitConfig, getBillingLimitConfig, STARTUP_PROGRAM_BILLING_LIMIT_MAX } from './billingLimitConfig'
 
 describe('getBillingLimitConfig', () => {
-    const getConfig = (productType: string, startupProgramLabel: StartupProgramLabel | null): BillingLimitConfig =>
+    const getConfig = (
+        productType: string,
+        startupProgramLabel: StartupProgramLabel | null,
+        limits: { customLimitUsd?: number | null; billingLimitNextPeriod?: number | null } = {}
+    ): BillingLimitConfig =>
         getBillingLimitConfig({
             billing: { startup_program_label: startupProgramLabel } as BillingType,
             product: { type: productType } as BillingProductV2Type,
-            customLimitUsd: null,
-            billingLimitNextPeriod: null,
+            customLimitUsd: limits.customLimitUsd ?? null,
+            billingLimitNextPeriod: limits.billingLimitNextPeriod ?? null,
         })
 
     it.each(['posthog_code_usage', 'replay_vision'])(
@@ -29,6 +33,25 @@ describe('getBillingLimitConfig', () => {
             expect(config.max).toBe(50000)
             expect(config.removalDisabledReason).toBeNull()
             expect(config.help).toBeNull()
+        }
+    )
+
+    it.each([
+        [3750, 2000, true],
+        [3750, 5000, false],
+        [null, 2000, false],
+    ])(
+        'with current limit %p and next period limit %p, above-cap notice shown: %p',
+        (customLimitUsd, billingLimitNextPeriod, noticeShown) => {
+            const config = getConfig('replay_vision', StartupProgramLabel.YC, {
+                customLimitUsd,
+                billingLimitNextPeriod,
+            })
+            if (noticeShown) {
+                expect(config.currentAboveMaxNotice).toContain('next period')
+            } else {
+                expect(config.currentAboveMaxNotice).toBeNull()
+            }
         }
     )
 })

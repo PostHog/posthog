@@ -32,7 +32,8 @@ const DEFAULT_BILLING_LIMIT_CONFIG: BillingLimitConfig = {
 type BillingLimitConfigResolver = (context: BillingLimitConfigContext) => Partial<BillingLimitConfig> | null
 
 // Mirrors the caps the billing service enforces for startup-program customers, so the form
-// rejects out-of-range limits before the API does
+// rejects out-of-range limits before the API does. Product names are hardcoded short labels:
+// the billing API names are too verbose for copy (e.g. "PostHog Code (usage-based)").
 const startupProgramCapResolver = (productName: string): BillingLimitConfigResolver => {
     return ({ billing, customLimitUsd, billingLimitNextPeriod }) => {
         if (!billing?.startup_program_label) {
@@ -43,8 +44,8 @@ const startupProgramCapResolver = (productName: string): BillingLimitConfigResol
         return {
             max: cap,
             help: `While your organization is in the startup program, ${productName} billing limits can be set from $0 to $${cap.toLocaleString()} per month.`,
-            removalDisabledReason: `While in the startup program, ${productName} billing limits can't be removed. Set the limit to $0 instead.`,
-            maxExceededError: `While in the startup program, ${productName} billing limits can't exceed $${cap.toLocaleString()} per month.`,
+            removalDisabledReason: `While your organization is in the startup program, ${productName} billing limits can't be removed. Set the limit to $0 instead.`,
+            maxExceededError: `While your organization is in the startup program, ${productName} billing limits can't exceed $${cap.toLocaleString()} per month.`,
             currentAboveMaxNotice:
                 customLimitUsd !== null &&
                 customLimitUsd > cap &&
