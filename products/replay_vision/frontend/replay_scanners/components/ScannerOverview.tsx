@@ -77,7 +77,7 @@ function RankedTermList({
     const top = ranked.slice(0, RANKED_ROWS)
     const maxCount = top[0][1]
     // Freeform phrases rarely repeat verbatim. With no repeats every bar is full width, which reads as
-    // "these all dominate" when it actually means there's no ranking yet — so drop the bars instead.
+    // "these all dominate" when it actually means there's no ranking yet, so drop the bars instead.
     const showBars = maxCount > 1
     return (
         <div className="space-y-1">
@@ -324,7 +324,7 @@ function SummarizerOverview({ scannerId }: { scannerId: string }): JSX.Element |
     if (!scanner || scanner.scanner_type !== 'summarizer') {
         return null
     }
-    const { frictionRanked, keywordRanked, totalWithFacets, totalWithFriction } = summarizerFacetStats
+    const { frictionRanked, keywordRanked, totalSucceeded, totalWithFriction } = summarizerFacetStats
     const frictionEmpty = hasActiveOverviewFilters
         ? 'No friction points match the current filter.'
         : 'No friction points reported yet. They appear as summaries accumulate.'
@@ -334,14 +334,14 @@ function SummarizerOverview({ scannerId }: { scannerId: string }): JSX.Element |
 
     const summaries = (count: number): string => `${count.toLocaleString()} summar${count === 1 ? 'y' : 'ies'}`
     // How often summaries report friction at all is the number worth leading with; the ranking below only
-    // says which kinds. Both share the same denominator so the two panels stay comparable.
+    // says which kinds. Both panels share the same denominator so they stay comparable.
     const frictionSubtitle =
-        totalWithFacets > 0
-            ? `${totalWithFriction.toLocaleString()} of ${summaries(totalWithFacets)} (${Math.round(
-                  (totalWithFriction / totalWithFacets) * 100
+        totalSucceeded > 0
+            ? `${totalWithFriction.toLocaleString()} of ${summaries(totalSucceeded)} (${Math.round(
+                  (totalWithFriction / totalSucceeded) * 100
               )}%)`
             : undefined
-    const keywordSubtitle = totalWithFacets > 0 ? `from ${summaries(totalWithFacets)}` : undefined
+    const keywordSubtitle = totalSucceeded > 0 ? `from ${summaries(totalSucceeded)}` : undefined
     return (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <OverviewPanel title="Top friction points" subtitle={frictionSubtitle} fill>

@@ -116,7 +116,7 @@ export function daysFromDateRange(dateFrom: string | null, dateTo: string | null
 export interface SummarizerFacetStats {
     frictionRanked: [string, number][]
     keywordRanked: [string, number][]
-    totalWithFacets: number
+    totalSucceeded: number
     totalWithFriction: number
 }
 
@@ -124,7 +124,9 @@ export function deriveSummarizerFacetStats(stats: ObservationStatsApi | null): S
     return {
         frictionRanked: (stats?.summarizer?.friction_ranked ?? []).map((f) => [f.term, f.count] as [string, number]),
         keywordRanked: (stats?.summarizer?.keyword_ranked ?? []).map((f) => [f.term, f.count] as [string, number]),
-        totalWithFacets: stats?.summarizer?.total_with_facets ?? 0,
+        // A summary that reports no friction still counts toward the friction rate, so the
+        // denominator is every succeeded summary rather than only those that emitted facets.
+        totalSucceeded: stats?.status_counts.succeeded ?? 0,
         totalWithFriction: stats?.summarizer?.total_with_friction ?? 0,
     }
 }
