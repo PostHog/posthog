@@ -101,6 +101,9 @@ export function issueLabel(record: CampaignAuditResult): string {
     if (issue?.kind === 'missing_source') {
         return 'Missing source'
     }
+    if (issue?.kind === 'name_collision') {
+        return 'Name collision'
+    }
     return 'Source mismatch'
 }
 
