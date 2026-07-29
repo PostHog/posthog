@@ -755,12 +755,15 @@ impl PodHandle {
 
         // Reconcile health is judged per tick window, keeping the budget
         // at the pass granularity it was sized for: a window where any
-        // reconcile-triggered convergence failed counts one failure — so
+        // reconcile-triggered convergence failed — or whose own
+        // durable-state snapshot failed — counts exactly one failure, so
         // a single partition persistently failing (a bad warm, say)
         // still exhausts the budget even while its neighbors converge
-        // fine — while a window of only successes resets the count. A
-        // window with no completed reconcile convergence at all (one
-        // still in flight across the tick) is neutral.
+        // fine, while one blip failing several things at once cannot
+        // burn the budget faster than real time. A window of only
+        // successes resets the count; a window with no completed
+        // reconcile convergence at all (one still in flight across the
+        // tick) is neutral.
         let mut consecutive_reconcile_failures: u32 = 0;
         let mut window_err: Option<Error> = None;
         let mut window_ok = false;
@@ -769,24 +772,13 @@ impl PodHandle {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 _ = reconcile_tick.tick() => {
-                    if let Some(e) = window_err.take() {
-                        consecutive_reconcile_failures += 1;
-                        counter!(
-                            "personhog_coordination_reconcile_failures_total",
-                            "component" => "pod"
-                        )
-                        .increment(1);
-                        tracing::warn!(
-                            pod = %self.config.pod_name,
-                            error = %e,
-                            consecutive = consecutive_reconcile_failures,
-                            budget = self.config.reconcile_failure_budget,
-                            "pod reconcile convergence failed; continuing on last-known state"
-                        );
-                        if consecutive_reconcile_failures >= self.config.reconcile_failure_budget {
-                            return Err(e);
-                        }
-                    } else if window_ok {
+                    // One budget count per tick at most, no matter how
+                    // many things failed inside its window: the budget is
+                    // sized in passes, and a single blip failing both a
+                    // convergence and the following snapshot is one
+                    // failed pass, not two.
+                    let mut tick_err: Option<Error> = window_err.take();
+                    if tick_err.is_none() && window_ok {
                         consecutive_reconcile_failures = 0;
                     }
                     window_ok = false;
@@ -812,22 +804,34 @@ impl PodHandle {
                             }
                         }
                         Err(e) => {
-                            consecutive_reconcile_failures += 1;
-                            counter!(
-                                "personhog_coordination_reconcile_failures_total",
-                                "component" => "pod"
-                            )
-                            .increment(1);
-                            tracing::warn!(
-                                pod = %self.config.pod_name,
-                                error = %e,
-                                consecutive = consecutive_reconcile_failures,
-                                budget = self.config.reconcile_failure_budget,
-                                "pod reconcile failed; continuing on last-known state"
-                            );
-                            if consecutive_reconcile_failures >= self.config.reconcile_failure_budget {
-                                return Err(e);
+                            if tick_err.is_none() {
+                                tick_err = Some(e);
+                            } else {
+                                tracing::warn!(
+                                    pod = %self.config.pod_name,
+                                    error = %e,
+                                    "durable-state snapshot failed in an already-failed window"
+                                );
                             }
+                        }
+                    }
+
+                    if let Some(e) = tick_err {
+                        consecutive_reconcile_failures += 1;
+                        counter!(
+                            "personhog_coordination_reconcile_failures_total",
+                            "component" => "pod"
+                        )
+                        .increment(1);
+                        tracing::warn!(
+                            pod = %self.config.pod_name,
+                            error = %e,
+                            consecutive = consecutive_reconcile_failures,
+                            budget = self.config.reconcile_failure_budget,
+                            "pod reconcile failed; continuing on last-known state"
+                        );
+                        if consecutive_reconcile_failures >= self.config.reconcile_failure_budget {
+                            return Err(e);
                         }
                     }
                 }
@@ -873,7 +877,15 @@ impl PodHandle {
                             // regardless would hold the handoff hostage
                             // with no signal to the coordinator.
                             Trigger::Event => return Err(e),
-                            Trigger::Reconcile => window_err = Some(e),
+                            Trigger::Reconcile => {
+                                tracing::warn!(
+                                    pod = %self.config.pod_name,
+                                    partition,
+                                    error = %e,
+                                    "reconcile-triggered convergence failed"
+                                );
+                                window_err = Some(e);
+                            }
                         },
                     }
                     if let Some(next) = pending.remove(&partition) {
