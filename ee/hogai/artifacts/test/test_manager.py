@@ -1,3 +1,4 @@
+from typing import cast
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
@@ -13,6 +14,7 @@ from posthog.schema import (
     AssistantLifecycleQuery,
     AssistantMessage,
     AssistantTrendsQuery,
+    ChartDisplayType,
     DataVisualizationNode,
     DateRange,
     EventPropertyFilter,
@@ -403,7 +405,7 @@ class TestArtifactManagerGetContentsByMessageId(BaseTest):
             query="test query",
             answer=DataVisualizationNode.model_construct(
                 source=HogQLQuery(query="SELECT 1"),
-                display="SomeDisplayTypeWeDoNotHave",
+                display=cast(ChartDisplayType, "SomeDisplayTypeWeDoNotHave"),
             ),
             plan="test plan",
         )
