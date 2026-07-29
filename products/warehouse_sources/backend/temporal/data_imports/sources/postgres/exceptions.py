@@ -18,6 +18,19 @@ class XminUnsupportedError(Exception):
     """
 
 
+class UnsupportedReadFeatureError(Exception):
+    """Raised when Postgres refuses to evaluate a relation we're reading (SQLSTATE 0A000).
+
+    We only ever `SELECT` from the relation, so an unsupported expression lives in the
+    customer's own view or generated column — the shape we've seen is `date_trunc('week', ...)`
+    on an interval value, which Postgres rejects with `unit "week" not supported for type
+    interval`. Read through a server cursor it surfaces on the first `fetchmany`, not on
+    `execute`. Deterministic, so the message is listed in
+    `PostgresSource.get_non_retryable_errors` to stop Temporal retrying every scheduled sync
+    into the same wall.
+    """
+
+
 class PostHogDatabaseConnectionError(Exception):
     """Raised when loading sync metadata from PostHog's own database fails to connect.
 

@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
     ForeignServerUnreachableError,
     PostHogDatabaseConnectionError,
+    UnsupportedReadFeatureError,
     XminUnsupportedError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables import (
@@ -63,6 +64,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     FORCE_UTF8_CLIENT_ENCODING,
     METADATA_STATEMENT_TIMEOUT_MS,
     SSL_REQUIRED_AFTER_DATE,
+    UNSUPPORTED_READ_FEATURE_MESSAGE,
     XMIN_PROJECTED_COLUMN,
     JsonAsStringLoader,
     PostgresDiscoveredSchema,
@@ -108,6 +110,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _resolve_hostaddr_with_timeout,
     _rls_active_from_conn,
     _role_subject_to_rls,
+    _rows_with_unsupported_feature_translated,
     _safe_close_connection,
     _schemas_from_conn,
     _statement_timeout_as_non_retryable,
@@ -1033,6 +1036,33 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "FDW enum mismatch error should surface an actionable message"
         assert "enum type" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)) — a view calling
+            # date_trunc('week', <interval>), which Postgres rejects with SQLSTATE 0A000.
+            'unit "week" not supported for type interval',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'FeatureNotSupported: unit "week" not supported for type interval',
+            # Same rejection against another type — the match must not be interval-specific.
+            'unit "microseconds" not supported for type date',
+            # What the read path raises for any unsupported query shape, at both layers.
+            f"{UNSUPPORTED_READ_FEATURE_MESSAGE}: cannot open cursor on this engine",
+            f"UnsupportedReadFeatureError: {UNSUPPORTED_READ_FEATURE_MESSAGE}: cannot open cursor on this engine",
+        ],
+    )
+    def test_unsupported_read_feature_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unsupported expression error should be non-retryable: {error_msg}"
+
+    def test_unsupported_read_feature_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = 'unit "week" not supported for type interval'
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Unsupported expression error should surface an actionable message"
+        assert "date_trunc" in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -2144,6 +2174,43 @@ class TestStatementTimeoutAsNonRetryable:
             )
             is None
         )
+
+
+class TestRowsWithUnsupportedFeatureTranslated:
+    def test_feature_not_supported_mid_stream_is_translated_and_classified(self):
+        def rows():
+            yield "first batch"
+            # A view calling date_trunc('week', <interval>): read through a server cursor, Postgres
+            # only rejects it on the first fetch, after the read has already started.
+            raise psycopg.errors.FeatureNotSupported('unit "week" not supported for type interval')
+
+        stream = _rows_with_unsupported_feature_translated(rows())
+        assert next(stream) == "first batch"
+        with pytest.raises(UnsupportedReadFeatureError) as exc_info:
+            next(stream)
+
+        error_msg = str(exc_info.value)
+        assert 'unit "week" not supported for type interval' in error_msg
+        non_retryable = PostgresSource().get_non_retryable_errors()
+        assert any(pattern in error_msg for pattern in non_retryable.keys())
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            # The transient conditions the read handles in-process must keep their own types, or
+            # they'd be misclassified as a permanently broken relation and stop a healthy sync.
+            psycopg.errors.QueryCanceled("canceling statement due to statement timeout"),
+            psycopg.errors.SerializationFailure("due to conflict with recovery"),
+            psycopg.OperationalError("server closed the connection unexpectedly"),
+        ],
+    )
+    def test_other_errors_are_not_translated(self, error):
+        def rows():
+            yield "first batch"
+            raise error
+
+        with pytest.raises(type(error)):
+            list(_rows_with_unsupported_feature_translated(rows()))
 
 
 class TestServerCursorStatementTimeout:

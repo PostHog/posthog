@@ -78,7 +78,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import XminUnsupportedError
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
+    UnsupportedReadFeatureError,
+    XminUnsupportedError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables import (
     build_partition_query,
     get_estimated_row_count_for_partitioned_table as _get_estimated_row_count_for_partitioned_table,
@@ -136,6 +139,12 @@ _MAX_INITIAL_READ_DROP_RETRIES = 5
 # nothing has been emitted, so re-running the read from scratch is safe for any sync type. Past this
 # the conflict is treated as sustained and re-raised for Temporal to retry the whole activity.
 _MAX_INITIAL_READ_LOCK_TIMEOUT_RETRIES = 5
+
+# Stable prefix of the `UnsupportedReadFeatureError` message, so the failure is classified at both
+# layers: the workflow sees the Temporal-wrapped "UnsupportedReadFeatureError: ..." form, while the
+# activity-level check sees the bare `str(e)` with no class name. Keyed on in
+# `PostgresSource.get_non_retryable_errors`; the raw Postgres detail is appended after it.
+UNSUPPORTED_READ_FEATURE_MESSAGE = "Postgres refused to evaluate a table or view selected for sync"
 
 
 def source_requires_ssl(source: ExternalDataSource, source_config: Any = None) -> bool:
@@ -570,6 +579,30 @@ def _statement_timeout_as_non_retryable(
         f"10 min timeout statement reached. Please ensure your incremental field "
         f"({incremental_field}) has an appropriate index created"
     )
+
+
+def _rows_with_unsupported_feature_translated(rows: Iterator[Any]) -> Iterator[Any]:
+    """Map a `FeatureNotSupported` that escapes the read onto a non-retryable error.
+
+    SQLSTATE 0A000 raised while reading means Postgres itself won't evaluate the relation —
+    e.g. a view calling `date_trunc('week', <interval>)`, rejected with `unit "week" not
+    supported for type interval`. We only ever `SELECT` from the relation, so the expression
+    lives in the customer's view or generated column and every attempt re-evaluates it into
+    the same error. Untranslated it matches nothing in `PostgresSource.get_non_retryable_errors`,
+    so Temporal retries a permanently broken query on every scheduled sync and the customer
+    sees a raw Postgres string instead of guidance. Wrapping every read path here (server
+    cursor, offset chunking, windowed and per-partition iteration) by *type* also covers
+    unsupported query shapes whose wording we haven't seen yet.
+
+    Only errors that escape the read reach this: the transient conditions the read handles
+    in-process (statement timeouts, recovery conflicts, dropped connections) never surface as
+    `FeatureNotSupported`, and the best-effort `SET statement_timeout` on the sync connection —
+    which some wire-compatible engines reject with this class — is swallowed where it runs.
+    """
+    try:
+        yield from rows
+    except psycopg.errors.FeatureNotSupported as e:
+        raise UnsupportedReadFeatureError(f"{UNSUPPORTED_READ_FEATURE_MESSAGE}: {e}") from e
 
 
 def _raised_while_closing_generator(error: BaseException) -> bool:
@@ -3655,7 +3688,7 @@ def postgres_source(
 
     return SourceResponse(
         name=name,
-        items=lambda: get_rows(chunk_size),
+        items=lambda: _rows_with_unsupported_feature_translated(get_rows(chunk_size)),
         primary_keys=primary_keys,
         partition_count=partition_settings.partition_count if partition_settings else None,
         partition_size=partition_settings.partition_size if partition_settings else None,

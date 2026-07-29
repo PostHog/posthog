@@ -44,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     _SSH_HANDSHAKE_EOF_ERROR,
+    UNSUPPORTED_READ_FEATURE_MESSAGE,
     PostgresImplementation,
     SSLRequiredError,
     _rls_active_from_conn,
@@ -200,6 +201,17 @@ _SSH_GATEWAY_UNREACHABLE_MESSAGE = (
     "Could not connect to your SSH tunnel — PostHog couldn't open a session to the SSH gateway. "
     "Check that the SSH host and port point to a reachable SSH server (not the database port), that "
     "the bastion is running, and that PostHog's IP addresses are allowed through its firewall."
+)
+
+# Guidance for a relation Postgres itself won't evaluate (SQLSTATE 0A000) — see the
+# `not supported for type` / `UNSUPPORTED_READ_FEATURE_MESSAGE` entries in
+# `get_non_retryable_errors` and `UnsupportedReadFeatureError`.
+_UNSUPPORTED_READ_FEATURE_ERROR = (
+    "One of the tables or views you selected to sync uses an expression your database won't "
+    "evaluate, so PostHog can't read it. A common cause is date_trunc('week', ...) on an interval "
+    "value, which Postgres rejects as unsupported. PostHog only reads the table, so the expression "
+    "comes from its own definition (a view, or a generated column). Change the expression in your "
+    "database, or remove that table from the sync, then re-enable the sync."
 )
 
 
@@ -715,6 +727,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "include the value used on the remote server, or remove the foreign table from the "
                 "sync, then re-enable the sync."
             ),
+            # Postgres refuses to evaluate an expression in a selected relation (SQLSTATE 0A000,
+            # `FeatureNotSupported`) — the shape we've seen is a view calling date_trunc('week', ...)
+            # on an interval value, rejected with `unit "week" not supported for type interval`. We
+            # only ever SELECT from the relation, so the expression lives in the customer's view or
+            # generated column and every retry re-evaluates it into the same error. Two keys: the raw
+            # Postgres wording (which also covers the setup/count queries, outside the read path) and
+            # `postgres.py`'s `UNSUPPORTED_READ_FEATURE_MESSAGE`, which the read path raises for any
+            # unsupported query shape whose wording we haven't seen. The raw key is first so its
+            # message is the one surfaced when both match.
+            "not supported for type": _UNSUPPORTED_READ_FEATURE_ERROR,
+            UNSUPPORTED_READ_FEATURE_MESSAGE: _UNSUPPORTED_READ_FEATURE_ERROR,
         }
 
     def get_retryable_errors(self) -> set[str]:
