@@ -252,6 +252,20 @@ class TestCrossReferenceIssueKinds:
         assert len(issue.alternative_sources) == 1
         assert issue.alternative_sources[0].utm_source == "partner_xyz"
 
+    def test_missing_source_when_events_have_no_utm_source(self):
+        # Pageviews match the campaign name but carry no utm_source (e.g. auto-tagged Performance Max).
+        # Must not be classified as UNKNOWN_SOURCE, and must not suggest mapping an empty source.
+        campaigns = [Campaign("Performance Max - Generic", "1", "google", 500.0, 100, 5000)]
+        utm_events = {("performance max - generic", ""): 222}
+
+        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
+
+        issue = results[0].issues[0]
+        assert issue.kind == UtmIssueKind.MISSING_SOURCE
+        assert issue.severity == UtmIssueSeverity.WARNING
+        assert issue.alternative_sources == []
+        assert issue.suggested_actions == [SuggestedAction.FIX_PLATFORM_URLS]
+
     def test_name_collision_when_another_platform_matches_same_name(self):
         # Both Bing and Google have "Survey". Events only tag google.
         # Google's row passes; Bing's row should be NAME_COLLISION with SWITCH_TO_ID_MATCH as primary fix.

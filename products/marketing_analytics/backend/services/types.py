@@ -21,6 +21,9 @@ class UtmIssueKind(StrEnum):
     # Campaign name matches events with a utm_source unknown to every integration.
     # Safe to suggest a custom source mapping as an alternative to fixing the URLs.
     UNKNOWN_SOURCE = "unknown_source"
+    # Campaign name matches events, but they carry no utm_source at all (empty/missing).
+    # Common for auto-tagged campaigns (e.g. Performance Max) that set utm_campaign only.
+    MISSING_SOURCE = "missing_source"
 
 
 class SuggestedAction(StrEnum):
