@@ -398,6 +398,7 @@ const ExceptionsTab = (): JSX.Element => {
                 <ErrorFilters.Root>
                     <div className="flex w-full flex-wrap items-center gap-1">
                         <ErrorFilters.DateRange />
+                        <ErrorFilters.Search placeholder="Search exceptions" />
                         <ErrorFilters.FilterGroup />
                         <div className="ml-auto shrink-0">
                             <ErrorFilters.InternalAccounts />

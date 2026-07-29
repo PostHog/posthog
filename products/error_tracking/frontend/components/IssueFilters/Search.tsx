@@ -7,7 +7,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from 'lib/ui/quill'
 
 import { issueFiltersLogic } from './issueFiltersLogic'
 
-export function IssueSearchInput(): JSX.Element {
+export function IssueSearchInput({ placeholder = 'Search issues' }: { placeholder?: string }): JSX.Element {
     const { searchInput } = useValues(issueFiltersLogic)
     const { setSearchInput } = useActions(issueFiltersLogic)
 
@@ -21,8 +21,8 @@ export function IssueSearchInput(): JSX.Element {
                     type="search"
                     value={searchInput}
                     onChange={(event: ChangeEvent<HTMLInputElement>) => setSearchInput(event.target.value)}
-                    placeholder="Search issues"
-                    aria-label="Search issues"
+                    placeholder={placeholder}
+                    aria-label={placeholder}
                 />
             </InputGroup>
         </div>
