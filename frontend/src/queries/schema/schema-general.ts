@@ -7885,6 +7885,7 @@ export const externalDataSources = [
     'Ebay',
     'Commercetools',
     'LightspeedRetail',
+    'ShipMail',
     'ShipStation',
     'ConstantContact',
     'Mailgun',
