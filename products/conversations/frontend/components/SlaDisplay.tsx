@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 
-import { Tooltip } from '@posthog/lemon-ui'
+import { TZLabel } from 'lib/components/TZLabel'
 
 import { dayjs } from 'lib/dayjs'
 
@@ -21,20 +21,17 @@ export function SlaDisplay({
     const atRisk = !breached && diffMs < 60 * 60 * 1000
 
     return (
-        <Tooltip title={`SLA due ${due.format('YYYY-MM-DD HH:mm:ss')}`}>
-            <span
-                className={clsx(
-                    'font-medium',
-                    {
-                        'text-danger': breached,
-                        'text-warning': atRisk,
-                        'text-success': !breached && !atRisk,
-                    },
-                    className
-                )}
-            >
-                {due.fromNow()}
-            </span>
-        </Tooltip>
+        <TZLabel
+            time={due}
+            className={clsx(
+                'font-medium',
+                {
+                    'text-danger': breached,
+                    'text-warning': atRisk,
+                    'text-success': !breached && !atRisk,
+                },
+                className
+            )}
+        />
     )
 }
