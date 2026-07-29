@@ -655,6 +655,9 @@ export interface sqlEditorLogicActions {
     ) => {
         force?: boolean
     } // databaseTableListLogic
+    resetConnectionScope: () => {
+        value: true
+    } // databaseTableListLogic
     setConnection: (connectionId: string | null) => {
         connectionId: string | null
     } // databaseTableListLogic
@@ -1113,7 +1116,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             draftsLogic,
             ['saveAsDraft', 'deleteDraft', 'saveAsDraftSuccess', 'deleteDraftSuccess'],
             databaseTableListLogic,
-            ['setConnection', 'loadDatabase'],
+            ['setConnection', 'loadDatabase', 'resetConnectionScope'],
             connectionSelectorLogic,
             ['loadConnectionOptionsSuccess', 'maybeLoadConnectionOptions'],
         ],
@@ -3497,7 +3500,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             actions.loadDatabase(values.databaseLoading ? { force: true } : undefined)
         }
     }),
-    beforeUnmount(({ cache, props }) => {
+    beforeUnmount(({ actions, values, cache, props }) => {
+        // The editor scopes the shared schema catalog to whichever connection it was querying, and
+        // that logic stays mounted after the editor closes. Hand it back unscoped so pages like the
+        // sources list don't render the connection's tables as if they were the project's own.
+        // Only the editor whose connection is currently in scope resets it, so closing one editor
+        // can't yank the catalog out from under another still querying a different connection.
+        if (values.databaseConnectionId && values.databaseConnectionId === (values.selectedConnectionId ?? null)) {
+            actions.resetConnectionScope()
+        }
+
         cache.cursorDisposable?.dispose()
         cache.cursorDisposable = null
         clearQueryOutlineOverlay(cache, props.editor)
