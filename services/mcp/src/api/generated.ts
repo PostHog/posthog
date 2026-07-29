@@ -35558,6 +35558,12 @@ export namespace Schemas {
       models: LLMModelInfo[];
     }
 
+    /**
+     * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
+     * @nullable
+     */
+    export type LLMPromptConfig = { [key: string]: unknown } | null;
+
     export interface LLMPromptOutlineEntry {
       /**
          * Markdown heading level (1-6).
@@ -35578,8 +35584,11 @@ export namespace Schemas {
       name: string;
       /** Prompt payload as JSON or string data. */
       prompt: unknown;
-      /** Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt. */
-      config?: unknown;
+      /**
+         * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
+         * @nullable
+         */
+      config?: LLMPromptConfig;
       readonly version: number;
       /**
          * Optional note describing what changed in this version. Set when the version is published.
@@ -35636,14 +35645,23 @@ export namespace Schemas {
       version: number;
     }
 
+    /**
+     * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
+     * @nullable
+     */
+    export type LLMPromptListConfig = { [key: string]: unknown } | null;
+
     export interface LLMPromptList {
       readonly id: string;
       /** Unique prompt name using letters, numbers, hyphens, and underscores only. */
       readonly name: string;
       /** Prompt payload as JSON or string data. */
       readonly prompt: unknown;
-      /** Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt. */
-      readonly config: unknown;
+      /**
+         * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
+         * @nullable
+         */
+      config?: LLMPromptListConfig;
       readonly version: number;
       /**
          * Optional note describing what changed in this version. Set when the version is published.
@@ -35668,13 +35686,22 @@ export namespace Schemas {
       readonly all_labels: readonly LLMPromptLabelSummary[];
     }
 
+    /**
+     * JSON object with model parameters or any agent configuration stored with this version, or null when the version has none. Omitted when 'content=preview' or 'content=none'.
+     * @nullable
+     */
+    export type LLMPromptPublicConfig = { [key: string]: unknown } | null;
+
     export interface LLMPromptPublic {
       id: string;
       name: string;
       /** Full prompt content. Omitted when 'content=preview' or 'content=none'. */
       prompt?: unknown;
-      /** JSON object with model parameters or any agent configuration stored with this version, or null when the version has none. Omitted when 'content=preview' or 'content=none'. */
-      config?: unknown;
+      /**
+         * JSON object with model parameters or any agent configuration stored with this version, or null when the version has none. Omitted when 'content=preview' or 'content=none'.
+         * @nullable
+         */
+      config?: LLMPromptPublicConfig;
       /** First 160 characters of the prompt. Only present when 'content=preview'. */
       prompt_preview?: string;
       /** Flat list of markdown headings parsed from the prompt. Useful as a lightweight table of contents. */
@@ -48527,13 +48554,22 @@ export namespace Schemas {
       js_snippet_version?: string | null;
     }
 
+    /**
+     * JSON object with model parameters or any agent configuration to store with this version. If omitted, the current version's config is carried forward; pass null to clear it. Can be combined with either prompt or edits. Don't store secrets here: config is returned to anyone who can read the prompt.
+     * @nullable
+     */
+    export type PatchedLLMPromptPublishConfig = { [key: string]: unknown } | null;
+
     export interface PatchedLLMPromptPublish {
       /** Full prompt payload to publish as a new version. Mutually exclusive with edits. */
       prompt?: unknown;
       /** List of find/replace operations to apply to the current prompt version. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with prompt. */
       edits?: LLMPromptEditOperation[];
-      /** JSON object with model parameters or any agent configuration to store with this version. If omitted, the current version's config is carried forward; pass null to clear it. Can be combined with either prompt or edits. Don't store secrets here: config is returned to anyone who can read the prompt. */
-      config?: unknown;
+      /**
+         * JSON object with model parameters or any agent configuration to store with this version. If omitted, the current version's config is carried forward; pass null to clear it. Can be combined with either prompt or edits. Don't store secrets here: config is returned to anyone who can read the prompt.
+         * @nullable
+         */
+      config?: PatchedLLMPromptPublishConfig;
       /**
          * Latest version you are editing from. Used for optimistic concurrency checks.
          * @minimum 1

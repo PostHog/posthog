@@ -61,6 +61,14 @@ def validate_prompt_config_value(value: Any) -> Any:
     return validate_prompt_payload_size(value, field_label="Config")
 
 
+# The API only accepts an object or null for config (validate_prompt_config_value), so the
+# schema says so too — a bare JSONField would generate `unknown` and let generated clients
+# send strings or arrays the API rejects.
+@extend_schema_field({"type": "object", "nullable": True})
+class LLMPromptConfigField(serializers.JSONField):
+    pass
+
+
 RESERVED_PROMPT_LABEL_NAMES = {"latest"}
 PROMPT_LABEL_NAME_MAX_LENGTH = 128
 # Allowlist keeps label names unambiguous everywhere they travel: URL path segments,
@@ -236,7 +244,7 @@ class LLMPromptPublishSerializer(serializers.Serializer):
             "Mutually exclusive with prompt."
         ),
     )
-    config = serializers.JSONField(
+    config = LLMPromptConfigField(
         required=False,
         allow_null=True,
         help_text=(
@@ -285,6 +293,15 @@ class LLMPromptPublishSerializer(serializers.Serializer):
 
 class LLMPromptSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    config = LLMPromptConfigField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional JSON object with model parameters or any agent configuration "
+            "(e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. "
+            "Don't store secrets here: config is returned to anyone who can read the prompt."
+        ),
+    )
     is_latest = serializers.SerializerMethodField()
     latest_version = serializers.SerializerMethodField()
     version_count = serializers.SerializerMethodField()
@@ -332,13 +349,6 @@ class LLMPromptSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "name": {"help_text": "Unique prompt name using letters, numbers, hyphens, and underscores only."},
             "prompt": {"help_text": "Prompt payload as JSON or string data."},
-            "config": {
-                "help_text": (
-                    "Optional JSON object with model parameters or any agent configuration "
-                    "(e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. "
-                    "Don't store secrets here: config is returned to anyone who can read the prompt."
-                )
-            },
             "version_description": {
                 "help_text": "Optional note describing what changed in this version. Set when the version is published."
             },
@@ -520,7 +530,7 @@ class LLMPromptPublicSerializer(serializers.Serializer):
         required=False,
         help_text="Full prompt content. Omitted when 'content=preview' or 'content=none'.",
     )
-    config = serializers.JSONField(
+    config = LLMPromptConfigField(
         required=False,
         allow_null=True,
         help_text=(
