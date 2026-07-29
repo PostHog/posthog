@@ -94,14 +94,14 @@ MAILGUN_ENDPOINTS: dict[str, MailgunEndpointConfig] = {
         name="tags",
         path="/v3/{domain}/tags",
         domain_scoped=True,
-        page_size=100,
+        page_size=1000,
         primary_keys=["domain", "tag"],
     ),
     "templates": MailgunEndpointConfig(
         name="templates",
         path="/v3/{domain}/templates",
         domain_scoped=True,
-        page_size=100,
+        page_size=1000,
         # Template names are unique per domain; list items aren't guaranteed an `id`.
         primary_keys=["domain", "name"],
     ),
