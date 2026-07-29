@@ -1706,7 +1706,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
-        assert mocked_email_messages[0].subject == "A new device logged into your account"
+        assert mocked_email_messages[0].subject == "New login to your PostHog account"
 
         # Check that location appears in email body
         html_body = mocked_email_messages[0].html_body
@@ -1732,7 +1732,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
-        assert mocked_email_messages[0].subject == "A new device logged into your account"
+        assert mocked_email_messages[0].subject == "New login to your PostHog account"
 
         # Check that location appears in email body
         html_body = mocked_email_messages[0].html_body

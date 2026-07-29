@@ -60,7 +60,7 @@ from posthog.helpers.two_factor_session import (
     has_passkeys,
     set_two_factor_verified_in_session,
 )
-from posthog.helpers.user_devices import has_valid_known_device_cookie
+from posthog.helpers.user_devices import get_login_device_signature, has_valid_known_device_cookie
 from posthog.models import OrganizationDomain, User
 from posthog.models.activity_logging import signal_handlers  # noqa: F401
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -377,7 +377,12 @@ class LoginSerializer(serializers.Serializer):
             ip_address = get_ip_address(request)
             backend_name = request.session.get("_auth_user_backend", "django.contrib.auth.backends.ModelBackend")
             login_from_new_device_notification.delay(
-                user.id, timezone.now(), short_user_agent, ip_address, backend_name
+                user.id,
+                timezone.now(),
+                short_user_agent,
+                ip_address,
+                backend_name,
+                device_signature=get_login_device_signature(request),
             )
 
         report_user_logged_in(user, social_provider="")
@@ -911,12 +916,11 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
         )
 
         # Also add device to fingerprint cache
-        short_user_agent = get_short_user_agent(request)
         ip_address = get_ip_address(request)
         geoip = get_geoip_properties(ip_address)
         country = geoip.get("$geoip_country_name", "Unknown")
 
-        check_and_cache_login_device(user.id, country, short_user_agent)
+        check_and_cache_login_device(user.id, country, get_login_device_signature(request))
 
         return response
 
@@ -1127,5 +1131,10 @@ def social_login_notification(
             ip_address = get_ip_address(request)
             backend_name = getattr(backend, "name", "")
             login_from_new_device_notification.delay(
-                user.id, timezone.now(), short_user_agent, ip_address, backend_name
+                user.id,
+                timezone.now(),
+                short_user_agent,
+                ip_address,
+                backend_name,
+                device_signature=get_login_device_signature(request),
             )

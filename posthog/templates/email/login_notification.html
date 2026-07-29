@@ -1,9 +1,10 @@
 {% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{# Self-hosted (SMTP) copy only. Cloud sends this notification through Customer.io template 44, so that copy has to be edited there too. #}
 {% block preheader %}{{preheader}}{% endblock %}
-{% block heading %}We spotted a login from a new device{% endblock %}
+{% block heading %}New login to your PostHog account{% endblock %}
 {% block section %}
 <p>
-    Someone (hopefully you) logged into your PostHog account from a new device. If this wasn't you, please reset your password.
+    Your PostHog account was logged into from a device we haven't seen before. If that was you, there's nothing to do here.
 </p>
 <div class="mt mb">
     <div><b>Time:</b> {{ login_time }}</div>
@@ -13,6 +14,6 @@
     <div><b>IP:</b> {{ ip_address }}</div>
 </div>
 <p>
-    If this was you though, you don't have to do anything except delete this email.
+    If you don't recognize this login, reset your password to lock the account down.
 </p>
 {% endblock %}

@@ -22,6 +22,7 @@ from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated
+from posthog.helpers.user_devices import get_login_device_signature
 from posthog.models import Organization, PersonalAPIKey, Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import (
     ActivityContextBase,
@@ -913,7 +914,6 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
 
     # Cache device info on signup to skip login notification for this device
     if user.last_login is None:
-        short_user_agent = get_short_user_agent(request)
         ip_address = get_ip_address(request)
         country = get_geoip_properties(ip_address).get("$geoip_country_name", "Unknown")
-        check_and_cache_login_device(user.id, country, short_user_agent)
+        check_and_cache_login_device(user.id, country, get_login_device_signature(request))

@@ -15,6 +15,7 @@ import posthoganalytics
 from loginas.utils import is_impersonated_session
 
 from posthog.geoip import get_geoip_location
+from posthog.helpers.user_devices import ua_signature
 from posthog.models import User
 from posthog.session.models import Session
 from posthog.utils import get_trusted_client_ip
@@ -49,16 +50,6 @@ class Context:
     longitude: Optional[float]
     country_code: Optional[str]
     ua_signature: Optional[str]
-
-
-def ua_signature(user_agent: Optional[str]) -> Optional[str]:
-    if not user_agent:
-        return None
-    from user_agents import parse  # noqa: PLC0415 — heavy dep, request-time only (matches get_short_user_agent)
-
-    ua = parse(user_agent)
-    device = "mobile" if ua.is_mobile else "tablet" if ua.is_tablet else "pc" if ua.is_pc else "other"
-    return f"{ua.browser.family}|{ua.os.family}|{device}".lower()
 
 
 def current_request_context(request: HttpRequest) -> Context:

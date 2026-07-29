@@ -7,6 +7,7 @@ from unittest.mock import patch
 from django.test import RequestFactory, SimpleTestCase
 from django.test.utils import override_settings
 
+from posthog.helpers.user_devices import ua_signature
 from posthog.session.risk import (
     Baseline,
     Context,
@@ -16,7 +17,6 @@ from posthog.session.risk import (
     evaluate_signals,
     risk_flags,
     tier_for,
-    ua_signature,
 )
 
 
@@ -33,7 +33,7 @@ class TestCurrentRequestContextTrustedIP(SimpleTestCase):
         self.assertIsNone(ctx.longitude)
 
 
-class TestUaSignature(BaseTest):
+class TestUaSignature(SimpleTestCase):
     def test_version_bump_same_signature(self):
         a = ua_signature("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/135.0.0.0 Safari/537.36")
         b = ua_signature("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/999.0.0.0 Safari/537.36")

@@ -1,3 +1,5 @@
+from typing import Optional
+
 from django.conf import settings
 from django.core.signing import BadSignature, TimestampSigner
 from django.http import HttpRequest, HttpResponse
@@ -7,6 +9,30 @@ from posthog.models import User
 KNOWN_DEVICE_COOKIE = "ph_device_{user_id}"
 KNOWN_DEVICE_COOKIE_MAX_AGE = 2 * 365 * 24 * 60 * 60  # 2 years
 KNOWN_DEVICE_COOKIE_SALT = "posthog.known_device_cookie"
+
+# Signature used when there is no user agent to parse. One shared bucket rather than a per-request one,
+# so a client we can't identify is alerted on once instead of on every login — and so an attacker can't
+# mint a fresh "device" (or suppress the alert) by withholding the header.
+UNKNOWN_DEVICE_SIGNATURE = "unknown"
+
+
+def ua_signature(user_agent: Optional[str]) -> Optional[str]:
+    """Stable device identity derived from a user agent.
+
+    Deliberately version-free: browsers update themselves, so neither a point release nor a major bump
+    makes something a different device.
+    """
+    if not user_agent:
+        return None
+    from user_agents import parse  # noqa: PLC0415 — heavy dep, request-time only (matches get_short_user_agent)
+
+    ua = parse(user_agent)
+    device = "mobile" if ua.is_mobile else "tablet" if ua.is_tablet else "pc" if ua.is_pc else "other"
+    return f"{ua.browser.family}|{ua.os.family}|{device}".lower()
+
+
+def get_login_device_signature(request: HttpRequest) -> str:
+    return ua_signature(request.headers.get("user-agent")) or UNKNOWN_DEVICE_SIGNATURE
 
 
 def _signer(user: User) -> TimestampSigner:

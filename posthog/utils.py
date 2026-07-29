@@ -1142,7 +1142,11 @@ def get_trusted_client_ip(request: HttpRequest) -> Optional[str]:
 
 
 def get_short_user_agent(request: HttpRequest) -> str:
-    """Returns browser and OS info from user agent, eg: 'Chrome 135.0.0 on macOS 10.15'"""
+    """Human-readable browser and OS summary, eg: 'Chrome 135.0.0 on macOS 10.15'.
+
+    Display only. It keeps version numbers, which churn on every browser update, so it must not be used
+    to decide whether a device is known — use `get_login_device_signature` for that.
+    """
     user_agent_str = request.headers.get("user-agent")
     if not user_agent_str:
         return ""
@@ -1153,7 +1157,7 @@ def get_short_user_agent(request: HttpRequest) -> str:
 
     user_agent = parse(user_agent_str)
 
-    # strip the last (patch/build) number from the version, it can change frequently
+    # drop the build number, which changes on almost every release
     browser_version = ".".join(str(x) for x in user_agent.browser.version[:3])
     os_version = ".".join(str(x) for x in user_agent.os.version[:2])
 

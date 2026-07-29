@@ -23,6 +23,7 @@ from posthog.event_usage import groups
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.email_utils import sanitize_display_name, sanitize_message_body
 from posthog.helpers.two_factor_session import CODE_TTL_SECONDS
+from posthog.helpers.user_devices import UNKNOWN_DEVICE_SIGNATURE
 from posthog.models import (
     Organization,
     OrganizationInvite,
@@ -1206,7 +1207,12 @@ def send_two_factor_reset_email(user_id: int, token: str) -> None:
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def login_from_new_device_notification(
-    user_id: int, login_time: datetime.datetime, short_user_agent: str, ip_address: str, backend_name: str
+    user_id: int,
+    login_time: datetime.datetime,
+    short_user_agent: str,
+    ip_address: str,
+    backend_name: str,
+    device_signature: str = UNKNOWN_DEVICE_SIGNATURE,
 ) -> None:
     """Send login notification email if login is from a new device"""
     if not is_email_available(with_absolute_urls=True):
@@ -1236,7 +1242,9 @@ def login_from_new_device_notification(
 
     login_method = AUTH_BACKEND_DISPLAY_NAMES.get(backend_name, "Unknown")
 
-    is_new_device = check_and_cache_login_device(user_id, country, short_user_agent)
+    is_new_device = check_and_cache_login_device(
+        user_id, country, device_signature, legacy_short_user_agent=short_user_agent
+    )
     if not is_new_device:
         return
 
@@ -1244,7 +1252,7 @@ def login_from_new_device_notification(
         use_http=True,
         campaign_key=f"login_notification_{user.uuid}-{timezone.now().timestamp()}",
         template_name="login_notification",
-        subject="A new device logged into your account",
+        subject="New login to your PostHog account",
         template_context={
             "login_time": login_time_str,
             "ip_address": ip_address,

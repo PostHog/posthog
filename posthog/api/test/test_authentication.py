@@ -2545,6 +2545,23 @@ class TestOAuthLoginNotification(APIBaseTest):
             social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
             assert len(mail.outbox) == 1
 
+    def test_notification_not_sent_after_browser_version_bump(self):
+        user = User.objects.create(email="test@gmail.com", distinct_id=str(uuid.uuid4()))
+        rf = RequestFactory()
+        Backend = type("Backend", (), {"name": "google-oauth2"})
+        ip = "1.1.1.1"
+        chrome_149 = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
+        chrome_150 = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+
+        set_instance_setting("EMAIL_HOST", "localhost")
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+            social_login_notification(self._build_strategy(rf, chrome_149, ip), Backend(), user)
+            assert len(mail.outbox) == 1
+
+            # Chrome updating itself is not a new device
+            social_login_notification(self._build_strategy(rf, chrome_150, ip), Backend(), user)
+            assert len(mail.outbox) == 1
+
     def test_notification_sent_on_second_distinct_device_login(self):
         user = User.objects.create(email="test@gmail.com", distinct_id=str(uuid.uuid4()))
         rf = RequestFactory()
@@ -2637,7 +2654,7 @@ class TestKnownLoginDeviceCookieMiddleware(APIBaseTest):
 
     def test_known_cookie_suppresses_notification(self):
         set_instance_setting("EMAIL_HOST", "localhost")
-        new_device_subject = "A new device logged into your account"
+        new_device_subject = "New login to your PostHog account"
         with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
             # First login - sets cookie and sends new-device notification
             self.client.post("/api/login/", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
