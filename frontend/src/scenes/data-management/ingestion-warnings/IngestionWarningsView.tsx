@@ -78,15 +78,27 @@ export const WARNING_TYPE_TO_DOCS_ANCHOR: Record<string, string> = {
 }
 
 /**
+ * Warning details ride on publicly-ingestible events, so any field can hold arbitrary JSON.
+ * Rendering a non-string as a React child throws and takes the whole warnings table down with it.
+ */
+function asText(value: unknown): string | null {
+    return typeof value === 'string' && value !== '' ? value : null
+}
+
+/**
  * A distinct ID from a warning often has no person profile: the event may have been dropped before
  * person processing, or the ID may belong to an anonymous visitor (the SDK default is
  * `identified_only`). Linking to an event search always resolves, shows `$lib` and the URL, and
  * keeps the person page one click away from any row.
  */
-export function DistinctIdLink({ distinctId }: { distinctId: string }): JSX.Element {
+export function DistinctIdLink({ distinctId }: { distinctId: unknown }): JSX.Element | null {
+    const id = asText(distinctId)
+    if (!id) {
+        return null
+    }
     return (
         <Tooltip title="Search events sent with this distinct ID">
-            <Link to={urlForEventsByDistinctId(distinctId)}>{distinctId}</Link>
+            <Link to={urlForEventsByDistinctId(id)}>{id}</Link>
         </Tooltip>
     )
 }
@@ -94,22 +106,24 @@ export function DistinctIdLink({ distinctId }: { distinctId: string }): JSX.Elem
 export const WARNING_TYPE_RENDERER = {
     client_ingestion_warning: function Render(warning: IngestionWarning): JSX.Element {
         const details = warning.details as {
-            eventUuid?: string
-            distinctId?: string
-            message?: string
+            eventUuid?: unknown
+            distinctId?: unknown
+            message?: unknown
         }
+        const distinctId = asText(details.distinctId)
+        const eventUuid = asText(details.eventUuid)
         return (
             <>
-                {details.message ?? 'An SDK reported a problem with how it was being used.'}
+                {asText(details.message) ?? 'An SDK reported a problem with how it was being used.'}
                 <ul>
-                    {details.distinctId ? (
+                    {distinctId ? (
                         <li>
-                            distinct_id: <DistinctIdLink distinctId={details.distinctId} />
+                            distinct_id: <DistinctIdLink distinctId={distinctId} />
                         </li>
                     ) : null}
-                    {details.eventUuid ? (
+                    {eventUuid ? (
                         <li>
-                            Event UUID: <code>{details.eventUuid}</code>
+                            Event UUID: <code>{eventUuid}</code>
                         </li>
                     ) : null}
                 </ul>
