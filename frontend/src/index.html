@@ -1,10 +1,19 @@
 <!doctype html>
 {# boot_theme mirrors themeLogic.isDarkModeOn (posthog/utils.py): "dark", "system", or "light" #}
-<html lang="en" data-boot-theme="{{ boot_theme|default:'light' }}">
+{# translate="no": in-page translators (Chrome, Edge, Yandex) replace our text nodes with <font> #}
+{# elements, and the next React commit that tries to remove one throws a removeChild #}
+{# NotFoundError (react#11538). That throws in the commit phase at the root, so no ErrorBoundary #}
+{# catches it and the entire app unmounts — reloading is the only way back. The app ships English #}
+{# only, so opting the shell out costs nothing and covers every scene. Keep in sync with the #}
+{# per-component guard in scenes/authentication/shared/paperDesk/Typewriter.tsx. #}
+<html lang="en" translate="no" data-boot-theme="{{ boot_theme|default:'light' }}">
     <head>
         {# head.html first: it carries <meta charset>, which must stay within the first 1024 bytes #}
         {# so the browser's encoding prescan finds it #}
         {% include "head.html" %}
+        {# Suppresses the translate prompt itself, so users aren't offered an action that the #}
+        {# translate="no" above turns into a no-op. #}
+        <meta name="google" content="notranslate">
         {# Critical CSS for the pre-React shell (background, spinner, boot-failure message), so the #}
         {# page doesn't flash white. Everything visual is scoped to #root:empty and .Preloader — the #}
         {# app never styles <body> background itself, so an unscoped rule here would persist after #}
