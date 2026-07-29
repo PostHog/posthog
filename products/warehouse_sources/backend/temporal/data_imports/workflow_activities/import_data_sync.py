@@ -14,6 +14,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.activity_context import current_activity_attempt
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
@@ -326,9 +327,12 @@ async def _handle_import_error(
 
     Errors the source classifies as retryable (rate limits, transient 5xx) reach us only after
     the source's own retries are exhausted. Temporal retries the whole activity and the error is
-    transient and self-recovering, so we log at ``warning`` rather than ``exception`` to keep
-    this benign, recoverable failure out of error tracking. ``RESTClientRetryableError`` gets the
-    same treatment by type, since every REST-based source hits that condition already.
+    transient and self-recovering, so we log at ``warning`` rather than ``exception`` and re-raise
+    as ``NonReportableError`` — log level alone doesn't stop the activity interceptor
+    (``posthog/temporal/common/posthog_client.py``) from reporting whatever exception type escapes
+    the activity; only that marker type does. ``RESTClientRetryableError`` gets the same treatment
+    by type, since it's already a ``NonReportableError`` subclass and every REST-based source hits
+    that condition already.
 
     Everything else is logged as an exception and re-raised so Temporal retries it as usual.
     """
@@ -384,7 +388,7 @@ async def _handle_import_error(
     if any(match in error_msg for match in retryable_errors):
         await logger.awarning(error_msg)
         await logger.adebug("Source-classified retryable error - re-raising for Temporal retry")
-        raise error
+        raise NonReportableError(error_msg) from error
 
     await logger.aexception(error_msg)
     await logger.adebug("Error encountered during import_data_activity - re-raising")
