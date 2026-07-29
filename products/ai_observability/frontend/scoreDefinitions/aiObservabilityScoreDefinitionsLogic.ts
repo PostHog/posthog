@@ -21,6 +21,7 @@ import type {
     PaginatedScoreDefinitionListApi,
     ScoreDefinitionApi,
 } from '../generated/api.schemas'
+import { loadOrEmptyOnAccessDenied } from '../humanReviewsLoaders'
 import { getApiErrorDetail, getCurrentProjectId, type ScoreDefinitionModalMode } from './scoreDefinitionModalUtils'
 
 export const SCORE_DEFINITIONS_PER_PAGE = 30
@@ -256,14 +257,19 @@ export const aiObservabilityScoreDefinitionsLogic = kea<aiObservabilityScoreDefi
 
                     const { filters } = values
 
-                    return aiObservabilityScoreDefinitionsList(String(ApiConfig.getCurrentTeamId()), {
-                        search: filters.search || undefined,
-                        kind: filters.kind || undefined,
-                        archived: filters.archived === '' ? undefined : filters.archived === 'true' ? true : false,
-                        order_by: filters.order_by,
-                        offset: Math.max(0, (filters.page - 1) * SCORE_DEFINITIONS_PER_PAGE),
-                        limit: SCORE_DEFINITIONS_PER_PAGE,
-                    })
+                    return loadOrEmptyOnAccessDenied(
+                        () =>
+                            aiObservabilityScoreDefinitionsList(String(ApiConfig.getCurrentTeamId()), {
+                                search: filters.search || undefined,
+                                kind: filters.kind || undefined,
+                                archived:
+                                    filters.archived === '' ? undefined : filters.archived === 'true' ? true : false,
+                                order_by: filters.order_by,
+                                offset: Math.max(0, (filters.page - 1) * SCORE_DEFINITIONS_PER_PAGE),
+                                limit: SCORE_DEFINITIONS_PER_PAGE,
+                            }),
+                        { results: [], count: 0, next: null, previous: null }
+                    )
                 },
             },
         ],

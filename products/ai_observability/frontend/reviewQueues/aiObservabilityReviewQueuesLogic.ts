@@ -19,6 +19,7 @@ import type {
     ReviewQueueApi,
     ReviewQueueItemApi,
 } from '../generated/api.schemas'
+import { loadOrEmptyOnAccessDenied } from '../humanReviewsLoaders'
 import { reviewQueuesApi } from './reviewQueuesApi'
 import { getApiErrorDetail } from './reviewQueueUtils'
 
@@ -453,12 +454,16 @@ export const aiObservabilityReviewQueuesLogic = kea<aiObservabilityReviewQueuesL
 
                     const { queueFilters } = values
 
-                    return reviewQueuesApi.listQueues({
-                        search: queueFilters.search || undefined,
-                        order_by: queueFilters.order_by,
-                        offset: Math.max(0, (queueFilters.page - 1) * REVIEW_QUEUES_PER_PAGE),
-                        limit: REVIEW_QUEUES_PER_PAGE,
-                    })
+                    return loadOrEmptyOnAccessDenied(
+                        () =>
+                            reviewQueuesApi.listQueues({
+                                search: queueFilters.search || undefined,
+                                order_by: queueFilters.order_by,
+                                offset: Math.max(0, (queueFilters.page - 1) * REVIEW_QUEUES_PER_PAGE),
+                                limit: REVIEW_QUEUES_PER_PAGE,
+                            }),
+                        EMPTY_QUEUE_LIST
+                    )
                 },
             },
         ],
@@ -476,13 +481,17 @@ export const aiObservabilityReviewQueuesLogic = kea<aiObservabilityReviewQueuesL
                         await breakpoint(300)
                     }
 
-                    return reviewQueuesApi.listQueueItems({
-                        queue_id: selectedQueueId,
-                        search: queueItemFilters.search || undefined,
-                        order_by: queueItemFilters.order_by,
-                        offset: Math.max(0, (queueItemFilters.page - 1) * REVIEW_QUEUE_ITEMS_PER_PAGE),
-                        limit: REVIEW_QUEUE_ITEMS_PER_PAGE,
-                    })
+                    return loadOrEmptyOnAccessDenied(
+                        () =>
+                            reviewQueuesApi.listQueueItems({
+                                queue_id: selectedQueueId,
+                                search: queueItemFilters.search || undefined,
+                                order_by: queueItemFilters.order_by,
+                                offset: Math.max(0, (queueItemFilters.page - 1) * REVIEW_QUEUE_ITEMS_PER_PAGE),
+                                limit: REVIEW_QUEUE_ITEMS_PER_PAGE,
+                            }),
+                        EMPTY_QUEUE_ITEM_LIST
+                    )
                 },
             },
         ],

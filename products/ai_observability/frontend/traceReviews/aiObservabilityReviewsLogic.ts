@@ -17,6 +17,7 @@ import { urls } from '~/scenes/urls'
 
 import { llmAnalyticsScoreDefinitionsList as aiObservabilityScoreDefinitionsList } from '../generated/api'
 import type { ScoreDefinitionApi } from '../generated/api.schemas'
+import { loadOrEmptyOnAccessDenied } from '../humanReviewsLoaders'
 import { buildTraceReviewsListUrl, traceReviewListParamsFromFilters, traceReviewsApi } from './traceReviewsApi'
 import { fetchAllReviewsForExport, formatReviewsForClipboard, type ReviewClipboardFormat } from './traceReviewsExport'
 import type { TraceReview } from './types'
@@ -202,11 +203,15 @@ export const aiObservabilityReviewsLogic = kea<aiObservabilityReviewsLogicType>(
 
                     const { filters } = values
 
-                    return traceReviewsApi.list({
-                        ...traceReviewListParamsFromFilters(filters),
-                        offset: Math.max(0, (filters.page - 1) * TRACE_REVIEWS_PER_PAGE),
-                        limit: TRACE_REVIEWS_PER_PAGE,
-                    })
+                    return loadOrEmptyOnAccessDenied(
+                        () =>
+                            traceReviewsApi.list({
+                                ...traceReviewListParamsFromFilters(filters),
+                                offset: Math.max(0, (filters.page - 1) * TRACE_REVIEWS_PER_PAGE),
+                                limit: TRACE_REVIEWS_PER_PAGE,
+                            }),
+                        { results: [], count: 0 }
+                    )
                 },
             },
         ],
@@ -214,15 +219,19 @@ export const aiObservabilityReviewsLogic = kea<aiObservabilityReviewsLogicType>(
         scoreDefinitionOptions: [
             [] as ScoreDefinitionApi[],
             {
-                loadScoreDefinitionOptions: async () => {
-                    const response = await aiObservabilityScoreDefinitionsList(String(ApiConfig.getCurrentTeamId()), {
-                        archived: false,
-                        order_by: 'name',
-                        limit: 1000,
-                    })
+                loadScoreDefinitionOptions: async () =>
+                    loadOrEmptyOnAccessDenied(async () => {
+                        const response = await aiObservabilityScoreDefinitionsList(
+                            String(ApiConfig.getCurrentTeamId()),
+                            {
+                                archived: false,
+                                order_by: 'name',
+                                limit: 1000,
+                            }
+                        )
 
-                    return response.results
-                },
+                        return response.results
+                    }, []),
             },
         ],
     })),
