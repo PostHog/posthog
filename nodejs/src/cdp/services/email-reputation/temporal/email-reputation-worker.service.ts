@@ -8,6 +8,7 @@ import https from 'https'
 import { EncryptionCodec } from '~/common/temporal/codec'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
+import { TeamManager } from '~/common/utils/team-manager'
 import {
     HealthCheckResult,
     HealthCheckResultError,
@@ -95,7 +96,7 @@ export class EmailReputationWorkerService {
                   }
                 : {}),
         })
-        return new EmailReputationService(clickhouse, this.deps.postgres, {
+        return new EmailReputationService(clickhouse, this.deps.postgres, new TeamManager(this.deps.postgres), {
             targetVolume: this.config.EMAIL_REPUTATION_TARGET_VOLUME,
             minWindowHours: this.config.EMAIL_REPUTATION_MIN_WINDOW_HOURS,
             lookbackDays: this.config.EMAIL_REPUTATION_LOOKBACK_DAYS,

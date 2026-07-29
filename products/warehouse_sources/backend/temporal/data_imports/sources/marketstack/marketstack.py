@@ -2,7 +2,6 @@ import dataclasses
 from datetime import date
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -13,11 +12,31 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.settings import MARKETSTACK_ENDPOINTS
 
-# Marketstack keeps two live API versions; v1 is stable, covers every endpoint we sync, and is
-# available on the free plan. v2 only adds indices and the /latest lookups we don't use here.
-MARKETSTACK_BASE_URL = "https://api.marketstack.com/v1"
+# Opaque Marketstack version labels (never parsed/ordered). Each version is served under its own
+# path segment; the source pin selects the base URL. v1 is deprecated (vendor sunset 2025-06-30);
+# v2 is the current GA API — same auth, envelope, and pagination, only additive response fields for
+# every endpoint we sync, which the auto-inferred schema absorbs.
+MARKETSTACK_API_VERSION_V1 = "v1"
+MARKETSTACK_API_VERSION_V2 = "v2"
+
+_MARKETSTACK_BASE_URLS = {
+    MARKETSTACK_API_VERSION_V1: "https://api.marketstack.com/v1",
+    MARKETSTACK_API_VERSION_V2: "https://api.marketstack.com/v2",
+}
+
+
+def marketstack_base_url(api_version: str) -> str:
+    # Every supported label must map to a base URL — an unmapped pin raises rather than silently
+    # sending an unversioned host (tracking "latest", the drift the versioning framework prevents).
+    try:
+        return _MARKETSTACK_BASE_URLS[api_version]
+    except KeyError:
+        raise ValueError(f"Unsupported Marketstack API version: {api_version!r}")
+
+
 # limit maxes out at 1000; larger pages mean fewer round trips against the 5 req/sec rate limit.
 DEFAULT_PAGE_SIZE = 1000
 
@@ -91,6 +110,7 @@ def marketstack_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[MarketstackResumeConfig],
+    api_version: str,
     symbols: str | None = None,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
@@ -116,7 +136,7 @@ def marketstack_source(
 
     rest_config: RESTAPIConfig = {
         "client": {
-            "base_url": MARKETSTACK_BASE_URL,
+            "base_url": marketstack_base_url(api_version),
             # access_key rides in the query string; the framework auth redacts its value from every
             # logged URL, captured sample, and raised error message.
             "auth": {"type": "api_key", "api_key": access_key, "name": "access_key", "location": "query"},
@@ -180,11 +200,12 @@ def marketstack_source(
     )
 
 
-def validate_credentials(access_key: str) -> bool:
+def validate_credentials(access_key: str, api_version: str) -> bool:
     # `/exchanges` is a static reference endpoint available on every plan (including free) and needs
-    # no symbols, so it's a cheap probe that the access key is genuine. A bad key can surface either
-    # as a non-200 status or as an HTTP 200 with a body-level error envelope, so both are checked.
-    url = f"{MARKETSTACK_BASE_URL}/exchanges"
+    # no symbols, so it's a cheap probe that the access key is genuine. It's served under both v1 and
+    # v2, so the resolved source pin picks the base URL. A bad key can surface either as a non-200
+    # status or as an HTTP 200 with a body-level error envelope, so both are checked.
+    url = f"{marketstack_base_url(api_version)}/exchanges"
     params: dict[str, Any] = {"access_key": access_key, "limit": 1}
     try:
         session = make_tracked_session(redact_values=(access_key,))

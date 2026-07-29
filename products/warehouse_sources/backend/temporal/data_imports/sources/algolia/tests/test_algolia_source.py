@@ -5,7 +5,6 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.algolia import AlgoliaResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.settings import (
     ALGOLIA_ENDPOINTS,
@@ -13,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.se
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.algolia.source import AlgoliaSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.algolia import (
     AlgoliaSourceConfig,
 )

@@ -111,6 +111,7 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.HIGH,
         ReasoningEffort.MAX,
     ),
+    "moonshotai/kimi-k3": (),
     "claude-opus-4-5": (
         ReasoningEffort.LOW,
         ReasoningEffort.MEDIUM,
@@ -1194,6 +1195,8 @@ def build_sandbox_environment_variables(
     if settings.SANDBOX_LLM_GATEWAY_URL:
         env_vars["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
+    env_vars.update(ai_gateway_env_vars())
+
     if otel_telemetry_enabled:
         env_vars.update(get_sandbox_otel_env_vars())
 
@@ -1216,6 +1219,20 @@ def get_sandbox_otel_env_vars() -> dict[str, str]:
     if settings.SANDBOX_AGENT_OTEL_TRACES_URL:
         env_vars["POSTHOG_AGENT_OTEL_TRACES_URL"] = settings.SANDBOX_AGENT_OTEL_TRACES_URL
     return env_vars
+
+
+def ai_gateway_env_vars() -> dict[str, str]:
+    """Env vars routing listed products to the Go ai-gateway, shared by every
+    injection site so the both-or-nothing guard cannot drift per site. Both
+    settings or nothing: a URL with no product allowlist would route every
+    sandbox caller, and a product list with no URL has nowhere to go.
+    """
+    if settings.SANDBOX_AI_GATEWAY_URL and settings.SANDBOX_AI_GATEWAY_PRODUCTS:
+        return {
+            "AI_GATEWAY_URL": settings.SANDBOX_AI_GATEWAY_URL,
+            "AI_GATEWAY_PRODUCTS": settings.SANDBOX_AI_GATEWAY_PRODUCTS,
+        }
+    return {}
 
 
 def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> PrAuthorshipMode:

@@ -7,7 +7,7 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.concord import concord
 from products.warehouse_sources.backend.temporal.data_imports.sources.concord.concord import (

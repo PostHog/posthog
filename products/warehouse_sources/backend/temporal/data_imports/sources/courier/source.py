@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -23,14 +19,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.courier.courier import (
     CourierResumeConfig,
     courier_source,
     validate_credentials as validate_courier_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.courier.settings import (
+    DEFAULT_VERSION,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SUPPORTED_VERSIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.courier import (
     CourierSourceConfig,
@@ -42,6 +41,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class CourierSource(ResumableSource[CourierSourceConfig, CourierResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://www.courier.com/docs/reference/get-started/"
+    supported_versions = SUPPORTED_VERSIONS
+    default_version = DEFAULT_VERSION
 
     @property
     def source_type(self) -> ExternalDataSourceType:
