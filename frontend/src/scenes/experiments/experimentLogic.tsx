@@ -84,6 +84,14 @@ import {
     PropertyMathType,
 } from '~/types'
 
+import {
+    experimentsMetricsCreate,
+    experimentsMetricsDestroy,
+    experimentsMetricsOrderUpdate,
+    experimentsMetricsPartialUpdate,
+} from 'products/experiments/frontend/generated/api'
+import type { ExperimentMetricMutationResponseApi } from 'products/experiments/frontend/generated/api.schemas'
+
 import type { ProductIntentProperties } from '../../lib/utils/product-intents'
 import type { Noun } from '../../models/groupsModel'
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
@@ -807,6 +815,13 @@ export interface experimentLogicActions {
         }
         sharedMetricIds: number[]
     }
+    applyMetricMutation: (
+        response: ExperimentMetricMutationResponseApi,
+        replacesUuid: string | null
+    ) => {
+        replacesUuid: string | null
+        response: ExperimentMetricMutationResponseApi
+    }
     archiveExperiment: (disableFeatureFlag?: boolean) => {
         disableFeatureFlag: boolean
     }
@@ -956,6 +971,12 @@ export interface experimentLogicActions {
     }
     pauseExperiment: () => {
         value: true
+    }
+    persistMetric: (payload: { isNew: boolean; isSecondary: boolean; reloadResults?: boolean; uuid: string }) => {
+        isNew: boolean
+        isSecondary: boolean
+        reloadResults: boolean
+        uuid: string
     }
     refreshExperimentResults: (
         forceRefresh?: boolean,
@@ -1259,9 +1280,6 @@ export interface experimentLogicActions {
         error: string
         errorObject?: any
     }
-    updateExperimentMetrics: () => {
-        value: true
-    }
     updateExperimentSettings: (update: Partial<Experiment>) => {
         update: Partial<Experiment>
     }
@@ -1507,7 +1525,6 @@ export const experimentLogic = kea<experimentLogicType>([
             refreshId,
             finalState,
         }),
-        updateExperimentMetrics: true,
         updateExperimentCollectionGoal: true,
         updateExposureCriteria: true,
         updateExperimentSettings: (update: Partial<Experiment>) => ({ update }),
@@ -1649,6 +1666,14 @@ export const experimentLogic = kea<experimentLogicType>([
             newUuid,
         }),
         // Semantic metric actions - each controls its own reload behavior
+        persistMetric: (payload: { uuid: string; isSecondary: boolean; isNew: boolean; reloadResults?: boolean }) => ({
+            ...payload,
+            reloadResults: payload.reloadResults ?? true,
+        }),
+        applyMetricMutation: (response: ExperimentMetricMutationResponseApi, replacesUuid: string | null) => ({
+            response,
+            replacesUuid,
+        }),
         removeMetric: (uuid: string, context: 'primary' | 'secondary') => ({ uuid, context }),
         saveMetricsReorder: (
             isSecondary: boolean,
@@ -1715,6 +1740,40 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 setExperiment: (state, { experiment }) => {
                     return { ...state, ...experiment }
+                },
+                /**
+                 * Apply a per-metric write's response by touching only the metric it addressed.
+                 * Merging one metric rather than replacing the experiment is what keeps a
+                 * concurrent edit to a *different* metric alive — replacing local state with a
+                 * whole server response is how those edits used to get clobbered.
+                 *
+                 * `replacesUuid` is the uuid the local entry currently has, which differs from
+                 * the response's uuid on a create (the server owns metric identity). A null
+                 * response metric means the write was a delete.
+                 */
+                applyMetricMutation: (state, { response, replacesUuid }) => {
+                    const next = {
+                        ...state,
+                        primary_metrics_ordered_uuids: response.primary_metrics_ordered_uuids,
+                        secondary_metrics_ordered_uuids: response.secondary_metrics_ordered_uuids,
+                    }
+                    if (!replacesUuid) {
+                        return next
+                    }
+                    for (const field of ['metrics', 'metrics_secondary'] as const) {
+                        const metrics = next[field] || []
+                        const index = metrics.findIndex((m) => m.uuid === replacesUuid)
+                        if (index === -1) {
+                            continue
+                        }
+                        return {
+                            ...next,
+                            [field]: response.metric
+                                ? metrics.map((m, i) => (i === index ? (response.metric as ExperimentMetric) : m))
+                                : metrics.filter((_, i) => i !== index),
+                        }
+                    }
+                    return next
                 },
                 setExposureCriteria: (
                     state,
@@ -2086,7 +2145,7 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 openPrimaryMetricModal: (_, { uuid }) => uuid,
                 closePrimaryMetricModal: () => null,
-                updateExperimentMetrics: () => null,
+                persistMetric: () => null,
                 setEditingPrimaryMetricUuid: (_, { uuid }) => uuid,
             },
         ],
@@ -2095,7 +2154,7 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 openSecondaryMetricModal: (_, { uuid }) => uuid,
                 closeSecondaryMetricModal: () => null,
-                updateExperimentMetrics: () => null,
+                persistMetric: () => null,
             },
         ],
         editingSharedMetricId: [
@@ -2103,7 +2162,7 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 openPrimarySharedMetricModal: (_, { sharedMetricId }) => sharedMetricId,
                 openSecondarySharedMetricModal: (_, { sharedMetricId }) => sharedMetricId,
-                updateExperimentMetrics: () => null,
+                persistMetric: () => null,
             },
         ],
         isCreatingExperimentDashboard: [
@@ -2191,1304 +2250,1356 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions, asyncActions, cache }) => ({
-        beforeUnmount: () => {
-            actions.stopAutoRefreshInterval()
-            clearTimeout(cache.notificationOfferTimer)
-        },
-        subscribeToResultsNotification: async () => {
-            if (!('Notification' in window)) {
-                lemonToast.error('Your browser does not support notifications.')
-                return
-            }
+    listeners(({ values, actions, asyncActions, cache }) => {
+        /**
+         * Persist a breakdown change the reducer has already applied locally.
+         *
+         * A breakdown on a shared metric lives on the experiment-to-shared-metric link's
+         * metadata, which has no per-metric endpoint yet, so that case still rewrites the
+         * whole saved_metrics_ids array. An inline metric's breakdown is just a field on the
+         * metric, so it goes through the single-metric patch.
+         */
+        const persistBreakdownChange = async (uuid: string, isPrimary: boolean): Promise<void> => {
+            const savedMetrics: ExperimentSavedMetric[] = [...(values.experiment.saved_metrics || [])]
+            const isSharedMetric = savedMetrics.some(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)
 
-            let permission = Notification.permission
-            if (permission === 'default') {
-                permission = await Notification.requestPermission()
-            }
-
-            if (permission === 'granted') {
-                actions.setNotifyWhenResultsReady(true)
-            } else if (permission === 'denied') {
-                lemonToast.info(
-                    'Notifications are blocked. Enable them in your browser address bar or system settings.'
-                )
-            }
-        },
-        createExperiment: async ({ draft, folder }) => {
-            actions.setCreateExperimentLoading(true)
-            const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
-
-            actions.touchExperimentField('name')
-            actions.touchExperimentField('feature_flag_key')
-            getExperimentVariants(values.experiment).forEach((_, i) =>
-                actions.touchExperimentField(`feature_flag_config.filters.multivariate.variants.${i}.key`)
-            )
-
-            if (hasFormErrors(values.experimentErrors)) {
-                actions.setCreateExperimentLoading(false)
-                return
-            }
-
-            // Minimum Detectable Effect is calculated based on a loaded insight
-            // Terminate if the insight did not manage to load in time
-            if (!minimumDetectableEffect) {
-                eventUsageLogic.actions.reportExperimentInsightLoadFailed()
-                actions.setCreateExperimentLoading(false)
-                lemonToast.error(
-                    'Failed to load insight. Experiment cannot be saved without this value. Try changing the experiment goal.'
-                )
-                return
-            }
-
-            let response: Experiment | null = null
-            const isUpdate = values.formMode === FORM_MODES.update
-            try {
-                if (isUpdate) {
-                    response = await api.update(
-                        `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
-                        {
-                            // Sends variant split and rollout through the feature_flag object,
-                            // dropping the deprecated flag-config parameters keys.
-                            ...toExperimentWritePayload(values.experiment),
-                            running_time_calculation: {
-                                ...values.experiment?.running_time_calculation,
-                                recommended_running_time: recommendedRunningTime,
-                                recommended_sample_size: recommendedSampleSize,
-                                minimum_detectable_effect: minimumDetectableEffect,
-                            },
-                            ...(!draft && { start_date: dayjs() }),
-                            // backwards compatibility: Remove any global properties set on the experiment.
-                            // These were used to change feature flag targeting, but this is controlled directly
-                            // on the feature flag now.
-                            filters: {
-                                events: [],
-                                actions: [],
-                                ...values.experiment.filters,
-                                properties: [],
-                            },
-                            // Signal the backend to sync variant split and rollout
-                            // percentage to the linked feature flag.
-                            update_feature_flag_params: true,
-                        }
-                    )
-
-                    if (response?.id) {
-                        actions.updateExperiments(response)
-                        actions.setEditExperiment(false)
-                        actions.loadExperimentSuccess(response)
-                        return
-                    }
-                } else {
-                    response = await api.create(`api/projects/${values.currentProjectId}/experiments`, {
-                        // A pre-existing flag is linked as-is: the API rejects explicit flag
-                        // config for it, so only send config when the flag will be created.
-                        // Key-aware so a stale match for a previously typed key can't suppress
-                        // config for a fresh key.
-                        ...toExperimentWritePayload(values.experiment, {
-                            omitFlagConfig: values.validExistingFeatureFlag?.key === values.experiment.feature_flag_key,
-                        }),
-                        running_time_calculation:
-                            /**
-                             * only if we are creating a new experiment we need to reset
-                             * the recommended running time. If we are duplicating we want to
-                             * preserve this values.
-                             */
-                            values.formMode === FORM_MODES.create
-                                ? {
-                                      ...values.experiment?.running_time_calculation,
-                                      recommended_running_time: recommendedRunningTime,
-                                      recommended_sample_size: recommendedSampleSize,
-                                      minimum_detectable_effect: minimumDetectableEffect,
-                                  }
-                                : values.experiment?.running_time_calculation,
-                        ...(!draft && { start_date: dayjs() }),
-                        ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
-                    })
-
-                    if (response) {
-                        actions.addProductIntent({
-                            product_type: ProductKey.EXPERIMENTS,
-                            intent_context: ProductIntentContext.EXPERIMENT_CREATED,
-                        })
-                        if (response.feature_flag?.id) {
-                            refreshTreeItem('feature_flag', String(response.feature_flag.id))
-                        }
-                    }
-                }
-            } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to create experiment')
-                actions.setCreateExperimentLoading(false)
-                return
-            }
-
-            if (response?.id) {
-                const experimentId = response.id
-                refreshTreeItem('experiment', String(experimentId))
-                const navigateToExperiment = (): void => {
-                    const scene = experimentSceneLogic.findMounted()
-                    if (scene) {
-                        scene.actions.setSceneState(experimentId, FORM_MODES.update)
-                    } else {
-                        router.actions.push(urls.experiment(experimentId))
-                    }
-                }
-
-                navigateToExperiment()
-                actions.addToExperiments(response)
-                lemonToast.success(`Experiment ${isUpdate ? 'updated' : 'created'}`, {
-                    button: {
-                        label: 'View it',
-                        action: navigateToExperiment,
-                    },
+            if (!isSharedMetric) {
+                await asyncActions.persistMetric({
+                    uuid,
+                    isSecondary: !isPrimary,
+                    isNew: false,
+                    // Callers below branch their own reload on the recalculation flag.
+                    reloadResults: false,
                 })
-            }
-            actions.setCreateExperimentLoading(false)
-        },
-        loadExperimentSuccess: async ({ experiment, payload }) => {
-            const duration = experiment?.start_date ? dayjs().diff(experiment.start_date, 'second') : null
-            experiment && actions.reportExperimentViewed(experiment, duration)
-
-            // Load metrics for launched experiments (will set up auto-refresh after load completes).
-            // refreshExperimentResults branches on the recalculation feature flag internally.
-            if (experiment && isLaunched(experiment)) {
-                actions.refreshExperimentResults(false, payload?.triggeredBy ?? 'manual', true)
-            }
-        },
-        refreshStaleResultsOnReentry: () => {
-            // In-app navigation back to an already-mounted experiment doesn't re-fire loadExperiment.
-            // Only warming-up experiments need a refresh on return — mature ones already show results
-            // and recomputes might be expensive, so we leave their cached state untouched (as before).
-            if (values.experiment && isLaunched(values.experiment) && !values.hasMinimumExposureForResults) {
-                actions.refreshExperimentResults(false, 'page_load', true)
-            }
-        },
-        launchExperiment: async () => {
-            actions.setLaunchExperimentLoading(true)
-            try {
-                const experiment: Experiment = await api.create(
-                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/launch`
-                )
-                const experimentWithMetricOrdering = initializeMetricOrdering(experiment)
-                actions.setExperiment(experimentWithMetricOrdering)
-                refreshTreeItem('experiment', String(values.experimentId))
-                // Trigger results refresh so the metrics table doesn't get stuck in "loading" state
-                actions.refreshExperimentResults(false, 'manual')
-                actions.setUnmodifiedExperiment(structuredClone(experimentWithMetricOrdering))
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.LaunchExperiment)
-                // Prefer the flag key — it's the shorter handle someone would actually type at an agent.
-                const experimentHandle = experiment.feature_flag_key || experiment.name
-                tryShowMCPHint('experiments.launch', {
-                    derivedPrompt: experimentHandle ? `Launch experiment ${experimentHandle}` : undefined,
-                })
-            } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to launch experiment')
-            } finally {
-                actions.setLaunchExperimentLoading(false)
-            }
-        },
-        changeExperimentStartDate: async ({ startDate }) => {
-            await asyncActions.updateExperiment({ start_date: startDate, update_feature_flag_params: false })
-            values.experiment && eventUsageLogic.actions.reportExperimentStartDateChange(values.experiment, startDate)
-            actions.refreshExperimentResults(true, 'config_change')
-        },
-        changeExperimentEndDate: async ({ endDate }) => {
-            await asyncActions.updateExperiment({ end_date: endDate, update_feature_flag_params: false })
-            values.experiment && eventUsageLogic.actions.reportExperimentEndDateChange(values.experiment, endDate)
-            actions.refreshExperimentResults(true, 'config_change')
-        },
-        endExperiment: async ({ openCleanupPr }) => {
-            actions.setEndExperimentLoading(true)
-            try {
-                const response: Experiment = await api.create(
-                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/end`,
-                    {
-                        conclusion: values.experiment.conclusion,
-                        conclusion_comment: values.experiment.conclusion_comment,
-                        open_cleanup_pr: openCleanupPr,
-                    }
-                )
-                actions.setExperiment(response)
-                refreshTreeItem('experiment', String(values.experimentId))
-            } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to end experiment')
-            } finally {
-                actions.setEndExperimentLoading(false)
-            }
-        },
-        endExperimentWithoutShipping: async ({ openCleanupPr }) => {
-            actions.endExperiment(openCleanupPr)
-            actions.closeFinishExperimentModal()
-            lemonToast.success('Experiment ended successfully')
-
-            if (values.experiment.conclusion === ExperimentConclusion.Won) {
-                const trigger = values.hogfettiTrigger
-                if (trigger) {
-                    ;[0, 400, 800].forEach((delay) => setTimeout(trigger, delay))
-                }
-            }
-        },
-        pauseExperiment: async () => {
-            try {
-                const response: Experiment = await api.create(
-                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/pause`
-                )
-                actions.setExperiment(response)
-                actions.closePauseExperimentModal()
-            } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to pause experiment')
-            }
-        },
-        resumeExperiment: async () => {
-            try {
-                const response: Experiment = await api.create(
-                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/resume`
-                )
-                actions.setExperiment(response)
-                actions.closeResumeExperimentModal()
-            } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to resume experiment')
-            }
-        },
-        freezeExposure: async () => {
-            if (values.freezeExposureLoading) {
                 return
             }
-            actions.setFreezeExposureLoading(true)
-            try {
-                const response: Experiment = await api.create(
-                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/freeze_exposure`
-                )
-                actions.setExperiment(response)
-                refreshTreeItem('experiment', String(values.experimentId))
-                lemonToast.success('Exposure frozen — enrolled users keep their variant and metrics keep updating')
-            } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to freeze exposure')
-            } finally {
-                actions.setFreezeExposureLoading(false)
-            }
-        },
-        unfreezeExposure: async () => {
-            if (values.unfreezeExposureLoading) {
-                return
-            }
-            actions.setUnfreezeExposureLoading(true)
-            try {
-                const response: Experiment = await api.create(
-                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/unfreeze_exposure`
-                )
-                actions.setExperiment(response)
-                refreshTreeItem('experiment', String(values.experimentId))
-                lemonToast.success('Exposure unfrozen — new users can enroll again')
-            } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to unfreeze exposure')
-            } finally {
-                actions.setUnfreezeExposureLoading(false)
-            }
-        },
-        archiveExperiment: async ({ disableFeatureFlag }) => {
-            try {
-                const response: Experiment = await api.create(
-                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/archive`,
-                    { disable_feature_flag: disableFeatureFlag }
-                )
-                actions.setExperiment(response)
-                refreshTreeItem('experiment', String(values.experimentId))
-                lemonToast.info('Experiment archived')
-            } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to archive experiment')
-            }
-        },
-        unarchiveExperiment: async () => {
-            try {
-                const response: Experiment = await api.create(
-                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/unarchive`
-                )
-                actions.setExperiment(response)
-                refreshTreeItem('experiment', String(values.experimentId))
-                lemonToast.info('Experiment unarchived')
-            } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to unarchive experiment')
-            }
-        },
-        refreshExperimentResults: async ({ forceRefresh, triggeredBy, refreshIfStale }) => {
-            const refreshId = generateRefreshId()
-            const refreshStart = performance.now()
-            const summaries: MetricLoadingSummary[] = []
-            cache.refreshSummariesById = cache.refreshSummariesById ?? {}
-            cache.refreshSummariesById[refreshId] = summaries
 
-            actions.markRefreshStarted(refreshId, triggeredBy)
-
-            // Start 10s timer to offer browser notifications
-            clearTimeout(cache.notificationOfferTimer)
-            cache.notificationOfferTimer = setTimeout(() => {
-                actions.setShowNotificationOffer(true)
-            }, 10_000)
-
-            let caughtError = false
-            try {
-                const recalculationFlow = values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
-                if (recalculationFlow) {
-                    /**
-                     * Config changes and auto-refresh both re-run metrics, tagged with their cause; page loads
-                     * and manual reloads are handled elsewhere. Concurrent triggers coalesce onto one active run.
-                     */
-                    if ((triggeredBy === 'config_change' || triggeredBy === 'auto_refresh') && values.experiment) {
-                        experimentMetricsLogic({ experiment: values.experiment }).actions.triggerRecalculation(
-                            triggeredBy
-                        )
-                    }
-                    // Metric results come from experimentMetricsLogic (mounted by the metrics view);
-                    // here we only refresh exposures, which still live in experimentLogic.
-                    await asyncActions.loadExposures(forceRefresh)
-                } else {
-                    await Promise.all([
-                        asyncActions.loadPrimaryMetricsResults(forceRefresh, refreshId),
-                        asyncActions.loadSecondaryMetricsResults(forceRefresh, refreshId),
-                        asyncActions.loadExposures(forceRefresh),
-                    ])
-                }
-            } catch (error) {
-                caughtError = true
-                throw error
-            } finally {
-                const totalDurationMs = Math.round(performance.now() - refreshStart)
-                const refreshSummaries: MetricLoadingSummary[] = cache.refreshSummariesById?.[refreshId] ?? []
-                if (cache.refreshSummariesById) {
-                    delete cache.refreshSummariesById[refreshId]
-                }
-
-                const primaryCount =
-                    (values.experiment?.metrics?.length || 0) +
-                    (values.experiment?.saved_metrics?.filter(
-                        (m: { metadata: { type: string } }) => m.metadata.type === 'primary'
-                    ).length || 0)
-                const secondaryCount =
-                    (values.experiment?.metrics_secondary?.length || 0) +
-                    (values.experiment?.saved_metrics?.filter(
-                        (m: { metadata: { type: string } }) => m.metadata.type === 'secondary'
-                    ).length || 0)
-                const successfulCount = refreshSummaries.reduce((sum, s) => sum + s.successfulCount, 0)
-                const erroredCount = refreshSummaries.reduce((sum, s) => sum + s.erroredCount, 0)
-                const cachedCount = refreshSummaries.reduce((sum, s) => sum + s.cachedCount, 0)
-
-                eventUsageLogic.actions.reportExperimentResultsRefreshCompleted(
-                    values.experimentId,
-                    values.currentTeamId,
-                    {
-                        total_duration_ms: totalDurationMs,
-                        primary_metrics_count: primaryCount,
-                        secondary_metrics_count: secondaryCount,
-                        successful_count: successfulCount,
-                        errored_count: erroredCount,
-                        cached_count: cachedCount,
-                        triggered_by: triggeredBy ?? 'manual',
-                        force_refresh: !!forceRefresh,
-                        refresh_id: refreshId,
-                        experiment_duration_hours: values.experiment?.start_date
-                            ? Math.round(
-                                  (Date.now() - new Date(values.experiment.start_date).getTime()) / (1000 * 60 * 60)
-                              )
-                            : null,
-                        experiment_status: values.experiment?.status ?? null,
-                        total_metrics_count: primaryCount + secondaryCount,
-                        execution_mode: getExperimentExecutionMode(values.featureFlags),
-                    }
-                )
-
-                const finalState: FinishedRefreshState = caughtError
-                    ? 'errored'
-                    : erroredCount > 0
-                      ? 'partial'
-                      : 'completed'
-                actions.markRefreshFinished(refreshId, finalState)
-
-                // Clear notification offer timer
-                clearTimeout(cache.notificationOfferTimer)
-
-                // Fire browser notification if user subscribed
-                if (
-                    values.notifyWhenResultsReady &&
-                    'Notification' in window &&
-                    Notification.permission === 'granted'
-                ) {
-                    const notification = new Notification('Experiment results ready', {
-                        body: `Results for "${values.experiment.name}" are now available.`,
-                        icon: '/static/posthog-icon.svg',
-                        tag: `experiment-results-${values.experimentId}`,
-                    })
-                    notification.onclick = () => {
-                        window.focus()
-                        notification.close()
-                    }
-                }
-
-                // Reset notification state
-                actions.setShowNotificationOffer(false)
-                actions.setNotifyWhenResultsReady(false)
-
-                // Only set up auto-refresh if enabled AND page is visible
-                // This prevents the interval from restarting when async operations complete after the page becomes invisible
-                if (
-                    values.experiment &&
-                    values.autoRefresh.enabled &&
-                    isLaunched(values.experiment) &&
-                    values.isPageVisible
-                ) {
-                    actions.resetAutoRefreshInterval()
-                }
-
-                // A warming-up experiment can show a stale "no results yet" snapshot on load, so fetch
-                // fresh once. When it has results we leave it to the in-tab auto-refresh, since recomputes
-                // might be expensive. Gated on `!forceRefresh` so the refresh we trigger here can't loop.
-                if (
-                    refreshIfStale &&
-                    !forceRefresh &&
-                    !caughtError &&
-                    !values.hasMinimumExposureForResults &&
-                    experimentResultsAreStale(
-                        [...values.primaryMetricsResults, ...values.secondaryMetricsResults],
-                        NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES
-                    )
-                ) {
-                    actions.refreshExperimentResults(true, 'page_load')
-                }
-            }
-        },
-        updateExperimentMetrics: async () => {
             await asyncActions.updateExperiment({
-                metrics: values.experiment.metrics,
-                metrics_secondary: values.experiment.metrics_secondary,
+                saved_metrics_ids: savedMetrics.map(({ saved_metric, metadata }) => ({ id: saved_metric, metadata })),
                 update_feature_flag_params: false,
             })
-            // Reload results for added/edited metrics
-            actions.refreshExperimentResults(true, 'config_change')
-        },
-        updateExperimentCollectionGoal: async () => {
-            const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
+        }
 
-            actions.updateExperiment({
-                running_time_calculation: {
-                    ...values.experiment?.running_time_calculation,
-                    recommended_running_time: recommendedRunningTime,
-                    recommended_sample_size: recommendedSampleSize,
-                    minimum_detectable_effect: minimumDetectableEffect || 0,
-                },
-                update_feature_flag_params: false,
-            })
-        },
-        updateExposureCriteria: async () => {
-            actions.updateExperiment({
-                exposure_criteria: {
-                    ...values.experiment.exposure_criteria,
-                },
-                update_feature_flag_params: false,
-            })
-            actions.refreshExperimentResults(true, 'config_change')
-        },
-        updateExperimentSettings: async ({ update }) => {
-            // Settings like stats config, CUPED, and conversion-window handling change
-            // how metrics and exposures are computed, so persist then re-query.
-            await asyncActions.updateExperiment({ ...update, update_feature_flag_params: false })
-            actions.refreshExperimentResults(true, 'config_change')
-        },
-        resetRunningExperiment: async () => {
-            try {
-                const response: Experiment = await api.create(
-                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/reset`
-                )
-                actions.setExperiment(response)
-                refreshTreeItem('experiment', String(values.experimentId))
-                // Metric results live in separate reducers not covered by setExperiment
-                actions.clearMetricsResults()
-            } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to reset experiment')
-            }
-        },
-        updateExperimentSuccess: async ({ experimentUpdate, payload }) => {
-            if (experimentUpdate) {
-                actions.updateExperiments(experimentUpdate)
-                if (payload?.update_feature_flag_params && experimentUpdate.feature_flag) {
-                    actions.updateFlagFromPartial(experimentUpdate.feature_flag)
+        return {
+            beforeUnmount: () => {
+                actions.stopAutoRefreshInterval()
+                clearTimeout(cache.notificationOfferTimer)
+            },
+            subscribeToResultsNotification: async () => {
+                if (!('Notification' in window)) {
+                    lemonToast.error('Your browser does not support notifications.')
+                    return
                 }
-            }
-            // NOTE: No implicit metric reload here. Each action that calls updateExperiment
-            // is responsible for triggering its own reload if needed. This prevents:
-            // 1. Unnecessary reloads (e.g., removing a metric doesn't need to re-query)
-            // 2. Double reloads (callers that explicitly reload were also getting implicit reload)
-            // See the semantic actions (removeMetric, etc.) for explicit reload patterns.
-        },
-        createExposureCohortSuccess: ({ exposureCohort }) => {
-            if (exposureCohort && exposureCohort.id !== 'new') {
-                cohortsModel.actions.cohortCreated(exposureCohort)
-                actions.reportExperimentExposureCohortCreated(values.experiment, exposureCohort)
-                actions.setExperiment({ exposure_cohort: exposureCohort.id })
-                lemonToast.success('Exposure cohort created successfully', {
-                    button: {
-                        label: 'View cohort',
-                        action: () => router.actions.push(urls.cohort(exposureCohort.id)),
-                    },
-                })
-            }
-        },
-        finishExperiment: async ({ selectedVariantKey, releaseToEveryone, openCleanupPr }) => {
-            actions.setEndExperimentLoading(true)
-            try {
-                const response: Experiment = await api.create(
-                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/ship_variant`,
-                    {
-                        variant_key: selectedVariantKey,
-                        release_to_everyone: releaseToEveryone,
-                        conclusion: values.experiment.conclusion,
-                        conclusion_comment: values.experiment.conclusion_comment,
-                        open_cleanup_pr: openCleanupPr,
-                    }
-                )
-                actions.setExperiment(response)
-                refreshTreeItem('experiment', String(values.experimentId))
-                actions.closeFinishExperimentModal()
-                lemonToast.success(
-                    releaseToEveryone
-                        ? 'Experiment ended. The selected variant has been rolled out to all users.'
-                        : 'Experiment ended. The selected variant has been rolled out to the experiment population.'
+
+                let permission = Notification.permission
+                if (permission === 'default') {
+                    permission = await Notification.requestPermission()
+                }
+
+                if (permission === 'granted') {
+                    actions.setNotifyWhenResultsReady(true)
+                } else if (permission === 'denied') {
+                    lemonToast.info(
+                        'Notifications are blocked. Enable them in your browser address bar or system settings.'
+                    )
+                }
+            },
+            createExperiment: async ({ draft, folder }) => {
+                actions.setCreateExperimentLoading(true)
+                const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
+
+                actions.touchExperimentField('name')
+                actions.touchExperimentField('feature_flag_key')
+                getExperimentVariants(values.experiment).forEach((_, i) =>
+                    actions.touchExperimentField(`feature_flag_config.filters.multivariate.variants.${i}.key`)
                 )
 
-                // Trigger Hogfetti celebration with cascading delays
+                if (hasFormErrors(values.experimentErrors)) {
+                    actions.setCreateExperimentLoading(false)
+                    return
+                }
+
+                // Minimum Detectable Effect is calculated based on a loaded insight
+                // Terminate if the insight did not manage to load in time
+                if (!minimumDetectableEffect) {
+                    eventUsageLogic.actions.reportExperimentInsightLoadFailed()
+                    actions.setCreateExperimentLoading(false)
+                    lemonToast.error(
+                        'Failed to load insight. Experiment cannot be saved without this value. Try changing the experiment goal.'
+                    )
+                    return
+                }
+
+                let response: Experiment | null = null
+                const isUpdate = values.formMode === FORM_MODES.update
+                try {
+                    if (isUpdate) {
+                        response = await api.update(
+                            `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
+                            {
+                                // Sends variant split and rollout through the feature_flag object,
+                                // dropping the deprecated flag-config parameters keys.
+                                ...toExperimentWritePayload(values.experiment),
+                                running_time_calculation: {
+                                    ...values.experiment?.running_time_calculation,
+                                    recommended_running_time: recommendedRunningTime,
+                                    recommended_sample_size: recommendedSampleSize,
+                                    minimum_detectable_effect: minimumDetectableEffect,
+                                },
+                                ...(!draft && { start_date: dayjs() }),
+                                // backwards compatibility: Remove any global properties set on the experiment.
+                                // These were used to change feature flag targeting, but this is controlled directly
+                                // on the feature flag now.
+                                filters: {
+                                    events: [],
+                                    actions: [],
+                                    ...values.experiment.filters,
+                                    properties: [],
+                                },
+                                // Signal the backend to sync variant split and rollout
+                                // percentage to the linked feature flag.
+                                update_feature_flag_params: true,
+                            }
+                        )
+
+                        if (response?.id) {
+                            actions.updateExperiments(response)
+                            actions.setEditExperiment(false)
+                            actions.loadExperimentSuccess(response)
+                            return
+                        }
+                    } else {
+                        response = await api.create(`api/projects/${values.currentProjectId}/experiments`, {
+                            // A pre-existing flag is linked as-is: the API rejects explicit flag
+                            // config for it, so only send config when the flag will be created.
+                            // Key-aware so a stale match for a previously typed key can't suppress
+                            // config for a fresh key.
+                            ...toExperimentWritePayload(values.experiment, {
+                                omitFlagConfig:
+                                    values.validExistingFeatureFlag?.key === values.experiment.feature_flag_key,
+                            }),
+                            running_time_calculation:
+                                /**
+                                 * only if we are creating a new experiment we need to reset
+                                 * the recommended running time. If we are duplicating we want to
+                                 * preserve this values.
+                                 */
+                                values.formMode === FORM_MODES.create
+                                    ? {
+                                          ...values.experiment?.running_time_calculation,
+                                          recommended_running_time: recommendedRunningTime,
+                                          recommended_sample_size: recommendedSampleSize,
+                                          minimum_detectable_effect: minimumDetectableEffect,
+                                      }
+                                    : values.experiment?.running_time_calculation,
+                            ...(!draft && { start_date: dayjs() }),
+                            ...(typeof folder === 'string' ? { _create_in_folder: folder } : {}),
+                        })
+
+                        if (response) {
+                            actions.addProductIntent({
+                                product_type: ProductKey.EXPERIMENTS,
+                                intent_context: ProductIntentContext.EXPERIMENT_CREATED,
+                            })
+                            if (response.feature_flag?.id) {
+                                refreshTreeItem('feature_flag', String(response.feature_flag.id))
+                            }
+                        }
+                    }
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to create experiment')
+                    actions.setCreateExperimentLoading(false)
+                    return
+                }
+
+                if (response?.id) {
+                    const experimentId = response.id
+                    refreshTreeItem('experiment', String(experimentId))
+                    const navigateToExperiment = (): void => {
+                        const scene = experimentSceneLogic.findMounted()
+                        if (scene) {
+                            scene.actions.setSceneState(experimentId, FORM_MODES.update)
+                        } else {
+                            router.actions.push(urls.experiment(experimentId))
+                        }
+                    }
+
+                    navigateToExperiment()
+                    actions.addToExperiments(response)
+                    lemonToast.success(`Experiment ${isUpdate ? 'updated' : 'created'}`, {
+                        button: {
+                            label: 'View it',
+                            action: navigateToExperiment,
+                        },
+                    })
+                }
+                actions.setCreateExperimentLoading(false)
+            },
+            loadExperimentSuccess: async ({ experiment, payload }) => {
+                const duration = experiment?.start_date ? dayjs().diff(experiment.start_date, 'second') : null
+                experiment && actions.reportExperimentViewed(experiment, duration)
+
+                // Load metrics for launched experiments (will set up auto-refresh after load completes).
+                // refreshExperimentResults branches on the recalculation feature flag internally.
+                if (experiment && isLaunched(experiment)) {
+                    actions.refreshExperimentResults(false, payload?.triggeredBy ?? 'manual', true)
+                }
+            },
+            refreshStaleResultsOnReentry: () => {
+                // In-app navigation back to an already-mounted experiment doesn't re-fire loadExperiment.
+                // Only warming-up experiments need a refresh on return — mature ones already show results
+                // and recomputes might be expensive, so we leave their cached state untouched (as before).
+                if (values.experiment && isLaunched(values.experiment) && !values.hasMinimumExposureForResults) {
+                    actions.refreshExperimentResults(false, 'page_load', true)
+                }
+            },
+            launchExperiment: async () => {
+                actions.setLaunchExperimentLoading(true)
+                try {
+                    const experiment: Experiment = await api.create(
+                        `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/launch`
+                    )
+                    const experimentWithMetricOrdering = initializeMetricOrdering(experiment)
+                    actions.setExperiment(experimentWithMetricOrdering)
+                    refreshTreeItem('experiment', String(values.experimentId))
+                    // Trigger results refresh so the metrics table doesn't get stuck in "loading" state
+                    actions.refreshExperimentResults(false, 'manual')
+                    actions.setUnmodifiedExperiment(structuredClone(experimentWithMetricOrdering))
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.LaunchExperiment)
+                    // Prefer the flag key — it's the shorter handle someone would actually type at an agent.
+                    const experimentHandle = experiment.feature_flag_key || experiment.name
+                    tryShowMCPHint('experiments.launch', {
+                        derivedPrompt: experimentHandle ? `Launch experiment ${experimentHandle}` : undefined,
+                    })
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to launch experiment')
+                } finally {
+                    actions.setLaunchExperimentLoading(false)
+                }
+            },
+            changeExperimentStartDate: async ({ startDate }) => {
+                await asyncActions.updateExperiment({ start_date: startDate, update_feature_flag_params: false })
+                values.experiment &&
+                    eventUsageLogic.actions.reportExperimentStartDateChange(values.experiment, startDate)
+                actions.refreshExperimentResults(true, 'config_change')
+            },
+            changeExperimentEndDate: async ({ endDate }) => {
+                await asyncActions.updateExperiment({ end_date: endDate, update_feature_flag_params: false })
+                values.experiment && eventUsageLogic.actions.reportExperimentEndDateChange(values.experiment, endDate)
+                actions.refreshExperimentResults(true, 'config_change')
+            },
+            endExperiment: async ({ openCleanupPr }) => {
+                actions.setEndExperimentLoading(true)
+                try {
+                    const response: Experiment = await api.create(
+                        `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/end`,
+                        {
+                            conclusion: values.experiment.conclusion,
+                            conclusion_comment: values.experiment.conclusion_comment,
+                            open_cleanup_pr: openCleanupPr,
+                        }
+                    )
+                    actions.setExperiment(response)
+                    refreshTreeItem('experiment', String(values.experimentId))
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to end experiment')
+                } finally {
+                    actions.setEndExperimentLoading(false)
+                }
+            },
+            endExperimentWithoutShipping: async ({ openCleanupPr }) => {
+                actions.endExperiment(openCleanupPr)
+                actions.closeFinishExperimentModal()
+                lemonToast.success('Experiment ended successfully')
+
                 if (values.experiment.conclusion === ExperimentConclusion.Won) {
                     const trigger = values.hogfettiTrigger
                     if (trigger) {
                         ;[0, 400, 800].forEach((delay) => setTimeout(trigger, delay))
                     }
                 }
-            } catch (error: any) {
-                actions.closeFinishExperimentModal()
-                if (error.status === 409 && error.data?.change_request_id) {
-                    showApprovalRequiredToast(
-                        error.data.change_request_id,
-                        'end this experiment and roll out the winning variant'
+            },
+            pauseExperiment: async () => {
+                try {
+                    const response: Experiment = await api.create(
+                        `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/pause`
                     )
-                    dispatchChangeRequestCreated({
-                        resourceType: 'feature_flag',
-                        resourceId: values.experiment.feature_flag?.id ?? '',
-                    })
-                } else {
-                    lemonToast.error(error.detail || 'Failed to ship variant')
+                    actions.setExperiment(response)
+                    actions.closePauseExperimentModal()
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to pause experiment')
                 }
-            } finally {
-                actions.setEndExperimentLoading(false)
-            }
-        },
-        updateExperimentVariantImages: async ({ variantPreviewMediaIds }) => {
-            try {
-                const updatedParameters = {
-                    ...values.experiment.parameters,
-                    variant_screenshot_media_ids: variantPreviewMediaIds,
+            },
+            resumeExperiment: async () => {
+                try {
+                    const response: Experiment = await api.create(
+                        `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/resume`
+                    )
+                    actions.setExperiment(response)
+                    actions.closeResumeExperimentModal()
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to resume experiment')
                 }
-                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                    parameters: updatedParameters,
-                    update_feature_flag_params: false,
-                })
-                actions.setExperiment({
-                    parameters: updatedParameters,
-                })
-            } catch {
-                lemonToast.error('Failed to update experiment variant images')
-            }
-        },
-        updateExperimentVariantNotes: async ({ variantNotes }) => {
-            try {
-                const updatedParameters = {
-                    ...values.experiment.parameters,
-                    variant_notes: variantNotes,
+            },
+            freezeExposure: async () => {
+                if (values.freezeExposureLoading) {
+                    return
                 }
-                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                    parameters: updatedParameters,
-                    update_feature_flag_params: false,
-                })
-                actions.setExperiment({
-                    parameters: updatedParameters,
-                })
-            } catch {
-                lemonToast.error('Failed to update experiment variant notes')
-            }
-        },
-        updateDistribution: async ({ variants, rolloutPercentage }) => {
-            actions.updateExperiment({
-                feature_flag: {
-                    filters: {
-                        multivariate: { variants: toFlagVariantsInput(variants) },
-                        ...(rolloutPercentage !== undefined
-                            ? { groups: [{ properties: [], rollout_percentage: rolloutPercentage }] }
-                            : {}),
+                actions.setFreezeExposureLoading(true)
+                try {
+                    const response: Experiment = await api.create(
+                        `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/freeze_exposure`
+                    )
+                    actions.setExperiment(response)
+                    refreshTreeItem('experiment', String(values.experimentId))
+                    lemonToast.success('Exposure frozen — enrolled users keep their variant and metrics keep updating')
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to freeze exposure')
+                } finally {
+                    actions.setFreezeExposureLoading(false)
+                }
+            },
+            unfreezeExposure: async () => {
+                if (values.unfreezeExposureLoading) {
+                    return
+                }
+                actions.setUnfreezeExposureLoading(true)
+                try {
+                    const response: Experiment = await api.create(
+                        `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/unfreeze_exposure`
+                    )
+                    actions.setExperiment(response)
+                    refreshTreeItem('experiment', String(values.experimentId))
+                    lemonToast.success('Exposure unfrozen — new users can enroll again')
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to unfreeze exposure')
+                } finally {
+                    actions.setUnfreezeExposureLoading(false)
+                }
+            },
+            archiveExperiment: async ({ disableFeatureFlag }) => {
+                try {
+                    const response: Experiment = await api.create(
+                        `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/archive`,
+                        { disable_feature_flag: disableFeatureFlag }
+                    )
+                    actions.setExperiment(response)
+                    refreshTreeItem('experiment', String(values.experimentId))
+                    lemonToast.info('Experiment archived')
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to archive experiment')
+                }
+            },
+            unarchiveExperiment: async () => {
+                try {
+                    const response: Experiment = await api.create(
+                        `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/unarchive`
+                    )
+                    actions.setExperiment(response)
+                    refreshTreeItem('experiment', String(values.experimentId))
+                    lemonToast.info('Experiment unarchived')
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to unarchive experiment')
+                }
+            },
+            refreshExperimentResults: async ({ forceRefresh, triggeredBy, refreshIfStale }) => {
+                const refreshId = generateRefreshId()
+                const refreshStart = performance.now()
+                const summaries: MetricLoadingSummary[] = []
+                cache.refreshSummariesById = cache.refreshSummariesById ?? {}
+                cache.refreshSummariesById[refreshId] = summaries
+
+                actions.markRefreshStarted(refreshId, triggeredBy)
+
+                // Start 10s timer to offer browser notifications
+                clearTimeout(cache.notificationOfferTimer)
+                cache.notificationOfferTimer = setTimeout(() => {
+                    actions.setShowNotificationOffer(true)
+                }, 10_000)
+
+                let caughtError = false
+                try {
+                    const recalculationFlow = values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
+                    if (recalculationFlow) {
+                        /**
+                         * Config changes and auto-refresh both re-run metrics, tagged with their cause; page loads
+                         * and manual reloads are handled elsewhere. Concurrent triggers coalesce onto one active run.
+                         */
+                        if ((triggeredBy === 'config_change' || triggeredBy === 'auto_refresh') && values.experiment) {
+                            experimentMetricsLogic({ experiment: values.experiment }).actions.triggerRecalculation(
+                                triggeredBy
+                            )
+                        }
+                        // Metric results come from experimentMetricsLogic (mounted by the metrics view);
+                        // here we only refresh exposures, which still live in experimentLogic.
+                        await asyncActions.loadExposures(forceRefresh)
+                    } else {
+                        await Promise.all([
+                            asyncActions.loadPrimaryMetricsResults(forceRefresh, refreshId),
+                            asyncActions.loadSecondaryMetricsResults(forceRefresh, refreshId),
+                            asyncActions.loadExposures(forceRefresh),
+                        ])
+                    }
+                } catch (error) {
+                    caughtError = true
+                    throw error
+                } finally {
+                    const totalDurationMs = Math.round(performance.now() - refreshStart)
+                    const refreshSummaries: MetricLoadingSummary[] = cache.refreshSummariesById?.[refreshId] ?? []
+                    if (cache.refreshSummariesById) {
+                        delete cache.refreshSummariesById[refreshId]
+                    }
+
+                    const primaryCount =
+                        (values.experiment?.metrics?.length || 0) +
+                        (values.experiment?.saved_metrics?.filter(
+                            (m: { metadata: { type: string } }) => m.metadata.type === 'primary'
+                        ).length || 0)
+                    const secondaryCount =
+                        (values.experiment?.metrics_secondary?.length || 0) +
+                        (values.experiment?.saved_metrics?.filter(
+                            (m: { metadata: { type: string } }) => m.metadata.type === 'secondary'
+                        ).length || 0)
+                    const successfulCount = refreshSummaries.reduce((sum, s) => sum + s.successfulCount, 0)
+                    const erroredCount = refreshSummaries.reduce((sum, s) => sum + s.erroredCount, 0)
+                    const cachedCount = refreshSummaries.reduce((sum, s) => sum + s.cachedCount, 0)
+
+                    eventUsageLogic.actions.reportExperimentResultsRefreshCompleted(
+                        values.experimentId,
+                        values.currentTeamId,
+                        {
+                            total_duration_ms: totalDurationMs,
+                            primary_metrics_count: primaryCount,
+                            secondary_metrics_count: secondaryCount,
+                            successful_count: successfulCount,
+                            errored_count: erroredCount,
+                            cached_count: cachedCount,
+                            triggered_by: triggeredBy ?? 'manual',
+                            force_refresh: !!forceRefresh,
+                            refresh_id: refreshId,
+                            experiment_duration_hours: values.experiment?.start_date
+                                ? Math.round(
+                                      (Date.now() - new Date(values.experiment.start_date).getTime()) / (1000 * 60 * 60)
+                                  )
+                                : null,
+                            experiment_status: values.experiment?.status ?? null,
+                            total_metrics_count: primaryCount + secondaryCount,
+                            execution_mode: getExperimentExecutionMode(values.featureFlags),
+                        }
+                    )
+
+                    const finalState: FinishedRefreshState = caughtError
+                        ? 'errored'
+                        : erroredCount > 0
+                          ? 'partial'
+                          : 'completed'
+                    actions.markRefreshFinished(refreshId, finalState)
+
+                    // Clear notification offer timer
+                    clearTimeout(cache.notificationOfferTimer)
+
+                    // Fire browser notification if user subscribed
+                    if (
+                        values.notifyWhenResultsReady &&
+                        'Notification' in window &&
+                        Notification.permission === 'granted'
+                    ) {
+                        const notification = new Notification('Experiment results ready', {
+                            body: `Results for "${values.experiment.name}" are now available.`,
+                            icon: '/static/posthog-icon.svg',
+                            tag: `experiment-results-${values.experimentId}`,
+                        })
+                        notification.onclick = () => {
+                            window.focus()
+                            notification.close()
+                        }
+                    }
+
+                    // Reset notification state
+                    actions.setShowNotificationOffer(false)
+                    actions.setNotifyWhenResultsReady(false)
+
+                    // Only set up auto-refresh if enabled AND page is visible
+                    // This prevents the interval from restarting when async operations complete after the page becomes invisible
+                    if (
+                        values.experiment &&
+                        values.autoRefresh.enabled &&
+                        isLaunched(values.experiment) &&
+                        values.isPageVisible
+                    ) {
+                        actions.resetAutoRefreshInterval()
+                    }
+
+                    // A warming-up experiment can show a stale "no results yet" snapshot on load, so fetch
+                    // fresh once. When it has results we leave it to the in-tab auto-refresh, since recomputes
+                    // might be expensive. Gated on `!forceRefresh` so the refresh we trigger here can't loop.
+                    if (
+                        refreshIfStale &&
+                        !forceRefresh &&
+                        !caughtError &&
+                        !values.hasMinimumExposureForResults &&
+                        experimentResultsAreStale(
+                            [...values.primaryMetricsResults, ...values.secondaryMetricsResults],
+                            NEW_EXPERIMENT_FORCE_REFRESH_AFTER_MINUTES
+                        )
+                    ) {
+                        actions.refreshExperimentResults(true, 'page_load')
+                    }
+                }
+            },
+            /**
+             * Persist a single metric the reducers have already applied locally.
+             *
+             * Reducers (setMetric, duplicateMetric, the modal's onSave, ...) each change exactly
+             * one metric, so this reads that one back out of local state and sends only it. The
+             * server owns the array, so a metric someone else added meanwhile survives — which is
+             * why there is no longer any action that sends the whole metrics array.
+             */
+            persistMetric: async ({ uuid, isSecondary, isNew, reloadResults }) => {
+                const field = isSecondary ? 'metrics_secondary' : 'metrics'
+                const metric = (values.experiment[field] || []).find((m) => m.uuid === uuid)
+                if (!metric) {
+                    return
+                }
+
+                // Drop a second write for the same metric while the first is in flight. On a
+                // create that would add the metric twice, since the server mints a fresh uuid
+                // per request. Guarding here rather than on each Save/Duplicate button covers
+                // every caller at once.
+                cache.metricWritesInFlight = cache.metricWritesInFlight || new Set<string>()
+                if (cache.metricWritesInFlight.has(uuid)) {
+                    return
+                }
+                cache.metricWritesInFlight.add(uuid)
+
+                const projectId = String(values.currentProjectId)
+                const experimentId = Number(values.experimentId)
+                const section = isSecondary ? 'secondary' : 'primary'
+
+                try {
+                    const response = isNew
+                        ? await experimentsMetricsCreate(projectId, experimentId, { section, metric: metric as any })
+                        : await experimentsMetricsPartialUpdate(projectId, experimentId, uuid, {
+                              metric: metric as any,
+                          })
+                    actions.applyMetricMutation(response, uuid)
+                    actions.setUnmodifiedExperiment(structuredClone(values.experiment))
+                } catch (error: any) {
+                    // The reducer already applied the change optimistically, so resync from the
+                    // server rather than leaving a metric on screen that was never saved.
+                    lemonToast.error(error.detail || 'Failed to save metric')
+                    actions.loadExperiment({ triggeredBy: 'config_change' })
+                    return
+                } finally {
+                    cache.metricWritesInFlight.delete(uuid)
+                }
+
+                if (reloadResults) {
+                    actions.refreshExperimentResults(true, 'config_change')
+                }
+            },
+            updateExperimentCollectionGoal: async () => {
+                const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
+
+                actions.updateExperiment({
+                    running_time_calculation: {
+                        ...values.experiment?.running_time_calculation,
+                        recommended_running_time: recommendedRunningTime,
+                        recommended_sample_size: recommendedSampleSize,
+                        minimum_detectable_effect: minimumDetectableEffect || 0,
                     },
-                },
-                holdout_id: values.experiment.holdout_id,
-                update_feature_flag_params: true,
-            })
-        },
-        addSharedMetricsToExperiment: async ({ sharedMetricIds, metadata }) => {
-            const existingMetricsIds = values.experiment.saved_metrics.map((sharedMetric) => ({
-                id: sharedMetric.saved_metric,
-                metadata: sharedMetric.metadata,
-            }))
-
-            const newMetricsIds = sharedMetricIds.map((id: SharedMetric['id']) => ({ id, metadata }))
-            newMetricsIds.forEach((metricId) => {
-                const metric = values.sharedMetrics.find((m: SharedMetric) => m.id === metricId.id)
-                if (metric) {
-                    actions.reportExperimentSharedMetricAssigned(values.experimentId, metric)
+                    update_feature_flag_params: false,
+                })
+            },
+            updateExposureCriteria: async () => {
+                actions.updateExperiment({
+                    exposure_criteria: {
+                        ...values.experiment.exposure_criteria,
+                    },
+                    update_feature_flag_params: false,
+                })
+                actions.refreshExperimentResults(true, 'config_change')
+            },
+            updateExperimentSettings: async ({ update }) => {
+                // Settings like stats config, CUPED, and conversion-window handling change
+                // how metrics and exposures are computed, so persist then re-query.
+                await asyncActions.updateExperiment({ ...update, update_feature_flag_params: false })
+                actions.refreshExperimentResults(true, 'config_change')
+            },
+            resetRunningExperiment: async () => {
+                try {
+                    const response: Experiment = await api.create(
+                        `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/reset`
+                    )
+                    actions.setExperiment(response)
+                    refreshTreeItem('experiment', String(values.experimentId))
+                    // Metric results live in separate reducers not covered by setExperiment
+                    actions.clearMetricsResults()
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to reset experiment')
                 }
-            })
-            const combinedMetricsIds = [...existingMetricsIds, ...newMetricsIds]
+            },
+            updateExperimentSuccess: async ({ experimentUpdate, payload }) => {
+                if (experimentUpdate) {
+                    actions.updateExperiments(experimentUpdate)
+                    if (payload?.update_feature_flag_params && experimentUpdate.feature_flag) {
+                        actions.updateFlagFromPartial(experimentUpdate.feature_flag)
+                    }
+                }
+                // NOTE: No implicit metric reload here. Each action that calls updateExperiment
+                // is responsible for triggering its own reload if needed. This prevents:
+                // 1. Unnecessary reloads (e.g., removing a metric doesn't need to re-query)
+                // 2. Double reloads (callers that explicitly reload were also getting implicit reload)
+                // See the semantic actions (removeMetric, etc.) for explicit reload patterns.
+            },
+            createExposureCohortSuccess: ({ exposureCohort }) => {
+                if (exposureCohort && exposureCohort.id !== 'new') {
+                    cohortsModel.actions.cohortCreated(exposureCohort)
+                    actions.reportExperimentExposureCohortCreated(values.experiment, exposureCohort)
+                    actions.setExperiment({ exposure_cohort: exposureCohort.id })
+                    lemonToast.success('Exposure cohort created successfully', {
+                        button: {
+                            label: 'View cohort',
+                            action: () => router.actions.push(urls.cohort(exposureCohort.id)),
+                        },
+                    })
+                }
+            },
+            finishExperiment: async ({ selectedVariantKey, releaseToEveryone, openCleanupPr }) => {
+                actions.setEndExperimentLoading(true)
+                try {
+                    const response: Experiment = await api.create(
+                        `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/ship_variant`,
+                        {
+                            variant_key: selectedVariantKey,
+                            release_to_everyone: releaseToEveryone,
+                            conclusion: values.experiment.conclusion,
+                            conclusion_comment: values.experiment.conclusion_comment,
+                            open_cleanup_pr: openCleanupPr,
+                        }
+                    )
+                    actions.setExperiment(response)
+                    refreshTreeItem('experiment', String(values.experimentId))
+                    actions.closeFinishExperimentModal()
+                    lemonToast.success(
+                        releaseToEveryone
+                            ? 'Experiment ended. The selected variant has been rolled out to all users.'
+                            : 'Experiment ended. The selected variant has been rolled out to the experiment population.'
+                    )
 
-            await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                saved_metrics_ids: combinedMetricsIds,
-                update_feature_flag_params: false,
-            })
-
-            actions.loadExperiment({ triggeredBy: 'config_change' })
-        },
-        duplicateSharedMetricAsInlineMetric: ({ isSecondary, newUuid }) => {
-            // Listeners run after reducers, so the copy is only there if the shared metric was actually found
-            const metrics = (isSecondary ? values.experiment.metrics_secondary : values.experiment.metrics) || []
-            if (metrics.some((metric) => metric.uuid === newUuid)) {
-                lemonToast.success('Metric duplicated as a single-use metric')
-            }
-        },
-        removeSharedMetricFromExperiment: async ({ sharedMetricId }) => {
-            const sharedMetricsIds = values.experiment.saved_metrics
-                .filter((sharedMetric) => sharedMetric.saved_metric !== sharedMetricId)
-                .map((sharedMetric) => ({
+                    // Trigger Hogfetti celebration with cascading delays
+                    if (values.experiment.conclusion === ExperimentConclusion.Won) {
+                        const trigger = values.hogfettiTrigger
+                        if (trigger) {
+                            ;[0, 400, 800].forEach((delay) => setTimeout(trigger, delay))
+                        }
+                    }
+                } catch (error: any) {
+                    actions.closeFinishExperimentModal()
+                    if (error.status === 409 && error.data?.change_request_id) {
+                        showApprovalRequiredToast(
+                            error.data.change_request_id,
+                            'end this experiment and roll out the winning variant'
+                        )
+                        dispatchChangeRequestCreated({
+                            resourceType: 'feature_flag',
+                            resourceId: values.experiment.feature_flag?.id ?? '',
+                        })
+                    } else {
+                        lemonToast.error(error.detail || 'Failed to ship variant')
+                    }
+                } finally {
+                    actions.setEndExperimentLoading(false)
+                }
+            },
+            updateExperimentVariantImages: async ({ variantPreviewMediaIds }) => {
+                try {
+                    const updatedParameters = {
+                        ...values.experiment.parameters,
+                        variant_screenshot_media_ids: variantPreviewMediaIds,
+                    }
+                    await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
+                        parameters: updatedParameters,
+                        update_feature_flag_params: false,
+                    })
+                    actions.setExperiment({
+                        parameters: updatedParameters,
+                    })
+                } catch {
+                    lemonToast.error('Failed to update experiment variant images')
+                }
+            },
+            updateExperimentVariantNotes: async ({ variantNotes }) => {
+                try {
+                    const updatedParameters = {
+                        ...values.experiment.parameters,
+                        variant_notes: variantNotes,
+                    }
+                    await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
+                        parameters: updatedParameters,
+                        update_feature_flag_params: false,
+                    })
+                    actions.setExperiment({
+                        parameters: updatedParameters,
+                    })
+                } catch {
+                    lemonToast.error('Failed to update experiment variant notes')
+                }
+            },
+            updateDistribution: async ({ variants, rolloutPercentage }) => {
+                actions.updateExperiment({
+                    feature_flag: {
+                        filters: {
+                            multivariate: { variants: toFlagVariantsInput(variants) },
+                            ...(rolloutPercentage !== undefined
+                                ? { groups: [{ properties: [], rollout_percentage: rolloutPercentage }] }
+                                : {}),
+                        },
+                    },
+                    holdout_id: values.experiment.holdout_id,
+                    update_feature_flag_params: true,
+                })
+            },
+            addSharedMetricsToExperiment: async ({ sharedMetricIds, metadata }) => {
+                const existingMetricsIds = values.experiment.saved_metrics.map((sharedMetric) => ({
                     id: sharedMetric.saved_metric,
                     metadata: sharedMetric.metadata,
                 }))
 
-            // Also remove orphaned shared metrics that were incorrectly stored in the metrics arrays
-            const cleanedMetrics = (values.experiment.metrics || []).filter(
-                (m) => !('isSharedMetric' in m && m.isSharedMetric && m.sharedMetricId === sharedMetricId)
-            )
-            const cleanedMetricsSecondary = (values.experiment.metrics_secondary || []).filter(
-                (m) => !('isSharedMetric' in m && m.isSharedMetric && m.sharedMetricId === sharedMetricId)
-            )
-
-            await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                saved_metrics_ids: sharedMetricsIds,
-                metrics: cleanedMetrics,
-                metrics_secondary: cleanedMetricsSecondary,
-                update_feature_flag_params: false,
-            })
-
-            actions.loadExperiment({ triggeredBy: 'config_change' })
-        },
-        createExperimentDashboard: async () => {
-            actions.setIsCreatingExperimentDashboard(true)
-
-            /**
-             * create a query builder to transform the experiment metric into a query
-             * that can be used to create an insight
-             */
-            const queryBuilder = compose<
-                ExperimentMetric,
-                ExperimentMetric,
-                FunnelsQuery | TrendsQuery | undefined,
-                InsightVizNode | undefined
-            >(
-                addExposureToMetric({
-                    kind: NodeKind.EventsNode,
-                    event: '$pageview',
-                    custom_name: 'Placeholder for experiment exposure',
-                    properties: [],
-                }),
-                getQuery(),
-                getInsight()
-            )
-
-            try {
-                /**
-                 * get the experiment url for the dashboard description
-                 */
-                const experimentUrl =
-                    window.location.origin + addProjectIdIfMissing(urls.experiment(values.experimentId))
-
-                /**
-                 * create a new dashboard
-                 */
-                const dashboard: DashboardType = await api.create(
-                    `api/environments/${values.currentTeamId}/dashboards/`,
-                    {
-                        name: 'Experiment: ' + values.experiment.name,
-                        description: `Dashboard for [${experimentUrl}](${experimentUrl})`,
-                        filters: {
-                            date_from: values.experiment.start_date,
-                            date_to: values.experiment.end_date,
-                            properties: [],
-                            breakdown_filter: {
-                                breakdown: featureFlagVariantProperty(values.experiment.feature_flag_key),
-                                breakdown_type: 'event' as BreakdownType,
-                            },
-                        },
-                    } as Partial<DashboardType>
-                )
-
-                /**
-                 * create a new insight for each metric, either primary or secondary
-                 * reverse the order of the metric because adding an insight to the dashboard
-                 * places it at the beginning of the list
-                 */
-                for (const type of ['secondary', 'primary']) {
-                    const singleMetrics =
-                        type === 'secondary' ? values.experiment.metrics_secondary : values.experiment.metrics
-                    const sharedMetrics = values.experiment?.saved_metrics.filter(
-                        (sharedMetric) => sharedMetric.metadata.type === type
-                    )
-                    const metrics = [
-                        ...singleMetrics,
-                        ...sharedMetrics.map((m) => ({ name: m.name, ...m.query })),
-                    ].reverse()
-
-                    for (const query of metrics) {
-                        const insightQuery = queryBuilder(query)
-
-                        await api.create(`api/projects/${projectLogic.values.currentProjectId}/insights`, {
-                            name: query.name || undefined,
-                            query: insightQuery,
-                            dashboards: [dashboard.id],
-                        })
+                const newMetricsIds = sharedMetricIds.map((id: SharedMetric['id']) => ({ id, metadata }))
+                newMetricsIds.forEach((metricId) => {
+                    const metric = values.sharedMetrics.find((m: SharedMetric) => m.id === metricId.id)
+                    if (metric) {
+                        actions.reportExperimentSharedMetricAssigned(values.experimentId, metric)
                     }
-                }
+                })
+                const combinedMetricsIds = [...existingMetricsIds, ...newMetricsIds]
 
-                actions.reportExperimentDashboardCreated(values.experiment, dashboard.id)
-
-                const dashboardUrl = window.location.origin + addProjectIdIfMissing(urls.dashboard(dashboard.id))
-                actions.updateExperiment({
-                    description:
-                        (values.experiment.description ? values.experiment.description + `\n\n` : '') +
-                        `Dashboard: [${dashboardUrl}](${dashboardUrl})`,
+                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
+                    saved_metrics_ids: combinedMetricsIds,
                     update_feature_flag_params: false,
                 })
 
-                lemonToast.success('Dashboard created successfully', {
-                    button: {
-                        label: 'View dashboard',
-                        action: () => router.actions.push(`/dashboard/${dashboard.id}`),
-                    },
-                })
-            } catch (error: any) {
-                if (!isBreakpoint(error)) {
-                    const message = error.code && error.detail ? `${error.code}: ${error.detail}` : error
-                    lemonToast.error(`Could not create dashboard: ${message}`)
+                actions.loadExperiment({ triggeredBy: 'config_change' })
+            },
+            duplicateSharedMetricAsInlineMetric: ({ isSecondary, newUuid }) => {
+                // Listeners run after reducers, so the copy is only there if the shared metric was actually found
+                const metrics = (isSecondary ? values.experiment.metrics_secondary : values.experiment.metrics) || []
+                if (metrics.some((metric) => metric.uuid === newUuid)) {
+                    lemonToast.success('Metric duplicated as a single-use metric')
                 }
-            }
-            actions.setIsCreatingExperimentDashboard(false)
-        },
-        restoreUnmodifiedExperiment: () => {
-            if (values.unmodifiedExperiment) {
-                actions.setExperiment(structuredClone(values.unmodifiedExperiment))
-            }
-        },
-        validateFeatureFlag: async ({ featureFlagKey }: { featureFlagKey: string }, breakpoint) => {
-            await breakpoint(200)
-            const response = await api.get(
-                `api/projects/${values.currentProjectId}/feature_flags/?${toParams({ search: featureFlagKey })}`
-            )
-            const existingErrors = {
-                // :KLUDGE: If there is no name error, we don't want to trigger the 'required' error early
-                name: undefined,
-                ...values.experimentErrors,
-            }
-            if (response.results.length > 0) {
-                const matchingFlag = response.results.find((flag: FeatureFlagType) => flag.key === featureFlagKey)
-                if (matchingFlag) {
-                    let isValid
-                    try {
-                        isValid = featureFlagEligibleForExperiment(matchingFlag)
-                    } catch {
-                        isValid = false
-                    }
-                    actions.setValidExistingFeatureFlag(isValid ? matchingFlag : null)
-                    actions.setFeatureFlagValidationError(
-                        isValid ? '' : 'Existing feature flag is not eligible for experiments.'
-                    )
-                    actions.setExperimentManualErrors({
-                        ...existingErrors,
-                        feature_flag_key: values.featureFlagValidationError || undefined,
-                    })
-                    return
-                }
-            }
+            },
+            removeSharedMetricFromExperiment: async ({ sharedMetricId }) => {
+                const sharedMetricsIds = values.experiment.saved_metrics
+                    .filter((sharedMetric) => sharedMetric.saved_metric !== sharedMetricId)
+                    .map((sharedMetric) => ({
+                        id: sharedMetric.saved_metric,
+                        metadata: sharedMetric.metadata,
+                    }))
 
-            actions.setValidExistingFeatureFlag(null)
-            actions.setFeatureFlagValidationError(validateFeatureFlagKey(featureFlagKey) || '')
-            actions.setExperimentManualErrors({
-                ...existingErrors,
-                feature_flag_key: values.featureFlagValidationError || undefined,
-            })
-        },
-        touchExperimentField: ({ key }) => {
-            // :KLUDGE: Persist the existing feature_flag_key validation when the field is blurred.
-            if (key === 'feature_flag_key') {
+                // Also remove orphaned shared metrics that were incorrectly stored in the metrics arrays
+                const cleanedMetrics = (values.experiment.metrics || []).filter(
+                    (m) => !('isSharedMetric' in m && m.isSharedMetric && m.sharedMetricId === sharedMetricId)
+                )
+                const cleanedMetricsSecondary = (values.experiment.metrics_secondary || []).filter(
+                    (m) => !('isSharedMetric' in m && m.isSharedMetric && m.sharedMetricId === sharedMetricId)
+                )
+
+                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
+                    saved_metrics_ids: sharedMetricsIds,
+                    metrics: cleanedMetrics,
+                    metrics_secondary: cleanedMetricsSecondary,
+                    update_feature_flag_params: false,
+                })
+
+                actions.loadExperiment({ triggeredBy: 'config_change' })
+            },
+            createExperimentDashboard: async () => {
+                actions.setIsCreatingExperimentDashboard(true)
+
+                /**
+                 * create a query builder to transform the experiment metric into a query
+                 * that can be used to create an insight
+                 */
+                const queryBuilder = compose<
+                    ExperimentMetric,
+                    ExperimentMetric,
+                    FunnelsQuery | TrendsQuery | undefined,
+                    InsightVizNode | undefined
+                >(
+                    addExposureToMetric({
+                        kind: NodeKind.EventsNode,
+                        event: '$pageview',
+                        custom_name: 'Placeholder for experiment exposure',
+                        properties: [],
+                    }),
+                    getQuery(),
+                    getInsight()
+                )
+
+                try {
+                    /**
+                     * get the experiment url for the dashboard description
+                     */
+                    const experimentUrl =
+                        window.location.origin + addProjectIdIfMissing(urls.experiment(values.experimentId))
+
+                    /**
+                     * create a new dashboard
+                     */
+                    const dashboard: DashboardType = await api.create(
+                        `api/environments/${values.currentTeamId}/dashboards/`,
+                        {
+                            name: 'Experiment: ' + values.experiment.name,
+                            description: `Dashboard for [${experimentUrl}](${experimentUrl})`,
+                            filters: {
+                                date_from: values.experiment.start_date,
+                                date_to: values.experiment.end_date,
+                                properties: [],
+                                breakdown_filter: {
+                                    breakdown: featureFlagVariantProperty(values.experiment.feature_flag_key),
+                                    breakdown_type: 'event' as BreakdownType,
+                                },
+                            },
+                        } as Partial<DashboardType>
+                    )
+
+                    /**
+                     * create a new insight for each metric, either primary or secondary
+                     * reverse the order of the metric because adding an insight to the dashboard
+                     * places it at the beginning of the list
+                     */
+                    for (const type of ['secondary', 'primary']) {
+                        const singleMetrics =
+                            type === 'secondary' ? values.experiment.metrics_secondary : values.experiment.metrics
+                        const sharedMetrics = values.experiment?.saved_metrics.filter(
+                            (sharedMetric) => sharedMetric.metadata.type === type
+                        )
+                        const metrics = [
+                            ...singleMetrics,
+                            ...sharedMetrics.map((m) => ({ name: m.name, ...m.query })),
+                        ].reverse()
+
+                        for (const query of metrics) {
+                            const insightQuery = queryBuilder(query)
+
+                            await api.create(`api/projects/${projectLogic.values.currentProjectId}/insights`, {
+                                name: query.name || undefined,
+                                query: insightQuery,
+                                dashboards: [dashboard.id],
+                            })
+                        }
+                    }
+
+                    actions.reportExperimentDashboardCreated(values.experiment, dashboard.id)
+
+                    const dashboardUrl = window.location.origin + addProjectIdIfMissing(urls.dashboard(dashboard.id))
+                    actions.updateExperiment({
+                        description:
+                            (values.experiment.description ? values.experiment.description + `\n\n` : '') +
+                            `Dashboard: [${dashboardUrl}](${dashboardUrl})`,
+                        update_feature_flag_params: false,
+                    })
+
+                    lemonToast.success('Dashboard created successfully', {
+                        button: {
+                            label: 'View dashboard',
+                            action: () => router.actions.push(`/dashboard/${dashboard.id}`),
+                        },
+                    })
+                } catch (error: any) {
+                    if (!isBreakpoint(error)) {
+                        const message = error.code && error.detail ? `${error.code}: ${error.detail}` : error
+                        lemonToast.error(`Could not create dashboard: ${message}`)
+                    }
+                }
+                actions.setIsCreatingExperimentDashboard(false)
+            },
+            restoreUnmodifiedExperiment: () => {
+                if (values.unmodifiedExperiment) {
+                    actions.setExperiment(structuredClone(values.unmodifiedExperiment))
+                }
+            },
+            validateFeatureFlag: async ({ featureFlagKey }: { featureFlagKey: string }, breakpoint) => {
+                await breakpoint(200)
+                const response = await api.get(
+                    `api/projects/${values.currentProjectId}/feature_flags/?${toParams({ search: featureFlagKey })}`
+                )
+                const existingErrors = {
+                    // :KLUDGE: If there is no name error, we don't want to trigger the 'required' error early
+                    name: undefined,
+                    ...values.experimentErrors,
+                }
+                if (response.results.length > 0) {
+                    const matchingFlag = response.results.find((flag: FeatureFlagType) => flag.key === featureFlagKey)
+                    if (matchingFlag) {
+                        let isValid
+                        try {
+                            isValid = featureFlagEligibleForExperiment(matchingFlag)
+                        } catch {
+                            isValid = false
+                        }
+                        actions.setValidExistingFeatureFlag(isValid ? matchingFlag : null)
+                        actions.setFeatureFlagValidationError(
+                            isValid ? '' : 'Existing feature flag is not eligible for experiments.'
+                        )
+                        actions.setExperimentManualErrors({
+                            ...existingErrors,
+                            feature_flag_key: values.featureFlagValidationError || undefined,
+                        })
+                        return
+                    }
+                }
+
+                actions.setValidExistingFeatureFlag(null)
+                actions.setFeatureFlagValidationError(validateFeatureFlagKey(featureFlagKey) || '')
                 actions.setExperimentManualErrors({
+                    ...existingErrors,
                     feature_flag_key: values.featureFlagValidationError || undefined,
                 })
-            }
-        },
-        loadPrimaryMetricsResults: async ({ refresh, refreshId }: { refresh?: boolean; refreshId?: string }) => {
-            actions.setPrimaryMetricsResultsLoading(true)
-            actions.setPrimaryMetricsResults([])
-
-            const sharedMetrics: ExperimentMetric[] = sharedMetricsToExperimentMetrics(
-                values.experiment?.saved_metrics as ExperimentSavedMetric[],
-                'primary'
-            )
-
-            const metrics = [...(values.experiment?.metrics || []), ...sharedMetrics]
-
-            const resolvedRefreshId = refreshId || generateRefreshId()
-            const summary = await loadMetrics({
-                metrics,
-                experimentId: values.experimentId,
-                refresh,
-                teamId: values.currentTeamId,
-                refreshId: resolvedRefreshId,
-                isPrimary: true,
-                isRetry: false,
-                metricIndexOffset: 0,
-                orderedUuids: values.experiment?.primary_metrics_ordered_uuids,
-                featureFlags: values.featureFlags,
-                onSetResults: actions.setPrimaryMetricsResults,
-                onSetErrors: actions.setPrimaryMetricsResultsErrors,
-            })
-
-            const refreshSummaries = cache.refreshSummariesById?.[resolvedRefreshId]
-            if (refreshSummaries) {
-                refreshSummaries.push(summary)
-            }
-
-            actions.setPrimaryMetricsResultsLoading(false)
-
-            // Mark the review results task as complete when results are loaded for a launched experiment
-            if (values.experiment && isLaunched(values.experiment)) {
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ReviewExperimentResults)
-            }
-        },
-        loadSecondaryMetricsResults: async ({ refresh, refreshId }: { refresh?: boolean; refreshId?: string }) => {
-            actions.setSecondaryMetricsResultsLoading(true)
-            actions.setSecondaryMetricsResults([])
-
-            const sharedMetrics: ExperimentMetric[] = sharedMetricsToExperimentMetrics(
-                values.experiment?.saved_metrics as ExperimentSavedMetric[],
-                'secondary'
-            )
-            const secondaryMetrics = [...(values.experiment?.metrics_secondary || []), ...sharedMetrics]
-
-            const resolvedRefreshId = refreshId || generateRefreshId()
-            const summary = await loadMetrics({
-                metrics: secondaryMetrics,
-                experimentId: values.experimentId,
-                refresh,
-                teamId: values.currentTeamId,
-                refreshId: resolvedRefreshId,
-                isPrimary: false,
-                isRetry: false,
-                metricIndexOffset: 0,
-                orderedUuids: values.experiment?.secondary_metrics_ordered_uuids,
-                featureFlags: values.featureFlags,
-                onSetResults: actions.setSecondaryMetricsResults,
-                onSetErrors: actions.setSecondaryMetricsResultsErrors,
-            })
-
-            const refreshSummaries = cache.refreshSummariesById?.[resolvedRefreshId]
-            if (refreshSummaries) {
-                refreshSummaries.push(summary)
-            }
-
-            actions.setSecondaryMetricsResultsLoading(false)
-        },
-        retryPrimaryMetric: async ({ index }: { index: number }) => {
-            // Clear the error for this metric
-            const currentErrors = [...values.primaryMetricsResultsErrors]
-            currentErrors[index] = null
-            actions.setPrimaryMetricsResultsErrors(currentErrors)
-
-            // Get the metric to retry
-
-            const sharedMetrics: ExperimentMetric[] = sharedMetricsToExperimentMetrics(
-                values.experiment?.saved_metrics as ExperimentSavedMetric[],
-                'primary'
-            )
-
-            const metrics = [...(values.experiment?.metrics || []), ...sharedMetrics]
-
-            const metricToRetry = metrics[index]
-            if (!metricToRetry) {
-                return
-            }
-
-            // Create single-item arrays for this metric
-            const singleMetricArray = [metricToRetry]
-            const currentResults = [...values.primaryMetricsResults]
-
-            // Load just this one metric
-            await loadMetrics({
-                metrics: singleMetricArray,
-                experimentId: values.experimentId,
-                refresh: true,
-                teamId: values.currentTeamId,
-                refreshId: generateRefreshId(),
-                isPrimary: true,
-                isRetry: true,
-                metricIndexOffset: index,
-                featureFlags: values.featureFlags,
-                onSetResults: (results) => {
-                    currentResults[index] = results[0]
-                    actions.setPrimaryMetricsResults(currentResults)
-                },
-                onSetErrors: (errors) => {
-                    currentErrors[index] = errors[0]
-                    actions.setPrimaryMetricsResultsErrors(currentErrors)
-                },
-            })
-        },
-        retrySecondaryMetric: async ({ index }: { index: number }) => {
-            // Clear the error for this metric
-            const currentErrors = [...values.secondaryMetricsResultsErrors]
-            currentErrors[index] = null
-            actions.setSecondaryMetricsResultsErrors(currentErrors)
-
-            // Get the metric to retry
-            const sharedMetrics: ExperimentMetric[] = sharedMetricsToExperimentMetrics(
-                values.experiment?.saved_metrics as ExperimentSavedMetric[],
-                'secondary'
-            )
-
-            const secondaryMetrics = [...(values.experiment?.metrics_secondary || []), ...sharedMetrics]
-
-            const metricToRetry = secondaryMetrics[index]
-            if (!metricToRetry) {
-                return
-            }
-
-            // Create single-item arrays for this metric
-            const singleMetricArray = [metricToRetry]
-            const currentResults = [...values.secondaryMetricsResults]
-
-            // Load just this one metric
-            await loadMetrics({
-                metrics: singleMetricArray,
-                experimentId: values.experimentId,
-                refresh: true,
-                teamId: values.currentTeamId,
-                refreshId: generateRefreshId(),
-                isPrimary: false,
-                isRetry: true,
-                metricIndexOffset: index,
-                featureFlags: values.featureFlags,
-                onSetResults: (results) => {
-                    currentResults[index] = results[0]
-                    actions.setSecondaryMetricsResults(currentResults)
-                },
-                onSetErrors: (errors) => {
-                    currentErrors[index] = errors[0]
-                    actions.setSecondaryMetricsResultsErrors(currentErrors)
-                },
-            })
-        },
-        openReleaseConditionsModal: () => {
-            const numericFlagId = values.experiment.feature_flag?.id
-            if (numericFlagId) {
-                const logic = sceneFeatureFlagLogic.findMounted() || sceneFeatureFlagLogic({ id: numericFlagId })
-                if (logic) {
-                    logic.actions.loadFeatureFlag() // Access the loader through actions
+            },
+            touchExperimentField: ({ key }) => {
+                // :KLUDGE: Persist the existing feature_flag_key validation when the field is blurred.
+                if (key === 'feature_flag_key') {
+                    actions.setExperimentManualErrors({
+                        feature_flag_key: values.featureFlagValidationError || undefined,
+                    })
                 }
-            }
-        },
-        removeMetric: ({ uuid, context }) => {
-            const isPrimary = context === 'primary'
-            const field = isPrimary ? 'metrics' : 'metrics_secondary'
-            const currentMetrics: (ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery)[] =
-                values.experiment[field] || []
-            const filtered = currentMetrics.filter((m) => m.uuid !== uuid)
+            },
+            loadPrimaryMetricsResults: async ({ refresh, refreshId }: { refresh?: boolean; refreshId?: string }) => {
+                actions.setPrimaryMetricsResultsLoading(true)
+                actions.setPrimaryMetricsResults([])
 
-            actions.updateExperiment({
-                [field]: filtered,
-                update_feature_flag_params: false,
-            })
-        },
-        saveMetricsReorder: async ({ isSecondary, orderedUuids, removedUuids, movedUuids }) => {
-            const removed = new Set(removedUuids)
-            const moved = new Set(movedUuids)
-            const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
-            const closeModal = isSecondary
-                ? actions.closeSecondaryMetricsReorderModal
-                : actions.closePrimaryMetricsReorderModal
-
-            // Pure reorder: only the ordering array changes, so the positional
-            // results arrays stay aligned and nothing needs reloading.
-            if (removed.size === 0 && moved.size === 0) {
-                await asyncActions.updateExperiment({
-                    [orderingField]: orderedUuids,
-                    update_feature_flag_params: false,
-                })
-                closeModal()
-                return
-            }
-
-            // Moves and removals don't change any metric's definition, so existing
-            // results stay valid — they only need realigning to the new positional
-            // layout. That's unsafe while a load is writing positional results
-            // concurrently.
-            const canReuseResults = !values.primaryMetricsResultsLoading && !values.secondaryMetricsResultsLoading
-
-            // Snapshot results/errors by uuid before the update changes the layout.
-            const resultsByUuid = new Map<string, CachedNewExperimentQueryResponse | undefined>()
-            const errorsByUuid = new Map<string, any>()
-            for (const section of [false, true]) {
-                const uuids = getSectionMetricUuids(values.experiment, section)
-                const results = section ? values.secondaryMetricsResults : values.primaryMetricsResults
-                const errors = section ? values.secondaryMetricsResultsErrors : values.primaryMetricsResultsErrors
-                uuids.forEach((uuid, index) => {
-                    if (uuid) {
-                        resultsByUuid.set(uuid, results[index])
-                        errorsByUuid.set(uuid, errors[index])
-                    }
-                })
-            }
-
-            const sourceField = isSecondary ? 'metrics_secondary' : 'metrics'
-            const targetField = isSecondary ? 'metrics' : 'metrics_secondary'
-            const sourceInlineMetrics = values.experiment[sourceField] || []
-            const movedInlineMetrics = sourceInlineMetrics.filter((m) => m.uuid && moved.has(m.uuid))
-            const remainingInlineMetrics = sourceInlineMetrics.filter(
-                (m) => !(m.uuid && (moved.has(m.uuid) || removed.has(m.uuid)))
-            )
-
-            // The backend appends moved metrics to the target section's ordering
-            // from the metric list changes, so only the source ordering is sent.
-            const update: Partial<Experiment> & { update_feature_flag_params?: boolean } = {
-                [sourceField]: remainingInlineMetrics,
-                [orderingField]: orderedUuids.filter((uuid) => !removed.has(uuid) && !moved.has(uuid)),
-                update_feature_flag_params: false,
-            }
-            if (movedInlineMetrics.length > 0) {
-                update[targetField] = [...(values.experiment[targetField] || []), ...movedInlineMetrics]
-            }
-
-            // Shared metrics live in saved_metrics: removing one drops its link,
-            // moving one flips the link type. Only send the links when affected.
-            const savedMetrics = (values.experiment.saved_metrics || []) as ExperimentSavedMetric[]
-            const sharedAffected = savedMetrics.some(({ query }) => {
-                const uuid = query?.uuid
-                return !!uuid && (removed.has(uuid) || moved.has(uuid))
-            })
-            if (sharedAffected) {
-                const targetType = isSecondary ? 'primary' : 'secondary'
-                update.saved_metrics_ids = savedMetrics
-                    .filter(({ query }) => !(query?.uuid && removed.has(query.uuid)))
-                    .map(({ saved_metric, metadata, query }) => ({
-                        id: saved_metric,
-                        metadata: query?.uuid && moved.has(query.uuid) ? { ...metadata, type: targetType } : metadata,
-                    }))
-            }
-
-            await asyncActions.updateExperiment(update)
-            closeModal()
-
-            if (!canReuseResults) {
-                actions.refreshExperimentResults(true, 'config_change')
-                return
-            }
-
-            const newPrimaryUuids = getSectionMetricUuids(values.experiment, false)
-            const newSecondaryUuids = getSectionMetricUuids(values.experiment, true)
-            actions.setPrimaryMetricsResults(
-                newPrimaryUuids.map((uuid) =>
-                    uuid ? resultsByUuid.get(uuid) : undefined
-                ) as CachedNewExperimentQueryResponse[]
-            )
-            actions.setPrimaryMetricsResultsErrors(
-                newPrimaryUuids.map((uuid) => (uuid ? (errorsByUuid.get(uuid) ?? null) : null))
-            )
-            actions.setSecondaryMetricsResults(
-                newSecondaryUuids.map((uuid) =>
-                    uuid ? resultsByUuid.get(uuid) : undefined
-                ) as CachedNewExperimentQueryResponse[]
-            )
-            actions.setSecondaryMetricsResultsErrors(
-                newSecondaryUuids.map((uuid) => (uuid ? (errorsByUuid.get(uuid) ?? null) : null))
-            )
-
-            // A moved metric without a result or error would be stuck rendering as
-            // loading in its new section — fetch just those. Sequentially, because
-            // the retry actions write back the whole positional array and would
-            // stomp each other's results if run concurrently.
-            if (isLaunched(values.experiment)) {
-                const targetUuids = isSecondary ? newPrimaryUuids : newSecondaryUuids
-                for (const uuid of movedUuids) {
-                    if (resultsByUuid.get(uuid) || errorsByUuid.get(uuid)) {
-                        continue
-                    }
-                    const newIndex = targetUuids.indexOf(uuid)
-                    if (newIndex === -1) {
-                        continue
-                    }
-                    if (isSecondary) {
-                        await asyncActions.retryPrimaryMetric(newIndex)
-                    } else {
-                        await asyncActions.retrySecondaryMetric(newIndex)
-                    }
-                }
-            }
-        },
-        updateMetricBreakdown: async ({ uuid, breakdown }) => {
-            const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
-
-            actions.reportExperimentMetricBreakdownAdded(values.experiment, uuid, breakdown, isPrimary)
-
-            const savedMetrics: ExperimentSavedMetric[] = [...(values.experiment.saved_metrics || [])]
-            // Check if this is a shared metric by looking in saved_metrics
-            const isSharedMetric = savedMetrics.some(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)
-
-            const updatePayload: Partial<Experiment> & { update_feature_flag_params?: boolean } = {
-                metrics: values.experiment.metrics,
-                metrics_secondary: values.experiment.metrics_secondary,
-                update_feature_flag_params: false,
-            }
-
-            // Only include saved_metrics_ids if we modified a shared metric
-            if (isSharedMetric) {
-                updatePayload.saved_metrics_ids = savedMetrics.map(({ saved_metric, metadata }) => ({
-                    id: saved_metric,
-                    metadata,
-                }))
-            }
-
-            actions.updateExperiment(updatePayload)
-
-            // Adding a breakdown changes how the metric is computed, so re-run results — recalculation
-            // flow triggers a fresh recalc via config_change; legacy flow reloads per-metric results.
-            if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
-                actions.refreshExperimentResults(true, 'config_change')
-            } else if (isPrimary) {
-                actions.loadPrimaryMetricsResults(true)
-            } else {
-                actions.loadSecondaryMetricsResults(true)
-            }
-        },
-        removeMetricBreakdown: async ({ uuid, index, breakdown }) => {
-            const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
-
-            actions.reportExperimentMetricBreakdownRemoved(values.experiment, uuid, breakdown, index, isPrimary)
-
-            const savedMetrics: ExperimentSavedMetric[] = [...(values.experiment.saved_metrics || [])]
-            // Check if this is a shared metric by looking in saved_metrics
-            const isSharedMetric = savedMetrics.some(({ query: { uuid: savedMetricUuid } }) => savedMetricUuid === uuid)
-
-            const updatePayload: Partial<Experiment> & { update_feature_flag_params?: boolean } = {
-                metrics: values.experiment.metrics,
-                metrics_secondary: values.experiment.metrics_secondary,
-                update_feature_flag_params: false,
-            }
-
-            // Only include saved_metrics_ids if we modified a shared metric
-            if (isSharedMetric) {
-                updatePayload.saved_metrics_ids = savedMetrics.map(({ saved_metric, metadata }) => ({
-                    id: saved_metric,
-                    metadata,
-                }))
-            }
-
-            actions.updateExperiment(updatePayload)
-
-            // Removing a breakdown changes how the metric is computed, so re-run results. On the
-            // recalculation flow this routes through refreshExperimentResults('config_change') (which
-            // triggers a fresh recalculation); the legacy flow reloads the per-metric results directly.
-            if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
-                actions.refreshExperimentResults(true, 'config_change')
-            } else if (isPrimary) {
-                actions.loadPrimaryMetricsResults(true)
-            } else {
-                actions.loadSecondaryMetricsResults(true)
-            }
-        },
-        setVariantExcluded: async ({ variantKey, excluded }, _breakpoint) => {
-            const current = values.excludedVariants
-            const next = excluded
-                ? Array.from(new Set([...current, variantKey]))
-                : current.filter((k: string) => k !== variantKey)
-
-            try {
-                // excluded_variants is the canonical column; the backend mirrors it into the
-                // deprecated `parameters` blob. No need to resend feature_flag_variants — the
-                // backend validates exclusions against the linked flag. The column updates
-                // atomically, so we just send the new list.
-                await asyncActions.updateExperiment({
-                    excluded_variants: next,
-                })
-                lemonToast.success(
-                    excluded
-                        ? `Variant ${variantKey} excluded from analysis`
-                        : `Variant ${variantKey} re-included in analysis`,
-                    {
-                        button: {
-                            label: 'Undo',
-                            action: () => actions.setVariantExcluded(variantKey, !excluded),
-                        },
-                    }
+                const sharedMetrics: ExperimentMetric[] = sharedMetricsToExperimentMetrics(
+                    values.experiment?.saved_metrics as ExperimentSavedMetric[],
+                    'primary'
                 )
-                // Re-fetch results since the variant set changed. On the recalculation flow this means a
-                // fresh recalc; on the legacy flow it's the per-metric loaders. Exposures refresh either way.
-                if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
-                    values.experiment &&
-                        experimentMetricsLogic({ experiment: values.experiment }).actions.triggerRecalculation(
-                            'config_change'
+
+                const metrics = [...(values.experiment?.metrics || []), ...sharedMetrics]
+
+                const resolvedRefreshId = refreshId || generateRefreshId()
+                const summary = await loadMetrics({
+                    metrics,
+                    experimentId: values.experimentId,
+                    refresh,
+                    teamId: values.currentTeamId,
+                    refreshId: resolvedRefreshId,
+                    isPrimary: true,
+                    isRetry: false,
+                    metricIndexOffset: 0,
+                    orderedUuids: values.experiment?.primary_metrics_ordered_uuids,
+                    featureFlags: values.featureFlags,
+                    onSetResults: actions.setPrimaryMetricsResults,
+                    onSetErrors: actions.setPrimaryMetricsResultsErrors,
+                })
+
+                const refreshSummaries = cache.refreshSummariesById?.[resolvedRefreshId]
+                if (refreshSummaries) {
+                    refreshSummaries.push(summary)
+                }
+
+                actions.setPrimaryMetricsResultsLoading(false)
+
+                // Mark the review results task as complete when results are loaded for a launched experiment
+                if (values.experiment && isLaunched(values.experiment)) {
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ReviewExperimentResults)
+                }
+            },
+            loadSecondaryMetricsResults: async ({ refresh, refreshId }: { refresh?: boolean; refreshId?: string }) => {
+                actions.setSecondaryMetricsResultsLoading(true)
+                actions.setSecondaryMetricsResults([])
+
+                const sharedMetrics: ExperimentMetric[] = sharedMetricsToExperimentMetrics(
+                    values.experiment?.saved_metrics as ExperimentSavedMetric[],
+                    'secondary'
+                )
+                const secondaryMetrics = [...(values.experiment?.metrics_secondary || []), ...sharedMetrics]
+
+                const resolvedRefreshId = refreshId || generateRefreshId()
+                const summary = await loadMetrics({
+                    metrics: secondaryMetrics,
+                    experimentId: values.experimentId,
+                    refresh,
+                    teamId: values.currentTeamId,
+                    refreshId: resolvedRefreshId,
+                    isPrimary: false,
+                    isRetry: false,
+                    metricIndexOffset: 0,
+                    orderedUuids: values.experiment?.secondary_metrics_ordered_uuids,
+                    featureFlags: values.featureFlags,
+                    onSetResults: actions.setSecondaryMetricsResults,
+                    onSetErrors: actions.setSecondaryMetricsResultsErrors,
+                })
+
+                const refreshSummaries = cache.refreshSummariesById?.[resolvedRefreshId]
+                if (refreshSummaries) {
+                    refreshSummaries.push(summary)
+                }
+
+                actions.setSecondaryMetricsResultsLoading(false)
+            },
+            retryPrimaryMetric: async ({ index }: { index: number }) => {
+                // Clear the error for this metric
+                const currentErrors = [...values.primaryMetricsResultsErrors]
+                currentErrors[index] = null
+                actions.setPrimaryMetricsResultsErrors(currentErrors)
+
+                // Get the metric to retry
+
+                const sharedMetrics: ExperimentMetric[] = sharedMetricsToExperimentMetrics(
+                    values.experiment?.saved_metrics as ExperimentSavedMetric[],
+                    'primary'
+                )
+
+                const metrics = [...(values.experiment?.metrics || []), ...sharedMetrics]
+
+                const metricToRetry = metrics[index]
+                if (!metricToRetry) {
+                    return
+                }
+
+                // Create single-item arrays for this metric
+                const singleMetricArray = [metricToRetry]
+                const currentResults = [...values.primaryMetricsResults]
+
+                // Load just this one metric
+                await loadMetrics({
+                    metrics: singleMetricArray,
+                    experimentId: values.experimentId,
+                    refresh: true,
+                    teamId: values.currentTeamId,
+                    refreshId: generateRefreshId(),
+                    isPrimary: true,
+                    isRetry: true,
+                    metricIndexOffset: index,
+                    featureFlags: values.featureFlags,
+                    onSetResults: (results) => {
+                        currentResults[index] = results[0]
+                        actions.setPrimaryMetricsResults(currentResults)
+                    },
+                    onSetErrors: (errors) => {
+                        currentErrors[index] = errors[0]
+                        actions.setPrimaryMetricsResultsErrors(currentErrors)
+                    },
+                })
+            },
+            retrySecondaryMetric: async ({ index }: { index: number }) => {
+                // Clear the error for this metric
+                const currentErrors = [...values.secondaryMetricsResultsErrors]
+                currentErrors[index] = null
+                actions.setSecondaryMetricsResultsErrors(currentErrors)
+
+                // Get the metric to retry
+                const sharedMetrics: ExperimentMetric[] = sharedMetricsToExperimentMetrics(
+                    values.experiment?.saved_metrics as ExperimentSavedMetric[],
+                    'secondary'
+                )
+
+                const secondaryMetrics = [...(values.experiment?.metrics_secondary || []), ...sharedMetrics]
+
+                const metricToRetry = secondaryMetrics[index]
+                if (!metricToRetry) {
+                    return
+                }
+
+                // Create single-item arrays for this metric
+                const singleMetricArray = [metricToRetry]
+                const currentResults = [...values.secondaryMetricsResults]
+
+                // Load just this one metric
+                await loadMetrics({
+                    metrics: singleMetricArray,
+                    experimentId: values.experimentId,
+                    refresh: true,
+                    teamId: values.currentTeamId,
+                    refreshId: generateRefreshId(),
+                    isPrimary: false,
+                    isRetry: true,
+                    metricIndexOffset: index,
+                    featureFlags: values.featureFlags,
+                    onSetResults: (results) => {
+                        currentResults[index] = results[0]
+                        actions.setSecondaryMetricsResults(currentResults)
+                    },
+                    onSetErrors: (errors) => {
+                        currentErrors[index] = errors[0]
+                        actions.setSecondaryMetricsResultsErrors(currentErrors)
+                    },
+                })
+            },
+            openReleaseConditionsModal: () => {
+                const numericFlagId = values.experiment.feature_flag?.id
+                if (numericFlagId) {
+                    const logic = sceneFeatureFlagLogic.findMounted() || sceneFeatureFlagLogic({ id: numericFlagId })
+                    if (logic) {
+                        logic.actions.loadFeatureFlag() // Access the loader through actions
+                    }
+                }
+            },
+            // Server-first, so there is no optimistic removal to roll back if the delete fails.
+            removeMetric: async ({ uuid }) => {
+                try {
+                    const response = await experimentsMetricsDestroy(
+                        String(values.currentProjectId),
+                        Number(values.experimentId),
+                        uuid
+                    )
+                    actions.applyMetricMutation(response, uuid)
+                    actions.setUnmodifiedExperiment(structuredClone(values.experiment))
+                } catch (error: any) {
+                    lemonToast.error(error.detail || 'Failed to delete metric')
+                }
+            },
+            saveMetricsReorder: async ({ isSecondary, orderedUuids, removedUuids, movedUuids }) => {
+                const removed = new Set(removedUuids)
+                const moved = new Set(movedUuids)
+                const orderingField = isSecondary ? 'secondary_metrics_ordered_uuids' : 'primary_metrics_ordered_uuids'
+                const closeModal = isSecondary
+                    ? actions.closeSecondaryMetricsReorderModal
+                    : actions.closePrimaryMetricsReorderModal
+
+                // Pure reorder: only the ordering array changes, so the positional
+                // results arrays stay aligned and nothing needs reloading. The server
+                // reconciles the list, so metrics added since the modal opened keep their
+                // place instead of being dropped.
+                if (removed.size === 0 && moved.size === 0) {
+                    try {
+                        const response = await experimentsMetricsOrderUpdate(
+                            String(values.currentProjectId),
+                            Number(values.experimentId),
+                            { section: isSecondary ? 'secondary' : 'primary', uuids: orderedUuids }
                         )
-                } else {
+                        actions.applyMetricMutation(response, null)
+                        actions.setUnmodifiedExperiment(structuredClone(values.experiment))
+                    } catch (error: any) {
+                        lemonToast.error(error.detail || 'Failed to reorder metrics')
+                        return
+                    }
+                    closeModal()
+                    return
+                }
+
+                // Moves and removals don't change any metric's definition, so existing
+                // results stay valid — they only need realigning to the new positional
+                // layout. That's unsafe while a load is writing positional results
+                // concurrently.
+                const canReuseResults = !values.primaryMetricsResultsLoading && !values.secondaryMetricsResultsLoading
+
+                // Snapshot results/errors by uuid before the update changes the layout.
+                const resultsByUuid = new Map<string, CachedNewExperimentQueryResponse | undefined>()
+                const errorsByUuid = new Map<string, any>()
+                for (const section of [false, true]) {
+                    const uuids = getSectionMetricUuids(values.experiment, section)
+                    const results = section ? values.secondaryMetricsResults : values.primaryMetricsResults
+                    const errors = section ? values.secondaryMetricsResultsErrors : values.primaryMetricsResultsErrors
+                    uuids.forEach((uuid, index) => {
+                        if (uuid) {
+                            resultsByUuid.set(uuid, results[index])
+                            errorsByUuid.set(uuid, errors[index])
+                        }
+                    })
+                }
+
+                const sourceField = isSecondary ? 'metrics_secondary' : 'metrics'
+                const targetField = isSecondary ? 'metrics' : 'metrics_secondary'
+                const sourceInlineMetrics = values.experiment[sourceField] || []
+                const movedInlineMetrics = sourceInlineMetrics.filter((m) => m.uuid && moved.has(m.uuid))
+                const remainingInlineMetrics = sourceInlineMetrics.filter(
+                    (m) => !(m.uuid && (moved.has(m.uuid) || removed.has(m.uuid)))
+                )
+
+                // The backend appends moved metrics to the target section's ordering
+                // from the metric list changes, so only the source ordering is sent.
+                const update: Partial<Experiment> & { update_feature_flag_params?: boolean } = {
+                    [sourceField]: remainingInlineMetrics,
+                    [orderingField]: orderedUuids.filter((uuid) => !removed.has(uuid) && !moved.has(uuid)),
+                    update_feature_flag_params: false,
+                }
+                if (movedInlineMetrics.length > 0) {
+                    update[targetField] = [...(values.experiment[targetField] || []), ...movedInlineMetrics]
+                }
+
+                // Shared metrics live in saved_metrics: removing one drops its link,
+                // moving one flips the link type. Only send the links when affected.
+                const savedMetrics = (values.experiment.saved_metrics || []) as ExperimentSavedMetric[]
+                const sharedAffected = savedMetrics.some(({ query }) => {
+                    const uuid = query?.uuid
+                    return !!uuid && (removed.has(uuid) || moved.has(uuid))
+                })
+                if (sharedAffected) {
+                    const targetType = isSecondary ? 'primary' : 'secondary'
+                    update.saved_metrics_ids = savedMetrics
+                        .filter(({ query }) => !(query?.uuid && removed.has(query.uuid)))
+                        .map(({ saved_metric, metadata, query }) => ({
+                            id: saved_metric,
+                            metadata:
+                                query?.uuid && moved.has(query.uuid) ? { ...metadata, type: targetType } : metadata,
+                        }))
+                }
+
+                await asyncActions.updateExperiment(update)
+                closeModal()
+
+                if (!canReuseResults) {
+                    actions.refreshExperimentResults(true, 'config_change')
+                    return
+                }
+
+                const newPrimaryUuids = getSectionMetricUuids(values.experiment, false)
+                const newSecondaryUuids = getSectionMetricUuids(values.experiment, true)
+                actions.setPrimaryMetricsResults(
+                    newPrimaryUuids.map((uuid) =>
+                        uuid ? resultsByUuid.get(uuid) : undefined
+                    ) as CachedNewExperimentQueryResponse[]
+                )
+                actions.setPrimaryMetricsResultsErrors(
+                    newPrimaryUuids.map((uuid) => (uuid ? (errorsByUuid.get(uuid) ?? null) : null))
+                )
+                actions.setSecondaryMetricsResults(
+                    newSecondaryUuids.map((uuid) =>
+                        uuid ? resultsByUuid.get(uuid) : undefined
+                    ) as CachedNewExperimentQueryResponse[]
+                )
+                actions.setSecondaryMetricsResultsErrors(
+                    newSecondaryUuids.map((uuid) => (uuid ? (errorsByUuid.get(uuid) ?? null) : null))
+                )
+
+                // A moved metric without a result or error would be stuck rendering as
+                // loading in its new section — fetch just those. Sequentially, because
+                // the retry actions write back the whole positional array and would
+                // stomp each other's results if run concurrently.
+                if (isLaunched(values.experiment)) {
+                    const targetUuids = isSecondary ? newPrimaryUuids : newSecondaryUuids
+                    for (const uuid of movedUuids) {
+                        if (resultsByUuid.get(uuid) || errorsByUuid.get(uuid)) {
+                            continue
+                        }
+                        const newIndex = targetUuids.indexOf(uuid)
+                        if (newIndex === -1) {
+                            continue
+                        }
+                        if (isSecondary) {
+                            await asyncActions.retryPrimaryMetric(newIndex)
+                        } else {
+                            await asyncActions.retrySecondaryMetric(newIndex)
+                        }
+                    }
+                }
+            },
+            updateMetricBreakdown: async ({ uuid, breakdown }) => {
+                const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
+
+                actions.reportExperimentMetricBreakdownAdded(values.experiment, uuid, breakdown, isPrimary)
+
+                await persistBreakdownChange(uuid, isPrimary)
+
+                // Adding a breakdown changes how the metric is computed, so re-run results — recalculation
+                // flow triggers a fresh recalc via config_change; legacy flow reloads per-metric results.
+                if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
+                    actions.refreshExperimentResults(true, 'config_change')
+                } else if (isPrimary) {
                     actions.loadPrimaryMetricsResults(true)
+                } else {
                     actions.loadSecondaryMetricsResults(true)
                 }
-                actions.loadExposures(true)
-            } catch (error) {
-                lemonToast.error('Could not update variant exclusion. Please try again.')
-                throw error
-            }
-        },
-        setAutoRefresh: ({ enabled, interval }) => {
-            // Track when user toggles auto-refresh settings
-            actions.reportExperimentAutoRefreshToggled(values.experiment, enabled, interval)
-            actions.resetAutoRefreshInterval()
-        },
-        stopAutoRefreshInterval: () => {
-            cache.disposables.dispose('autoRefreshInterval')
-        },
-        setPageVisibility: ({ visible }) => {
-            if (!visible) {
-                actions.stopAutoRefreshInterval()
-            } else if (values.autoRefresh.enabled) {
-                actions.resetAutoRefreshInterval()
-            }
-        },
-        resetAutoRefreshInterval: () => {
-            // Clear any existing interval first
-            cache.disposables.dispose('autoRefreshInterval')
+            },
+            removeMetricBreakdown: async ({ uuid, index, breakdown }) => {
+                const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
 
-            if (values.autoRefresh.enabled) {
-                cache.disposables.add(() => {
-                    const intervalId = window.setInterval(() => {
-                        // Track auto-refresh trigger
-                        actions.reportExperimentMetricsRefreshed(values.experiment, true, {
-                            triggered_by: 'auto-refresh',
-                            auto_refresh_enabled: values.autoRefresh.enabled,
-                            auto_refresh_interval: values.autoRefresh.interval,
-                            ...previousRefreshAnalytics(values.currentRefresh),
-                        })
-                        actions.refreshExperimentResults(true, 'auto_refresh')
-                    }, values.autoRefresh.interval * 1000)
-                    return () => clearInterval(intervalId)
-                }, 'autoRefreshInterval')
-            }
-        },
-    })),
+                actions.reportExperimentMetricBreakdownRemoved(values.experiment, uuid, breakdown, index, isPrimary)
+
+                await persistBreakdownChange(uuid, isPrimary)
+
+                // Removing a breakdown changes how the metric is computed, so re-run results. On the
+                // recalculation flow this routes through refreshExperimentResults('config_change') (which
+                // triggers a fresh recalculation); the legacy flow reloads the per-metric results directly.
+                if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
+                    actions.refreshExperimentResults(true, 'config_change')
+                } else if (isPrimary) {
+                    actions.loadPrimaryMetricsResults(true)
+                } else {
+                    actions.loadSecondaryMetricsResults(true)
+                }
+            },
+            setVariantExcluded: async ({ variantKey, excluded }, _breakpoint) => {
+                const current = values.excludedVariants
+                const next = excluded
+                    ? Array.from(new Set([...current, variantKey]))
+                    : current.filter((k: string) => k !== variantKey)
+
+                try {
+                    // excluded_variants is the canonical column; the backend mirrors it into the
+                    // deprecated `parameters` blob. No need to resend feature_flag_variants — the
+                    // backend validates exclusions against the linked flag. The column updates
+                    // atomically, so we just send the new list.
+                    await asyncActions.updateExperiment({
+                        excluded_variants: next,
+                    })
+                    lemonToast.success(
+                        excluded
+                            ? `Variant ${variantKey} excluded from analysis`
+                            : `Variant ${variantKey} re-included in analysis`,
+                        {
+                            button: {
+                                label: 'Undo',
+                                action: () => actions.setVariantExcluded(variantKey, !excluded),
+                            },
+                        }
+                    )
+                    // Re-fetch results since the variant set changed. On the recalculation flow this means a
+                    // fresh recalc; on the legacy flow it's the per-metric loaders. Exposures refresh either way.
+                    if (values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
+                        values.experiment &&
+                            experimentMetricsLogic({ experiment: values.experiment }).actions.triggerRecalculation(
+                                'config_change'
+                            )
+                    } else {
+                        actions.loadPrimaryMetricsResults(true)
+                        actions.loadSecondaryMetricsResults(true)
+                    }
+                    actions.loadExposures(true)
+                } catch (error) {
+                    lemonToast.error('Could not update variant exclusion. Please try again.')
+                    throw error
+                }
+            },
+            setAutoRefresh: ({ enabled, interval }) => {
+                // Track when user toggles auto-refresh settings
+                actions.reportExperimentAutoRefreshToggled(values.experiment, enabled, interval)
+                actions.resetAutoRefreshInterval()
+            },
+            stopAutoRefreshInterval: () => {
+                cache.disposables.dispose('autoRefreshInterval')
+            },
+            setPageVisibility: ({ visible }) => {
+                if (!visible) {
+                    actions.stopAutoRefreshInterval()
+                } else if (values.autoRefresh.enabled) {
+                    actions.resetAutoRefreshInterval()
+                }
+            },
+            resetAutoRefreshInterval: () => {
+                // Clear any existing interval first
+                cache.disposables.dispose('autoRefreshInterval')
+
+                if (values.autoRefresh.enabled) {
+                    cache.disposables.add(() => {
+                        const intervalId = window.setInterval(() => {
+                            // Track auto-refresh trigger
+                            actions.reportExperimentMetricsRefreshed(values.experiment, true, {
+                                triggered_by: 'auto-refresh',
+                                auto_refresh_enabled: values.autoRefresh.enabled,
+                                auto_refresh_interval: values.autoRefresh.interval,
+                                ...previousRefreshAnalytics(values.currentRefresh),
+                            })
+                            actions.refreshExperimentResults(true, 'auto_refresh')
+                        }, values.autoRefresh.interval * 1000)
+                        return () => clearInterval(intervalId)
+                    }, 'autoRefreshInterval')
+                }
+            },
+        }
+    }),
     loaders(({ actions, values }) => ({
         experiment: {
             loadExperiment: async (payload?: { triggeredBy?: ExperimentTriggeredBy }) => {
