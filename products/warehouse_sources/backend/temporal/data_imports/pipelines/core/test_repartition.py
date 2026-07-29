@@ -11,20 +11,18 @@ import deltalake as deltalake
 import structlog
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline import (
-    repartition as repartition_module,
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core import repartition as repartition_module
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    append_partition_key_to_table,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.repartition import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     RepartitionSupersededError,
     RepartitionTarget,
     _rewrite_into_temp,
     measure_partition_bytes,
     repartition_table_in_place,
     select_repartition_target,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
-    append_partition_key_to_table,
 )
 
 logger = structlog.get_logger(__name__)

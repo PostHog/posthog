@@ -17,24 +17,26 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.common.errors import NonReportableError
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
-    NULL_NUMERICAL_PARTITION,
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     BillingLimitsWillBeReachedException,
     SchemaColumnTypeChangedException,
     _get_max_decimal_type,
     _to_list_array,
     align_incoming_decimals_to_delta,
-    append_partition_key_to_table,
     apply_enabled_columns_projection,
     evolve_pyarrow_schema,
     merge_observed_columns_into_schema_metadata,
     normalize_table_column_names,
     observe_and_project_table,
     observed_schema_metadata_columns,
-    setup_partitioning,
     source_uses_delta_write_column_selection,
     table_from_py_list,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    NULL_NUMERICAL_PARTITION,
+    append_partition_key_to_table,
+    setup_partitioning,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.test_mocks import mock_delta_table
 
