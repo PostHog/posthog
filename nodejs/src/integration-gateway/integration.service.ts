@@ -1,4 +1,4 @@
-import { EncryptedFields } from '~/cdp/utils/encryption-utils'
+import { EncryptedFields } from '~/common/utils/encryption-utils'
 
 import { CredentialCache } from './cache'
 import { RefreshManager } from './refresh/manager'

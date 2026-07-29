@@ -3,7 +3,7 @@ import { generateKeyPairSync } from 'crypto'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '~/cdp/_tests/examples'
 import { createExampleInvocation, createHogFunction } from '~/cdp/_tests/fixtures'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
-import { EncryptedFields } from '~/cdp/utils/encryption-utils'
+import { EncryptedFields } from '~/common/utils/encryption-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { IntegrationManagerService } from '../managers/integration-manager.service'

@@ -1,11 +1,11 @@
 import { createIntegrationGatewayService } from '~/cdp/services/managers/integration-gateway.service'
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
-import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+import { EncryptedFields } from '~/common/utils/encryption-utils'
 import { Hub, PluginsServerConfig } from '~/types'
 
 import { defaultConfig } from '../../config/config'

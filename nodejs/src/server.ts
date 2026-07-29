@@ -53,7 +53,7 @@ import { hasEmailSigningKey } from './cdp/services/messaging/helpers/tracking-co
 import { HogInvocationResultsService } from './cdp/services/monitoring/hog-invocation-results.service'
 import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
 import { RateLimiterService } from './cdp/services/rate-limiter/rate-limiter.service'
-import { EncryptedFields } from './cdp/utils/encryption-utils'
+import { EncryptedFields } from '~/common/utils/encryption-utils'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { HealthCheckResultOk, PluginServerService, PluginsServerConfig, RedisPool } from './types'
 

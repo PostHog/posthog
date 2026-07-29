@@ -1,4 +1,4 @@
-import { EncryptedFields } from './encryption-utils'
+import { EncryptedFields } from '~/common/utils/encryption-utils'
 
 /**
  * Extract the device token from the $device_push_subscription_<appIdentifier> person property.

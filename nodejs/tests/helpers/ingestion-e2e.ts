@@ -17,6 +17,7 @@ import { PersonRepository } from '~/common/persons/repositories/person-repositor
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
+import { EncryptedFields } from '~/common/utils/encryption-utils'
 import { parseRawClickHouseEvent } from '~/common/utils/event'
 import { GeoIPService } from '~/common/utils/geoip'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -46,7 +47,6 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/config'
 
 import { IntegrationManagerService } from '../../src/cdp/services/managers/integration-manager.service'
-import { EncryptedFields } from '../../src/cdp/utils/encryption-utils'
 import { PipelineEvent, PluginsServerConfig, ProjectId, RawClickHouseEvent, RedisPool, Team } from '../../src/types'
 import { Clickhouse } from './clickhouse'
 import { waitForExpect } from './expectations'

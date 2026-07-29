@@ -1,8 +1,8 @@
 import { Counter } from 'prom-client'
 
 import { IntegrationType } from '~/cdp/types'
-import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { EncryptedFields } from '~/common/utils/encryption-utils'
 import { LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'

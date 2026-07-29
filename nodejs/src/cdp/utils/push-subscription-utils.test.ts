@@ -1,4 +1,5 @@
-import { EncryptedFields } from './encryption-utils'
+import { EncryptedFields } from '~/common/utils/encryption-utils'
+
 import { getDevicePushSubscriptionToken } from './push-subscription-utils'
 
 describe('getDevicePushSubscriptionToken', () => {
