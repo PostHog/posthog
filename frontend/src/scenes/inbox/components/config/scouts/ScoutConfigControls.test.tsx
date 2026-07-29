@@ -18,6 +18,8 @@ const config: SignalScoutConfigApi = {
     run_cron_schedule: '0 9 * * *',
     output_destinations: {},
     last_run_at: null,
+    auto_paused_at: null,
+    auto_paused_reason: null,
     created_at: '2026-07-21T12:00:00Z',
 }
 
