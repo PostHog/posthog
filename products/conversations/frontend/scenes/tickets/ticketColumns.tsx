@@ -134,11 +134,11 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
                         {ticket.status === 'on_hold' ? 'On hold' : ticket.status}
                     </LemonTag>
                     {ticket.snoozed_until && (
-                        <Tooltip title={`Snoozed until ${new Date(ticket.snoozed_until).toLocaleString()}`}>
+                        <TZLabel time={ticket.snoozed_until} title="Snoozed until" showSeconds>
                             <span className="flex items-center">
                                 <IconClock className="text-muted-alt text-base" />
                             </span>
-                        </Tooltip>
+                        </TZLabel>
                     )}
                 </span>
             ),
