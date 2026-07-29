@@ -70,7 +70,7 @@ def validate_group_type_index(param_name: str, value: Any, required=False) -> Gr
     if value is not None:
         try:
             value = int(value)
-        except:
+        except ValueError:
             raise error
         if not (0 <= value < GROUP_TYPES_LIMIT):
             raise error

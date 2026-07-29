@@ -395,7 +395,7 @@ class FunnelCorrelationActorsMixin(BaseParamMixin):
                     try:
                         new_prop = Property(**prop_params)
                         _properties.append(new_prop)
-                    except:
+                    except Exception:
                         continue
             return _properties
         return None

@@ -457,7 +457,7 @@ def pg_table_cache_hit_rate() -> None:
                 for row in tables:
                     hit_rate_gauge.labels(table_name=row[0]).set(float(row[1]))
                     statsd.gauge("pg_table_cache_hit_rate", float(row[1]), tags={"table": row[0]})
-        except:
+        except Exception:
             # if this doesn't work keep going
             pass
 
@@ -552,7 +552,7 @@ def ingestion_lag() -> None:
                 metric = HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC[event]
                 statsd.gauge(f"posthog_celery_{metric}_lag_seconds_rough_minute_precision", lag)
                 lag_gauge.labels(scenario=metric).set(lag)
-    except:
+    except Exception:
         pass
 
     for team in Team.objects.filter(pk__in=team_ids):
@@ -600,7 +600,7 @@ def clickhouse_row_count() -> None:
                     rows,
                     tags={"table": table},
                 )
-            except:
+            except Exception:
                 pass
 
 
@@ -747,7 +747,7 @@ def redis_celery_queue_depth() -> None:
                 llen = get_client().llen(queue.value)
                 celery_task_queue_depth_gauge.labels(queue_name=queue.value).set(llen)
 
-    except:
+    except Exception:
         # if we can't generate the metric don't complain about it.
         return
 

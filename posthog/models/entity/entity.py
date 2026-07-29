@@ -178,7 +178,7 @@ class Entity(PropertyMixin):
         try:
             self._action = Action.objects.get(id=self.id, team_id=team_id)
             return self._action
-        except:
+        except Action.DoesNotExist:
             raise ValidationError(f"Action ID {self.id} does not exist!")
 
     __repr__ = sane_repr(

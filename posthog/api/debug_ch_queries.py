@@ -182,7 +182,7 @@ class DebugCHQueries(viewsets.ViewSet):
     def _get_path(self, query: str) -> Optional[str]:
         try:
             return re.findall(r"request:([a-zA-Z0-9-_@]+)", query)[0].replace("_", "/")
-        except:
+        except Exception:
             return None
 
     _ALLOWED_FILTER_KEYS = frozenset({"insight_id", "experiment_id"})

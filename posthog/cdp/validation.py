@@ -447,7 +447,7 @@ class InputsSerializer(serializers.DictField):
         parent_serializer = self.parent
         try:
             inputs_schema = parent_serializer.initial_data["inputs_schema"]
-        except:
+        except KeyError:
             raise serializers.ValidationError("Missing inputs_schema.")
 
         # Validate each input against the schema
