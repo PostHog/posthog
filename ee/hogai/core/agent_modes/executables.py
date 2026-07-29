@@ -155,7 +155,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         current_token_count = await self._window_manager.calculate_token_count(
             model, langchain_messages, tools=tools, thinking_config=self.THINKING_CONFIG
         )
-        if current_token_count > self._window_manager.CONVERSATION_WINDOW_SIZE:
+        if current_token_count > self._window_manager.get_window_size(self._get_model_name(state)):
             # Exclude the last message if it's the first turn.
             messages_to_summarize = langchain_messages[:-1] if self._is_first_turn(state) else langchain_messages
             summary = await AnthropicConversationSummarizer(
@@ -270,10 +270,15 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             "supermode": supermode_value,
         }
 
-    def _get_model(self, state: AssistantState, tools: list["MaxTool"]):
-        model_name = "claude-sonnet-4-6"
+    def _get_model_name(self, state: AssistantState) -> str:
+        """Model this executable will run on. Also decides the conversation window budget, so the
+        two can never disagree about which context limit applies."""
         if self._has_legacy_summarize_sessions_messages(state.messages):
-            model_name = "claude-sonnet-4-5"
+            return "claude-sonnet-4-5"
+        return "claude-sonnet-4-6"
+
+    def _get_model(self, state: AssistantState, tools: list["MaxTool"]):
+        model_name = self._get_model_name(state)
 
         is_sonnet_4_5 = model_name == "claude-sonnet-4-5"
 

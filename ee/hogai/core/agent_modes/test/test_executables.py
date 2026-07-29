@@ -10,7 +10,10 @@ from parameterized import parameterized
 
 from posthog.schema import (
     AgentMode,
+    AssistantForm,
+    AssistantFormOption,
     AssistantMessage,
+    AssistantMessageMetadata,
     AssistantToolCall,
     AssistantToolCallMessage,
     ContextMessage,
@@ -361,6 +364,58 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(context_messages), 2)  # summary + mode reminder
         summary_msg = next(msg for msg in context_messages if "This is a summary" in msg.content)
         self.assertIn("This is a summary of the conversation so far.", summary_msg.content)
+
+    @parameterized.expand(
+        [
+            # (has_legacy_session_summary_message, expected_model, should_compact_at_150k)
+            [False, "claude-sonnet-4-6", False],
+            [True, "claude-sonnet-4-5", True],
+        ]
+    )
+    @patch(
+        "ee.hogai.core.agent_modes.executables.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[])
+    )
+    @patch("ee.hogai.core.agent_modes.compaction_manager.AnthropicConversationCompactionManager.calculate_token_count")
+    @patch("ee.hogai.utils.conversation_summarizer.AnthropicConversationSummarizer.summarize")
+    async def test_legacy_model_compacts_within_its_smaller_context_window(
+        self,
+        has_legacy_message,
+        expected_model,
+        should_compact,
+        mock_summarize,
+        mock_calculate_tokens,
+        mock_model,
+    ):
+        mock_calculate_tokens.return_value = 150_000
+        mock_summarize.return_value = "Summary"
+        mock_model.return_value = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
+
+        messages: list = [
+            HumanMessage(content="First message", id="1"),
+            AssistantMessage(content="First response", id="2"),
+            HumanMessage(content="Second message", id="3"),
+        ]
+        if has_legacy_message:
+            messages.insert(
+                1,
+                AssistantMessage(
+                    content="Here's your report",
+                    id="legacy",
+                    meta=AssistantMessageMetadata(
+                        form=AssistantForm(
+                            options=[AssistantFormOption(value="Open report", href="/session-summaries/abc")]
+                        )
+                    ),
+                ),
+            )
+
+        node = _create_agent_node(self.team, self.user)
+        state = AssistantState(messages=messages)
+
+        self.assertEqual(node._get_model_name(state), expected_model)
+
+        await node.arun(state, {})
+        self.assertEqual(mock_summarize.called, should_compact)
 
     @patch(
         "ee.hogai.core.agent_modes.executables.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[])

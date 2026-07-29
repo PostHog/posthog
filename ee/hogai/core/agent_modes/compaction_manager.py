@@ -58,10 +58,25 @@ class ConversationCompactionManager(ABC):
     a larger window on every turn is mostly cache reads, while the cost of compacting is dead time
     the user watches. Raising this trades per-turn input tokens for far fewer compactions.
     """
+    MODEL_CONVERSATION_WINDOW_SIZES: dict[str, int] = {
+        # Sonnet 4.5 has a 200k context window and we do not send the 1M beta header, so the
+        # default window would not fit. Exceeding it is unrecoverable rather than merely slow:
+        # `calculate_token_count` measures against this same model, so once a conversation is over
+        # the limit we can no longer size it, and compaction never gets the chance to bring it back
+        # down. This keeps the pre-400k threshold for that path.
+        "claude-sonnet-4-5": 100_000,
+    }
+    """
+    Per-model overrides for models whose context window cannot fit CONVERSATION_WINDOW_SIZE.
+    """
     APPROXIMATE_TOKEN_LENGTH = 4
     """
     Determines the approximate number of characters per token.
     """
+
+    def get_window_size(self, model_name: str) -> int:
+        """Token budget the conversation window may occupy before it must be compacted."""
+        return self.MODEL_CONVERSATION_WINDOW_SIZES.get(model_name, self.CONVERSATION_WINDOW_SIZE)
 
     def find_window_boundary(self, messages: Sequence[T], max_messages: int = 10, max_tokens: int = 1000) -> str | None:
         """
@@ -101,7 +116,9 @@ class ConversationCompactionManager(ABC):
         Determine if the conversation should be summarized based on token count.
         Avoids summarizing if there are only two human messages or fewer.
         """
-        return await self.calculate_token_count(model, messages, tools, **kwargs) > self.CONVERSATION_WINDOW_SIZE
+        return await self.calculate_token_count(model, messages, tools, **kwargs) > self.get_window_size(
+            getattr(model, "model", "")
+        )
 
     async def calculate_token_count(
         self, model: BaseChatModel, messages: list[BaseMessage], tools: LangchainTools | None = None, **kwargs
