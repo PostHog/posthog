@@ -157,8 +157,8 @@ export function WorkflowsReputation(): JSX.Element {
     return (
         <div className="space-y-4" data-attr="workflows-reputation">
             <LemonBanner type="info" data-attr="workflows-reputation-beta-banner">
-                Reputation scores are surfaced here for transparency only. We don't take any enforcement action based
-                on them right now. We're still actively developing the scoring calculation, so these values may change.
+                Reputation scores are surfaced here for transparency only. We don't take any enforcement action based on
+                them right now. We're still actively developing the scoring calculation, so these values may change.
             </LemonBanner>
             {teamReputation ? (
                 <TeamReputationCard reputation={teamReputation} />
