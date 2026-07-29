@@ -117,6 +117,7 @@
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."hide_mcp_hints",
+         "posthog_user"."ui_configuration",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -218,6 +219,7 @@
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."hide_mcp_hints",
+         "posthog_user"."ui_configuration",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -380,6 +382,7 @@
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."hide_mcp_hints",
+         "posthog_user"."ui_configuration",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -497,6 +500,7 @@
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."hide_mcp_hints",
+         "posthog_user"."ui_configuration",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -598,6 +602,7 @@
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."hide_mcp_hints",
+         "posthog_user"."ui_configuration",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -722,6 +727,7 @@
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."hide_mcp_hints",
+         "posthog_user"."ui_configuration",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -8763,6 +8769,19 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
+              },
+              "tags": {
+                  "chain": null,
+                  "fields": [
+                      "ticket_id",
+                      "names"
+                  ],
+                  "hogql_value": "tags",
+                  "id": "tags",
+                  "name": "tags",
+                  "schema_valid": true,
+                  "table": "ticket_tags",
+                  "type": "lazy_table"
               }
           },
           "id": "system.support_tickets",
@@ -17551,6 +17570,19 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
+              },
+              "tags": {
+                  "chain": null,
+                  "fields": [
+                      "ticket_id",
+                      "names"
+                  ],
+                  "hogql_value": "tags",
+                  "id": "tags",
+                  "name": "tags",
+                  "schema_valid": true,
+                  "table": "ticket_tags",
+                  "type": "lazy_table"
               }
           },
           "id": "system.support_tickets",
