@@ -2,12 +2,13 @@ import { MakeLogicType, actions, kea, listeners, path, reducers, selectors } fro
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { AnyPropertyFilter } from '~/types'
 
+import { personsBulkDeleteCreate } from 'products/persons/frontend/generated/api'
 import type { PersonBulkDeleteFilterApi } from 'products/persons/frontend/generated/api.schemas'
 
 import { PERSONS_QUERY_UNIQUE_KEY } from './personsSceneLogic'
@@ -176,7 +177,7 @@ export const personsBulkDeleteLogic = kea<personsBulkDeleteLogicType>([
                     if (!values.filters) {
                         return null
                     }
-                    const response = await api.persons.bulkDelete({
+                    const response = await personsBulkDeleteCreate(String(ApiConfig.getCurrentProjectId()), {
                         ...toRequestPayload(values.filters),
                         dry_run: true,
                     })
@@ -209,7 +210,7 @@ export const personsBulkDeleteLogic = kea<personsBulkDeleteLogicType>([
             let emptyPages = 0
             try {
                 for (;;) {
-                    const response = await api.persons.bulkDelete({
+                    const response = await personsBulkDeleteCreate(String(ApiConfig.getCurrentProjectId()), {
                         ...toRequestPayload(filters),
                         delete_events: values.deleteEvents,
                         delete_recordings: values.deleteRecordings,

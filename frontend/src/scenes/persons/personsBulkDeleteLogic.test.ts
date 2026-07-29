@@ -31,7 +31,7 @@ describe('personsBulkDeleteLogic', () => {
         pageIndex = 0
         useMocks({
             post: {
-                '/api/environments/:team_id/persons/bulk_delete/': async ({ request }) => {
+                '/api/projects/:project_id/persons/bulk_delete/': async ({ request }) => {
                     const body: any = await request.clone().json()
                     requests.push(body)
                     if (body.dry_run) {

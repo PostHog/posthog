@@ -238,10 +238,6 @@ import type {
 } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
-import type {
-    PersonBulkDeleteRequestApi,
-    PersonBulkDeleteResponseApi,
-} from 'products/persons/frontend/generated/api.schemas'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 import type {
     ColumnConfigurationApi,
@@ -3778,9 +3774,6 @@ const api = {
                 },
             })
             return response.results
-        },
-        async bulkDelete(data: PersonBulkDeleteRequestApi): Promise<PersonBulkDeleteResponseApi> {
-            return await new ApiRequest().persons().withAction('bulk_delete').create({ data })
         },
     },
 
