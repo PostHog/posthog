@@ -1477,7 +1477,7 @@ describe('CDP API', () => {
 
         it('rejects a request with no scoped token', async () => {
             // Running a workflow executes its stored-secret actions, so the route must not fall back
-            // to the shared internal secret — an unauthenticated call has to 401.
+            // to the shared internal secret and an unauthenticated call has to 401.
             const hogFlow = await insertHogFlow(activeEventHogFlow())
             const res = await supertest(app)
                 .post(`/api/projects/${hogFlow.team_id}/hog_flows/${hogFlow.id}/manual_invocations`)

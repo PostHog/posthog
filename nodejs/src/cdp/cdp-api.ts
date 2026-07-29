@@ -136,8 +136,8 @@ export class CdpApi {
     // middleware): Django mints per-call JWTs pinned to a team + workflow. Null when the key
     // isn't provisioned — the route then fails closed.
     private rescheduleJwt: JWT | null
-    // Scoped auth for the manual_invocations route — a separate per-purpose key from reschedule, so
-    // a leak is confined to one audience. Null when unprovisioned; the route then fails closed.
+    // Scoped auth for the manual_invocations route, a separate per-purpose key from reschedule so
+    // a leak is confined to one audience. Null when unprovisioned, which makes the route fail closed.
     private manualInvocationJwt: JWT | null
 
     constructor(
@@ -774,14 +774,13 @@ export class CdpApi {
     }
 
     // On-demand "run this workflow now" against a caller-synthesized event (e.g. a support agent
-    // running a workflow against a ticket). Unlike the scheduled/webhook paths this is not gated on
-    // trigger type — any active workflow can be run — but it still queues the full graph through the
-    // same cyclotron queue, so waits/delays/branches all work.
+    // running a workflow against a ticket). Not gated on trigger type, but still queues the full
+    // graph through the same cyclotron queue, so waits/delays/branches all work.
     //
-    // Auth: a scoped JWT minted by Django per call, pinned to this team + workflow — NOT the fleet-
-    // wide internal secret (the route is exempted from that middleware). This route runs an arbitrary
-    // active workflow with its stored secrets, so a leaked token must be confined to one workflow.
-    // Fails closed when the key isn't provisioned.
+    // Auth is a scoped JWT minted by Django per call, pinned to this team + workflow, never the
+    // fleet-wide internal secret: the route runs an arbitrary active workflow with its stored
+    // secrets, so a leaked token must be confined to one workflow. Fails closed when the key
+    // isn't provisioned.
     private postHogflowManualInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         try {
             const { id, team_id } = req.params
@@ -842,18 +841,15 @@ export class CdpApi {
             // runs can't bypass the rate limit and monopolize shared worker capacity.
             const [[, rateLimit]] = await this.hogFlowRateLimiter.rateLimitGrouped([{ id: hogFlow.id, cost: 1 }])
             if (rateLimit.isRateLimited) {
-                return res.status(429).json({ error: 'Workflow is being run too frequently — try again shortly' })
+                return res.status(429).json({ error: 'Workflow is being run too frequently. Try again shortly.' })
             }
 
             const isPlainObject = (value: unknown): value is Record<string, any> =>
                 typeof value === 'object' && value !== null && !Array.isArray(value)
 
-            // Bound caller-supplied data that passes through into the durably-enqueued invocation.
-            // properties and variables each get a per-field cap. The whole-payload cap below exists
-            // because the rebuilt event still takes caller strings (url, elements_chain, distinct_id)
-            // verbatim, so without it an oversized string could bypass the per-field checks. It
-            // leaves headroom for both capped fields at their limit, so payloads valid under the
-            // per-field caps stay valid.
+            // Per-field caps on properties and variables, plus a whole-payload cap because the
+            // rebuilt event takes caller strings (url, elements_chain, distinct_id) verbatim. The
+            // whole-payload cap leaves headroom for both capped fields at their limit.
             const MAX_PASSTHROUGH_BYTES = 128_000
             const MAX_INVOCATION_BYTES = 3 * MAX_PASSTHROUGH_BYTES
             const exceedsCap = (value: unknown, cap: number = MAX_PASSTHROUGH_BYTES): boolean =>

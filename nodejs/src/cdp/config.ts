@@ -175,10 +175,8 @@ export type CdpConfig = ClickhouseConfig & {
     // newest first (first signs, all verify). Deliberately NOT the fleet-wide INTERNAL_API_SECRET
     // (see .agents/security.md): empty in prod means the route fails closed until provisioned.
     WORKFLOWS_RESCHEDULE_JWT_SECRET: string
-    // Scoped JWT keys for the manual_invocations route (Django mints, verified here) — comma-
-    // separated, newest first (first signs, all verify). Deliberately NOT the fleet-wide
-    // INTERNAL_API_SECRET (see .agents/security.md): a leaked token must be confined to one
-    // workflow. Empty in prod means the route fails closed until provisioned.
+    // Same key semantics as WORKFLOWS_RESCHEDULE_JWT_SECRET above, but a separate per-purpose key
+    // for the manual_invocations route so a leaked token is confined to one audience.
     WORKFLOWS_MANUAL_INVOCATION_JWT_SECRET: string
     CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: number
     CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: number
