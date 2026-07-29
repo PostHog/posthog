@@ -69,6 +69,7 @@ def shipmail_source(
                 cursor_path="pagination.next_cursor",
                 cursor_param="cursor",
             ),
+            "session": make_tracked_session(redact_values=(api_key,), capture=False),
         },
         "resource_defaults": {},
         "resources": [
@@ -112,7 +113,7 @@ def shipmail_source(
 
 def get_capabilities(api_key: str) -> tuple[int | None, set[str]]:
     try:
-        session = make_tracked_session(redact_values=(api_key,))
+        session = make_tracked_session(redact_values=(api_key,), capture=False)
         response = session.get(
             f"{SHIPMAIL_BASE_URL}/capabilities",
             headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
