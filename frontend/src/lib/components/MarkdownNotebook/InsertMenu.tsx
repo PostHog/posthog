@@ -51,6 +51,10 @@ export function getInsertMenuOptionDomId(menuId: string, commandKey: string): st
  * without hard-coding the string, which would silently stop matching if the key were renamed. */
 export const QUERY_SQL_INSERT_COMMAND_KEY = 'query-sql'
 
+/** The menu's top group. Exported so a registry component can place its insert command here
+ * without hard-coding the label, which would split into a second group if this were renamed. */
+export const COMMON_INSERT_COMMAND_CATEGORY = 'Common'
+
 export function omitInsertCommands(commands: InsertCommand[], hiddenKeys: string[] | undefined): InsertCommand[] {
     if (!hiddenKeys?.length) {
         return commands
@@ -225,7 +229,7 @@ export function buildInsertCommands(
     isAskAIDisabled?: boolean,
     extraCommands: InsertCommand[] = []
 ): InsertCommand[] {
-    const commonCategory = 'Common'
+    const commonCategory = COMMON_INSERT_COMMAND_CATEGORY
 
     const insertComponent = (targetNodeId: string, tagName: string, props: NotebookComponentProps): void => {
         const node: NotebookComponentBlockNode = {
