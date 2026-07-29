@@ -80,16 +80,19 @@ the same structured response as the title/summary so the summary can place one w
 charts path.
 
 - **Opt-in.** Gated per team by the `signals-report-charts` flag (`_team_report_charts_enabled` in
-  the caller activity; on in DEBUG). When off, the chart guidance is not rendered into the
-  presentation prompt and the caller drops anything the model returns. The `charts` schema field is
-  always present, but with no guidance the agent has no reason to fill it, so an un-opted team is
-  never steered to author charts on the delicate fleet-wide path.
+  the caller activity; on in DEBUG). When off, both the chart guidance and the `charts` field itself
+  are dropped from the presentation prompt (chart-free schema), and the caller drops anything the
+  model returns anyway — so an un-opted team is never shown or steered toward charts on the delicate
+  fleet-wide path.
 - **Replace, not append.** `charts` is the report's whole set. On a re-research the previous charts
   are shown back as context (loaded from `SignalReport.charts` by `_load_previous_research`); the run
   keeps, refreshes, or drops them and the caller replaces the column with the result.
 - **Persistence** lives in the caller activity (`temporal/agentic/report.py`), like everything else
   this module produces — `_append_agentic_report_artefacts` writes the column in the same
-  transaction as the artefacts, gated on the opt-in.
+  transaction as the artefacts. It only replaces the set when this run's summary becomes the report's
+  prose (the ready and pending-input paths); the not-actionable reset keeps the previous title/summary
+  and so leaves the charts alone, and a batch that busts the whole-set caps stores no charts rather
+  than a stale set under the new summary.
 - **Not safety-judged.** The pipeline's safety judge screens the input signals before research runs,
   so it never sees research-authored charts — the same as it never sees research-authored
   title/summary. Charts are agent output derived from already-screened signals, consistent with that

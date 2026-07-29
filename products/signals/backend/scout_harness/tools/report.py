@@ -230,7 +230,6 @@ def _build_charts(charts: list[ReportChartInput] | None) -> list[ReportChart]:
     if not charts:
         return []
     built: list[ReportChart] = []
-    seen: set[str] = set()
     for chart in charts:
         try:
             content = ReportChart(
@@ -242,10 +241,8 @@ def _build_charts(charts: list[ReportChartInput] | None) -> list[ReportChart]:
             )
         except ValidationError as exc:
             raise InvalidScoutReportError(f"invalid chart {chart.chart_id!r}: {exc}")
-        if content.chart_id in seen:
-            raise InvalidScoutReportError(f"duplicate chart_id {content.chart_id!r} in the same call")
-        seen.add(content.chart_id)
         built.append(content)
+    # Whole-set checks (count, combined query size, id uniqueness) live in the shared validator.
     if batch_error := chart_batch_error(built):
         raise InvalidScoutReportError(batch_error)
     return built

@@ -280,13 +280,21 @@ def chart_batch_query_chars(charts: Sequence[ReportChart]) -> int:
 def chart_batch_error(charts: Sequence[ReportChart]) -> str | None:
     """Why a set of charts can't be stored together, or None if it can.
 
-    A `ReportChart` field validator already vets each chart's shape; this is the whole-set bound
-    that no single chart can enforce — the count cap and the combined query-size budget. Both are
-    decided from the payload alone, so a caller writing charts from any authoring surface (a scout
-    tool, the research pipeline) shares one contract rather than restating these two checks.
+    A `ReportChart` field validator already vets each chart's shape; this is the whole-set contract
+    no single chart can enforce — the count cap, the combined query-size budget, and `chart_id`
+    uniqueness. All three are decided from the payload alone, so a caller writing charts from any
+    authoring surface (a scout tool, the research pipeline) shares one contract rather than
+    restating the checks. Uniqueness matters because the inbox indexes a report's charts by id: two
+    charts under one id collapse to whichever is last, so a `chart:` reference draws the wrong query
+    and the other chart silently vanishes.
     """
     if len(charts) > MAX_REPORT_CHARTS:
         return f"a report accepts at most {MAX_REPORT_CHARTS} charts ({len(charts)})"
     if chart_batch_query_chars(charts) > MAX_REPORT_CHARTS_QUERY_CHARS:
         return f"the charts' queries exceed {MAX_REPORT_CHARTS_QUERY_CHARS} characters in total"
+    seen: set[str] = set()
+    for chart in charts:
+        if chart.chart_id in seen:
+            return f"duplicate chart_id {chart.chart_id!r} — chart_ids must be unique within a report"
+        seen.add(chart.chart_id)
     return None

@@ -145,17 +145,16 @@ def _make_chart() -> ReportChart:
 
 
 class TestBuildReportPresentationPrompt:
-    # A team that isn't opted in must never be steered to author charts: the guidance section is
-    # what tells the agent to use the (always-present, optional) `charts` schema field, so it is the
-    # thing that has to stay out of the prompt on the fleet-wide path.
-    def test_chart_guidance_only_rendered_when_enabled(self):
+    # A team that isn't opted in must never be steered to author charts: both the guidance section
+    # and the `charts` schema field have to stay out of the prompt on the fleet-wide path, so the
+    # model is never even shown a field whose description mentions authoring `chart:` links.
+    def test_chart_guidance_and_schema_field_only_present_when_enabled(self):
         off = build_report_presentation_prompt(2, charts_enabled=False)
         on = build_report_presentation_prompt(2, charts_enabled=True)
         assert "Attaching charts" not in off
         assert "Attaching charts" in on
-        # The schema field is always present regardless of the gate — the gate steers whether the
-        # agent is told to use it, not whether it exists.
-        assert '"charts"' in off
+        # The schema field is dropped when disabled and present when enabled.
+        assert '"charts"' not in off
         assert '"charts"' in on
 
     def test_previous_charts_context_only_rendered_when_enabled(self):

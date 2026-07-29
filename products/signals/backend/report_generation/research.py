@@ -340,9 +340,9 @@ def _render_previous_presentation_context(previous_title: str | None, previous_s
 
 
 # Chart-authoring guidance for the presentation step, adapted from the scout channel's
-# `_REPORT_CHARTS`. Rendered only when the team has the report-charts capability: the `charts` schema
-# field is always present, but with no guidance the agent has no reason to fill it, so a team that
-# isn't opted in is never steered to author charts on the delicate fleet-wide path.
+# `_REPORT_CHARTS`. Rendered only when the team has the report-charts capability — and when it isn't,
+# the `charts` field is dropped from the schema too (see `build_report_presentation_prompt`), so a
+# team that isn't opted in is never shown or steered toward charts on the delicate fleet-wide path.
 _REPORT_CHARTS_GUIDANCE = f"""## Attaching charts
 
 You may attach charts under `charts`, which the inbox draws on the report itself so a data move is visible next to the sentence describing it rather than a number the reader has to go and reproduce. This is optional and usually the wrong call — attach a chart only when the *shape* of the data is the point (a trend that broke, a distribution that shifted, a funnel step that collapsed). A chart restating one number the summary already gives is noise; write the number. Most reports should carry zero charts.
@@ -634,13 +634,18 @@ def build_report_presentation_prompt(
     previous_charts: list[ReportChart] | None = None,
     charts_enabled: bool = False,
 ) -> str:
-    schema = json.dumps(ReportPresentationOutput.model_json_schema(), indent=2)
+    schema_dict = ReportPresentationOutput.model_json_schema()
+    if not charts_enabled:
+        # Emit a chart-free schema when the team isn't opted in: drop the `charts` field (and the
+        # now-unreferenced chart type defs) so the model is never shown — let alone told to fill —
+        # a field whose description mentions authoring `chart:` links. Combined with the caller
+        # dropping any charts anyway, an un-opted report can never carry one.
+        schema_dict.get("properties", {}).pop("charts", None)
+        schema_dict.pop("$defs", None)
+    schema = json.dumps(schema_dict, indent=2)
     previous_presentation_context = _render_previous_presentation_context(previous_title, previous_summary)
 
-    # The charts section (and any previous-charts context) is rendered only when the team is opted
-    # in. The `charts` field is always in the schema, but with no guidance the agent has no reason to
-    # populate it — and the caller drops any charts it returns anyway, so an un-opted-in report can
-    # never carry one.
+    # The charts guidance (and any previous-charts context) is rendered only when the team is opted in.
     charts_sections = ""
     if charts_enabled:
         previous_charts_context = _render_previous_charts_context(previous_charts or [])
@@ -914,9 +919,9 @@ async def run_multi_turn_research(
     return ReportResearchOutput(
         title=presentation_result.title,
         summary=presentation_result.summary,
-        # Only carry charts for an opted-in team, regardless of what the model returned — the guard is
-        # here as well as in the prompt so the capability can never leak through the always-present
-        # schema field.
+        # Only carry charts for an opted-in team, regardless of what the model returned — a redundant
+        # guard alongside the gated schema/guidance, so the capability can't leak even if a future
+        # change reintroduces the field into a disabled prompt.
         charts=presentation_result.charts if charts_enabled else [],
         research_task_id=str(session.task.id),
         old_artefacts=old_artefacts,

@@ -280,22 +280,23 @@ def _append_agentic_report_artefacts(
                 reevaluate_autostart=False,
             )
         if charts is not None:
+            # We only reach here when this run's summary is becoming the report's prose, so the
+            # charts column is being replaced to match it. A batch that busts the whole-set contract
+            # (over the count/size caps, or a duplicate id an agent produced) can't be stored, but it
+            # also must not fail an otherwise-good research run — so store no charts rather than the
+            # previous set, which would now sit under an unrelated summary. Any `chart:` link in the
+            # new summary then degrades to its label, which is the graceful miss.
             batch_error = chart_batch_error(charts)
             if batch_error:
-                # A misbehaving run must not wipe a report's existing charts or store an over-budget
-                # set, but it also must not fail an otherwise-good research run. Leave the column as it
-                # was and move on.
                 logger.warning(
-                    "skipping report charts write: %s",
+                    "clearing report charts: %s",
                     batch_error,
                     report_id=report_id,
                     team_id=team_id,
                     chart_count=len(charts),
                 )
-            else:
-                SignalReport.objects.filter(id=report_id, team_id=team_id).update(
-                    charts=[chart.model_dump(mode="json") for chart in charts]
-                )
+            payload = [] if batch_error else [chart.model_dump(mode="json") for chart in charts]
+            SignalReport.objects.filter(id=report_id, team_id=team_id).update(charts=payload)
 
 
 async def _persist_agentic_report_artefacts(
@@ -351,9 +352,14 @@ async def _persist_agentic_report_artefacts(
             )
         )
 
-    # `None` when the team isn't opted in, so the charts column is left untouched; otherwise the
-    # run's set replaces it (including an empty set — the agent dropping every chart is a valid edit).
-    charts = list(result.charts) if charts_enabled else None
+    # Charts illustrate the summary, so they may only replace the report's set when this run's
+    # summary will actually become the report's prose. The not-actionable branch resets the report to
+    # `potential` and keeps its previous title/summary (`reset_report_to_potential_activity` writes
+    # neither), so replacing its charts there would strand them under unrelated text; the ready and
+    # pending-input branches both write the new title/summary, so charts stay coherent with it.
+    # `None` leaves the column untouched — also the path for a team that isn't opted in.
+    prose_will_show = result.effective_actionability().actionability != ActionabilityChoice.NOT_ACTIONABLE
+    charts = list(result.charts) if (charts_enabled and prose_will_show) else None
     await database_sync_to_async(_append_agentic_report_artefacts, thread_sensitive=False)(
         team_id=team_id,
         report_id=report_id,
