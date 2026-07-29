@@ -289,6 +289,7 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 tasks=tuple(req.tasks),
                 event_plan=req.event_plan,
                 error=req.error,
+                pending_input=req.pending_input,
             )
         )
         response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
