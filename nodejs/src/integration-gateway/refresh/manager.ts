@@ -119,12 +119,16 @@ export class RefreshManager {
     }
 
     private async refreshLocked(row: IntegrationRow, provider: Provider): Promise<IntegrationRow> {
-        // Re-read under the lock: a concurrent head (or Django) may have just rotated the token.
-        const fresh = (await this.repository.fetchOne(row.id)) ?? row
+        // Re-read under the lock from the primary: a concurrent head (or Django) may have just
+        // rotated the token, and a replica read could miss that.
+        const fresh = (await this.repository.fetchOneForUpdate(row.id)) ?? row
         if (!accessTokenExpired(fresh.kind, fresh.config)) {
             return fresh
         }
 
+        // The exact stored ciphertext we're about to spend — used as the compare-and-swap guard so a
+        // concurrent Django reconnect can't be clobbered (see repository.updateAfterRefresh).
+        const storedRefreshToken = fresh.sensitive_config.refresh_token
         const refreshToken = this.decryptRefreshToken(fresh)
         const tokens = await this.requestRefresh(provider, refreshToken)
 
@@ -148,7 +152,21 @@ export class RefreshManager {
             newSensitiveConfig.refresh_token = this.encryptedFields.encrypt(tokens.refresh_token)
         }
 
-        await this.repository.updateAfterRefresh(fresh.id, newConfig, newSensitiveConfig)
+        const persisted = await this.repository.updateAfterRefresh(
+            fresh.id,
+            newConfig,
+            newSensitiveConfig,
+            storedRefreshToken
+        )
+        if (!persisted) {
+            // Lost the race: the row changed since we read it (e.g. a user reconnect rotated the
+            // token). Discard our now-stale refresh and serve whatever the winner persisted.
+            logger.info('[RefreshManager] refresh superseded by a concurrent write; discarding', {
+                id: fresh.id,
+                kind: fresh.kind,
+            })
+            return (await this.repository.fetchOneForUpdate(fresh.id)) ?? fresh
+        }
 
         return { ...fresh, config: newConfig, sensitive_config: newSensitiveConfig }
     }

@@ -93,7 +93,7 @@ describe('RefreshManager (real DB + Redis + mock OAuth)', () => {
         const integration = await seedExpiredHubspot()
         const manager = new RefreshManager(repository, encryptedFields, hub.redisPool, config(), ['hubspot'], '*')
 
-        const row = (await repository.fetchOne(integration.id))!
+        const row = (await repository.fetchOneForUpdate(integration.id))!
         const updated = await manager.refresh(row)
 
         // Returned row carries the new token for the read path.
@@ -103,7 +103,7 @@ describe('RefreshManager (real DB + Redis + mock OAuth)', () => {
         expect(lastRequestBody).toContain('refresh_token=stored-refresh')
 
         // Persisted to the DB, re-encrypted, timing updated, errors cleared.
-        const persisted = (await repository.fetchOne(integration.id))!
+        const persisted = (await repository.fetchOneForUpdate(integration.id))!
         expect(encryptedFields.decrypt(persisted.sensitive_config.access_token)).toBe('refreshed-access')
         expect(encryptedFields.decrypt(persisted.sensitive_config.refresh_token)).toBe('rotated-refresh')
         expect(persisted.config.expires_in).toBe(1800)
@@ -121,7 +121,7 @@ describe('RefreshManager (real DB + Redis + mock OAuth)', () => {
     it('honors the real Redis single-flight lock: a held lock skips the refresh', async () => {
         const integration = await seedExpiredHubspot()
         const manager = new RefreshManager(repository, encryptedFields, hub.redisPool, config(), ['hubspot'], '*')
-        const row = (await repository.fetchOne(integration.id))!
+        const row = (await repository.fetchOneForUpdate(integration.id))!
 
         // Pre-hold the lock so the manager observes it as taken.
         const client = await hub.redisPool.acquire()
@@ -135,7 +135,47 @@ describe('RefreshManager (real DB + Redis + mock OAuth)', () => {
 
         // No refresh happened; the original (stale-but-valid) token is served and the DB is untouched.
         expect(encryptedFields.decrypt(result.sensitive_config.access_token)).toBe('stale-access')
-        const persisted = (await repository.fetchOne(integration.id))!
+        const persisted = (await repository.fetchOneForUpdate(integration.id))!
         expect(encryptedFields.decrypt(persisted.sensitive_config.access_token)).toBe('stale-access')
+    })
+
+    it('compare-and-swap: updateAfterRefresh matches 0 rows when the stored refresh_token changed', async () => {
+        const integration = await seedExpiredHubspot()
+
+        // Simulate a concurrent reconnect (Django) rotating the refresh_token after we read the row.
+        await hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_integration SET sensitive_config = jsonb_set(sensitive_config, '{refresh_token}', $1::jsonb) WHERE id = $2`,
+            [JSON.stringify(encryptedFields.encrypt('reconnected-refresh')), integration.id],
+            'test-rotate-refresh-token'
+        )
+
+        // Guard on the OLD ciphertext => 0 rows, credentials not clobbered.
+        const persistedWithStaleGuard = await repository.updateAfterRefresh(
+            integration.id,
+            { refreshed_at: nowSecs(), expires_in: 1800 },
+            {
+                access_token: encryptedFields.encrypt('should-not-land'),
+                refresh_token: encryptedFields.encrypt('nope'),
+            },
+            encryptedFields.encrypt('stored-refresh') // stale guard (a different ciphertext than what's now stored)
+        )
+        expect(persistedWithStaleGuard).toBe(false)
+
+        const afterMiss = (await repository.fetchOneForUpdate(integration.id))!
+        expect(encryptedFields.decrypt(afterMiss.sensitive_config.refresh_token)).toBe('reconnected-refresh')
+        expect(afterMiss.sensitive_config.access_token).not.toBeUndefined()
+
+        // Guard on the CURRENT stored ciphertext => the update lands.
+        const current = (await repository.fetchOneForUpdate(integration.id))!
+        const persistedWithFreshGuard = await repository.updateAfterRefresh(
+            integration.id,
+            { refreshed_at: nowSecs(), expires_in: 1800 },
+            { ...current.sensitive_config, access_token: encryptedFields.encrypt('landed') },
+            current.sensitive_config.refresh_token
+        )
+        expect(persistedWithFreshGuard).toBe(true)
+        const afterHit = (await repository.fetchOneForUpdate(integration.id))!
+        expect(encryptedFields.decrypt(afterHit.sensitive_config.access_token)).toBe('landed')
     })
 })

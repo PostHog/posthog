@@ -28,25 +28,43 @@ export class IntegrationRepository {
     }
 
     /**
-     * Re-read a single row under the refresh lock so we don't refresh a token a concurrent head (or
-     * Django) already rotated. Returns null if the row no longer exists.
+     * Re-read a single row under the refresh lock, from the PRIMARY (not the replica): a stale
+     * replica read would defeat the point of re-reading under the lock and could refresh with an
+     * already-rotated refresh token, revoking the grant on strict-rotation providers. Returns null
+     * if the row no longer exists.
      */
-    async fetchOne(id: number): Promise<IntegrationRow | null> {
-        return (await this.fetchByIds([id]))[0] ?? null
+    async fetchOneForUpdate(id: number): Promise<IntegrationRow | null> {
+        const response = await this.postgres.query<IntegrationRow>(
+            PostgresUse.COMMON_WRITE,
+            `SELECT id, team_id, kind, config, sensitive_config FROM posthog_integration WHERE id = $1`,
+            [id],
+            'integrationGatewayFetchOneForUpdate'
+        )
+        return response.rows[0] ?? null
     }
 
-    /** Persist a successful refresh and clear any prior refresh error. Mirrors Django's write. */
+    /**
+     * Persist a successful refresh and clear any prior refresh error, guarded by the encrypted
+     * `refresh_token` we read under the lock (compare-and-swap). The Redis lock only excludes other
+     * gateway heads; a Django reconnect can still write concurrently. Guarding on the exact stored
+     * ciphertext means if anything changed the row since we read it (a reconnect rotating the token),
+     * the update matches 0 rows and we discard rather than clobber the new credentials. Returns true
+     * iff the row was updated.
+     */
     async updateAfterRefresh(
         id: number,
         config: Record<string, any>,
-        sensitiveConfig: Record<string, any>
-    ): Promise<void> {
-        await this.postgres.query(
+        sensitiveConfig: Record<string, any>,
+        expectedRefreshToken: string
+    ): Promise<boolean> {
+        const response = await this.postgres.query(
             PostgresUse.COMMON_WRITE,
-            `UPDATE posthog_integration SET config = $1, sensitive_config = $2, errors = '' WHERE id = $3`,
-            [JSON.stringify(config), JSON.stringify(sensitiveConfig), id],
+            `UPDATE posthog_integration SET config = $1, sensitive_config = $2, errors = ''
+             WHERE id = $3 AND sensitive_config->>'refresh_token' = $4`,
+            [JSON.stringify(config), JSON.stringify(sensitiveConfig), id, expectedRefreshToken],
             'integrationGatewayUpdateAfterRefresh'
         )
+        return (response.rowCount ?? 0) > 0
     }
 
     /** Record a failed refresh so the app surfaces "reconnect this integration" (same sentinel Django sets). */
