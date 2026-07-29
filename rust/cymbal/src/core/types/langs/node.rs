@@ -61,7 +61,10 @@ impl RawNodeFrame {
                 Ok((self, JsResolveErr::NoSourcemapUploaded(chunk_id)).into())
             }
             Err(ResolveError::ResolutionError(e)) => {
-                warn!("Unexpected Node.js symbol resolution error: {:?}", e);
+                warn!(
+                    team_id,
+                    "Unexpected Node.js symbol resolution error: {:?}", e
+                );
                 Ok((self, JsResolveErr::InvalidSourceMap(e.to_string())).into())
             }
             Err(ResolveError::UnhandledError(e)) => Err(e),

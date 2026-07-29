@@ -189,6 +189,7 @@ export function createJoinedIngestionPipeline<
             teamManager,
             outputs,
             promiseScheduler,
+            topHog,
             // Batch stores are singleton persistent caches, but each batch receives a
             // batch-bound view so entries can be reference-counted and released after
             // that batch's flush lifecycle completes. The Rust consumer's per-worker
