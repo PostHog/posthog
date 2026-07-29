@@ -6,7 +6,6 @@ from typing import Any, Optional
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.bill_com.settings import (
     BILL_COM_ENDPOINTS,
     CREATED_TIME_FIELD,
@@ -14,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bill_com.s
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 # BILL runs the sandbox on a separate host, and a developer key is issued per environment.
 BILL_COM_HOSTS = {
@@ -98,13 +98,11 @@ class BillComClient:
         self._dev_key = dev_key
         self._api_root = f"{base_url(environment)}/{api_version}"
         self._session_id: Optional[str] = None
-        # The login exchange is never sample-captured: its response body carries the freshly minted
-        # session ID, which no name-based scrubber recognises and which can't be in `redact_values`
-        # until after the response is read. login() builds the captured data session once the ID is
-        # known, so it can be masked there. Data requests default to `self._login_session` only in
-        # the (never-hit) case a GET precedes login — list_page always signs in first.
-        self._login_session = make_tracked_session(redact_values=(password, dev_key), capture=False)
-        self._session = self._login_session
+        # capture=False keeps requests metered and logged but excludes them from HTTP sample
+        # capture: BILL responses carry raw financial records (bank accounts, routing numbers,
+        # payments, invoices, customers, vendors) and the login exchange returns a freshly minted
+        # session ID in a generic field — content the name-based scrubbers can't reliably redact.
+        self._session = make_tracked_session(redact_values=(password, dev_key), capture=False)
 
     @property
     def api_root(self) -> str:
@@ -115,9 +113,7 @@ class BillComClient:
         return self._session_id
 
     def login(self) -> str:
-        # The uncaptured login session handles every sign-in, including re-logins after a 401, so the
-        # session ID in the response is never written to a sample.
-        response = self._login_session.post(
+        response = self._session.post(
             f"{self._api_root}/login",
             json={
                 "username": self._username,
@@ -136,8 +132,6 @@ class BillComClient:
             raise BillComAuthError("BILL sign-in did not return a session ID")
 
         self._session_id = str(session_id)
-        # Build the captured data session now the session ID is known, so it's masked in sampled requests.
-        self._session = make_tracked_session(redact_values=(self._password, self._dev_key, self._session_id))
         return self._session_id
 
     def _get(self, path: str, params: dict[str, Any]) -> requests.Response:
