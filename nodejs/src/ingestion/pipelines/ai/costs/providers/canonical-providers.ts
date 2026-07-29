@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-07-28 10:48:57 UTC
+// Generated at: 2026-07-29 10:52:24 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -8,6 +8,7 @@ export type CanonicalProvider =
     | 'akashml-fp8'
     | 'alibaba'
     | 'alibaba-fast'
+    | 'alibaba-fp8'
     | 'alibaba-opensource'
     | 'amazon-bedrock'
     | 'amazon-bedrock-claude-on-aws'
@@ -52,7 +53,6 @@ export type CanonicalProvider =
     | 'crusoe-fp8'
     | 'darkbloom'
     | 'decart-fp4'
-    | 'decart-fp8'
     | 'deepinfra'
     | 'deepinfra-base'
     | 'deepinfra-bf16'
@@ -88,6 +88,7 @@ export type CanonicalProvider =
     | 'inceptron-fp4'
     | 'inceptron-fp8'
     | 'inceptron-int4'
+    | 'io-net-fp16'
     | 'io-net-fp8'
     | 'ionstream-bf16'
     | 'ionstream-fp4'
@@ -100,6 +101,7 @@ export type CanonicalProvider =
     | 'minimax-fp8'
     | 'minimax-highspeed'
     | 'mistral'
+    | 'modal-mxfp4'
     | 'modelrun-fp4'
     | 'moonshotai-highspeed'
     | 'moonshotai-int4'
@@ -136,7 +138,6 @@ export type CanonicalProvider =
     | 'perplexity'
     | 'phala'
     | 'poolside-bf16'
-    | 'poolside-fp4'
     | 'poolside-fp8'
     | 'reka-bf16'
     | 'reka-fp8'
