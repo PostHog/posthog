@@ -193,9 +193,9 @@ export interface sourceManagementLogicMeta {
             selfManagedTables: DatabaseSchemaDataWarehouseTable[],
             searchTerm: string
         ) => DatabaseSchemaDataWarehouseTable[]
+        managedSources: (dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null) => ExternalDataSource[]
         directSources: (dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null) => ExternalDataSource[]
         filteredDirectSources: (directSources: ExternalDataSource[], directSearchTerm: string) => ExternalDataSource[]
-        managedSources: (dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null) => ExternalDataSource[]
         managedSourcesFuse: (
             managedSources: ExternalDataSource[],
             availableSources: Record<string, SourceConfig> | null
