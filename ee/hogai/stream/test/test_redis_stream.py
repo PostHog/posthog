@@ -381,10 +381,11 @@ class TestRedisStream(BaseTest):
         # (e.g. Redis is unreachable), the original error must not be masked by the
         # secondary one: we still raise StreamError chained from the real cause.
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
-            mock_client.expire = AsyncMock()
             original_error = redis_exceptions.TimeoutError("connect timeout")
             masking_error = redis_exceptions.TimeoutError("masking error from dead redis")
-            mock_client.xadd = AsyncMock(side_effect=[original_error, masking_error])
+            pipe = MagicMock()
+            pipe.execute = AsyncMock(side_effect=[original_error, masking_error])
+            mock_client.pipeline = MagicMock(return_value=pipe)
 
             async def test_generator():
                 yield (AssistantEventType.MESSAGE, AssistantMessage(content="test message"))
@@ -394,7 +395,7 @@ class TestRedisStream(BaseTest):
 
             self.assertIs(context.exception.__cause__, original_error)
             # Both the data write and the fallback status write were attempted
-            self.assertEqual(mock_client.xadd.call_count, 2)
+            self.assertEqual(pipe.execute.call_count, 2)
 
     @pytest.mark.asyncio
     async def test_write_to_stream_empty_generator(self):
