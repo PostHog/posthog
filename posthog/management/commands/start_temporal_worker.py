@@ -783,6 +783,14 @@ class Command(BaseCommand):
                 )
             )
 
+            # The health server binds before the worker's metrics server, so pointing both at
+            # one port means the metrics server loses the bind for the life of the process.
+            if health_port and health_port == metrics_port:
+                logger.error(
+                    f"Health port {health_port} matches the metrics port, so no metrics will be served. "
+                    "Set --health-port/TEMPORAL_HEALTH_PORT and --metrics-port/PROMETHEUS_METRICS_EXPORT_PORT apart"
+                )
+
             # Create and start health check server
             if health_port and health_max_idle_seconds:
                 health_server = HealthCheckServer(

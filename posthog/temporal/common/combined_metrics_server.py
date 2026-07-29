@@ -1,3 +1,4 @@
+import errno
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
@@ -91,18 +92,44 @@ class CombinedMetricsServer:
             return web.Response(text=f"Error: {e}", status=500)
 
     async def start(self) -> None:
+        """Start serving combined metrics, degrading to no metrics if the port is taken.
+
+        The metrics port is shared by convention with the web and Celery metrics servers
+        (PROMETHEUS_METRICS_EXPORT_PORT / CELERY_METRICS_PORT both default to 8001), so
+        another process in the same network namespace can already own it. Metrics are
+        observability, not function: raising here kills the worker before it polls a single
+        task, and a supervised worker then restarts, fails the same bind, and repeats.
+        """
+
         if self._app is not None:
             raise RuntimeError("Server already started")
 
-        self._app = web.Application()
-        self._app.router.add_get("/metrics", self._handle_metrics)
-        self._app.router.add_get("/", self._handle_metrics)
+        app = web.Application()
+        app.router.add_get("/metrics", self._handle_metrics)
+        app.router.add_get("/", self._handle_metrics)
 
-        self._runner = web.AppRunner(self._app, access_log=None)
-        await self._runner.setup()
+        runner = web.AppRunner(app, access_log=None)
+        await runner.setup()
 
-        self._site = web.TCPSite(self._runner, "0.0.0.0", self._port)
-        await self._site.start()
+        site = web.TCPSite(runner, "0.0.0.0", self._port)
+        try:
+            await site.start()
+        except OSError as e:
+            await runner.cleanup()
+
+            if e.errno != errno.EADDRINUSE:
+                raise
+
+            logger.warning(
+                "combined_metrics_server.port_in_use",
+                port=self._port,
+                error=str(e),
+            )
+            return
+
+        self._app = app
+        self._runner = runner
+        self._site = site
 
         logger.info(
             "combined_metrics_server.started",
@@ -111,16 +138,14 @@ class CombinedMetricsServer:
         )
 
     async def stop(self) -> None:
-        if self._runner is None:
-            return
+        if self._runner is not None:
+            await self._runner.cleanup()
+            self._runner = None
+            self._site = None
+            self._app = None
 
-        await self._runner.cleanup()
-        self._runner = None
-        self._site = None
-        self._app = None
+            logger.info("combined_metrics_server.stopped")
 
         # Shutdown the dedicated executor
         # wait=False is intentional: if generate_latest is stuck, don't block shutdown
         self._executor.shutdown(wait=False)
-
-        logger.info("combined_metrics_server.stopped")

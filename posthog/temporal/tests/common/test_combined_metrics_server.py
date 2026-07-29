@@ -11,7 +11,7 @@ from posthog.temporal.common.combined_metrics_server import CombinedMetricsServe
 from posthog.temporal.common.worker import get_free_port
 
 
-def create_mock_temporal_server(port: int, metrics_content: bytes) -> HTTPServer:
+def create_mock_temporal_server(port: int, metrics_content: bytes, host: str = "127.0.0.1") -> HTTPServer:
     """Create a mock HTTP server that returns the given metrics content."""
 
     class MockHandler(BaseHTTPRequestHandler):
@@ -24,7 +24,7 @@ def create_mock_temporal_server(port: int, metrics_content: bytes) -> HTTPServer
         def log_message(self, format: str, *args: object) -> None:
             pass  # Suppress logging
 
-    server = HTTPServer(("127.0.0.1", port), MockHandler)
+    server = HTTPServer((host, port), MockHandler)
     return server
 
 
@@ -500,3 +500,32 @@ test_gauge 100.0
         # Should not raise any exception
         await server.stop()
         await server.stop()  # Multiple stops should also be safe
+
+    @pytest.mark.asyncio
+    async def test_start_tolerates_metrics_port_already_in_use(self, isolated_registry):
+        temporal_port = get_free_port()
+        metrics_port = get_free_port()
+
+        # Stands in for whatever else already owns the metrics port in this network namespace.
+        # It has to be the same wildcard bind the metrics server uses: SO_REUSEADDR lets a
+        # wildcard socket coexist with a loopback-specific one, so 127.0.0.1 wouldn't collide.
+        incumbent = create_mock_temporal_server(metrics_port, b"# incumbent metrics\n", host="0.0.0.0")
+        incumbent_thread = threading.Thread(target=incumbent.serve_forever, daemon=True)
+        incumbent_thread.start()
+
+        server = CombinedMetricsServer(
+            port=metrics_port,
+            temporal_metrics_url=f"http://127.0.0.1:{temporal_port}/metrics",
+            registry=isolated_registry,
+        )
+
+        try:
+            await server.start()
+
+            # The incumbent keeps the port: we degrade to no metrics rather than stealing it
+            async with ClientSession() as session:
+                async with session.get(f"http://127.0.0.1:{metrics_port}/metrics") as response:
+                    assert await response.read() == b"# incumbent metrics\n"
+        finally:
+            await server.stop()
+            incumbent.shutdown()
