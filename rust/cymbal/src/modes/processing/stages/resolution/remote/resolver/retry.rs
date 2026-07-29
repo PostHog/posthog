@@ -465,7 +465,9 @@ async fn wait_for_routability(
         .min(remaining);
     // An `Err` here just means the pool was still unroutable when the budget ran
     // out; the caller's own attempt/deadline budget decides when to give up.
-    let _ = ctx.pool.wait_ready(budget).await;
+    if let Err(err) = ctx.pool.wait_ready(budget).await {
+        debug!(error = %err, "remote resolution pool still unroutable after waiting");
+    }
     Ok(())
 }
 
