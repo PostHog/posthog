@@ -733,7 +733,8 @@ export const userLogic = kea<userLogicType>([
         updateUserFailure: ({ errorObject }) => {
             lemonToast.dismiss('updateUser')
             // Field-level errors (e.g. the email address already belongs to another account) belong
-            // next to the input the person has to change, not in a toast that scrolls away.
+            // next to the input the person has to change. initKea still toasts the detail, so
+            // skipping the toast here leaves exactly one.
             if (errorObject?.detail && USER_DETAILS_INLINE_ERROR_FIELDS.has(errorObject?.attr)) {
                 actions.setUserDetailsManualErrors({ [errorObject.attr]: errorObject.detail })
                 return

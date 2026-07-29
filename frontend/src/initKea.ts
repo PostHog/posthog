@@ -37,7 +37,6 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadSimilarIssues', // Gracefully handled in the similar issues list
     'resolveFingerprint', // Retried while the error finishes ingesting; the fingerprint scene surfaces its own state
     'saveEarlyAccessFeature', // Field-level errors handled in earlyAccessFeatureLogic
-    'updateUser', // userLogic shows either its own toast or a field-level error
     'loadExistingSubscription', // Background eligibility check for the dashboard subscribe nudge
     'loadFreeTierSubscriptionCount', // Background free-tier limit check for the dashboard subscribe nudge
     'sendNudgeNotification', // Background delivery request for the dashboard subscribe nudge
