@@ -207,6 +207,62 @@ class TestSummarizeEvaluationRuns:
         assert mock_client.chat.completions.create.call_args.kwargs["timeout"] == SUMMARIZATION_TIMEOUT
         assert result.overall_assessment == "Mostly passing."
 
+    def test_concurrent_requests_are_limited_per_team(self, valid_evaluation_summary_json: str) -> None:
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = valid_evaluation_summary_json
+
+        async def run_summaries() -> None:
+            first_call_started = asyncio.Event()
+            release_first_call = asyncio.Event()
+            completion_count = 0
+
+            async def completion(**_kwargs: Any) -> MagicMock:
+                nonlocal completion_count
+                completion_count += 1
+                if completion_count == 1:
+                    first_call_started.set()
+                    await release_first_call.wait()
+                return mock_response
+
+            with patch(
+                "products.ai_observability.backend.summarization.llm.evaluation_summary.build_async_openai_client"
+            ) as mock_builder:
+                mock_client = MagicMock()
+                mock_client.chat.completions.create = AsyncMock(side_effect=completion)
+                mock_builder.return_value = mock_client
+
+                first_summary = asyncio.create_task(
+                    summarize_evaluation_runs(
+                        evaluation_runs=[{"generation_id": "g1", "result": True, "reasoning": "good"}],
+                        team_id=1,
+                        model=OpenAIModel.GPT_4_1_MINI,
+                    )
+                )
+                await first_call_started.wait()
+
+                try:
+                    with pytest.raises(exceptions.Throttled, match="already being generated"):
+                        await summarize_evaluation_runs(
+                            evaluation_runs=[{"generation_id": "g2", "result": True, "reasoning": "also good"}],
+                            team_id=1,
+                            model=OpenAIModel.GPT_4_1_MINI,
+                        )
+
+                    different_team_result = await summarize_evaluation_runs(
+                        evaluation_runs=[{"generation_id": "g3", "result": True, "reasoning": "good"}],
+                        team_id=2,
+                        model=OpenAIModel.GPT_4_1_MINI,
+                    )
+                    assert different_team_result.overall_assessment == "Mostly passing."
+                finally:
+                    release_first_call.set()
+                    await first_summary
+
+                assert mock_client.chat.completions.create.await_count == 2
+
+        asyncio.run(run_summaries())
+
     def test_large_run_set_bounds_every_request_and_retries_incomplete_maps(self) -> None:
         def response_with_content(content: str) -> MagicMock:
             response = MagicMock()

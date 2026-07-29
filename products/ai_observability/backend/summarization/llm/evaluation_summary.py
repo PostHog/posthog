@@ -7,18 +7,23 @@ runs can trip the ai-gateway's ~30s hard timeout.
 
 import json
 import asyncio
+import contextlib
+from collections.abc import AsyncIterator
 from typing import Any, Literal, TypeVar, cast
 
 import structlog
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 from pydantic import BaseModel
+from redis.exceptions import LockError
 from rest_framework import exceptions
 
+from posthog import redis as posthog_redis
 from posthog.llm.gateway_client import build_async_openai_client
 
 from ..constants import (
     EVALUATION_SUMMARY_CHUNK_SIZE,
+    EVALUATION_SUMMARY_GENERATION_LOCK_TIMEOUT_SECONDS,
     EVALUATION_SUMMARY_MAP_REASONING_MAX_CHARS,
     EVALUATION_SUMMARY_MAX_CONCURRENT_MAP_CALLS,
     EVALUATION_SUMMARY_MIN_USER_PROMPT_CHARS,
@@ -39,6 +44,27 @@ logger = structlog.get_logger(__name__)
 
 StructuredResponse = TypeVar("StructuredResponse", bound=BaseModel)
 ResultCategory = Literal["pass", "fail", "na"]
+
+
+@contextlib.asynccontextmanager
+async def _team_generation_lock(team_id: int) -> AsyncIterator[None]:
+    lock = posthog_redis.get_async_client().lock(
+        f"llm_eval_summary_generation_lock:{team_id}",
+        timeout=EVALUATION_SUMMARY_GENERATION_LOCK_TIMEOUT_SECONDS,
+        blocking=False,
+    )
+    if not await lock.acquire(blocking=False):
+        raise exceptions.Throttled(
+            detail="An evaluation summary is already being generated for this project. Try again when it finishes."
+        )
+
+    try:
+        yield
+    finally:
+        try:
+            await lock.release()
+        except LockError:
+            logger.warning("evaluation_summary_generation_lock_release_failed", team_id=team_id)
 
 
 def _result_label(result: bool | None) -> str:
@@ -558,16 +584,17 @@ async def summarize_evaluation_runs(
         raise exceptions.ValidationError("No evaluation runs provided")
 
     try:
-        return await _generate_evaluation_summary(
-            evaluation_runs=evaluation_runs,
-            team_id=team_id,
-            model=model,
-            filter_type=filter_type,
-            evaluation_name=evaluation_name,
-            evaluation_description=evaluation_description,
-            evaluation_prompt=evaluation_prompt,
-            user_distinct_id=user_distinct_id,
-        )
+        async with _team_generation_lock(team_id):
+            return await _generate_evaluation_summary(
+                evaluation_runs=evaluation_runs,
+                team_id=team_id,
+                model=model,
+                filter_type=filter_type,
+                evaluation_name=evaluation_name,
+                evaluation_description=evaluation_description,
+                evaluation_prompt=evaluation_prompt,
+                user_distinct_id=user_distinct_id,
+            )
     except exceptions.APIException:
         raise
     except Exception as error:
