@@ -7,6 +7,8 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from django.db.models import QuerySet
+
 import posthoganalytics
 
 from posthog.event_usage import groups
@@ -118,6 +120,28 @@ def _to_issue_assignment_notification(assignment) -> contracts.ErrorTrackingIssu
 def list_issues(team_id: int) -> list[contracts.ErrorTrackingIssuePreview]:
     issues = logic.list_issues(team_id)
     return [_to_issue_preview(issue) for issue in issues]
+
+
+def list_issues_created_since(team_id: int, since: datetime, limit: int) -> list[contracts.ErrorTrackingIssuePreview]:
+    issues = logic.list_issues_created_since(team_id=team_id, since=since, limit=limit)
+    return [_to_issue_preview(issue) for issue in issues]
+
+
+def query_new_error_issues(period_start: datetime, period_end: datetime) -> QuerySet:
+    # "New this week" = issue first created within the digest window. Only active issues
+    # (not archived/resolved/suppressed) are worth surfacing as a new production error.
+    # Cross-team batch query for the weekly digest — callers execute it off the request path.
+    # Issue names are attacker-controlled (created from exception ingestion), so callers must
+    # cap how many they surface per team; newest-first ordering makes a per-team slice safe.
+    return (
+        ErrorTrackingIssue.objects.filter(
+            created_at__gt=period_start,
+            created_at__lte=period_end,
+            status=ErrorTrackingIssue.Status.ACTIVE,
+        )
+        .order_by("-created_at")
+        .values("team_id", "name", "id")
+    )
 
 
 def get_issue(issue_id: UUID, team_id: int) -> contracts.ErrorTrackingIssue:
@@ -518,11 +542,29 @@ def list_fingerprints(team_id: int, issue_id: UUID | None = None) -> list[contra
     return [_to_fingerprint(fingerprint) for fingerprint in fingerprints]
 
 
+def list_first_fingerprints(team_id: int, issue_ids: list[UUID]) -> list[contracts.ErrorTrackingFingerprint]:
+    """Earliest-created fingerprint per issue, one entry per issue."""
+    fingerprints = logic.list_first_fingerprints(team_id=team_id, issue_ids=issue_ids)
+    return [_to_fingerprint(fingerprint) for fingerprint in fingerprints]
+
+
 def get_fingerprint(team_id: int, fingerprint_id: UUID) -> contracts.ErrorTrackingFingerprint | None:
     fingerprint = logic.get_fingerprint(team_id=team_id, fingerprint_id=fingerprint_id)
     if fingerprint is None:
         return None
     return _to_fingerprint(fingerprint)
+
+
+def get_fingerprint_by_value(team_id: int, fingerprint: str) -> contracts.ErrorTrackingFingerprint | None:
+    resolved = logic.get_fingerprint_by_value(team_id=team_id, fingerprint=fingerprint)
+    if resolved is None:
+        return None
+    return _to_fingerprint(resolved)
+
+
+def get_issue_permalink(team_id: int, issue_id: UUID) -> str:
+    """Absolute, merge-stable link to an issue for durable surfaces (emails, external tools)."""
+    return logic.get_issue_permalink_by_fingerprint(team_id=team_id, issue_id=issue_id)
 
 
 def list_external_references(team_id: int) -> list[contracts.ErrorTrackingExternalReference]:
@@ -636,3 +678,15 @@ def build_ingestion_failures_url(team_id: int) -> str:
 
 def has_resolved_issues(team_id: int) -> bool:
     return ErrorTrackingIssue.objects.filter(team_id=team_id, status=ErrorTrackingIssue.Status.RESOLVED).exists()
+
+
+def build_team_digest_data(team: Any) -> dict[str, Any] | None:
+    return weekly_digest.build_team_digest_data(team)
+
+
+def build_team_section_payload(data: dict[str, Any]) -> dict[str, Any]:
+    return weekly_digest.build_team_section_payload(data)
+
+
+def send_digest_to_workflow(digest: dict[str, Any], distinct_id: str) -> None:
+    weekly_digest.send_digest_to_workflow(digest, distinct_id)

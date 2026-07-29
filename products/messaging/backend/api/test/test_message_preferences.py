@@ -14,6 +14,7 @@ import posthog.plugins.plugin_server_api as plugin_server_api
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_preferences import (
     ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
+    EMAIL_TRACKING_PREFERENCE_ID,
     MessageRecipientPreference,
     PreferenceStatus,
 )
@@ -189,6 +190,266 @@ class TestMessagePreferencesViews(BaseTest):
         response = self.client.post(reverse("message_preferences_update"), data)
         self.assertEqual(response.status_code, 400)
         self.assertEqual(json.loads(response.content), {"error": "Preference values must be 'true' or 'false'"})
+
+    def _enable_engagement_events(self):
+        config = self.team.workflows_config
+        config.capture_workflows_engagement_events = True
+        config.save()
+
+    @patch("posthog.views.capture_internal")
+    @patch("posthog.views.validate_messaging_preferences_token")
+    def test_one_click_unsubscribe_emits_unsubscribed_event(
+        self, mock_validate_messaging_preferences_token, mock_capture_internal
+    ):
+        self._enable_engagement_events()
+        mock_validate_messaging_preferences_token.return_value = mock_response(
+            200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
+        )
+
+        response = self.client.get(
+            reverse("message_preferences", kwargs={"token": self.token}),
+            {"one_click_unsubscribe": "1"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        mock_capture_internal.assert_called_once_with(
+            token=self.team.api_token,
+            event_name="$workflows_email_unsubscribed",
+            event_source="workflows_unsubscribe",
+            distinct_id=self.recipient.identifier,
+            properties={
+                "$email": self.recipient.identifier,
+                "category": ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
+                "source": "one_click",
+            },
+        )
+
+        # A replay (scanner prefetch, reused token) is not a transition and must not emit again
+        mock_capture_internal.reset_mock()
+        response = self.client.get(
+            reverse("message_preferences", kwargs={"token": self.token}),
+            {"one_click_unsubscribe": "1"},
+        )
+        self.assertEqual(response.status_code, 200)
+        mock_capture_internal.assert_not_called()
+
+    @patch("posthog.views.capture_internal")
+    @patch("posthog.views.validate_messaging_preferences_token")
+    def test_update_preferences_emits_only_for_newly_opted_out(
+        self, mock_validate_messaging_preferences_token, mock_capture_internal
+    ):
+        self._enable_engagement_events()
+        # category is already opted out, so only category2 and $all are genuine transitions;
+        # the bogus id must be dropped because it isn't one of the team's categories
+        self.recipient.preferences = {
+            str(self.category.id): PreferenceStatus.OPTED_OUT.value,
+            str(self.category2.id): PreferenceStatus.OPTED_IN.value,
+        }
+        self.recipient.save()
+        mock_validate_messaging_preferences_token.return_value = mock_response(
+            200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
+        )
+
+        data = {
+            "token": self.token,
+            "preferences[]": [
+                f"{self.category.id}:false",
+                f"{self.category2.id}:false",
+                "not-a-real-category:false",
+            ],
+        }
+        response = self.client.post(reverse("message_preferences_update"), data)
+
+        self.assertEqual(response.status_code, 200)
+        emitted_categories = [call.kwargs["properties"]["category"] for call in mock_capture_internal.call_args_list]
+        self.assertEqual(
+            sorted(emitted_categories), sorted([str(self.category2.id), ALL_MESSAGE_PREFERENCE_CATEGORY_ID])
+        )
+        for call in mock_capture_internal.call_args_list:
+            self.assertEqual(call.kwargs["properties"]["source"], "preferences_page")
+
+    @parameterized.expand(["one_click", "preferences_form"])
+    @patch("posthog.views.capture_internal")
+    @patch("posthog.views.validate_messaging_preferences_token")
+    def test_no_unsubscribed_event_when_flag_off(
+        self, code_path, mock_validate_messaging_preferences_token, mock_capture_internal
+    ):
+        mock_validate_messaging_preferences_token.return_value = mock_response(
+            200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
+        )
+
+        if code_path == "one_click":
+            response = self.client.get(
+                reverse("message_preferences", kwargs={"token": self.token}),
+                {"one_click_unsubscribe": "1"},
+            )
+        else:
+            response = self.client.post(
+                reverse("message_preferences_update"),
+                {"token": self.token, "preferences[]": [f"{self.category.id}:false"]},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        mock_capture_internal.assert_not_called()
+
+    def _set_tracking_consent_mode(self, mode: str):
+        config = self.team.workflows_config
+        config.email_tracking_consent_mode = mode
+        config.save()
+
+    @parameterized.expand(
+        [
+            # (consent mode, stored preference, section shown, toggle checked)
+            ("off", None, False, None),
+            ("opt_out", None, True, True),
+            ("opt_out", PreferenceStatus.OPTED_OUT, True, False),
+            ("opt_in", None, True, False),
+            ("opt_in", PreferenceStatus.OPTED_IN, True, True),
+        ]
+    )
+    @patch("posthog.views.validate_messaging_preferences_token")
+    def test_preferences_page_tracking_section_per_mode(
+        self, mode, stored_preference, section_shown, toggle_checked, mock_validate_messaging_preferences_token
+    ):
+        self._set_tracking_consent_mode(mode)
+        if stored_preference is not None:
+            self.recipient.preferences = {EMAIL_TRACKING_PREFERENCE_ID: stored_preference.value}
+            self.recipient.save()
+        mock_validate_messaging_preferences_token.return_value = mock_response(
+            200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
+        )
+
+        response = self.client.get(reverse("message_preferences", kwargs={"token": self.token}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["email_tracking_consent_enabled"], section_shown)
+        if section_shown:
+            self.assertEqual(response.context["email_tracking_allowed"], toggle_checked)
+            self.assertContains(response, "Open and click tracking")
+        else:
+            self.assertNotContains(response, "Open and click tracking")
+
+    @patch("posthog.views.validate_messaging_preferences_token")
+    def test_tracking_opt_out_alone_does_not_unsubscribe(self, mock_validate_messaging_preferences_token):
+        mock_validate_messaging_preferences_token.return_value = mock_response(
+            200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
+        )
+
+        response = self.client.post(
+            reverse("message_preferences_update"),
+            {"token": self.token, "preferences[]": [f"{EMAIL_TRACKING_PREFERENCE_ID}:false"]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.recipient.refresh_from_db()
+        prefs = self.recipient.get_all_preferences()
+        self.assertEqual(prefs[EMAIL_TRACKING_PREFERENCE_ID], PreferenceStatus.OPTED_OUT)
+        self.assertNotIn(ALL_MESSAGE_PREFERENCE_CATEGORY_ID, prefs)
+
+    @patch("posthog.views.validate_messaging_preferences_token")
+    def test_tracking_only_save_preserves_stored_all_opt_out(self, mock_validate_messaging_preferences_token):
+        # A tracking-only payload (no category toggles rendered) must not rebuild
+        # subscription state and silently resubscribe a one-click-unsubscribed recipient
+        self.recipient.preferences = {ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value}
+        self.recipient.save()
+        mock_validate_messaging_preferences_token.return_value = mock_response(
+            200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
+        )
+
+        response = self.client.post(
+            reverse("message_preferences_update"),
+            {"token": self.token, "preferences[]": [f"{EMAIL_TRACKING_PREFERENCE_ID}:false"]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.recipient.refresh_from_db()
+        prefs = self.recipient.get_all_preferences()
+        self.assertEqual(prefs[ALL_MESSAGE_PREFERENCE_CATEGORY_ID], PreferenceStatus.OPTED_OUT)
+        self.assertEqual(prefs[EMAIL_TRACKING_PREFERENCE_ID], PreferenceStatus.OPTED_OUT)
+
+    @patch("posthog.views.validate_messaging_preferences_token")
+    def test_tracking_opt_in_does_not_block_all_unsubscribe(self, mock_validate_messaging_preferences_token):
+        mock_validate_messaging_preferences_token.return_value = mock_response(
+            200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
+        )
+
+        response = self.client.post(
+            reverse("message_preferences_update"),
+            {
+                "token": self.token,
+                "preferences[]": [
+                    f"{self.category.id}:false",
+                    f"{self.category2.id}:false",
+                    f"{EMAIL_TRACKING_PREFERENCE_ID}:true",
+                ],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.recipient.refresh_from_db()
+        prefs = self.recipient.get_all_preferences()
+        self.assertEqual(prefs[ALL_MESSAGE_PREFERENCE_CATEGORY_ID], PreferenceStatus.OPTED_OUT)
+        self.assertEqual(prefs[EMAIL_TRACKING_PREFERENCE_ID], PreferenceStatus.OPTED_IN)
+
+    @parameterized.expand(["one_click", "preferences_form"])
+    @patch("posthog.views.validate_messaging_preferences_token")
+    def test_stored_tracking_consent_survives_writes_that_omit_it(
+        self, code_path, mock_validate_messaging_preferences_token
+    ):
+        # Both write paths rebuild the preferences dict wholesale — a stored tracking-consent
+        # answer must not be erased by an unsubscribe or a category-only save
+        self.recipient.preferences = {EMAIL_TRACKING_PREFERENCE_ID: PreferenceStatus.OPTED_OUT.value}
+        self.recipient.save()
+        mock_validate_messaging_preferences_token.return_value = mock_response(
+            200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
+        )
+
+        if code_path == "one_click":
+            response = self.client.get(
+                reverse("message_preferences", kwargs={"token": self.token}),
+                {"one_click_unsubscribe": "1"},
+            )
+        else:
+            response = self.client.post(
+                reverse("message_preferences_update"),
+                {"token": self.token, "preferences[]": [f"{self.category.id}:true"]},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.recipient.refresh_from_db()
+        self.assertEqual(self.recipient.get_all_preferences()[EMAIL_TRACKING_PREFERENCE_ID], PreferenceStatus.OPTED_OUT)
+
+    @patch("posthog.views.capture_internal")
+    @patch("posthog.views.validate_messaging_preferences_token")
+    def test_tracking_consent_change_emits_event_only_on_transition(
+        self, mock_validate_messaging_preferences_token, mock_capture_internal
+    ):
+        self._enable_engagement_events()
+        mock_validate_messaging_preferences_token.return_value = mock_response(
+            200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
+        )
+        data = {"token": self.token, "preferences[]": [f"{EMAIL_TRACKING_PREFERENCE_ID}:false"]}
+
+        response = self.client.post(reverse("message_preferences_update"), data)
+
+        self.assertEqual(response.status_code, 200)
+        mock_capture_internal.assert_called_once_with(
+            token=self.team.api_token,
+            event_name="$workflows_email_tracking_consent_updated",
+            event_source="workflows_preferences",
+            distinct_id=self.recipient.identifier,
+            properties={
+                "$email": self.recipient.identifier,
+                "status": PreferenceStatus.OPTED_OUT.value,
+                "source": "preferences_page",
+            },
+        )
+
+        # A repeated save with the same value is not a transition and must not emit again
+        mock_capture_internal.reset_mock()
+        response = self.client.post(reverse("message_preferences_update"), data)
+        self.assertEqual(response.status_code, 200)
+        mock_capture_internal.assert_not_called()
 
 
 class TestMessagePreferencesAPIViewSet(APIBaseTest):

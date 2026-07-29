@@ -116,6 +116,7 @@ class TestCloseImplementationPrForReport(BaseTest):
     )
     def test_comments_on_and_closes_linked_pr(self, _name: str, reason: PrCloseReason):
         github = MagicMock()
+        github.get_pull_request.return_value = {"success": True, "state": "open", "merged": False}
         github.comment_on_pull_request.return_value = {"success": True}
         github.close_pull_request.return_value = {"success": True, "number": 123, "state": "closed"}
         with (
@@ -159,3 +160,43 @@ class TestCloseImplementationPrForReport(BaseTest):
             ),
         ):
             assert close_implementation_pr_for_report(self.team.id, "report-1") is False
+
+    @parameterized.expand(
+        [
+            ("already_closed", {"success": True, "state": "closed", "merged": False}),
+            ("already_merged", {"success": True, "state": "closed", "merged": True}),
+        ]
+    )
+    def test_skips_comment_and_close_when_pr_not_open(self, _name: str, pr_status: dict):
+        github = MagicMock()
+        github.get_pull_request.return_value = pr_status
+        with (
+            patch(
+                "products.signals.backend.implementation_pr.fetch_implementation_pr_urls_for_reports",
+                return_value={"report-1": _PR_URL},
+            ),
+            patch(
+                "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
+                return_value=github,
+            ),
+        ):
+            assert close_implementation_pr_for_report(self.team.id, "report-1") is False
+        github.comment_on_pull_request.assert_not_called()
+        github.close_pull_request.assert_not_called()
+
+    def test_skips_comment_and_close_when_status_unavailable(self):
+        github = MagicMock()
+        github.get_pull_request.return_value = {"success": False, "error": "boom", "status_code": 404}
+        with (
+            patch(
+                "products.signals.backend.implementation_pr.fetch_implementation_pr_urls_for_reports",
+                return_value={"report-1": _PR_URL},
+            ),
+            patch(
+                "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
+                return_value=github,
+            ),
+        ):
+            assert close_implementation_pr_for_report(self.team.id, "report-1") is False
+        github.comment_on_pull_request.assert_not_called()
+        github.close_pull_request.assert_not_called()

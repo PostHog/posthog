@@ -1,3 +1,4 @@
+import { parseRequestProtocolMeta } from '@/lib/stateless-protocol'
 import { sanitizeHeaderValue } from '@/lib/utils'
 
 export interface McpClientInfo {
@@ -32,8 +33,11 @@ export async function extractClientInfoFromBody(request: Request): Promise<McpCl
         }
         const parsed: unknown = JSON.parse(bodyText)
         const messages = Array.isArray(parsed) ? parsed : [parsed]
+        // 2026-07-28 stateless clients never send `initialize`; their identity
+        // rides in each request's `_meta`. Initialize wins when both appear.
+        let metaFallback: McpClientInfo | undefined
         for (const msg of messages) {
-            if (!msg || typeof msg !== 'object' || (msg as { method?: unknown }).method !== 'initialize') {
+            if (!msg || typeof msg !== 'object') {
                 continue
             }
             const params = (
@@ -44,20 +48,35 @@ export async function extractClientInfoFromBody(request: Request): Promise<McpCl
                     }
                 }
             ).params
-            if (!params) {
-                continue
+            if ((msg as { method?: unknown }).method === 'initialize') {
+                if (!params) {
+                    continue
+                }
+                return {
+                    clientName: sanitizeHeaderValue(
+                        typeof params.clientInfo?.name === 'string' ? params.clientInfo.name : undefined
+                    ),
+                    clientVersion: sanitizeHeaderValue(
+                        typeof params.clientInfo?.version === 'string' ? params.clientInfo.version : undefined
+                    ),
+                    protocolVersion: sanitizeHeaderValue(
+                        typeof params.protocolVersion === 'string' ? params.protocolVersion : undefined
+                    ),
+                }
             }
-            return {
-                clientName: sanitizeHeaderValue(
-                    typeof params.clientInfo?.name === 'string' ? params.clientInfo.name : undefined
-                ),
-                clientVersion: sanitizeHeaderValue(
-                    typeof params.clientInfo?.version === 'string' ? params.clientInfo.version : undefined
-                ),
-                protocolVersion: sanitizeHeaderValue(
-                    typeof params.protocolVersion === 'string' ? params.protocolVersion : undefined
-                ),
+            if (!metaFallback) {
+                const meta = parseRequestProtocolMeta(params)
+                if (meta.protocolVersion || meta.clientName) {
+                    metaFallback = {
+                        clientName: sanitizeHeaderValue(meta.clientName),
+                        clientVersion: sanitizeHeaderValue(meta.clientVersion),
+                        protocolVersion: sanitizeHeaderValue(meta.protocolVersion),
+                    }
+                }
             }
+        }
+        if (metaFallback) {
+            return metaFallback
         }
     } catch {
         // Malformed body — fall back to the framework's async resolution path.

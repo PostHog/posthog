@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { HedgehogXRay } from '@posthog/brand/hoggies'
+import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -11,6 +12,8 @@ import { pageReportsLogic } from './pageReportsLogic'
 import { PathCleaningToggle } from './PathCleaningToggle'
 import { Tiles } from './WebAnalyticsDashboard'
 import { WebAnalyticsCompareFilter, WebAnalyticsDomainSelector } from './WebAnalyticsFilters'
+
+const HedgehogXRay = pngHoggie(xRayPng)
 
 function NoUrlSelectedMessage(): JSX.Element {
     return (

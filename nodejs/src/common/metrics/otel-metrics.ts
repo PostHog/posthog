@@ -1,13 +1,12 @@
 import { Counter, metrics as metricsApi } from '@opentelemetry/api'
-import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http'
-import { resourceFromAttributes } from '@opentelemetry/resources'
-import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics'
-import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from '@opentelemetry/semantic-conventions'
-import { hostname } from 'os'
+import { MeterProvider } from '@opentelemetry/sdk-metrics'
 
 import { defaultConfig } from '~/common/config/config'
 import { logger } from '~/common/utils/logger'
 import { registerShutdownHandler } from '~/lifecycle'
+
+import { counterWithExemplars } from './exemplars'
+import { createOtlpMeterProvider } from './otlp-provider'
 
 /**
  * OTLP metrics push — the same OTel-SDK path customers use, pointed at our own
@@ -31,25 +30,11 @@ export const initMetrics = (): void => {
 
     logger.info('Starting OTLP metrics push', { endpoint: defaultConfig.OTEL_METRICS_EXPORT_URL })
 
-    provider = new MeterProvider({
-        resource: resourceFromAttributes({
-            [ATTR_SERVICE_NAME]:
-                defaultConfig.OTEL_SERVICE_NAME ?? `node-${defaultConfig.PLUGIN_SERVER_MODE ?? 'nodejs'}`,
-            [ATTR_SERVICE_VERSION]: process.env.COMMIT_SHA ?? 'dev',
-            // Per-replica identity. Without it every pod shares one series, and
-            // their interleaved cumulative counters read as constant resets —
-            // rate()/increase() overcount by roughly the replica count.
-            'service.instance.id': hostname(),
-        }),
-        readers: [
-            new PeriodicExportingMetricReader({
-                exporter: new OTLPMetricExporter({
-                    url: defaultConfig.OTEL_METRICS_EXPORT_URL,
-                    headers: { Authorization: `Bearer ${defaultConfig.OTEL_METRICS_EXPORT_TOKEN}` },
-                }),
-                exportIntervalMillis: defaultConfig.OTEL_METRICS_EXPORT_INTERVAL_MS,
-            }),
-        ],
+    provider = createOtlpMeterProvider({
+        url: defaultConfig.OTEL_METRICS_EXPORT_URL,
+        token: defaultConfig.OTEL_METRICS_EXPORT_TOKEN,
+        serviceName: defaultConfig.OTEL_SERVICE_NAME ?? `node-${defaultConfig.PLUGIN_SERVER_MODE ?? 'nodejs'}`,
+        exportIntervalMillis: defaultConfig.OTEL_METRICS_EXPORT_INTERVAL_MS,
     })
     metricsApi.setGlobalMeterProvider(provider)
 
@@ -73,9 +58,12 @@ export function recordPiiReplacements(source: string, count: number): void {
         return
     }
     if (piiReplacementsCounter === null) {
-        piiReplacementsCounter = metricsApi.getMeter('logs-ingestion').createCounter('logs_pii_replacements_total', {
-            description: 'PII values replaced by the ingest scrubber, by pipeline source (logs | traces).',
-        })
+        piiReplacementsCounter = counterWithExemplars(
+            'logs_pii_replacements_total',
+            metricsApi.getMeter('logs-ingestion').createCounter('logs_pii_replacements_total', {
+                description: 'PII values replaced by the ingest scrubber, by pipeline source (logs | traces).',
+            })
+        )
     }
     piiReplacementsCounter.add(count, { source })
 }

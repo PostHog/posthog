@@ -2,12 +2,16 @@ import { expectLogic } from 'kea-test-utils'
 
 import { teamLogic } from 'scenes/teamLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { DefaultEvaluationContextsResponse, defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
 
 describe('defaultEvaluationContextsLogic', () => {
+    // Safety net for tests that call silenceKeaLoadersErrors() inline
+    afterEach(resumeKeaLoadersErrors)
+
     let logic: ReturnType<typeof defaultEvaluationContextsLogic.build>
     let mockResponse: DefaultEvaluationContextsResponse
 
@@ -139,6 +143,8 @@ describe('defaultEvaluationContextsLogic', () => {
         })
 
         it('should leave availableContexts unchanged when hideContext API call fails', async () => {
+            // Deliberate loader failure — kea-loaders would log it
+            silenceKeaLoadersErrors()
             mockResponse.available_contexts = ['production', 'staging']
 
             useMocks({
@@ -161,6 +167,8 @@ describe('defaultEvaluationContextsLogic', () => {
         })
 
         it('should leave hiddenContexts unchanged when unhideContext API call fails', async () => {
+            // Deliberate loader failure — kea-loaders would log it
+            silenceKeaLoadersErrors()
             mockResponse.available_contexts = ['staging']
             mockResponse.hidden_contexts = ['production']
 
@@ -229,6 +237,9 @@ describe('defaultEvaluationContextsLogic', () => {
             }).toMatchValues({
                 newContextInput: '',
             })
+
+            // Let addContext settle before afterEach unmounts the logic
+            await expectLogic(logic).toFinishAllListeners()
         })
     })
 

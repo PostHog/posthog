@@ -11,6 +11,16 @@ class SourceBatch(UUIDModel):
         APPEND = "append", "append"
         CDC = "cdc", "cdc"
 
+    class LatestState(models.TextChoices):
+        # 'pending' means "no status row yet" — deliberately distinct from
+        # SourceBatchStatus.State.WAITING, which claim semantics treat differently.
+        PENDING = "pending", "pending"
+        WAITING = "waiting", "waiting"
+        EXECUTING = "executing", "executing"
+        SUCCEEDED = "succeeded", "succeeded"
+        WAITING_RETRY = "waiting_retry", "waiting_retry"
+        FAILED = "failed", "failed"
+
     team_id = models.BigIntegerField()
     schema_id = models.CharField(max_length=200)
     source_id = models.CharField(max_length=200)
@@ -37,6 +47,16 @@ class SourceBatch(UUIDModel):
         help_text="Stores partitioning config, CDC mode, primary keys, schema path, data folder, etc.",
     )
 
+    # Denormalized mirror of the latest sourcebatchstatus row, maintained by the
+    # dual-write CTEs in jobs_db so hot readers don't re-derive state from the
+    # append-only log. sourcebatchstatus remains the source of truth.
+    latest_state = models.CharField(
+        max_length=32, choices=LatestState.choices, default=LatestState.PENDING, db_default="pending"
+    )
+    latest_attempt = models.SmallIntegerField(default=0, db_default=0)
+    # NULL means "never dual-written" — the backfill command's target marker.
+    state_changed_at = models.DateTimeField(null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     __repr__ = sane_repr("id", "team_id", "schema_id", "batch_index")
@@ -47,6 +67,21 @@ class SourceBatch(UUIDModel):
             models.Index(fields=["team_id", "schema_id"], name="sb_team_schema_idx"),
             models.Index(fields=["run_uuid"], name="sb_run_uuid_idx"),
             models.Index(fields=["run_uuid", "batch_index"], name="sb_run_uuid_bi_idx"),
+            models.Index(
+                fields=["team_id", "created_at", "batch_index"],
+                name="sb_claimable_idx",
+                condition=models.Q(latest_state__in=["pending", "waiting_retry"]),
+            ),
+            models.Index(
+                fields=["run_uuid", "latest_state", "batch_index"],
+                name="sb_run_gate_idx",
+                condition=models.Q(latest_state__in=["executing", "waiting_retry", "failed"]),
+            ),
+            models.Index(
+                fields=["team_id", "schema_id"],
+                name="sb_schema_busy_idx",
+                condition=models.Q(latest_state="executing"),
+            ),
         ]
 
 

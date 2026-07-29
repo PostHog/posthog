@@ -2,6 +2,7 @@ import posthog from 'posthog-js'
 
 import {
     captureInboxReportAction,
+    captureInboxReportsImpressed,
     captureInboxViewed,
     captureSignalSourceConnected,
     INBOX_EVENTS,
@@ -80,6 +81,44 @@ describe('inboxAnalytics', () => {
             actionability_requires_human_input_count: 1,
             actionability_unknown_count: 1,
         })
+    })
+
+    it('logs one impression per shown report with its rank and render-time snapshot', () => {
+        captureInboxReportsImpressed({
+            tab: 'reports',
+            reports: [
+                makeReport({ id: 'a', priority: 'P0', signal_count: 3, is_suggested_reviewer: true }),
+                makeReport({ id: 'b', priority: null, actionability: null, source_products: ['error_tracking'] }),
+            ],
+            ranks: [1, 2],
+            listSize: 2,
+            totalCount: 10,
+            hasActiveFilters: false,
+            scope: 'for-you',
+        })
+        const props = lastCapture(INBOX_EVENTS.REPORTS_IMPRESSED)
+        expect(props).toMatchObject({
+            tab: 'reports',
+            list_size: 2,
+            total_count: 10,
+            impression_count: 2,
+        })
+        expect(props?.impressions).toEqual([
+            expect.objectContaining({
+                report_id: 'a',
+                rank: 1,
+                priority: 'P0',
+                signal_count: 3,
+                is_suggested_reviewer: true,
+            }),
+            expect.objectContaining({
+                report_id: 'b',
+                rank: 2,
+                priority: null,
+                actionability: null,
+                source_products: ['error_tracking'],
+            }),
+        ])
     })
 
     it('emits a single-report action with the report context', () => {

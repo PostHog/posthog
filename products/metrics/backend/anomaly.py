@@ -106,6 +106,8 @@ def _find_onset(
     for point in points:
         if _parse_point_time(point.time) < anomaly_from:
             continue
+        if point.value is None:
+            continue  # non-representable aggregate — can't evidence an onset
         deviation = point.value - baseline_mean
         if direction == "down":
             deviation = -deviation
@@ -169,8 +171,10 @@ def characterize_anomaly(
     rows = _run()
     points = [MetricPoint(time=row["time"], value=row["value"]) for row in rows]
     point_times = [_parse_point_time(p.time) for p in points]
-    baseline_values = [p.value for p, t in zip(points, point_times) if baseline_from <= t < baseline_to]
-    anomaly_values = [p.value for p, t in zip(points, point_times) if t >= anomaly_from]
+    baseline_values = [
+        p.value for p, t in zip(points, point_times) if baseline_from <= t < baseline_to and p.value is not None
+    ]
+    anomaly_values = [p.value for p, t in zip(points, point_times) if t >= anomaly_from and p.value is not None]
 
     baseline_mean = _mean(baseline_values)
     baseline_stddev = statistics.pstdev(baseline_values) if len(baseline_values) > 1 else 0.0
@@ -297,6 +301,8 @@ def _find_top_movers(
             else:
                 continue  # gap between an explicit baseline and the anomaly
             label = row["labels"].get(key, "")
+            if row["value"] is None:
+                continue  # non-representable aggregate (overflow) — not evidence for either window
             per_label.setdefault(label, {"baseline": [], "anomaly": []})[bucket].append(row["value"])
         for label, windows in per_label.items():
             baseline_value = _mean(windows["baseline"])

@@ -1,10 +1,22 @@
 from typing import Literal
 
-from fastapi import APIRouter
+import structlog
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
-from llm_gateway.products.config import validate_product
+from llm_gateway.auth.service import get_auth_service
+from llm_gateway.config import get_settings
+from llm_gateway.products.config import (
+    FREE_TIER_RESTRICTION_REASON,
+    CreditBucket,
+    filter_to_free_tier_models,
+    validate_product,
+)
+from llm_gateway.rate_limiting.throttles import is_usage_unlimited
 from llm_gateway.services.model_registry import get_available_models
+from llm_gateway.services.quota_resolver import resolve_quota_status
+
+logger = structlog.get_logger(__name__)
 
 models_router = APIRouter(tags=["models"])
 
@@ -40,6 +52,9 @@ class ModelObject(BaseModel):
     truncation_policy: TruncationPolicyConfig = TruncationPolicyConfig()
     supports_parallel_tool_calls: bool = True
     experimental_supported_tools: list[str] = []
+    # Free-tier gate (posthog_code): restricted models are marked, not omitted.
+    allowed: bool = True
+    restriction_reason: str | None = None
 
 
 class ModelsResponse(BaseModel):
@@ -65,12 +80,47 @@ def _build_response(product: str) -> ModelsResponse:
     return ModelsResponse(data=model_objects, models=model_objects)
 
 
+async def _caller_confirmed_free_tier(request: Request) -> bool:
+    """Caller is authenticated, non-staff, and their org isn't billed for Code
+    usage. Unidentifiable callers (anonymous, auth failure) are never marked;
+    quota-fetch failures read the same last-known billing bit as enforcement,
+    so marks match what requests would do. Enforcement stays the gate."""
+    try:
+        user = await get_auth_service().authenticate_request(request, request.app.state.db_pool)
+        if user is None:
+            return False
+        if is_usage_unlimited(user):
+            return False
+        if user.team_id is None:
+            # no team to bill: enforcement reads this caller as unbilled too
+            return True
+        quota_status = await resolve_quota_status(request, user.team_id, CreditBucket.POSTHOG_CODE_CREDITS.value)
+        return not quota_status.code_usage_billing_active
+    except Exception:
+        logger.warning("models_free_tier_resolution_failed", exc_info=True)
+        return False
+
+
 @models_router.get("/v1/models")
 async def list_models() -> ModelsResponse:
     return _build_response("llm_gateway")
 
 
 @models_router.get("/{product}/v1/models")
-async def list_models_for_product(product: str) -> ModelsResponse:
-    validate_product(product)
-    return _build_response(product)
+async def list_models_for_product(product: str, request: Request) -> ModelsResponse:
+    resolved = validate_product(product)
+    response = _build_response(product)
+
+    if resolved != "posthog_code" or not get_settings().posthog_code_model_gate_enabled:
+        return response
+    if not await _caller_confirmed_free_tier(request):
+        return response
+
+    free_ids = set(filter_to_free_tier_models([m.id for m in response.data]))
+    annotated = [
+        m
+        if m.id in free_ids
+        else m.model_copy(update={"allowed": False, "restriction_reason": FREE_TIER_RESTRICTION_REASON})
+        for m in response.data
+    ]
+    return ModelsResponse(data=annotated, models=annotated)

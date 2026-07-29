@@ -24,6 +24,9 @@ from posthog.scopes import APIScopeObject
 
 from products.customer_analytics.backend.facade.hogql import (
     account_custom_property_values,
+    account_custom_property_values_history,
+    account_relationship_definitions,
+    account_relationships,
     account_resource_notebooks,
     account_tagged_items,
     accounts,
@@ -386,7 +389,9 @@ experiments: PostgresTable = PostgresTable(
             name="filters", description="JSON definition of the experiment's goal metric filters."
         ),
         "parameters": StringJSONDatabaseField(
-            name="parameters", description="JSON experiment parameters (variants, exposure, etc.)."
+            name="parameters",
+            description="JSON experiment parameters (e.g. sample size settings). Flag config such as "
+            "variants lives on the linked feature flag's filters, not in this column.",
         ),
         "start_date": DateTimeDatabaseField(
             name="start_date", description="When the experiment was launched; NULL if not started."
@@ -417,6 +422,11 @@ data_warehouse_sources: PostgresTable = PostgresTable(
         "team_id": IntegerDatabaseField(name="team_id"),
         "source_type": StringDatabaseField(
             name="source_type", description="Source connector type, e.g. 'Stripe', 'Postgres', 'Hubspot'."
+        ),
+        "api_version": StringDatabaseField(
+            name="api_version",
+            description="Vendor API version this source is pinned to (opaque vendor label); "
+            "NULL resolves to the source type's default version at sync time.",
         ),
         "prefix": StringDatabaseField(
             name="prefix", description="Table-name prefix applied to all tables synced from this source."
@@ -1779,7 +1789,7 @@ tasks: PostgresTable = PostgresTable(
     # Mirror the REST API's default filter: internal tasks (signals pipeline, etc.) are not
     # exposed to end users. They are excluded entirely from HogQL.
     predicates=[parse_expr("internal != true")],
-    description="Tasks (PostHog Code / agent work items); one row per user-facing task (internal pipeline tasks are excluded).",
+    description="Tasks (PostHog Desktop / agent work items); one row per user-facing task (internal pipeline tasks are excluded).",
     fields={
         "id": StringDatabaseField(name="id", description="Task UUID."),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -2015,6 +2025,13 @@ class SystemTables(TableNode):
         "_account_custom_property_values": TableNode(
             name="_account_custom_property_values", table=account_custom_property_values, hidden=True
         ),
+        "_account_custom_property_values_history": TableNode(
+            name="_account_custom_property_values_history", table=account_custom_property_values_history, hidden=True
+        ),
+        "account_relationship_definitions": TableNode(
+            name="account_relationship_definitions", table=account_relationship_definitions
+        ),
+        "account_relationships": TableNode(name="account_relationships", table=account_relationships),
         "activity_logs": TableNode(name="activity_logs", table=activity_logs),
         "actions": TableNode(name="actions", table=actions),
         "alerts": TableNode(name="alerts", table=alerts),

@@ -33,6 +33,29 @@ describe('loginLogic', () => {
         })
     })
 
+    describe('wasSignedOutForSessionRisk', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+
+        beforeEach(() => {
+            initKeaTests()
+            logic = loginLogic()
+            logic.mount()
+        })
+
+        const cases: [string, boolean][] = [
+            ['/login?reason=session_risk', true],
+            ['/login?reason=something_else', false],
+            ['/login', false],
+        ]
+
+        for (const [url, expected] of cases) {
+            it(`for "${url}" it returns ${expected}`, () => {
+                router.actions.push(url)
+                expect(logic.values.wasSignedOutForSessionRisk).toEqual(expected)
+            })
+        }
+    })
+
     describe('parseLoginRedirectURL', () => {
         let logic: ReturnType<typeof loginLogic.build>
 
@@ -55,6 +78,13 @@ describe('loginLogic', () => {
             ['//foo.bar', '/'],
             ['/bla?haha', '/bla?haha'],
             ['/bla?haha#hoho', '/bla?haha#hoho'],
+            // Percent-encoded chars nested in next's own query params must survive the redirect
+            // (e.g. docs "Run in PostHog" links carrying %0A newlines in open_query); the router
+            // round-trip normalizes form-encoded "+" spaces to "%20", which decodes the same
+            [
+                '/sql?open_query=SELECT%0A++properties.%24mcp+AS+tool',
+                '/sql?open_query=SELECT%0A%20%20properties.%24mcp%20AS%20tool',
+            ],
         ]
 
         for (const [next, result] of matches) {
@@ -135,6 +165,46 @@ describe('loginLogic', () => {
             logic.actions.precheck({ email: 'user@example.com' })
             await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
             expect(beginHandler).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('code-based verification', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+        const originalVendor = window.navigator.vendor
+
+        beforeEach(() => {
+            setVendor(WEBKIT_VENDOR) // skip passkey auto-trigger
+            useMocks({
+                get: { '/api/users/@me/': () => [200, {}] },
+                post: {
+                    '/api/login/precheck': () => [200, { saml_available: false }],
+                    '/api/login': () => [401, { code: 'code_based_verification_required', detail: 'user@example.com' }],
+                    '/api/login/code-based-verification': () => [200, { success: true }],
+                },
+            })
+            initKeaTests()
+            router.actions.push('/login')
+            logic = loginLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            setVendor(originalVendor)
+            jest.clearAllMocks()
+        })
+
+        it('enters code-entry mode when login requires a code, and exits on demand', async () => {
+            logic.actions.setLoginValues({ email: 'user@example.com', password: 'a-password' })
+            logic.actions.submitLogin()
+            await expectLogic(logic).toDispatchActions(['setCodeVerificationRequired', 'submitLoginFailure'])
+
+            expect(logic.values.codeVerificationRequired).toBe(true)
+            expect(logic.values.generalError?.code).toBe('code_based_verification_sent')
+
+            logic.actions.exitCodeVerification()
+            expect(logic.values.codeVerificationRequired).toBe(false)
+            expect(logic.values.generalError).toBe(null)
         })
     })
 

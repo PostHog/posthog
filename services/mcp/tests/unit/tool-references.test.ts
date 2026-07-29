@@ -8,7 +8,7 @@ const TOOLS = new Set([
     'feature-flag-get-all',
     'external-data-schemas-partial-update',
     'read-data-schema',
-    'signals-scout-runs-list',
+    'scout-runs-list',
 ])
 const SKILLS = new Set(['finding-experiments', 'creating-experiments'])
 

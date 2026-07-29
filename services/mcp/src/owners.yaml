@@ -1,0 +1,9 @@
+version: 1
+owners: []
+rules:
+    - match:
+          - '/generated/ai_observability/'
+          - '/tools/aiObservability/'
+          - '/tools/generated/ai_observability.ts'
+          - '/ui-apps/apps/generated/llm-costs.tsx'
+      owners: team-ai-observability

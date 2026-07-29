@@ -22,7 +22,7 @@ from posthog.schema import (
 )
 
 from posthog.constants import AvailableFeature
-from posthog.errors import CHQueryErrorTooManySimultaneousQueries
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import User
 from posthog.tasks.alerts.utils import AlertEvaluationResult
 from posthog.temporal.alerts.activities import cleanup_alert_checks, evaluate_alert, notify_alert, prepare_alert
@@ -109,7 +109,7 @@ async def alert(ateam):
 @pytest_asyncio.fixture
 async def alert_with_user(ateam, aorganization):
     @sync_to_async
-    def _create() -> AlertConfiguration:
+    def _create() -> tuple[AlertConfiguration, User]:
         user = User.objects.create_and_join(
             organization=aorganization, email=f"alerts-{uuid.uuid4().hex[:6]}@posthog.com", password=None
         )
@@ -130,9 +130,15 @@ async def alert_with_user(ateam, aorganization):
             threshold=threshold,
         )
         a.subscribed_users.add(user)
-        return a
+        return a, user
 
-    return await _create()
+    alert, user = await _create()
+    yield alert
+
+    # User.current_organization is SET_NULL, so deleting the org/team (via the
+    # ateam/aorganization fixtures) does not cascade-delete this user; the executor-thread
+    # write above committed for real, so it must be cleaned up explicitly.
+    await sync_to_async(user.delete)()
 
 
 async def _create_alert_check(
@@ -435,12 +441,13 @@ class TestEvaluateAlert:
 
     async def test_evaluate_reraises_ch_transient_error(self, alert) -> None:
         # Transient CH errors bubble up so Temporal's retry policy handles them.
+        # Capacity errors (codes 202/439) surface as ClickHouseAtCapacity, so that's what we simulate.
         with patch(
             "posthog.temporal.alerts.activities.check_alert_for_insight",
-            side_effect=CHQueryErrorTooManySimultaneousQueries("too many"),
+            side_effect=ClickHouseAtCapacity(),
         ):
             env = ActivityEnvironment()
-            with pytest.raises(CHQueryErrorTooManySimultaneousQueries):
+            with pytest.raises(ClickHouseAtCapacity):
                 await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
 
         # No AlertCheck should have been written
@@ -511,8 +518,8 @@ class TestNotifyAlert:
         assert refreshed_alert.last_notified_at is not None
 
     async def test_firing_passes_stable_idempotency_key_to_breach_sender(self, alert_with_user) -> None:
-        # MessagingRecord dedupes retries via campaign_key; notify_alert must pass the
-        # AlertCheck id so a retry reuses the same key and the provider skips re-sending.
+        # MessagingRecord dedupes email retries via campaign_key; notify_alert must pass
+        # the AlertCheck id so a retry reuses the same key.
         check = await _create_alert_check(alert_with_user, state=AlertState.FIRING)
 
         with patch(
@@ -532,8 +539,7 @@ class TestNotifyAlert:
         mock_breaches.assert_called_once()
         call_kwargs = mock_breaches.call_args.kwargs
         assert call_kwargs.get("idempotency_key") == str(check.id), (
-            "notify_alert must pass alert_check.id as idempotency_key so MessagingRecord "
-            "dedupes Temporal retries at the provider level"
+            "notify_alert must pass alert_check.id as idempotency_key so MessagingRecord dedupes email retries"
         )
 
     async def test_sends_error_notifications_when_errored(self, alert_with_user) -> None:

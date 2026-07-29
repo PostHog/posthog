@@ -12,14 +12,19 @@ export const SubscriptionsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
 export const SubscriptionsListQueryParams = /* @__PURE__ */ zod.object({
     created_by: zod.string().optional().describe('Filter by creator user UUID.'),
     dashboard: zod.number().optional().describe('Filter by dashboard ID.'),
+    dashboard_tiles: zod
+        .number()
+        .optional()
+        .describe('Filter to subscriptions on insights that are tiles of the given dashboard ID.'),
     insight: zod.number().optional().describe('Filter by insight ID.'),
+    insights: zod.string().optional().describe('Filter by a comma-separated list of insight IDs.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod.string().optional().describe('Which field to use when ordering the results.'),
@@ -35,9 +40,15 @@ export const SubscriptionsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
+
+export const subscriptionsCreateBodyAiPromptConfigOneWindowOneModeDefault = `since_last_sent`
+export const subscriptionsCreateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 365
+
+export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
+export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
 
 export const subscriptionsCreateBodyIntervalMax = 2147483647
 
@@ -73,18 +84,57 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
             ),
+        ai_prompt_config: zod
+            .object({
+                window: zod
+                    .object({
+                        mode: zod
+                            .enum(['since_last_sent', 'last_n_days', 'days_ago_range'])
+                            .describe(
+                                '\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago'
+                            )
+                            .default(subscriptionsCreateBodyAiPromptConfigOneWindowOneModeDefault)
+                            .describe(
+                                "What the report analyzes each run:\n\* `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test\/manual sends don't move the anchor)\n\* `last_n_days` — a fixed trailing window of start_days_ago days\n\* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago\n\n\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago"
+                            ),
+                        start_days_ago: zod
+                            .number()
+                            .min(1)
+                            .max(subscriptionsCreateBodyAiPromptConfigOneWindowOneStartDaysAgoMax)
+                            .nullish()
+                            .describe(
+                                "Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365."
+                            ),
+                        end_days_ago: zod
+                            .number()
+                            .min(subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMin)
+                            .max(subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMax)
+                            .nullish()
+                            .describe(
+                                "Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365."
+                            ),
+                    })
+                    .optional()
+                    .describe(
+                        "Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous scheduled delivery)."
+                    ),
+            })
+            .optional()
+            .describe(
+                "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
+            ),
         target_type: zod
             .enum(['email', 'slack'])
-            .describe('* `email` - Email\n* `slack` - Slack')
-            .describe('Delivery channel: email or slack.\n\n* `email` - Email\n* `slack` - Slack'),
+            .describe('\* `email` - Email\n\* `slack` - Slack')
+            .describe('Delivery channel: email or slack.\n\n\* `email` - Email\n\* `slack` - Slack'),
         target_value: zod
             .string()
-            .describe('Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack.'),
+            .describe('Recipient(s): comma-separated email addresses for email, or Slack channel name\/ID for slack.'),
         frequency: zod
             .enum(['daily', 'weekly', 'monthly', 'yearly'])
-            .describe('* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly')
+            .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
             .describe(
-                'How often to deliver: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'
+                'How often to deliver: daily, weekly, monthly, or yearly.\n\n\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'
             ),
         interval: zod
             .number()
@@ -98,7 +148,7 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                 zod
                     .enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])
                     .describe(
-                        '* `monday` - Monday\n* `tuesday` - Tuesday\n* `wednesday` - Wednesday\n* `thursday` - Thursday\n* `friday` - Friday\n* `saturday` - Saturday\n* `sunday` - Sunday'
+                        '\* `monday` - Monday\n\* `tuesday` - Tuesday\n\* `wednesday` - Wednesday\n\* `thursday` - Thursday\n\* `friday` - Friday\n\* `saturday` - Saturday\n\* `sunday` - Sunday'
                     )
             )
             .nullish()
@@ -137,6 +187,12 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .number()
             .nullish()
             .describe('ID of a connected Slack integration. Required when target_type is slack.'),
+        send_test_now: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected.'
+            ),
         summary_enabled: zod
             .boolean()
             .optional()
@@ -158,7 +214,7 @@ export const SubscriptionsRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -167,9 +223,15 @@ export const SubscriptionsPartialUpdateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
+
+export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneModeDefault = `since_last_sent`
+export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 365
+
+export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
+export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
 
 export const subscriptionsPartialUpdateBodyIntervalMax = 2147483647
 
@@ -205,21 +267,60 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
             ),
+        ai_prompt_config: zod
+            .object({
+                window: zod
+                    .object({
+                        mode: zod
+                            .enum(['since_last_sent', 'last_n_days', 'days_ago_range'])
+                            .describe(
+                                '\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago'
+                            )
+                            .default(subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneModeDefault)
+                            .describe(
+                                "What the report analyzes each run:\n\* `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test\/manual sends don't move the anchor)\n\* `last_n_days` — a fixed trailing window of start_days_ago days\n\* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago\n\n\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago"
+                            ),
+                        start_days_ago: zod
+                            .number()
+                            .min(1)
+                            .max(subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneStartDaysAgoMax)
+                            .nullish()
+                            .describe(
+                                "Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365."
+                            ),
+                        end_days_ago: zod
+                            .number()
+                            .min(subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin)
+                            .max(subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax)
+                            .nullish()
+                            .describe(
+                                "Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365."
+                            ),
+                    })
+                    .optional()
+                    .describe(
+                        "Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous scheduled delivery)."
+                    ),
+            })
+            .optional()
+            .describe(
+                "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
+            ),
         target_type: zod
             .enum(['email', 'slack'])
-            .describe('* `email` - Email\n* `slack` - Slack')
+            .describe('\* `email` - Email\n\* `slack` - Slack')
             .optional()
-            .describe('Delivery channel: email or slack.\n\n* `email` - Email\n* `slack` - Slack'),
+            .describe('Delivery channel: email or slack.\n\n\* `email` - Email\n\* `slack` - Slack'),
         target_value: zod
             .string()
             .optional()
-            .describe('Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack.'),
+            .describe('Recipient(s): comma-separated email addresses for email, or Slack channel name\/ID for slack.'),
         frequency: zod
             .enum(['daily', 'weekly', 'monthly', 'yearly'])
-            .describe('* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly')
+            .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
             .optional()
             .describe(
-                'How often to deliver: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'
+                'How often to deliver: daily, weekly, monthly, or yearly.\n\n\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly'
             ),
         interval: zod
             .number()
@@ -234,7 +335,7 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                 zod
                     .enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])
                     .describe(
-                        '* `monday` - Monday\n* `tuesday` - Tuesday\n* `wednesday` - Wednesday\n* `thursday` - Thursday\n* `friday` - Friday\n* `saturday` - Saturday\n* `sunday` - Sunday'
+                        '\* `monday` - Monday\n\* `tuesday` - Tuesday\n\* `wednesday` - Wednesday\n\* `thursday` - Thursday\n\* `friday` - Friday\n\* `saturday` - Saturday\n\* `sunday` - Sunday'
                     )
             )
             .nullish()
@@ -300,7 +401,7 @@ export const SubscriptionsDestroyParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -309,7 +410,7 @@ export const SubscriptionsTestDeliveryCreateParams = /* @__PURE__ */ zod.object(
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -321,7 +422,7 @@ export const SubscriptionsDeliveriesListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     subscription_id: zod.number(),
 })
@@ -343,7 +444,7 @@ export const SubscriptionsDeliveriesRetrieveParams = /* @__PURE__ */ zod.object(
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     subscription_id: zod.number(),
 })

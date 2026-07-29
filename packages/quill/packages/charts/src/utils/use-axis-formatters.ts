@@ -32,7 +32,8 @@ export interface YAxisConfig extends YFormatterConfig {
     showGrid?: boolean
     /** Y-axis baseline behavior. The default (`undefined`/`true`) clamps a non-negative axis down to
      *  0. Set `false` to float the axis to its data range instead (zoom in on the variation). Ignored
-     *  on a log scale, and only honored for the primary axis in the array (multi-axis) form. */
+     *  on a log scale; honored per axis in the array (multi-axis) form, except axes carrying bar
+     *  series, which always draw from 0. */
     startAtZero?: boolean
 }
 
@@ -132,6 +133,8 @@ export function buildYAxes(axisList: NormalizedYAxis[]): YAxis[] {
         scaleType: config.scale,
         tickFormatter: resolveYTickFormatter(config),
         label: config.label,
+        hide: config.hide,
+        startAtZero: config.startAtZero,
     }))
 }
 

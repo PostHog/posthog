@@ -3,8 +3,8 @@ use flate2::read::GzDecoder;
 use serde::{Deserialize, Serialize};
 use std::panic::AssertUnwindSafe;
 use std::{
-    io::Read,
-    path::{Path, PathBuf},
+    io::{Read, Seek, SeekFrom},
+    path::PathBuf,
     sync::Arc,
 };
 use tokio::sync::mpsc;
@@ -45,16 +45,17 @@ pub(crate) fn detect_compression_magic(data: &[u8]) -> Option<&'static str> {
         .map(|(_, name)| *name)
 }
 
-/// Peek the first bytes of `path` and, if they are a recognized *non-gzip*
-/// compression header, return that format's name. Used to enrich a gzip decode
-/// failure: a real gzip that fails to decode is genuine corruption, but a zstd /
-/// zip / xz / ... file reaching the gzip extractor is a compression-setting
-/// mismatch worth naming. Best-effort - any IO error yields `None`.
-fn peek_non_gzip_compression(path: &Path) -> Option<&'static str> {
-    let mut buf = [0u8; 8];
-    let mut file = std::fs::File::open(path).ok()?;
-    let n = file.read(&mut buf).ok()?;
-    detect_compression_magic(&buf[..n]).filter(|&fmt| fmt != "gzip")
+/// Read the first bytes of `file` into `buf`, rewind to the start, and return
+/// the compression format those bytes identify (if any). `buf` must be at least
+/// as long as the longest entry in [`COMPRESSION_MAGICS`]; a file shorter than a
+/// magic simply does not match it.
+fn sniff_magic(
+    file: &mut std::fs::File,
+    buf: &mut [u8; 8],
+) -> std::io::Result<Option<&'static str>> {
+    let n = file.read(buf)?;
+    file.seek(SeekFrom::Start(0))?;
+    Ok(detect_compression_magic(&buf[..n]))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -98,7 +99,31 @@ const PRODUCER_BLOCK_SIZE: usize = 64 * 1024;
 /// applies backpressure to the producer thread, so memory stays bounded.
 const PRODUCER_CHANNEL_CAPACITY: usize = 32;
 
-type Block = Result<Vec<u8>, String>;
+pub(crate) type Block = Result<Vec<u8>, String>;
+
+/// Spawn a decompression producer on a dedicated OS thread (not the tokio blocking
+/// pool — the decoder owns the thread for the lifetime of the read) feeding a bounded
+/// channel. The thread exits when the receiver is dropped.
+///
+/// Guards against a producer panic (e.g. an internal flate2/zip panic): without this, a
+/// panic would drop `tx` and consumers would read the closed channel as a clean EOF,
+/// recording a truncated part as complete (silent data loss). The panic is converted
+/// into a channel error instead. Shared by [`StreamingReader`] and the staging
+/// pipeline so both consumers get identical bytes and identical panic semantics.
+pub(crate) fn spawn_producer_thread<F>(producer: F) -> mpsc::Receiver<Block>
+where
+    F: FnOnce(mpsc::Sender<Block>) + Send + 'static,
+{
+    let (tx, rx) = mpsc::channel(PRODUCER_CHANNEL_CAPACITY);
+    std::thread::spawn(move || {
+        let err_tx = tx.clone();
+        if std::panic::catch_unwind(AssertUnwindSafe(move || producer(tx))).is_err() {
+            let _unused =
+                err_tx.blocking_send(Err("decompression producer thread panicked".to_string()));
+        }
+    });
+    rx
+}
 
 /// A decompressed range returned by [`StreamingReader::read_at`].
 pub struct ReadChunk {
@@ -137,23 +162,8 @@ impl StreamingReader {
     where
         F: FnOnce(mpsc::Sender<Block>) + Send + 'static,
     {
-        let (tx, rx) = mpsc::channel(PRODUCER_CHANNEL_CAPACITY);
-        // A dedicated OS thread (not the tokio blocking pool) owns the decoder for
-        // the lifetime of the read. It exits when the receiver is dropped.
-        //
-        // Guard against a producer panic (e.g. an internal flate2/zip panic): without
-        // this, a panic would drop `tx`, and `read_at` would read the closed channel as
-        // a clean EOF and record a truncated part as complete (silent data loss). Convert
-        // the panic into a channel error so `read_at` surfaces it instead.
-        std::thread::spawn(move || {
-            let err_tx = tx.clone();
-            if std::panic::catch_unwind(AssertUnwindSafe(move || producer(tx))).is_err() {
-                let _unused =
-                    err_tx.blocking_send(Err("decompression producer thread panicked".to_string()));
-            }
-        });
         Self {
-            rx,
+            rx: spawn_producer_thread(producer),
             carry: Vec::new(),
             carry_start: 0,
             decoded_end: 0,
@@ -231,11 +241,19 @@ impl PartExtractor for PlainGzipExtractor {
 /// newline if the decompressed content is non-empty and didn't already end with
 /// one, so the downstream JSONL parser always sees a complete final line.
 ///
+/// The part is dispatched on its magic bytes rather than assumed to be gzip:
+/// export APIs that compress via content negotiation skip compression below a
+/// size threshold (Mixpanel sends bodies <= 1400 bytes uncompressed even when
+/// `Accept-Encoding: gzip` was requested), so a part with no recognized
+/// compression header is streamed as already-plaintext JSONL. A recognized
+/// *non-gzip* compression header is a compression-setting mismatch worth naming
+/// up front, not corruption.
+///
 /// `GzDecoder` decodes a single gzip member (it stops at the first member's end).
 /// This matches the previous materializing extractor; the export endpoints we
 /// consume emit single-member gzip streams, not concatenated members.
-fn run_plain_gzip_producer(raw_file_path: PathBuf, tx: mpsc::Sender<Block>) {
-    let file = match std::fs::File::open(&raw_file_path) {
+pub(crate) fn run_plain_gzip_producer(raw_file_path: PathBuf, tx: mpsc::Sender<Block>) {
+    let mut file = match std::fs::File::open(&raw_file_path) {
         Ok(f) => f,
         Err(e) => {
             let _unused = tx.blocking_send(Err(format!(
@@ -246,13 +264,36 @@ fn run_plain_gzip_producer(raw_file_path: PathBuf, tx: mpsc::Sender<Block>) {
         }
     };
 
-    let mut decoder = GzDecoder::new(file);
+    let mut magic = [0u8; 8];
+    let sniffed = match sniff_magic(&mut file, &mut magic) {
+        Ok(sniffed) => sniffed,
+        Err(e) => {
+            let _unused = tx.blocking_send(Err(format!(
+                "Failed to read gzip file {}: {e}",
+                raw_file_path.display()
+            )));
+            return;
+        }
+    };
+
+    let mut reader: Box<dyn Read> = match sniffed {
+        Some("gzip") => Box::new(GzDecoder::new(file)),
+        Some(fmt) => {
+            let _unused = tx.blocking_send(Err(format!(
+                "The file appears to be {fmt}-compressed, but this import expects gzip \
+                 or plaintext - check the source's compression setting."
+            )));
+            return;
+        }
+        None => Box::new(file),
+    };
+
     let mut buffer = vec![0u8; PRODUCER_BLOCK_SIZE];
     let mut last_byte: Option<u8> = None;
     let mut produced_any = false;
 
     loop {
-        match decoder.read(&mut buffer) {
+        match reader.read(&mut buffer) {
             Ok(0) => break,
             Ok(n) => {
                 produced_any = true;
@@ -262,20 +303,14 @@ fn run_plain_gzip_producer(raw_file_path: PathBuf, tx: mpsc::Sender<Block>) {
                 }
             }
             Err(e) => {
-                // A decode failure before any output is usually a wrong-format file
-                // (e.g. a zstd/zip/xz object reaching the gzip extractor), not a
-                // corrupt gzip. Sniff the raw header and, if it is another known
-                // format, name it so the pause message is actionable.
-                let msg = match (!produced_any)
-                    .then(|| peek_non_gzip_compression(&raw_file_path))
-                    .flatten()
-                {
-                    Some(fmt) => format!(
-                        "Failed to decompress gzip data: {e}. The file appears to be \
-                         {fmt}-compressed, but this import expects gzip - check the source's \
-                         compression setting."
+                // In passthrough mode the reader is the plain file, so a read
+                // failure is an I/O problem (permissions, disk), not corruption.
+                let msg = match sniffed {
+                    Some("gzip") => format!("Failed to decompress gzip data: {e}"),
+                    _ => format!(
+                        "Failed to read plaintext file {}: {e}",
+                        raw_file_path.display()
                     ),
-                    None => format!("Failed to decompress gzip data: {e}"),
                 };
                 let _unused = tx.blocking_send(Err(msg));
                 return;
@@ -291,7 +326,7 @@ fn run_plain_gzip_producer(raw_file_path: PathBuf, tx: mpsc::Sender<Block>) {
 /// Decompress every `.json.gz` member of a zip archive in natural-sorted order,
 /// streaming blocks to `tx`. A trailing newline is appended after each non-empty
 /// member that didn't end with one, matching the previous concatenation behavior.
-fn run_zip_gzip_json_producer(raw_file_path: PathBuf, tx: mpsc::Sender<Block>) {
+pub(crate) fn run_zip_gzip_json_producer(raw_file_path: PathBuf, tx: mpsc::Sender<Block>) {
     let file = match std::fs::File::open(&raw_file_path) {
         Ok(f) => f,
         Err(e) => {
@@ -572,28 +607,52 @@ mod tests {
     #[tokio::test]
     async fn test_plain_gzip_extractor_newline_normalization() -> Result<()> {
         // The extractor guarantees exactly one trailing newline on non-empty
-        // content and leaves empty content untouched.
-        // (case name, raw input, expected decompressed output)
-        let cases: [(&str, &str, &str); 3] = [
+        // content and leaves empty content untouched — for gzip parts and for
+        // plaintext parts alike. Export APIs that compress via content
+        // negotiation skip gzip below a size threshold (Mixpanel sends bodies
+        // <= 1400 bytes uncompressed even when Accept-Encoding: gzip was
+        // requested), so a plaintext part must decode identically to its
+        // gzipped equivalent instead of failing with "invalid gzip header".
+        // (case name, raw input, gzip the input, expected output)
+        let cases: [(&str, &str, bool, &str); 6] = [
             (
-                "already terminated",
+                "gzip already terminated",
                 "line1\nline2\nline3\n",
+                true,
                 "line1\nline2\nline3\n",
             ),
             (
-                "missing trailing newline",
+                "gzip missing trailing newline",
                 "line1\nline2\nline3",
+                true,
                 "line1\nline2\nline3\n",
             ),
-            ("empty file", "", ""),
+            ("gzip empty file", "", true, ""),
+            (
+                "plaintext already terminated",
+                "line1\nline2\nline3\n",
+                false,
+                "line1\nline2\nline3\n",
+            ),
+            (
+                "plaintext missing trailing newline",
+                "line1\nline2\nline3",
+                false,
+                "line1\nline2\nline3\n",
+            ),
+            ("plaintext empty file", "", false, ""),
         ];
 
-        for (name, input, expected) in cases {
+        for (name, input, gzip, expected) in cases {
             let temp_dir = TempDir::new()?;
-            let gzip_file = temp_dir.path().join("test.gz");
-            create_test_gzip_file(input, &gzip_file)?;
+            let part_file = temp_dir.path().join("test.raw");
+            if gzip {
+                create_test_gzip_file(input, &part_file)?;
+            } else {
+                std::fs::write(&part_file, input)?;
+            }
 
-            let mut reader = PlainGzipExtractor.open_reader(gzip_file);
+            let mut reader = PlainGzipExtractor.open_reader(part_file);
             let (data, size) = reader.read_to_end_for_test(8192).await;
 
             assert_eq!(

@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { DEFAULT_CLUSTERING_PARAMS, clustersAdminLogic } from './clustersAdminLogic'
@@ -9,6 +10,17 @@ describe('clustersAdminLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
+        // clusteringConfigLogic (connected) loads this on mount; the unhandled-request
+        // floor lacks event_filters, which would corrupt its localEventFilters reducer.
+        useMocks({
+            get: {
+                '/api/environments/:team_id/llm_analytics/clustering_config/': {
+                    event_filters: [],
+                    created_at: '2026-01-01T00:00:00Z',
+                    updated_at: '2026-01-01T00:00:00Z',
+                },
+            },
+        })
         logic = clustersAdminLogic()
         logic.mount()
     })

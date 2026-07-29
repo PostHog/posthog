@@ -38,6 +38,12 @@ async def _wait_for_query_status(
     """
     elapsed_time = 0.0
     while elapsed_time < max_wait_time:
+        # Force query_log to materialize before reading (its async flush lags under CI load).
+        # A transient flush failure is a retryable poll miss, so keep it out of the read's error handling.
+        try:
+            await client.execute_query("SYSTEM FLUSH LOGS")
+        except ClickHouseError:
+            pass
         try:
             status = await client.acheck_query_in_query_log(query_id, raise_on_error=raise_on_error)
             if status == expected_status:

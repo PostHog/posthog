@@ -13,8 +13,11 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner
-from products.replay_vision.backend.queries.scanner_candidate_query import eligibility_predicates
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, SamplingMode
+from products.replay_vision.backend.queries.scanner_candidate_query import (
+    eligibility_predicates,
+    surfacing_score_predicate,
+)
 
 # A pathological filter must not be able to hang the estimate request.
 _ESTIMATE_MAX_EXECUTION_TIME_SECONDS = 30
@@ -40,7 +43,11 @@ class ScannerVolumeEstimate:
 
 
 def estimate_scanner_session_volume(
-    *, team: Team, query: RecordingsQuery, max_execution_seconds: int = _ESTIMATE_MAX_EXECUTION_TIME_SECONDS
+    *,
+    team: Team,
+    query: RecordingsQuery,
+    sampling_mode: SamplingMode | str = SamplingMode.COMPREHENSIVE,
+    max_execution_seconds: int = _ESTIMATE_MAX_EXECUTION_TIME_SECONDS,
 ) -> ScannerVolumeEstimate:
     """Count sessions matching `query` over the last 30 days, for the scanner cost preview.
 
@@ -57,9 +64,10 @@ def estimate_scanner_session_volume(
     windowed.date_to = None
 
     # Count only sessions the sweep would actually observe, so the forecast matches the eligible set the candidate query selects.
-    inner = SessionRecordingListFromQuery(
-        team=team, query=windowed, extra_having_predicates=eligibility_predicates()
-    ).get_query()
+    extra_having = eligibility_predicates()
+    if (surfacing := surfacing_score_predicate(sampling_mode)) is not None:
+        extra_having.append(surfacing)
+    inner = SessionRecordingListFromQuery(team=team, query=windowed, extra_having_predicates=extra_having).get_query()
     # The inner query groups by session_id, so one row is one session; order is irrelevant to a count.
     inner.order_by = None
 
@@ -125,13 +133,16 @@ def refresh_scanner_estimate(
 ) -> None:
     """Recompute and persist the scanner's projected monthly volume. Raises on failure; callers decide severity."""
     estimate = estimate_scanner_session_volume(
-        team=scanner.team, query=scanner.recordings_query(), max_execution_seconds=max_execution_seconds
+        team=scanner.team,
+        query=scanner.recordings_query(),
+        sampling_mode=scanner.sampling_mode,
+        max_execution_seconds=max_execution_seconds,
     )
     projection = project_monthly_observations(estimate, scanner.sampling_rate)
     estimated_at = timezone.now()
     # Filtered write so a config edit racing the (slow) estimate query can't get stamped fresh with stale numbers.
     updated = ReplayScanner.objects.filter(
-        pk=scanner.pk, query=scanner.query, sampling_rate=scanner.sampling_rate
+        pk=scanner.pk, query=scanner.query, sampling_rate=scanner.sampling_rate, sampling_mode=scanner.sampling_mode
     ).update(estimated_monthly_observations=projection, estimated_at=estimated_at)
     if updated:
         scanner.estimated_monthly_observations = projection

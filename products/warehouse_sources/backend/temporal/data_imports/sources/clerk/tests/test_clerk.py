@@ -49,6 +49,19 @@ class TestClerkPaginator:
         assert paginator._has_next_page is has_next
         assert paginator._offset == expected_offset
 
+    def test_update_state_stops_on_empty_body(self) -> None:
+        # A 2xx response with an empty body must stop pagination, not crash on
+        # response.json() (Clerk returns this and it reached update_state raw).
+        response = Response()
+        response.status_code = 200
+        response._content = b""
+        paginator = ClerkPaginator(limit=100)
+
+        paginator.update_state(response)
+
+        assert paginator.has_next_page is False
+        assert paginator._offset == 0
+
     @pytest.mark.parametrize(
         ("label", "seeded_offset", "expected_offset_param"),
         [

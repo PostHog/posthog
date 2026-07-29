@@ -8,7 +8,7 @@ from typing import TypeVar
 
 from products.logs.backend.vendor.drain3 import Drain, LogMasker, MaskingInstruction
 
-_ERROR_SEVERITIES = {"error", "fatal"}
+ERROR_SEVERITIES = {"error", "fatal"}
 
 # Masking collapses high-cardinality variable tokens into named placeholders before
 # clustering, so templates stay readable ("<ip>", "<num>") instead of fragmenting into
@@ -23,6 +23,23 @@ _MASKING_INSTRUCTIONS = [
 ]
 
 _WHITESPACE_RE = re.compile(r"\s+")
+
+# Raw-text regex fragment for each template placeholder, mirroring _MASKING_INSTRUCTIONS
+# (what the mask consumed is what the fragment must match) plus Drain's `<*>` token
+# wildcard. Fragments must stay RE2-safe — no lookaround, no backreferences — because the
+# compiled predicate executes in ClickHouse's match().
+_PLACEHOLDER_PATTERNS = {
+    "<*>": r"\S+",
+    "<num>": r"\d+",
+    "<uuid>": r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
+    "<ip>": r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}",
+    "<hex>": r"(?:0x[0-9a-fA-F]+|[0-9a-fA-F]{16,})",
+}
+_PLACEHOLDER_RE = re.compile("|".join(re.escape(p) for p in _PLACEHOLDER_PATTERNS))
+
+# Templates whose literal content is thinner than this compile to uselessly broad
+# predicates (worst case "<*> <*> <*>" matches everything), so they get no regex.
+_MIN_LITERAL_CHARS = 3
 
 
 _T = TypeVar("_T", int, float)
@@ -54,12 +71,19 @@ class MinedPattern:
     error_count: int
     first_seen: dt.datetime
     last_seen: dt.datetime
-    examples: list[str]
+    # Sampled rows that produced this pattern; `body` is the prepared (whitespace-collapsed,
+    # truncated) form the miner saw, not the raw log line.
+    examples: list[LogSample]
     services: list[str]
     # Raw sample counts per caller-supplied time bucket (empty when no buckets given).
     bucket_counts: list[int]
     # Raw sample counts keyed by lowercased severity_text.
     severity_counts: dict[str, int]
+    # RE2-safe regex over raw bodies, self-validated against `examples`; None when the
+    # template lacks literal content or validation failed. See compile_match_regex.
+    match_regex: str | None
+    # Longest literal run in the template — plain-text fallback when match_regex is None.
+    match_literal: str | None
 
 
 @dataclass
@@ -68,7 +92,7 @@ class _Accumulator:
     first_seen: dt.datetime
     last_seen: dt.datetime
     count: int = 0
-    examples: list[str] = field(default_factory=list)
+    examples: list[LogSample] = field(default_factory=list)
     services: list[str] = field(default_factory=list)
     bucket_counts: list[int] = field(default_factory=list)
     severity_counts: dict[str, int] = field(default_factory=dict)
@@ -90,6 +114,80 @@ def _build_miner(sim_th: float, depth: int, max_clusters: int) -> tuple[LogMaske
         parametrize_numeric_tokens=True,
     )
     return masker, drain
+
+
+def _escape_literal(text: str) -> str:
+    # Template literals carry single spaces (bodies are whitespace-collapsed before mining),
+    # but the raw lines this regex will run against may have arbitrary whitespace runs.
+    return r"\s+".join(re.escape(token) for token in text.split(" "))
+
+
+def _literal_runs(template: str) -> list[str]:
+    # Stripped, non-empty literal fragments between the template's placeholders.
+    return [stripped for literal in _PLACEHOLDER_RE.split(template) if (stripped := literal.strip())]
+
+
+def extract_match_literal(template: str) -> str | None:
+    """Longest literal run in a template — the plain-text fallback predicate when the
+    compiled regex fails validation. None when the template has no usable literal content."""
+    longest = ""
+    for literal in _literal_runs(template):
+        if len(literal) > len(longest):
+            longest = literal
+    return longest if len(longest) >= _MIN_LITERAL_CHARS else None
+
+
+def pattern_fingerprint(template: str) -> str:
+    """Cross-run identity key for a mined template.
+
+    Drain templates are not stable across independent mining runs — sampling and row-order
+    differences can widen a placeholder ("User <*> not found" vs "User <num> not found"), so
+    matching on the raw template string would false-split the same message across windows.
+    Keying on the sorted set of literal runs between placeholders survives that wobble:
+    placeholder kind and position drop out, literal content remains. A placeholder inserted
+    *inside* a literal run splits it and changes the fingerprint — that is content-level
+    divergence, not wobble, so the two templates are correctly treated as different patterns.
+    """
+    literals = sorted(set(_literal_runs(template)))
+    return "\x00".join(literals) if literals else template
+
+
+def compile_match_regex(template: str, examples: list[LogSample], truncate: int) -> str | None:
+    """Compile a mined template into an RE2-safe regex over raw log bodies, self-validated
+    against the pattern's own examples.
+
+    Returns None rather than an unvalidated predicate: Drain refines templates as rows merge,
+    so an early-stored example can diverge from the final template — and a filter that
+    silently matches the wrong logs is worse than no filter. Anchored at the start (leading
+    whitespace was stripped before mining); the end anchor is dropped when any example hit
+    the mining truncation cap, since the template then only covers a prefix of the raw line.
+    """
+    if not examples:
+        return None
+    literals = _PLACEHOLDER_RE.split(template)
+    if not any(len(literal.strip()) >= _MIN_LITERAL_CHARS for literal in literals):
+        return None
+
+    parts = []
+    pos = 0
+    for match in _PLACEHOLDER_RE.finditer(template):
+        parts.append(_escape_literal(template[pos : match.start()]))
+        parts.append(_PLACEHOLDER_PATTERNS[match.group(0)])
+        pos = match.end()
+    parts.append(_escape_literal(template[pos:]))
+
+    truncated = any(len(example.body) >= truncate for example in examples)
+    candidate = r"^\s*" + "".join(parts) + ("" if truncated else r"\s*$")
+
+    try:
+        compiled = re.compile(candidate)
+    except re.error:
+        return None
+    # Examples hold prepared bodies, which are valid instances of the raw form the regex
+    # targets (collapsed runs still match \s+), so they double as the validation corpus.
+    if not all(compiled.search(example.body) for example in examples):
+        return None
+    return candidate
 
 
 def _bucket_index(buckets: list[tuple[dt.datetime, dt.datetime]], ts: dt.datetime) -> int | None:
@@ -126,7 +224,7 @@ def mine_patterns(
         return []
 
     max_patterns = max_patterns if max_patterns is not None else _env("LOGS_PATTERNS_MAX_PATTERNS", 200, int)
-    max_examples = max_examples if max_examples is not None else _env("LOGS_PATTERNS_MAX_EXAMPLES", 3, int)
+    max_examples = max_examples if max_examples is not None else _env("LOGS_PATTERNS_MAX_EXAMPLES", 10, int)
     max_services = max_services if max_services is not None else _env("LOGS_PATTERNS_MAX_SERVICES", 4, int)
     truncate = _env("LOGS_PATTERNS_BODY_TRUNCATE", 512, int)
     sim_th = _env("LOGS_PATTERNS_SIM_TH", 0.4, float)
@@ -161,8 +259,15 @@ def mine_patterns(
         acc.count += 1
         severity = sample.severity_text.lower()
         acc.severity_counts[severity] = acc.severity_counts.get(severity, 0) + 1
-        if len(acc.examples) < max_examples and prepared not in acc.examples:
-            acc.examples.append(prepared)
+        if len(acc.examples) < max_examples and all(e.body != prepared for e in acc.examples):
+            acc.examples.append(
+                LogSample(
+                    body=prepared,
+                    severity_text=sample.severity_text,
+                    service_name=sample.service_name,
+                    timestamp=sample.timestamp,
+                )
+            )
         if sample.service_name not in acc.services and len(acc.services) < max_services:
             acc.services.append(sample.service_name)
         if buckets:
@@ -176,13 +281,15 @@ def mine_patterns(
             pattern=acc.template,
             count=acc.count,
             volume_share_pct=round(acc.count / total * 100, 2),
-            error_count=sum(acc.severity_counts.get(s, 0) for s in _ERROR_SEVERITIES),
+            error_count=sum(acc.severity_counts.get(s, 0) for s in ERROR_SEVERITIES),
             first_seen=acc.first_seen,
             last_seen=acc.last_seen,
             examples=acc.examples,
             services=acc.services,
             bucket_counts=acc.bucket_counts,
             severity_counts=acc.severity_counts,
+            match_regex=compile_match_regex(acc.template, acc.examples, truncate),
+            match_literal=extract_match_literal(acc.template),
         )
         for acc in accumulators.values()
     ]

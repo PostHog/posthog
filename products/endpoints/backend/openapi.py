@@ -3,7 +3,7 @@ from django.conf import settings
 from rest_framework.request import Request
 
 from products.endpoints.backend.logic.strategies import InsightEndpointStrategy
-from products.endpoints.backend.models import Endpoint, EndpointVersion
+from products.endpoints.backend.models import Endpoint, EndpointVersion, _breakdown_property_names
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 INSIGHT_VARIABLE_TYPE_TO_OPENAPI: dict[str, dict] = {
@@ -262,7 +262,7 @@ def _build_component_schemas(endpoint: Endpoint, version: EndpointVersion, team_
     }
 
     # Add variables schema based on query type and materialization state
-    variables_schema = _build_variables_schema(query, is_materialized, team_id)
+    variables_schema = _build_variables_schema(query, is_materialized, team_id, version)
     if variables_schema:
         schemas["EndpointRunRequest"]["properties"]["variables"] = {
             "$ref": "#/components/schemas/Variables",
@@ -272,22 +272,20 @@ def _build_component_schemas(endpoint: Endpoint, version: EndpointVersion, team_
     return schemas
 
 
-def _get_single_breakdown_property(breakdown_filter: dict) -> str | None:
-    """Extract breakdown property from either legacy or new format."""
-    breakdown = breakdown_filter.get("breakdown")
-    if breakdown:
-        return breakdown
-    breakdowns = breakdown_filter.get("breakdowns") or []
-    if len(breakdowns) == 1:
-        return breakdowns[0].get("property")
-    return None
+def _build_variables_schema(
+    query: dict, is_materialized: bool, team_id: int, version: EndpointVersion | None = None
+) -> dict | None:
+    """Build schema for variables based on query type and materialization state.
 
-
-def _build_variables_schema(query: dict, is_materialized: bool, team_id: int) -> dict | None:
-    """Build schema for variables based on query type and materialization state."""
+    Emits a top-level ``required`` array so generated SDKs and clients see which
+    variables they MUST send to /run. For insight endpoints this respects
+    ``EndpointVersion.optional_breakdown_properties`` — opted-out breakdowns are
+    listed as properties but kept out of ``required``, matching the runtime check.
+    """
     query_kind = query.get("kind")
     properties: dict = {}
     required: list[str] = []
+    optional_breakdowns: set[str] = set(version.optional_breakdown_properties or []) if version is not None else set()
 
     if query_kind == "HogQLQuery":
         variables = query.get("variables", {})
@@ -317,24 +315,28 @@ def _build_variables_schema(query: dict, is_materialized: bool, team_id: int) ->
                     properties[code_name]["example"] = default_value
                 else:
                     required.append(code_name)
+            # Materialized HogQL rejects ANY missing variable at run time, defaults included.
+            if is_materialized:
+                required = sorted(properties.keys())
     else:
         # Insight queries - only include breakdown for supported query types
         if query_kind in InsightEndpointStrategy.BREAKDOWN_SUPPORTED_QUERY_TYPES:
             breakdown_filter = query.get("breakdownFilter") or {}
-            breakdown = _get_single_breakdown_property(breakdown_filter)
-            if breakdown:
+            for breakdown in _breakdown_property_names(breakdown_filter):
+                if breakdown in properties:
+                    continue
                 properties[breakdown] = {
                     "type": "string",
                     "description": f"Filter by {breakdown} breakdown value",
                     "example": "Chrome",
                 }
-                # Materialized insights resolve the breakdown column at materialization
-                # time, so callers have to supply the value at execution; non-materialized
-                # insights can fall back to the saved filter.
-                if is_materialized:
+                # Breakdown variables are enforced at run time on both inline and
+                # materialized paths, unless the endpoint owner opted them out.
+                if breakdown not in optional_breakdowns:
                     required.append(breakdown)
 
         if not is_materialized:
+            # Non-materialized also supports date variables — never required.
             properties["date_from"] = {
                 "type": "string",
                 "description": "Filter results from this date (ISO format or relative like '-7d')",

@@ -10,6 +10,7 @@ from products.alerts.backend.evaluation.contract import DetectorExtractor, Extra
 from products.alerts.backend.evaluation.detector import TrendsDetectorExtractor, evaluate_with_detector
 from products.alerts.backend.evaluation.funnels import FunnelsExtractor
 from products.alerts.backend.evaluation.hogql import HogQLDetectorExtractor, HogQLExtractor
+from products.alerts.backend.evaluation.metrics import MetricsExtractor
 from products.alerts.backend.evaluation.trends import TrendsExtractor
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
@@ -19,6 +20,7 @@ EXTRACTORS: dict[NodeKind, Extractor] = {
     NodeKind.TRENDS_QUERY: TrendsExtractor(),
     NodeKind.HOG_QL_QUERY: HogQLExtractor(),
     NodeKind.FUNNELS_QUERY: FunnelsExtractor(),
+    NodeKind.METRICS_QUERY: MetricsExtractor(),
 }
 
 # The anomaly-detector path mirrors EXTRACTORS: one detector extractor per kind, scored by the shared

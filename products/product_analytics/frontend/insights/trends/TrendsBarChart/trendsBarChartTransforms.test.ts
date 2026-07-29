@@ -1,3 +1,5 @@
+import type { Series } from '@posthog/quill-charts'
+
 import { hexToRGBA } from 'lib/utils/colors'
 
 import type { CurrencyCode, GoalLine as SchemaGoalLine, TrendsFilter } from '~/queries/schema/schema-general'
@@ -7,6 +9,7 @@ import {
     buildTrendsBarChartModel,
     buildTrendsBarTimeSeries,
     buildTrendsBarTimeSeriesConfig,
+    pickAggregatedTooltipSeriesData,
     type TrendsBarResultLike,
 } from './trendsBarChartTransforms'
 
@@ -263,6 +266,28 @@ describe('buildTrendsBarAggregatedSeries', () => {
         expect(displayLabels).toEqual(['A', 'C'])
         expect(series).toHaveLength(1)
         expect(series[0].data).toEqual([1, 3])
+    })
+})
+
+describe('pickAggregatedTooltipSeriesData', () => {
+    const entry = (key: string, value: number): { series: Series; value: number; color: string } => ({
+        series: { key, label: key, data: [value] },
+        value,
+        color: RED,
+    })
+    const seriesData = [entry('0', 11), entry('1', 4), entry('2', 2)]
+
+    it.each([
+        { name: 'resolves the hovered segment by key, not the first entry', hoveredSeriesKey: '1', expected: ['1'] },
+        { name: 'falls back to the first entry without a hovered key', hoveredSeriesKey: undefined, expected: ['0'] },
+        { name: 'falls back to the first entry for an unknown key', hoveredSeriesKey: 'missing', expected: ['0'] },
+    ])('$name', ({ hoveredSeriesKey, expected }) => {
+        const picked = pickAggregatedTooltipSeriesData({ hoveredSeriesKey, seriesData })
+        expect(picked.map((e) => e.series.key)).toEqual(expected)
+    })
+
+    it('returns no entries for empty seriesData', () => {
+        expect(pickAggregatedTooltipSeriesData({ hoveredSeriesKey: undefined, seriesData: [] })).toEqual([])
     })
 })
 

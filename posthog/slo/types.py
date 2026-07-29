@@ -16,6 +16,7 @@ class SloOperation(StrEnum):
     ALERT_CHECK = "alert_check"
     QUERY_SERVICE = "query_service"
     DASHBOARD_WIDGET_DELIVERY = "dashboard_widget_delivery"
+    PULSE_BRIEF_GENERATION = "pulse-brief-generation"
 
 
 class SloOutcome(StrEnum):

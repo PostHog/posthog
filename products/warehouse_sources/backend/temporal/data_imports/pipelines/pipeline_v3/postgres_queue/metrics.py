@@ -38,6 +38,14 @@ POLL_DURATION_SECONDS = Histogram(
     buckets=POLL_DURATION_BUCKETS,
 )
 
+# Failed polls never reach the histograms above, so a fleet whose polls all
+# time out looks better on those — this counter is the alertable signal.
+POLL_FAILURES_TOTAL = Counter(
+    "warehouse_pg_consumer_poll_failures_total",
+    "Poll cycles that failed before returning batches",
+    labelnames=["reason"],
+)
+
 POLL_BATCHES_FETCHED = Histogram(
     "warehouse_pg_consumer_poll_batches_fetched",
     "Number of batches returned per poll cycle",
@@ -60,6 +68,12 @@ RUNS_RECONCILED_TOTAL = Counter(
     "warehouse_pg_consumer_runs_reconciled_total",
     "Runs whose ExternalDataJob was left non-terminal despite a failed queue batch and "
     "was reconciled to Failed by the reconcile sweep",
+)
+
+RUNS_TERMINALIZED_STALE_TOTAL = Counter(
+    "warehouse_pg_consumer_runs_terminalized_stale_total",
+    "Runs the loader abandoned (non-terminal batches, no live lease, no progress past the "
+    "staleness threshold) that the reconcile sweep failed before the retention prune would",
 )
 
 # The loader's data-freshness signal: it rises whenever loading stalls,
@@ -90,6 +104,7 @@ class ConsumerMetrics:
     runs_failed_total: Counter
     poll_duration_seconds: Histogram
     poll_batches_fetched: Histogram
+    poll_failures_total: Counter
     active_groups: Gauge
     recovery_sweeps_total: Counter
 
@@ -101,6 +116,7 @@ DELTA_CONSUMER_METRICS = ConsumerMetrics(
     runs_failed_total=RUNS_FAILED_TOTAL,
     poll_duration_seconds=POLL_DURATION_SECONDS,
     poll_batches_fetched=POLL_BATCHES_FETCHED,
+    poll_failures_total=POLL_FAILURES_TOTAL,
     active_groups=ACTIVE_GROUPS,
     recovery_sweeps_total=RECOVERY_SWEEPS_TOTAL,
 )
@@ -145,6 +161,11 @@ def make_consumer_metrics(prefix: str) -> ConsumerMetrics:
             f"{p}_poll_batches_fetched",
             "Number of batches returned per poll cycle",
             buckets=(0, 1, 5, 10, 25, 50, 100, 250, 500),
+        ),
+        poll_failures_total=Counter(
+            f"{p}_poll_failures_total",
+            "Poll cycles that failed before returning batches",
+            labelnames=["reason"],
         ),
         active_groups=Gauge(
             f"{p}_active_groups",

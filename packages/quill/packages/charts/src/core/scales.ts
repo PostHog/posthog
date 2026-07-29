@@ -10,6 +10,7 @@ import {
 } from 'd3-scale'
 import { stack as stackGen, stackOffsetDiverging, stackOffsetExpand, stackOffsetNone } from 'd3-shape'
 
+import { significantDecimalPlaces } from '../utils/format'
 import type { BandSlot, ChartDimensions, ResolveValueFn, Series, ValueDomain, YAxisScale } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
@@ -325,10 +326,9 @@ export function createScales(
         /** Applied to the primary y-axis only — goal lines (`{ include }`) render against the
          *  primary axis, so secondary axes keep their own data-derived scale. */
         valueDomain?: ValueDomain
-        /** Per-axis overrides keyed by axis id. When an axis is listed its `scaleType` and
-         *  `position` win; otherwise it falls back to `options.scaleType` and the alternating-side
-         *  default from {@link orderedAxisPositions}. */
-        axes?: { id: string; position?: 'left' | 'right'; scaleType?: 'linear' | 'log' }[]
+        /** Per-axis overrides — explicit values win over the alternating-side default and the
+         *  scalar `scaleType`/`floatBaseline` options (which only reach the primary axis). */
+        axes?: { id: string; position?: 'left' | 'right'; scaleType?: 'linear' | 'log'; startAtZero?: boolean }[]
         /** Float the primary axis to its data range instead of clamping the baseline to 0. Applied to
          *  the primary axis only, like `valueDomain`. See {@link buildValueScale}. */
         floatBaseline?: boolean
@@ -363,7 +363,12 @@ export function createScales(
             scaleType: override?.scaleType ?? options.scaleType,
             percentStack: options.percentStack,
             valueDomain: axisIndex === 0 ? options.valueDomain : undefined,
-            floatBaseline: axisIndex === 0 ? options.floatBaseline : undefined,
+            floatBaseline:
+                override?.startAtZero != null
+                    ? override.startAtZero === false
+                    : axisIndex === 0
+                      ? options.floatBaseline
+                      : undefined,
         })
         yAxes[axisId] = { scale, position: override?.position ?? position }
     })
@@ -477,14 +482,18 @@ export function buildSegmentResolveValue(
     }
     return (s, dataIndex) => {
         const band = stackedData.get(s.key)
+        const raw = s.data[dataIndex]
         if (band) {
             const top = band.top[dataIndex]
             const bottom = band.bottom[dataIndex]
             if (Number.isFinite(top) && Number.isFinite(bottom)) {
-                return top - bottom
+                const size = top - bottom
+                // A diverging stack lays a negative segment out as [bottom = cumulative,
+                // top = previous] with top > bottom — the same ordering as a positive segment —
+                // so `top - bottom` alone loses the sign. Restore it from the raw value.
+                return typeof raw === 'number' && raw < 0 && size > 0 ? -size : size
             }
         }
-        const raw = s.data[dataIndex]
         return typeof raw === 'number' && Number.isFinite(raw) ? raw : 0
     }
 }
@@ -720,7 +729,12 @@ function padValueRange(
 
 export function autoFormatYTick(value: number, domainMax: number): string {
     if (domainMax < 2) {
-        return value.toFixed(2)
+        // Two decimals only resolve a domain down to ~0.1; below that every tick rounds to the same
+        // label, so scale the precision to the domain instead.
+        return value.toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: significantDecimalPlaces(domainMax),
+        })
     }
     if (domainMax < 5) {
         return value.toFixed(1)

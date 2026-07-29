@@ -9,9 +9,9 @@ import {
     OverflowOutput,
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
-import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
-import { createBatch, createNewPipeline, createUnwrapper } from '~/ingestion/framework/helpers'
+import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
+import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
+import { createBatch, createUnwrapper } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { PipelineResult, dlq, drop, ok, redirect } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
@@ -32,6 +32,7 @@ const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
     heatmaps_opt_in: null,
     ingested_event: true,
     person_display_name_properties: null,
+    minimal_flag_called_events: false,
     test_account_filters: null,
     cookieless_server_hash_mode: null,
     timezone: 'UTC',
@@ -46,7 +47,7 @@ type TestEvent = {
     uuid: string
     event: string
     token: string
-    batch_result?: string // Optional field added by batch processing
+    chunk_result?: string // Optional field added by chunk processing
 }
 
 type TestHeaders = {
@@ -68,7 +69,7 @@ type TestEventWithTeam = {
  *
  * Note: Adding more than 3 preprocessing steps doesn't add meaningful test coverage
  * since the tests already verify the essential pipeline patterns (sync steps, async steps,
- * batch processing, result handling). The goal is to test pipeline behavior, not to
+ * chunk processing, result handling). The goal is to test pipeline behavior, not to
  * replicate every single step from the actual ingestion consumer.
  */
 
@@ -97,9 +98,9 @@ const createMockStep = <TInput extends { message: Message }, TOutput, R extends 
     })
 }
 
-const createMockBatchStep = <TInput, TOutput>(
+const createMockChunkStep = <TInput, TOutput>(
     resultMap: Map<number, PipelineResult<TOutput>>
-): jest.MockedFunction<BatchProcessingStep<TInput, TOutput>> => {
+): jest.MockedFunction<ChunkProcessingStep<TInput, TOutput>> => {
     return jest.fn(async (events: TInput[]): Promise<PipelineResult<TOutput>[]> => {
         await new Promise((resolve) => setTimeout(resolve, 1)) // Simulate async work
         return events.map((_, index) => {
@@ -224,8 +225,8 @@ describe('Pipeline Integration Tests', () => {
                 ],
             ])
 
-            // Define batch step result map
-            const batchStep4Map = new Map([
+            // Define chunk step result map
+            const chunkStep4Map = new Map([
                 [
                     0,
                     ok({
@@ -235,7 +236,7 @@ describe('Pipeline Integration Tests', () => {
                             uuid: 'event1',
                             event: 'test-event-0',
                             token: 'test-token',
-                            batch_result: 'processed',
+                            chunk_result: 'processed',
                         },
                         team: createTestTeam(),
                     }),
@@ -249,7 +250,7 @@ describe('Pipeline Integration Tests', () => {
                             uuid: 'event2',
                             event: 'test-event-1',
                             token: 'test-token',
-                            batch_result: 'processed',
+                            chunk_result: 'processed',
                         },
                         team: createTestTeam(),
                     }),
@@ -267,15 +268,17 @@ describe('Pipeline Integration Tests', () => {
                 TestEventWithTeam
             >(step3Map)
 
-            // Define batch step
-            const batchStep4 = createMockBatchStep<TestEventWithTeam, TestEventWithTeam>(batchStep4Map)
+            // Define chunk step
+            const chunkStep4 = createMockChunkStep<TestEventWithTeam, TestEventWithTeam>(chunkStep4Map)
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2).pipe(step3)
 
-            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+            const pipeline = newChunkPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
-                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep4)
+                    builder
+                        .concurrently((b) => b.pipe(step1).pipe(step2).pipe(step3))
+                        .gather()
+                        .pipeChunk(chunkStep4)
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -292,18 +295,18 @@ describe('Pipeline Integration Tests', () => {
             expect((results![0] as TestEventWithTeam).event.event).toBe('test-event-0')
             expect((results![1] as TestEventWithTeam).event.event).toBe('test-event-1')
 
-            // Verify batch step added processing metadata
-            expect((results![0] as TestEventWithTeam).event.batch_result).toBe('processed')
-            expect((results![1] as TestEventWithTeam).event.batch_result).toBe('processed')
+            // Verify chunk step added processing metadata
+            expect((results![0] as TestEventWithTeam).event.chunk_result).toBe('processed')
+            expect((results![1] as TestEventWithTeam).event.chunk_result).toBe('processed')
 
             // Verify mock steps were called with correct arguments
             expect(step1).toHaveBeenCalledTimes(2)
             expect(step2).toHaveBeenCalledTimes(2)
             expect(step3).toHaveBeenCalledTimes(2)
 
-            // Verify batch step was called with events in correct order
-            expect(batchStep4).toHaveBeenCalledTimes(1)
-            expect(batchStep4).toHaveBeenNthCalledWith(
+            // Verify chunk step was called with events in correct order
+            expect(chunkStep4).toHaveBeenCalledTimes(1)
+            expect(chunkStep4).toHaveBeenNthCalledWith(
                 1,
                 expect.arrayContaining([
                     expect.objectContaining({ event: expect.objectContaining({ uuid: 'event1' }) }),
@@ -332,8 +335,8 @@ describe('Pipeline Integration Tests', () => {
             // Define step
             const step1 = createMockStep<{ message: Message }, { message: Message; headers: TestHeaders }>(step1Map)
 
-            // Define batch step result map
-            const batchStep2Map = new Map([
+            // Define chunk step result map
+            const chunkStep2Map = new Map([
                 [
                     0,
                     ok({
@@ -345,17 +348,19 @@ describe('Pipeline Integration Tests', () => {
                 ],
             ])
 
-            // Define batch step
-            const batchStep2 = createMockBatchStep<{ message: Message; headers: TestHeaders }, TestEventWithTeam>(
-                batchStep2Map
+            // Define chunk step
+            const chunkStep2 = createMockChunkStep<{ message: Message; headers: TestHeaders }, TestEventWithTeam>(
+                chunkStep2Map
             )
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1)
 
-            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+            const pipeline = newChunkPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
-                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep2)
+                    builder
+                        .concurrently((b) => b.pipe(step1))
+                        .gather()
+                        .pipeChunk(chunkStep2)
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -399,8 +404,8 @@ describe('Pipeline Integration Tests', () => {
                 step1Map
             )
 
-            // Define batch step result map
-            const batchStep2Map = new Map([
+            // Define chunk step result map
+            const chunkStep2Map = new Map([
                 [
                     0,
                     ok({
@@ -412,17 +417,19 @@ describe('Pipeline Integration Tests', () => {
                 ],
             ])
 
-            // Define batch step
-            const batchStep2 = createMockBatchStep<{ message: Message; headers: TestHeaders }, TestEventWithTeam>(
-                batchStep2Map
+            // Define chunk step
+            const chunkStep2 = createMockChunkStep<{ message: Message; headers: TestHeaders }, TestEventWithTeam>(
+                chunkStep2Map
             )
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1)
 
-            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+            const pipeline = newChunkPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
-                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep2)
+                    builder
+                        .concurrently((b) => b.pipe(step1))
+                        .gather()
+                        .pipeChunk(chunkStep2)
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -474,8 +481,8 @@ describe('Pipeline Integration Tests', () => {
                 { message: Message; headers: TestHeaders; event: TestEvent }
             >(step1Map)
 
-            // Define batch step result map
-            const batchStep2Map = new Map([
+            // Define chunk step result map
+            const chunkStep2Map = new Map([
                 [
                     0,
                     ok({
@@ -487,18 +494,20 @@ describe('Pipeline Integration Tests', () => {
                 ],
             ])
 
-            // Define batch step
-            const batchStep2 = createMockBatchStep<
+            // Define chunk step
+            const chunkStep2 = createMockChunkStep<
                 { message: Message; headers: TestHeaders; event: TestEvent },
                 TestEventWithTeam
-            >(batchStep2Map)
+            >(chunkStep2Map)
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1)
 
-            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+            const pipeline = newChunkPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
-                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep2)
+                    builder
+                        .concurrently((b) => b.pipe(step1))
+                        .gather()
+                        .pipeChunk(chunkStep2)
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -634,14 +643,14 @@ describe('Pipeline Integration Tests', () => {
                 ],
             ])
 
-            // Define batch step result map
-            const batchStep4Map = new Map([
+            // Define chunk step result map
+            const chunkStep4Map = new Map([
                 [
                     0,
                     ok({
                         message: messages[0],
                         headers: { token: 'test-token' },
-                        event: { uuid: 'event-1', event: 'test-event', token: 'test-token', batch_result: 'processed' },
+                        event: { uuid: 'event-1', event: 'test-event', token: 'test-token', chunk_result: 'processed' },
                         team: createTestTeam(),
                     }),
                 ],
@@ -650,7 +659,7 @@ describe('Pipeline Integration Tests', () => {
                     ok({
                         message: messages[1],
                         headers: { token: 'test-token' },
-                        event: { uuid: 'event-2', event: 'test-event', token: 'test-token', batch_result: 'processed' },
+                        event: { uuid: 'event-2', event: 'test-event', token: 'test-token', chunk_result: 'processed' },
                         team: createTestTeam(),
                     }),
                 ],
@@ -659,7 +668,7 @@ describe('Pipeline Integration Tests', () => {
                     ok({
                         message: messages[2],
                         headers: { token: 'test-token' },
-                        event: { uuid: 'event-3', event: 'test-event', token: 'test-token', batch_result: 'processed' },
+                        event: { uuid: 'event-3', event: 'test-event', token: 'test-token', chunk_result: 'processed' },
                         team: createTestTeam(),
                     }),
                 ],
@@ -676,15 +685,17 @@ describe('Pipeline Integration Tests', () => {
                 TestEventWithTeam
             >(step3Map)
 
-            // Define batch step
-            const batchStep4 = createMockBatchStep<TestEventWithTeam, TestEventWithTeam>(batchStep4Map)
+            // Define chunk step
+            const chunkStep4 = createMockChunkStep<TestEventWithTeam, TestEventWithTeam>(chunkStep4Map)
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2).pipe(step3)
 
-            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+            const pipeline = newChunkPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
-                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep4)
+                    builder
+                        .concurrently((b) => b.pipe(step1).pipe(step2).pipe(step3))
+                        .gather()
+                        .pipeChunk(chunkStep4)
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -703,19 +714,19 @@ describe('Pipeline Integration Tests', () => {
             expect((results![1] as TestEventWithTeam).event.uuid).toBe('event-2')
             expect((results![2] as TestEventWithTeam).event.uuid).toBe('event-3')
 
-            // Verify batch step added processing metadata to all events
-            expect((results![0] as TestEventWithTeam).event.batch_result).toBe('processed')
-            expect((results![1] as TestEventWithTeam).event.batch_result).toBe('processed')
-            expect((results![2] as TestEventWithTeam).event.batch_result).toBe('processed')
+            // Verify chunk step added processing metadata to all events
+            expect((results![0] as TestEventWithTeam).event.chunk_result).toBe('processed')
+            expect((results![1] as TestEventWithTeam).event.chunk_result).toBe('processed')
+            expect((results![2] as TestEventWithTeam).event.chunk_result).toBe('processed')
 
             // Verify mock steps were called with correct arguments
             expect(step1).toHaveBeenCalledTimes(3)
             expect(step2).toHaveBeenCalledTimes(3)
             expect(step3).toHaveBeenCalledTimes(3)
 
-            // Verify batch step was called with events in correct order
-            expect(batchStep4).toHaveBeenCalledTimes(1)
-            expect(batchStep4).toHaveBeenNthCalledWith(
+            // Verify chunk step was called with events in correct order
+            expect(chunkStep4).toHaveBeenCalledTimes(1)
+            expect(chunkStep4).toHaveBeenNthCalledWith(
                 1,
                 expect.arrayContaining([
                     expect.objectContaining({ event: expect.objectContaining({ uuid: 'event-1' }) }),
@@ -725,7 +736,7 @@ describe('Pipeline Integration Tests', () => {
             )
         })
 
-        it('should handle mixed success and failure scenarios in batch', async () => {
+        it('should handle mixed success and failure scenarios in chunk', async () => {
             const messages: Message[] = [
                 {
                     topic: 'test-topic',
@@ -810,14 +821,14 @@ describe('Pipeline Integration Tests', () => {
                 ],
             ])
 
-            // Define batch step result map
-            const batchStep4Map = new Map([
+            // Define chunk step result map
+            const chunkStep4Map = new Map([
                 [
                     0,
                     ok({
                         message: messages[0],
                         headers: { token: 'test-token' },
-                        event: { uuid: 'event1', event: 'test-event', token: 'test-token', batch_result: 'processed' },
+                        event: { uuid: 'event1', event: 'test-event', token: 'test-token', chunk_result: 'processed' },
                         team: createTestTeam(),
                     }),
                 ],
@@ -826,7 +837,7 @@ describe('Pipeline Integration Tests', () => {
                     ok({
                         message: messages[2],
                         headers: { token: 'test-token' },
-                        event: { uuid: 'event3', event: 'test-event', token: 'test-token', batch_result: 'processed' },
+                        event: { uuid: 'event3', event: 'test-event', token: 'test-token', chunk_result: 'processed' },
                         team: createTestTeam(),
                     }),
                 ],
@@ -843,15 +854,17 @@ describe('Pipeline Integration Tests', () => {
                 TestEventWithTeam
             >(step3Map)
 
-            // Define batch step
-            const batchStep4 = createMockBatchStep<TestEventWithTeam, TestEventWithTeam>(batchStep4Map)
+            // Define chunk step
+            const chunkStep4 = createMockChunkStep<TestEventWithTeam, TestEventWithTeam>(chunkStep4Map)
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2).pipe(step3)
 
-            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+            const pipeline = newChunkPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
-                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep4)
+                    builder
+                        .concurrently((b) => b.pipe(step1).pipe(step2).pipe(step3))
+                        .gather()
+                        .pipeChunk(chunkStep4)
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -869,18 +882,18 @@ describe('Pipeline Integration Tests', () => {
             expect((results![0] as TestEventWithTeam).event.uuid).toBe('event1')
             expect((results![1] as TestEventWithTeam).event.uuid).toBe('event3')
 
-            // Verify batch step added processing metadata
-            expect((results![0] as TestEventWithTeam).event.batch_result).toBe('processed')
-            expect((results![1] as TestEventWithTeam).event.batch_result).toBe('processed')
+            // Verify chunk step added processing metadata
+            expect((results![0] as TestEventWithTeam).event.chunk_result).toBe('processed')
+            expect((results![1] as TestEventWithTeam).event.chunk_result).toBe('processed')
 
             // Verify mock steps were called with correct arguments
             expect(step1).toHaveBeenCalledTimes(3)
             expect(step2).toHaveBeenCalledTimes(2) // Only valid events reach validation
             expect(step3).toHaveBeenCalledTimes(2) // Only valid events reach team resolution
-            expect(batchStep4).toHaveBeenCalledTimes(1) // Batch step called once with 2 events
+            expect(chunkStep4).toHaveBeenCalledTimes(1) // Chunk step called once with 2 events
 
-            // Verify batch step was called with remaining events in correct order (dropped event excluded)
-            expect(batchStep4).toHaveBeenNthCalledWith(
+            // Verify chunk step was called with remaining events in correct order (dropped event excluded)
+            expect(chunkStep4).toHaveBeenNthCalledWith(
                 1,
                 expect.arrayContaining([
                     expect.objectContaining({ event: expect.objectContaining({ uuid: 'event1' }) }),
@@ -919,8 +932,8 @@ describe('Pipeline Integration Tests', () => {
                 ['event2', { delay: 0, result: ok({ message: messages[1], headers: { token: 'test-token' } }) }],
             ])
 
-            // Define batch step result map
-            const batchStep4Map = new Map([
+            // Define chunk step result map
+            const chunkStep4Map = new Map([
                 [
                     0,
                     ok({
@@ -930,7 +943,7 @@ describe('Pipeline Integration Tests', () => {
                             uuid: 'event1',
                             event: 'test-event-0',
                             token: 'test-token',
-                            batch_result: 'processed',
+                            chunk_result: 'processed',
                         },
                         team: createTestTeam(),
                     }),
@@ -944,7 +957,7 @@ describe('Pipeline Integration Tests', () => {
                             uuid: 'event2',
                             event: 'test-event-1',
                             token: 'test-token',
-                            batch_result: 'processed',
+                            chunk_result: 'processed',
                         },
                         team: createTestTeam(),
                     }),
@@ -992,14 +1005,16 @@ describe('Pipeline Integration Tests', () => {
                 TestEventWithTeam
             >(step3Map)
 
-            const batchStep4 = createMockBatchStep<TestEventWithTeam, TestEventWithTeam>(batchStep4Map)
+            const chunkStep4 = createMockChunkStep<TestEventWithTeam, TestEventWithTeam>(chunkStep4Map)
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2).pipe(step3)
 
-            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+            const pipeline = newChunkPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
-                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep4)
+                    builder
+                        .concurrently((b) => b.pipe(step1).pipe(step2).pipe(step3))
+                        .gather()
+                        .pipeChunk(chunkStep4)
                 )
                 .handleResults({
                     outputs: mockOutputs,
@@ -1021,11 +1036,11 @@ describe('Pipeline Integration Tests', () => {
             expect(step2).toHaveBeenCalledTimes(2)
             // Note: step3 call count is not deterministic due to concurrent processing and exception handling
 
-            // Verify batch step was not called due to exception
-            expect(batchStep4).toHaveBeenCalledTimes(0)
+            // Verify chunk step was not called due to exception
+            expect(chunkStep4).toHaveBeenCalledTimes(0)
         })
 
-        it('should handle exceptions in batch steps', async () => {
+        it('should handle exceptions in chunk steps', async () => {
             const messages: Message[] = [
                 {
                     topic: 'test-topic',
@@ -1075,8 +1090,8 @@ describe('Pipeline Integration Tests', () => {
                 ],
             ])
 
-            // Define batch step result maps
-            const batchStep1Map = new Map([
+            // Define chunk step result maps
+            const chunkStep1Map = new Map([
                 [
                     0,
                     ok({
@@ -1086,7 +1101,7 @@ describe('Pipeline Integration Tests', () => {
                             uuid: 'event1',
                             event: 'test-event-0',
                             token: 'test-token',
-                            batch_result: 'processed',
+                            chunk_result: 'processed',
                         },
                         team: createTestTeam(),
                     }),
@@ -1100,14 +1115,14 @@ describe('Pipeline Integration Tests', () => {
                             uuid: 'event2',
                             event: 'test-event-1',
                             token: 'test-token',
-                            batch_result: 'processed',
+                            chunk_result: 'processed',
                         },
                         team: createTestTeam(),
                     }),
                 ],
             ])
 
-            const batchStep3Map = new Map<number, PipelineResult<TestEventWithTeam>>([
+            const chunkStep3Map = new Map<number, PipelineResult<TestEventWithTeam>>([
                 [
                     0,
                     ok({
@@ -1117,7 +1132,7 @@ describe('Pipeline Integration Tests', () => {
                             uuid: 'event1',
                             event: 'test-event-0',
                             token: 'test-token',
-                            batch_result: 'processed',
+                            chunk_result: 'processed',
                         },
                         team: createTestTeam(),
                     }),
@@ -1131,7 +1146,7 @@ describe('Pipeline Integration Tests', () => {
                             uuid: 'event2',
                             event: 'test-event-1',
                             token: 'test-token',
-                            batch_result: 'processed',
+                            chunk_result: 'processed',
                         },
                         team: createTestTeam(),
                     }),
@@ -1141,29 +1156,28 @@ describe('Pipeline Integration Tests', () => {
             // Define steps
             const step1 = createMockStep<{ message: Message }, TestEventWithTeam>(step1Map)
 
-            const batchStep1 = createMockBatchStep<TestEventWithTeam, TestEventWithTeam>(batchStep1Map)
+            const chunkStep1 = createMockChunkStep<TestEventWithTeam, TestEventWithTeam>(chunkStep1Map)
 
-            // Create a batch step that throws an exception
-            const batchStep2 = jest.fn(
+            // Create a chunk step that throws an exception
+            const chunkStep2 = jest.fn(
                 async (_events: TestEventWithTeam[]): Promise<PipelineResult<TestEventWithTeam>[]> => {
                     await new Promise((resolve) => setTimeout(resolve, 1)) // Simulate async work
-                    throw new Error('Mock batch exception')
+                    throw new Error('Mock chunk exception')
                 }
             )
 
-            const batchStep3 = createMockBatchStep<TestEventWithTeam, TestEventWithTeam>(batchStep3Map)
+            const chunkStep3 = createMockChunkStep<TestEventWithTeam, TestEventWithTeam>(chunkStep3Map)
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1)
 
-            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+            const pipeline = newChunkPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
                     builder
-                        .pipeConcurrently(preprocessingPipeline)
+                        .concurrently((b) => b.pipe(step1))
                         .gather()
-                        .pipeBatch(batchStep1)
-                        .pipeBatch(batchStep2)
-                        .pipeBatch(batchStep3)
+                        .pipeChunk(chunkStep1)
+                        .pipeChunk(chunkStep2)
+                        .pipeChunk(chunkStep3)
                 )
                 .handleResults({
                     outputs: mockOutputs,
@@ -1178,17 +1192,17 @@ describe('Pipeline Integration Tests', () => {
             unwrapper.feed(batch)
 
             // Expect the pipeline to throw an exception
-            await expect(unwrapper.next()).rejects.toThrow('Mock batch exception')
+            await expect(unwrapper.next()).rejects.toThrow('Mock chunk exception')
 
             // Verify preprocessing step was called
             expect(step1).toHaveBeenCalledTimes(2)
 
-            // Verify batch steps were called up to the exception
-            expect(batchStep1).toHaveBeenCalledTimes(1)
-            expect(batchStep2).toHaveBeenCalledTimes(1)
+            // Verify chunk steps were called up to the exception
+            expect(chunkStep1).toHaveBeenCalledTimes(1)
+            expect(chunkStep2).toHaveBeenCalledTimes(1)
 
-            // Verify third batch step was not called due to exception
-            expect(batchStep3).toHaveBeenCalledTimes(0)
+            // Verify third chunk step was not called due to exception
+            expect(chunkStep3).toHaveBeenCalledTimes(0)
         })
 
         it('should handle mixed results and exceptions without producing to Kafka', async () => {
@@ -1259,10 +1273,9 @@ describe('Pipeline Integration Tests', () => {
             )
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2)
 
-            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
-                .messageAware((builder) => builder.pipeConcurrently(preprocessingPipeline).gather())
+            const pipeline = newChunkPipelineBuilder<{ message: Message }, { message: Message }>()
+                .messageAware((builder) => builder.concurrently((b) => b.pipe(step1).pipe(step2)).gather())
                 .handleResults({
                     outputs: mockOutputs,
                     promiseScheduler: mockPromiseScheduler,
@@ -1288,7 +1301,7 @@ describe('Pipeline Integration Tests', () => {
     })
 
     describe('Concurrent Processing', () => {
-        it('should preserve ordering with pipeConcurrently and gather using deterministic mocks', async () => {
+        it('should preserve ordering with concurrently and gather using deterministic mocks', async () => {
             const messages: Message[] = [
                 {
                     topic: 'test-topic',
@@ -1373,10 +1386,9 @@ describe('Pipeline Integration Tests', () => {
             const step1 = createMockStep<{ message: Message }, { message: Message; headers: TestHeaders }>(step1Map)
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2)
 
-            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
-                .messageAware((builder) => builder.pipeConcurrently(preprocessingPipeline).gather())
+            const pipeline = newChunkPipelineBuilder<{ message: Message }, { message: Message }>()
+                .messageAware((builder) => builder.concurrently((b) => b.pipe(step1).pipe(step2)).gather())
                 .handleResults({
                     outputs: mockOutputs,
                     promiseScheduler: mockPromiseScheduler,
@@ -1575,14 +1587,14 @@ describe('Pipeline Integration Tests', () => {
                 ],
             ])
 
-            // Define batch step result map
-            const batchStep4Map = new Map([
+            // Define chunk step result map
+            const chunkStep4Map = new Map([
                 [
                     0,
                     ok({
                         message: messages[0],
                         headers: { token: 'test-token' },
-                        event: { uuid: 'event-0', event: 'test-event', token: 'test-token', batch_result: 'processed' },
+                        event: { uuid: 'event-0', event: 'test-event', token: 'test-token', chunk_result: 'processed' },
                         team: createTestTeam(),
                     }),
                 ],
@@ -1591,7 +1603,7 @@ describe('Pipeline Integration Tests', () => {
                     ok({
                         message: messages[1],
                         headers: { token: 'test-token' },
-                        event: { uuid: 'event-1', event: 'test-event', token: 'test-token', batch_result: 'processed' },
+                        event: { uuid: 'event-1', event: 'test-event', token: 'test-token', chunk_result: 'processed' },
                         team: createTestTeam(),
                     }),
                 ],
@@ -1600,7 +1612,7 @@ describe('Pipeline Integration Tests', () => {
                     ok({
                         message: messages[2],
                         headers: { token: 'test-token' },
-                        event: { uuid: 'event-2', event: 'test-event', token: 'test-token', batch_result: 'processed' },
+                        event: { uuid: 'event-2', event: 'test-event', token: 'test-token', chunk_result: 'processed' },
                         team: createTestTeam(),
                     }),
                 ],
@@ -1609,7 +1621,7 @@ describe('Pipeline Integration Tests', () => {
                     ok({
                         message: messages[3],
                         headers: { token: 'test-token' },
-                        event: { uuid: 'event-3', event: 'test-event', token: 'test-token', batch_result: 'processed' },
+                        event: { uuid: 'event-3', event: 'test-event', token: 'test-token', chunk_result: 'processed' },
                         team: createTestTeam(),
                     }),
                 ],
@@ -1618,7 +1630,7 @@ describe('Pipeline Integration Tests', () => {
                     ok({
                         message: messages[4],
                         headers: { token: 'test-token' },
-                        event: { uuid: 'event-4', event: 'test-event', token: 'test-token', batch_result: 'processed' },
+                        event: { uuid: 'event-4', event: 'test-event', token: 'test-token', chunk_result: 'processed' },
                         team: createTestTeam(),
                     }),
                 ],
@@ -1635,15 +1647,17 @@ describe('Pipeline Integration Tests', () => {
                 TestEventWithTeam
             >(step3Map)
 
-            // Define batch step
-            const batchStep4 = createMockBatchStep<TestEventWithTeam, TestEventWithTeam>(batchStep4Map)
+            // Define chunk step
+            const chunkStep4 = createMockChunkStep<TestEventWithTeam, TestEventWithTeam>(chunkStep4Map)
 
             // Create pipeline
-            const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2).pipe(step3)
 
-            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+            const pipeline = newChunkPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
-                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep4)
+                    builder
+                        .concurrently((b) => b.pipe(step1).pipe(step2).pipe(step3))
+                        .gather()
+                        .pipeChunk(chunkStep4)
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(mockPromiseScheduler, { await: true })
@@ -1667,9 +1681,9 @@ describe('Pipeline Integration Tests', () => {
             expect(step2).toHaveBeenCalledTimes(5)
             expect(step3).toHaveBeenCalledTimes(5)
 
-            // Verify batch step was called with events in correct order
-            expect(batchStep4).toHaveBeenCalledTimes(1)
-            expect(batchStep4).toHaveBeenNthCalledWith(
+            // Verify chunk step was called with events in correct order
+            expect(chunkStep4).toHaveBeenCalledTimes(1)
+            expect(chunkStep4).toHaveBeenNthCalledWith(
                 1,
                 expect.arrayContaining([
                     expect.objectContaining({ event: expect.objectContaining({ uuid: 'event-0' }) }),
@@ -1778,17 +1792,17 @@ describe('Pipeline Integration Tests', () => {
             const step1 = createMockStep<{ message: Message }, { message: Message; headers: TestHeaders }>(step1Map)
             const step2 = createMockStep<{ message: Message; headers: TestHeaders }, TestEventWithTeam>(step2Map)
             const step3 = createMockStep<TestEventWithTeam, TestEventWithTeam>(step3Map)
-            // Batch step adds batch_result to each event - uses input content instead of index
-            // because filterMap feeds events in separate batches (not gathered)
-            const batchStep: jest.MockedFunction<BatchProcessingStep<TestEventWithTeam, TestEventWithTeam>> = jest.fn(
+            // Chunk step adds chunk_result to each event - uses input content instead of index
+            // because filterMap feeds events in separate chunks (not gathered)
+            const chunkStep: jest.MockedFunction<ChunkProcessingStep<TestEventWithTeam, TestEventWithTeam>> = jest.fn(
                 (events) =>
                     Promise.resolve(
-                        events.map((event) => ok({ ...event, event: { ...event.event, batch_result: 'processed' } }))
+                        events.map((event) => ok({ ...event, event: { ...event.event, chunk_result: 'processed' } }))
                     )
             )
 
             // Create pipeline using builder API
-            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+            const pipeline = newChunkPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
                     builder
                         .concurrently((b) => b.pipe(step1).pipe(step2))
@@ -1806,7 +1820,7 @@ describe('Pipeline Integration Tests', () => {
                                         b
                                             .concurrently((c) => c.pipe(step3))
                                             .gather()
-                                            .pipeBatch(batchStep)
+                                            .pipeChunk(chunkStep)
                                     )
                                     .handleIngestionWarnings(createMockIngestionOutputs<IngestionWarningsOutput>())
                         )
@@ -1831,16 +1845,16 @@ describe('Pipeline Integration Tests', () => {
             expect(step1).toHaveBeenCalledTimes(3) // All 3 events
             expect(step2).toHaveBeenCalledTimes(2) // Only non-dropped events
             expect(step3).toHaveBeenCalledTimes(2) // Only team-aware events
-            expect(batchStep).toHaveBeenCalledTimes(2) // Batch processed per concurrent result batch
+            expect(chunkStep).toHaveBeenCalledTimes(2) // Chunk processed per concurrent result chunk
 
             // Should only return the OK events (drop-event filtered out)
             expect(allResults).toHaveLength(2)
             expect(allResults![0].event.uuid).toBe('event1')
             expect(allResults![1].event.uuid).toBe('event3')
 
-            // Verify batch processing metadata
-            expect(allResults![0].event.batch_result).toBe('processed')
-            expect(allResults![1].event.batch_result).toBe('processed')
+            // Verify chunk processing metadata
+            expect(allResults![0].event.chunk_result).toBe('processed')
+            expect(allResults![1].event.chunk_result).toBe('processed')
 
             // Verify teams are correctly mapped
             expect(allResults![0].team.id).toBe(1)
@@ -1878,10 +1892,10 @@ describe('Pipeline Integration Tests', () => {
                 })
             }
 
-            // Define batch step result map
-            const batchStep2Map = new Map<number, PipelineResult<TestEventWithTeam>>()
+            // Define chunk step result map
+            const chunkStep2Map = new Map<number, PipelineResult<TestEventWithTeam>>()
             for (let i = 0; i < 100; i++) {
-                batchStep2Map.set(
+                chunkStep2Map.set(
                     i,
                     ok({
                         message: messages[i],
@@ -1890,7 +1904,7 @@ describe('Pipeline Integration Tests', () => {
                             uuid: `event-${i}`,
                             event: 'test-event',
                             token: 'test-token',
-                            batch_result: 'processed',
+                            chunk_result: 'processed',
                         },
                         team: createTestTeam(),
                     })
@@ -1900,15 +1914,17 @@ describe('Pipeline Integration Tests', () => {
             // Define step with random delays
             const step1 = createMockStep<{ message: Message }, TestEventWithTeam>(step1Map)
 
-            // Define batch step
-            const batchStep2 = createMockBatchStep<TestEventWithTeam, TestEventWithTeam>(batchStep2Map)
+            // Define chunk step
+            const chunkStep2 = createMockChunkStep<TestEventWithTeam, TestEventWithTeam>(chunkStep2Map)
 
             // Create pipeline with single async step
-            const preprocessingPipeline = createNewPipeline().pipe(step1)
 
-            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+            const pipeline = newChunkPipelineBuilder<{ message: Message }, { message: Message }>()
                 .messageAware((builder) =>
-                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep2)
+                    builder
+                        .concurrently((b) => b.pipe(step1))
+                        .gather()
+                        .pipeChunk(chunkStep2)
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(mockPromiseScheduler, { await: true })

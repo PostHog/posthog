@@ -23,7 +23,12 @@ use crate::{
     },
 };
 
-pub const MAX_JSON_SERDE_DEPTH: usize = 64;
+// Recursion guard for walking nested JSON/Hog containers (input deserialization, output
+// serialization, deep clones, json stringify). The reference VMs impose no explicit JSON-nesting
+// limit, so a low cap here shows up as a shadow `status_mismatch` (Rust errors where Node succeeds)
+// on legitimately deep event properties. 256 clears any realistic event nesting by a wide margin
+// while still bounding native recursion well within a worker thread's stack.
+pub const MAX_JSON_SERDE_DEPTH: usize = 256;
 
 /// The outcome of a virtual machine step.
 #[derive(Debug, Clone)]
@@ -899,21 +904,24 @@ impl<'a> HogVM<'a> {
         }
     }
 
-    /// `=~`/`!~` (and the case-insensitive variants). The stack holds the pattern below the value;
-    /// either operand being null never matches (the reference's external matcher returns false), so
-    /// `=~` is false and `!~` is true.
+    /// `=~`/`!~` (and the case-insensitive variants). The stack holds the pattern below the value.
+    /// Mirrors the reference's `regexMatch`: `pattern && value ? external.match(pattern, value) :
+    /// false`, where the external matcher (RE2/RegExp `.test`) JS-String-coerces the value. So a
+    /// falsy pattern or value (null, `false`, `0`, `""`, `NaN`) never matches, and scalar values
+    /// (numbers, booleans) stringify just like `like`/`ilike` via `js_string_coerce`. Containers
+    /// still error, matching the deliberate `pop_like_operands` deviation.
     fn regex_op(&mut self, case_sensitive: bool, negate: bool) -> Result<(), VmError> {
         let val = self.pop_stack()?;
         let pat = self.pop_stack()?;
         let matched = {
             let val_lit = val.deref(&self.heap)?;
             let pat_lit = pat.deref(&self.heap)?;
-            if matches!(val_lit, HogLiteral::Null) || matches!(pat_lit, HogLiteral::Null) {
+            if !val_lit.truthy() || !pat_lit.truthy() {
                 false
             } else {
                 regex_match(
-                    val_lit.try_as::<str>()?,
-                    pat_lit.try_as::<str>()?,
+                    &self.js_string_coerce(&val)?,
+                    &self.js_string_coerce(&pat)?,
                     case_sensitive,
                 )?
             }

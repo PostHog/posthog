@@ -1,0 +1,40 @@
+# Minimal sandbox image for review/exec workloads that don't run the agent server —
+# e.g. stamphog's PR review sandbox. Ships only git, ca-certificates, python3 (DockerSandbox.write_file
+# shells out to it), node (Claude Code CLI runtime), and uv/uvx. No @posthog/agent, no gh CLI, no
+# ruff/ty, no skills.
+#
+# Anything that needs the agent server (task execution, skills, MCP) must use
+# SandboxTemplate.DEFAULT_BASE (Dockerfile.sandbox-base) instead — don't add packages
+# here to make this image "more useful"; that's what base is for.
+#
+# Keep the NODE_MAJOR and uv version pins below in sync with Dockerfile.sandbox-base
+# and modal_sandbox.py's SLIM_BASE image definition (see the comment there).
+
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# NODE_MAJOR must match the nodesource setup script used in Dockerfile.sandbox-base.
+ARG NODE_MAJOR=24
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    git \
+    ca-certificates \
+    curl \
+    python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - && \
+    apt-get install -y --no-install-recommends nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
+# uv comes from its pinned, registry-verified official image, same as Dockerfile.sandbox-base.
+COPY --from=ghcr.io/astral-sh/uv:0.11.15 /uv /uvx /usr/local/bin/
+
+WORKDIR /tmp/workspace
+
+RUN git --version && node --version && uv --version
+
+CMD ["/bin/bash"]

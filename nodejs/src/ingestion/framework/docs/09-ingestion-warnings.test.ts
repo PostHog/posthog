@@ -20,18 +20,23 @@
  * 1. Steps add warnings to results using the third parameter of `ok()`
  * 2. Warnings accumulate through the pipeline in context
  * 3. `handleIngestionWarnings()` converts warnings to side effects
- * 4. Side effects send warnings to Kafka for display in the UI
+ * 4. Side effects send warnings to Kafka; category and severity are resolved
+ *    from `INGESTION_WARNING_TYPES` at serialization time
  *
  * ## Warning Structure
  *
  * ```typescript
  * interface PipelineWarning {
- *     type: string              // Warning category (e.g., 'missing_field')
+ *     type: IngestionWarningType    // Must be registered in INGESTION_WARNING_TYPES
+ *                                   // (ingestion/common/ingestion-warnings.ts)
  *     details: Record<string, any>  // Additional context
  *     key?: string              // Optional key for debouncing
  *     alwaysSend?: boolean      // Bypass debouncing for critical warnings
  * }
  * ```
+ *
+ * New warning types must be added to the registry first — the registry fixes the
+ * type's category and severity so every emission is consistently classified.
  *
  * ## Team Context Requirement
  *
@@ -45,7 +50,7 @@
  */
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { PipelineResult, isOkResult, ok } from '~/ingestion/framework/results'
@@ -53,7 +58,7 @@ import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outpu
 import { createTestTeam } from '~/tests/helpers/team'
 import { Team } from '~/types'
 
-type BatchProcessingStep<T, U> = (values: T[]) => Promise<PipelineResult<U>[]>
+type ChunkProcessingStep<T, U> = (values: T[]) => Promise<PipelineResult<U>[]>
 
 describe('Warning Basics', () => {
     /**
@@ -66,7 +71,7 @@ describe('Warning Basics', () => {
             properties?: Record<string, any>
         }
 
-        function createValidationStep(): BatchProcessingStep<Event, Event> {
+        function createValidationStep(): ChunkProcessingStep<Event, Event> {
             return function validationStep(items) {
                 return Promise.resolve(
                     items.map((item) => {
@@ -74,7 +79,7 @@ describe('Warning Basics', () => {
 
                         if (!item.properties) {
                             warnings.push({
-                                type: 'missing_properties',
+                                type: 'schema_validation_failed',
                                 details: { eventName: item.name },
                             })
                         }
@@ -86,7 +91,7 @@ describe('Warning Basics', () => {
         }
 
         const team = createTestTeam()
-        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>().pipeBatch(createValidationStep()).build()
+        const pipeline = newChunkPipelineBuilder<Event, { team: Team }>().pipeChunk(createValidationStep()).build()
 
         const batch = [createOkContext({ name: 'pageview' }, { team })]
         pipeline.feed(batch)
@@ -97,7 +102,7 @@ describe('Warning Basics', () => {
         expect(isOkResult(results![0].result)).toBe(true)
         expect(results![0].context.warnings).toHaveLength(1)
         expect(results![0].context.warnings[0]).toEqual({
-            type: 'missing_properties',
+            type: 'schema_validation_failed',
             details: { eventName: 'pageview' },
         })
     })
@@ -113,14 +118,14 @@ describe('Warning Basics', () => {
             properties?: Record<string, any>
         }
 
-        function createTimestampCheckStep(): BatchProcessingStep<Event, Event> {
+        function createTimestampCheckStep(): ChunkProcessingStep<Event, Event> {
             return function timestampCheckStep(items) {
                 return Promise.resolve(
                     items.map((item) => {
                         const warnings: PipelineWarning[] = []
                         if (!item.timestamp) {
                             warnings.push({
-                                type: 'missing_timestamp',
+                                type: 'ignored_invalid_timestamp',
                                 details: { eventName: item.name },
                             })
                         }
@@ -130,14 +135,14 @@ describe('Warning Basics', () => {
             }
         }
 
-        function createPropertiesCheckStep(): BatchProcessingStep<Event, Event> {
+        function createPropertiesCheckStep(): ChunkProcessingStep<Event, Event> {
             return function propertiesCheckStep(items) {
                 return Promise.resolve(
                     items.map((item) => {
                         const warnings: PipelineWarning[] = []
                         if (!item.properties) {
                             warnings.push({
-                                type: 'missing_properties',
+                                type: 'schema_validation_failed',
                                 details: { eventName: item.name },
                             })
                         }
@@ -148,9 +153,9 @@ describe('Warning Basics', () => {
         }
 
         const team = createTestTeam()
-        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>()
-            .pipeBatch(createTimestampCheckStep())
-            .pipeBatch(createPropertiesCheckStep())
+        const pipeline = newChunkPipelineBuilder<Event, { team: Team }>()
+            .pipeChunk(createTimestampCheckStep())
+            .pipeChunk(createPropertiesCheckStep())
             .build()
 
         const batch = [createOkContext({ name: 'click' }, { team })]
@@ -160,7 +165,10 @@ describe('Warning Basics', () => {
 
         // Both warnings from both steps are accumulated
         expect(results![0].context.warnings).toHaveLength(2)
-        expect(results![0].context.warnings.map((w) => w.type)).toEqual(['missing_timestamp', 'missing_properties'])
+        expect(results![0].context.warnings.map((w) => w.type)).toEqual([
+            'ignored_invalid_timestamp',
+            'schema_validation_failed',
+        ])
     })
 
     /**
@@ -169,33 +177,36 @@ describe('Warning Basics', () => {
     it('a step can add multiple warnings', async () => {
         interface Event {
             name: string
+            timestamp?: string
             properties: Record<string, any>
         }
 
-        function createComprehensiveValidationStep(): BatchProcessingStep<Event, Event> {
+        function createComprehensiveValidationStep(): ChunkProcessingStep<Event, Event> {
             return function comprehensiveValidationStep(items) {
                 return Promise.resolve(
                     items.map((item) => {
                         const warnings: PipelineWarning[] = []
 
-                        if (item.name.length > 50) {
+                        const groupKey = item.properties['$group_key']
+                        if (groupKey && String(groupKey).length > 400) {
                             warnings.push({
-                                type: 'event_name_too_long',
-                                details: { length: item.name.length, max: 50 },
+                                type: 'group_key_too_long',
+                                details: { groupKey: String(groupKey).slice(0, 20), max: 400 },
                             })
                         }
 
-                        if (Object.keys(item.properties).length > 100) {
+                        if (item.timestamp && isNaN(Date.parse(item.timestamp))) {
                             warnings.push({
-                                type: 'too_many_properties',
-                                details: { count: Object.keys(item.properties).length, max: 100 },
+                                type: 'ignored_invalid_timestamp',
+                                details: { value: item.timestamp },
                             })
                         }
 
-                        if (item.properties['$ip'] && typeof item.properties['$ip'] !== 'string') {
+                        const processPerson = item.properties['$process_person_profile']
+                        if (processPerson !== undefined && typeof processPerson !== 'boolean') {
                             warnings.push({
-                                type: 'invalid_ip_type',
-                                details: { received: typeof item.properties['$ip'] },
+                                type: 'invalid_process_person_profile',
+                                details: { received: typeof processPerson },
                             })
                         }
 
@@ -206,27 +217,25 @@ describe('Warning Basics', () => {
         }
 
         const team = createTestTeam()
-        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>()
-            .pipeBatch(createComprehensiveValidationStep())
+        const pipeline = newChunkPipelineBuilder<Event, { team: Team }>()
+            .pipeChunk(createComprehensiveValidationStep())
             .build()
 
         // Create an event that triggers multiple warnings
-        const longName = 'a'.repeat(60)
-        const manyProperties: Record<string, any> = {}
-        for (let i = 0; i < 110; i++) {
-            manyProperties[`prop${i}`] = i
+        const properties: Record<string, any> = {
+            $group_key: 'g'.repeat(500),
+            $process_person_profile: 'yes', // Not a boolean
         }
-        manyProperties['$ip'] = 12345 // Wrong type
 
-        const batch = [createOkContext({ name: longName, properties: manyProperties }, { team })]
+        const batch = [createOkContext({ name: '$groupidentify', timestamp: 'not-a-date', properties }, { team })]
         pipeline.feed(batch)
 
         const results = await pipeline.next()
 
         expect(results![0].context.warnings).toHaveLength(3)
-        expect(results![0].context.warnings.map((w) => w.type)).toContain('event_name_too_long')
-        expect(results![0].context.warnings.map((w) => w.type)).toContain('too_many_properties')
-        expect(results![0].context.warnings.map((w) => w.type)).toContain('invalid_ip_type')
+        expect(results![0].context.warnings.map((w) => w.type)).toContain('group_key_too_long')
+        expect(results![0].context.warnings.map((w) => w.type)).toContain('ignored_invalid_timestamp')
+        expect(results![0].context.warnings.map((w) => w.type)).toContain('invalid_process_person_profile')
     })
 })
 
@@ -244,17 +253,19 @@ describe('Handling Ingestion Warnings', () => {
             name: string
         }
 
-        function createWarningStep(): BatchProcessingStep<Event, Event> {
+        function createWarningStep(): ChunkProcessingStep<Event, Event> {
             return function warningStep(items) {
                 return Promise.resolve(
-                    items.map((item) => ok(item, [], [{ type: 'test_warning', details: { eventName: item.name } }]))
+                    items.map((item) =>
+                        ok(item, [], [{ type: 'client_ingestion_warning', details: { eventName: item.name } }])
+                    )
                 )
             }
         }
 
         const team = createTestTeam({ id: 42 })
-        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>()
-            .pipeBatch(createWarningStep())
+        const pipeline = newChunkPipelineBuilder<Event, { team: Team }>()
+            .pipeChunk(createWarningStep())
             .teamAware((builder) => builder)
             .handleIngestionWarnings(mockOutputs)
             .handleSideEffects(promiseScheduler, { await: true })
@@ -286,12 +297,12 @@ describe('Handling Ingestion Warnings', () => {
             name: string
         }
 
-        function createStepWithBothSideEffectsAndWarnings(): BatchProcessingStep<Event, Event> {
+        function createStepWithBothSideEffectsAndWarnings(): ChunkProcessingStep<Event, Event> {
             return function stepWithBothSideEffectsAndWarnings(items) {
                 return Promise.resolve(
                     items.map((item) => {
                         const sideEffect = Promise.resolve().then(() => sideEffectLog.push(`processed: ${item.name}`))
-                        const warnings: PipelineWarning[] = [{ type: 'info', details: {} }]
+                        const warnings: PipelineWarning[] = [{ type: 'client_ingestion_warning', details: {} }]
                         return ok(item, [sideEffect], warnings)
                     })
                 )
@@ -299,8 +310,8 @@ describe('Handling Ingestion Warnings', () => {
         }
 
         const team = createTestTeam()
-        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>()
-            .pipeBatch(createStepWithBothSideEffectsAndWarnings())
+        const pipeline = newChunkPipelineBuilder<Event, { team: Team }>()
+            .pipeChunk(createStepWithBothSideEffectsAndWarnings())
             .teamAware((builder) => builder)
             .handleIngestionWarnings(mockOutputs)
             .handleSideEffects(promiseScheduler, { await: true })
@@ -329,7 +340,7 @@ describe('Warning Debouncing', () => {
             distinctId: string
         }
 
-        function createUserWarningStep(): BatchProcessingStep<Event, Event> {
+        function createUserWarningStep(): ChunkProcessingStep<Event, Event> {
             return function userWarningStep(items) {
                 return Promise.resolve(
                     items.map((item) =>
@@ -338,7 +349,7 @@ describe('Warning Debouncing', () => {
                             [],
                             [
                                 {
-                                    type: 'user_rate_limited',
+                                    type: 'cannot_merge_already_identified',
                                     details: { distinctId: item.distinctId },
                                     key: item.distinctId, // Debounce by user
                                 },
@@ -350,7 +361,7 @@ describe('Warning Debouncing', () => {
         }
 
         const team = createTestTeam()
-        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>().pipeBatch(createUserWarningStep()).build()
+        const pipeline = newChunkPipelineBuilder<Event, { team: Team }>().pipeChunk(createUserWarningStep()).build()
 
         const batch = [createOkContext({ distinctId: 'user-123' }, { team })]
         pipeline.feed(batch)
@@ -358,7 +369,7 @@ describe('Warning Debouncing', () => {
         const results = await pipeline.next()
 
         expect(results![0].context.warnings[0]).toEqual({
-            type: 'user_rate_limited',
+            type: 'cannot_merge_already_identified',
             details: { distinctId: 'user-123' },
             key: 'user-123',
         })
@@ -373,7 +384,7 @@ describe('Warning Debouncing', () => {
             name: string
         }
 
-        function createCriticalWarningStep(): BatchProcessingStep<Event, Event> {
+        function createCriticalWarningStep(): ChunkProcessingStep<Event, Event> {
             return function criticalWarningStep(items) {
                 return Promise.resolve(
                     items.map((item) =>
@@ -382,7 +393,7 @@ describe('Warning Debouncing', () => {
                             [],
                             [
                                 {
-                                    type: 'quota_exceeded',
+                                    type: 'message_size_too_large',
                                     details: { eventName: item.name },
                                     key: 'quota',
                                     alwaysSend: true, // Always send, never debounce
@@ -395,7 +406,7 @@ describe('Warning Debouncing', () => {
         }
 
         const team = createTestTeam()
-        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>().pipeBatch(createCriticalWarningStep()).build()
+        const pipeline = newChunkPipelineBuilder<Event, { team: Team }>().pipeChunk(createCriticalWarningStep()).build()
 
         const batch = [createOkContext({ name: 'important_event' }, { team })]
         pipeline.feed(batch)
@@ -403,7 +414,7 @@ describe('Warning Debouncing', () => {
         const results = await pipeline.next()
 
         expect(results![0].context.warnings[0]).toEqual({
-            type: 'quota_exceeded',
+            type: 'message_size_too_large',
             details: { eventName: 'important_event' },
             key: 'quota',
             alwaysSend: true,

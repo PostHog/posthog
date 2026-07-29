@@ -1,26 +1,25 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.fulcrum.settings import (
     FULCRUM_ENDPOINTS,
     FulcrumEndpointConfig,
 )
 
 FULCRUM_BASE_URL = "https://api.fulcrumapp.com/api/v2"
-
-
-class FulcrumRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -30,11 +29,10 @@ class FulcrumResumeConfig:
     page: int
 
 
-def _get_headers(api_token: str) -> dict[str, str]:
-    return {
-        "X-ApiToken": api_token,
-        "Accept": "application/json",
-    }
+def _accept_header() -> dict[str, str]:
+    # Auth (X-ApiToken) is supplied via the framework auth config so its value is redacted from
+    # logs and raised errors; only the non-secret Accept header is set here.
+    return {"Accept": "application/json"}
 
 
 def _to_epoch_seconds(value: Any) -> Optional[int]:
@@ -54,141 +52,140 @@ def _to_epoch_seconds(value: Any) -> Optional[int]:
         return None
 
 
-def _build_params(
-    config: FulcrumEndpointConfig,
-    page: int,
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
-) -> dict[str, Any]:
-    params: dict[str, Any] = {"page": page, "per_page": config.page_size}
+class FulcrumPageNumberPaginator(BasePaginator):
+    """Page-number pagination for Fulcrum's list endpoints.
 
-    if config.supports_incremental and should_use_incremental_field:
-        since = _to_epoch_seconds(db_incremental_field_last_value)
-        if since is not None:
-            # Server-side filter on updated_at. Records default to updated_at ascending order,
-            # which matches SourceResponse.sort_mode="asc" so the watermark advances correctly.
-            params["updated_since"] = since
+    Fulcrum returns ``current_page``/``total_pages`` at the response root; stop when the last page
+    is reached. When either is missing, fall back to a short-page heuristic (a page shorter than
+    ``per_page`` is the last) so we never loop forever or stop early. An empty page also stops.
+    """
 
-    return params
+    def __init__(self, page: int = 1, per_page: int = 1000, page_param: str = "page") -> None:
+        super().__init__()
+        self.page = page
+        self.per_page = per_page
+        self.page_param = page_param
 
+    def init_request(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params[self.page_param] = self.page
 
-def _build_url(config: FulcrumEndpointConfig, params: dict[str, Any]) -> str:
-    return f"{FULCRUM_BASE_URL}{config.path}?{urlencode(params)}"
+    def _has_more_pages(self, body: dict[str, Any], data: list[Any]) -> bool:
+        total_pages = body.get("total_pages")
+        if isinstance(total_pages, int):
+            current = body.get("current_page")
+            current = current if isinstance(current, int) else self.page
+            return current < total_pages
+        return len(data) >= self.per_page
 
-
-def validate_credentials(api_token: str) -> bool:
-    # A cheap, always-available probe: list a single form. 200 means the token is genuine.
-    url = _build_url(FULCRUM_ENDPOINTS["forms"], {"page": 1, "per_page": 1})
-    try:
-        response = make_tracked_session(redact_values=(api_token,)).get(
-            url, headers=_get_headers(api_token), timeout=10
-        )
-        return response.status_code == 200
-    except Exception:
-        return False
-
-
-@retry(
-    retry=retry_if_exception_type(
-        (
-            FulcrumRetryableError,
-            requests.ReadTimeout,
-            requests.ConnectionError,
-            requests.exceptions.ChunkedEncodingError,
-        )
-    ),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger
-) -> dict[str, Any]:
-    response = session.get(url, headers=headers, timeout=60)
-
-    # 429 (Fulcrum enforces an hourly request cap) and transient 5xx are retryable.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise FulcrumRetryableError(f"Fulcrum API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        # Don't log the raw body on auth failures — keep it out of job logs in case the API echoes
-        # anything sensitive. The url holds only the path and pagination params (the token lives in
-        # the X-ApiToken header, never the URL).
-        if response.status_code in (401, 403):
-            logger.error(f"Fulcrum auth error: status={response.status_code}, url={url}")
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        # Empty page → stop (mirrors the old loop breaking before the has-more check).
+        if not data:
+            self._has_next_page = False
+            return
+        try:
+            body = response.json()
+        except Exception:
+            body = {}
+        if isinstance(body, dict) and self._has_more_pages(body, data):
+            self.page += 1
+            self._has_next_page = True
         else:
-            logger.error(f"Fulcrum API error: status={response.status_code}, url={url}")
-        response.raise_for_status()
+            self._has_next_page = False
 
-    return response.json()
+    def update_request(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params[self.page_param] = self.page
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        # self.page points at the next page to fetch only while more pages remain.
+        return {"page": self.page} if self._has_next_page else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        page = state.get("page")
+        if page is not None:
+            self.page = int(page)
+            self._has_next_page = True
+
+    def __str__(self) -> str:
+        return f"FulcrumPageNumberPaginator(page={self.page})"
 
 
-def _has_more_pages(data: dict[str, Any], items: list[Any], current_page: int, per_page: int) -> bool:
-    """Fulcrum returns current_page/total_pages at the response root; fall back to a short-page
-    heuristic if either is missing so we never loop forever or stop early."""
-    total_pages = data.get("total_pages")
-    if isinstance(total_pages, int):
-        page = data.get("current_page")
-        page = page if isinstance(page, int) else current_page
-        return page < total_pages
-    return len(items) >= per_page
-
-
-def get_rows(
-    api_token: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[FulcrumResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = FULCRUM_ENDPOINTS[endpoint]
-    headers = _get_headers(api_token)
-    session = make_tracked_session(redact_values=(api_token,))
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = resume.page if resume is not None else 1
-
-    while True:
-        params = _build_params(config, page, should_use_incremental_field, db_incremental_field_last_value)
-        url = _build_url(config, params)
-        data = _fetch_page(session, url, headers, logger)
-
-        items = data.get(config.data_key) or []
-        if not items:
-            break
-
-        yield items
-
-        if not _has_more_pages(data, items, page, config.page_size):
-            break
-
-        page += 1
-        # Save AFTER yielding so a crash re-yields the last page rather than skipping it — merge
-        # dedupes on the primary key.
-        resumable_source_manager.save_state(FulcrumResumeConfig(page=page))
+def _build_endpoint(config: FulcrumEndpointConfig) -> Endpoint:
+    endpoint: Endpoint = {
+        "path": config.path,
+        "params": {"per_page": config.page_size},
+        "data_selector": config.data_key,
+        "paginator": FulcrumPageNumberPaginator(per_page=config.page_size),
+    }
+    if config.supports_incremental:
+        # Server-side filter on updated_at. Records default to updated_at ascending order, which
+        # matches SourceResponse.sort_mode="asc" so the watermark advances correctly. Only injected
+        # when a watermark is present (a None value is dropped from the query string).
+        endpoint["incremental"] = {
+            "start_param": "updated_since",
+            "cursor_path": "updated_at",
+            "convert": _to_epoch_seconds,
+        }
+    return endpoint
 
 
 def fulcrum_source(
     api_token: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[FulcrumResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = FULCRUM_ENDPOINTS[endpoint]
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": FULCRUM_BASE_URL,
+            "headers": _accept_header(),
+            # X-ApiToken travels as an api_key header so its value is redacted from logs and errors.
+            "auth": {"type": "api_key", "api_key": api_token, "name": "X-ApiToken", "location": "header"},
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": _build_endpoint(config),
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"page": resume.page}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes) rather than skipping it.
+        if state and state.get("page") is not None:
+            resumable_source_manager.save_state(FulcrumResumeConfig(page=int(state["page"])))
+
+    # Server-side incremental filtering only — never inject a watermark on a full-refresh sync.
+    last_value = db_incremental_field_last_value if should_use_incremental_field else None
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_token=api_token,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         # Records list defaults to updated_at ascending; full-refresh endpoints don't checkpoint a
         # watermark, so ascending is a safe default for them too.
@@ -198,4 +195,15 @@ def fulcrum_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
     )
+
+
+def validate_credentials(api_token: str) -> bool:
+    # A cheap, always-available probe: list a single form. 200 means the token is genuine.
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_token,)),
+        f"{FULCRUM_BASE_URL}/forms.json?page=1&per_page=1",
+        headers={"X-ApiToken": api_token, **_accept_header()},
+    )
+    return ok

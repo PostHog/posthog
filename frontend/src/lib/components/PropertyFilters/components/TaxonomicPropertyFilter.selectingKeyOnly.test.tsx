@@ -8,7 +8,14 @@ import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohor
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockGetEventDefinitions, mockGetPropertyDefinitions } from '~/test/mocks'
-import { CohortPropertyFilter, CohortType, EventPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    CohortPropertyFilter,
+    CohortType,
+    EventPropertyFilter,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import { TaxonomicFilterGroupType } from '../../TaxonomicFilter/types'
 import { PropertyFilters } from '../PropertyFilters'
@@ -18,7 +25,11 @@ jest.mock('lib/components/AutoSizer', () => ({
         renderProp({ height: 400, width: 400 }),
 }))
 
-const cohortPowerUsers: Partial<CohortType> = { id: 1, name: 'Power Users' }
+const cohortPowerUsers: Partial<CohortType> = {
+    id: 1,
+    name: 'Power Users',
+    filters: { properties: { type: FilterLogicalOperator.And, values: [] } },
+}
 
 describe('TaxonomicPropertyFilter selectingKeyOnly', () => {
     beforeEach(() => {

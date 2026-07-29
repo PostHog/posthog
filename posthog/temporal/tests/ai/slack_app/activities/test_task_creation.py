@@ -11,11 +11,19 @@ to wording in the wrapper text show up as a diff in
 ``__snapshots__/test_task_creation.ambr`` rather than as a silent regression.
 """
 
+import pytest
+from unittest.mock import patch
+
+from posthog.models.integration import Integration
 from posthog.temporal.ai.slack_app.activities.task_creation import (
     _INITIATOR_PLACEHOLDER,
+    _SLACK_DELIVERY_CONSTRAINTS,
+    _SLACK_DELIVERY_CONSTRAINTS_MESSAGE_ONLY,
+    _SLACK_DELIVERY_CONSTRAINTS_TEXT_ONLY,
     _THREAD_CONTEXT_TAG,
     _THREAD_CONTEXT_UPDATE_TAG,
     _build_posthog_code_task_description,
+    _canvas_file_delivery_available,
     _format_author_token,
     _indent_body,
     build_thread_context_update_block,
@@ -49,7 +57,7 @@ def test_indent_body_preserves_blank_lines_without_trailing_whitespace():
     assert _indent_body("a\n\nb") == "  a\n\n  b"
 
 
-def test_build_description_returns_just_prompt_when_thread_has_only_initiator():
+def test_build_description_includes_delivery_constraints_when_thread_has_only_initiator():
     # Single-message threads don't need a context block — the initiator's text
     # *is* the entire context, and we already keep it as the prompt below the
     # divider. Wrapping it would just add noise.
@@ -58,13 +66,77 @@ def test_build_description_returns_just_prompt_when_thread_has_only_initiator():
         [{"user": "georgiy", "user_id": "U_GEORGIY", "text": "do something", "ts": "1234.5678"}],
         "1234.5678",
         mentioner_slack_user_id="U_GEORGIY",
+        canvas_file_artifacts_enabled=True,
     )
-    assert out == "do something"
+    assert _SLACK_DELIVERY_CONSTRAINTS in out
+    assert out.endswith("do something")
 
 
 def test_build_description_falls_back_to_default_prompt_when_initiator_text_is_blank():
-    out = _build_posthog_code_task_description("   ", [], None)
-    assert out == "Task from Slack"
+    out = _build_posthog_code_task_description("   ", [], None, canvas_file_artifacts_enabled=True)
+    assert _SLACK_DELIVERY_CONSTRAINTS in out
+    assert out.endswith("Task from Slack")
+
+
+def test_build_description_omits_canvas_and_file_adapters_when_flag_off():
+    # canvases:write / files:write are in-review Slack scopes: while the
+    # slack-app-canvas-file-artifacts flag is off, the prompt must not offer the
+    # adapters the backend will reject — the agent would loop on failed deliveries.
+    out = _build_posthog_code_task_description(
+        "do something",
+        [{"user": "georgiy", "user_id": "U_GEORGIY", "text": "do something", "ts": "1234.5678"}],
+        "1234.5678",
+        mentioner_slack_user_id="U_GEORGIY",
+        canvas_file_artifacts_enabled=False,
+    )
+    assert _SLACK_DELIVERY_CONSTRAINTS_MESSAGE_ONLY in out
+    assert _SLACK_DELIVERY_CONSTRAINTS not in out
+    assert "choose adapter" not in out
+    assert "do not use the `slack_canvas` or `slack_file` adapters" in out
+    assert "using adapter `slack_message`" in out
+
+
+def test_build_description_limits_delivery_to_text_when_artifact_flag_off():
+    out = _build_posthog_code_task_description(
+        "do something",
+        [
+            {"user": "mira", "user_id": "U_MIRA", "text": "background", "ts": "1.000"},
+            {"user": "georgiy", "user_id": "U_GEORGIY", "text": "do something", "ts": "2.000"},
+        ],
+        "2.000",
+        mentioner_slack_user_id="U_GEORGIY",
+        canvas_file_artifacts_enabled=True,
+        living_artifacts_enabled=False,
+    )
+
+    assert out.endswith("do something")
+    assert _SLACK_DELIVERY_CONSTRAINTS_TEXT_ONLY in out
+    assert "/living_artifacts/" not in out
+    assert "slack_canvas" not in out
+    assert "slack_file" not in out
+    assert "slack_message" not in out
+
+
+@pytest.mark.parametrize(
+    "flag_enabled,granted_scopes,expected",
+    [
+        (True, "chat:write,canvases:write,files:write", True),
+        (True, "chat:write,canvases:write", False),
+        (True, "chat:write", False),
+        (False, "chat:write,canvases:write,files:write", False),
+    ],
+)
+def test_canvas_file_delivery_requires_flag_and_scopes(flag_enabled, granted_scopes, expected):
+    # A flag-on workspace whose Slack install lacks the adapter scopes must not be
+    # offered canvas/file delivery in the prompt — the agent would create artifacts
+    # that delivery then rejects. Capability = rollout flag AND granted scopes.
+    integration = Integration(kind="slack", config={"scope": granted_scopes})
+
+    with patch(
+        "products.slack_app.backend.feature_flags.is_slack_app_canvas_file_artifacts_enabled",
+        return_value=flag_enabled,
+    ):
+        assert _canvas_file_delivery_available(integration) is expected
 
 
 def test_build_description_renders_labeled_mention_for_each_author():
@@ -79,6 +151,7 @@ def test_build_description_renders_labeled_mention_for_each_author():
         ],
         "2.000",
         mentioner_slack_user_id="U_ALESS",
+        canvas_file_artifacts_enabled=True,
     )
     # Each author header is the labeled mention form the agent can echo back to ping
     assert "<@U_GEORGIY|georgiy>:" in out
@@ -99,6 +172,7 @@ def test_build_description_indents_multi_line_bodies_under_author():
         ],
         "2.000",
         mentioner_slack_user_id="U_GEORGIY",
+        canvas_file_artifacts_enabled=True,
     )
     assert (
         "<@U_MIRA|mira>:\n"
@@ -118,6 +192,7 @@ def test_build_description_collapses_role_annotations_when_same_person():
         ],
         "2.000",
         mentioner_slack_user_id="U_GEORGIY",
+        canvas_file_artifacts_enabled=True,
     )
     assert "Thread started by and tagged the PostHog app: <@U_GEORGIY|georgiy>" in out
     # The split form must NOT appear when the roles collapse
@@ -133,6 +208,7 @@ def test_build_description_separates_role_annotations_when_different_people():
         ],
         "2.000",
         mentioner_slack_user_id="U_THEO",
+        canvas_file_artifacts_enabled=True,
     )
     assert "Thread started by: <@U_MIRA|mira>" in out
     assert "Tagged the PostHog app: <@U_THEO|theo lin>" in out
@@ -148,6 +224,7 @@ def test_build_description_uses_mentioner_display_name_fallback_when_not_in_thre
         initiator_ts="999.999",
         mentioner_slack_user_id="U_THEO",
         mentioner_display_name="theo lin",
+        canvas_file_artifacts_enabled=True,
     )
     assert "Tagged the PostHog app: <@U_THEO|theo lin>" in out
 
@@ -162,6 +239,7 @@ def test_build_description_preserves_initiator_placeholder_chronologically():
         ],
         "2.000",
         mentioner_slack_user_id="U_GEORGIY",
+        canvas_file_artifacts_enabled=True,
     )
     # Placeholder sits inside the context block, indented under its author, between
     # the surrounding messages — not at the end (the prompt below the divider wins there).
@@ -191,6 +269,7 @@ def test_build_description_neutralizes_forged_closing_tag_in_message_body():
         ],
         "2.000",
         mentioner_slack_user_id="U_GEORGIY",
+        canvas_file_artifacts_enabled=True,
     )
     assert out.count(f"<{_THREAD_CONTEXT_TAG}>") == 1
     assert out.count(f"</{_THREAD_CONTEXT_TAG}>") == 1
@@ -209,6 +288,7 @@ def test_build_description_falls_back_to_plain_name_for_bot_authors():
         ],
         "2.000",
         mentioner_slack_user_id="U_ANDY",
+        canvas_file_artifacts_enabled=True,
     )
     assert "Grafana:\n  alert: latency p95 above 2s" in out
     assert "<@|Grafana>" not in out
@@ -252,6 +332,7 @@ def test_build_description_snapshot_matches(snapshot):
         initiator_ts="2.000",
         mentioner_slack_user_id="U_MIRA",
         mentioner_display_name="mira",
+        canvas_file_artifacts_enabled=True,
     )
     assert out == snapshot
 

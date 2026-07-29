@@ -2,8 +2,8 @@ node_modules
 
 # wrangler files
 .wrangler
+# Legacy local-dev env file, replaced by .env - keep ignoring stragglers
 .dev.vars
-!.dev.vars.example
 .mcp.json
 .env.test
 

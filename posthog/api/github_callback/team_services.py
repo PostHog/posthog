@@ -30,6 +30,7 @@ from posthog.models.integration import (
     GitHubInstallationAccess,
     GitHubInstallationAccessFetchError,
     GitHubIntegration,
+    GitHubUserAuthorization,
     Integration,
     invalidate_github_repository_caches_for_installation,
 )
@@ -99,6 +100,24 @@ def create_team_github_integration_from_oauth_code(
     if authorization is None:
         raise ValidationError("Failed to exchange the OAuth code — ensure GITHUB_APP_CLIENT_SECRET is configured")
 
+    return link_github_installation_for_user(
+        user=user, team_id=team_id, installation_id=installation_id, authorization=authorization
+    )
+
+
+def link_github_installation_for_user(
+    *,
+    user: User,
+    team_id: int,
+    installation_id: str,
+    authorization: "GitHubUserAuthorization",
+) -> Integration:
+    """Verify the user controls the installation, then create both GitHub records:
+    the team-scoped Integration and the personal UserIntegration.
+
+    Request-free core of the team GitHub link, shared with flows that hold an
+    already-exchanged authorization (e.g. agentic provisioning GitHub grants).
+    """
     if not is_valid_github_installation_id(installation_id):
         raise ValidationError("Invalid installation_id")
     try:
@@ -110,14 +129,14 @@ def create_team_github_integration_from_oauth_code(
             user_id=user.id,
             exc_info=True,
         )
-        raise ValidationError("Failed to verify installation access")
+        raise ValidationError("Failed to verify installation access", code="installation_verify_failed")
     if not has_access:
         logger.warning(
             "github_integration_create: user does not have access to installation",
             installation_id=installation_id,
             user_id=user.id,
         )
-        raise ValidationError("You do not have access to this GitHub installation")
+        raise ValidationError("You do not have access to this GitHub installation", code="installation_access_denied")
 
     instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, user)
 
@@ -140,6 +159,47 @@ def create_team_github_integration_from_oauth_code(
     )
 
     return instance
+
+
+def authorize_link_existing_installation(
+    *,
+    user: User,
+    team: Team,
+    source_installation_id: str,
+) -> None:
+    """Confirm ``user`` may link an installation already present in their org to ``team``.
+
+    The installation is already linked to another team in the same organization, so the org
+    already has legitimate access to it. A user with admin access to the target team can therefore
+    attach another of the org's own projects to that installation without re-proving personal
+    GitHub access, because team admin within the org is sufficient ownership proof. This is what
+    lets a second PostHog project reuse a GitHub App that installs only once per org.
+
+    For anyone without team admin access (e.g. a plain member using the explicit link endpoint),
+    fall back to proving access with the user's personal GitHub OAuth token, raising
+    ``GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED`` when that proof is missing or fails.
+    """
+    if github_callback_state.has_team_management_access(user, team):
+        return
+
+    user_github_integration = UserIntegration.objects.filter(user=user, kind="github").order_by("-created_at").first()
+    user_access_token = (
+        user_github_integration.sensitive_config.get("access_token") if user_github_integration else None
+    )
+    if not user_access_token:
+        raise ValidationError(
+            PERSONAL_GITHUB_REQUIRED_MESSAGE,
+            code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
+        )
+    try:
+        has_access = GitHubIntegration.verify_user_installation_access(source_installation_id, user_access_token)
+    except requests.RequestException:
+        raise ValidationError("Failed to verify installation access")
+    if not has_access:
+        raise ValidationError(
+            PERSONAL_GITHUB_REQUIRED_MESSAGE,
+            code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
+        )
 
 
 def finish_team_github_setup_update(
@@ -212,28 +272,9 @@ def execute_team_github_finish_setup(
             if not source_installation_id:
                 raise ValidationError("Source integration is missing installation_id")
 
-            user_github_integration = (
-                UserIntegration.objects.filter(user=user, kind="github").order_by("-created_at").first()
+            authorize_link_existing_installation(
+                user=user, team=team, source_installation_id=str(source_installation_id)
             )
-            user_access_token = (
-                user_github_integration.sensitive_config.get("access_token") if user_github_integration else None
-            )
-            if not user_access_token:
-                raise ValidationError(
-                    PERSONAL_GITHUB_REQUIRED_MESSAGE,
-                    code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
-                )
-            try:
-                has_access = GitHubIntegration.verify_user_installation_access(
-                    str(source_installation_id), user_access_token
-                )
-            except requests.RequestException:
-                raise ValidationError("Failed to verify installation access")
-            if not has_access:
-                raise ValidationError(
-                    PERSONAL_GITHUB_REQUIRED_MESSAGE,
-                    code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
-                )
 
             integration = GitHubIntegration.integration_from_installation_id(str(source_installation_id), team.id, user)
 
@@ -402,30 +443,43 @@ def link_existing_team_github_integration(
             )
         source = existing
     else:
-        raise ValidationError("source_team_id or installation_id is required")
+        # No source specified: auto-resolve the org's existing GitHub installation. This backs the
+        # one-click "Link existing installation" UI, where a second project reuses the org's single
+        # install without the caller having to know a sibling team id or the installation id.
+        org_github = (
+            Integration.objects.filter(team__organization_id=organization.id, kind="github")
+            .exclude(team_id=team_id)
+            .order_by("id")
+        )
+        distinct_installation_ids = {
+            str(config_installation_id)
+            for integration in org_github
+            if (config_installation_id := (integration.config or {}).get("installation_id"))
+        }
+        if not distinct_installation_ids:
+            raise ValidationError(
+                "No team in your organization has a GitHub installation to link",
+                code=GITHUB_LINK_EXISTING_ERROR_ORPHAN_INSTALLATION,
+            )
+        if len(distinct_installation_ids) > 1:
+            raise ValidationError(
+                "Your organization has multiple GitHub installations; specify which one to link via installation_id"
+            )
+        source = org_github.for_github_installation_id(next(iter(distinct_installation_ids))).first()
+        if source is None:
+            raise ValidationError(
+                "No team in your organization has a GitHub installation to link",
+                code=GITHUB_LINK_EXISTING_ERROR_ORPHAN_INSTALLATION,
+            )
 
     installation_id = (source.config or {}).get("installation_id")
     if not installation_id:
         raise ValidationError("Source integration is missing installation_id")
 
-    user_github_integration = UserIntegration.objects.filter(user=user, kind="github").order_by("-created_at").first()
-    user_access_token = (
-        user_github_integration.sensitive_config.get("access_token") if user_github_integration else None
-    )
-    if not user_access_token:
-        raise ValidationError(
-            PERSONAL_GITHUB_REQUIRED_MESSAGE,
-            code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
-        )
-    try:
-        has_access = GitHubIntegration.verify_user_installation_access(str(installation_id), user_access_token)
-    except requests.RequestException:
-        raise ValidationError("Failed to verify installation access")
-    if not has_access:
-        raise ValidationError(
-            PERSONAL_GITHUB_REQUIRED_MESSAGE,
-            code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
-        )
+    target_team = organization.teams.filter(id=team_id).first()
+    if target_team is None:
+        raise ValidationError("Target team not found in your organization")
+    authorize_link_existing_installation(user=user, team=target_team, source_installation_id=str(installation_id))
 
     instance = GitHubIntegration.integration_from_installation_id(str(installation_id), team_id, user)
 

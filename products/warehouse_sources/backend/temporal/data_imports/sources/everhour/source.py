@@ -30,12 +30,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.everhour.s
     EVERHOUR_ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import EverhourSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.everhour import (
+    EverhourSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
 class EverhourSource(ResumableSource[EverhourSourceConfig, EverhourResumeConfig]):
+    api_docs_url = "https://everhour.docs.apiary.io/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -94,6 +98,7 @@ Using the API requires a paid Everhour plan.""",
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _build_schema(endpoint: str) -> SourceSchema:
             endpoint_config = EVERHOUR_ENDPOINTS[endpoint]
@@ -113,7 +118,11 @@ Using the API requires a paid Everhour plan.""",
         return schemas
 
     def validate_credentials(
-        self, config: EverhourSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: EverhourSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_everhour_credentials(config.api_key):
             return True, None

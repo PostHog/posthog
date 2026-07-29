@@ -155,6 +155,33 @@ describe('SqlLineGraph', () => {
             expect(rightTicks.length).toBeGreaterThan(0)
             expect(rightTicks.every((tick) => tick.endsWith('%'))).toBe(true)
         })
+
+        it('hides only the right gutter when the right axis turns tick labels off', async () => {
+            await renderChart({
+                chartSettings: { rightYAxisSettings: { showTicks: false } },
+                yData: [
+                    ySeries('revenue', [1200, 1400, 1300]),
+                    ySeries('conversion', [12, 18, 15], { display: { yAxisPosition: 'right' } }),
+                ],
+            })
+
+            await waitFor(() => expect(getHogChart().yTicks().length).toBeGreaterThan(0))
+            expect(getHogChart().yRightTicks()).toHaveLength(0)
+        })
+
+        it('floats only the right axis when its begin-at-zero is off', async () => {
+            await renderChart({
+                chartSettings: { rightYAxisSettings: { startAtZero: false } },
+                yData: [
+                    ySeries('revenue', [1200, 1400, 1300]),
+                    ySeries('conversion', [800, 900, 850], { display: { yAxisPosition: 'right' } }),
+                ],
+            })
+
+            await waitFor(() => expect(getHogChart().hasRightAxis).toBe(true))
+            expect(lowestTick(getHogChart().yRightTicks())).toBeGreaterThan(0)
+            expect(lowestTick(getHogChart().yTicks())).toBe(0)
+        })
     })
 
     describe('start at zero', () => {
@@ -311,8 +338,12 @@ describe('SqlLineGraph', () => {
             )
 
             await screen.findByLabelText(/chart with/i)
-            expect(getHogChart().xAxisLabel()).toBe(expectedX)
-            expect(getHogChart().yAxisLabel()).toBe(expectedY)
+            // Axis titles are a layout-dependent overlay that commits a tick after the
+            // chart's aria-label appears, so read them through waitFor rather than synchronously.
+            await waitFor(() => {
+                expect(getHogChart().xAxisLabel()).toBe(expectedX)
+                expect(getHogChart().yAxisLabel()).toBe(expectedY)
+            })
         })
     })
 

@@ -1,6 +1,6 @@
 import asyncio
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 import structlog
 
@@ -18,11 +18,61 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.load import (
     process_batch,
 )
+from products.warehouse_sources_queue.backend.models import SourceBatch
 
 logger = structlog.get_logger(__name__)
 
 
-async def _run_consumer(config: ConsumerConfig, health_reporter) -> None:
+def parse_sync_types(raw: str | None, flag: str) -> list[str] | None:
+    """Parse a comma-separated sync-type list, validated against SourceBatch.SyncType."""
+    if raw is None:
+        return None
+    values = [value.strip() for value in raw.split(",") if value.strip()]
+    if not values:
+        return None
+    valid = set(SourceBatch.SyncType.values)
+    invalid = [value for value in values if value not in valid]
+    if invalid:
+        raise CommandError(f"{flag}: unknown sync type(s) {invalid}; valid: {sorted(valid)}")
+    return values
+
+
+def build_consumer_config(options: dict) -> ConsumerConfig:
+    """Translate CLI options into a ConsumerConfig.
+
+    Ceiling flags map 0 to None (disabled); unset flags keep the dataclass defaults.
+    """
+    kwargs: dict = {
+        "database_url": WAREHOUSE_SOURCES_DATABASE_URL,
+        "max_concurrency": options["max_concurrency"],
+        "poll_interval_seconds": options["poll_interval"],
+        "poll_limit": options["poll_limit"],
+        "max_attempts": options["max_attempts"],
+        "health_port": options["health_port"],
+        "health_timeout_seconds": options["health_timeout"],
+        "stuck_batch_timeout_seconds": options["stuck_batch_timeout"] or None,
+    }
+    if options.get("poll_timeout") is not None:
+        kwargs["poll_timeout_seconds"] = options["poll_timeout"] or None
+    if options.get("sweep_timeout") is not None:
+        kwargs["sweep_timeout_seconds"] = options["sweep_timeout"] or None
+    if options.get("connect_timeout") is not None:
+        kwargs["connect_timeout_seconds"] = options["connect_timeout"]
+    if options.get("lease_ttl") is not None:
+        kwargs["lease_ttl_seconds"] = options["lease_ttl"]
+    if options.get("recovery_grace") is not None:
+        kwargs["recovery_grace_seconds"] = options["recovery_grace"]
+    if options.get("poll_failure_liveness_threshold") is not None:
+        kwargs["poll_failure_liveness_threshold"] = options["poll_failure_liveness_threshold"] or None
+    return ConsumerConfig(**kwargs)
+
+
+async def _run_consumer(
+    config: ConsumerConfig,
+    health_reporter,
+    claim_sync_types: list[str] | None,
+    claim_exclude_sync_types: list[str] | None,
+) -> None:
     """Configure the Temporal-style produce path then run the consumer.
 
     `configure_logger` plumbs structlog into a Kafka producer that feeds ClickHouse `log_entries`.
@@ -32,7 +82,13 @@ async def _run_consumer(config: ConsumerConfig, health_reporter) -> None:
     `workflow_id`, `workflow_run_id`, `team_id`, plus the event-level `log_source_id` override).
     """
     configure_logger(loop=asyncio.get_running_loop())
-    consumer = BatchConsumer(config=config, process_batch=process_batch, health_reporter=health_reporter)
+    consumer = BatchConsumer(
+        config=config,
+        process_batch=process_batch,
+        health_reporter=health_reporter,
+        claim_sync_types=claim_sync_types,
+        claim_exclude_sync_types=claim_exclude_sync_types,
+    )
     await consumer.run()
 
 
@@ -86,22 +142,92 @@ class Command(BaseCommand):
                 "0 disables the watchdog (default: 7200.0)"
             ),
         )
+        # Omitted flags keep the ConsumerConfig defaults (single source of truth);
+        # exposed so a degraded fleet can be retuned without a code deploy.
+        parser.add_argument(
+            "--poll-timeout",
+            type=float,
+            default=None,
+            help="Seconds before a claim poll is abandoned and retried on a fresh connection. 0 disables the ceiling",
+        )
+        parser.add_argument(
+            "--sweep-timeout",
+            type=float,
+            default=None,
+            help="Seconds before a recovery/reconcile sweep is abandoned. 0 disables the ceiling",
+        )
+        parser.add_argument(
+            "--connect-timeout",
+            type=int,
+            default=None,
+            help="Seconds before a queue-DB connection attempt fails",
+        )
+        parser.add_argument(
+            "--lease-ttl",
+            type=int,
+            default=None,
+            help="Group-lease validity window in seconds (defaults to --recovery-grace)",
+        )
+        parser.add_argument(
+            "--recovery-grace",
+            type=int,
+            default=None,
+            help="Seconds an executing batch may go without a heartbeat before the recovery sweep re-queues it",
+        )
+        parser.add_argument(
+            "--poll-failure-liveness-threshold",
+            type=int,
+            default=None,
+            help=(
+                "Stop reporting liveness after this many consecutive failed polls, so a pod that can no "
+                "longer claim work becomes a visible restart instead of a silent zero-throughput loop. "
+                "0 disables the trip"
+            ),
+        )
+        # Deprecated no-op kept so deploys still passing the flag don't crash;
+        # the legacy status-log claim path was removed and 'state' is the only reader.
+        parser.add_argument(
+            "--claim-path",
+            choices=["legacy", "state"],
+            default=None,
+            help="Deprecated, ignored: readers always use the denormalized state columns",
+        )
+        # Fleet partitioning: which sourcebatch.sync_type classes this deployment claims
+        # and sweeps. Paired deployments must cover every class between them — a class no
+        # fleet claims sits in the queue until partition pruning.
+        parser.add_argument(
+            "--claim-sync-types",
+            type=str,
+            default=None,
+            help="Comma-separated sync types this consumer claims (e.g. 'cdc'). Default: all",
+        )
+        parser.add_argument(
+            "--claim-exclude-sync-types",
+            type=str,
+            default=None,
+            help=(
+                "Comma-separated sync types this consumer does NOT claim (e.g. 'cdc'). "
+                "Mutually exclusive with --claim-sync-types"
+            ),
+        )
 
     def handle(self, *args, **options):
         health_port = options["health_port"]
         health_timeout = options["health_timeout"]
-        stuck_batch_timeout = options["stuck_batch_timeout"] or None
 
-        config = ConsumerConfig(
-            database_url=WAREHOUSE_SOURCES_DATABASE_URL,
-            max_concurrency=options["max_concurrency"],
-            poll_interval_seconds=options["poll_interval"],
-            poll_limit=options["poll_limit"],
-            max_attempts=options["max_attempts"],
-            health_port=health_port,
-            health_timeout_seconds=health_timeout,
-            stuck_batch_timeout_seconds=stuck_batch_timeout,
+        config = build_consumer_config(options)
+
+        if options.get("claim_path") == "legacy":
+            logger.warning(
+                "claim_path_legacy_removed", note="--claim-path is ignored; the legacy claim path no longer exists"
+            )
+
+        claim_sync_types = parse_sync_types(options.get("claim_sync_types"), "--claim-sync-types")
+        claim_exclude_sync_types = parse_sync_types(
+            options.get("claim_exclude_sync_types"), "--claim-exclude-sync-types"
         )
+        if claim_sync_types and claim_exclude_sync_types:
+            raise CommandError("--claim-sync-types and --claim-exclude-sync-types are mutually exclusive")
 
         logger.info(
             "warehouse_sources_load_starting",
@@ -110,10 +236,18 @@ class Command(BaseCommand):
             poll_limit=config.poll_limit,
             max_attempts=config.max_attempts,
             health_port=health_port,
-            stuck_batch_timeout=stuck_batch_timeout,
+            stuck_batch_timeout=config.stuck_batch_timeout_seconds,
+            poll_timeout=config.poll_timeout_seconds,
+            sweep_timeout=config.sweep_timeout_seconds,
+            connect_timeout=config.connect_timeout_seconds,
+            lease_ttl=config.lease_ttl_seconds,
+            recovery_grace=config.recovery_grace_seconds,
+            poll_failure_liveness_threshold=config.poll_failure_liveness_threshold,
+            claim_sync_types=claim_sync_types,
+            claim_exclude_sync_types=claim_exclude_sync_types,
         )
 
         health_state = HealthState(timeout_seconds=health_timeout)
         start_health_server(port=health_port, health_state=health_state)
 
-        asyncio.run(_run_consumer(config, health_state.report_healthy))
+        asyncio.run(_run_consumer(config, health_state.report_healthy, claim_sync_types, claim_exclude_sync_types))

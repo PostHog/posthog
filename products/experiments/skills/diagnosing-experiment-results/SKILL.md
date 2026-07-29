@@ -27,7 +27,7 @@ Call `experiment-get` and pull these fields. They are inputs for almost every di
 - `exposure_criteria.multiple_variant_handling` — defaults to `"exclude"` if absent
 - `exposure_criteria.exposure_event` — `null` means default `$feature_flag_called`
 - `exposure_criteria.filterTestAccounts` — defaults to `true`
-- `feature_flag.active`, status (`draft` / `running` / `paused` / `stopped`), `start_date`, `end_date`
+- `feature_flag.active`, status (`draft` / `running` / `paused` / `exposure_frozen` / `stopped`), `start_date`, `end_date`
 - `feature_flag.filters.groups[]` — for each group read `variant`, `properties`, and
   `rollout_percentage`. Any non-null `variant` is a forced-variant override on the matched cohort
   (release-condition assignment, not randomized) — surfaces A7. Watch for the severe shape (A7b): a

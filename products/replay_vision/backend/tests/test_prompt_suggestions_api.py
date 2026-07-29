@@ -1,0 +1,489 @@
+from datetime import timedelta
+from typing import Any
+
+from unittest.mock import patch
+
+from django.utils import timezone
+
+from parameterized import parameterized
+
+from products.replay_vision.backend.models.replay_observation import (
+    ObservationStatus,
+    ObservationTrigger,
+    ReplayObservation,
+)
+from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
+    ReplayScannerPromptSuggestion,
+    SuggestionStatus,
+)
+from products.replay_vision.backend.prompt_suggestions import (
+    generate_prompt_suggestion,
+    refresh_prompt_suggestion_if_stale,
+)
+from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
+
+
+class TestPromptSuggestions(_VisionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.scanner = self._create_scanner(scanner_config={"prompt": "did the user check out?"})
+        self.canned: dict[str, Any] = {
+            "suggested_prompt": "Did the user place an order? Only answer yes on an order confirmation.",
+            "allow_inconclusive": True,
+            "rationale": "Tightened the yes condition using the rated sessions.",
+        }
+        # The agentic loop has its own tests. API tests mock it out, along with its single-shot fallback.
+        self.agentic_patcher = patch(
+            "products.replay_vision.backend.prompt_suggestions._generate_agentic", side_effect=self._agentic
+        )
+        self.mock_agentic = self.agentic_patcher.start()
+        self.generate_patcher = patch(
+            "products.replay_vision.backend.prompt_suggestions._generate", side_effect=self._single_shot
+        )
+        self.mock_generate = self.generate_patcher.start()
+
+    def _agentic(self, **_kwargs) -> dict[str, Any]:
+        return self.canned
+
+    def _single_shot(self, **_kwargs) -> dict[str, Any]:
+        return self.canned
+
+    def tearDown(self) -> None:
+        self.generate_patcher.stop()
+        self.agentic_patcher.stop()
+        super().tearDown()
+
+    def _suggestions_url(self, suffix: str = "") -> str:
+        return f"{self.scanners_url}{self.scanner.id}/prompt_suggestions/{suffix}"
+
+    def _create_rated_observation(
+        self, session_id: str, is_correct: bool, feedback: str = "", *, scanner: ReplayScanner | None = None
+    ) -> ReplayObservation:
+        observation = ReplayObservation.objects.create(
+            scanner=scanner or self.scanner,
+            team=self.team,
+            session_id=session_id,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            triggered_by=ObservationTrigger.ON_DEMAND,
+            scanner_result={
+                "model_output": {"verdict": "no", "confidence": 0.9, "scanner_type": "monitor"},
+                "signals_count": 0,
+            },
+        )
+        ReplayObservationLabel.objects.create(observation=observation, is_correct=is_correct, feedback=feedback)
+        return observation
+
+    def test_generate_persists_suggestion_and_supersedes_previous_pending(self) -> None:
+        self._create_rated_observation("sess-1", False, "should be yes")
+        self._create_rated_observation("sess-2", True)
+
+        first = self.client.post(self._suggestions_url("generate/"))
+        self.assertEqual(first.status_code, 200, first.json())
+        self.assertEqual(first.json()["based_on_up"], 1)
+        self.assertEqual(first.json()["based_on_down"], 1)
+        self.assertEqual(first.json()["status"], "pending")
+        # The prompt it was generated against is stored so the UI can diff against it.
+        self.assertEqual(first.json()["base_prompt"], "did the user check out?")
+
+        second = self.client.post(self._suggestions_url("generate/"))
+        self.assertEqual(second.status_code, 200)
+
+        statuses = {str(s.id): s.status for s in ReplayScannerPromptSuggestion.objects.all()}
+        self.assertEqual(statuses[first.json()["id"]], SuggestionStatus.SUPERSEDED)
+        self.assertEqual(statuses[second.json()["id"]], SuggestionStatus.PENDING)
+
+    def test_generate_requires_rated_observations(self) -> None:
+        resp = self.client.post(self._suggestions_url("generate/"))
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(ReplayScannerPromptSuggestion.objects.exists())
+
+    def test_based_on_counts_cover_all_ratings_beyond_briefing_cap(self) -> None:
+        # The briefing is capped to the most recent rated sessions, but based_on_* is shown in the UI
+        # next to chart totals over ALL ratings, and the agent can page through the full set via tools.
+        self._create_rated_observation("sess-1", True)
+        self._create_rated_observation("sess-2", True)
+        self._create_rated_observation("sess-3", False, "should be yes")
+
+        with patch("products.replay_vision.backend.prompt_suggestions._MAX_RATED_SESSIONS", 2):
+            resp = self.client.post(self._suggestions_url("generate/"))
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["based_on_up"], 2)
+        self.assertEqual(resp.json()["based_on_down"], 1)
+
+    def test_generate_returns_friendly_error_when_model_client_unavailable(self) -> None:
+        # A missing/malformed Gemini key raises at client construction, before any model call.
+        # Run the real generation paths so the failure propagates as it would in production.
+        self._create_rated_observation("sess-1", False, "should be yes")
+        self.agentic_patcher.stop()
+        self.generate_patcher.stop()
+        try:
+            with patch(
+                "products.replay_vision.backend.prompt_suggestions.genai.Client",
+                side_effect=ValueError("Missing key inputs argument!"),
+            ):
+                resp = self.client.post(self._suggestions_url("generate/"))
+        finally:
+            self.mock_agentic = self.agentic_patcher.start()
+            self.mock_generate = self.generate_patcher.start()
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("Couldn't generate a suggestion right now", resp.json()["detail"])
+        self.assertFalse(ReplayScannerPromptSuggestion.objects.exists())
+
+    def test_product_flag_off_hides_endpoints(self) -> None:
+        self._create_rated_observation("sess-1", True)
+
+        with patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False):
+            current_resp = self.client.get(self._suggestions_url("current/"))
+            generate_resp = self.client.post(self._suggestions_url("generate/"))
+        self.assertEqual(current_resp.status_code, 404, current_resp.content)
+        self.assertEqual(generate_resp.status_code, 404, generate_resp.content)
+        self.assertFalse(ReplayScannerPromptSuggestion.objects.exists())
+
+    def test_current_reports_staleness_when_ratings_change(self) -> None:
+        observation = self._create_rated_observation("sess-1", False, "should be yes")
+        self.client.post(self._suggestions_url("generate/"))
+
+        fresh = self.client.get(self._suggestions_url("current/")).json()
+        self.assertFalse(fresh["stale"])
+        self.assertEqual(fresh["rated_count"], 1)
+        self.assertIsNotNone(fresh["suggestion"])
+
+        label = ReplayObservationLabel.objects.get(observation=observation)
+        label.is_correct = True
+        label.feedback = ""
+        label.save()
+
+        stale = self.client.get(self._suggestions_url("current/")).json()
+        self.assertTrue(stale["stale"])
+
+    def test_apply_writes_prompt_and_bumps_scanner_version(self) -> None:
+        self._create_rated_observation("sess-1", False, "should be yes")
+        suggestion_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
+        version_before = ReplayScanner.objects.get(id=self.scanner.id).scanner_version
+
+        resp = self.client.post(self._suggestions_url(f"{suggestion_id}/apply/"))
+        self.assertEqual(resp.status_code, 200, resp.json())
+
+        scanner = ReplayScanner.objects.get(id=self.scanner.id)
+        self.assertEqual(
+            scanner.scanner_config["prompt"],
+            "Did the user place an order? Only answer yes on an order confirmation.",
+        )
+        self.assertEqual(scanner.scanner_version, version_before + 1)
+        body = resp.json()
+        self.assertEqual(body["status"], "applied")
+        self.assertIsNotNone(body["applied_at"])
+
+    def test_apply_rejects_non_pending_and_version_mismatched_suggestions(self) -> None:
+        self._create_rated_observation("sess-1", False, "should be yes")
+        superseded_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
+        dismissed_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
+        self.client.post(self._suggestions_url(f"{dismissed_id}/dismiss/"))
+        pending_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
+
+        # A stale tab submitting the superseded suggestion must not roll the prompt back.
+        resp = self.client.post(self._suggestions_url(f"{superseded_id}/apply/"))
+        self.assertEqual(resp.status_code, 400)
+
+        # A dismissed suggestion is a rejected prompt; applying it must not revive it.
+        resp = self.client.post(self._suggestions_url(f"{dismissed_id}/apply/"))
+        self.assertEqual(resp.status_code, 400)
+
+        # The prompt changed (version bump) since the pending suggestion was generated.
+        self.scanner.scanner_config = {**self.scanner.scanner_config, "prompt": "edited by hand"}
+        self.scanner.save()
+        resp = self.client.post(self._suggestions_url(f"{pending_id}/apply/"))
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(ReplayScanner.objects.get(id=self.scanner.id).scanner_config["prompt"], "edited by hand")
+
+    def test_dismiss_marks_suggestion_dismissed(self) -> None:
+        self._create_rated_observation("sess-1", False, "should be yes")
+        suggestion_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
+
+        resp = self.client.post(self._suggestions_url(f"{suggestion_id}/dismiss/"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["status"], "dismissed")
+
+    def test_apply_rejects_prompt_failing_scanner_config_validation(self) -> None:
+        self._create_rated_observation("sess-1", False, "should be yes")
+        self.canned = {"suggested_prompt": "x" * 20_001, "allow_inconclusive": False, "rationale": "too long"}
+        suggestion_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
+        prompt_before = ReplayScanner.objects.get(id=self.scanner.id).scanner_config.get("prompt")
+
+        # The edit endpoint caps prompt length; this write boundary must enforce the same rules.
+        resp = self.client.post(self._suggestions_url(f"{suggestion_id}/apply/"))
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(ReplayScanner.objects.get(id=self.scanner.id).scanner_config.get("prompt"), prompt_before)
+
+    def test_apply_classifier_writes_tags_and_bumps_version(self) -> None:
+        scanner = self._create_scanner(
+            name="classifier-apply", scanner_type="classifier", scanner_config={"prompt": "p", "tags": ["a"]}
+        )
+        version_before = scanner.scanner_version
+        suggestion = ReplayScannerPromptSuggestion.objects.create(
+            scanner=scanner,
+            team=self.team,
+            suggested_prompt="p",
+            base_prompt="p",
+            base_config={"prompt": "p", "tags": ["a"]},
+            suggested_config={"prompt": "p", "tags": ["a", "b"]},
+            changes=[{"field": "tags", "kind": "tags", "op": "add", "before": None, "after": "b", "rationale": ""}],
+            status=SuggestionStatus.PENDING,
+            scanner_version=version_before,
+        )
+
+        url = f"{self.scanners_url}{scanner.id}/prompt_suggestions/{suggestion.id}/apply/"
+        resp = self.client.post(url)
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.scanner_config["tags"], ["a", "b"])
+        self.assertEqual(scanner.scanner_version, version_before + 1)
+
+    def test_apply_with_edited_config_writes_it_instead_of_suggested(self) -> None:
+        scanner = self._create_scanner(
+            name="classifier-edit", scanner_type="classifier", scanner_config={"prompt": "p", "tags": ["a", "b"]}
+        )
+        suggestion = ReplayScannerPromptSuggestion.objects.create(
+            scanner=scanner,
+            team=self.team,
+            suggested_prompt="new",
+            base_prompt="p",
+            base_config={"prompt": "p", "tags": ["a", "b"]},
+            suggested_config={"prompt": "new", "tags": ["a", "b", "c"]},
+            changes=[{"field": "tags", "kind": "tags", "op": "add", "before": None, "after": "c", "rationale": ""}],
+            status=SuggestionStatus.PENDING,
+            scanner_version=scanner.scanner_version,
+        )
+        edited = {"prompt": "user edited", "tags": ["a", "c"]}
+
+        url = f"{self.scanners_url}{scanner.id}/prompt_suggestions/{suggestion.id}/apply/"
+        resp = self.client.post(url, {"config": edited}, format="json")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.scanner_config, edited)
+        suggestion.refresh_from_db()
+        self.assertEqual(suggestion.status, SuggestionStatus.APPLIED)
+
+    def test_apply_rejects_invalid_edited_config(self) -> None:
+        scanner = self._create_scanner(
+            name="monitor-edit", scanner_type="monitor", scanner_config={"prompt": "keep me"}
+        )
+        suggestion = ReplayScannerPromptSuggestion.objects.create(
+            scanner=scanner,
+            team=self.team,
+            suggested_prompt="new",
+            base_prompt="keep me",
+            base_config={"prompt": "keep me"},
+            suggested_config={"prompt": "new"},
+            changes=[{"field": "prompt", "kind": "prompt", "op": "set", "before": "keep me", "after": "new"}],
+            status=SuggestionStatus.PENDING,
+            scanner_version=scanner.scanner_version,
+        )
+
+        url = f"{self.scanners_url}{scanner.id}/prompt_suggestions/{suggestion.id}/apply/"
+        resp = self.client.post(url, {"config": {"prompt": "x" * 20_001}}, format="json")
+
+        self.assertEqual(resp.status_code, 400)
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.scanner_config["prompt"], "keep me")
+
+    def test_apply_old_prompt_only_row_still_works(self) -> None:
+        # Rows generated before config-generic suggestions existed have suggested_config=None.
+        scanner = self._create_scanner(name="legacy-apply", scanner_type="monitor", scanner_config={"prompt": "old"})
+        suggestion = ReplayScannerPromptSuggestion.objects.create(
+            scanner=scanner,
+            team=self.team,
+            suggested_prompt="new",
+            base_prompt="old",
+            base_config=None,
+            suggested_config=None,
+            status=SuggestionStatus.PENDING,
+            scanner_version=scanner.scanner_version,
+        )
+
+        url = f"{self.scanners_url}{scanner.id}/prompt_suggestions/{suggestion.id}/apply/"
+        resp = self.client.post(url)
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.scanner_config["prompt"], "new")
+
+    def test_monitor_end_to_end_unchanged(self) -> None:
+        # Realistic legacy monitor: scanner_config has no allow_inconclusive key at all.
+        # generate -> current -> apply must still land a config behaviorally identical to today's
+        # prompt-only flow, proving the config-generic path is a no-op for this case.
+        scanner = self._create_scanner(name="legacy-monitor", scanner_config={"prompt": "old"})
+        version_before = scanner.scanner_version
+        self._create_rated_observation("sess-1", False, "should be yes", scanner=scanner)
+        self._create_rated_observation("sess-2", True, scanner=scanner)
+        self.canned = {"suggested_prompt": "new", "allow_inconclusive": False, "rationale": "r"}
+
+        url_prefix = f"{self.scanners_url}{scanner.id}/prompt_suggestions/"
+        generate_resp = self.client.post(f"{url_prefix}generate/")
+        self.assertEqual(generate_resp.status_code, 200, generate_resp.json())
+
+        current = self.client.get(f"{url_prefix}current/").json()["suggestion"]
+        apply_resp = self.client.post(f"{url_prefix}{current['id']}/apply/")
+        self.assertEqual(apply_resp.status_code, 200, apply_resp.json())
+
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.scanner_config, {"prompt": "new", "allow_inconclusive": False})
+        self.assertEqual(scanner.scanner_version, version_before + 1)
+
+    @parameterized.expand(
+        [
+            (
+                "row_with_configs",
+                {"prompt": "old", "tags": ["a"]},
+                {"prompt": "new", "tags": ["a", "b"]},
+                [{"field": "tags", "kind": "tags", "op": "add", "before": None, "after": "b", "rationale": ""}],
+            ),
+            (
+                "old_row_without_configs_derives_from_prompt_shim",
+                None,
+                None,
+                [],
+            ),
+        ]
+    )
+    def test_serializer_exposes_config_fields(
+        self,
+        _name: str,
+        base_config: dict[str, Any] | None,
+        suggested_config: dict[str, Any] | None,
+        changes: list[dict[str, Any]],
+    ) -> None:
+        # Rows written before config-generic suggestions existed have null base_config/suggested_config.
+        # The API must still serve a usable config by deriving it from the prompt shim.
+        scanner = self._create_scanner(name="config-fields", scanner_type="monitor", scanner_config={"prompt": "old"})
+        ReplayScannerPromptSuggestion.objects.create(
+            scanner=scanner,
+            team=self.team,
+            suggested_prompt="new",
+            base_prompt="old",
+            base_config=base_config,
+            suggested_config=suggested_config,
+            changes=changes,
+            status=SuggestionStatus.PENDING,
+            scanner_version=scanner.scanner_version,
+        )
+
+        url = f"{self.scanners_url}{scanner.id}/prompt_suggestions/current/"
+        data = self.client.get(url).json()["suggestion"]
+
+        self.assertEqual(data["base_config"], base_config or {"prompt": "old"})
+        self.assertEqual(data["suggested_config"], suggested_config or {"prompt": "new"})
+        self.assertEqual(data["changes"], changes)
+
+    def test_dismiss_rejects_applied_suggestion(self) -> None:
+        self._create_rated_observation("sess-1", False, "should be yes")
+        suggestion_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
+        self.client.post(self._suggestions_url(f"{suggestion_id}/apply/"))
+
+        # Dismissing the applied suggestion would mark the scanner's live prompt as rejected.
+        resp = self.client.post(self._suggestions_url(f"{suggestion_id}/dismiss/"))
+        self.assertEqual(resp.status_code, 400)
+        suggestion = ReplayScannerPromptSuggestion.objects.get(id=suggestion_id)
+        self.assertEqual(suggestion.status, SuggestionStatus.APPLIED)
+
+    def test_generate_marks_no_change_when_model_returns_current_prompt(self) -> None:
+        # self.scanner's config has no allow_inconclusive key, so to_config_patch injects a defaulted one.
+        # A true no-op response (current prompt, allow_inconclusive=False) must still land as no_change even
+        # though suggested_config is no longer dict-equal to base_config.
+        self._create_rated_observation("sess-1", True)
+        self.canned = {
+            "suggested_prompt": "did the user check out?",
+            "allow_inconclusive": False,
+            "rationale": "The prompt already handles the rated sessions well.",
+        }
+
+        resp = self.client.post(self._suggestions_url("generate/"))
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["status"], "no_change")
+
+    def test_monitor_generation_persists_config_and_shim(self) -> None:
+        scanner = self._create_scanner(
+            name="monitor-config", scanner_type="monitor", scanner_config={"prompt": "old", "allow_inconclusive": False}
+        )
+        self._create_rated_observation("sess-1", False, "should be yes", scanner=scanner)
+        self._create_rated_observation("sess-2", True, scanner=scanner)
+        self.canned = {"suggested_prompt": "new", "allow_inconclusive": True, "rationale": "r"}
+
+        suggestion = generate_prompt_suggestion(scanner)
+
+        self.assertEqual(suggestion.suggested_config, {"prompt": "new", "allow_inconclusive": True})
+        self.assertEqual(suggestion.suggested_prompt, "new")  # shim still populated
+        self.assertTrue(any(c["kind"] == "flag" for c in suggestion.changes))
+
+    def test_classifier_generation_persists_tag_changes(self) -> None:
+        scanner = self._create_scanner(
+            name="classifier-config", scanner_type="classifier", scanner_config={"prompt": "p", "tags": ["a"]}
+        )
+        self._create_rated_observation("sess-1", False, "should be yes", scanner=scanner)
+        self._create_rated_observation("sess-2", True, scanner=scanner)
+        self.canned = {"suggested_prompt": "p", "tag_ops": [{"op": "add", "tag": "b"}], "rationale": "r"}
+
+        suggestion = generate_prompt_suggestion(scanner)
+
+        assert suggestion.suggested_config is not None
+        self.assertEqual(suggestion.suggested_config["tags"], ["a", "b"])
+        self.assertTrue(any(c["kind"] == "tags" and c["op"] == "add" for c in suggestion.changes))
+
+    def test_dismissed_rewrites_feed_the_next_generation(self) -> None:
+        self._create_rated_observation("sess-1", False, "should be yes")
+        suggestion_id = self.client.post(self._suggestions_url("generate/")).json()["id"]
+        self.client.post(self._suggestions_url(f"{suggestion_id}/dismiss/"))
+
+        self.client.post(self._suggestions_url("generate/"))
+
+        user_content = self.mock_agentic.call_args.kwargs["user_content"]
+        self.assertIn("Previously rejected rewrites", user_content)
+        self.assertIn("Did the user place an order? Only answer yes on an order confirmation.", user_content)
+
+    def test_daily_refresh_gates(self) -> None:
+        # No ratings at all: nothing to generate from.
+        self.assertEqual(refresh_prompt_suggestion_if_stale(self.scanner), "no_ratings")
+
+        # Ratings but no suggestion yet: generate immediately, unattributed (no requesting user).
+        self._create_rated_observation("sess-1", False, "should be yes")
+        self.assertEqual(refresh_prompt_suggestion_if_stale(self.scanner), "generated")
+        self.assertIsNone(ReplayScannerPromptSuggestion.objects.get().created_by)
+
+        # Same rated set: skip regardless of age.
+        self.assertEqual(refresh_prompt_suggestion_if_stale(self.scanner), "ratings_unchanged")
+
+        # Ratings changed but the newest suggestion is under a day old: wait.
+        self._create_rated_observation("sess-2", True)
+        self.assertEqual(refresh_prompt_suggestion_if_stale(self.scanner), "refreshed_recently")
+
+        # Ratings changed and the newest suggestion is old enough: regenerate.
+        ReplayScannerPromptSuggestion.objects.update(created_at=timezone.now() - timedelta(hours=25))
+        self.assertEqual(refresh_prompt_suggestion_if_stale(self.scanner), "generated")
+        self.assertEqual(ReplayScannerPromptSuggestion.objects.count(), 2)
+
+    def test_falls_back_to_single_shot_when_the_agent_fails(self) -> None:
+        self._create_rated_observation("sess-1", False, "should be yes")
+        self.mock_agentic.side_effect = RuntimeError("provider hiccup")
+
+        resp = self.client.post(self._suggestions_url("generate/"))
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["status"], "pending")
+        self.mock_generate.assert_called_once()
+
+    def test_mutations_require_editor_access(self) -> None:
+        self._create_rated_observation("sess-1", False, "should be yes")
+        with patch(
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            side_effect=lambda obj, required_level=None, **_: required_level != "editor",
+        ):
+            resp = self.client.post(self._suggestions_url("generate/"))
+        self.assertEqual(resp.status_code, 403)
+        self.assertFalse(ReplayScannerPromptSuggestion.objects.exists())

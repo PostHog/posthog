@@ -3,6 +3,8 @@ Assign/end transactions for account relationships, plus the transitional forward
 the legacy JSON role keys. Called by the facade and product-internal account writers only.
 """
 
+from uuid import UUID
+
 from django.db import transaction
 from django.utils import timezone
 
@@ -59,14 +61,14 @@ def end_active(*, team_id: int, account: Account, definition: AccountRelationshi
     )
 
 
-def end_relationship(*, team_id: int, relationship_id: str) -> AccountRelationship:
+def end_relationship(*, team_id: int, account_id: str | UUID, relationship_id: str) -> AccountRelationship:
     with transaction.atomic():
         # Serializes concurrent ends of the same row, matching assign's locking contract.
         relationship = (
             AccountRelationship.objects.for_team(team_id)
-            .select_related("definition", "account")
+            .select_related("definition", "user")
             .select_for_update(of=("self",))
-            .filter(id=relationship_id, ended_at__isnull=True)
+            .filter(id=relationship_id, account_id=account_id, ended_at__isnull=True)
             .first()
         )
         if relationship is None:
@@ -82,7 +84,9 @@ def sync_from_account_properties(account: Account, *, created_by: User | None = 
     Transitional: Account._properties is still the source of truth for roles, so every JSON
     role write calls this to keep the table shadowing it — see backend/COMPROMISES.md.
     Roles whose definition doesn't exist yet and unresolvable user ids are skipped; the JSON
-    stays authoritative.
+    stays authoritative. Only users who are members of the account's organization resolve —
+    the relationships endpoint returns real emails, so resolving arbitrary global user ids
+    would let editors enumerate emails of users outside their org.
     """
     definitions_by_name = {
         definition.name: definition
@@ -99,5 +103,9 @@ def sync_from_account_properties(account: Account, *, created_by: User | None = 
         user_id = assignment.get("id") if isinstance(assignment, dict) else None
         if user_id is None:
             end_active(team_id=account.team_id, account=account, definition=definition)
-        elif (user := User.objects.filter(id=user_id).first()) is not None:
+        elif (
+            user := User.objects.filter(
+                id=user_id, organization_membership__organization__team__id=account.team_id
+            ).first()
+        ) is not None:
             assign(team_id=account.team_id, account=account, definition=definition, user=user, created_by=created_by)

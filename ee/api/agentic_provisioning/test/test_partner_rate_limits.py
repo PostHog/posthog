@@ -1,12 +1,7 @@
-import json
-import base64
-import hashlib
-import secrets
 from datetime import timedelta
 from urllib.parse import urlencode
 
 from django.core.cache import cache
-from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -14,14 +9,14 @@ from rest_framework.test import APIClient
 
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 
-from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
-from ee.api.agentic_provisioning.views import PARTNER_RATE_LIMIT_DEFAULTS
+from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX, PARTNER_RATE_LIMIT_DEFAULTS
+from ee.api.agentic_provisioning.exceptions import ProvisioningError
+from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
+from ee.api.agentic_provisioning.throttling import enforce_partner_rate_limit
 
 PARTNER_CLIENT_ID = "partner_rate_limit_test"
 
 
-@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestPartnerRateLimits(ProvisioningTestBase):
     def setUp(self):
         super().setUp()
@@ -50,41 +45,7 @@ class TestPartnerRateLimits(ProvisioningTestBase):
         super().tearDown()
 
     def _get_partner_bearer_token(self) -> str:
-        code_verifier = secrets.token_urlsafe(32)
-        code_challenge = (
-            base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode("ascii")).digest())
-            .rstrip(b"=")
-            .decode("ascii")
-        )
-        code = secrets.token_urlsafe(32)
-        cache.set(
-            f"{AUTH_CODE_CACHE_PREFIX}{code}",
-            {
-                "user_id": self.user.id,
-                "org_id": str(self.organization.id),
-                "team_id": self.team.id,
-                "partner_id": str(self.partner_app.id),
-                "scopes": ["query:read"],
-                "region": "US",
-                "code_challenge": code_challenge,
-                "code_challenge_method": "S256",
-            },
-            timeout=300,
-        )
-        body = urlencode(
-            {
-                "grant_type": "authorization_code",
-                "code": code,
-                "code_verifier": code_verifier,
-            }
-        ).encode()
-        res = self.client.post(
-            "/api/agentic/oauth/token",
-            data=body,
-            content_type="application/x-www-form-urlencoded",
-            HTTP_API_VERSION="0.1d",
-        )
-        return res.json()["access_token"]
+        return self._request_bearer_token(partner=self.partner_app).json()["access_token"]
 
     # --- Unit tests for the rate limit helper ---
 
@@ -96,44 +57,36 @@ class TestPartnerRateLimits(ProvisioningTestBase):
         ]
     )
     def test_default_limit_applies_when_field_is_null(self, endpoint):
-        from ee.api.agentic_provisioning.views import _enforce_partner_rate_limit
-
         assert getattr(self.partner_app, f"provisioning_rate_limit_{endpoint}") is None
         expected_limit = PARTNER_RATE_LIMIT_DEFAULTS[endpoint]
 
         for _ in range(expected_limit):
-            assert _enforce_partner_rate_limit(self.partner_app, endpoint) is None
+            enforce_partner_rate_limit(self.partner_app, endpoint)
 
-        response = _enforce_partner_rate_limit(self.partner_app, endpoint)
-        assert response is not None
-        assert response.status_code == 429
+        with self.assertRaises(ProvisioningError) as ctx:
+            enforce_partner_rate_limit(self.partner_app, endpoint)
+        assert ctx.exception.status == 429
 
     def test_custom_override_respected(self):
-        from ee.api.agentic_provisioning.views import _enforce_partner_rate_limit
-
         self.partner_app.provisioning_rate_limit_account_requests = 3
         self.partner_app.save(update_fields=["provisioning_rate_limit_account_requests"])
 
         for _ in range(3):
-            assert _enforce_partner_rate_limit(self.partner_app, "account_requests") is None
+            enforce_partner_rate_limit(self.partner_app, "account_requests")
 
-        response = _enforce_partner_rate_limit(self.partner_app, "account_requests")
-        assert response is not None
-        assert response.status_code == 429
-        assert "Retry-After" in response
+        with self.assertRaises(ProvisioningError) as ctx:
+            enforce_partner_rate_limit(self.partner_app, "account_requests")
+        assert ctx.exception.status == 429
+        assert ctx.exception.retry_after is not None
 
     def test_zero_override_disables_limiting(self):
-        from ee.api.agentic_provisioning.views import _enforce_partner_rate_limit
-
         self.partner_app.provisioning_rate_limit_account_requests = 0
         self.partner_app.save(update_fields=["provisioning_rate_limit_account_requests"])
 
         for _ in range(100):
-            assert _enforce_partner_rate_limit(self.partner_app, "account_requests") is None
+            enforce_partner_rate_limit(self.partner_app, "account_requests")
 
     def test_separate_buckets_per_endpoint(self):
-        from ee.api.agentic_provisioning.views import _enforce_partner_rate_limit
-
         self.partner_app.provisioning_rate_limit_account_requests = 2
         self.partner_app.provisioning_rate_limit_resource_creates = 2
         self.partner_app.save(
@@ -144,14 +97,13 @@ class TestPartnerRateLimits(ProvisioningTestBase):
         )
 
         for _ in range(2):
-            _enforce_partner_rate_limit(self.partner_app, "account_requests")
+            enforce_partner_rate_limit(self.partner_app, "account_requests")
 
-        assert _enforce_partner_rate_limit(self.partner_app, "account_requests") is not None
-        assert _enforce_partner_rate_limit(self.partner_app, "resource_creates") is None
+        with self.assertRaises(ProvisioningError):
+            enforce_partner_rate_limit(self.partner_app, "account_requests")
+        enforce_partner_rate_limit(self.partner_app, "resource_creates")
 
     def test_separate_buckets_per_partner(self):
-        from ee.api.agentic_provisioning.views import _enforce_partner_rate_limit
-
         other_partner = OAuthApplication.objects.create(
             client_id="other_partner",
             name="Other Partner",
@@ -170,10 +122,11 @@ class TestPartnerRateLimits(ProvisioningTestBase):
         self.partner_app.save(update_fields=["provisioning_rate_limit_account_requests"])
 
         for _ in range(2):
-            _enforce_partner_rate_limit(self.partner_app, "account_requests")
+            enforce_partner_rate_limit(self.partner_app, "account_requests")
 
-        assert _enforce_partner_rate_limit(self.partner_app, "account_requests") is not None
-        assert _enforce_partner_rate_limit(other_partner, "account_requests") is None
+        with self.assertRaises(ProvisioningError):
+            enforce_partner_rate_limit(self.partner_app, "account_requests")
+        enforce_partner_rate_limit(other_partner, "account_requests")
 
     # --- Integration: token exchange rate limiting ---
 
@@ -185,27 +138,7 @@ class TestPartnerRateLimits(ProvisioningTestBase):
         self._get_partner_bearer_token()
 
         # Second exchange should be rate limited
-        code_verifier = secrets.token_urlsafe(32)
-        code_challenge = (
-            base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode("ascii")).digest())
-            .rstrip(b"=")
-            .decode("ascii")
-        )
-        code = secrets.token_urlsafe(32)
-        cache.set(
-            f"{AUTH_CODE_CACHE_PREFIX}{code}",
-            {
-                "user_id": self.user.id,
-                "org_id": str(self.organization.id),
-                "team_id": self.team.id,
-                "partner_id": str(self.partner_app.id),
-                "scopes": ["query:read"],
-                "region": "US",
-                "code_challenge": code_challenge,
-                "code_challenge_method": "S256",
-            },
-            timeout=300,
-        )
+        code, code_verifier = self._mint_auth_code(partner=self.partner_app)
         body = urlencode(
             {
                 "grant_type": "authorization_code",
@@ -217,7 +150,6 @@ class TestPartnerRateLimits(ProvisioningTestBase):
             "/api/agentic/oauth/token",
             data=body,
             content_type="application/x-www-form-urlencoded",
-            HTTP_API_VERSION="0.1d",
         )
         assert res.status_code == 429
 
@@ -257,7 +189,6 @@ class TestPartnerRateLimits(ProvisioningTestBase):
             "/api/agentic/oauth/token",
             data=body,
             content_type="application/x-www-form-urlencoded",
-            HTTP_API_VERSION="0.1d",
         )
         assert res.status_code == 200
 
@@ -288,7 +219,6 @@ class TestPartnerRateLimits(ProvisioningTestBase):
             "/api/agentic/oauth/token",
             data=body,
             content_type="application/x-www-form-urlencoded",
-            HTTP_API_VERSION="0.1d",
         )
         assert res.status_code == 429
 
@@ -305,37 +235,10 @@ class TestPartnerRateLimits(ProvisioningTestBase):
         # Re-set the resource_creates limit counter fresh
         # (cache.clear wiped it, but we need 1 request to fill it)
 
-        res = self.client.post(
-            "/api/agentic/provisioning/resources",
-            data=json.dumps({"service_id": "analytics"}).encode(),
-            content_type="application/json",
-            HTTP_API_VERSION="0.1d",
-            HTTP_AUTHORIZATION=f"Bearer {token}",
-        )
+        res = self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token)
         assert res.status_code == 200
 
-        res = self.client.post(
-            "/api/agentic/provisioning/resources",
-            data=json.dumps({"service_id": "analytics"}).encode(),
-            content_type="application/json",
-            HTTP_API_VERSION="0.1d",
-            HTTP_AUTHORIZATION=f"Bearer {token}",
-        )
+        res = self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token)
         assert res.status_code == 429
         assert res.json()["status"] == "error"
         assert res.json()["error"]["code"] == "rate_limited"
-
-    # --- Stripe Projects (legacy HMAC) is not rate limited ---
-
-    def test_stripe_projects_not_rate_limited(self):
-        for _ in range(15):
-            payload = {
-                "id": f"acctreq_{secrets.token_hex(8)}",
-                "email": f"user_{secrets.token_hex(4)}@example.com",
-                "scopes": ["query:read"],
-                "confirmation_secret": "cs_test",
-                "expires_at": (timezone.now() + timedelta(minutes=10)).isoformat(),
-                "orchestrator": {"type": "stripe", "stripe": {"account": "acct_123"}},
-            }
-            res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
-            assert res.status_code in (200, 201), f"Expected success, got {res.status_code}: {res.json()}"

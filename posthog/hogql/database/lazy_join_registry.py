@@ -32,8 +32,10 @@ from posthog.hogql.database.warehouse_join_resolvers import (
 )
 
 from products.customer_analytics.backend.facade.hogql import (
+    account_custom_properties_history_join,
     account_custom_properties_join,
     account_notebooks_join,
+    account_relationships_join,
     account_tags_join,
 )
 
@@ -77,6 +79,8 @@ RESOLVERS: dict[str, LazyJoinResolver] = {
     tags.ACCOUNT_TAGS: account_tags_join,
     tags.ACCOUNT_NOTEBOOKS: account_notebooks_join,
     tags.ACCOUNT_CUSTOM_PROPERTIES: account_custom_properties_join,
+    tags.ACCOUNT_CUSTOM_PROPERTIES_HISTORY: account_custom_properties_history_join,
+    tags.ACCOUNT_RELATIONSHIPS: account_relationships_join,
 }
 
 

@@ -223,6 +223,16 @@ def transpile_template_code(obj: Any, compiler: JavaScriptCompiler, is_dwh_sourc
         return json.dumps(obj)
 
 
+def _contains_liquid_style_syntax(value: Any) -> bool:
+    if isinstance(value, str):
+        return "{{" in value
+    if isinstance(value, dict):
+        return any(_contains_liquid_style_syntax(v) for v in value.values())
+    if isinstance(value, list):
+        return any(_contains_liquid_style_syntax(v) for v in value)
+    return False
+
+
 @extend_schema_field({"oneOf": [{"type": "boolean"}, {"type": "string", "enum": ["hog", "liquid"]}]})
 class _TemplatingChoiceField(serializers.ChoiceField):
     """drf-spectacular 0.29 crashes on sorted() with mixed bool/str choice keys."""
@@ -240,6 +250,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "choice",
             "json",
             "integration",
+            "integration_multi",
             "integration_field",
             "email",
             "native_email",
@@ -248,6 +259,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "posthog_business_hours",
             "non_failure_status_codes",
             "customer_analytics_account_properties",
+            "customer_analytics_account_relationships",
         ]
     )
     key = serializers.CharField()
@@ -325,12 +337,19 @@ class InputsItemSerializer(serializers.Serializer):
             else:
                 if not isinstance(value, bool):
                     raise serializers.ValidationError({"input": f"Value must be a boolean."})
-        elif item_type in ("dictionary", "customer_analytics_account_properties"):
+        elif item_type in (
+            "dictionary",
+            "customer_analytics_account_properties",
+            "customer_analytics_account_relationships",
+        ):
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be a dictionary."})
         elif item_type == "integration":
             if not isinstance(value, int):
                 raise serializers.ValidationError({"input": f"Value must be an Integration ID."})
+        elif item_type == "integration_multi":
+            if not isinstance(value, list) or not all(isinstance(v, int) and not isinstance(v, bool) for v in value):
+                raise serializers.ValidationError({"input": "Value must be a list of Integration IDs."})
         elif item_type == "email" or item_type == "native_email":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be an email object."})
@@ -372,6 +391,7 @@ class InputsItemSerializer(serializers.Serializer):
                         "native_email",
                         "posthog_ticket_tags",
                         "customer_analytics_account_properties",
+                        "customer_analytics_account_relationships",
                     ] or (item_type == "boolean" and isinstance(value, str))
                     if value_is_transpiled:
                         if item_type in ("email", "native_email") and isinstance(value, dict):
@@ -393,6 +413,19 @@ class InputsItemSerializer(serializers.Serializer):
                             if "transpiled" in attrs:
                                 del attrs["transpiled"]
         except Exception as e:
+            # Liquid-style {{ ... }} in a hog-templated field is the dominant authoring mistake
+            # behind transpile failures, and the compiler's own message ("Placeholders are not
+            # allowed in this context") never names it - callers bisect blind without this hint.
+            if _contains_liquid_style_syntax(value):
+                raise serializers.ValidationError(
+                    {
+                        "input": (
+                            "Invalid template: this field uses single-curly templating like "
+                            "{person.properties.email}. Liquid-style {{ ... }} syntax is not "
+                            f"supported here. ({str(e)})"
+                        )
+                    }
+                )
             raise serializers.ValidationError({"input": f"Invalid template: {str(e)}"})
 
         return attrs
@@ -533,8 +566,10 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
                 del data["bytecode"]
         else:
             data = compile_filters_bytecode(data, team)
-            # Check if bytecode compilation resulted in an error
-            if data.get("bytecode_error"):
+            # Uncompilable filters are only fatal when the function will run (stay enabled).
+            # Callers that allow saving anyway (e.g. disabling/deleting a hog function) opt out
+            # via context; the error stays persisted on the filters for the UI to surface.
+            if data.get("bytecode_error") and self.context.get("function_will_be_enabled", True):
                 raise serializers.ValidationError(f"Invalid filter configuration: {data['bytecode_error']}")
 
         return data
