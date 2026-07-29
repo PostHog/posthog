@@ -1142,6 +1142,20 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             expect(mockFetch).not.toHaveBeenCalled()
         })
 
+        it('keeps polling a wait saved before wake plans existed', async () => {
+            // The day-one state of every flow already in the database: no wake_plan at all, because
+            // the field is only written when a flow is next saved. Those runs must behave exactly as
+            // they do today, which is what makes merging this a no-op until a backfill lands.
+            await createTrialWorkflow(undefined as any)
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([personWith({})])
+
+            await triggerWorkflow(createGlobals())
+
+            const seconds = await parkedInSeconds()
+            expect(seconds).toBeGreaterThan(9 * 60)
+            expect(seconds).toBeLessThan(11 * 60)
+        })
+
         it('keeps the 10-minute cap for a wait with no derivable plan', async () => {
             // Fail-closed path: flows saved before wake plans existed must behave exactly as today.
             await createTrialWorkflow({ streams: [], timers: [], unsupported_reason: 'not invertible' })
