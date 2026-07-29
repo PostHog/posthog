@@ -34,6 +34,7 @@ from products.tasks.backend.temporal.metrics import StepTimer, increment_snapsho
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
+    ai_gateway_env_vars,
     get_git_identity_env_vars,
     get_sandbox_api_url,
     get_sandbox_github_token,
@@ -239,6 +240,8 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
 
         if settings.SANDBOX_LLM_GATEWAY_URL:
             environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
+
+        environment_variables.update(ai_gateway_env_vars())
 
         environment_variables.update(get_git_identity_env_vars(task, ctx.state))
 

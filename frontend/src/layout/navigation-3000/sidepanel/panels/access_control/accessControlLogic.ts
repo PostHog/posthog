@@ -358,6 +358,7 @@ export interface accessControlLogicMeta {
                 | 'live_debugger'
                 | 'llm_analytics'
                 | 'llm_gateway'
+                | 'llm_playground'
                 | 'llm_prompt'
                 | 'llm_provider_key'
                 | 'llm_skill'
@@ -571,6 +572,7 @@ export interface accessControlLogicMeta {
                 | 'live_debugger'
                 | 'llm_analytics'
                 | 'llm_gateway'
+                | 'llm_playground'
                 | 'llm_prompt'
                 | 'llm_provider_key'
                 | 'llm_skill'
@@ -682,6 +684,7 @@ export interface accessControlLogicMeta {
                 | 'live_debugger'
                 | 'llm_analytics'
                 | 'llm_gateway'
+                | 'llm_playground'
                 | 'llm_prompt'
                 | 'llm_provider_key'
                 | 'llm_skill'
@@ -1132,6 +1135,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                 const resourceToRoute: Partial<Record<APIScopeObject, string>> = {
                     warehouse_view: 'warehouse_saved_queries',
                     early_access_feature: 'early_access_feature',
+                    ticket: 'conversations/tickets',
                     heatmap: 'saved',
                     replay_scanner: 'vision/scanners',
                 }
