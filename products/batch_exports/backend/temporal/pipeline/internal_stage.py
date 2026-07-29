@@ -581,8 +581,9 @@ async def _write_batch_export_record_batches_to_internal_stage(
         # Some tests create data in the future, so we do not check this.
         raise DataIntervalEndInFutureError(end_at)
 
-    with TRACER.start_as_current_span("batch_export.stage.wait_for_delta"):
-        await wait_for_delta_past_data_interval_end(end_at, delta)
+    if not isinstance(query_or_model, RecordBatchModel) or query_or_model.wait_for_data_interval_end:
+        with TRACER.start_as_current_span("batch_export.stage.wait_for_delta"):
+            await wait_for_delta_past_data_interval_end(end_at, delta)
 
     done_ranges: list[tuple[dt.datetime, dt.datetime]] = []
     async with get_client(
@@ -619,8 +620,10 @@ async def _write_batch_export_record_batches_to_internal_stage(
                     s3_secret=aws_secret_access_key,
                     num_partitions=num_partitions or settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS,
                 )
+                query_settings = query_or_model.get_clickhouse_request_settings()
             else:
                 query = query_or_model
+                query_settings = {}
 
             base_s3_staging_folder = get_base_s3_staging_folder(
                 batch_export_id=batch_export_id,
@@ -644,7 +647,7 @@ async def _write_batch_export_record_batches_to_internal_stage(
 
             try:
                 with TRACER.start_as_current_span("batch_export.stage.clickhouse_query") as query_span:
-                    written_rows = await _execute_query(client, query, query_parameters)
+                    written_rows = await _execute_query(client, query, query_parameters, query_settings)
                     if written_rows is not None:
                         query_span.set_attribute("batch_export.stage.written_rows", written_rows)
             except ClickHouseError:
@@ -673,7 +676,12 @@ def _written_rows_from_summary(summary: dict[str, typing.Any] | None) -> int | N
         return None
 
 
-async def _execute_query(client: ClickHouseClient, query: str, query_parameters: dict[str, typing.Any]) -> int | None:
+async def _execute_query(
+    client: ClickHouseClient,
+    query: str,
+    query_parameters: dict[str, typing.Any],
+    query_settings: dict[str, str] | None = None,
+) -> int | None:
     """Execute the batch exports query and wait for it to complete.
 
     If the query takes longer than 300 seconds, we time out and wait for the query to complete by checking the query log
@@ -689,7 +697,7 @@ async def _execute_query(client: ClickHouseClient, query: str, query_parameters:
     with log_query_duration(logger=logger, query_id=query_id, query_type="insert_into_internal_stage"):
         try:
             summary = await client.execute_query_with_summary(
-                query, query_parameters=query_parameters, query_id=query_id, timeout=300
+                query, query_parameters=query_parameters, query_id=query_id, timeout=300, settings=query_settings
             )
         except ClickHouseClientTimeoutError:
             logger.warning(

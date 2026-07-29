@@ -186,6 +186,21 @@ class TestBuildQuery:
         assert "ORDER BY `created_at` ASC" in query
         assert params == {}
 
+    def test_incremental_casts_date_last_value_through_todate32(self):
+        # A `Date` cursor can come back from storage as a raw day-count integer
+        # (ClickHouse's own on-disk representation), which `greater(Date, UInt16)`
+        # rejects when bound directly. toDate32 accepts both an integer day-count
+        # and a date string, so the comparison always type-checks.
+        query, _ = _build_query(
+            database="default",
+            table_name="events",
+            columns=self._cols(("id", "Int64"), ("day", "Date")),
+            should_use_incremental_field=True,
+            incremental_field="day",
+            incremental_field_type=IncrementalFieldType.Date,
+        )
+        assert "WHERE `day` > toDate32(%(last_value)s)" in query
+
     def test_incremental_quotes_field_with_special_chars(self):
         query, _ = _build_query(
             database="my-db",
@@ -1178,6 +1193,20 @@ class TestGetIncrementalRowCount:
         assert "`created_at` > %(last_value)s" in args[0]
         assert kwargs["parameters"] == {"last_value": "2024-01-01"}
         assert kwargs["settings"] == {"max_execution_time": 30}
+
+    def test_casts_date_last_value_through_todate32(self):
+        client = MagicMock()
+        result = MagicMock()
+        result.result_rows = [(7,)]
+        client.query.return_value = result
+
+        count = _get_incremental_row_count(
+            client, "db", "t", "day", 20657, self._logger(), incremental_field_type=IncrementalFieldType.Date
+        )
+        assert count == 7
+
+        args, _ = client.query.call_args
+        assert "`day` > toDate32(%(last_value)s)" in args[0]
 
     def test_returns_none_on_error(self):
         client = MagicMock()
