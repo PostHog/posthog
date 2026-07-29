@@ -86,6 +86,9 @@ You can find both in your ActiveCampaign account under **Settings > Developer**.
             "401 Client Error": "Invalid ActiveCampaign credentials. Please check your API URL and key and reconnect.",
             "403 Client Error": "Access forbidden. Please check that your ActiveCampaign API key is valid and reconnect.",
             "Unauthorized for url": "Invalid ActiveCampaign credentials. Please check your API URL and key and reconnect.",
+            # Each account's API host is a customer-specific subdomain (e.g. https://acme.api-us1.com),
+            # so match on the stable error prefix rather than a fixed host.
+            "402 Client Error: Payment Required": "Your ActiveCampaign account doesn't have an active plan, or its payment failed. Check your ActiveCampaign billing, then resync.",
             # `active_campaign_source` raises this when the configured api_url fails our URL
             # validation — an unresolvable host (wrong account name), a private/internal host,
             # or a bad scheme. All are user-config problems retrying can't fix. Match the stable
