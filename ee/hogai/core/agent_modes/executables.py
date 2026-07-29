@@ -46,7 +46,7 @@ from ee.hogai.core.executable import BaseAgentExecutable
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolError
-from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
+from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages, drop_trailing_assistant_messages
 from ee.hogai.utils.conversation_summarizer import AnthropicConversationSummarizer
 from ee.hogai.utils.feature_flags import get_llm_gateway_variant
 from ee.hogai.utils.helpers import convert_tool_messages_to_dict, normalize_ai_message
@@ -316,6 +316,18 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
 
         # Convert to Anthropic messages
         history = self._convert_to_langchain_messages(conversation_window, tool_result_messages)
+
+        # Anthropic reads a trailing assistant turn as a prefill, which Sonnet 4.6+ rejects.
+        without_prefill = drop_trailing_assistant_messages(history)
+        if len(without_prefill) < len(history):
+            # Expected for conversations predating the summarize_sessions migration. Anything else
+            # reaching here means a tool call lost its result, so it is worth knowing about.
+            logger.warning(
+                "Dropped trailing assistant messages to avoid prefilling",
+                dropped=len(history) - len(without_prefill),
+                team_id=self._team.id,
+            )
+        history = without_prefill
 
         # Force the agent to stop if the tool call limit is reached.
         history = self._add_limit_message_if_reached(history, tool_calls_count)

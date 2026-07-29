@@ -172,6 +172,24 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         )
 
     @patch(
+        "ee.hogai.core.agent_modes.executables.AgentExecutable._get_model", return_value=FakeChatOpenAI(responses=[])
+    )
+    async def test_constructed_prompt_never_ends_on_an_assistant_turn(self, mock_model):
+        node = _create_agent_node(self.team, self.user)
+        # Shape left behind by the pre-migration summarize_sessions tool, which appended its own
+        # assistant message after the tool result.
+        state = AssistantState(
+            messages=[
+                HumanMessage(content="Summarize my sessions", id="1"),
+                AssistantMessage(content="Report complete: Sessions summary", id="2"),
+            ]
+        )
+
+        result = node._construct_messages(state.messages, state.root_conversation_start_id, None)
+
+        self.assertNotIsInstance(result[-1], LangchainAIMessage)
+
+    @patch(
         "ee.hogai.core.agent_modes.executables.AgentExecutable._get_model",
         return_value=FakeChatAnthropic(responses=[]),
     )
