@@ -10,14 +10,28 @@ BATCH_SIZE = 500
 def backfill_provisioning_config(apps, schema_editor):
     OAuthApplication = apps.get_model("posthog", "OAuthApplication")
 
+    # Pinned to the alias `migrate` is running on rather than letting the router pick. bin/migrate
+    # uses `default_direct`, which bypasses PgBouncer and therefore has server-side cursors
+    # enabled; the router would send this to `default`, where DISABLE_SERVER_SIDE_CURSORS makes
+    # .iterator() buffer the whole result set client-side and puts the writes in their own
+    # transaction outside the migration's.
+    db_alias = schema_editor.connection.alias
+
     # Only rows that carry provisioning state. Every other app keeps the empty-object default,
     # which reads back as a partner that may do nothing.
-    candidates = OAuthApplication.objects.exclude(
-        is_provisioning_partner=False,
-        provisioning_partner_type="",
-        provisioning_active=False,
-    ).order_by("pk")
+    candidates = (
+        OAuthApplication.objects.using(db_alias)
+        .exclude(
+            is_provisioning_partner=False,
+            provisioning_partner_type="",
+            provisioning_active=False,
+        )
+        .order_by("pk")
+    )
 
+    # Collected while iterating because no index covers the filter, so a second pass would mean a
+    # second sequential scan of the whole table.
+    lost_wizard_runs = []
     updated = []
     for app in candidates.iterator(chunk_size=BATCH_SIZE):
         # provisioning_partner_type was doing double duty as the marker for a partner PostHog
@@ -51,23 +65,20 @@ def backfill_provisioning_config(apps, schema_editor):
             },
             "rate_limit_source": app.provisioning_rate_limit_account_requests_source,
         }
+        # Could start a cloud run before this migration and cannot after it.
+        if app.provisioning_active and app.provisioning_can_provision_resources and not vouched_for:
+            lost_wizard_runs.append(str(app.id))
+
         updated.append(app)
         if len(updated) >= BATCH_SIZE:
-            OAuthApplication.objects.bulk_update(updated, ["_provisioning_config"])
+            OAuthApplication.objects.using(db_alias).bulk_update(updated, ["_provisioning_config"])
             updated = []
     if updated:
-        OAuthApplication.objects.bulk_update(updated, ["_provisioning_config"])
+        OAuthApplication.objects.using(db_alias).bulk_update(updated, ["_provisioning_config"])
 
     # An active partner that loses wizard runs here is the intended outcome, but it is a
     # capability being taken away from a live integration, so name the rows in the deploy log
     # rather than letting them find out by 403.
-    lost_wizard_runs = list(
-        candidates.filter(
-            provisioning_active=True,
-            provisioning_can_provision_resources=True,
-            provisioning_partner_type="",
-        ).values_list("id", flat=True)
-    )
     if lost_wizard_runs:
         logger.warning("provisioning_partners_lost_wizard_runs", application_ids=lost_wizard_runs)
 
