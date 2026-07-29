@@ -485,6 +485,15 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     selectionPeriod="upcoming"
                                     clearable
                                     placeholder="Not snoozed"
+                                    applyActions={[
+                                        {
+                                            label: 'Apply and set to on hold',
+                                            onClick: (date) => {
+                                                setSnoozedUntil(date.startOf('minute').toISOString())
+                                                setStatus('on_hold')
+                                            },
+                                        },
+                                    ]}
                                     buttonProps={{
                                         size: 'small',
                                         type: 'secondary',
