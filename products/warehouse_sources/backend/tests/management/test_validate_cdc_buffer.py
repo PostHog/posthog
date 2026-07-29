@@ -143,7 +143,15 @@ class TestValidateCDCBuffer:
             self._key(schema, build_buffer_file_name(100, 200, 0)): _parquet_bytes(1),
             self._key(schema, build_buffer_file_name(200, 200, 1)): _parquet_bytes(1),
         }
-        self._run(schema, files, {})
+        self._run(schema, files, {(str(schema.id), "consolidated"): 2})
+
+    def test_buffered_rows_with_no_legacy_dispatches_is_a_violation(self):
+        # Streaming flushes dispatch legacy immediately: buffer rows with zero legacy
+        # rows means the legacy lane stalled — absence must not skip the comparison.
+        schema = _schema_mock(mode="both")
+        files = {self._key(schema, build_buffer_file_name(100, 200, 0)): _parquet_bytes(3)}
+        with pytest.raises(CommandError, match="violation"):
+            self._run(schema, files, {(str(schema.id), "scd2"): 3})  # scd2 fine, consolidated lane absent
 
     def test_snapshot_schema_skips_row_reconciliation(self):
         # Snapshot phase defers legacy dispatch, so counts legitimately diverge.

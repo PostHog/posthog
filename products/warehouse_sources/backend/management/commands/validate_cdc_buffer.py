@@ -91,6 +91,18 @@ class Command(BaseCommand):
             if schema.cdc_mode != "streaming":
                 continue
 
+            # A streaming flush dispatches legacy immediately, so buffered rows with
+            # no legacy dispatches at all means the legacy lane is stalled — absence
+            # must fail, not silently skip the comparison.
+            required_lanes = {"consolidated": ["consolidated"], "cdc_only": ["scd2"], "both": ["scd2", "consolidated"]}
+            if buffer_rows > 0:
+                for lane in required_lanes.get(schema.cdc_table_mode, []):
+                    if legacy_rows.get((str(schema.id), lane)) is None:
+                        violations.append(
+                            f"{schema.name}: buffer has {buffer_rows} rows but no legacy {lane} dispatches "
+                            "in the window — legacy lane stalled or producer failing"
+                        )
+
             if scd2_rows is not None and scd2_rows != buffer_rows:
                 # Legacy re-inserts replayed rows on activity retry while buffer
                 # files overwrite — with multiple runs in the window the exact
