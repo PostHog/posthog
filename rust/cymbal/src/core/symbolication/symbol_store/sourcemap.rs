@@ -970,7 +970,9 @@ mod test {
         // Obfuscated literals: `Url::parse` normalizes these to plain addresses per the URL
         // spec. If a form fails to parse instead, that's equally fine - we never fetch it.
         for raw in ["http://2130706433/app.js", "http://0177.0.0.1/app.js"] {
-            let Ok(url) = raw.parse::<Url>() else { continue };
+            let Ok(url) = raw.parse::<Url>() else {
+                continue;
+            };
             assert_eq!(
                 url.host_str(),
                 Some("127.0.0.1"),
