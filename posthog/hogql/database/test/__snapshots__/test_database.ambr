@@ -8769,6 +8769,19 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
+              },
+              "tags": {
+                  "chain": null,
+                  "fields": [
+                      "ticket_id",
+                      "names"
+                  ],
+                  "hogql_value": "tags",
+                  "id": "tags",
+                  "name": "tags",
+                  "schema_valid": true,
+                  "table": "ticket_tags",
+                  "type": "lazy_table"
               }
           },
           "id": "system.support_tickets",
@@ -17557,6 +17570,19 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
+              },
+              "tags": {
+                  "chain": null,
+                  "fields": [
+                      "ticket_id",
+                      "names"
+                  ],
+                  "hogql_value": "tags",
+                  "id": "tags",
+                  "name": "tags",
+                  "schema_valid": true,
+                  "table": "ticket_tags",
+                  "type": "lazy_table"
               }
           },
           "id": "system.support_tickets",
