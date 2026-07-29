@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
+    DELTA_MERGE_CONFLICT_RETRIES,
     DeltaTableHelper,
     _delta_merge_spill_kwargs,
     _first_per_pk_table,
@@ -397,15 +398,38 @@ class TestGetDeltaTableUnrecoverableErrors:
             patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
             patch(f"{module}.capture_exception") as mock_capture,
         ):
-            mock_delta_table.is_deltatable.side_effect = OSError(
-                "Generic S3 error: Received redirect without LOCATION, this normally indicates "
-                "an incorrectly configured region"
-            )
+            mock_delta_table.is_deltatable.side_effect = OSError("Access Denied: not authorized to list bucket")
 
-            with pytest.raises(OSError, match="Received redirect without LOCATION"):
+            with pytest.raises(OSError, match="Access Denied"):
                 await helper.get_delta_table()
 
             mock_capture.assert_called_once()
+            assert helper.is_first_sync is False
+
+    @pytest.mark.asyncio
+    async def test_is_deltatable_transient_error_is_not_captured_but_still_reraised(self):
+        """A known-transient object-store blip (e.g. an S3 LIST request timing out) must not be
+        reported to error tracking as a defect — it's a self-recovering network hiccup, not a bug —
+        but it must still propagate so Temporal's activity retry policy retries the sync."""
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        delta_uri = "s3://bucket/team_id/job_id/t"
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper"
+        with (
+            patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value=delta_uri)),
+            patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
+            patch(f"{module}.capture_exception") as mock_capture,
+        ):
+            mock_delta_table.is_deltatable.side_effect = OSError(
+                "Generic S3 error\nError getting list response body\nHTTP error\n"
+                "request or response body error\noperation timed out"
+            )
+
+            with pytest.raises(OSError, match="operation timed out"):
+                await helper.get_delta_table()
+
+            mock_capture.assert_not_called()
+            cast(AsyncMock, helper._logger.awarning).assert_awaited_once()
             assert helper.is_first_sync is False
 
 
@@ -453,6 +477,74 @@ class TestWriteToDeltalakeCommitMetadataPassThrough:
             else:
                 assert isinstance(commit_properties, deltalake.CommitProperties)
                 assert commit_properties.custom_metadata == expected_custom_metadata
+
+
+class TestExecuteMergeWithConflictRetry:
+    """A merge's CommitFailedError means delta-rs's conflict checker rejected the commit
+    outright, without spending any of its own internal retry budget (see the comment on
+    DELTA_MERGE_CONFLICT_RETRIES). Regression coverage for the sync dying on the first such
+    conflict instead of refreshing the table and re-running the merge, as the error's own
+    "must be rerun" message calls for."""
+
+    def _helper(self) -> DeltaTableHelper:
+        return DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+
+    @pytest.mark.asyncio
+    async def test_succeeds_without_retry(self):
+        helper = self._helper()
+        table = MagicMock()
+        merge_fn = MagicMock(return_value={"num_output_rows": 1})
+
+        result = await helper._execute_merge_with_conflict_retry(table, merge_fn)
+
+        assert result == {"num_output_rows": 1}
+        merge_fn.assert_called_once()
+        table.update_incremental.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_retries_on_conflict_then_succeeds(self):
+        helper = self._helper()
+        table = MagicMock()
+        merge_fn = MagicMock(
+            side_effect=[
+                deltalake.exceptions.CommitFailedError("Commit failed: a concurrent transactions added new data."),
+                {"num_output_rows": 1},
+            ]
+        )
+
+        result = await helper._execute_merge_with_conflict_retry(table, merge_fn)
+
+        assert result == {"num_output_rows": 1}
+        assert merge_fn.call_count == 2
+        table.update_incremental.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_gives_up_after_exhausting_retries(self):
+        helper = self._helper()
+        table = MagicMock()
+        merge_fn = MagicMock(
+            side_effect=deltalake.exceptions.CommitFailedError(
+                "Commit failed: a concurrent transactions added new data."
+            )
+        )
+
+        with pytest.raises(deltalake.exceptions.CommitFailedError):
+            await helper._execute_merge_with_conflict_retry(table, merge_fn)
+
+        assert merge_fn.call_count == DELTA_MERGE_CONFLICT_RETRIES + 1
+        assert table.update_incremental.call_count == DELTA_MERGE_CONFLICT_RETRIES
+
+    @pytest.mark.asyncio
+    async def test_other_errors_propagate_without_retry(self):
+        helper = self._helper()
+        table = MagicMock()
+        merge_fn = MagicMock(side_effect=ValueError("not a commit conflict"))
+
+        with pytest.raises(ValueError):
+            await helper._execute_merge_with_conflict_retry(table, merge_fn)
+
+        merge_fn.assert_called_once()
+        table.update_incremental.assert_not_called()
 
 
 def _create_legacy_delta_table(path: str, *, partitioned: bool = False) -> deltalake.DeltaTable:

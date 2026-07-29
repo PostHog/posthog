@@ -53,6 +53,7 @@ export const AccountsEvents = {
     SummaryCadenceChanged: 'customer analytics account summary cadence changed',
     SummaryExpanded: 'customer analytics account summary expanded',
     SummariesPageChanged: 'customer analytics account summaries page changed',
+    SupportTicketClicked: 'customer analytics account support ticket clicked',
     EventStreamMembershipToggled: 'customer analytics account event stream toggled',
     EventStreamConfigSaved: 'customer analytics event stream config saved',
     EventStreamTestMessageSent: 'customer analytics event stream test message sent',

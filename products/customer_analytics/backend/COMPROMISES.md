@@ -128,12 +128,17 @@ Cutover checklist — when done, the sync and this section are deleted:
   binding, cadence, and org AI-processing approval from the DB just before fetching, so stale or
   forged workflow inputs can't widen this. If summaries ever cover channels whose membership matters,
   validate the binding at write time against a server-side channel policy instead.
-- **Slack permalinks assume PostHog's workspace.** Summary citations are built as
-  `SLACK_ARCHIVES_ORIGIN/<channel_id>/p<ts>` (`constants.py`) instead of fetched with
-  `chat.getPermalink`, and the origin hardcodes `posthog.slack.com`. One constructed URL per cited
-  message avoids a Slack API call per citation, but breaks for any other workspace. When the
-  SupportHog bot GA's to external workspaces, resolve the workspace domain per team (or call
-  `chat.getPermalink` inside the summary activity) and drop the constant.
+
+## Slack workspace URL is hardcoded
+
+- **`SLACK_ARCHIVES_ORIGIN` hardcodes PostHog's own workspace** — in `backend/constants.py` and
+  mirrored in `frontend/components/Accounts/accountLinksLogic.ts`. Every Slack link built from it
+  (Useful links sidebar, Slack summary message permalinks, channel summary citations) is wrong for
+  any team other than us.
+  Fine while the product is PostHog-internal; **must be fixed before GA**. The correct value is
+  per-team and owned by conversations: the bot's `auth.test` response carries the workspace `url`
+  (same call `get_bot_user_id_cached` already caches a field from), so the fix is a cached lookup
+  in conversations exposed through its facade, consumed here and by the frontend.
 
 ## Tech debt
 

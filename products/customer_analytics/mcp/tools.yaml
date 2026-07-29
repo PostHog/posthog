@@ -362,6 +362,9 @@ tools:
     accounts-summaries-list:
         operation: accounts_summaries_list
         enabled: false
+    accounts-support-tickets-list:
+        operation: accounts_support_tickets_list
+        enabled: false
     accounts-update:
         operation: accounts_update
         enabled: false
