@@ -11,6 +11,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions import capture_exception
 from posthog.settings.utils import get_from_env
+from posthog.temporal.common.errors import NonReportableError
 from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
@@ -31,7 +32,17 @@ def _is_transient_s3_connection_error(error: BaseException) -> bool:
     return isinstance(error, _TRANSIENT_S3_CONNECTION_EXCEPTIONS)
 
 
-class NonRetryableException(Exception):
+class NonRetryableException(NonReportableError):
+    """A failure that is always the source's configuration or the upstream API — bad credentials,
+    a deleted table, an ambiguous column in a customer's view — so retrying can never turn it into
+    data and there is no PostHog defect to fix. The sync still fails, with the message surfaced in
+    the UI, but subclassing ``NonReportableError`` keeps it out of error tracking.
+
+    Also the only exception type Temporal treats as non-retryable for the import activities
+    (``non_retryable_error_types`` in ``external_data_job.py`` and ``cdc/workflows.py`` match on
+    this class name), so keep the name stable.
+    """
+
     @property
     def cause(self) -> Optional[BaseException]:
         """Cause of the exception.

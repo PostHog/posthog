@@ -11,6 +11,7 @@ from temporalio import activity
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.errors import NonReportableError
 from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import get_incremental_field_value
@@ -198,10 +199,19 @@ async def handle_non_retryable_error(
     logger: FilteringBoundLogger,
     error: Exception,
 ) -> NoReturn:
+    """Fail a sync whose error the source classified as non-retryable, after a few attempts.
+
+    Nothing raised from here is reported to error tracking: the failure belongs to the customer's
+    config or the upstream API, the sync already surfaces the message in the UI, and every scheduled
+    sync would otherwise re-report it forever. `NonRetryableException` is a `NonReportableError`, and
+    the few pre-limit retries wrap the upstream error in one rather than re-raising it raw — a raw
+    re-raise gets captured like an unexpected crash, so the noise this function exists to avoid
+    landed in error tracking three times over on the way to giving up.
+    """
     async with _get_redis() as redis_client:
         if redis_client is None:
             await logger.adebug(f"Failed to get Redis client for non-retryable error tracking. error={error_msg}")
-            raise NonRetryableException() from error
+            raise NonRetryableException(error_msg) from error
 
         retry_key = build_non_retryable_errors_redis_key(team_id, source_id, run_id)
         attempts = await redis_client.incr(retry_key)
@@ -211,10 +221,11 @@ async def handle_non_retryable_error(
             await logger.adebug(
                 f"Non-retryable error attempt {attempts}/{NON_RETRYABLE_ERROR_RETRY_LIMIT}, retrying. error={error_msg}"
             )
-            raise error
+            # Not NonRetryableException: Temporal must still retry this attempt.
+            raise NonReportableError(error_msg) from error
 
     await logger.adebug(f"Non-retryable error after {attempts} runs, giving up. error={error_msg}")
-    raise NonRetryableException() from error
+    raise NonRetryableException(error_msg) from error
 
 
 async def reset_rows_synced_if_needed(

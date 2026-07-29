@@ -754,8 +754,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 update_inputs.status = ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW
             elif isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "NonRetryableException":
                 update_inputs.status = ExternalDataJob.Status.FAILED
-                update_inputs.internal_error = str(e.cause.cause)
-                update_inputs.latest_error = str(e.cause.cause)
+                # The wrapped upstream error is the most specific message; fall back to
+                # NonRetryableException's own message when it was raised without a cause,
+                # rather than recording the literal string "None".
+                error_message = str(e.cause.cause) if e.cause.cause is not None else str(e.cause.message)
+                update_inputs.internal_error = error_message
+                update_inputs.latest_error = error_message
                 raise
             else:
                 # Handle other activity errors normally

@@ -1,4 +1,5 @@
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -9,12 +10,16 @@ import deltalake
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
+from posthog.temporal.common.errors import NonReportableError
+
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
+    NON_RETRYABLE_ERROR_RETRY_LIMIT,
     handle_corrupted_delta_log,
+    handle_non_retryable_error,
     handle_reset_or_full_refresh,
     persist_primary_keys,
     report_heartbeat_timeout,
@@ -454,6 +459,42 @@ class TestHandleCorruptedDeltaLog:
         assert ph.capture.call_args.kwargs["event"] == "warehouse_delta_revived"
         assert ph.capture.call_args.kwargs["properties"]["outcome"] == "salvaged"
         assert ph.capture.call_args.kwargs["properties"]["made_non_billable"] is False
+
+
+class TestHandleNonRetryableError:
+    @parameterized.expand(
+        [
+            # No Redis client to count attempts with -> give up immediately.
+            ("no_redis_client", None, True),
+            # Within the attempt budget -> Temporal must still retry, so NOT NonRetryableException.
+            ("within_attempt_budget", NON_RETRYABLE_ERROR_RETRY_LIMIT, False),
+            # Budget spent -> terminal, and Temporal stops retrying on this type.
+            ("budget_exhausted", NON_RETRYABLE_ERROR_RETRY_LIMIT + 1, True),
+        ]
+    )
+    def test_raises_non_reportable_error_carrying_the_message(
+        self, _name: str, attempts: int | None, expect_terminal: bool
+    ):
+        # Every branch here handles a failure the source classified as the customer's config or the
+        # upstream API's problem. Raising anything that isn't a NonReportableError - a bare
+        # NonRetryableException used to be a plain Exception, and the pre-limit path re-raised the
+        # upstream error raw - hands it to the activity interceptor, which mints an error-tracking
+        # issue per distinct upstream cause on every scheduled sync. The message must travel too,
+        # or those issues are untitled.
+        error = ValueError("Column name organization is ambiguous")
+        logger = MagicMock(adebug=AsyncMock())
+
+        @asynccontextmanager
+        async def _redis(*args, **kwargs):
+            yield None if attempts is None else MagicMock(incr=AsyncMock(return_value=attempts), expire=AsyncMock())
+
+        with patch(f"{_EXTRACT_MODULE}._get_redis", _redis):
+            with pytest.raises(NonReportableError) as exc_info:
+                async_to_sync(handle_non_retryable_error)(1, "source-id", "run-id", str(error), logger, error)
+
+        assert str(exc_info.value) == str(error)
+        assert exc_info.value.__cause__ is error
+        assert isinstance(exc_info.value, NonRetryableException) is expect_terminal
 
 
 # transaction=True: the webhook-first branch clears the reset flag via update_sync_type_config_keys,
