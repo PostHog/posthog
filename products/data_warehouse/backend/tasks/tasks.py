@@ -102,7 +102,7 @@ def schedule_soft_delete_managed_warehouse_sources(*, organization_id: str | UUI
 def reconcile_all_managed_warehouse_tables_task() -> None:
     # Deferred: ducklake pulls duckdb in via common, and that must not load while Celery
     # imports task modules — keep it off this module's import path.
-    from posthog.ducklake import cp_teams, team_state  # noqa: PLC0415
+    from posthog.ducklake import cp_teams  # noqa: PLC0415
 
     rows = cp_teams.list_enabled_backfills()
     if rows is None:
@@ -111,8 +111,6 @@ def reconcile_all_managed_warehouse_tables_task() -> None:
         logger.warning("Managed warehouse reconcile sweep skipped: control plane unreachable")
         return
     for row in rows:
-        if team_state.cp_table_suffix(row) is None:
-            continue
         schedule_managed_warehouse_tables_reconcile(team_id=row.team_id, organization_id=row.organization_id)
 
 

@@ -431,8 +431,15 @@ class TestReconcileManagedWarehouseTables:
     def test_periodic_sweep_schedules_every_managed_project(self) -> None:
         org, team = self._setup()
         all_rows = _MEMBERSHIPS[str(org.id)] + [
-            # Legacy shared-table membership: the sweep's suffix filter still skips it.
-            {"org_id": str(org.id), "team_id": team.id + 1, "schema_name": "team_x", "events_table_name": "events"}
+            # Legacy shared-table membership: root-backed sources support it, so the
+            # sweep schedules it like any other row.
+            {
+                "org_id": str(org.id),
+                "team_id": team.id + 1,
+                "schema_name": "team_x",
+                "backfill_enabled": True,
+                "events_table_name": "events",
+            }
         ]
 
         with (
@@ -443,7 +450,8 @@ class TestReconcileManagedWarehouseTables:
         ):
             reconcile_all_managed_warehouse_tables_task()
 
-        schedule.assert_called_once_with(team_id=team.id, organization_id=str(org.id))
+        assert schedule.call_count == 2
+        assert {call.kwargs["team_id"] for call in schedule.call_args_list} == {team.id, team.id + 1}
 
     def test_periodic_sweep_skips_run_when_control_plane_unreachable(self) -> None:
         with (
