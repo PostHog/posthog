@@ -223,8 +223,9 @@ export const HoverChangeFromPrevious: Story = {
     },
 }
 
-// `series` draws one line per channel while the headline, hover and pill run on the per-index total,
-// so the tile still reads as one number. `sparklineTooltip` surfaces the breakdown behind that total.
+// `series` draws one line per channel while the headline, hover and pill keep reading `data` — here
+// the per-index totals — so the tile still reads as one number. `sparklineTooltip` surfaces the
+// breakdown behind that total.
 export const MultiSeries: Story = {
     render: () => {
         const theme = useChartTheme()
@@ -232,9 +233,11 @@ export const MultiSeries: Story = {
             { key: 'email', label: 'Email', data: [420, 510, 470, 540, 600, 580, 640, 690, 720, 770, 810, 880] },
             { key: 'push', label: 'Push', data: [180, 210, 240, 230, 260, 300, 320, 360, 400, 420, 460, 510] },
         ]
+        const totals = series[0].data.map((v, i) => v + series[1].data[i])
         return (
             <Card flush className="h-[320px] w-[360px]">
                 <Metric
+                    data={totals}
                     series={series}
                     labels={MONTHS}
                     theme={theme}

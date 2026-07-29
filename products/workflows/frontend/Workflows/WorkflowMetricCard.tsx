@@ -68,7 +68,7 @@ export interface WorkflowMetricCardProps {
     footer?: ReactNode
 }
 
-// Collapse a multi-series response into one sparkline line (per-index sum) plus the grand total. A
+// Collapse a response into the numbers the tile reads (per-index sums plus the grand total). A
 // single-metric tile has one series; the combined "messages" tile sums its email + push channels.
 function sumSeries(ts: AppMetricsTimeSeriesResponse | null | undefined): { data: number[]; total: number } {
     if (!ts || ts.series.length === 0) {
@@ -177,7 +177,7 @@ export function WorkflowMetricCard({
                 <Metric
                     className="px-3"
                     value={total}
-                    data={data.length > 0 ? data : undefined}
+                    data={data}
                     series={sparklineSeries}
                     labels={timeSeries?.labels}
                     theme={theme}
