@@ -279,6 +279,17 @@ class DeltaTableHelper:
         """Public accessor for the delta-rs storage options (used by the in-place repartitioner)."""
         return self._get_credentials()
 
+    async def _capture_unless_transient(self, e: Exception) -> None:
+        """capture_exception unless `e` is a known-transient object-store blip (see
+        is_transient_object_store_error) — those recover on retry and aren't a defect, so reporting
+        them to error tracking is just noise. Never suppresses the re-raise itself, so Temporal's
+        activity retry policy is unaffected either way.
+        """
+        if is_transient_object_store_error(e):
+            await self._logger.awarning(f"get_delta_table: transient object-store error, not reporting: {e}")
+        else:
+            capture_exception(e)
+
     async def _evolve_delta_schema(self, schema: pa.Schema) -> deltalake.DeltaTable:
         delta_table = await self.get_delta_table()
         if delta_table is None:
@@ -310,7 +321,7 @@ class DeltaTableHelper:
             # best-effort maintenance to the main write path, so this can't safely swallow the
             # error and report "no table" here — that would trip should_overwrite_table for a
             # table that actually exists, risking data loss.
-            capture_exception(e)
+            await self._capture_unless_transient(e)
             raise
 
         if is_delta:
@@ -319,7 +330,7 @@ class DeltaTableHelper:
                     deltalake.DeltaTable, table_uri=delta_uri, storage_options=storage_options
                 )
             except Exception as e:
-                capture_exception(e)
+                await self._capture_unless_transient(e)
                 error_text = "".join(str(arg) for arg in e.args)
                 # Unrecoverable tables (bugged decimals, or an orphaned _delta_log missing its
                 # metadata action — impossible on a healthy table): wipe so the sync starts fresh.
