@@ -12,6 +12,7 @@ from posthog.models import Organization, Team, User
 from posthog.models.utils import generate_random_token_secret
 
 from products.customer_analytics.backend.models import (
+    Account,
     AccountRelationship,
     AccountRelationshipDefinition,
     CustomPropertyValue,
@@ -46,6 +47,9 @@ class TestExternalAccountAPI(APIBaseTest):
 
     def _get(self, external_id="acme-1", token=None):
         return self.client.get(self.url, data={"external_id": external_id}, **self._auth_headers(token))
+
+    def _post(self, payload, token=None):
+        return self.client.post(self.url, data=payload, format="json", **self._auth_headers(token))
 
     def _patch(self, payload, token=None):
         return self.client.patch(self.url, data=payload, format="json", **self._auth_headers(token))
@@ -159,6 +163,73 @@ class TestExternalAccountAPI(APIBaseTest):
 
         response = self._get(token=other_team.secret_api_token)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    # -- POST account -----------------------------------------------------
+
+    def test_post_requires_auth(self):
+        response = self.client.post(self.url, data={"external_id": "globex-1"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertFalse(Account.objects.for_team(self.team.id).filter(external_id="globex-1").exists())
+
+    @parameterized.expand(
+        [
+            ("missing_external_id", {"name": "Globex"}),
+            ("blank_external_id", {"external_id": "   "}),
+        ]
+    )
+    def test_post_rejects_invalid_payload(self, _name, payload):
+        response = self._post(payload)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand(
+        [
+            ("with_name", {"name": "Globex"}, "Globex"),
+            ("without_name", {}, "globex-1"),
+            ("blank_name", {"name": ""}, "globex-1"),
+        ]
+    )
+    def test_post_creates_account(self, _name, extra, expected_name):
+        response = self._post({"external_id": "globex-1", **extra})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertTrue(data["created"])
+        self.assertEqual(data["external_id"], "globex-1")
+        self.assertEqual(data["name"], expected_name)
+        created = Account.objects.for_team(self.team.id).get(external_id="globex-1")
+        self.assertEqual(created.name, expected_name)
+        self.assertEqual(str(created.id), data["id"])
+
+    def test_post_adds_tags_to_the_new_account(self):
+        response = self._post({"external_id": "globex-1", "tags": ["enterprise", "trial"]})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["tags"], ["enterprise", "trial"])
+
+    def test_post_existing_account_is_a_no_op(self):
+        response = self._post({"external_id": "acme-1", "name": "Renamed", "tags": ["enterprise"]})
+
+        # 200 (not 201, and not an error) so a workflow re-running over an account it already
+        # created continues instead of failing the run.
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertFalse(data["created"])
+        self.assertEqual(data["id"], str(self.account.id))
+        self.assertEqual(data["name"], "Acme Corp")
+        self.assertEqual(data["tags"], [])
+        self.assertEqual(Account.objects.for_team(self.team.id).filter(external_id="acme-1").count(), 1)
+
+    def test_post_creates_account_for_external_id_another_team_already_uses(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_team.secret_api_token = generate_random_token_secret()
+        other_team.save(update_fields=["secret_api_token"])
+
+        response = self._post(
+            {"external_id": "acme-1", "name": "Acme in other team"}, token=other_team.secret_api_token
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Account.objects.for_team(other_team.id).get(external_id="acme-1").name, "Acme in other team")
 
     # -- PATCH account ----------------------------------------------------
 

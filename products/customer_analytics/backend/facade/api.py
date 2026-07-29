@@ -517,6 +517,58 @@ def _apply_external_relationship_assignments(
     return None
 
 
+def create_external_account(
+    team_id: int,
+    external_id: str,
+    *,
+    name: str | None = None,
+    tags: list[str] | None = None,
+    workflow_id: str | None = None,
+) -> contracts.ExternalAccountCreateResult:
+    """Create the team's account for ``external_id`` for the external API.
+
+    Idempotent by design: an account already holding the external id is returned untouched
+    with ``created=False``, so a workflow re-running over an account it already created (or
+    losing a race to a concurrent run) doesn't fail the run. ``name`` falls back to the
+    external id, which is all an automated onboarding path is guaranteed to know. Tags are
+    applied on creation only — changing an existing account's tags is the update path's job.
+    """
+    existing = _get_external_account_by_external_id(team_id, external_id)
+    if existing is not None:
+        return contracts.ExternalAccountCreateResult(account=_to_external_account(existing), created=False)
+
+    team = Team.objects.get(id=team_id)
+    try:
+        with transaction.atomic():
+            account = Account.objects.create_account(team=team, name=name or external_id, external_id=external_id)
+            if tags:
+                _apply_external_tags(account, tags, "add", workflow_id=workflow_id)
+    except IntegrityError:
+        # Lost the (team, external_id) unique constraint to a concurrent create — the
+        # account exists, which is all the caller asked for, so report it as a no-op too.
+        raced = _get_external_account_by_external_id(team_id, external_id)
+        if raced is not None:
+            return contracts.ExternalAccountCreateResult(account=_to_external_account(raced), created=False)
+        return contracts.ExternalAccountCreateResult(error=contracts.ExternalAccountCreateError.CREATE_FAILED)
+    except Exception as e:
+        capture_exception(e, {"team_id": team_id, "external_id": external_id})
+        return contracts.ExternalAccountCreateResult(error=contracts.ExternalAccountCreateError.CREATE_FAILED)
+
+    # No human actor: the write is attributed to the workflow via the same channel the tag
+    # writes use, so the activity entry carries no user.
+    _log_activity_swallowing(
+        instance=account,
+        scope="Account",
+        activity="created",
+        name=account.name,
+        organization_id=team.organization_id,
+        team_id=team_id,
+        user=None,
+        was_impersonated=False,
+    )
+    return contracts.ExternalAccountCreateResult(account=_to_external_account(account), created=True)
+
+
 def update_external_account(
     team_id: int,
     external_id: str,
@@ -736,12 +788,14 @@ def _log_activity_swallowing(
     name: str,
     organization_id,
     team_id: int,
-    user: "User",
+    user: "User | None",
     was_impersonated: bool,
     previous=None,
 ) -> None:
     """Replicates ``posthog.api.utils.log_activity_from_viewset`` — including its blanket
-    ``except: pass`` — for the account / customer-journey write paths."""
+    ``except: pass`` — for the account / customer-journey write paths.
+
+    ``user`` is None for writes with no human actor (an external API call from a workflow)."""
     try:
         detail_kwargs: dict[str, Any] = {"name": name}
         if previous is not None:

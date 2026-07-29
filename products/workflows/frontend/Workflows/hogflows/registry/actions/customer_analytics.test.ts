@@ -6,6 +6,7 @@ import { getRegisteredActionNodeCategories } from './actionNodeRegistry'
 import {
     buildAccountExternalIdInputs,
     buildAccountOutputSuggestions,
+    buildCreateAccountInputs,
     customPropertyResultPath,
     slugifyName,
 } from './customer_analytics'
@@ -24,6 +25,14 @@ describe('customer analytics action registry', () => {
 
     it('gates the category behind the customer analytics CSP feature flag', () => {
         expect(getCategory().featureFlag).toBe(FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP)
+    })
+
+    it('wires the Create account node to its hog function template', () => {
+        const node = getCategory().nodes.find((n) => n.name === 'Create account')
+        expect(node).toMatchObject({
+            type: 'function',
+            config: { template_id: 'template-posthog-create-account' },
+        })
     })
 
     it('wires the Get account node to its hog function template', () => {
@@ -86,7 +95,7 @@ describe('customer analytics action registry', () => {
         })
     })
 
-    it.each(['Get account', 'Tag account', 'Update account relationships'])(
+    it.each(['Create account', 'Get account', 'Tag account', 'Update account relationships'])(
         'gives %s a dynamic external_id default resolver',
         (name) => {
             const node = getCategory().nodes.find((n) => n.name === name)
@@ -158,6 +167,19 @@ describe('customer analytics action registry', () => {
 
         it('returns undefined when the configured index has no matching group type', () => {
             expect(buildAccountExternalIdInputs(3, groupTypesMap([0, 'organization']))).toBeUndefined()
+        })
+    })
+
+    describe('buildCreateAccountInputs', () => {
+        it('prefills the group key and the group name so the node needs no manual input', () => {
+            expect(buildCreateAccountInputs(2, groupTypesMap([0, 'project'], [2, 'organization']))).toEqual({
+                external_id: { value: '{groups.`organization`.id}' },
+                name: { value: '{groups.`organization`.properties.name}' },
+            })
+        })
+
+        it('returns undefined when no account group type is configured', () => {
+            expect(buildCreateAccountInputs(null, groupTypesMap([0, 'organization']))).toBeUndefined()
         })
     })
 })

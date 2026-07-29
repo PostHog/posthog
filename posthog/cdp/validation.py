@@ -38,6 +38,7 @@ def register_supported_function(name: str) -> None:
 register_supported_function("postHogGetTicket")
 register_supported_function("postHogUpdateTicket")
 register_supported_function("postHogGetAccount")
+register_supported_function("postHogCreateAccount")
 register_supported_function("postHogUpdateAccount")
 register_supported_function("postHogSetAccountProperties")
 

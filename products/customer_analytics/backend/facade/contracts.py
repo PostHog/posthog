@@ -218,6 +218,27 @@ class ExternalAccountUpdateResult:
     error_field: str | None = None
 
 
+class ExternalAccountCreateError(Enum):
+    """Failure modes of the external account create, each mapping to a distinct
+    HTTP response in the view."""
+
+    CREATE_FAILED = "create_failed"
+
+
+@dataclass(frozen=True)
+class ExternalAccountCreateResult:
+    """Outcome of the external account create.
+
+    Exactly one of ``account`` / ``error`` is set. ``created`` is False when an account
+    already held the external id: the create is idempotent, so a workflow re-running over
+    an account it already brought into existence is a no-op rather than a failed run.
+    """
+
+    account: ExternalAccount | None = None
+    created: bool = False
+    error: ExternalAccountCreateError | None = None
+
+
 # --- Presentation wave: views that back the Accounts CRUD endpoints ---
 #
 # These contracts shape the DRF responses for the account/customer-journey/

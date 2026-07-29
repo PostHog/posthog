@@ -185,6 +185,29 @@ class TestCustomerAnalyticsFacade(BaseTest):
         assert facade.get_external_account(self.team.id, "nope") is None
         assert facade.get_external_account(other_team.id, "acme-1") is None
 
+    def test_create_external_account_is_a_no_op_when_a_concurrent_create_wins(self):
+        # Force the race the unique (team, external_id) constraint guards: the existence check
+        # comes back empty, then the row lands before our insert does.
+        original = facade._get_external_account_by_external_id
+        raced = False
+
+        def existence_check(team_id, external_id):
+            nonlocal raced
+            if not raced:
+                raced = True
+                create_account(team_id=team_id, name="Winner", external_id=external_id)
+                return None
+            return original(team_id, external_id)
+
+        with patch.object(facade, "_get_external_account_by_external_id", side_effect=existence_check):
+            result = facade.create_external_account(self.team.id, "acme-1", name="Loser")
+
+        assert result.error is None
+        assert result.created is False
+        assert result.account is not None
+        assert result.account.name == "Winner"
+        assert Account.objects.for_team(self.team.id).filter(external_id="acme-1").count() == 1
+
     def test_update_external_account_not_found_returns_not_found(self):
         result = facade.update_external_account(
             self.team.id, "missing", relationship_assignments={}, tags=None, tags_mode="add"

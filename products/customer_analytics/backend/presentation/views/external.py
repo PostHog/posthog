@@ -215,6 +215,25 @@ def _update_error_response(result: contracts.ExternalAccountUpdateResult) -> Res
     return Response({"error": message}, status=code)
 
 
+class ExternalAccountCreateSerializer(serializers.Serializer):
+    external_id = serializers.CharField(
+        max_length=400,
+        help_text="External ID (group key) to create the account under. Must be unique within the project.",
+    )
+    name = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_blank=True,
+        help_text="Display name for the account. Defaults to the external ID when omitted.",
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=200),
+        required=False,
+        max_length=100,
+        help_text="Tag names to add to the newly created account.",
+    )
+
+
 class ExternalAccountUpdateSerializer(serializers.Serializer):
     external_id = serializers.CharField(max_length=400, help_text="External ID (group key) of the account to update.")
     # Each value accepts a `posthog_assignee` object `{type, id}`, or `null` to end the
@@ -265,6 +284,7 @@ class ExternalAccountUpdateSerializer(serializers.Serializer):
 class ExternalAccountView(APIView):
     """
     GET /api/customer_analytics/external/account?external_id=<external_id> — Fetch account data
+    POST /api/customer_analytics/external/account — Create an account (idempotent)
     PATCH /api/customer_analytics/external/account — Update an account's role contacts and tags
 
     Authenticated via Bearer token (team secret_api_token) in Authorization header.
@@ -290,6 +310,42 @@ class ExternalAccountView(APIView):
             return Response({"error": "Account not found"}, status=status.HTTP_404_NOT_FOUND)
 
         return Response(_external_account_body(account))
+
+    @extend_schema(
+        request=ExternalAccountCreateSerializer, responses={200: OpenApiTypes.OBJECT, 201: OpenApiTypes.OBJECT}
+    )
+    def post(self, request: Request) -> Response:
+        team, error = _authenticate_team(request)
+        if error:
+            return error
+
+        assert team is not None
+
+        serializer = ExternalAccountCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        data = serializer.validated_data
+
+        external_id = data["external_id"].strip()
+        if not external_id:
+            return Response({"error": "external_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        result = facade.create_external_account(
+            team.id,
+            external_id,
+            name=(data.get("name") or "").strip() or None,
+            tags=data.get("tags"),
+            workflow_id=_workflow_id_from_request(request),
+        )
+        if result.account is None:
+            return Response({"error": "Failed to create account"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 200 rather than 201 when the account already existed, so a workflow can tell the
+        # two apart without the create failing its run.
+        return Response(
+            {**_external_account_body(result.account), "created": result.created},
+            status=status.HTTP_201_CREATED if result.created else status.HTTP_200_OK,
+        )
 
     def patch(self, request: Request) -> Response:
         team, error = _authenticate_team(request)

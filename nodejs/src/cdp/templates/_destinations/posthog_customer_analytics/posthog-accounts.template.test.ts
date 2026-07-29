@@ -1,6 +1,7 @@
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { TemplateTester } from '../../test/test-helpers'
+import { template as createAccountTemplate } from './posthog-create-account.template'
 import { template as getAccountTemplate } from './posthog-get-account.template'
 import { template as tagAccountTemplate } from './posthog-tag-account.template'
 import { template as updateAccountPropertyTemplate } from './posthog-update-account-property.template'
@@ -11,6 +12,14 @@ const REL_UUID = '0197f9f0-1111-0000-0000-000000000000'
 
 describe('posthog customer analytics account templates', () => {
     const cases = [
+        {
+            name: 'create account',
+            template: createAccountTemplate,
+            inputs: { external_id: 'acme-1', name: 'Acme' },
+            failurePrefix: 'Failed to create account (400):',
+            // The shared success case replies 200 without `created`, which is the already-exists path.
+            successLog: 'Account acme-1 already exists',
+        },
         {
             name: 'get account',
             template: getAccountTemplate,
@@ -104,6 +113,42 @@ describe('posthog customer analytics account templates', () => {
             response = await tester.invokeFetchResponse(response.invocation, { status, body })
 
             expect(response.error).toEqual(expected)
+        })
+    })
+
+    describe('create account', () => {
+        const tester = new TemplateTester(createAccountTemplate)
+
+        beforeEach(async () => {
+            await tester.beforeEach()
+        })
+
+        it('POSTs the account fields and reports a fresh account as created', async () => {
+            let response = await tester.invoke({ external_id: 'acme-1', name: 'Acme', tags: ['vip'] })
+
+            const queueParameters = response.invocation.queueParameters as any
+            expect(queueParameters.method).toBe('POST')
+            expect(parseJSON(queueParameters.body)).toEqual({
+                external_id: 'acme-1',
+                name: 'Acme',
+                tags: ['vip'],
+            })
+
+            response = await tester.invokeFetchResponse(response.invocation, {
+                status: 201,
+                body: { id: 'account-id', external_id: 'acme-1', created: true },
+            })
+
+            expect(response.error).toBeUndefined()
+            expect(response.logs.filter((log) => log.level === 'info').map((log) => log.message)).toContain(
+                'Created account acme-1'
+            )
+        })
+
+        it('omits the optional fields when they are left empty', async () => {
+            const response = await tester.invoke({ external_id: 'acme-1' })
+
+            expect(parseJSON((response.invocation.queueParameters as any).body)).toEqual({ external_id: 'acme-1' })
         })
     })
 

@@ -31,11 +31,33 @@ export const buildAccountExternalIdInputs = (
     return { external_id: { value: `{groups.\`${quotedGroupType}\`.id}` } }
 }
 
-const getAccountExternalIdDefaultInputs = (): Record<string, CyclotronInputType> | undefined =>
-    buildAccountExternalIdInputs(
-        teamLogic.findMounted()?.values.currentTeam?.customer_analytics_config?.account_group_type_index,
-        groupsModel.findMounted()?.values.groupTypes ?? new Map()
+/** Create-account defaults: the group key plus the group's display name, which the backend falls back
+ * to the external id for when the group has no `name` property. */
+export const buildCreateAccountInputs = (
+    accountGroupTypeIndex: number | null | undefined,
+    groupTypes: Map<GroupTypeIndex, GroupType>
+): Record<string, CyclotronInputType> | undefined => {
+    const inputs = buildAccountExternalIdInputs(accountGroupTypeIndex, groupTypes)
+    if (!inputs) {
+        return undefined
+    }
+    const quotedGroupType = (groupTypes.get(accountGroupTypeIndex as GroupTypeIndex)?.group_type ?? '').replace(
+        /`/g,
+        '``'
     )
+    return { ...inputs, name: { value: `{groups.\`${quotedGroupType}\`.properties.name}` } }
+}
+
+const currentAccountGroupTypeArgs = (): [number | null | undefined, Map<GroupTypeIndex, GroupType>] => [
+    teamLogic.findMounted()?.values.currentTeam?.customer_analytics_config?.account_group_type_index,
+    groupsModel.findMounted()?.values.groupTypes ?? new Map(),
+]
+
+const getAccountExternalIdDefaultInputs = (): Record<string, CyclotronInputType> | undefined =>
+    buildAccountExternalIdInputs(...currentAccountGroupTypeArgs())
+
+const getCreateAccountDefaultInputs = (): Record<string, CyclotronInputType> | undefined =>
+    buildCreateAccountInputs(...currentAccountGroupTypeArgs())
 
 /** Slugify a definition name to a safe variable key suffix: lowercase, non-alphanumeric → `_`, collapse and trim. */
 export const slugifyName = (name: string): string =>
@@ -98,6 +120,14 @@ registerActionNodeCategory({
     label: 'Customer analytics',
     featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP,
     nodes: [
+        {
+            type: 'function',
+            name: 'Create account',
+            description: 'Create a Customer analytics account, or continue if it already exists.',
+            config: { template_id: 'template-posthog-create-account', inputs: {} },
+            getDefaultInputs: getCreateAccountDefaultInputs,
+            output_variable: { key: 'account', result_path: null },
+        },
         {
             type: 'function',
             name: 'Get account',
