@@ -2,6 +2,7 @@ import './ErrorBoundary.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconCopy } from '@posthog/icons'
 import { PostHogErrorBoundary, type PostHogErrorBoundaryFallbackProps } from '@posthog/react'
@@ -18,6 +19,12 @@ const DOM_MUTATION_PATTERNS = [
     "Failed to execute 'appendChild' on 'Node'",
 ]
 
+/**
+ * These throw when something outside React rewrites DOM that React is holding on to, which in
+ * practice means in-page translation replacing text nodes with `<font>` wrappers. Most of them
+ * never reach a boundary, because `installTranslationSafeDom` neutralizes the two mutators
+ * React's commit phase relies on; this branch covers whatever still gets through.
+ */
 function isDOMModificationError(error: Error): boolean {
     const message = error.message || ''
     return DOM_MUTATION_PATTERNS.some((pattern) => message.includes(pattern))
@@ -32,6 +39,12 @@ interface ErrorBoundaryProps {
 export function ErrorBoundary({ children, exceptionProps = {}, className }: ErrorBoundaryProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { openSupportForm } = useActions(supportLogic)
+    // PostHogErrorBoundary keeps the caught error in its own state and exposes no reset, so
+    // remounting it is the only route back to rendering children. Without this, the app-root
+    // boundary in scenes/App.tsx is terminal: it has no key that ever changes, unlike the
+    // per-scene boundary that resets whenever the scene does, so anything thrown from the nav
+    // or the command palette leaves a page reload as the user's only way out.
+    const [resetCount, setResetCount] = useState(0)
 
     const additionalProperties = { ...exceptionProps }
 
@@ -41,6 +54,7 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
 
     return (
         <PostHogErrorBoundary
+            key={resetCount}
             additionalProperties={additionalProperties}
             fallback={(props: PostHogErrorBoundaryFallbackProps) => {
                 const rawError = props.error
@@ -52,7 +66,7 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
 
                 const exceptionEvent = props.exceptionEvent as SupportTicketExceptionEvent
 
-                const isBrowserExtensionError = isDOMModificationError(normalizedError)
+                const isPageRewrittenError = isDOMModificationError(normalizedError)
 
                 const errorDetails = [
                     exceptionEvent?.uuid ? `Exception ID: ${exceptionEvent.uuid}` : null,
@@ -64,24 +78,12 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                 return (
                     <div className={clsx('ErrorBoundary', className)}>
                         <h2>An error has occurred</h2>
-                        {isBrowserExtensionError && (
-                            <LemonBanner
-                                type="warning"
-                                className="mb-2"
-                                action={{
-                                    children: 'Email an engineer',
-                                    onClick: () => {
-                                        openSupportForm({
-                                            kind: 'bug',
-                                            isEmailFormOpen: true,
-                                            exception_event: exceptionEvent ?? null,
-                                        })
-                                    },
-                                }}
-                            >
-                                This error is commonly caused by browser extensions (such as translation or ad-blocking
-                                extensions) that modify the page. Try disabling your browser extension(s) and reloading
-                                the page to avoid this error in the future.
+                        {isPageRewrittenError && (
+                            <LemonBanner type="warning" className="mb-2">
+                                Something outside PostHog rewrote the text on this page, so PostHog could no longer
+                                update it. This is usually page translation, either your browser's built-in translation
+                                or an extension that translates or rewrites text. Turn translation off for this site,
+                                then try again.
                             </LemonBanner>
                         )}
                         <pre>
@@ -98,43 +100,48 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                         {exceptionEvent?.uuid && (
                             <div className="text-muted text-xs mb-2">Exception ID: {exceptionEvent.uuid}</div>
                         )}
-                        {!isBrowserExtensionError && (
-                            <>
-                                <p className="mb-2">
-                                    Click below to send this to an engineer.{' '}
-                                    {exceptionEvent
-                                        ? "We'll attach the exception ID, stack trace, and session replay automatically"
-                                        : "We'll attach the session replay automatically"}{' '}
-                                    — just tell us what you were doing, and add a screenshot if you think it will help.
-                                </p>
-                                <div className="flex gap-2 flex-wrap">
-                                    <LemonButton
-                                        type="primary"
-                                        center
-                                        onClick={() => {
-                                            openSupportForm({
-                                                kind: 'bug',
-                                                isEmailFormOpen: true,
-                                                exception_event: exceptionEvent ?? null,
-                                            })
-                                        }}
-                                        className="flex-1"
-                                    >
-                                        Email an engineer
-                                    </LemonButton>
-                                    <LemonButton
-                                        type="secondary"
-                                        center
-                                        icon={<IconCopy />}
-                                        onClick={() => void copyToClipboard(errorDetails, 'error details')}
-                                        disabledReason={!errorDetails ? 'No details to copy' : undefined}
-                                        className="flex-1"
-                                    >
-                                        Copy error details
-                                    </LemonButton>
-                                </div>
-                            </>
-                        )}
+                        <p className="mb-2">
+                            Try again first. If the error comes back, send it to an engineer.{' '}
+                            {exceptionEvent
+                                ? "We'll attach the exception ID, stack trace, and session replay automatically"
+                                : "We'll attach the session replay automatically"}
+                            , so you only need to tell us what you were doing. Add a screenshot if you think it will
+                            help.
+                        </p>
+                        <div className="flex gap-2 flex-wrap">
+                            <LemonButton
+                                type="primary"
+                                center
+                                onClick={() => setResetCount((count) => count + 1)}
+                                className="flex-1"
+                            >
+                                Try again
+                            </LemonButton>
+                            <LemonButton
+                                type="secondary"
+                                center
+                                onClick={() => {
+                                    openSupportForm({
+                                        kind: 'bug',
+                                        isEmailFormOpen: true,
+                                        exception_event: exceptionEvent ?? null,
+                                    })
+                                }}
+                                className="flex-1"
+                            >
+                                Email an engineer
+                            </LemonButton>
+                            <LemonButton
+                                type="secondary"
+                                center
+                                icon={<IconCopy />}
+                                onClick={() => void copyToClipboard(errorDetails, 'error details')}
+                                disabledReason={!errorDetails ? 'No details to copy' : undefined}
+                                className="flex-1"
+                            >
+                                Copy error details
+                            </LemonButton>
+                        </div>
                     </div>
                 )
             }}
