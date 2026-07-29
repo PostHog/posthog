@@ -5,6 +5,11 @@
             "description": "The ticket's UUID or its numeric ticket number.",
             "type": "string"
         },
+        "include_linked_reports": {
+            "default": true,
+            "description": "Whether to resolve the Self-driving reports linked to this ticket. Defaults to true. Pass false to skip the lookup when you already have them, or don't need them.",
+            "type": "boolean"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"
