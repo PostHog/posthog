@@ -280,7 +280,7 @@ async def run_post_load_operations(
     resource: "Optional[SourceResponse]" = None,
     cdc_table_mode: Optional[str] = None,
     cdc_write_mode: Optional[str] = None,
-) -> None:
+) -> str | None:
     """
     Orchestrator function that runs all post-load operations:
         1. Compact delta table (if exists)
@@ -290,6 +290,10 @@ async def run_post_load_operations(
         5. Finalize incremental field values
         6. Validate schema and update table (or register CDC companion table)
         7. Sync revenue analytics views (if applicable)
+
+    Returns the `queryable_folder` prepared in step 2, or None if there was no Delta
+    table to post-load. Callers can hand the folder to downstream consumers (e.g. the
+    DuckLake registration workflow) that key off the schema's current prepared folder.
     """
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
         finalize_desc_sort_incremental_value,
@@ -306,7 +310,7 @@ async def run_post_load_operations(
 
     if delta_table_helper is None or await delta_table_helper.get_delta_table() is None:
         logger.debug("No deltalake table, not continuing with post-run ops")
-        return
+        return None
 
     # Detect CDC companion writes — scd2_append writes always go to the companion _cdc resource.
     # In this case we must NOT touch schema.table (the snapshot table) and must register the companion
@@ -491,3 +495,5 @@ async def run_post_load_operations(
         delta_table = await delta_table_helper.get_delta_table()
         if delta_table is not None:
             await maybe_flag_for_repartition(schema, source, job, delta_table, logger)
+
+    return queryable_folder
