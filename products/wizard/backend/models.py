@@ -28,6 +28,10 @@ class WizardSession(UUIDModel, TeamScopedRootMixin):
     tasks = models.JSONField(default=list)
     event_plan = models.JSONField(null=True, blank=True)
     error = models.JSONField(null=True, blank=True)
+    # An in-flight wizard_ask prompt ({id, asked_at, question_count, sensitive, prompts?}).
+    # Null means no input is pending — each push replaces it, so the CLI clearing the
+    # question is just the next upsert without the field.
+    pending_input = models.JSONField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
