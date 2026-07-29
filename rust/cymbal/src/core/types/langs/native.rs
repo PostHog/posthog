@@ -1414,13 +1414,13 @@ mod test {
         // Android-typical load base. The fixture's rel_pc values are ELF
         // vaddrs (preferred base 0), including the exec segment's nonzero
         // load bias (p_vaddr 0x43cc vs p_offset 0x3cc from the NDK's 16 KiB
-        // max-page-size — the APK-embedded mapping shape).
+        // max-page-size, the APK-embedded mapping shape).
         let base = 0x7a12_3450_0000u64;
         let debug_images = vec![debug_image_at(&chunk_id, base)];
 
-        // Tombstone pcs are already the right lookup address — the leaf is
+        // Tombstone pcs are already the right lookup address (the leaf is
         // the faulting instruction and libunwindstack rewinds caller pcs to
-        // the call instruction — so the SDK biases instruction_addr by +1 to
+        // the call instruction), so the SDK biases instruction_addr by +1 to
         // cancel the uniform -1 return-address adjustment applied here. The
         // addresses below model that wire value.
         //
@@ -1446,14 +1446,14 @@ mod test {
         );
         assert_eq!(frames[1].source.as_deref(), Some("test_android.cpp"));
         assert_eq!(frames[1].lang, "cpp");
-        // The exact crash line — the +1 bias keeps the lookup on the
+        // The exact crash line: the +1 bias keeps the lookup on the
         // faulting instruction instead of shifting one line-table row up.
         assert_eq!(frames[1].line, Some(12));
 
         // Caller: the JNI entry point (extern "C", so the name survives
         // undecorated). The unwinder already rewound the arm64 return
         // address 0x4458 to the call instruction 0x4454; sent as 0x4455,
-        // resolved at 0x4454 — without the bias the -1 here would adjust it
+        // resolved at 0x4454. Without the bias the -1 here would adjust it
         // a second time, off the call's source line.
         let frame = RawFrame::Native(native_frame_at(base + 0x4455, base));
         let resolved = frame

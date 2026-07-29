@@ -1,7 +1,7 @@
 // Android NDK-shaped fixture: a JNI entry point calling into mangled C++
 // with an inlined leaf, compiled as an aarch64-linux-android shared object.
 // Mirrors what an NDK crash reports: frames inside an APK-packaged .so.
-// Freestanding (no bionic) — the binary is never executed by tests; it only
+// Freestanding (no bionic): the binary is never executed by tests; it only
 // needs valid DWARF, Itanium-mangled symbols, and a GNU build id.
 using i64 = long long;
 
