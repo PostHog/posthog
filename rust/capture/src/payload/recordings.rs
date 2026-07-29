@@ -113,7 +113,7 @@ pub async fn handle_recording_payload(
     counter!("capture_events_received_total").increment(events.len() as u64);
 
     let now = state.timesource.current_time();
-    let sent_at = query_params.sent_at();
+    let sent_at = events[0].sent_at().or_else(|| query_params.sent_at());
 
     let context = ProcessingContext {
         sent_at,
@@ -126,6 +126,7 @@ pub async fn handle_recording_payload(
         historical_migration: false, // recordings don't support historical migration
         user_agent: Some(metadata.user_agent.to_string()),
         chatty_debug_enabled,
+        capture_mode: state.capture_mode,
     };
 
     // Apply all billing limit quotas and drop partial or whole

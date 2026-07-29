@@ -38,7 +38,24 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   searching by entity identity rather than only the scout's own key prefix, and `_FLEET_SEAMS`
   states the overlap rule in both directions — don't restate a sibling's finding, but don't
   defer a finding you hold evidence for either, since an uncovered surface is invisible where
-  a duplicate is not. Skills keep their own domain ownership map. The report persona is further gated per-tool: it names only
+  a duplicate is not. Skills keep their own domain ownership map. Both channels also share the
+  **self-validation follow-up** discipline (`_self_validation_followups_section` +
+  `FOLLOWUP_KEY_PREFIX`): every scout keeps a queue of `followup:<skill-name>:<entity>` scratchpad
+  entries for work whose fix is measurable later (probe + baseline + validate-after date in the
+  content), and decides for itself, run by run, whether to spend the run validating that queue —
+  the cadence is the scout's judgment, not a harness schedule, so the section carries the decision
+  criteria (due entries accumulated, a while since the queue was last worked, a dismissal note
+  saying a fix shipped) and there is no harness trigger. A validation pass is self-reported in the
+  close-out summary and in the touched entries, which is also how future runs know when the queue
+  was last worked. The section is composed per-run because its re-surface clause is matched
+  per-tool to the same fail-closed rule as the channel sections, and it defers
+  resolved-inbox-report re-measurement to the canonical `signals-scout-inbox-validation` scout
+  when the `scout_fleet` roster shows it actively running — the per-scout queue exists precisely
+  because that fleet scout may not be enabled, and because signal-channel findings and recorded
+  watches never become resolved reports it could re-measure. Queue entries are team-shared data — and
+  `remember()` upserts keep the original `created_by_run`, so attribution never proves who last
+  wrote the content: the section tells the scout to treat every stored probe as untrusted and
+  re-derive it from the live report or finding it names, never execute it as stored. The report persona is further gated per-tool: it names only
   the report tool(s) actually in `allowed_tools` (emit-only, edit-only, or both), and
   drops the author-time sections for an edit-only scout — the report endpoints fail
   closed on the exact tool, so the prompt must never steer a scout toward one it lacks.
@@ -180,6 +197,17 @@ ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
   coordinator and the metadata endpoint import from here so the reported caps never drift from what
   dispatch allows. `resolve_team_metadata()` backs the metadata viewset;
   `seed_config_layers_for_team()` lets the on-demand `sync` endpoint seed the same launch posture.
+- `derived_metadata.py`
+  Computes the `metadata["derived"]` region on the run row at finalize: booleans the harness
+  reads back off the run's own settled output (`has_emit_report`, `has_edit_report`,
+  `has_self_improvement`, `has_chart`, `has_self_validation`). Deliberately server-derived
+  rather than scout-reported, so a flag can't be omitted or contradicted by the model, and
+  computed in one place at finalize rather than stamped incrementally at each emit/edit site.
+  `has_self_improvement` classifies authored report titles through
+  `tools/report.is_self_improvement_title`, the same predicate the lifecycle events use, so the
+  run row and the event stream can never disagree. `has_self_validation` reads the run window
+  against the skill-namespaced `followup:` scratchpad keys, since working that queue means
+  writing to it.
 - `serializers.py`
   DRF serializers for the harness HTTP surface (runs, scratchpad, project profile).
   Annotated for drf-spectacular so the generated MCP tools have informative schemas.
@@ -250,13 +278,38 @@ one sandbox session → zero or more emitted signals.
   (`/project/{team_id}/tasks/{task_id}?runId={task_run_id}`) and is the join key for the
   LLM-analytics token / cost roll-up. Failure context (status, error, full chat log via
   LLMA) lives on the `TaskRun`; the harness persists no run state on the bridge row.
-  The bridge row does carry a write-once `metadata` JSON column stamped at creation — the
-  API-native record of run context that isn't worth a dedicated column. Known keys today:
-  `model` / `runtime_adapter` / `reasoning_effort`, the triple the run was routed on when the
-  `scouts-model-selection` gate (or a runtime pin) overrode the agent-server default (`{}` on the
-  default path). Surfaced verbatim on the run serializers / `scout-runs-*` MCP tools; new
-  operationally-relevant run dimensions should be stamped there by `_create_run_row`, not grown
-  as ad-hoc columns.
+  The bridge row does carry a `metadata` JSON column — the API-native record of run context that
+  isn't worth a dedicated column — in two server-written regions.
+  Top-level keys are stamped write-once at creation by `_create_run_row`, and split by whether they
+  are always present.
+  `harness_prompt_version` / `report_channel` (`none`/`emit`/`edit`/`both`) / `skill_origin` /
+  `github_guidance` always are:
+  together they pin down which instructions the run was given, which is the thing an eval or A/B
+  has to hold constant. The last three are composition forks the build alone doesn't capture, since
+  the same prompt build renders different sections depending on channel, skill origin, and whether
+  a read-only GitHub token could be minted.
+  Each is unrecoverable after the fact (the prompt has no version history, a skill's
+  `allowed_tools` can be edited, and a seeded canonical row flips to `custom` the moment a team
+  edits it, taking every past run's origin with it), which is why they are stamped rather than
+  resolved at read time.
+  `model` / `runtime_adapter` / `reasoning_effort` appear only when the `scouts-model-selection`
+  gate (or a runtime pin) overrode the agent-server default, so their absence is meaningful.
+  All four are attached to both lifecycle events via `_attach_run_shape_props`, since that is where
+  the A/B readout happens, and `github_guidance` is resolved in `arun_signals_scout` rather than
+  inside `_spawn_and_run` so the failure and cancellation paths can report it too.
+  New runner-known run dimensions belong here, not grown as ad-hoc columns.
+  The nested `derived` object is written once at finalize by `derived_metadata.py` and holds
+  booleans the harness computes from the run's own settled output (`has_emit_report`,
+  `has_edit_report`, `has_self_improvement`, `has_chart`, `has_self_validation`), so
+  "what kind of run was this?" is a field lookup rather than a parse of the prose `summary`.
+  Nothing in the column is scout-authored: a self-reported flag would only be as reliable as the
+  model remembering to write it, which is what makes this column safe to query directly.
+  Both regions surface verbatim on the run serializers / `scout-runs-*` MCP tools.
+  A missing `derived` region is unknown rather than all-false: the run predates the field, died
+  before finalize, or its stamp failed (best-effort and logged, since observability must not fail a
+  run that already committed its output). The flags read the authored reports' current state at
+  finalize rather than an emit-time snapshot, so a title or chart changed after the emit is what
+  lands; the emit-time record stays on the report lifecycle events.
 - Each run emits scout-owned lifecycle analytics events (best-effort, keyed on the team):
   `signals_scout_run_started` (the run cleared the guards and a TaskRun exists),
   `signals_scout_run_finished` (terminal: `completed`/`failed`/`cancelled` + runtime + emit

@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
@@ -848,6 +848,7 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
         self.assertNotIn("desktop-file-system", task_run.state["pending_user_message"])
 
 
+@override_settings(CELERY_TASK_ALWAYS_EAGER=True)
 class TestHandleLoopRunTerminal(LoopRunsTestCase):
     def make_terminal_task_run(self, loop: Loop, *, status: str, error_message: str | None = None) -> TaskRun:
         task = Task.objects.create(
@@ -925,24 +926,53 @@ class TestHandleLoopRunTerminal(LoopRunsTestCase):
         loop = self.create_loop(consecutive_failures=3, last_error="previous failure")
         task_run = self.make_terminal_task_run(loop, status=TaskRun.Status.COMPLETED)
 
-        handle_loop_run_terminal(task_run)
+        with self.captureOnCommitCallbacks(execute=True):
+            handle_loop_run_terminal(task_run)
 
         loop.refresh_from_db()
         self.assertEqual(loop.consecutive_failures, 0)
         self.assertIsNone(loop.last_error)
         self.assertEqual(loop.last_run_status, TaskRun.Status.COMPLETED)
-        mock_dispatch.assert_called_once_with(
-            loop,
-            "run_completed",
+        dispatched_loop, dispatched_event, dispatched_payload = mock_dispatch.call_args[0]
+        self.assertEqual(dispatched_loop.id, loop.id)
+        self.assertEqual(dispatched_event, "run_completed")
+        self.assertEqual(
+            dispatched_payload,
             {"task_id": str(task_run.task_id), "task_run_id": str(task_run.id), "status": TaskRun.Status.COMPLETED},
         )
+
+    @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
+    def test_completed_run_with_final_message_dispatches_report(self, mock_dispatch):
+        loop = self.create_loop(consecutive_failures=0)
+        task_run = self.make_terminal_task_run(loop, status=TaskRun.Status.COMPLETED)
+        task_run.output = {"final_message": "Weekly summary: all green."}
+        task_run.save(update_fields=["output", "updated_at"])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            handle_loop_run_terminal(task_run)
+
+        _, dispatched_event, dispatched_payload = mock_dispatch.call_args[0]
+        self.assertEqual(dispatched_event, "run_completed")
+        self.assertEqual(dispatched_payload["report"], "Weekly summary: all green.")
+
+    @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
+    def test_completed_run_without_final_message_dispatches_no_report_key(self, mock_dispatch):
+        loop = self.create_loop(consecutive_failures=0)
+        task_run = self.make_terminal_task_run(loop, status=TaskRun.Status.COMPLETED)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            handle_loop_run_terminal(task_run)
+
+        _, _, dispatched_payload = mock_dispatch.call_args[0]
+        self.assertNotIn("report", dispatched_payload)
 
     @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
     def test_failed_run_increments_consecutive_failures_and_dispatches_run_failed(self, mock_dispatch):
         loop = self.create_loop(consecutive_failures=0)
         task_run = self.make_terminal_task_run(loop, status=TaskRun.Status.FAILED, error_message="boom")
 
-        handle_loop_run_terminal(task_run)
+        with self.captureOnCommitCallbacks(execute=True):
+            handle_loop_run_terminal(task_run)
 
         loop.refresh_from_db()
         self.assertEqual(loop.consecutive_failures, 1)
@@ -961,7 +991,8 @@ class TestHandleLoopRunTerminal(LoopRunsTestCase):
         loop = self.create_loop(consecutive_failures=LOOP_AUTO_PAUSE_THRESHOLD - 1)
         task_run = self.make_terminal_task_run(loop, status=TaskRun.Status.FAILED, error_message="boom")
 
-        handle_loop_run_terminal(task_run)
+        with self.captureOnCommitCallbacks(execute=True):
+            handle_loop_run_terminal(task_run)
 
         loop.refresh_from_db()
         self.assertFalse(loop.enabled)
@@ -978,6 +1009,7 @@ class TestHandleLoopRunTerminal(LoopRunsTestCase):
         )
 
 
+@override_settings(CELERY_TASK_ALWAYS_EAGER=True)
 class TestTerminalizeUnstartedTaskRun(LoopRunsTestCase):
     @patch("products.tasks.backend.models.publish_task_run_stream_event")
     @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
@@ -995,7 +1027,8 @@ class TestTerminalizeUnstartedTaskRun(LoopRunsTestCase):
         )
         task_run = task.create_run(mode="background", extra_state={"loop_id": str(loop.id)})
 
-        terminalized = _terminalize_unstarted_task_run(str(task_run.id), "workflow start failed")
+        with self.captureOnCommitCallbacks(execute=True):
+            terminalized = _terminalize_unstarted_task_run(str(task_run.id), "workflow start failed")
 
         self.assertTrue(terminalized)
         loop.refresh_from_db()

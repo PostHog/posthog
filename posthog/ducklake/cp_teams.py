@@ -1,7 +1,6 @@
 """Read-side client for the duckgres control-plane org-teams API.
 
-The control plane is becoming the source of truth for per-team managed-warehouse
-state (today mirrored from the Django ``DuckgresServerTeam`` rows via dual-writes).
+The control plane is the source of truth for per-team managed-warehouse state.
 This module exposes the CP rows as :class:`CPTeam` values plus a small process-local
 TTL cache so hot paths (the v3 data-import sink schema resolution) don't issue one
 HTTP call per batch.
@@ -181,10 +180,18 @@ def get_team(organization_id: str, team_id: int) -> CPTeam | None:
     return next((team for team in teams if team.team_id == wanted), None)
 
 
-def list_enabled_backfills() -> list[CPTeam] | None:
-    """Every CP team row with backfill_enabled, across all orgs, or None when unreachable."""
+def list_member_teams() -> list[CPTeam] | None:
+    """Every CP team row across all orgs, or None when unreachable."""
     rows = _cached_rows(("all_teams",), _fetch_all_rows)
     if rows is None:
         return None
     teams = (team_from_row(row) for row in rows)
-    return [team for team in teams if team is not None and team.backfill_enabled]
+    return [team for team in teams if team is not None]
+
+
+def list_enabled_backfills() -> list[CPTeam] | None:
+    """Every CP team row with backfill_enabled, across all orgs, or None when unreachable."""
+    teams = list_member_teams()
+    if teams is None:
+        return None
+    return [team for team in teams if team.backfill_enabled]
