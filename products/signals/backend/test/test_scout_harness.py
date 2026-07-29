@@ -23,17 +23,20 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
+from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.report_charts import ReportChart
+from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.model_selection import ScoutModel
-from products.signals.backend.scout_harness.prompt import _REPORT_CHARTS, build_run_prompt
-from products.signals.backend.scout_harness.runner import RunResult, arun_signals_scout
+from products.signals.backend.scout_harness.prompt import _REPORT_CHARTS, HARNESS_PROMPT_VERSION, build_run_prompt
+from products.signals.backend.scout_harness.runner import RunResult, _create_run_row, arun_signals_scout
 from products.signals.backend.scout_harness.skill_loader import (
+    LoadedSkill,
     SkillNotFoundError,
     is_signals_scout_skill,
     load_skill_for_run,
@@ -920,7 +923,8 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
     assert captured["context"].runtime_adapter == expected_runtime_adapter
     assert captured["context"].reasoning_effort == expected_reasoning_effort
     # The routed triple is also stamped on the bridge row's `metadata` (keys omitted when unset,
-    # `{}` on the default path) — the native API-side record of which model served the run.
+    # nothing at the top level on the default path) — the native API-side record of which model
+    # served the run.
     bridge = await database_sync_to_async(SignalScoutRun.objects.get)(team=ateam)
     expected_metadata = {
         key: value
@@ -931,7 +935,14 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
         )
         if value is not None
     }
-    assert bridge.metadata == expected_metadata
+    stamped = bridge.metadata or {}
+    routed = {key: value for key, value in stamped.items() if key in _ROUTED_MODEL_KEYS}
+    assert routed == expected_metadata
+    # Wiring guards for the two regions written outside `_create_run_row`'s routing triple:
+    # the prompt build the run was given, and the finalize-time derived map. Neither can be
+    # proven by a direct unit test of the function that computes it.
+    assert stamped["harness_prompt_version"] == HARNESS_PROMPT_VERSION
+    assert DERIVED_METADATA_KEY in stamped
     events = {c.kwargs["event"] for c in capture.call_args_list}
     assert events == {"signals_scout_run_started", "signals_scout_run_finished"}
     for call in capture.call_args_list:
@@ -1605,3 +1616,59 @@ def test_to_summary_and_detail_surface_task_url_from_bridge():
         assert detail.task_id == summary.task_id
         assert detail.task_run_id == summary.task_run_id
         assert detail.task_url == summary.task_url
+
+
+_ROUTED_MODEL_KEYS = ("model", "runtime_adapter", "reasoning_effort")
+
+
+class TestRunRowProvenanceStamps(BaseTest):
+    # The three dimensions an eval or A/B has to hold constant. Each is unrecoverable after the
+    # fact, so a regression that hardcodes one (rather than reading it off the loaded skill)
+    # silently mislabels every run from then on instead of failing loudly.
+    def _skill(self, *, allowed_tools: list[str], origin: str) -> LoadedSkill:
+        return LoadedSkill(
+            name="signals-scout-general",
+            version=3,
+            body="scout",
+            description="",
+            allowed_tools=allowed_tools,
+            files=[],
+            skill_id="skill-1",
+            origin=origin,  # type: ignore[arg-type]
+            authors=[],
+        )
+
+    @parameterized.expand(
+        [
+            # emit-only and edit-only are separate prompt builds, not one "report channel" —
+            # `build_run_prompt` renders different follow-up, escalation, and action guidance for
+            # each, so collapsing them to a boolean would pool runs given different instructions.
+            ("emit_only_custom", ["emit_report"], "custom", "emit", "custom"),
+            ("edit_only_custom", ["edit_report"], "custom", "edit", "custom"),
+            ("both_tools_canonical", ["emit_report", "edit_report"], "canonical", "both", "canonical"),
+            ("legacy_channel_canonical", ["emit_finding"], "canonical", "none", "canonical"),
+        ]
+    )
+    def test_stamps_prompt_build_channel_and_origin(
+        self,
+        _name: str,
+        allowed_tools: list[str],
+        origin: str,
+        expected_channel: str,
+        expected_origin: str,
+    ) -> None:
+        config, _ = SignalScoutConfig.objects.get_or_create(team=self.team, skill_name="signals-scout-general")
+        run = _create_run_row(
+            run_id=uuid7(),
+            task_run=_make_task_run(self.team),
+            team=self.team,
+            config=config,
+            skill=self._skill(allowed_tools=allowed_tools, origin=origin),
+        )
+        stamped = run.metadata or {}
+        assert stamped["harness_prompt_version"] == HARNESS_PROMPT_VERSION
+        assert stamped["report_channel"] == expected_channel
+        assert stamped["skill_origin"] == expected_origin
+        # The routing triple stays absent on the default-model path, so its keys can't be
+        # confused with the always-present provenance keys.
+        assert not any(key in stamped for key in _ROUTED_MODEL_KEYS)
