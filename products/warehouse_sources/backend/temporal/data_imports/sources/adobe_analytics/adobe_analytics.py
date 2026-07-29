@@ -8,7 +8,7 @@ from typing import Any, Optional
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.settings import (
     ADOBE_ANALYTICS_ENDPOINTS,
     DEFAULT_REPORT_DIMENSION,
