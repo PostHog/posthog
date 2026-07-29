@@ -13,54 +13,61 @@
             "description": "Optional free-form note to append to the report's work log (attributed to this scout)."
         },
         "charts": {
-            "description": "The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field to leave the report's existing charts untouched.",
-            "items": {
-                "description": "One chart attached to a report — rendered in the inbox and referenceable from the summary.",
-                "properties": {
-                    "caption": {
-                        "anyOf": [
-                            {
-                                "maxLength": 500,
+            "anyOf": [
+                {
+                    "items": {
+                        "description": "One chart attached to a report — rendered in the inbox and referenceable from the summary.",
+                        "properties": {
+                            "caption": {
+                                "anyOf": [
+                                    {
+                                        "maxLength": 500,
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Optional one-line note on what to look at in the chart."
+                            },
+                            "chart_id": {
+                                "description": "Stable slug for this chart within the report (lowercase letters, numbers, underscores, hyphens; must start with a letter or number). Reference it from `summary` as a markdown link with a `chart:` target — `[Daily signups](chart:signups-drop)` — to place the chart at that point in the body. A chart you don't reference still renders, below the summary.",
+                                "maxLength": 100,
                                 "type": "string"
                             },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "description": "Optional one-line note on what to look at in the chart."
-                    },
-                    "chart_id": {
-                        "description": "Stable slug for this chart within the report (lowercase letters, numbers, underscores, hyphens; must start with a letter or number). Reference it from `summary` as a markdown link with a `chart:` target — `[Daily signups](chart:signups-drop)` — to place the chart at that point in the body. A chart you don't reference still renders, below the summary.",
-                        "maxLength": 100,
-                        "type": "string"
-                    },
-                    "query": {
-                        "description": "The query node to render. `kind` must be `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a SQL series — a `HogQLQuery` source plus a `display`), or `SavedInsightNode` (an existing insight by `shortId`). Pin the window to absolute dates where the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report."
-                    },
-                    "size": {
-                        "anyOf": [
-                            {
-                                "description": "* `small` - small\n* `medium` - medium\n* `large` - large",
-                                "enum": ["small", "medium", "large"],
-                                "type": "string"
+                            "query": {
+                                "description": "The query node to render. `kind` must be `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a SQL series — a `HogQLQuery` source plus a `display`), or `SavedInsightNode` (an existing insight by `shortId`). Pin the window to absolute dates where the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report."
                             },
-                            {
-                                "type": "null"
+                            "size": {
+                                "anyOf": [
+                                    {
+                                        "description": "* `small` - small\n* `medium` - medium\n* `large` - large",
+                                        "enum": ["small", "medium", "large"],
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "How much height the chart gets: `small` for a single number or a short series, `medium` for an ordinary graph, `large` when there are rows or a grid to read (retention, paths, a wide breakdown). Leave it out unless the default looks wrong — the inbox sizes a chart from its query, and two charts referenced from the same paragraph sit side by side.\n\n* `small` - small\n* `medium` - medium\n* `large` - large"
+                            },
+                            "title": {
+                                "description": "Short heading shown above the chart.",
+                                "maxLength": 200,
+                                "type": "string"
                             }
-                        ],
-                        "description": "How much height the chart gets: `small` for a single number or a short series, `medium` for an ordinary graph, `large` when there are rows or a grid to read (retention, paths, a wide breakdown). Leave it out unless the default looks wrong — the inbox sizes a chart from its query, and two charts referenced from the same paragraph sit side by side.\n\n* `small` - small\n* `medium` - medium\n* `large` - large"
+                        },
+                        "required": ["chart_id", "title", "query"],
+                        "type": "object"
                     },
-                    "title": {
-                        "description": "Short heading shown above the chart.",
-                        "maxLength": 200,
-                        "type": "string"
-                    }
+                    "maxItems": 20,
+                    "type": "array"
                 },
-                "required": ["chart_id", "title", "query"],
-                "type": "object"
-            },
-            "maxItems": 20,
-            "type": "array"
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field (or send null) to leave the report's existing charts untouched, and send an empty list to take them all down."
         },
         "report_id": {
             "description": "Id of the report to edit (must belong to this project).",
