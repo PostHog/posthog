@@ -184,6 +184,11 @@ def get_safe_next_url(next_url: str | None, request: Request) -> str | None:
     return None
 
 
+VERIFIED_DOMAIN_REQUIRED_LOGIN_ERROR = (
+    "Your organization requires a verified email domain to log in. Please contact your administrator."
+)
+
+
 def is_email_verified_for_login(user: User, next_url: str | None = None) -> bool:
     """
     Send a verification email when the login policy requires it.
@@ -331,12 +336,11 @@ class LoginSerializer(serializers.Serializer):
         # Domain enforcement: an org that requires a verified email domain blocks logins for members
         # whose email is outside its verified domains. Checked after authentication so the error is
         # only shown for valid credentials.
-        for organization in user.organizations.all():
-            if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, organization):
-                raise serializers.ValidationError(
-                    "Your organization requires a verified email domain to log in. Please contact your administrator.",
-                    code="verified_domain_required",
-                )
+        if OrganizationDomain.objects.is_login_blocked_by_domain_enforcement(user):
+            raise serializers.ValidationError(
+                VERIFIED_DOMAIN_REQUIRED_LOGIN_ERROR,
+                code="verified_domain_required",
+            )
 
         clear_two_factor_session_flags(request)
 

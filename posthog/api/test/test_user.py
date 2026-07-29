@@ -968,6 +968,23 @@ class TestUserAPI(APIBaseTest):
         assert response.json()["requires_sso"] is True
         mock_login.assert_not_called()
 
+    @patch("posthog.api.user.login")
+    def test_email_verification_skips_auto_login_when_org_requires_verified_domain(self, mock_login):
+        self.organization.enforce_verified_domains = True
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+        token = email_verification_token_generator.make_token(self.user)
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["requires_login"] is True
+        self.user.refresh_from_db()
+        assert self.user.is_email_verified is True
+        mock_login.assert_not_called()
+
     @patch("posthog.api.user.is_email_available", return_value=True)
     @patch("posthog.tasks.email.send_email_change_emails.delay")
     def test_no_notifications_when_user_email_is_changed_and_only_case_differs(

@@ -17,7 +17,11 @@ from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_
 from webauthn.helpers.decode_credential_public_key import decode_credential_public_key
 from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredentialDescriptor
 
-from posthog.api.authentication import axes_locked_out, is_email_verified_for_login
+from posthog.api.authentication import (
+    VERIFIED_DOMAIN_REQUIRED_LOGIN_ERROR,
+    axes_locked_out,
+    is_email_verified_for_login,
+)
 from posthog.auth import SessionAuthentication, WebAuthnAuthenticationResponse, WebauthnBackend
 from posthog.event_usage import report_user_logged_in
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
@@ -353,6 +357,10 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
             if sso_enforcement_response := self._check_sso_enforcement(verified_user):
                 return sso_enforcement_response
 
+            # Check verified-domain enforcement against the verified user
+            if domain_enforcement_response := self._check_domain_enforcement(verified_user):
+                return domain_enforcement_response
+
             if not is_email_verified_for_login(verified_user):
                 return Response(
                     {
@@ -400,6 +408,15 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
         if sso_enforcement:
             return Response(
                 {"error": "You can only login with SSO for this account."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return None
+
+    def _check_domain_enforcement(self, user: User) -> Response | None:
+        """Passkeys are a full login path, so they get the same verified-domain gate as a password login."""
+        if OrganizationDomain.objects.is_login_blocked_by_domain_enforcement(user):
+            return Response(
+                {"error": VERIFIED_DOMAIN_REQUIRED_LOGIN_ERROR},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return None

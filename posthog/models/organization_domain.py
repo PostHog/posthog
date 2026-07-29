@@ -1,5 +1,5 @@
 import secrets
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
@@ -15,6 +15,9 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.utils import UUIDTModel
 from posthog.utils import get_instance_available_sso_providers
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -182,6 +185,16 @@ class OrganizationDomainManager(models.Manager):
         if not organization.enforce_verified_domains:
             return False
         return not self.is_domain_verified_for_organization(email, organization)
+
+    def is_login_blocked_by_domain_enforcement(self, user: "User") -> bool:
+        """
+        Whether `user` should be denied a session. Shared by every path that mints one (password,
+        passkey, SSO, email verification) so enforcement can't be bypassed by picking another door.
+        """
+        return any(
+            self.is_email_blocked_by_domain_enforcement(user.email, organization)
+            for organization in user.organizations.all()
+        )
 
 
 class OrganizationDomain(ModelActivityMixin, UUIDTModel):
