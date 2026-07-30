@@ -26,7 +26,6 @@ from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import PluginConfig
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
 tracer = trace.get_tracer(__name__)
@@ -213,6 +212,7 @@ class RemoteConfig(UUIDTModel):
 
         from products.error_tracking.backend.facade import build_error_tracking_config
         from products.feature_flags.backend.models.feature_flag import FeatureFlag
+        from products.product_tours.backend.api.product_tour import has_active_product_tours
         from products.surveys.backend.api.survey import get_surveys_opt_in, get_surveys_response
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
@@ -311,16 +311,10 @@ class RemoteConfig(UUIDTModel):
             config["surveys"] = False
 
         # MARK: Product tours
-        # Only query if the team has opted in (auto-set when a tour is created)
-        if team.product_tours_opt_in:
-            has_active_tours = ProductTour.objects.filter(
-                team=team,
-                archived=False,
-                start_date__isnull=False,
-            ).exists()
-            config["productTours"] = has_active_tours
-        else:
-            config["productTours"] = False
+        # Ask the same project-wide queryset the /product_tours endpoint serves from. Gating on the
+        # per-environment `product_tours_opt_in` flag instead reports no tours to posthog-js, which
+        # then never requests the list, whenever the tour was authored in a sibling environment.
+        config["productTours"] = has_active_product_tours(team)
 
         # Required by posthog-js <= 1.207.1; without it those versions default to person_profiles="always".
         # posthog-js >= 1.207.2 always defaults to "identified_only" and no longer reads this field.
@@ -540,42 +534,48 @@ def survey_saved(sender, instance: "Survey", created, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
-def sync_team_product_tours_opt_in(team: Team) -> None:
-    """Sync the product_tours_opt_in flag based on whether the team has any active tours."""
-    has_active_tours = ProductTour.objects.filter(
-        team=team,
-        archived=False,
-        start_date__isnull=False,
-    ).exists()
-    if has_active_tours != team.product_tours_opt_in:
-        team.product_tours_opt_in = has_active_tours
-        team.save(update_fields=["product_tours_opt_in"])
+def sync_project_product_tours_opt_in(team: Team) -> None:
+    """Reconcile `product_tours_opt_in` for every environment of the team's project.
+
+    The flag is derived state mirrored into the team metadata cache, and tours are served
+    project-wide, so all environments of a project share one value.
+    """
+    from products.product_tours.backend.api.product_tour import has_active_product_tours
+
+    opted_in = has_active_product_tours(team)
+    stale_team_ids = [
+        sibling.id
+        for sibling in Team.objects.filter(project_id=team.project_id).only("id", "product_tours_opt_in")
+        if bool(sibling.product_tours_opt_in) != opted_in
+    ]
+    if stale_team_ids:
+        Team.objects.filter(id__in=stale_team_ids).update(product_tours_opt_in=opted_in)
+
+
+def _product_tour_changed(instance: Any) -> None:
+    def _on_commit():
+        try:
+            team = Team.objects.get(id=instance.team_id)
+        except Team.DoesNotExist:
+            _update_team_remote_config(instance.team_id)
+            return
+
+        sync_project_product_tours_opt_in(team)
+        # A tour is visible to every environment of its project, so each one's config can change.
+        for team_id in Team.objects.filter(project_id=team.project_id).values_list("id", flat=True):
+            _update_team_remote_config(team_id)
+
+    transaction.on_commit(_on_commit)
 
 
 @receiver(post_save, sender="product_tours.ProductTour")
 def product_tour_saved(sender, instance, created, **kwargs):
-    def _on_commit():
-        try:
-            team = Team.objects.get(id=instance.team_id)
-            sync_team_product_tours_opt_in(team)
-        except Team.DoesNotExist:
-            pass
-        _update_team_remote_config(instance.team_id)
-
-    transaction.on_commit(_on_commit)
+    _product_tour_changed(instance)
 
 
 @receiver(post_delete, sender="product_tours.ProductTour")
 def product_tour_deleted(sender, instance, **kwargs):
-    def _on_commit():
-        try:
-            team = Team.objects.get(id=instance.team_id)
-            sync_team_product_tours_opt_in(team)
-        except Team.DoesNotExist:
-            pass
-        _update_team_remote_config(instance.team_id)
-
-    transaction.on_commit(_on_commit)
+    _product_tour_changed(instance)
 
 
 @receiver(post_save, sender="error_tracking.ErrorTrackingSuppressionRule")

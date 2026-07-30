@@ -81,17 +81,24 @@ const htmlExtensions = [
  * @returns HTML string ready for SDK to render
  */
 export function generateStepHtml(content: JSONContent | null): string {
-    if (!content) {
-        return ''
-    }
-
     try {
-        const html = generateHTML(content, htmlExtensions)
-        return highlightCodeBlocks(html)
+        return generateStepHtmlStrict(content)
     } catch (error) {
         console.error('Failed to generate step HTML:', error)
         return ''
     }
+}
+
+/**
+ * Same as `generateStepHtml`, but propagates serialization failures instead of returning ''.
+ * Surfaces in the editor preview, where a blank render is indistinguishable from a broken one.
+ */
+export function generateStepHtmlStrict(content: JSONContent | null): string {
+    if (!content) {
+        return ''
+    }
+
+    return highlightCodeBlocks(generateHTML(content, htmlExtensions))
 }
 
 /**
@@ -102,6 +109,19 @@ export function prepareStepForRender(step: ProductTourStep): ProductTourStep {
     return {
         ...step,
         contentHtml: step.content ? generateStepHtml(step.content) : undefined,
+        ...(step.translations
+            ? {
+                  translations: generateTranslationsHtml(step.translations),
+              }
+            : {}),
+    }
+}
+
+/** Same as `prepareStepForRender`, but propagates serialization failures. */
+export function prepareStepForRenderStrict(step: ProductTourStep): ProductTourStep {
+    return {
+        ...step,
+        contentHtml: step.content ? generateStepHtmlStrict(step.content) : undefined,
         ...(step.translations
             ? {
                   translations: generateTranslationsHtml(step.translations),

@@ -11,10 +11,16 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models.project import Project
-from posthog.models.remote_config import REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET, RemoteConfig
+from posthog.models.remote_config import (
+    REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET,
+    RemoteConfig,
+    sync_project_product_tours_opt_in,
+)
+from posthog.models.team import Team
 
 from products.actions.backend.models.action import Action
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
 CONFIG_REFRESH_QUERY_COUNT = 6
@@ -466,6 +472,46 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
         )
 
         assert actual_surveys == expected_surveys
+
+
+class TestRemoteConfigProductTours(_RemoteConfigBase):
+    def setUp(self):
+        super().setUp()
+        self.sibling_env = Team.objects.create(
+            organization=self.organization,
+            project=self.team.project,
+            name="Sibling environment",
+            api_token="phc_sibling",
+        )
+
+    def _config_for(self, team: Team) -> dict:
+        from posthog.tasks.remote_config import update_team_remote_config
+
+        update_team_remote_config(team.id)
+        return RemoteConfig.objects.get(team=team).config
+
+    @parameterized.expand(
+        [
+            ("launched", {"start_date": timezone.now()}, True),
+            ("not_launched", {"start_date": None}, False),
+            ("archived", {"start_date": timezone.now(), "archived": True}, False),
+        ]
+    )
+    def test_product_tours_gate_matches_what_the_endpoint_would_serve(self, _name, tour_kwargs, expected):
+        ProductTour.objects.create(team=self.team, name="Tour", **tour_kwargs)
+
+        assert self._config_for(self.team)["productTours"] is expected
+        # Tours are served project-wide, so a sibling environment's snippet must be told about them too
+        assert self._config_for(self.sibling_env)["productTours"] is expected
+
+    def test_product_tours_opt_in_is_reconciled_across_the_project(self):
+        ProductTour.objects.create(team=self.team, name="Tour", start_date=timezone.now())
+        sync_project_product_tours_opt_in(self.team)
+
+        self.team.refresh_from_db()
+        self.sibling_env.refresh_from_db()
+        assert self.team.product_tours_opt_in is True
+        assert self.sibling_env.product_tours_opt_in is True
 
 
 @override_settings(POSTHOG_JS_S3_BUCKET="")

@@ -1114,14 +1114,27 @@ class ProductTourAPISerializer(serializers.ModelSerializer):
         return tour.content.get("displayFrequency") if tour.content else None
 
 
+def active_product_tours_for_team(team: Team) -> QuerySet[ProductTour]:
+    """Tours the SDK is allowed to see for a team, scoped project-wide across environments.
+
+    Anything deciding whether tours exist must use this queryset, so that the remote config
+    gate can never disagree with what the serving endpoint would return.
+    """
+    return ProductTour.objects.filter(
+        team__project_id=team.project_id,
+        archived=False,
+        start_date__isnull=False,
+    )
+
+
+def has_active_product_tours(team: Team) -> bool:
+    return active_product_tours_for_team(team).exists()
+
+
 def get_product_tours_response(team: Team) -> dict:
     """Get active product tours for a team."""
     tours = ProductTourAPISerializer(
-        ProductTour.objects.filter(
-            team__project_id=team.project_id,
-            archived=False,
-            start_date__isnull=False,
-        ).select_related("internal_targeting_flag", "linked_flag"),
+        active_product_tours_for_team(team).select_related("internal_targeting_flag", "linked_flag"),
         many=True,
     ).data
 

@@ -1,9 +1,11 @@
 import type { JSONContent } from '@tiptap/core'
+import { generateHTML } from '@tiptap/html'
 
 import type { ProductTourStep } from '~/types'
 
 import {
     generateStepHtml,
+    generateStepHtmlStrict,
     generateTranslationsHtml,
     prepareStepForRender,
     prepareStepsForRender,
@@ -257,6 +259,22 @@ describe('generateStepHtml', () => {
         const result = generateStepHtml(content)
 
         expect(result).toBe('<pre><code class="language-rust">auto-highlighted</code></pre>')
+    })
+
+    it('swallows serialization failures, while the strict variant propagates them', () => {
+        const content = { type: 'doc', content: [{ type: 'unknown-node' }] } as JSONContent
+        const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+        jest.mocked(generateHTML).mockImplementationOnce(() => {
+            throw new Error('Unknown node type: unknown-node')
+        })
+        jest.mocked(generateHTML).mockImplementationOnce(() => {
+            throw new Error('Unknown node type: unknown-node')
+        })
+
+        expect(generateStepHtml(content)).toBe('')
+        expect(() => generateStepHtmlStrict(content)).toThrow('Unknown node type: unknown-node')
+
+        consoleError.mockRestore()
     })
 })
 
