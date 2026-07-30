@@ -25,18 +25,15 @@ import {
     findBreakdownColorConfig,
     parseBreakdownPropertyKey,
 } from './dashboardBreakdownColors'
-import {
-    ColorsModalPrototypeVariants,
-    dashboardInsightColorsModalLogic,
-} from './dashboardInsightColorsModalLogic'
+import { ColorsModalPrototypeVariants, dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
 
 type BreakdownColorRow = BreakdownColorConfig & { pinnedConfig?: BreakdownColorConfig }
 
 const HELP_TEXT =
     'Colors are grouped by breakdown property. A value shown on two or more insights gets one color across the ' +
-    'dashboard, and each property picks its colors on its own. Values on a single insight keep that insight’s ' +
-    'colors. Pick a color to pin a value to it.'
+    'dashboard, and each property picks its colors on its own. Values on a single insight keep their own colors. ' +
+    'Pick a color to pin a value to it.'
 
 function BreakdownPropertyGroupTitle({
     breakdownProperty,
