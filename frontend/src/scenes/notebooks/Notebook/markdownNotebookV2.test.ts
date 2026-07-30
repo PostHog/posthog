@@ -57,9 +57,11 @@ describe('markdownNotebookV2', () => {
             '<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />'
         )
 
-        expect(getMarkdownNotebookMarkdown(nextContent)).toEqual(`# Activation
-
-<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />`)
+        // Two blank lines: an appended block is a node of its own, not a continuation of the
+        // card the notebook currently ends with.
+        expect(getMarkdownNotebookMarkdown(nextContent)).toEqual(
+            '# Activation\n\n\n<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />'
+        )
     })
 
     it('converts common legacy notebook nodes to markdown', () => {
