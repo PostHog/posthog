@@ -412,7 +412,7 @@ class TestRecordLastSlackMessageAt(BaseTest):
     def _record(self, timestamp: datetime) -> bool:
         return record_last_slack_message_at(team_id=self.team.id, account_id=self.account.id, timestamp=timestamp)
 
-    def _active_values(self) -> list[datetime]:
+    def _active_values(self) -> list[datetime | None]:
         return list(
             CustomPropertyValue.objects.for_team(self.team.id)
             .filter(is_deleted=False)
