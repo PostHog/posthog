@@ -1329,7 +1329,7 @@ impl FeatureFlagMatcher {
             let person_properties = self.get_person_properties(person_property_overrides)?;
 
             if let Some(v) = person_properties.get(&enrollment_key) {
-                let is_match = v == "true" || v == &Value::Bool(true);
+                let is_match = FlagFilters::is_enrolled(v);
                 let payload = self.get_matching_payload(None, flag);
                 return Ok(FeatureFlagMatch {
                     matches: is_match,

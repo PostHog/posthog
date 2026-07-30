@@ -1,0 +1,79 @@
+version: 1
+owners: []
+# Slack channel per team, declared once for the whole repo (root-only registry).
+# A team only needs an entry where the derived '#<slug>' is wrong or missing; the
+# other 24 slugs in use derive correctly and are deliberately absent.
+teams:
+    # GitHub team slugs that predate the 'team-' convention: the slug is right,
+    # the channel just doesn't match it.
+    batch-exports:
+        slack: '#team-batch-exports'
+    clickhouse:
+        slack: '#team-clickhouse'
+    conversations:
+        slack: '#team-conversations'
+    # The 'logs' and 'apm' GitHub teams have identical membership: APM ("Logs,
+    # Metrics and Traces") absorbed logs, and #team-apm is where it lives.
+    logs:
+        slack: '#team-apm'
+    team-data-stack:
+        slack: '#group-data-stack'
+    # PostHog Code's channel kept the name it was created under.
+    team-posthog-code:
+        slack: '#team-desktop'
+rules:
+    - match: Dockerfile.llm-analytics
+      owners: team-ai-observability
+    - match:
+          - Dockerfile
+          - 'docker-compose*.yml'
+          - '.prettierrc'
+          - '.test_quarantine.json'
+          - hogli.yaml
+          - tach.toml
+          - CLAUDE.md
+          - AGENTS.md
+          - bin/
+          - greptile.json
+          # Every owners.yaml routes to devex (unanchored: matches at any depth)
+          # unless a nearer file or rule claims it — ownership-policy edits must
+          # never go out for review unassigned.
+          - owners.yaml
+      owners: team-devex
+    - match: '/.agents/skills/manage-dashboard-widgets/'
+      owners: team-analytics-platform
+    - match: '/.claude/'
+      owners: team-devex
+    - match: '/.claude/agents/ingestion/'
+      owners: team-ingestion
+    - match: '/bin/start-llm-gateway'
+      owners: [team-devex, team-ai-gateway]
+    - match: '/cli/'
+      owners: team-error-tracking
+    - match: '/docs/onboarding/ai-observability/'
+      owners: team-ai-observability
+    - match: '/docs/published/handbook/engineering/developing-locally.md'
+      owners: team-devex
+    - match: '/nodejs/tests/'
+      owners: team-ingestion
+    - match: '/posthog/helpers/email_utils.py'
+      owners: team-platform-features
+    - match: '/posthog/management/commands/find_enum_collisions.py'
+      owners: team-devex
+    - match: '/posthog/settings/data_warehouse.py'
+      owners: team-data-stack
+    - match: '/posthog/settings/email.py'
+      owners: team-platform-features
+    - match: '/posthog/test/test_feature_flag_analytics.py'
+      owners: team-feature-flags
+    - match: '/services/llm-gateway/'
+      owners: team-ai-gateway
+    - match:
+          - '/tools/hogli-commands/'
+          - '/tools/hogli/'
+          - '/tools/owners/'
+          - '/tools/phrocs/'
+          - '/tools/pr-approval-agent/'
+      owners: team-devex
+    - match: '/tools/query-performance-ai/'
+      owners: team-analytics-platform

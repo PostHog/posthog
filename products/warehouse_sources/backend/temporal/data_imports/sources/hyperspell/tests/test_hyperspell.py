@@ -1,262 +1,358 @@
-from typing import Any
+import json
+from typing import Any, Optional
 
 import pytest
 from unittest import mock
 
-import requests
+import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.hyperspell.hyperspell import (
+    HYPERSPELL_BASE_URLS,
     HyperspellResumeConfig,
-    HyperspellRetryableError,
-    _base_url,
-    _build_url,
-    _fetch_page,
-    _get_headers,
+    get_base_url,
     get_rows,
     hyperspell_source,
+    parse_user_ids,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.hyperspell.settings import HYPERSPELL_ENDPOINTS
 
-_TRANSPORT = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.hyperspell.hyperspell.make_tracked_session"
-)
+MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.hyperspell.hyperspell"
 
 
-def _make_manager(resume_state: HyperspellResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _response(body: Any, status_code: int = 200) -> mock.MagicMock:
+def _response(status: int = 200, body: Optional[dict[str, Any]] = None) -> mock.MagicMock:
     resp = mock.MagicMock()
-    resp.json.return_value = body
-    resp.status_code = status_code
-    resp.ok = 200 <= status_code < 300
+    resp.status_code = status
+    resp.ok = 200 <= status < 300
+    resp.json.return_value = body or {}
+    resp.text = json.dumps(body or {})
     return resp
 
 
-def _session_returning(*bodies: Any) -> mock.MagicMock:
-    """Build a session whose successive .get() calls return the given JSON bodies."""
-    session = mock.MagicMock()
-    session.get.side_effect = [_response(b) for b in bodies]
-    return session
+class _StubManager:
+    """Minimal stand-in for ResumableSourceManager that records saved state."""
+
+    def __init__(self, resume_state: Optional[HyperspellResumeConfig] = None) -> None:
+        self._resume_state = resume_state
+        self.saved: list[HyperspellResumeConfig] = []
+
+    def can_resume(self) -> bool:
+        return self._resume_state is not None
+
+    def load_state(self) -> Optional[HyperspellResumeConfig]:
+        return self._resume_state
+
+    def save_state(self, data: HyperspellResumeConfig) -> None:
+        self.saved.append(data)
 
 
-class TestHyperspellTransport:
-    def test_headers_use_bearer(self):
-        headers = _get_headers("abc123", None)
-        assert headers["Authorization"] == "Bearer abc123"
-        assert "X-As-User" not in headers
+def _run(
+    manager: _StubManager,
+    pages: list[dict[str, Any]],
+    endpoint: str = "memories",
+    user_ids: str | None = None,
+    region: str | None = "us",
+) -> tuple[list[list[dict[str, Any]]], mock.MagicMock]:
+    with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+        mock_session.return_value.get.side_effect = [_response(200, page) for page in pages]
+        batches = list(
+            get_rows(
+                api_key="hs_test",
+                region=region,
+                user_ids=user_ids,
+                endpoint=endpoint,
+                logger=structlog.get_logger(),
+                resumable_source_manager=manager,  # type: ignore[arg-type]
+            )
+        )
+        return batches, mock_session.return_value.get
 
-    def test_headers_add_as_user_when_user_id_given(self):
-        # X-As-User scopes an app-level API key to one user's data.
-        headers = _get_headers("abc123", "user-42")
-        assert headers["X-As-User"] == "user-42"
 
+class TestSessionPrivacy:
+    def test_validate_credentials_disables_sample_capture(self) -> None:
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.return_value = _response(200)
+
+            validate_credentials("hs_test", "us")
+
+        assert mock_session.call_args.kwargs["capture"] is False
+
+    def test_get_rows_disables_sample_capture(self) -> None:
+        manager = _StubManager()
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.return_value = _response(200, {"items": [], "next_cursor": None})
+
+            list(
+                get_rows(
+                    api_key="hs_test",
+                    region="us",
+                    user_ids=None,
+                    endpoint="memories",
+                    logger=structlog.get_logger(),
+                    resumable_source_manager=manager,  # type: ignore[arg-type]
+                )
+            )
+
+        # Imported memory content is user-authored (Gmail, Slack, Notion, ...) and lives outside
+        # the warehouse tables' access controls, so it must never reach HTTP sample storage.
+        assert mock_session.call_args.kwargs["capture"] is False
+
+
+class TestGetBaseUrl:
     @pytest.mark.parametrize(
         "region, expected",
         [
-            ("us", "https://api.hyperspell.com"),
-            ("eu", "https://api.eu.hyperspell.com"),
-            ("unknown", "https://api.hyperspell.com"),
+            ("us", HYPERSPELL_BASE_URLS["us"]),
+            ("eu", HYPERSPELL_BASE_URLS["eu"]),
+            ("EU", HYPERSPELL_BASE_URLS["eu"]),
+            (" eu ", HYPERSPELL_BASE_URLS["eu"]),
+            (None, HYPERSPELL_BASE_URLS["us"]),
+            ("", HYPERSPELL_BASE_URLS["us"]),
+            ("unknown", HYPERSPELL_BASE_URLS["us"]),
         ],
     )
-    def test_base_url_by_region(self, region, expected):
-        assert _base_url(region) == expected
+    def test_region_maps_to_base_url(self, region, expected) -> None:
+        assert get_base_url(region) == expected
 
+
+class TestParseUserIds:
     @pytest.mark.parametrize(
-        "params, expected",
+        "raw, expected",
         [
-            ({"size": 100}, "https://api.hyperspell.com/memories/list?size=100"),
-            ({}, "https://api.hyperspell.com/memories/list"),
+            (None, []),
+            ("", []),
+            ("  ,  ", []),
+            ("user-1", ["user-1"]),
+            ("user-1, user-2", ["user-1", "user-2"]),
+            ("user-1,user-1,user-2", ["user-1", "user-2"]),
+            ("user-1\nuser-2", ["user-1", "user-2"]),
         ],
     )
-    def test_build_url(self, params, expected):
-        assert _build_url("https://api.hyperspell.com", "/memories/list", params) == expected
-
-    @pytest.mark.parametrize("status_code", [429, 500, 502, 503])
-    @mock.patch("time.sleep")  # neutralize tenacity's exponential backoff so retries are instant
-    def test_fetch_page_retryable_statuses_raise(self, _mock_sleep, status_code):
-        session = mock.MagicMock()
-        session.get.return_value = _response({}, status_code=status_code)
-        # reraise=True surfaces the final HyperspellRetryableError after retries are exhausted.
-        with pytest.raises(HyperspellRetryableError):
-            _fetch_page(session, "https://api.hyperspell.com/memories/list", mock.MagicMock())
-
-    def test_fetch_page_client_error_raises_for_status(self):
-        resp = _response({"message": "Not a valid JWT", "error": "InvalidAPIKey"}, status_code=401)
-        resp.raise_for_status.side_effect = requests.HTTPError("401 Client Error", response=resp)
-        session = mock.MagicMock()
-        session.get.return_value = resp
-        with pytest.raises(requests.HTTPError):
-            _fetch_page(session, "https://api.hyperspell.com/memories/list", mock.MagicMock())
-
-    def test_fetch_page_ok_response_returned(self):
-        session = mock.MagicMock()
-        session.get.return_value = _response({"items": []})
-        resp = _fetch_page(session, "https://api.hyperspell.com/memories/list", mock.MagicMock())
-        assert resp.json() == {"items": []}
+    def test_parses_and_dedupes(self, raw, expected) -> None:
+        assert parse_user_ids(raw) == expected
 
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
-        "status_code, expected_ok",
-        [(200, True), (401, False), (403, False), (500, False)],
+        "status, expected_valid",
+        [
+            (200, True),
+            (401, False),  # invalid key ("InvalidAPIKey")
+            (403, False),  # missing/unaccepted auth ("Not authenticated")
+            (500, False),
+        ],
     )
-    @mock.patch(_TRANSPORT)
-    def test_status_mapping(self, mock_session, status_code, expected_ok):
-        body: dict[str, Any] = {"items": [], "next_cursor": None} if status_code == 200 else {"message": "nope"}
-        mock_session.return_value.get.return_value = _response(body, status_code=status_code)
-        ok, error = validate_credentials("key", "us", None)
-        assert ok is expected_ok
-        if not ok:
-            assert error
+    def test_status_mapping(self, status, expected_valid) -> None:
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.return_value = _response(status)
+
+            is_valid, _ = validate_credentials("hs_test", "us")
+
+        assert is_valid is expected_valid
+
+    def test_network_error_is_invalid(self) -> None:
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.side_effect = Exception("boom")
+
+            is_valid, message = validate_credentials("hs_test", "us")
+
+        assert is_valid is False
+        assert message is not None
+
+    def test_probes_selected_region(self) -> None:
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.return_value = _response(200)
+
+            validate_credentials("hs_test", "eu")
+
+            called_url = mock_session.return_value.get.call_args[0][0]
+
+        assert called_url.startswith(HYPERSPELL_BASE_URLS["eu"])
+
+
+class TestGetRows:
+    def test_paginates_and_yields_each_page(self) -> None:
+        manager = _StubManager()
+        pages: list[dict[str, Any]] = [
+            {"items": [{"resource_id": "r1", "source": "slack"}], "next_cursor": "c1"},
+            {"items": [{"resource_id": "r2", "source": "slack"}], "next_cursor": None},
+        ]
+
+        batches, mock_get = _run(manager, pages)
+
+        assert [[row["resource_id"] for row in batch] for batch in batches] == [["r1"], ["r2"]]
+        second_url = mock_get.call_args_list[1][0][0]
+        assert "cursor=c1" in second_url
+
+    def test_saves_state_after_yielding_only_when_more_pages(self) -> None:
+        manager = _StubManager()
+        pages: list[dict[str, Any]] = [
+            {"items": [{"resource_id": "r1", "source": "slack"}], "next_cursor": "c1"},
+            {"items": [{"resource_id": "r2", "source": "slack"}], "next_cursor": None},
+        ]
+
+        _run(manager, pages)
+
+        assert len(manager.saved) == 1
+        assert manager.saved[0].cursor == "c1"
+
+    def test_resumes_from_saved_cursor(self) -> None:
+        manager = _StubManager(resume_state=HyperspellResumeConfig(cursor="resume_token", user_id=None))
+        pages: list[dict[str, Any]] = [{"items": [{"resource_id": "r9", "source": "slack"}], "next_cursor": None}]
+
+        _, mock_get = _run(manager, pages)
+
+        assert "cursor=resume_token" in mock_get.call_args[0][0]
+
+    def test_app_scope_stamps_empty_user_id_and_sends_no_header(self) -> None:
+        manager = _StubManager()
+        pages: list[dict[str, Any]] = [{"items": [{"resource_id": "r1", "source": "slack"}], "next_cursor": None}]
+
+        batches, mock_get = _run(manager, pages)
+
+        assert batches[0][0]["user_id"] == ""
+        headers = mock_get.call_args[1]["headers"]
+        assert "X-As-User" not in headers
+
+    def test_fans_out_over_users_with_as_user_header(self) -> None:
+        manager = _StubManager()
+        pages: list[dict[str, Any]] = [
+            {"items": [{"resource_id": "r1", "source": "slack"}], "next_cursor": None},
+            {"items": [{"resource_id": "r1", "source": "slack"}], "next_cursor": None},
+        ]
+
+        batches, mock_get = _run(manager, pages, user_ids="user-1, user-2")
+
+        assert [batch[0]["user_id"] for batch in batches] == ["user-1", "user-2"]
+        headers_per_call = [call[1]["headers"].get("X-As-User") for call in mock_get.call_args_list]
+        assert headers_per_call == ["user-1", "user-2"]
+        # The bookmark advanced to user-2 after user-1 completed, so a crash between users
+        # resumes into user-2 instead of re-fetching user-1.
+        assert manager.saved[-1] == HyperspellResumeConfig(cursor=None, user_id="user-2")
+
+    def test_resumes_into_bookmarked_user_and_skips_prior_users(self) -> None:
+        manager = _StubManager(resume_state=HyperspellResumeConfig(cursor="c5", user_id="user-2"))
+        pages: list[dict[str, Any]] = [{"items": [{"resource_id": "r1", "source": "slack"}], "next_cursor": None}]
+
+        batches, mock_get = _run(manager, pages, user_ids="user-1, user-2")
+
+        assert mock_get.call_count == 1
+        assert mock_get.call_args[1]["headers"]["X-As-User"] == "user-2"
+        assert "cursor=c5" in mock_get.call_args[0][0]
+        assert batches[0][0]["user_id"] == "user-2"
+
+    def test_bookmarked_user_removed_from_config_restarts_from_first_user(self) -> None:
+        manager = _StubManager(resume_state=HyperspellResumeConfig(cursor="c5", user_id="user-gone"))
+        pages: list[dict[str, Any]] = [
+            {"items": [], "next_cursor": None},
+            {"items": [], "next_cursor": None},
+        ]
+
+        _, mock_get = _run(manager, pages, user_ids="user-1, user-2")
+
+        assert mock_get.call_count == 2
+        first_url = mock_get.call_args_list[0][0][0]
+        assert "cursor" not in first_url
+
+    def test_non_paginated_endpoint_makes_single_request_without_page_params(self) -> None:
+        manager = _StubManager()
+        pages: list[dict[str, Any]] = [{"connections": [{"id": "conn-1", "integration_id": "int-1"}]}]
+
+        batches, mock_get = _run(manager, pages, endpoint="connections")
+
+        assert mock_get.call_count == 1
+        assert "?" not in mock_get.call_args[0][0]
+        assert batches[0][0]["id"] == "conn-1"
+        assert manager.saved == []
+
+    def test_app_level_endpoint_does_not_fan_out_or_stamp_user_id(self) -> None:
+        manager = _StubManager()
+        pages: list[dict[str, Any]] = [{"integrations": [{"id": "int-1"}]}]
+
+        batches, mock_get = _run(manager, pages, endpoint="integrations", user_ids="user-1, user-2")
+
+        assert mock_get.call_count == 1
+        assert "X-As-User" not in mock_get.call_args[1]["headers"]
+        assert "user_id" not in batches[0][0]
+
+    def test_vaults_null_collection_becomes_empty_string(self) -> None:
+        manager = _StubManager()
+        pages: list[dict[str, Any]] = [{"items": [{"collection": None, "document_count": 3}], "next_cursor": None}]
+
+        batches, _ = _run(manager, pages, endpoint="vaults")
+
+        assert batches[0][0]["collection"] == ""
+
+    def test_eu_region_hits_eu_base_url(self) -> None:
+        manager = _StubManager()
+        pages: list[dict[str, Any]] = [{"items": [], "next_cursor": None}]
+
+        _, mock_get = _run(manager, pages, region="eu")
+
+        assert mock_get.call_args[0][0].startswith(HYPERSPELL_BASE_URLS["eu"])
 
     @pytest.mark.parametrize(
-        "region, expected_host",
-        [("us", "https://api.hyperspell.com"), ("eu", "https://api.eu.hyperspell.com")],
+        "endpoint, page_size_param",
+        [
+            ("memories", "size=100"),
+            ("entities", "limit=500"),
+        ],
     )
-    @mock.patch(_TRANSPORT)
-    def test_probes_memories_endpoint_in_region(self, mock_session, region, expected_host):
-        mock_session.return_value.get.return_value = _response({"items": [], "next_cursor": None})
-        validate_credentials("key", region, None)
-        url = mock_session.return_value.get.call_args.args[0]
-        assert url == f"{expected_host}/memories/list?size=1"
+    def test_page_size_param_varies_per_endpoint(self, endpoint, page_size_param) -> None:
+        manager = _StubManager()
+        pages: list[dict[str, Any]] = [{"items": [], "next_cursor": None}]
 
-    @mock.patch(_TRANSPORT)
-    def test_request_exception_is_failure(self, mock_session):
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        ok, error = validate_credentials("key", "us", None)
-        assert ok is False
-        assert "boom" in (error or "")
+        _, mock_get = _run(manager, pages, endpoint=endpoint)
+
+        assert page_size_param in mock_get.call_args[0][0]
 
 
-class TestGetRowsPaginated:
-    @mock.patch(_TRANSPORT)
-    def test_follows_next_cursor_until_exhausted(self, mock_session):
-        mock_session.return_value = _session_returning(
-            {"items": [{"resource_id": "a"}, {"resource_id": "b"}], "next_cursor": "c1"},
-            {"items": [{"resource_id": "c"}], "next_cursor": None},
-        )
-        manager = _make_manager()
-
-        batches = list(get_rows("key", "us", None, "memories", mock.MagicMock(), manager))
-
-        assert [row["resource_id"] for batch in batches for row in batch] == ["a", "b", "c"]
-        urls = [c.args[0] for c in mock_session.return_value.get.call_args_list]
-        assert urls[0] == "https://api.hyperspell.com/memories/list?size=100"
-        assert urls[1] == "https://api.hyperspell.com/memories/list?size=100&cursor=c1"
-        # State saved once per non-empty yielded page, with the cursor that fetched that page.
-        saved = [c.args[0] for c in manager.save_state.call_args_list]
-        assert [s.cursor for s in saved] == [None, "c1"]
-
-    @mock.patch(_TRANSPORT)
-    def test_resumes_from_saved_cursor(self, mock_session):
-        mock_session.return_value = _session_returning(
-            {"items": [{"resource_id": "z"}], "next_cursor": None},
-        )
-        manager = _make_manager(HyperspellResumeConfig(cursor="c9"))
-
-        batches = list(get_rows("key", "us", None, "memories", mock.MagicMock(), manager))
-
-        assert [row["resource_id"] for batch in batches for row in batch] == ["z"]
-        first_url = mock_session.return_value.get.call_args_list[0].args[0]
-        assert "cursor=c9" in first_url
-
-    @mock.patch(_TRANSPORT)
-    def test_empty_listing_yields_nothing(self, mock_session):
-        mock_session.return_value = _session_returning({"items": [], "next_cursor": None})
-        manager = _make_manager()
-
-        assert list(get_rows("key", "us", None, "memories", mock.MagicMock(), manager)) == []
-        manager.save_state.assert_not_called()
-
+class TestHyperspellSource:
     @pytest.mark.parametrize(
-        "endpoint, expected_size_param",
-        [("memories", "size=100"), ("entities", "limit=500"), ("context_documents", "limit=100")],
+        "endpoint, expected_primary_keys",
+        [
+            ("memories", ["user_id", "source", "resource_id"]),
+            ("connections", ["user_id", "id"]),
+            ("integrations", ["id"]),
+            ("queries", ["query_id"]),
+        ],
     )
-    @mock.patch(_TRANSPORT)
-    def test_page_size_param_per_endpoint(self, mock_session, endpoint, expected_size_param):
-        # Hyperspell uses `size` on some listings and `limit` on others.
-        data_key = HYPERSPELL_ENDPOINTS[endpoint].data_key
-        mock_session.return_value = _session_returning({data_key: [], "next_cursor": None})
-        list(get_rows("key", "us", None, endpoint, mock.MagicMock(), _make_manager()))
-        url = mock_session.return_value.get.call_args.args[0]
-        assert expected_size_param in url
-
-
-class TestGetRowsUnpaginated:
-    @pytest.mark.parametrize("endpoint", ["connections", "integrations"])
-    @mock.patch(_TRANSPORT)
-    def test_single_request_without_pagination_params(self, mock_session, endpoint):
-        config = HYPERSPELL_ENDPOINTS[endpoint]
-        mock_session.return_value = _session_returning({config.data_key: [{"id": "x1"}, {"id": "x2"}]})
-        manager = _make_manager()
-
-        batches = list(get_rows("key", "us", None, endpoint, mock.MagicMock(), manager))
-
-        assert [row["id"] for batch in batches for row in batch] == ["x1", "x2"]
-        assert mock_session.return_value.get.call_count == 1
-        url = mock_session.return_value.get.call_args.args[0]
-        assert "?" not in url
-
-    @mock.patch(_TRANSPORT)
-    def test_uses_eu_base_url(self, mock_session):
-        mock_session.return_value = _session_returning({"connections": []})
-        list(get_rows("key", "eu", None, "connections", mock.MagicMock(), _make_manager()))
-        url = mock_session.return_value.get.call_args.args[0]
-        assert url.startswith("https://api.eu.hyperspell.com/")
-
-
-class TestHyperspellSourceResponse:
-    @pytest.mark.parametrize("endpoint", list(HYPERSPELL_ENDPOINTS.keys()))
-    def test_source_response_shape(self, endpoint):
-        config = HYPERSPELL_ENDPOINTS[endpoint]
-        response = hyperspell_source("key", "us", None, endpoint, mock.MagicMock(), _make_manager())
+    def test_primary_keys_per_endpoint(self, endpoint, expected_primary_keys) -> None:
+        response = hyperspell_source(
+            api_key="hs_test",
+            region="us",
+            user_ids=None,
+            endpoint=endpoint,
+            logger=structlog.get_logger(),
+            resumable_source_manager=mock.MagicMock(),
+        )
 
         assert response.name == endpoint
-        assert response.primary_keys == config.primary_key
-        assert response.sort_mode == config.sort_mode
-        if config.partition_key:
-            assert response.partition_mode == "datetime"
-            assert response.partition_keys == [config.partition_key]
-        else:
-            assert response.partition_mode is None
-            assert response.partition_keys is None
+        assert response.primary_keys == expected_primary_keys
+        # Row ordering is undefined (opaque cursor, no sort param) so "asc" must never be declared.
+        assert response.sort_mode == "desc"
 
-    def test_memories_caps_chunk_byte_size(self):
-        # Memory rows embed the full nested document payload, so the byte cap must be lowered.
-        response = hyperspell_source("key", "us", None, "memories", mock.MagicMock(), _make_manager())
-        assert response.chunk_size_bytes == 100 * 1024 * 1024
-        other = hyperspell_source("key", "us", None, "connections", mock.MagicMock(), _make_manager())
-        assert other.chunk_size_bytes is None
+    def test_entities_response_has_datetime_partition(self) -> None:
+        response = hyperspell_source(
+            api_key="hs_test",
+            region="us",
+            user_ids=None,
+            endpoint="entities",
+            logger=structlog.get_logger(),
+            resumable_source_manager=mock.MagicMock(),
+        )
 
-    @pytest.mark.parametrize(
-        "endpoint, expected_keys",
-        [
-            ("memories", ["source", "resource_id"]),
-            ("connections", ["id"]),
-            ("queries", ["query_id"]),
-            ("context_documents", ["document_id"]),
-        ],
-    )
-    def test_primary_keys_are_unique_table_wide(self, endpoint, expected_keys):
-        # memories carries a composite key: resource_id is only unique within its source provider.
-        assert HYPERSPELL_ENDPOINTS[endpoint].primary_key == expected_keys
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["created_at"]
 
-    @pytest.mark.parametrize(
-        "endpoint, expected_partition",
-        [
-            ("memories", "ingested_at"),
-            ("entities", "created_at"),
-            ("queries", "time"),
-            ("context_documents", "created_at"),
-            ("connections", None),
-            ("integrations", None),
-        ],
-    )
-    def test_partition_keys_are_stable_creation_timestamps(self, endpoint, expected_partition):
-        assert HYPERSPELL_ENDPOINTS[endpoint].partition_key == expected_partition
+    def test_memories_response_has_no_partition(self) -> None:
+        response = hyperspell_source(
+            api_key="hs_test",
+            region="us",
+            user_ids=None,
+            endpoint="memories",
+            logger=structlog.get_logger(),
+            resumable_source_manager=mock.MagicMock(),
+        )
+
+        assert response.partition_mode is None
+        assert response.partition_keys is None

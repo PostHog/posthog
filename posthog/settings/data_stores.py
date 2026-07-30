@@ -316,6 +316,10 @@ CLICKHOUSE_WRITABLE_CLUSTER: str = os.getenv("CLICKHOUSE_WRITABLE_CLUSTER", "pos
 CLICKHOUSE_PRIMARY_REPLICA_CLUSTER: str = os.getenv("CLICKHOUSE_PRIMARY_REPLICA_CLUSTER", "posthog_primary_replica")
 CLICKHOUSE_AUX_CLUSTER: str = os.getenv("CLICKHOUSE_AUX_CLUSTER", "aux")
 CLICKHOUSE_AI_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_AI_EVENTS_CLUSTER", "ai_events")
+# CI uses this to run the test suite against both schemas. Production reads use the instance settings.
+CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: bool = TEST and get_from_env(
+    "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False, type_cast=str_to_bool
+)
 # query_log_archive's single data table lives on the OPS cluster; every cluster's
 # Distributed read/write tables route to it via this cluster name.
 CLICKHOUSE_OPS_CLUSTER: str = os.getenv("CLICKHOUSE_OPS_CLUSTER", "ops")

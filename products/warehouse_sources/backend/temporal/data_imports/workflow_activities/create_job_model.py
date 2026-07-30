@@ -22,7 +22,10 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import HIDDEN_COLUMNS, DataWarehouseTable
-from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import emit_signals_enabled_for
+from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
+    emit_signals_enabled_for,
+    person_property_sync_enabled_for,
+)
 
 WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
 
@@ -156,6 +159,9 @@ class CreateExternalDataJobModelActivityOutputs:
     enrichment_needed: bool = False
     # True when statistics are permitted AND stale (no row yet, or older than the recompute interval).
     statistics_needed: bool = False
+    # True when the schema feeds at least one enabled person-target Customer analytics source, so the
+    # workflow should start the person-property sync child. Gated up front to avoid a no-op child per sync.
+    person_property_sync_enabled: bool = False
 
 
 @activity.defn
@@ -241,6 +247,10 @@ def create_external_data_job_model_activity(
         enrichment_needed = enrichment_should_run and _enrichment_pending(inputs.team_id, table, schema)
         statistics_needed = statistics_should_run and _statistics_stale(inputs.team_id, table)
 
+        # Whether this schema feeds any enabled person-target Customer analytics source (owned by
+        # customer_analytics via external_product_hooks; not imported here).
+        person_property_sync_enabled = person_property_sync_enabled_for(inputs.team_id, schema.id)
+
         return CreateExternalDataJobModelActivityOutputs(
             job_id=str(job.id),
             incremental_or_append=schema.is_incremental or schema.is_append or schema.is_webhook,
@@ -252,6 +262,7 @@ def create_external_data_job_model_activity(
             statistics_enabled=statistics_should_run,
             enrichment_needed=enrichment_needed,
             statistics_needed=statistics_needed,
+            person_property_sync_enabled=person_property_sync_enabled,
         )
     except Exception as e:
         logger.exception(

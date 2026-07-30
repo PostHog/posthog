@@ -1468,6 +1468,64 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             },
         ]
 
+        // Follow-live contract: a parked job carries no copy of its wait condition - the matcher
+        // must evaluate the flow's live config on every event. Guards against a refactor that
+        // stamps the condition (or its bytecode) into job state at park time, which would make
+        // edits to a wait condition silently ignored for everyone already parked on it.
+        it('after a wait-condition edit, only the new condition wakes a parked job', async () => {
+            matcher.findRows = [
+                {
+                    id: 'job-1',
+                    team_id: 1,
+                    function_id: 'flow-1',
+                    action_id: 'wait_node',
+                    distinct_id: 'user-1',
+                    person_id: null,
+                },
+            ]
+            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({ currentAction: { id: 'wait_node' } }) }]
+            matcher.updateRowCount = 1
+            // The job parked while the wait subscribed to 'old_wake_event'; the flow has since
+            // been edited to wait for 'new_wake_event'
+            matcher.setHogFlows({
+                'flow-1': makeHogFlow({
+                    id: 'flow-1',
+                    actions: [
+                        {
+                            id: 'trigger_node',
+                            name: 'Trigger',
+                            type: 'trigger',
+                            config: { type: 'event', filters: {} },
+                        },
+                        {
+                            id: 'wait_node',
+                            name: 'Wait',
+                            type: 'wait_until_condition',
+                            config: {
+                                max_wait_duration: '5m',
+                                events: [
+                                    {
+                                        filters: {
+                                            bytecode: eventBytecode('new_wake_event'),
+                                            events: [{ id: 'new_wake_event' }],
+                                        },
+                                    },
+                                ],
+                            },
+                        },
+                        { id: 'exit_node', name: 'Exit', type: 'exit', config: {} },
+                    ],
+                } as any),
+            })
+
+            await matcher.runWake([wakeWith('old_wake_event')])
+            expect(matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))).toBeUndefined()
+
+            matcher.calls = []
+            await matcher.runWake([wakeWith('new_wake_event')])
+            expect(matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))).toBeDefined()
+        })
+
         it.each(cases)('$name -> woken: $woken', async ({ config, event, woken }) => {
             matcher.findRows = [
                 {

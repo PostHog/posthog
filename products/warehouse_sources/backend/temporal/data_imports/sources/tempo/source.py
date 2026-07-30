@@ -37,6 +37,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TempoSource(ResumableSource[TempoSourceConfig, TempoResumeConfig]):
+    supported_versions = ("4",)
+    default_version = "4"
+    api_docs_url = "https://apidocs.tempo.io/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

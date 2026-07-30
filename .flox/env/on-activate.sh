@@ -419,11 +419,15 @@ if [[ ! -f "$DOTENV_FILE" ]] && [[ -f ".env.example" ]]; then
   cp .env.example "$DOTENV_FILE"
 fi
 if [[ -f "$DOTENV_FILE" ]]; then
-  set -o allexport
-  # shellcheck disable=SC1090
-  source "$DOTENV_FILE"
-  set +o allexport
-  done_step "Environment vars"
+  if [[ "${POSTHOG_SKIP_DOTENV:-}" == "1" ]]; then
+    done_step "Environment vars (deferred)"
+  else
+    set -o allexport
+    # shellcheck disable=SC1090
+    source "$DOTENV_FILE"
+    set +o allexport
+    done_step "Environment vars"
+  fi
 else
   warn_step "Environment vars  ${C_DIM}(.env not found)${C_RESET}"
 fi

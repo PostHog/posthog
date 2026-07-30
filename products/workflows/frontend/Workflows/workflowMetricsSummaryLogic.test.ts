@@ -1,6 +1,11 @@
 import { AppMetricsTimeSeriesResponse } from 'lib/components/AppMetrics/appMetricsLogic'
 
-import { subtractSeries, withDisplayName } from './workflowMetricsSummaryLogic'
+import {
+    type EmailMetric,
+    buildEmailMetricInvocationSearchParams,
+    subtractSeries,
+    withDisplayName,
+} from './workflowMetricsSummaryLogic'
 
 const series = (labels: string[], ...namedValues: [string, number[]][]): AppMetricsTimeSeriesResponse => ({
     labels,
@@ -72,4 +77,36 @@ describe('subtractSeries', () => {
     ])('$name', ({ minuend, subtrahend, displayName, expected }) => {
         expect(subtractSeries(minuend, subtrahend, displayName)).toEqual(expected)
     })
+})
+
+describe('buildEmailMetricInvocationSearchParams', () => {
+    const dateFrom = '2026-07-01T00:00:00.000Z'
+    const dateTo = '2026-07-13T00:00:00.000Z'
+
+    // Each metric drills into the Invocations tab via the unified search box (`inv_search`), narrowed
+    // to the level that distinguishes it: bounced/blocked at WARN/ERROR, bounce prevented
+    // ("Skipping send") at INFO.
+    it.each<[EmailMetric, Record<string, string>]>([
+        [
+            'email_bounced',
+            { inv_date_from: dateFrom, inv_date_to: dateTo, inv_search: 'bounce', inv_log_levels: 'WARN,ERROR' },
+        ],
+        [
+            'email_blocked',
+            { inv_date_from: dateFrom, inv_date_to: dateTo, inv_search: 'Complaint', inv_log_levels: 'WARN,ERROR' },
+        ],
+        [
+            'email_bounce_prevented',
+            { inv_date_from: dateFrom, inv_date_to: dateTo, inv_search: 'Skipping send', inv_log_levels: 'INFO' },
+        ],
+    ])('maps %s to the expected Invocations-tab params', (metricKey, expected) => {
+        expect(buildEmailMetricInvocationSearchParams(metricKey, dateFrom, dateTo)).toEqual(expected)
+    })
+
+    it.each<EmailMetric>(['email_sent', 'email_delivered', 'email_opened', 'email_failed'])(
+        'returns null for the non-drillable metric %s',
+        (metricKey) => {
+            expect(buildEmailMetricInvocationSearchParams(metricKey, dateFrom, dateTo)).toBeNull()
+        }
+    )
 })

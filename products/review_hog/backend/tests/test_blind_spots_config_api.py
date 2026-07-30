@@ -2,7 +2,7 @@ from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
-from posthog.models import Team
+from posthog.models import Team, User
 
 from products.review_hog.backend.models import ReviewSkillConfig
 from products.review_hog.backend.reviewer.lazy_seed import sync_canonical_blind_spots
@@ -23,8 +23,16 @@ class TestReviewBlindSpotsConfigAPI(APIBaseTest):
         sync_canonical_blind_spots(self.team)
         self.base = f"/api/projects/{self.team.id}/review_hog/blind_spots"
 
-    def _author_custom(self, name: str = _CUSTOM) -> None:
-        LLMSkill.objects.create(team=self.team, name=name, description="d", body="x" * 250, version=1, is_latest=True)
+    def _author_custom(self, name: str = _CUSTOM, created_by: User | None = None) -> None:
+        LLMSkill.objects.create(
+            team=self.team,
+            name=name,
+            description="d",
+            body="x" * 250,
+            version=1,
+            is_latest=True,
+            created_by=created_by or self.user,
+        )
 
     def test_list_shows_canonical_active_and_custom_inactive(self) -> None:
         # The menu flags the user's active sweep; the canonical seeds active on first read.
@@ -90,6 +98,19 @@ class TestReviewBlindSpotsConfigAPI(APIBaseTest):
             f"{self.base}/{REVIEW_HOG_BLIND_SPOTS_PREFIX}does-not-exist/", {"active": True}, format="json"
         )
         assert res.status_code == 404
+
+    def test_a_teammates_custom_sweep_is_hidden_and_not_selectable(self) -> None:
+        # Visibility is author-only: a custom another user authored must not appear in this user's
+        # menu, and selecting it by exact name must 404 as if it didn't exist.
+        teammate = User.objects.create(email="teammate-blind-spots@example.com")
+        self._author_custom(created_by=teammate)
+
+        listing = self.client.get(f"{self.base}/")
+        selected = self.client.patch(f"{self.base}/{_CUSTOM}/", {"active": True}, format="json")
+
+        assert listing.status_code == 200
+        assert _CUSTOM not in {item["skill_name"] for item in listing.json()}
+        assert selected.status_code == 404
 
     def test_environment_url_resolves_to_the_canonical_team(self) -> None:
         # Same failure mode as the settings/perspectives viewsets: an environment (child team) id in

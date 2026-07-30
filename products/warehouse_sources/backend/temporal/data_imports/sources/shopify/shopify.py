@@ -46,6 +46,15 @@ SHOPIFY_ACCESS_TOKEN_AUTH_ERROR = (
     "app was uninstalled. Please reconnect your Shopify integration."
 )
 
+# Raised when the OAuth token endpoint returns 404 — there is no store at
+# `<store-id>.myshopify.com`, so the store id is wrong or the store no longer exists.
+# Reconnecting the app can't fix a bad store id, so this is surfaced separately from the
+# credentials error above (both are matched by `get_non_retryable_errors` to fail fast).
+SHOPIFY_STORE_NOT_FOUND_ERROR = (
+    "Couldn't find a Shopify store at that address. Check that your store id (the "
+    "'my-store' in 'my-store.myshopify.com') is correct and the store is still active."
+)
+
 # Substring of the GraphQL error Shopify returns when the connected access token lacks the
 # scope needed to read a field, e.g. "Access denied for fulfillmentOrders field." or
 # "Access denied for paymentTerms field. Required access: `read_payment_terms` access scope."
@@ -336,7 +345,12 @@ def _get_shopify_access_token(shopify_store_id: str, shopify_client_id: str, sho
     }
     access_res = make_tracked_session().post(access_token_url, data=access_data)
     if not access_res.ok:
-        # A 4xx means the app credentials are invalid/revoked (e.g. the app was
+        # A 404 means there's no store at this subdomain — the store id is wrong or the store
+        # is gone. Reconnecting the app can't fix that, so point the user at the store id
+        # instead of telling them their credentials are bad.
+        if access_res.status_code == 404:
+            raise Exception(f"{SHOPIFY_STORE_NOT_FOUND_ERROR} (HTTP 404)")
+        # Any other 4xx means the app credentials are invalid/revoked (e.g. the app was
         # uninstalled) — re-auth is the only fix, so surface a non-retryable message.
         if 400 <= access_res.status_code < 500 and access_res.status_code != 429:
             raise Exception(f"{SHOPIFY_ACCESS_TOKEN_AUTH_ERROR} (HTTP {access_res.status_code})")

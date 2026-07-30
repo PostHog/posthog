@@ -99,7 +99,6 @@ class RunHogEvalTestTool(MaxTool):
             query_type="RunHogEvalTest",
             fall_back_to_events=True,
         )
-
         if not response.results:
             return (
                 "No recent AI events found in the last 7 days. Ingest some $ai_generation or $ai_metric events first.",

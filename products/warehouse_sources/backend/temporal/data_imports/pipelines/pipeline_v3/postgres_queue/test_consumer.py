@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
     BatchConsumer,
     ConsumerConfig,
+    DeltaBatchConsumerAdapter,
     _group_by_key,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
@@ -1683,3 +1684,21 @@ class TestBatchHeartbeat:
         # blip -> continue; renewed -> status refresh; lease lost -> stop
         assert renew.await_count == 3
         refresh.assert_awaited_once()
+
+
+class TestIsRetryableError:
+    # A dropped pattern silently reverts a permanent error (deleted schema/job,
+    # data that can never fit) to burning all retry attempts before failing.
+
+    @pytest.mark.parametrize(
+        ("message", "retryable"),
+        [
+            ("value is too large to store in a Decimal128 of precision 24", False),
+            ("Primary key required for incremental syncs", False),
+            ("ExternalDataSchema matching query does not exist.", False),
+            ("ExternalDataJob matching query does not exist.", False),
+            ("connection reset by peer", True),
+        ],
+    )
+    def test_pattern_classification(self, message: str, retryable: bool):
+        assert DeltaBatchConsumerAdapter().is_retryable_error(Exception(message)) is retryable

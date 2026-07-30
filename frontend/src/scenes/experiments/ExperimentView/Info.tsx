@@ -20,8 +20,47 @@ import { getExperimentStatus, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import { ExperimentDuration } from './ExperimentDuration'
 import { ExperimentReloadActionContainer } from './ExperimentReloadActionContainer'
+import { flagCleanupTaskLogic } from './flagCleanupTaskLogic'
 import { RunningTime } from './RunningTime'
 import { StatusTag } from './StatusTag'
+
+function FlagCleanupLine({ experimentId, taskId }: { experimentId: number; taskId: string }): JSX.Element | null {
+    const { cleanupTask } = useValues(flagCleanupTaskLogic({ experimentId }))
+
+    if (!cleanupTask) {
+        return null
+    }
+
+    let text = 'Preparing cleanup PR…'
+    let linkText = 'View task'
+    let to = urls.taskDetail(taskId)
+    if (cleanupTask.is_terminal) {
+        if (cleanupTask.run_status === 'completed' && cleanupTask.pr_url) {
+            text = 'Cleanup PR opened'
+            linkText = 'View on GitHub'
+            to = cleanupTask.pr_url
+        } else if (cleanupTask.run_status === 'completed') {
+            text = 'Cleanup found no flag code to remove'
+        } else if (cleanupTask.run_status === 'failed') {
+            text = 'Cleanup PR failed'
+        } else {
+            text = 'Cleanup PR cancelled'
+        }
+    }
+
+    return (
+        <div className="text-xs text-muted mt-1 mb-3 flex items-center gap-1">
+            {text} ·
+            <Link
+                target={to === cleanupTask.pr_url ? '_blank' : undefined}
+                className="flex items-center gap-0.5"
+                to={to}
+            >
+                {linkText} <IconOpenInNew fontSize="12" />
+            </Link>
+        </div>
+    )
+}
 
 export function Info(): JSX.Element {
     const {
@@ -235,6 +274,12 @@ export function Info(): JSX.Element {
                                 </span>
                             </div>
                             <div>{experiment.conclusion_comment}</div>
+                            {experiment.flag_cleanup_task_id && typeof experiment.id === 'number' && (
+                                <FlagCleanupLine
+                                    experimentId={experiment.id}
+                                    taskId={experiment.flag_cleanup_task_id}
+                                />
+                            )}
                         </div>
                     </div>
                 )}

@@ -105,6 +105,17 @@ export const VisionAlertMetricEnumApi = {
 } as const
 
 /**
+ * * `above` - At or above
+ * * `below` - At or below
+ */
+export type VisionAlertDirectionEnumApi = (typeof VisionAlertDirectionEnumApi)[keyof typeof VisionAlertDirectionEnumApi]
+
+export const VisionAlertDirectionEnumApi = {
+    Above: 'above',
+    Below: 'below',
+} as const
+
+/**
  * * `1` - 1 day
  * * `3` - 3 days
  * * `7` - 7 days
@@ -137,8 +148,13 @@ export interface AlertConfigApi {
      * * `count` - Count of matching observations
      * * `avg_score` - Average score */
     metric?: VisionAlertMetricEnumApi
-    /** The alert fires when the metric is at or above this value. Required for on_breach; ignored for every_match. */
+    /** The alert fires when the metric is at or above ('above') or at or below ('below') this value, per 'direction'. Required for on_breach; ignored for every_match. */
     threshold?: number
+    /** Which side of the threshold breaches: 'above' fires when the metric is at or above it, 'below' when at or below (e.g. an average score dropping under a floor). Both inclusive. Defaults to 'above'; ignored for every_match.
+     *
+     * * `above` - At or above
+     * * `below` - At or below */
+    direction?: VisionAlertDirectionEnumApi
     /** Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).
      *
      * * `1` - 1 day
@@ -386,6 +402,8 @@ export interface VisionActionRunListApi {
      * @nullable
      */
     readonly error_reason: string | null
+    /** True for the run recording an alert's condition clearing after a breach (the recovery bookend in run history). False for alert firings and summaries. */
+    readonly is_recovery: boolean
     readonly created_at: string
     readonly updated_at: string
 }
@@ -447,6 +465,8 @@ export interface VisionActionRunApi {
      * @nullable
      */
     readonly error_reason: string | null
+    /** True for the run recording an alert's condition clearing after a breach (the recovery bookend in run history). False for alert firings and summaries. */
+    readonly is_recovery: boolean
     readonly created_at: string
     readonly updated_at: string
     /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
@@ -1371,7 +1391,7 @@ export type VisionObservationsRetrieveParams = {
      */
     order_by?: string
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string
     /**
@@ -1449,7 +1469,7 @@ export type VisionScannersObservationsListParams = {
      */
     order_by?: string
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string
     /**
@@ -1484,7 +1504,7 @@ export type VisionScannersObservationsRetrieveParams = {
      */
     order_by?: string
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string
     /**
@@ -1519,7 +1539,7 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      */
     recent_days?: number
     /**
-     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     * Filter to observations whose person email contains this value (case-insensitive).
      */
     recording_subject?: string
     /**

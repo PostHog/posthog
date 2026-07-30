@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconCalendar } from '@posthog/icons'
+import { LemonSelect } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -18,11 +19,40 @@ import { Scene } from 'scenes/sceneTypes'
 import { groupsModel } from '~/models/groupsModel'
 import { VariablesForDashboard } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
 import { BreakdownFilter, NodeKind } from '~/queries/schema/schema-general'
-import { DashboardMode, InsightLogicProps } from '~/types'
+import { DashboardMode, InsightLogicProps, IntervalType } from '~/types'
 
 interface DashboardEditBarProps {
     showDateFilter?: boolean
     className?: string
+}
+
+export function DashboardIntervalFilter(): JSX.Element {
+    const { dashboardMode, effectiveEditBarFilters } = useValues(dashboardLogic)
+    const { setInterval, setDashboardMode } = useActions(dashboardLogic)
+
+    return (
+        <span className="flex items-center gap-2">
+            <span className="hidden md:inline">grouped by</span>
+            <LemonSelect<IntervalType | null>
+                size="small"
+                value={effectiveEditBarFilters.interval ?? null}
+                dropdownMatchSelectWidth={false}
+                onChange={(interval) => {
+                    if (dashboardMode !== DashboardMode.Edit) {
+                        setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardFilters)
+                    }
+                    setInterval(interval)
+                }}
+                options={[
+                    { value: null, label: "each insight's interval" },
+                    { value: 'hour', label: 'hour' },
+                    { value: 'day', label: 'day' },
+                    { value: 'week', label: 'week' },
+                    { value: 'month', label: 'month' },
+                ]}
+            />
+        </span>
+    )
 }
 
 export function DashboardEditBar({ showDateFilter = true, className }: DashboardEditBarProps): JSX.Element {
@@ -88,6 +118,11 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                             )}
                         />
                     </Shortcut>
+                </div>
+            )}
+            {showDateFilter && (
+                <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+                    <DashboardIntervalFilter />
                 </div>
             )}
             <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>

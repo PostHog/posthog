@@ -502,11 +502,11 @@ export class IngestionApiServer implements NodeServer {
             batchesInFlight.inc()
             inFlight = true
 
+            // The pipeline handles its own side effects (scheduling them on
+            // the promise scheduler), so draining results is all that's left
+            // to do.
             let result = await this.joinedPipeline.next()
             while (result !== null) {
-                for (const sideEffect of result.sideEffects ?? []) {
-                    void this.promiseScheduler.schedule(sideEffect)
-                }
                 result = await this.joinedPipeline.next()
             }
 

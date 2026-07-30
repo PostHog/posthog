@@ -1,8 +1,70 @@
 import pytest
 from unittest.mock import patch
 
-from posthog.temporal.ai_observability.eval_reports.types import CheckCountTriggeredEvalReportOutput
-from posthog.temporal.ai_observability.eval_reports.workflow import _check_count_triggered_eval_report_candidates
+from posthog.temporal.ai_observability.eval_reports.types import (
+    CheckCountTriggeredEvalReportOutput,
+    GenerateAndDeliverEvalReportWorkflowInput,
+    PrepareReportContextOutput,
+    RunEvalReportAgentInput,
+    RunEvalReportAgentOutput,
+    StoreReportRunOutput,
+)
+from posthog.temporal.ai_observability.eval_reports.workflow import (
+    GenerateAndDeliverEvalReportWorkflow,
+    _check_count_triggered_eval_report_candidates,
+)
+
+
+@pytest.mark.asyncio
+async def test_generate_workflow_forwards_sentiment_output_type() -> None:
+    activity_inputs: list[object] = []
+    responses = iter(
+        [
+            PrepareReportContextOutput(
+                report_id="report-id",
+                team_id=1,
+                evaluation_id="evaluation-id",
+                evaluation_name="Sentiment",
+                evaluation_description="",
+                evaluation_prompt="",
+                evaluation_type="sentiment",
+                output_type="sentiment",
+                period_start="2026-07-01T00:00:00+00:00",
+                period_end="2026-07-02T00:00:00+00:00",
+                previous_period_start="2026-06-30T00:00:00+00:00",
+            ),
+            RunEvalReportAgentOutput(
+                report_id="report-id",
+                content={},
+                period_start="2026-07-01T00:00:00+00:00",
+                period_end="2026-07-02T00:00:00+00:00",
+            ),
+            StoreReportRunOutput(report_run_id="run-id"),
+            None,
+        ]
+    )
+
+    async def fake_execute_activity(_activity, inputs, **_kwargs):
+        activity_inputs.append(inputs)
+        return next(responses)
+
+    with (
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.execute_activity",
+            new=fake_execute_activity,
+        ),
+        patch(
+            "posthog.temporal.ai_observability.eval_reports.workflow.temporalio.workflow.patched",
+            return_value=False,
+        ),
+    ):
+        await GenerateAndDeliverEvalReportWorkflow().run(
+            GenerateAndDeliverEvalReportWorkflowInput(report_id="report-id", manual=True)
+        )
+
+    agent_input = activity_inputs[1]
+    assert isinstance(agent_input, RunEvalReportAgentInput)
+    assert agent_input.output_type == "sentiment"
 
 
 @pytest.mark.asyncio

@@ -19,27 +19,31 @@
   </a>
 </p>
 
-## PostHog is an all-in-one, open source platform for building successful products
+## PostHog is the open source platform for building self-driving products
 
-[PostHog](https://posthog.com/) provides every tool you need to build a successful product including:
+[PostHog](https://posthog.com/) provides every tool you need to build a successful product, and captures all the context agents need to proactively diagnose problems, uncover opportunities, and ship fixes:
 
-- [Product Analytics](https://posthog.com/product-analytics): Autocapture or manually instrument event-based analytics to understand user behavior and analyze data with visualization or SQL.
-- [Web Analytics](https://posthog.com/web-analytics): Monitor web traffic and user sessions with a GA-like dashboard. Easily monitor conversion, web vitals, and revenue.
-- [Session Replays](https://posthog.com/session-replay): Watch real user sessions of interactions with your website or mobile app to diagnose issues and understand user behavior.
-- [Feature Flags](https://posthog.com/feature-flags): Safely roll out features to select users or cohorts with feature flags.
+- [Self-driving mode](https://posthog.com/docs/self-driving): Turn signals in your product data (errors, rage clicks, failed queries, and more) into researched reports and pull requests you review and merge.
+- [Product analytics](https://posthog.com/product-analytics): Autocapture or manually instrument event-based analytics to understand user behavior and analyze data with visualization or SQL.
+- [Web analytics](https://posthog.com/web-analytics): Monitor web traffic and user sessions with a GA-like dashboard. Easily monitor conversion, web vitals, and revenue.
+- [Session replays](https://posthog.com/session-replay): Watch real user sessions of interactions with your website or mobile app to diagnose issues and understand user behavior.
+- [Feature flags](https://posthog.com/feature-flags): Safely roll out features to select users or cohorts with feature flags.
 - [Experiments](https://posthog.com/experiments): Test changes and measure their statistical impact on goal metrics. Set up experiments with no-code too.
-- [Error Tracking](https://posthog.com/error-tracking): Track errors, get alerts, and resolve issues to improve your product.
+- [Error tracking](https://posthog.com/error-tracking): Track errors, get alerts, and resolve issues to improve your product.
+- [Logs](https://posthog.com/logs): Ingest, search, and analyze log data alongside the rest of your product data.
 - [Surveys](https://posthog.com/surveys): Ask anything with our collection of no-code survey templates, or build custom surveys with our survey builder.
 - [Data warehouse](https://posthog.com/data-warehouse): Sync data from external tools like Stripe, Hubspot, your data warehouse, and more. Query it alongside your product data.
 - [Data pipelines](https://posthog.com/cdp): Run custom filters and transformations on your incoming data. Send it to 25+ tools or any webhook in real time or batch export large amounts to your warehouse.
 - [AI observability](https://posthog.com/docs/ai-observability): Capture traces, generations, latency, and cost for your LLM-powered app.
 - [Workflows](https://posthog.com/docs/workflows): Create workflows that automate actions or send messages to your users.
 
-Best of all, all of this is free to use with a [generous monthly free tier](https://posthog.com/pricing) for each product. Get started by signing up for [PostHog Cloud US](https://us.posthog.com/signup) or [PostHog Cloud EU](https://eu.posthog.com/signup).
+You can steer it all from [Slack](https://posthog.com/slack), [web](https://posthog.com/ai), desktop ([PostHog Code](https://posthog.com/code)), or your own editor via [the MCP](https://posthog.com/mcp).
+
+Best of all, all of this is free to use with a [generous monthly free tier](https://posthog.com/pricing) for each tool. Get started by signing up for [PostHog Cloud US](https://us.posthog.com/signup) or [PostHog Cloud EU](https://eu.posthog.com/signup).
 
 ## Table of Contents
 
-- [PostHog is an all-in-one, open source platform for building successful products](#posthog-is-an-all-in-one-open-source-platform-for-building-successful-products)
+- [PostHog is the open source platform for building self-driving products](#posthog-is-the-open-source-platform-for-building-self-driving-products)
 - [Table of Contents](#table-of-contents)
 - [Getting started with PostHog](#getting-started-with-posthog)
   - [PostHog Cloud (Recommended)](#posthog-cloud-recommended)
@@ -70,7 +74,7 @@ We _do not_ provide customer support or offer guarantees for open source deploym
 
 ## Setting up PostHog
 
-Once you've got a PostHog instance, you can set it up by installing our [JavaScript web snippet](https://posthog.com/docs/getting-started/install?tab=snippet), one of [our SDKs](https://posthog.com/docs/getting-started/install?tab=sdks), or by [using our API](https://posthog.com/docs/getting-started/install?tab=api).
+Once you've got a PostHog instance, you can set it up by installing our [JavaScript web snippet](https://posthog.com/docs/getting-started/install?tab=snippet), one of [our SDKs](https://posthog.com/docs/getting-started/install?tab=sdks), or by [using our API](https://posthog.com/docs/getting-started/install?tab=api). You can also connect [the MCP](https://posthog.com/mcp) to bring PostHog into Claude Code, Cursor, or any MCP-compatible agent.
 
 We have SDKs and libraries for popular languages and frameworks like:
 

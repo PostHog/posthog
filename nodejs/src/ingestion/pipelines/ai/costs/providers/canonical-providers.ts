@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-07-15 10:33:40 UTC
+// Generated at: 2026-07-16 10:38:12 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -30,6 +30,7 @@ export type CanonicalProvider =
     | 'baidu-fp4'
     | 'baidu-fp8'
     | 'baseten-fp4'
+    | 'baseten-fp8'
     | 'cerebras-fp16'
     | 'chutes-fp4'
     | 'chutes-fp8'

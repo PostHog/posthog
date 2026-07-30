@@ -136,6 +136,8 @@ export interface _TracingAttributeBreakdownQueryBodyApi {
     breakdownType: SpanPropertyTypeEnumApi
     /** Drop filters targeting the breakdown key itself (including serviceNames for a service_name breakdown), so a facet's value list stays complete while one of its values is selected. */
     excludeBreakdownFilter?: boolean
+    /** Type-ahead filter over the breakdown field's own values (case-insensitive substring match). An empty string means no filter. Lets a facet's value search reach past the row limit. */
+    facetSearch?: string
     /** Order rows by span count or error count, descending. Defaults to count.
      *
      * * `count` - count

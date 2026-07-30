@@ -74,7 +74,7 @@ export interface TriggerDeps {
     routingMode?: RoutingMode
     domainSuffix?: string
     publicBaseUrl?: string
-    /** Edge-admission stores (Slack trigger). When the agent declares an
+    /** Edge-admission stores (Slack + chat triggers). When the agent declares an
      *  authoritative_provider, an unauthenticated claim gets an auth link instead
      *  of a session. See `enqueue/admission-gate.ts`. */
     identityLinks: IdentityLinkStateStore

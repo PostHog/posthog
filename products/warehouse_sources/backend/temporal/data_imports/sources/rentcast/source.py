@@ -36,6 +36,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class RentCastSource(ResumableSource[RentCastSourceConfig, RentCastResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://developers.rentcast.io/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

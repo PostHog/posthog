@@ -30,6 +30,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MondaySource(SimpleSource[MondaySourceConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://developer.monday.com/api-reference"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

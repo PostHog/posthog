@@ -1,3 +1,4 @@
+import datetime
 import dataclasses
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
@@ -92,6 +93,18 @@ FieldType = Union[
 
 SourceCredentialsValidationResult = tuple[bool, str | None]
 
+# Label used by sources whose vendor has no meaningful API versioning. Version strings are
+# opaque vendor labels (Stripe date versions, semver, names) — never parsed or ordered.
+UNVERSIONED_API_VERSION = "v1"
+
+
+@dataclasses.dataclass(frozen=True)
+class VersionDeprecation:
+    """Deprecation metadata for a single supported version of a source's vendor API."""
+
+    version: str
+    sunset_at: datetime.date | None = None
+
 
 class _BaseSource(ABC, Generic[ConfigType]):
     """Base class for all data import sources.
@@ -127,6 +140,24 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # `get_schemas` with a placeholder config could connect, hang, or close the DB session.
     lists_tables_without_credentials: bool = False
 
+    # Vendor API versions this source implements, as opaque vendor labels (Stripe date
+    # versions, semver, names) — never parsed or ordered by the framework. Sources whose
+    # vendor has no meaningful API versioning keep the `UNVERSIONED_API_VERSION` default.
+    # `ExternalDataSource.api_version` pins one per source instance; the sync pipeline
+    # resolves the pin (falling back to `default_version`) into `SourceInputs.api_version`.
+    supported_versions: tuple[str, ...] = (UNVERSIONED_API_VERSION,)
+
+    # Version used when a source instance has no pin, and stamped onto newly created sources.
+    default_version: str = UNVERSIONED_API_VERSION
+
+    # Vendor API docs/changelog URL — where the vendor announces new API versions. Distinct
+    # from `SourceConfig.docsUrl` (the posthog.com docs page for the source).
+    api_docs_url: str | None = None
+
+    # Versions from `supported_versions` the vendor has deprecated. Drives the generic
+    # in-product deprecation warning; no per-source UI work.
+    deprecated_versions: tuple[VersionDeprecation, ...] = ()
+
     @property
     @abstractmethod
     def source_type(self) -> ExternalDataSourceType:
@@ -139,6 +170,21 @@ class _BaseSource(ABC, Generic[ConfigType]):
             raise ValueError(f"Config class for {self.source_type} does not exist in SOURCE_CONFIG_MAPPING")
 
         return config
+
+    def resolve_api_version(self, pinned: str | None) -> str:
+        """Effective vendor API version for a source instance's stored pin.
+
+        A present pin is honored verbatim — even one no longer declared — because silently
+        moving a customer to another version is the failure mode this framework exists to
+        prevent; the vendor API is the real validator of the label. A missing/empty pin
+        falls back to `default_version`.
+        """
+        return pinned or self.default_version
+
+    def get_version_deprecation(self, version: str | None) -> VersionDeprecation | None:
+        """Deprecation metadata for the given pin (resolved through the default), if any."""
+        effective = self.resolve_api_version(version)
+        return next((d for d in self.deprecated_versions if d.version == effective), None)
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         """Returns the errors for which the source should be disabled on.
@@ -371,6 +417,21 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
         In most cases this will likely just be the table name -> table name. But in the case of Stripe, it's the
         table name mapped to the Stripe object type"""
         raise NotImplementedError()
+
+    def webhook_mapping_key(self, schema_name: str) -> str:
+        """The `schema_mapping` key incoming webhooks are routed by for one schema row.
+
+        Defaults to the `webhook_resource_map` translation (schema name -> provider event type).
+        Sources whose schema names carry a namespace (e.g. GitHub's `owner/repo.workflow_runs`)
+        override this to emit namespace-qualified keys, so two namespaces' rows for the same
+        event type don't collide in the mapping."""
+        return self.webhook_resource_map.get(schema_name, schema_name)
+
+    def webhook_template_inputs(self, config: ConfigType) -> dict[str, Any]:
+        """Extra static `inputs` to persist on the webhook HogFunction beyond `schema_mapping` and
+        `source_id`. None by default; GitHub uses it to pin the legacy repository so the template's
+        bare-event-key fallback can't route a secondary repo's events into the legacy repo's schema."""
+        return {}
 
     def get_external_webhook_info(
         self, config: ConfigType, webhook_url: str, team_id: int

@@ -37,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FilloutSource(SimpleSource[FilloutSourceConfig]):
+    api_docs_url = "https://www.fillout.com/help/api-reference"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.FILLOUT

@@ -20,7 +20,7 @@ from posthog.hogql.printer.postgres_functions import (
     POSTGRES_PASSTHROUGH_FUNCTIONS,
 )
 
-from posthog.models.utils import UUIDT
+from posthog.uuidt import UUIDT
 
 # Regex for validating function names — only alphanumeric and underscores allowed.
 # Prevents SQL injection via backtick-quoted identifiers in HogQL.
@@ -172,11 +172,16 @@ class PostgresPrinter(BasePrinter):
                     f"Function '{node.name}' does not support ORDER BY in the {self.DIALECT_LABEL} dialect."
                 )
             if node.distinct:
-                # Handlers compose custom SQL from pre-rendered args; injecting DISTINCT into
-                # that blindly risks silently changing what the aggregate counts.
-                raise QueryError(
-                    f"Function '{node.name}' does not support DISTINCT in the {self.DIALECT_LABEL} dialect."
-                )
+                if func_name in self._get_distinct_capable_handlers():
+                    # Fold DISTINCT into the rendered args so the handler emits e.g.
+                    # COUNT(DISTINCT expr) — valid SQL these aggregates support.
+                    args = [f"DISTINCT {', '.join(args)}"]
+                else:
+                    # Other handlers compose custom SQL from pre-rendered args; injecting
+                    # DISTINCT blindly risks silently changing what the aggregate counts.
+                    raise QueryError(
+                        f"Function '{node.name}' does not support DISTINCT in the {self.DIALECT_LABEL} dialect."
+                    )
             return handler(args)
 
         args_str = ", ".join(args)
@@ -210,6 +215,10 @@ class PostgresPrinter(BasePrinter):
     def _get_passthrough_functions(self) -> frozenset[str]:
         """Lowercased function names that are emitted verbatim without renaming."""
         return POSTGRES_PASSTHROUGH_FUNCTIONS
+
+    def _get_distinct_capable_handlers(self) -> frozenset[str]:
+        """Lowercased handler names whose SQL accepts a leading DISTINCT (e.g. COUNT(DISTINCT x))."""
+        return frozenset()
 
     def visit_array_slice(self, node: ast.ArraySlice):
         start = self.visit(node.start_expr) if node.start_expr is not None else ""

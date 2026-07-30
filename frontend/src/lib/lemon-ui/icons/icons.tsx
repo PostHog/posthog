@@ -121,6 +121,21 @@ export function IconBranch(props: LemonIconProps): JSX.Element {
     )
 }
 
+// Stamphog product glyph: a robot head peeking out from behind a check-circle badge
+export function IconStamphog(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...props}>
+            <path d="M13.5 7.7 V7.5 A2.5 2.5 0 0 0 11 5 H5.5 A2.5 2.5 0 0 0 3 7.5 V11.5 A2.5 2.5 0 0 0 5.5 14 H8.39" />
+            <path d="M8.25 5V3.6" />
+            <circle cx="8.25" cy="2.55" r="1.05" />
+            <path d="M6.1 8.4v1.5" />
+            <path d="M9.9 8.4v1.5" />
+            <circle cx="15.75" cy="14.75" r="6" />
+            <path d="M13 14.9l1.9 1.9 3.6-4.2" />
+        </LemonIconBase>
+    )
+}
+
 // material design clipboard-edit-outline
 export function IconClipboardEdit(props: LemonIconProps): JSX.Element {
     return (

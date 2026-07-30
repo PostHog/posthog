@@ -273,10 +273,14 @@ export async function performQuery<N extends DataNode>(
         })
         return response
     } catch (e) {
+        // Raw error detail/message can echo query fragments, so telemetry only gets status and code
+        const error = e as (Error & { status?: number; code?: string | null }) | null
         posthog.capture('query failed', {
             query: queryNode,
             queryId,
             duration: performance.now() - startTime,
+            error_status: error?.status ?? null,
+            error_code: error?.code ?? null,
             ...logParams,
         })
         throw e

@@ -27,6 +27,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         # writes to the original Delta path — no orphaned data, but the row picks up the new
         # qualified naming so tables from other schemas can coexist without a name collision.
         mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_version_deprecation.return_value = None
         mock_get_source.return_value.get_schemas.return_value = [
             SourceSchema(
                 name="public.auth_group",
@@ -96,6 +97,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         # Calling refresh_schemas twice on a legacy row should be a no-op on the second call —
         # name stays put, schema_metadata stays put, no thrash of updated_at.
         mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_version_deprecation.return_value = None
         mock_get_source.return_value.get_schemas.return_value = [
             SourceSchema(
                 name="public.auth_group",
@@ -151,6 +153,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         # Without resolving the row by source location, reconcile_postgres_schemas would only
         # write metadata on the very first refresh and then leave the column-picker UI stale.
         mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_version_deprecation.return_value = None
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -221,6 +224,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         # `example_table`, otherwise source_for_pipeline falls back to `config.schema or "public"`
         # and emits `FROM "public"."poblic.example_table"` — a non-existent relation.
         mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_version_deprecation.return_value = None
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -311,6 +315,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
             "schema": "",
         }
         source_mock.parse_config.return_value = parsed_config
+        source_mock.get_version_deprecation.return_value = None
         source_mock.validate_config.return_value = (True, [])
         source_mock.validate_credentials_for_access_method.return_value = (True, None)
         source_mock.validate_credentials.return_value = (True, None)
@@ -394,6 +399,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
             "schema": "",
         }
         source_mock.parse_config.return_value = parsed_config
+        source_mock.get_version_deprecation.return_value = None
         source_mock.validate_config.return_value = (True, [])
         source_mock.validate_credentials_for_access_method.return_value = (True, None)
         source_mock.validate_credentials.return_value = (True, None)
@@ -469,6 +475,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         # must be persisted to sync_type_config.primary_key_columns so it can later be switched to
         # CDC (which requires a PK) — otherwise the toggle fails with "refresh to pick one up".
         mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_version_deprecation.return_value = None
         mock_get_source.return_value.get_schemas.return_value = [
             SourceSchema(
                 name="public.cdc_test_orders",
@@ -512,6 +519,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         # A user-set / previously-stored PK must survive refresh even if discovery detects a
         # different one — the explicit choice wins.
         mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_version_deprecation.return_value = None
         mock_get_source.return_value.get_schemas.return_value = [
             SourceSchema(
                 name="public.orders",

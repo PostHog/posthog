@@ -41,9 +41,22 @@ class TestGithubWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
             data["request"].update(globals["request"])
         return data
 
-    def _run(self, event_type: str, body: dict[str, Any], schema_mapping: dict[str, str]) -> Any:
+    def _run(
+        self,
+        event_type: str,
+        body: dict[str, Any],
+        schema_mapping: dict[str, str],
+        legacy_repository: str | None = None,
+    ) -> Any:
+        inputs: dict[str, Any] = {
+            "signing_secret": "",
+            "bypass_signature_check": True,
+            "schema_mapping": schema_mapping,
+        }
+        if legacy_repository is not None:
+            inputs["legacy_repository"] = legacy_repository
         return self.run_function(
-            {"signing_secret": "", "bypass_signature_check": True, "schema_mapping": schema_mapping},
+            inputs,
             globals={
                 "request": {
                     "method": "POST",
@@ -95,3 +108,54 @@ class TestGithubWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
 
         assert res.result["httpResponse"]["status"] == 200
         self.mock_produce_to_warehouse_webhooks.assert_not_called()
+
+    def test_repo_qualified_mapping_routes_by_repository_full_name(self):
+        # Multi-repo sources key the mapping by 'owner/repo.event' — without the qualified lookup
+        # two repos' workflow events would all land in whichever schema owns the bare key.
+        job = {"id": 1, "status": "completed"}
+        body = {"action": "completed", "workflow_job": job, "repository": {"full_name": "Acme/Widgets"}}
+        mapping = {"acme/widgets.workflow_job": "schema_widgets_jobs", "workflow_job": "schema_legacy_jobs"}
+
+        self._run("workflow_job", body, mapping)
+
+        self.mock_produce_to_warehouse_webhooks.assert_called_once_with(job, "schema_widgets_jobs")
+
+    def test_unqualified_repo_falls_back_to_bare_event_mapping(self):
+        # Legacy single-repo mappings only carry bare event keys; a payload from any repo must
+        # keep routing through them.
+        job = {"id": 1, "status": "completed"}
+        body = {"action": "completed", "workflow_job": job, "repository": {"full_name": "acme/other"}}
+
+        self._run("workflow_job", body, {"workflow_job": "schema_legacy_jobs"})
+
+        self.mock_produce_to_warehouse_webhooks.assert_called_once_with(job, "schema_legacy_jobs")
+
+    def test_unmapped_repo_and_event_no_ops(self):
+        body = {"action": "completed", "workflow_job": {"id": 1}, "repository": {"full_name": "acme/unknown"}}
+        res = self._run("workflow_job", body, {"acme/widgets.workflow_job": "schema_widgets_jobs"})
+
+        assert res.result["httpResponse"]["status"] == 200
+        self.mock_produce_to_warehouse_webhooks.assert_not_called()
+
+    def test_bare_key_fallback_is_bound_to_legacy_repository(self):
+        # A mixed source keeps the legacy repo's rows on the bare event key and other repos' rows
+        # qualified. An event from a secondary repo whose qualified schema is disabled/removed must
+        # NOT fall back to the legacy repo's bare key — that would write one repo's data into
+        # another repo's schema. With legacy_repository pinned, the fallback is skipped.
+        job = {"id": 1, "status": "completed"}
+        body = {"action": "completed", "workflow_job": job, "repository": {"full_name": "acme/secondary"}}
+
+        res = self._run("workflow_job", body, {"workflow_job": "schema_legacy_jobs"}, legacy_repository="acme/legacy")
+
+        assert res.result["httpResponse"]["status"] == 200
+        self.mock_produce_to_warehouse_webhooks.assert_not_called()
+
+    def test_legacy_repository_event_still_routes_through_bare_key(self):
+        # The legacy repo's own events (its rows stay bare) keep routing through the bare key; the
+        # repo comparison is case-insensitive to match GitHub's case-insensitive full names.
+        job = {"id": 2, "status": "completed"}
+        body = {"action": "completed", "workflow_job": job, "repository": {"full_name": "Acme/Legacy"}}
+
+        self._run("workflow_job", body, {"workflow_job": "schema_legacy_jobs"}, legacy_repository="acme/legacy")
+
+        self.mock_produce_to_warehouse_webhooks.assert_called_once_with(job, "schema_legacy_jobs")

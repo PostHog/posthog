@@ -38,6 +38,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class MetorialSource(ResumableSource[MetorialSourceConfig, MetorialResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    supported_versions = ("2025-01-01",)
+    default_version = "2025-01-01"
+    api_docs_url = "https://metorial.com/api"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.METORIAL

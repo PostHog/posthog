@@ -36,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LobSource(ResumableSource[LobSourceConfig, LobResumeConfig]):
+    api_docs_url = "https://docs.lob.com/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.LOB

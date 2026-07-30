@@ -36,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ClockifySource(ResumableSource[ClockifySourceConfig, ClockifyResumeConfig]):
+    api_docs_url = "https://docs.clockify.me"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CLOCKIFY

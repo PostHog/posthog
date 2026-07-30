@@ -38,6 +38,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class PipelinerSource(ResumableSource[PipelinerSourceConfig, PipelinerResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v100",)
+    default_version = "v100"
+    api_docs_url = "https://developers.pipelinersales.com/api-docs"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

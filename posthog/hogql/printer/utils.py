@@ -5,6 +5,8 @@ from posthog.schema_enums import InCohortVia, PropertyGroupsMode
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
 
+    from posthog.models.team import Team
+
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect, HogQLGlobalSettings
@@ -46,7 +48,6 @@ from posthog.hogql.visitor import clone_expr
 from posthog.hogql.workload import WorkloadCollector
 
 from posthog.clickhouse.workload import Workload
-from posthog.models.team import Team
 from posthog.models.team.event_retention import events_retention_months_for_team
 
 from products.access_control.backend.property_access_control import get_restricted_properties_for_team
@@ -64,7 +65,7 @@ PRINTER_CLASSES: dict[HogQLDialect, type[BasePrinter]] = {
 
 def to_printed_hogql(
     query: ast.Expr,
-    team: Team,
+    team: "Team",
     modifiers: "HogQLQueryModifiers | None" = None,
     *,
     bypass_warehouse_access_control: bool = False,

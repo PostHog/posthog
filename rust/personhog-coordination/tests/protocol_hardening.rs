@@ -19,9 +19,9 @@ use tokio_util::sync::CancellationToken;
 use assignment_coordination::store::parse_watch_value;
 use async_trait::async_trait;
 use common::{
-    revoke_lease_of_key, start_coordinator, start_pod, start_pod_with_lease_ttl,
-    start_router_with_lease_ttl, test_store, test_store_with_prefix, wait_for_condition,
-    HandoffEvent, POLL_INTERVAL, WAIT_TIMEOUT,
+    revoke_lease_of_key, start_coordinator, start_coordinator_named, start_pod,
+    start_pod_with_lease_ttl, start_router_with_lease_ttl, test_store, test_store_with_prefix,
+    wait_for_condition, HandoffEvent, POLL_INTERVAL, WAIT_TIMEOUT,
 };
 use personhog_coordination::error::Result;
 use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
@@ -158,6 +158,52 @@ async fn router_exits_when_lease_revoked() {
     );
 
     cancel.cancel();
+}
+
+/// A leader whose election lease is revoked externally must abdicate and
+/// re-campaign, not keep coordinating as a zombie on a dead lease. Unlike
+/// pods and routers, the coordinator's run loop survives lease loss by
+/// design — so the observable contract is in etcd: with a single
+/// candidate, the leader key can only reappear if the old leader noticed
+/// the loss and ran a fresh campaign; a zombie leaves it absent forever.
+#[tokio::test]
+async fn coordinator_abdicates_and_recampaigns_when_election_lease_revoked() {
+    let (store, prefix) = test_store_with_prefix("coordinator-abdicate").await;
+    let cancel = CancellationToken::new();
+
+    // lease_ttl 5 → 1s keepalive, so the loss is observed within ~a second.
+    let handle = start_coordinator_named(
+        Arc::clone(&store),
+        "abdicate-coordinator-0",
+        5,
+        Arc::new(StickyBalancedStrategy),
+        cancel.clone(),
+    );
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move { store.get_leader().await.ok().flatten().is_some() }
+    })
+    .await;
+
+    revoke_lease_of_key(&format!("{prefix}coordinator/leader")).await;
+
+    // Keepalive notices within ~1s, abdication plus the 1s campaign retry
+    // re-creates the key — well inside 10s against local etcd.
+    let check_store = Arc::clone(&store);
+    wait_for_condition(Duration::from_secs(10), POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move { store.get_leader().await.ok().flatten().is_some() }
+    })
+    .await;
+
+    cancel.cancel();
+    tokio::time::timeout(Duration::from_secs(10), handle)
+        .await
+        .expect("coordinator must exit promptly on cancellation")
+        .expect("coordinator task must not panic")
+        .expect("graceful cancellation must exit cleanly after an abdication cycle");
 }
 
 // ============================================================

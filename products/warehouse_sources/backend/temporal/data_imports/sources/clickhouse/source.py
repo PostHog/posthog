@@ -70,6 +70,8 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     supports_column_selection: bool = True
     supports_row_filters: bool = True
 
+    api_docs_url = "https://clickhouse.com/docs"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CLICKHOUSE

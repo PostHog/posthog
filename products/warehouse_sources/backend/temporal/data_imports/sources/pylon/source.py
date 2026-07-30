@@ -36,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PylonSource(ResumableSource[PylonSourceConfig, PylonResumeConfig]):
+    api_docs_url = "https://docs.usepylon.com"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.PYLON

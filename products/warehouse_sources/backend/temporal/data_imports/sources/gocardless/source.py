@@ -37,6 +37,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GoCardlessSource(ResumableSource[GoCardlessSourceConfig, GoCardlessResumeConfig]):
+    supported_versions = ("2015-07-06",)
+    default_version = "2015-07-06"
+    api_docs_url = "https://developer.gocardless.com/api-reference"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

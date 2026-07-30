@@ -30,6 +30,17 @@ Two warehouse views are the substrate (both non-materialized — always current,
 
 Copy-ready SQL for every step is in [references/investigation-queries.md](./references/investigation-queries.md).
 
+## Start wide: what's broken right now
+
+For "what CI failures should I care about right now" (before you have a specific test in hand), the
+`engineering-analytics-broken-tests` MCP tool does the shape classification below across _all_ live
+failures at once: it groups the last 2 days of failures by fingerprint and labels each
+`breaking_master` / `novel_burst` / `potentially_resolved` / `flaky` / `pr_only`, most urgent first,
+plus `breaking_master_jobs` (default-branch jobs whose latest run is red). Use it as the triage entry
+point, then drop into the per-failure workflow below to reach a culprit. It is the automated
+counterpart to fingerprinting by hand; the manual queries stay the way to pin a specific failure to a
+boundary and author.
+
 ## The three failure shapes
 
 Fingerprint the failure first (query 1 in the references), then read its shape — the classification
@@ -102,6 +113,7 @@ threshold aren't recorded, so there is no honest denominator.
 
 | Question                               | Use                                                                    |
 | -------------------------------------- | ---------------------------------------------------------------------- |
+| "What's broken across CI right now?"   | `engineering-analytics-broken-tests` MCP tool (triaged, classified)    |
 | "Why did MY PR's CI fail?"             | `engineering-analytics-ci-failure-logs` MCP tool (PR-scoped, grouped)  |
 | "Who broke master / when did X start?" | The two views, workflow above                                          |
 | "Is X flaky?"                          | Shape from `ci_failures` + the flaky-tests tool                        |

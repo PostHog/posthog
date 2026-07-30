@@ -65,6 +65,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Achievement unlocked',
         description: 'When you unlock a new achievement',
     },
+    subscription_nudge: {
+        label: 'Subscription suggestions',
+        description: 'When PostHog suggests subscribing to a dashboard you keep coming back to',
+    },
 }
 
 export function NotificationTitle({

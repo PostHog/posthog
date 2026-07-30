@@ -82,11 +82,28 @@ def manifest_roles(env: str) -> list[str]:
     return [r["role"] for r in json.loads(out)["roles"]]
 
 
+def golden_at_ref(ref: str, env: str, role: str) -> str:
+    """Read the composed golden for (env, role) at `ref`.
+
+    Tolerates the pre-conversion layout so a migration can still be generated across
+    the layout-change commit: the current tree uses golden/<env>/<role>.hcl; older refs
+    use flat golden/<env>-<role>.hcl with env "local" where the manifest now says
+    "local-multi".
+    """
+    legacy_env = "local" if env == "local-multi" else env
+    for path in (f"{HCL_REL}/golden/{env}/{role}.hcl", f"{HCL_REL}/golden/{legacy_env}-{role}.hcl"):
+        try:
+            return run(["git", "show", f"{ref}:{path}"])
+        except subprocess.CalledProcessError:
+            continue
+    raise SystemExit(f"no golden for {env}/{role} at {ref} (tried per-env and legacy flat layout)")
+
+
 def write_dump(env: str, roles: list[str], ref: str, dump_dir: str) -> None:
     """Build plan's -dump for one env from the committed goldens, tagged by role."""
     os.makedirs(dump_dir)
     for role in roles:
-        golden = run(["git", "show", f"{ref}:{HCL_REL}/golden/{env}-{role}.hcl"])
+        golden = golden_at_ref(ref, env, role)
         with open(os.path.join(dump_dir, f"{role}.hcl"), "w") as f:
             f.write(f'node "{role}" {{\n  macros = {{ hostClusterRole = "{role}" }}\n}}\n')
             f.write(golden)

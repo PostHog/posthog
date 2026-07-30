@@ -35,6 +35,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OutbrainSource(ResumableSource[OutbrainSourceConfig, OutbrainResumeConfig]):
+    supported_versions = ("v0.1",)
+    default_version = "v0.1"
+    api_docs_url = "https://developers.outbrain.com"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

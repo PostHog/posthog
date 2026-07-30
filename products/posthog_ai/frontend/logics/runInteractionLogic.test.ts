@@ -2,11 +2,13 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
 import { initKeaTests } from '~/test/init'
 
 import { tasksRunCreate, tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
 
+import { attachedContextLogic } from './attachedContextLogic'
 import { runInteractionLogic } from './runInteractionLogic'
 import { runStreamLogic } from './runStreamLogic'
 
@@ -274,6 +276,83 @@ describe('runInteractionLogic', () => {
         expect(logic.values.composerForm.draft).toBe('continue from here')
     })
 
+    it('wraps outgoing content with the attached-context block while echoing the raw text, and dedupes per task', async () => {
+        attachedContextLogic().actions.registerContext('scene', [
+            { type: 'insight', key: 'sig', label: 'Signups' },
+            { type: 'text', value: 'always resend me' },
+        ])
+        setThinking(false)
+
+        logic.actions.setComposerFormValues({ draft: 'why the drop?' })
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        const firstSend = (tasksRunsCommandCreate as jest.Mock).mock.calls[0][3] as {
+            params: { content: string }
+        }
+        // The wire content carries the invisible context block; the echoed human message stays raw.
+        expect(firstSend.params.content).toContain('<posthog_context>')
+        expect(firstSend.params.content).toContain('- insight sig ("Signups")')
+        expect(firstSend.params.content.endsWith('why the drop?')).toBe(true)
+        await expectLogic(stream).toDispatchActions([
+            (action) =>
+                action.type === stream.actionTypes.pushHumanMessage && action.payload.content === 'why the drop?',
+        ])
+
+        // A second send on the same task must not re-inflate already-sent entity refs — but `text`
+        // items are never deduped (repeated text is intentional, mirroring the backend).
+        ;(tasksRunsCommandCreate as jest.Mock).mockClear()
+        logic.actions.setComposerFormValues({ draft: 'follow up' })
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        const secondSend = (tasksRunsCommandCreate as jest.Mock).mock.calls[0][3] as {
+            params: { content: string }
+        }
+        expect(secondSend.params.content).not.toContain('- insight sig')
+        expect(secondSend.params.content).toContain('- text: "always resend me"')
+        expect(secondSend.params.content.endsWith('follow up')).toBe(true)
+    })
+
+    it('keeps pruning context sent by a terminal-run send after re-pointing to the fresh run', async () => {
+        attachedContextLogic().actions.registerContext('scene', [{ type: 'insight', key: 'sig', label: 'Signups' }])
+
+        // A send on a finished run starts a fresh run, wrapping the pending context into its seed message.
+        setStatus('completed')
+        logic.actions.setComposerFormValues({ draft: 'continue from here' })
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        const createRequest = (tasksRunCreate as jest.Mock).mock.calls[0][2] as { pending_user_message: string }
+        expect(createRequest.pending_user_message).toContain('- insight sig ("Signups")')
+        expect(onRunStarted).toHaveBeenCalledWith('run-2')
+
+        // The consumer re-points to the new run: a fresh logic instance keyed by the new runId, same task.
+        // Sent-context bookkeeping is task-scoped, so the first follow-up must not re-wrap the same ref.
+        const nextStream = runStreamLogic({ streamKey: 'run-2' })
+        nextStream.mount()
+        const nextLogic = runInteractionLogic({ taskId: TASK_ID, runId: 'run-2', onRunStarted })
+        nextLogic.mount()
+        try {
+            nextLogic.actions.setComposerFormValues({ draft: 'follow up' })
+            await expectLogic(nextLogic, () => {
+                nextLogic.actions.submitComposerForm()
+            }).toFinishAllListeners()
+
+            const followUp = (tasksRunsCommandCreate as jest.Mock).mock.calls[0][3] as {
+                params: { content: string }
+            }
+            // The only attached item was already sent this task, so no context block is prepended at all.
+            expect(followUp.params.content).toBe('follow up')
+        } finally {
+            nextLogic.unmount()
+            nextStream.unmount()
+        }
+    })
+
     const setProjectId = (id: number | null): void =>
         (project.actions as unknown as { setCurrentProjectId: (id: number | null) => void }).setCurrentProjectId(id)
 
@@ -418,6 +497,36 @@ describe('runInteractionLogic', () => {
         // The failed send re-stages 'first' in front of 'second', preserving order, and toasts.
         expect(lemonToast.error).toHaveBeenCalled()
         expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'first\n\nsecond' }])
+    })
+
+    // The tasks run backend has no server-side consent check, so a follow-up (or a fresh-run send on a
+    // terminal run) must be blocked client-side before it reaches `tasksRunsCommandCreate` /
+    // `tasksRunCreate`. Uses a distinct `runId` key so the logic is built (and connects to
+    // `aiConsentLogic`) after the selector is stubbed.
+    it('blocks composerForm.submit and sends nothing when consent is not accepted', async () => {
+        const consent = aiConsentLogic()
+        consent.mount()
+        jest.spyOn(consent.selectors, 'dataProcessingAccepted').mockReturnValue(false)
+
+        const blockedRunId = 'run-blocked'
+        const blockedStream = runStreamLogic({ streamKey: blockedRunId })
+        blockedStream.mount()
+        const blockedLogic = runInteractionLogic({ taskId: TASK_ID, runId: blockedRunId, onRunStarted })
+        blockedLogic.mount()
+
+        blockedLogic.actions.setComposerFormValues({ draft: 'ship it' })
+        await expectLogic(blockedLogic, () => {
+            blockedLogic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+        expect(tasksRunCreate).not.toHaveBeenCalled()
+        expect(blockedLogic.values.consentBlocked).toBe(true)
+
+        blockedLogic.unmount()
+        blockedStream.unmount()
+        consent.unmount()
+        jest.restoreAllMocks()
     })
 
     it('no-ops on submit with an empty draft', async () => {

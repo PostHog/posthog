@@ -17,8 +17,8 @@ Work the workflow through these stages. Don't jump straight to enabling it.
 2. **Create as a draft.** `workflows-create`. Every workflow is created `draft`; it does not execute yet.
 3. **Test-run it.** `workflows-test-run` runs **one step at a time**. Start at the first step (omit `current_action_id`, or point it at the trigger) with sample `globals` (`{event, person, groups}`); the result includes the next step's id (`nextActionId`). Feed that back as `current_action_id` and run again, walking step by step to the end. Skip `delay` nodes by jumping to the action after them (delays aren't simulated). Async side effects (HTTP/email/SMS) are mocked unless you set `mock_async_functions=false`. Read each step's trace to confirm the path taken.
 4. **Read logs while iterating.** `workflows-logs` shows the per-step execution trace (levels DEBUG to ERROR). This is how you see _why_ a step skipped, branched, or errored.
-5. **Edit the draft, then re-test.** Patch the graph with `workflows-patch-graph` (see [Editing a draft](#editing-a-draft)). **Every edit invalidates your earlier test** — re-run the affected path before moving on. Drafts only; active workflows are read-only over MCP.
-6. **Enable (one-way door, needs the user's explicit sign-off).** `workflows-enable` flips it to `active` and an **event/webhook/manual** trigger starts firing on matching activity. You can't edit a live workflow over MCP (to change it you recreate it as a new draft), so treat enabling as effectively irreversible: finish testing, then get the user's explicit go before enabling. Don't enable on your own initiative.
+5. **Edit, then re-test.** Patch the graph with `workflows-patch-graph` (see [Editing a draft](#editing-a-draft)). **Every edit invalidates your earlier test** — re-run the affected path before moving on. On a draft workflow, edits apply directly; on an active one they stage a draft (see [Changing a live workflow](#changing-a-live-workflow)).
+6. **Enable (needs the user's explicit sign-off).** `workflows-enable` flips it to `active` and an **event/webhook/manual** trigger starts firing on matching activity. From then on it runs on real people, and every change goes through the draft → test → publish cycle before taking effect — so finish testing, then get the user's explicit go before enabling. Don't enable on your own initiative.
 7. **Dispatch (batch/schedule only).** A `batch` workflow does **not** fire on enable alone. Send a one-off broadcast with `workflows-run-batch`, or attach a recurring schedule with `workflows-schedule-create`. Confirm with `workflows-get` that `status=='active'` _and_ its read-only `schedules` field has an active entry.
 8. **Monitor.** Drill down: `workflows-global-stats` (which workflows are failing) to `workflows-stats` (one workflow's trend) to `workflows-list-invocations` (who it failed for) to `workflows-get-invocation` (the triggering payload) to `workflows-logs` (the failing step).
 
@@ -36,7 +36,16 @@ Email templates follow the same rule: edit a template's design with **`workflows
 
 ## Changing a live workflow
 
-Active workflows cannot be edited over MCP. **To change a live workflow, create a new draft** (`workflows-create`) with the updated graph, test it, and enable it. If the user wants to edit a live workflow in place, tell them that isn't supported yet and offer the new-draft path.
+Editing an active workflow stages a **draft** instead of changing what's running: nothing reaches real people until you publish. Work the cycle:
+
+1. **Edit.** `workflows-patch-graph` (or `workflows-update` for content fields) on the active workflow writes to its draft — the first edit copies the live graph into the draft, later edits compose onto it. `workflows-get` shows the staged draft in `draft`; the live config stays in `actions`/`edges`. Metadata (name, description) applies live immediately.
+2. **Test the draft.** `workflows-test-run` with `use_draft=true` executes the staged draft instead of the live config. Re-test every path you changed.
+3. **Publish deliberately.** `workflows-publish` without `confirm` returns `in_flight_runs` — people currently mid-flow (parked on waits/delays) who will follow the new config — plus `draft_updated_at`. **Echo that impact to the user and get their go-ahead**, then call again with `confirm=true` and that exact `draft_updated_at`. A 409 means the draft changed since you read it: re-read, re-confirm. Publish revalidates everything, so an invalid draft is rejected and live config stays untouched.
+4. **Or bail.** `workflows-discard-draft` throws the staged draft away.
+
+In-flight runs follow the live config: once published, people mid-flow continue from their current step on the new version. Steps they already passed don't re-run.
+
+If an edit is rejected with "editing an active workflow isn't supported", draft editing isn't enabled for this project yet — then a live change means recreating the workflow as a new draft (`workflows-create`), testing it, and enabling it as a replacement.
 
 ## What the server owns, never send it
 

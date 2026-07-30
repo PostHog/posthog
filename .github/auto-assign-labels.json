@@ -1,5 +1,5 @@
 {
-    "_comment": "Maps a PR's conventional-commit scope (the part in parens of `type(scope): summary`) to labels the Auto Assign Labels workflow applies. Owned by @PostHog/team-feature-flags via CODEOWNERS-soft, so mappings can change without editing the workflow or script. Scopes are matched case-insensitively. Labels must already exist in the repo. Add a new object to `rules` to map more scopes.",
+    "_comment": "Maps a PR's conventional-commit scope (the part in parens of `type(scope): summary`) to labels the Auto Assign Labels workflow applies. Owned by @PostHog/team-feature-flags via owners.yaml, so mappings can change without editing the workflow or script. Scopes are matched case-insensitively. Labels must already exist in the repo. Add a new object to `rules` to map more scopes.",
     "rules": [
         {
             "scopes": ["flags", "feature-flags"],

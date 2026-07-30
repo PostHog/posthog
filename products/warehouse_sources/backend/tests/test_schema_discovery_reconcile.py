@@ -87,3 +87,54 @@ class TestSchemaDiscoveryReconcile(BaseTest):
         assert existing.should_sync is True
         assert "analytics.users" in created
         assert ExternalDataSchema.objects.filter(source_id=source.pk, name="analytics.users").exists()
+
+    def test_strict_match_creates_qualified_row_alongside_legacy_bare_row(self) -> None:
+        # GitHub keeps its legacy repo's rows bare forever, so a second repo's qualified rows
+        # coexist with them. Without strict matching, `acme/other.issues` tail-matches the bare
+        # `issues` row and repo #2's rows are silently never created.
+        source = self._make_source()
+        legacy = self._make_synced_schema(source, "issues")
+
+        created, _deleted = sync_old_schemas_with_new_schemas(
+            {"issues": None, "acme/other.issues": "acme/other · issues"},
+            source_id=str(source.pk),
+            team_id=self.team.pk,
+            strict_name_match=True,
+            schema_metadata_by_name={
+                "acme/other.issues": {"source_repository": "acme/other", "source_endpoint": "issues"}
+            },
+        )
+
+        legacy.refresh_from_db()
+        assert legacy.should_sync is True
+        assert created == ["acme/other.issues"]
+        new_row = ExternalDataSchema.objects.get(source_id=source.pk, name="acme/other.issues")
+        assert new_row.sync_type_config.get("schema_metadata") == {
+            "source_repository": "acme/other",
+            "source_endpoint": "issues",
+        }
+
+    def test_strict_match_retires_removed_repo_rows(self) -> None:
+        # Removing a repo drops its names from discovery: synced rows keep their table but stop
+        # syncing; never-synced rows soft-delete. The legacy bare row must survive untouched.
+        source = self._make_source()
+        legacy = self._make_synced_schema(source, "issues")
+        synced_removed = self._make_synced_schema(source, "acme/other.issues")
+        unsynced_removed = ExternalDataSchema.objects.create(
+            team_id=self.team.pk, source_id=source.pk, name="acme/other.commits", should_sync=False
+        )
+
+        sync_old_schemas_with_new_schemas(
+            {"issues": None},
+            source_id=str(source.pk),
+            team_id=self.team.pk,
+            strict_name_match=True,
+        )
+
+        legacy.refresh_from_db()
+        synced_removed.refresh_from_db()
+        unsynced_removed.refresh_from_db()
+        assert legacy.should_sync is True
+        assert synced_removed.should_sync is False
+        assert synced_removed.deleted is False
+        assert unsynced_removed.deleted is True

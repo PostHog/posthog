@@ -1,7 +1,10 @@
+from datetime import datetime
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import IntegrityError
+from django.utils import timezone as django_timezone
+from django.utils.dateparse import parse_datetime
 
 from posthog.models.team.team import Team
 
@@ -19,6 +22,20 @@ def _has_behavioral_filters(cohort: Cohort) -> bool:
     )
 
 
+def _parse_boundary_at(value: str | None) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        boundary_at = parse_datetime(value)
+    except ValueError as error:
+        raise CommandError("--boundary-at must be a valid ISO 8601 timestamp with a UTC offset") from error
+    if boundary_at is None:
+        raise CommandError("--boundary-at must be a valid ISO 8601 timestamp with a UTC offset")
+    if django_timezone.is_naive(boundary_at):
+        raise CommandError("--boundary-at must include a UTC offset")
+    return boundary_at
+
+
 class Command(BaseCommand):
     help = "Create a coordinated behavioral cohort backfill run"
 
@@ -30,10 +47,16 @@ class Command(BaseCommand):
             required=True,
         )
         parser.add_argument("--cohort-ids", type=int, nargs="+")
+        parser.add_argument("--boundary-at", help="ISO 8601 disaster recovery boundary with a UTC offset")
         parser.add_argument("--dry-run", action="store_true")
 
     def handle(self, *args: Any, **options: Any) -> None:
         team_id: int = options["team_id"]
+        trigger: str = options["trigger"]
+        boundary_at = _parse_boundary_at(options.get("boundary_at"))
+        if boundary_at is not None and trigger != CohortBackfillTrigger.DISASTER_RECOVERY:
+            raise CommandError("--boundary-at is only valid with --trigger disaster_recovery")
+
         if not is_realtime_cohort_team(team_id):
             raise CommandError(f"Team {team_id} is not in the realtime cohort allowlist")
 
@@ -62,7 +85,7 @@ class Command(BaseCommand):
             return
 
         try:
-            run = create_team_backfill_run(team_id, options["trigger"], cohort_ids)
+            run = create_team_backfill_run(team_id, trigger, cohort_ids, boundary_at=boundary_at)
         except (Team.DoesNotExist, ValueError) as error:
             raise CommandError(str(error)) from error
         except IntegrityError as error:

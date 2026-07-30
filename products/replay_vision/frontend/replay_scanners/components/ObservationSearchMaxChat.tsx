@@ -7,6 +7,8 @@ import { useMaxTool } from 'scenes/max/useMaxTool'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { replayScannerLogic } from '../replayScannerLogic'
 
 /** A scanner-type-specific example question, shown in the copy and prefilled into Max when the user opens it. */
@@ -37,6 +39,13 @@ export function ObservationSearchMaxChat({ scannerId }: { scannerId: string }): 
             : undefined,
         initialMaxPrompt: example,
     })
+
+    useAttachedContext(
+        scannerId !== 'new'
+            ? [{ type: 'replay_vision_scanner', key: scannerId, label: scanner?.name ?? undefined }]
+            : null,
+        { active: scannerId !== 'new' }
+    )
 
     // Summarizer pages already surface a near-identical chat entry point — keep the Max tool, skip the card.
     if (!openMax || scanner?.scanner_type === 'summarizer') {

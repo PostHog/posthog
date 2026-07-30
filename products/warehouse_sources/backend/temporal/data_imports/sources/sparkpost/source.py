@@ -39,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SparkPostSource(ResumableSource[SparkPostSourceConfig, SparkPostResumeConfig]):
+    api_docs_url = "https://developers.sparkpost.com/api/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SPARKPOST

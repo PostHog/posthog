@@ -394,6 +394,78 @@ export interface DataCatalogMetricRunApi {
     instructions: string | null
 }
 
+export interface DataCatalogRelationshipProposalApi {
+    readonly id: string
+    /**
+     * Name of the table the join starts from.
+     * @maxLength 400
+     */
+    source_table_name: string
+    /**
+     * HogQL key expression on the source table (casts allowed).
+     * @maxLength 400
+     */
+    source_table_key: string
+    /**
+     * Name of the table being joined in.
+     * @maxLength 400
+     */
+    joining_table_name: string
+    /**
+     * HogQL key expression on the joining table (casts allowed).
+     * @maxLength 400
+     */
+    joining_table_key: string
+    /**
+     * Accessor the join adds to the source table.
+     * @maxLength 400
+     */
+    field_name: string
+    /** Extra join configuration, e.g. a field mapping. */
+    configuration?: unknown
+    /**
+     * Discovery confidence in this join, 0-1.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    confidence?: number | null
+    /** Why this join is proposed. */
+    reasoning?: string
+    /** Sampling evidence: match rates, sample values. */
+    evidence?: unknown
+    /** proposed, accepted (promoted to a real join), or rejected (never re-proposed). */
+    readonly status: string
+    /** User who accepted or rejected the proposal. */
+    readonly reviewed_by: UserBasicApi | null
+    /** @nullable */
+    readonly reviewed_at: string | null
+    /** Why the proposal was rejected. */
+    readonly rejection_reason: string
+    /**
+     * The join created when this proposal was accepted (promotion provenance).
+     * @nullable
+     */
+    readonly created_join: string | null
+    /** @nullable */
+    readonly created_by: number | null
+    readonly created_at: string
+}
+
+export interface PaginatedDataCatalogRelationshipProposalListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataCatalogRelationshipProposalApi[]
+}
+
+export interface RelationshipRejectApi {
+    /** Why the proposal is rejected. Persisted so it is never re-proposed. */
+    rejection_reason?: string
+}
+
 export type DataCatalogCertificationsListParams = {
     /**
      * Number of results to return per page.
@@ -442,3 +514,18 @@ export const DataCatalogMetricsRunCreateRefresh = {
     ForceAsync: 'force_async',
     ForceCache: 'force_cache',
 } as const
+
+export type DataCatalogRelationshipProposalsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Filter by proposed/accepted/rejected.
+     */
+    status?: string
+}

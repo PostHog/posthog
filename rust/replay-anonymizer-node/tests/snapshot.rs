@@ -683,6 +683,52 @@ fn differential_cv_stream_vs_tree() {
 }
 
 #[test]
+fn mutation_style_om_value_array_scrubs_siblings_and_round_trips() {
+    // rrweb records `setProperty(prop, value, "important")` as a two-element `styleOMValue` array
+    // (`"display": ["block", "important"]`). A parser that models attribute values as a scalar-only
+    // union would fail the whole mutation and pass the line through unscrubbed — the scrub-bypass
+    // MLHog#93 fixed. The monorepo anonymizer parses generic JSON, so the array must (a) not fail the
+    // event, (b) leave the sibling text mutation scrubbed, and (c) round-trip the array byte-for-byte.
+    let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+    let inner = snapshot_message(json!([{
+        "type": 3,
+        "timestamp": TS0,
+        "data": {
+            "source": 0,
+            "texts": [{ "id": 5, "value": "SENSITIVE USER TEXT" }],
+            "attributes": [{
+                "id": 816,
+                "attributes": {
+                    "style": { "display": ["block", "important"] },
+                    "tabindex": "0",
+                    "aria-hidden": "false"
+                }
+            }],
+            "removes": [],
+            "adds": []
+        }
+    }]));
+    let inner_json = serde_json::to_string(&inner).unwrap();
+
+    // Both scrub engines and the tree path must agree — this pins the array shape across all three.
+    assert_stream_matches_tree(&allow, &inner_json, "styleOMValue array mutation");
+
+    let out = run(&allow, &payload_of(&inner)).expect("styleOMValue array must not fail the event");
+    let lines = parse_lines(&out.lines);
+    assert_eq!(lines.len(), 1, "the mutation event must survive scrubbing");
+    let data = &lines[0][1]["data"];
+    assert_eq!(
+        data["texts"][0]["value"], "********* **** ****",
+        "the sibling text mutation must still be scrubbed"
+    );
+    assert_eq!(
+        data["attributes"][0]["attributes"]["style"]["display"],
+        json!(["block", "important"]),
+        "the styleOMValue array must round-trip unchanged"
+    );
+}
+
+#[test]
 fn mutation_media_attr_past_the_prescan_budget_declines_to_the_parse() {
     // A media `src` positioned past the byte walk's 4 KB attribute prescan budget: the walk's
     // media probe hits its fallback there, which must decline to the tree (not silently classify

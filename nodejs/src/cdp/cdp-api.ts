@@ -362,7 +362,12 @@ export class CdpApi {
             const { clickhouse_event, mock_async_functions, configuration, invocation_id } = req.body
             let { globals } = req.body
 
-            logger.info('⚡️', 'Received invocation', { id, team_id, body: req.body })
+            // Redact configuration: it carries function inputs (auth headers, API keys) that must not land in logs
+            logger.info('⚡️', 'Received invocation', {
+                id,
+                team_id,
+                body: { ...req.body, configuration: configuration ? '[redacted]' : undefined },
+            })
 
             const invocationID = invocation_id ?? new UUIDT().toString()
 
@@ -529,7 +534,12 @@ export class CdpApi {
             const { id, team_id } = req.params
             const { clickhouse_event, configuration, invocation_id, current_action_id, mock_async_functions } = req.body
 
-            logger.info('⚡️', 'Received hogflow invocation', { id, team_id, body: req.body })
+            // Redact configuration: it carries action inputs (auth headers, API keys) that must not land in logs
+            logger.info('⚡️', 'Received hogflow invocation', {
+                id,
+                team_id,
+                body: { ...req.body, configuration: configuration ? '[redacted]' : undefined },
+            })
 
             const invocationID = invocation_id ?? new UUIDT().toString()
 

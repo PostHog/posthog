@@ -88,7 +88,7 @@ class Command(BaseCommand):
                 f"ReviewHog ▶ publishing {repository}#{pr_number} · report {report.id} · head {head_sha[:12]}"
             )
         )
-        # A local-only ops command: always the default threshold (should_fix), not a per-user one —
+        # A local-only ops command: always the default threshold (consider), not a per-user one —
         # keeps the frozen body and the freshly built inline comments consistent without needing to
         # track which threshold the run itself used.
         outcome = publish_persisted_review(

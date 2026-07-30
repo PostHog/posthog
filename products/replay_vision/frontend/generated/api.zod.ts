@@ -19,6 +19,7 @@ export const visionActionsCreateBodySynthesisConfigOnePromptGuideMax = 500
 
 export const visionActionsCreateBodyAlertConfigOneFrequencyDefault = `on_breach`
 export const visionActionsCreateBodyAlertConfigOneMetricDefault = `count`
+export const visionActionsCreateBodyAlertConfigOneDirectionDefault = `above`
 
 export const VisionActionsCreateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -126,7 +127,14 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod.object({
                 .number()
                 .optional()
                 .describe(
-                    'The alert fires when the metric is at or above this value. Required for on_breach; ignored for every_match.'
+                    "The alert fires when the metric is at or above ('above') or at or below ('below') this value, per 'direction'. Required for on_breach; ignored for every_match."
+                ),
+            direction: zod
+                .enum(['above', 'below'])
+                .describe('\* `above` - At or above\n\* `below` - At or below')
+                .default(visionActionsCreateBodyAlertConfigOneDirectionDefault)
+                .describe(
+                    "Which side of the threshold breaches: 'above' fires when the metric is at or above it, 'below' when at or below (e.g. an average score dropping under a floor). Both inclusive. Defaults to 'above'; ignored for every_match.\n\n\* `above` - At or above\n\* `below` - At or below"
                 ),
             window_days: zod
                 .union([zod.literal(1), zod.literal(3), zod.literal(7), zod.literal(14), zod.literal(30)])
@@ -170,6 +178,7 @@ export const visionActionsPartialUpdateBodySynthesisConfigOnePromptGuideMax = 50
 
 export const visionActionsPartialUpdateBodyAlertConfigOneFrequencyDefault = `on_breach`
 export const visionActionsPartialUpdateBodyAlertConfigOneMetricDefault = `count`
+export const visionActionsPartialUpdateBodyAlertConfigOneDirectionDefault = `above`
 
 export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -281,7 +290,14 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .number()
                 .optional()
                 .describe(
-                    'The alert fires when the metric is at or above this value. Required for on_breach; ignored for every_match.'
+                    "The alert fires when the metric is at or above ('above') or at or below ('below') this value, per 'direction'. Required for on_breach; ignored for every_match."
+                ),
+            direction: zod
+                .enum(['above', 'below'])
+                .describe('\* `above` - At or above\n\* `below` - At or below')
+                .default(visionActionsPartialUpdateBodyAlertConfigOneDirectionDefault)
+                .describe(
+                    "Which side of the threshold breaches: 'above' fires when the metric is at or above it, 'below' when at or below (e.g. an average score dropping under a floor). Both inclusive. Defaults to 'above'; ignored for every_match.\n\n\* `above` - At or above\n\* `below` - At or below"
                 ),
             window_days: zod
                 .union([zod.literal(1), zod.literal(3), zod.literal(7), zod.literal(14), zod.literal(30)])

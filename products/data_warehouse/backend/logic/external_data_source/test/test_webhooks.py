@@ -86,6 +86,9 @@ def _make_webhook_source(
         "Customers": "customer",
         "Invoices": "invoice",
     }
+    # Mirror the real `WebhookSource.webhook_mapping_key` default: translate via the resource
+    # map, falling back to the bare schema name.
+    source.webhook_mapping_key.side_effect = lambda name: source.webhook_resource_map.get(name, name)
     return source
 
 

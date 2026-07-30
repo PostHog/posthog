@@ -37,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class SageHRSource(ResumableSource[SageHRSourceConfig, SageHRResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    api_docs_url = "https://sagehr.docs.apiary.io/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SAGEHR

@@ -422,6 +422,11 @@ data_warehouse_sources: PostgresTable = PostgresTable(
         "source_type": StringDatabaseField(
             name="source_type", description="Source connector type, e.g. 'Stripe', 'Postgres', 'Hubspot'."
         ),
+        "api_version": StringDatabaseField(
+            name="api_version",
+            description="Vendor API version this source is pinned to (opaque vendor label); "
+            "NULL resolves to the source type's default version at sync time.",
+        ),
         "prefix": StringDatabaseField(
             name="prefix", description="Table-name prefix applied to all tables synced from this source."
         ),

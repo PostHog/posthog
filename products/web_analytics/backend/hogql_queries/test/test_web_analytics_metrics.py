@@ -34,7 +34,6 @@ def _make_runner(
     query_kind: str = "WebStatsTableQuery",
     breakdown: WebStatsBreakdown | None = WebStatsBreakdown.PAGE,
     conversion_goal: object | None = None,
-    sampling: object | None = None,
     properties: list | None = None,
     query_strategy: str | None = None,
 ) -> WebAnalyticsQueryRunner:
@@ -43,7 +42,6 @@ def _make_runner(
     query.kind = query_kind
     query.breakdownBy = breakdown
     query.conversionGoal = conversion_goal
-    query.sampling = sampling
     query.properties = properties or []
 
     team = MagicMock()

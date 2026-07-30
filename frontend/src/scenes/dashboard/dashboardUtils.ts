@@ -162,8 +162,6 @@ export const DEFAULT_AUTO_PREVIEW_TILE_LIMIT = 10
 
 const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
 
-export const QUICK_FILTER_DEBOUNCE_MS = 1500
-
 function staleAgeMinutes(effectiveLastRefresh: Dayjs | null): number | null {
     if (!effectiveLastRefresh) {
         return null

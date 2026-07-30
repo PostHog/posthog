@@ -1,9 +1,13 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { attachedContextLogic } from '../../api/logics'
+import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import { OriginProduct, Task, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
 
@@ -82,6 +86,53 @@ describe('taskTrackerSceneLogic', () => {
             pending_user_message: 'do the thing',
         })
         expect(router.values.location.pathname).toContain('/tasks/new-task')
+    })
+
+    // The seeded first message wraps the on-screen context, and the wrapped non-text refs must be marked
+    // sent under the created task's id — otherwise the run's first follow-up (sent via
+    // `runInteractionLogic`, which prunes against the task-scoped store) re-wraps the same refs.
+    it('marks seeded context sent for the created task so the first follow-up will not re-wrap it', async () => {
+        logic.mount()
+        attachedContextLogic().actions.registerContext('scene', [
+            { type: 'insight', key: 'sig', label: 'Signups' },
+            { type: 'text', value: 'always resend me' },
+        ])
+
+        logic.actions.setNewTaskData({ description: 'why the drop?' })
+        logic.actions.submitNewTask()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The message sent to the agent is wrapped; the task description stays raw.
+        expect(runBody?.pending_user_message).toContain('<posthog_context>')
+        expect(runBody?.pending_user_message).toContain('- insight sig ("Signups")')
+        expect(createBody?.description).toBe('why the drop?')
+        // Only the entity ref is marked sent (text items always resend), under the created task's id.
+        expect(attachedContextLogic().values.sentContextKeysByTask).toEqual({ 'new-task': ['insight:sig'] })
+    })
+
+    // The tasks backend has no server-side consent check (unlike the conversations coordinator), so a
+    // send must be blocked client-side before it ever reaches `api.tasks.create` — otherwise a sandbox
+    // run starts with zero consent enforcement. Uses a distinct `panelId` key so the logic is built
+    // (and connects to `aiConsentLogic`) after the selector is stubbed.
+    it('blocks submitNewTask without creating a task when AI data processing consent is not accepted', async () => {
+        const consent = aiConsentLogic()
+        consent.mount()
+        jest.spyOn(consent.selectors, 'dataProcessingAccepted').mockReturnValue(false)
+
+        const blockedLogic = taskTrackerSceneLogic({ panelId: 'consent-test' })
+        blockedLogic.mount()
+        blockedLogic.actions.setNewTaskData({ description: 'do the thing' })
+        blockedLogic.actions.submitNewTask()
+
+        await expectLogic(blockedLogic).toFinishAllListeners()
+
+        expect(createBody).toBeNull()
+        expect(blockedLogic.values.consentBlocked).toBe(true)
+        expect(blockedLogic.values.isSubmittingTask).toBe(false)
+
+        blockedLogic.unmount()
+        consent.unmount()
+        jest.restoreAllMocks()
     })
 
     // The repo picker only renders once `repositoryConfig.integrationId` is set (auto-selected from the
@@ -175,4 +226,99 @@ describe('taskTrackerSceneLogic', () => {
         expect(logic.values.historyExpanded).toBe(false)
         expect(router.values.location.pathname).toContain(expectedPath ?? initialPath)
     })
+
+    // A CTA opens the panel and stamps its prompt onto composerSeedLogic BEFORE the composer mounts, so the
+    // seed must be picked up on mount — this is the live breakage the seam fixes (the prompt was dropped).
+    // autoSubmit=false must only prefill, never send. Guards the afterMount pickup, the consume-once clear,
+    // and that a non-auto seed doesn't submit.
+    it('picks up a seed set before mount and prefills without submitting when autoSubmit is false', async () => {
+        const seedLogic = composerSeedLogic()
+        seedLogic.mount()
+        seedLogic.actions.setSeed({ prompt: 'analyze churn', autoSubmit: false })
+
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.newTaskData.description).toBe('analyze churn')
+        expect(seedLogic.values.seed).toBeNull()
+        // No submit: submitting opens an optimistic activeCreation, prefill-only leaves it null.
+        expect(logic.values.activeCreation).toBeNull()
+
+        seedLogic.unmount()
+    })
+
+    // A seed arriving while the composer is already mounted (the panel was open when another CTA fired) must
+    // apply immediately via the setSeed listener, and autoSubmit=true must send it. Re-applying afterwards must
+    // not re-submit — a reopened panel must never resend a stale prompt. Guards the listener path, the
+    // auto-submit wiring, and consume-once.
+    it('applies a seed that arrives while mounted, auto-submits it, and does not resubmit once consumed', async () => {
+        let createCount = 0
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/': async ({ request }) => {
+                    createCount++
+                    createBody = (await request.json()) as Record<string, any>
+                    return [200, { id: 'new-task', ...createBody }]
+                },
+                '/api/projects/:team/tasks/:id/run/': () => [200, { id: 'new-task' }],
+            },
+        })
+
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        composerSeedLogic().actions.setSeed({ prompt: 'summarize experiment', autoSubmit: true })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(createBody).toMatchObject({ description: 'summarize experiment', repository: null })
+        expect(logic.values.activeCreation).toMatchObject({ taskId: 'new-task' })
+        expect(composerSeedLogic().values.seed).toBeNull()
+        expect(createCount).toBe(1)
+
+        // Consumed seed is inert: re-triggering must not create a second task.
+        logic.actions.applyComposerSeed()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(createCount).toBe(1)
+    })
+
+    // A seed arriving while a submit is in flight must not start a second concurrent create/run (the two
+    // requests would fight over the composer and activeCreation) and must not be lost: it stays pending and
+    // applies once the submission resolves — auto-submitting then, or surviving the post-submit form reset
+    // as a prefill. Guards the isSubmittingTask hold in applyComposerSeed and the reset-before-success order.
+    it.each([
+        { autoSubmit: true, expectedCreates: 2 },
+        { autoSubmit: false, expectedCreates: 1 },
+    ])(
+        'holds a seed arriving mid-submit and applies it after the submission resolves (autoSubmit=$autoSubmit)',
+        async ({ autoSubmit, expectedCreates }) => {
+            let createCount = 0
+            useMocks({
+                post: {
+                    '/api/projects/:team/tasks/': async ({ request }) => {
+                        createCount++
+                        createBody = (await request.json()) as Record<string, any>
+                        return [200, { id: `task-${createCount}`, ...createBody }]
+                    },
+                    '/api/projects/:team/tasks/:id/run/': () => [200, { id: 'run-1' }],
+                },
+            })
+            logic.mount()
+
+            composerSeedLogic().actions.setSeed({ prompt: 'first', autoSubmit: true })
+            // The first submit is now in flight; a second CTA fires before it resolves.
+            composerSeedLogic().actions.setSeed({ prompt: 'second', autoSubmit })
+            // Held, not applied: the seed is still pending and no second submission started.
+            expect(composerSeedLogic().values.seed).toMatchObject({ prompt: 'second' })
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(createCount).toBe(expectedCreates)
+            expect(composerSeedLogic().values.seed).toBeNull()
+            if (autoSubmit) {
+                expect(createBody).toMatchObject({ description: 'second' })
+            } else {
+                expect(logic.values.newTaskData.description).toBe('second')
+            }
+        }
+    )
 })

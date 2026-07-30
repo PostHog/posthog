@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class LangfuseSource(ResumableSource[LangfuseSourceConfig, LangfuseResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://langfuse.com/docs/api-and-data-platform/features/public-api"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

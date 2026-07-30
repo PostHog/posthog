@@ -32,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OrbSource(ResumableSource[OrbSourceConfig, OrbResumeConfig]):
+    api_docs_url = "https://docs.withorb.com/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ORB

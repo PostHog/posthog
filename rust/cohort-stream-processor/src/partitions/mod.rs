@@ -9,11 +9,12 @@ pub mod backpressure;
 pub mod follower;
 pub mod intake;
 pub mod offset_tracker;
-pub mod partitioner;
 pub mod pause;
 pub mod rebalance;
 pub mod router;
 pub mod shuffle_message;
+
+pub use cohort_core::partitioner;
 
 pub use backpressure::Backpressure;
 pub use follower::{Follower, FollowerSet, PartitionMirror};

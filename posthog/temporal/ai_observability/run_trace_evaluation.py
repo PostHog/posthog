@@ -62,6 +62,7 @@ from posthog.temporal.ai_observability.run_evaluation import (
     increment_trial_usage_and_notify,
 )
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.utils import close_db_connections
 
 from products.ai_observability.backend.models.evaluation_configs import (
     TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
@@ -286,6 +287,7 @@ def build_trace_hog_globals(trace: LLMTrace, trace_id: str) -> dict[str, Any]:
 
 
 @temporalio.activity.defn
+@close_db_connections
 @posthoganalytics.scoped()
 def execute_trace_llm_judge_activity(inputs: ExecuteTraceEvaluationInputs) -> EvaluationActivityResult:
     """Fetch the whole trace and run the LLM judge over its transcript.

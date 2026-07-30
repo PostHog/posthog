@@ -11,6 +11,7 @@ from posthog.models.user_integration import UserIntegration
 
 from products.tasks.backend.constants import (
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
+    CONTINUE_AS_NEW_FEATURE_FLAG,
     MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
     MODAL_VM_SANDBOX_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
@@ -24,6 +25,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     TaskProcessingContext,
     _is_agent_proxy_keep_stream_open_enabled,
     _is_burstable_sandbox_resources_enabled,
+    _is_continue_as_new_enabled,
     _is_modal_vm_sandbox_enabled,
     _is_rtk_enabled,
     _is_sandbox_event_ingest_enabled,
@@ -594,6 +596,62 @@ class TestGetTaskProcessingContextActivity:
                 )
                 is False
             )
+
+    @pytest.mark.parametrize("flag_value, expected", [(True, True), (False, False)])
+    @override_settings(TASKS_CONTINUE_AS_NEW_ENABLED=False)
+    def test_continue_as_new_flag_uses_organization_rollout(self, flag_value, expected):
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=flag_value,
+        ) as feature_enabled_mock:
+            assert (
+                _is_continue_as_new_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                )
+                is expected
+            )
+
+        feature_enabled_mock.assert_called_once_with(
+            CONTINUE_AS_NEW_FEATURE_FLAG,
+            distinct_id="distinct-id",
+            groups={"organization": "organization-id"},
+            group_properties={"organization": {"id": "organization-id"}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+    @override_settings(TASKS_CONTINUE_AS_NEW_ENABLED=False)
+    def test_continue_as_new_fails_closed_on_flag_error(self):
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            side_effect=RuntimeError("flag service failed"),
+        ):
+            assert (
+                _is_continue_as_new_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                )
+                is False
+            )
+
+    @override_settings(TASKS_CONTINUE_AS_NEW_ENABLED=True)
+    def test_continue_as_new_env_setting_force_enables_without_flag(self):
+        # The force-on env setting must not depend on the flag service.
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+        ) as feature_enabled_mock:
+            assert (
+                _is_continue_as_new_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                )
+                is True
+            )
+        feature_enabled_mock.assert_not_called()
 
     @pytest.mark.parametrize(
         "payload, expected",

@@ -8,8 +8,9 @@ use std::time::Duration;
 
 use common::{
     start_coordinator, start_coordinator_named, start_coordinator_with_debounce, start_pod,
-    start_pod_blocking, start_pod_slow, start_pod_with_lease_ttl, start_router, test_store,
-    wait_for_condition, HandoffEvent, PodHandles, POLL_INTERVAL, WAIT_TIMEOUT,
+    start_pod_blocking, start_pod_slow, start_pod_with_lease_ttl, start_router,
+    start_router_with_lease_ttl, test_store, wait_for_condition, HandoffEvent, PodHandles,
+    POLL_INTERVAL, WAIT_TIMEOUT,
 };
 use personhog_coordination::strategy::{
     AssignmentStrategy, JumpHashStrategy, StickyBalancedStrategy,
@@ -2589,4 +2590,74 @@ async fn handoff_delete_during_draining_drains_to_current_owner() {
     }
 
     cancel.cancel();
+}
+
+// ============================================================
+// Graceful exits release etcd state immediately, never by TTL
+// ============================================================
+
+/// A cancelled coordinator must revoke its election lease on the way out.
+/// With a 30s TTL, a pass that relied on lease expiry would blow the 3s
+/// bound — this pins the awaited-to-completion cleanup in
+/// `Coordinator::run`, which an unbiased select against cancellation used
+/// to drop about half the time, stalling every handoff until the TTL ran
+/// out.
+#[tokio::test]
+async fn graceful_coordinator_exit_releases_election_immediately() {
+    let store = test_store("graceful-coordinator-release").await;
+    let cancel = CancellationToken::new();
+    let handle = start_coordinator_named(
+        Arc::clone(&store),
+        "coordinator-0",
+        30,
+        Arc::new(StickyBalancedStrategy),
+        cancel.clone(),
+    );
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move { store.get_leader().await.ok().flatten().is_some() }
+    })
+    .await;
+
+    cancel.cancel();
+    drop(handle.await);
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(Duration::from_secs(3), POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move { store.get_leader().await.ok().flatten().is_none() }
+    })
+    .await;
+}
+
+/// A cancelled routing table must deregister its router on the way out: a
+/// lingering registration keeps the dead router in every freeze quorum,
+/// stalling any handoff frozen inside the TTL window.
+#[tokio::test]
+async fn routing_table_deregisters_router_on_graceful_exit() {
+    let store = test_store("graceful-router-deregister").await;
+    let cancel = CancellationToken::new();
+    let mut router =
+        start_router_with_lease_ttl(Arc::clone(&store), "router-0", 30, cancel.clone());
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move { !store.list_routers().await.unwrap_or_default().is_empty() }
+    })
+    .await;
+
+    cancel.cancel();
+    if let Some(handle) = router.join_handle.take() {
+        drop(handle.await);
+    }
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(Duration::from_secs(3), POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move { store.list_routers().await.unwrap_or_default().is_empty() }
+    })
+    .await;
 }

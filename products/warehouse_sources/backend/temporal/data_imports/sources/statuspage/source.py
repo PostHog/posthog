@@ -37,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class StatuspageSource(ResumableSource[StatuspageSourceConfig, StatuspageResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    api_docs_url = "https://developer.statuspage.io/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.STATUSPAGE

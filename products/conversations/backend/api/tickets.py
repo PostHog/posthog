@@ -1079,13 +1079,27 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         item_context = comment.item_context or {}
         author_type = item_context.get("author_type", "customer")
 
+        # Per-message author identity (Slack/Teams/Zendesk store each comment's own
+        # author) takes precedence over the ticket-level requester, so a thread reply
+        # from a second participant doesn't show as the ticket owner.
+        context_author_name = (
+            item_context.get("author_name")
+            or item_context.get("author_email")
+            or item_context.get("slack_author_name")
+            or item_context.get("teams_author_name")
+            or item_context.get("teams_author_email")
+            or item_context.get("email_from_name")
+        )
+
         if comment.created_by:
             author_name = comment.created_by.first_name or comment.created_by.email
+        elif author_type == "AI":
+            author_name = "PostHog Assistant"
+        elif context_author_name:
+            author_name = context_author_name
         elif author_type == "customer":
             traits = ticket.anonymous_traits or {}
             author_name = traits.get("name") or traits.get("email") or "Customer"
-        elif author_type == "AI":
-            author_name = "PostHog Assistant"
         else:
             author_name = "Support"
 

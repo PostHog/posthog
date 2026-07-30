@@ -44,6 +44,10 @@ def _base_url_for(config: SurveyMonkeySourceConfig) -> str:
 
 @SourceRegistry.register
 class SurveyMonkeySource(ResumableSource[SurveyMonkeySourceConfig, SurveyMonkeyResumeConfig]):
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://api.surveymonkey.com/v3/docs"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from typing import Optional
 
 from posthog import redis
+from posthog.caching.fetch_from_cache import SplitCachedResponse
 
 
 class QueryCacheManagerBase(ABC):
@@ -105,3 +106,10 @@ class QueryCacheManagerBase(ABC):
     def get_cache_data(self) -> Optional[dict]:
         """Retrieve query results from cache."""
         pass
+
+    def get_cache_data_split(self) -> Optional[SplitCachedResponse]:
+        """Retrieve cached results, keeping the results segment as raw bytes when the backend supports it."""
+        data = self.get_cache_data()
+        if data is None:
+            return None
+        return SplitCachedResponse(header=data, results_bytes=None)

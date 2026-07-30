@@ -350,8 +350,10 @@ const meta: Meta = {
                         return [200, { results: SESSION_RESULTS }]
                     }
                     // Tool quality tab queries — checked before the dashboard's
-                    // p95 tool table so the more specific markers win.
-                    if (query.includes('toDate(timestamp) AS day')) {
+                    // p95 tool table so the more specific markers win. The daily series
+                    // buckets by dateTrunc at the active interval; `AS day,` + the p99
+                    // quantile uniquely identify it (the per-tool table has neither).
+                    if (query.includes('quantile(0.99)') && query.includes('AS day,')) {
                         return [200, { results: DAILY_STATS }]
                     }
                     if (query.includes('p99_duration_ms')) {

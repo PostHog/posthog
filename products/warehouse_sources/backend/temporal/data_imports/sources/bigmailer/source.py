@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BigMailerSource(ResumableSource[BigMailerSourceConfig, BigMailerResumeConfig]):
+    api_docs_url = "https://docs.bigmailer.io/"
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to
     # render in public docs without credentials.
     lists_tables_without_credentials = True

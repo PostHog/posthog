@@ -381,6 +381,10 @@ class TestPostgresSourceNonRetryableErrors:
             # can hit on a hot-standby-disabled replica is non-retryable (see the permanent cases below).
             "consuming input failed: SSL SYSCALL error: EOF detected",
             "the connection is lost",
+            # A hot standby still reaching a consistent recovery point (SQLSTATE 57P03). Transient —
+            # it accepts connections once recovery completes — so unlike the permanent
+            # hot-standby-disabled refusal it must stay out of NonRetryableErrors.
+            'connection failed: connection to server at "127.0.0.1", port 5432 failed: FATAL:  the database system is not yet accepting connections DETAIL:  Consistent recovery state has not been yet reached.',
         ],
     )
     def test_transient_connection_errors_are_retryable(self, source, error_msg):
@@ -1355,6 +1359,11 @@ class TestIsConnectionDroppedError:
             psycopg.errors.ConnectionFailure(
                 "Failed to connect to database: authentication did not complete within 15000ms"
             ),
+            # pgcat refuses to hand out a backend when every pooled server is banned/down, reporting
+            # it as SQLSTATE 58000 (psycopg's SystemError, an OperationalError) rather than the
+            # Supavisor XX000 InternalError_ codes above. Transient — a banned server rejoins on a
+            # passing health check or once its ban expires — so the reconnect must catch it.
+            psycopg.errors.SystemError("could not get connection from the pool - AllServersDown"),
         ],
     )
     def test_connection_dropped_errors_are_detected(self, error):
@@ -1409,6 +1418,20 @@ class TestDroppedOrConnectTimeout:
             # The new case: the read-path reconnect that bootstraps offset-chunking recovery times
             # out establishing the socket. Transient — the source was reachable moments earlier.
             psycopg.errors.ConnectionTimeout("connection timeout expired"),
+            # A hot standby that hasn't yet reached a consistent recovery point refuses the
+            # reconnect with SQLSTATE 57P03 (cannot_connect_now). Transient — it starts accepting
+            # connections once recovery completes — so the offset-chunking reconnect must retry it
+            # in-process instead of failing the whole activity.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "127.0.0.1", port 5432 failed: '
+                "FATAL:  the database system is not yet accepting connections "
+                "DETAIL:  Consistent recovery state has not been yet reached."
+            ),
+            # Sibling 57P03 refusals while the source is booting / crash-recovering.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  the database system is starting up"
+            ),
         ],
     )
     def test_transient_connect_path_errors_are_retryable(self, error):
@@ -1422,6 +1445,15 @@ class TestDroppedOrConnectTimeout:
             ),
             # A statement timeout is not a connect timeout — it must not be absorbed here.
             psycopg.errors.QueryCanceled("canceling statement due to statement timeout"),
+            # A standby started with hot_standby=off refuses every connection permanently — it reads
+            # "not accepting connections" (no "yet") with DETAIL "Hot standby mode is disabled". It
+            # must NOT be treated as a transient server-startup refusal, so it fails fast to the
+            # non-retryable classification rather than burning the in-process reconnect budget.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  the database system is not accepting connections "
+                "DETAIL:  Hot standby mode is disabled."
+            ),
         ],
     )
     def test_permanent_and_non_connect_errors_are_not_retryable(self, error):

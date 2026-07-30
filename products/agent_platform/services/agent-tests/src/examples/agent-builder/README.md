@@ -95,13 +95,35 @@ points map to the same effective auth:
 
 1. **PostHog Code** — user signs into the PostHog Code app via
    PostHog OAuth; the app mints a short-lived session-principal
-   token from the OAuth session, attaches it as the chat trigger's
-   principal field. Every tool call runs as the user.
+   token from the OAuth session and attaches it to the chat trigger.
+   Every tool call runs as the user without a separate MCP connection.
 2. **MCP** — user attaches their PostHog PAT in their MCP client
    config. The runner resolves the PAT to a principal once at
    session start, threads it through identically.
 
 The Agent Builder holds no fallback credential.
+
+Mode order is load-bearing. `posthog` must remain first so a request carrying
+the signed-in user's bearer resolves the user-scoped `posthog_api` credential.
+`posthog_internal` is only the trusted service fallback and does not supply a
+user credential for MCP calls.
+
+The PostHog MCP is a first-party implementation detail of the builder, not a
+connection the user configures. MCP startup only reuses an existing trigger or
+linked credential; it never starts OAuth or reconnects automatically. The
+identity-connect tool remains available for agents that intentionally support
+account linking, but startup never invokes it.
+
+The Agent Builder chat therefore does not use the ingress OAuth callback route.
+PostHog Code supplies the signed-in user's short-lived bearer at the trigger
+edge, and the runner passes that credential to the first-party MCP. The
+`/link/<provider>/callback` flow exists for agents that intentionally support
+connecting an additional identity.
+
+The checked-in MCP URL is the local development endpoint. `seed.py` rewrites
+PostHog-authenticated MCP entries to the target region, so the production US
+deployment uses `https://mcp.us.posthog.com/mcp` rather than localhost. The
+PostHog identity provider explicitly allows that matching regional MCP host.
 
 ## Platform pieces it relies on (all shipped)
 

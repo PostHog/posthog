@@ -450,7 +450,10 @@ class TestGoogleAdsSourceValidation:
 
         assert is_valid is False
         assert error is not None
-        assert "is not correct" in error
+        # A valid client-account id nested under a manager also lands here (list_accessible_customers
+        # never returns it), so the message must steer to the MCC toggle, not claim the id is wrong.
+        assert "MCC" in error
+        assert "is not correct" not in error
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client"

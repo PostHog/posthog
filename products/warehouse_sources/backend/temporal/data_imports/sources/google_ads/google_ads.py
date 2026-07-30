@@ -507,6 +507,17 @@ def google_ads_source(
         if table.extra_where:
             query += f" {'AND' if 'WHERE' in query else 'WHERE'} {table.extra_where}"
 
+        if should_use_incremental_field:
+            # Ascending cursor order is load-bearing, not cosmetic. The pipeline advances
+            # `incremental_field_last_value` after every durably written chunk (sort_mode
+            # defaults to "asc"), so ordered pages make each chunk (a) advance the watermark
+            # monotonically — an OOM/crash mid-sync resumes from the newest landed date instead
+            # of re-extracting the whole window forever (the stuck-cursor death spiral) — and
+            # (b) touch only a narrow band of date partitions per Delta merge, instead of every
+            # partition in the window when pages arrive date-scattered. Unordered pages would
+            # also let the per-chunk watermark skip past older rows Google hadn't returned yet.
+            query += f" ORDER BY {incremental_field} ASC"
+
         client = google_ads_client(config, team_id)
         service: GoogleAdsServiceClient = client.get_service(
             "GoogleAdsService", version="v23", interceptors=tracked_interceptors(GOOGLE_ADS_HOST)

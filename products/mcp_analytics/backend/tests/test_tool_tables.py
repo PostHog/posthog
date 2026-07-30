@@ -7,6 +7,7 @@ from parameterized import parameterized
 
 from posthog.schema import (
     DateRange,
+    IntervalType,
     MCPToolDailyStatsQuery,
     MCPToolDescriptionsQuery,
     MCPToolFailuresQuery,
@@ -336,6 +337,27 @@ class TestMCPToolDailyStatsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickho
         assert rows[0].calls == 1
         assert rows[1].calls == 2
         assert rows[1].sessions == 2
+
+    def test_buckets_by_hour_when_interval_is_hour(self) -> None:
+        # Two calls in the same day but different hours split into two hourly buckets — a sub-day
+        # window would otherwise collapse to a single day point. Guards the interval plumbing.
+        now = datetime.now(tz=UTC)
+        _emit_tool_call(self.team, distinct_id="d1", session_id="s1", timestamp=now - timedelta(hours=1, minutes=30))
+        _emit_tool_call(self.team, distinct_id="d2", session_id="s2", timestamp=now - timedelta(minutes=5))
+        flush_persons_and_events()
+
+        runner = MCPToolDailyStatsQueryRunner(
+            query=MCPToolDailyStatsQuery(
+                toolName="query_run", dateRange=DateRange(date_from="-6h"), interval=IntervalType.HOUR
+            ),
+            team=self.team,
+        )
+        rows = runner.calculate().results
+
+        assert len(rows) == 2
+        assert rows[0].day < rows[1].day
+        assert rows[0].calls == 1
+        assert rows[1].calls == 1
 
 
 class TestMCPToolDescriptionsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):

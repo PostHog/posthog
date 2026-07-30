@@ -34,6 +34,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationResult,
     LazyComputationTable,
 )
+from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import is_constant_true
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     LAZY_TTL_SECONDS,
     SESSION_FORWARD_PAD_MINUTES,
@@ -235,6 +236,16 @@ def _entry_breakdown_value_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr:
     return runner._apply_path_cleaning(path)
 
 
+def _entry_breakdown_value_sessions_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr:
+    """`_entry_breakdown_value_expr` with chains resolving against a direct
+    `FROM sessions` scope — used by the no-join insert, whose bounce side reads
+    the sessions table without the events join."""
+    path: ast.Expr = ast.Field(chain=["sessions", "$entry_pathname"])
+    if runner.query.includeHost:
+        path = _prepend_host_nullif_empty(ast.Field(chain=["sessions", "$entry_hostname"]), path)
+    return runner._apply_path_cleaning(path)
+
+
 # Cap on stored breakdown rows: only the top-K paths PER DAY by the query's sort
 # metric. The PATHS tile shows a paginated top-N and the read's `LIMIT` can't prune
 # the scan (it must aggregate every path to find the top), so the long tail — paths
@@ -300,8 +311,62 @@ FROM (
 GROUP BY time_window_start, breakdown_value
 """
 
+# No-join variant for unfiltered PAGE cache keys: counts/persons come from events
+# self-attributed to the session-start hour via the UUIDv7 timestamp in the session
+# id; bounce-per-entry-path comes straight from the sessions table. Paths that are
+# never entry paths get an empty avg state via arrayReduce. INITIAL_PAGE and any
+# filtered key keep the join shape (persons-per-entry-path and filter evaluation
+# both need the events↔sessions association).
+_NO_JOIN_PER_WINDOW_AGG_SQL = """
+SELECT
+    e.time_window_start AS time_window_start,
+    e.breakdown_value AS breakdown_value,
+    e.uniq_users_state AS uniq_users_state,
+    e.sum_pageviews_state AS sum_pageviews_state,
+    ifNull(s.avg_bounce_state, arrayReduce('avgState', arrayFilter(x -> 0 != 0, [toFloat(0)]))) AS avg_bounce_state
+FROM (
+    SELECT
+        toStartOfHour(fromUnixTimestamp(intDiv(toInt(bitShiftRight(_toUInt128(toUUID({events_session_id})), 80)), 1000))) AS time_window_start,
+        {breakdown_value_expr} AS breakdown_value,
+        uniqState(events.person_id) AS uniq_users_state,
+        sumState(assumeNotNull(toInt(1))) AS sum_pageviews_state
+    FROM events
+    WHERE and(
+        {events_session_id} IS NOT NULL,
+        events.$session_id_uuid IS NOT NULL,
+        equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7),
+        {event_type_filter},
+        timestamp >= {time_window_min},
+        timestamp < ({time_window_max} + toIntervalMinute({pad_minutes})),
+        {user_filter},
+        {test_account_filter}
+    )
+    GROUP BY time_window_start, breakdown_value
+    HAVING and(
+        breakdown_value IS NOT NULL,
+        time_window_start >= {time_window_min},
+        time_window_start < {time_window_max}
+    )
+) AS e
+LEFT JOIN (
+    SELECT
+        toStartOfHour(sessions.$start_timestamp) AS time_window_start,
+        {entry_breakdown_value_sessions_expr} AS breakdown_value,
+        avgState(toFloat(sessions.$is_bounce)) AS avg_bounce_state
+    FROM sessions
+    WHERE and(
+        sessions.$start_timestamp >= {time_window_min},
+        sessions.$start_timestamp < {time_window_max},
+        equals(bitAnd(bitShiftRight(sessions.session_id_v7, 76), 15), 7),
+        or(sessions.$pageview_count > 0, sessions.$screen_count > 0),
+    )
+    GROUP BY time_window_start, breakdown_value
+) AS s ON e.time_window_start = s.time_window_start AND e.breakdown_value = s.breakdown_value
+"""
+
 # Uncapped insert — current behaviour, used for ASC sorts (see `_top_k_ranking_expr`).
 INSERT_QUERY_TEMPLATE = _PER_WINDOW_AGG_SQL
+NO_JOIN_INSERT_QUERY_TEMPLATE = _NO_JOIN_PER_WINDOW_AGG_SQL
 
 # Capped insert — keep the top-K `breakdown_value`s by `{top_k_metric}` (the query's
 # sort metric) computed PER DAY, then store all per-hour rows of any path that reaches
@@ -324,10 +389,7 @@ INSERT_QUERY_TEMPLATE = _PER_WINDOW_AGG_SQL
 # `<= PATHS_TOP_K` keeps the union of daily top-Ks. (HogQL parses `LIMIT n BY` but the
 # printer can't emit it, so the cap ranks with window functions.) The metric stays in the
 # AST, so each sort variant gets its own job.
-INSERT_QUERY_TEMPLATE_CAPPED = (
-    "WITH per_window AS ("
-    + _PER_WINDOW_AGG_SQL
-    + """)
+_CAPPED_WRAPPER = """)
 SELECT
     time_window_start AS time_window_start,
     breakdown_value AS breakdown_value,
@@ -357,9 +419,10 @@ FROM (
         FROM per_window
     )
 )
-WHERE breakdown_rank <= """
-    + str(PATHS_TOP_K)
-)
+WHERE breakdown_rank <= """ + str(PATHS_TOP_K)
+
+INSERT_QUERY_TEMPLATE_CAPPED = "WITH per_window AS (" + _PER_WINDOW_AGG_SQL + _CAPPED_WRAPPER
+NO_JOIN_INSERT_QUERY_TEMPLATE_CAPPED = "WITH per_window AS (" + _NO_JOIN_PER_WINDOW_AGG_SQL + _CAPPED_WRAPPER
 
 
 def _top_k_ranking_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr | None:
@@ -433,14 +496,24 @@ def ensure_web_stats_paths_precomputed(
         "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
     }
 
+    # Unfiltered PAGE keys use the no-join shape (events self-attribute to the
+    # session-start hour via the UUIDv7 session id; bounce comes from the sessions
+    # table). INITIAL_PAGE needs the join for persons-per-entry-path, and filtered
+    # keys need it because the sessions side can't evaluate event/person filters.
+    use_no_join = runner.query.breakdownBy == WebStatsBreakdown.PAGE and all(
+        is_constant_true(placeholders[key]) for key in ("user_filter", "test_account_filter")
+    )
+    if use_no_join:
+        placeholders["entry_breakdown_value_sessions_expr"] = _entry_breakdown_value_sessions_expr(runner)
+
     # Cap to the displayable top-K for descending sorts; store the full set otherwise.
     # The metric goes into the INSERT AST, so the sort dimension joins the job hash.
     ranking_expr = _top_k_ranking_expr(runner)
     if ranking_expr is not None:
-        insert_query = INSERT_QUERY_TEMPLATE_CAPPED
+        insert_query = NO_JOIN_INSERT_QUERY_TEMPLATE_CAPPED if use_no_join else INSERT_QUERY_TEMPLATE_CAPPED
         placeholders["top_k_metric"] = ranking_expr
     else:
-        insert_query = INSERT_QUERY_TEMPLATE
+        insert_query = NO_JOIN_INSERT_QUERY_TEMPLATE if use_no_join else INSERT_QUERY_TEMPLATE
 
     # Warmers keep the framework default; user-facing calls get the 10s budget, or the
     # caller-provided remainder of it when this is the second (compare-period) ensure.

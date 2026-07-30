@@ -48,6 +48,10 @@ class HubspotSourceOldConfig(config.Config):
 
 @SourceRegistry.register
 class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig, HubspotResumeConfig], OAuthMixin):
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://developers.hubspot.com/docs"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

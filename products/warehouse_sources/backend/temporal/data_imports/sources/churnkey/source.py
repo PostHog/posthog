@@ -35,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ChurnkeySource(ResumableSource[ChurnkeySourceConfig, ChurnkeyResumeConfig]):
+    api_docs_url = "https://docs.churnkey.co/data-integrations/data-api/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

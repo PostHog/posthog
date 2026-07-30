@@ -65,6 +65,7 @@ import {
     IconWarning,
 } from '@posthog/icons'
 
+import { IconStamphog } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import {
@@ -360,6 +361,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     code_review: {
         icon: <IconPullRequest />,
+    },
+    stamphog: {
+        icon: <IconStamphog />,
     },
     exports: {
         icon: <IconDownload />,

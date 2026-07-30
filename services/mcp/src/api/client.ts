@@ -294,9 +294,11 @@ export class ApiClient {
 
         if (!response.ok) {
             const errorText = await response.text()
-            throw new Error(
-                `SSE request failed:\nURL: ${opts.method} ${url}\nStatus Code: ${response.status} (${response.statusText})\nError Message: ${errorText}`
-            )
+            // Mirror fetchJson's typed-error mapping so a failed streaming call
+            // (e.g. a backend 4xx validation rejection) is classified as
+            // `validation`/`api_4xx` rather than collapsing into the generic
+            // `internal` bucket and minting a spurious error-tracking issue.
+            throw this.buildApiError(response, errorText, url, opts.method)
         }
 
         if (!response.body) {
@@ -352,6 +354,78 @@ export class ApiClient {
         }
     }
 
+    /**
+     * Maps a non-OK PostHog API response to the typed error that best describes
+     * it (invalid key, rate limit, permission, validation, or generic API
+     * error). Shared by fetchJson and the SSE path (requestSSE) so both surface
+     * the same recoverable-vs-genuine-failure signal to the tool-error
+     * classifier — a streaming failure should be classified by its HTTP status,
+     * not lumped into `internal`.
+     *
+     * The response body is read by the caller (SSE and JSON paths read it at
+     * different points) and passed in as `errorText`.
+     */
+    private buildApiError(response: Response, errorText: string, url: string, method: string): Error {
+        if (response.status === 401) {
+            return new Error(ErrorCode.INVALID_API_KEY)
+        }
+
+        if (response.status === 429) {
+            return new PostHogRateLimitError({
+                body: errorText,
+                url,
+                method,
+                retryAfterSeconds: parseRetryAfterSeconds(response.headers.get('Retry-After')),
+            })
+        }
+
+        let errorData: any
+        try {
+            errorData = JSON.parse(errorText)
+        } catch {
+            errorData = { detail: errorText }
+        }
+
+        if (response.status === 403 && errorData?.code === 'permission_denied') {
+            const scopeMatch = /required scope ['"]([^'"]+)['"]/.exec(errorData.detail || '')
+            const missingScope = scopeMatch?.[1]
+            // Warn, not error: PostHogPermissionError is thrown and handled by callers,
+            // and a missing scope is a user-config issue rather than a service bug.
+            console.warn(
+                `[API] Permission denied on ${method} ${url}: ${errorData.detail || 'unknown'}${missingScope ? ` (missing scope: ${missingScope})` : ''}`
+            )
+            return new PostHogPermissionError({
+                detail: errorData.detail || 'permission denied',
+                missingScope,
+                url,
+                method,
+            })
+        }
+
+        if (errorData?.type === 'validation_error') {
+            const detail = errorData.detail || errorData.code || 'unknown'
+            const attrLog = errorData.attr ? ` (field: ${errorData.attr})` : ''
+            console.error(`[API] Validation error on ${method} ${url}: ${detail}${attrLog}`)
+            return new PostHogValidationError({
+                detail,
+                attr: errorData.attr ?? undefined,
+                code: errorData.code ?? undefined,
+                extra: (errorData.extra ?? undefined) as Record<string, unknown> | undefined,
+                url,
+                method,
+            })
+        }
+
+        console.error(`[API] Request failed on ${method} ${url}: ${response.status} ${response.statusText}`)
+        return new PostHogApiError({
+            status: response.status,
+            statusText: response.statusText,
+            body: errorText,
+            url,
+            method,
+        })
+    }
+
     private async fetchJson<T>(url: string, options?: RequestInit): Promise<Result<T>> {
         const method = options?.method ?? 'GET'
         let waitBudgetMs = RATE_LIMIT_TOTAL_WAIT_BUDGET_MS
@@ -402,48 +476,7 @@ export class ApiClient {
                 }
 
                 if (!response.ok) {
-                    if (response.status === 401) {
-                        throw new Error(ErrorCode.INVALID_API_KEY)
-                    }
-
                     const errorText = await response.text()
-
-                    let errorData: any
-                    try {
-                        errorData = JSON.parse(errorText)
-                    } catch {
-                        errorData = { detail: errorText }
-                    }
-
-                    if (response.status === 403 && errorData?.code === 'permission_denied') {
-                        const scopeMatch = /required scope ['"]([^'"]+)['"]/.exec(errorData.detail || '')
-                        const missingScope = scopeMatch?.[1]
-                        // Warn, not error: PostHogPermissionError is thrown and handled by callers,
-                        // and a missing scope is a user-config issue rather than a service bug.
-                        console.warn(
-                            `[API] Permission denied on ${method} ${url}: ${errorData.detail || 'unknown'}${missingScope ? ` (missing scope: ${missingScope})` : ''}`
-                        )
-                        throw new PostHogPermissionError({
-                            detail: errorData.detail || 'permission denied',
-                            missingScope,
-                            url,
-                            method,
-                        })
-                    }
-
-                    if (errorData.type === 'validation_error') {
-                        const detail = errorData.detail || errorData.code || 'unknown'
-                        const attrLog = errorData.attr ? ` (field: ${errorData.attr})` : ''
-                        console.error(`[API] Validation error on ${method} ${url}: ${detail}${attrLog}`)
-                        throw new PostHogValidationError({
-                            detail,
-                            attr: errorData.attr ?? undefined,
-                            code: errorData.code ?? undefined,
-                            extra: (errorData.extra ?? undefined) as Record<string, unknown> | undefined,
-                            url,
-                            method,
-                        })
-                    }
 
                     if (response.status === 404) {
                         const experimentMatch = /\/experiments\/(\d+)/.exec(url)
@@ -458,14 +491,7 @@ export class ApiClient {
                         }
                     }
 
-                    console.error(`[API] Request failed on ${method} ${url}: ${response.status} ${response.statusText}`)
-                    throw new PostHogApiError({
-                        status: response.status,
-                        statusText: response.statusText,
-                        body: errorText,
-                        url,
-                        method,
-                    })
+                    throw this.buildApiError(response, errorText, url, method)
                 }
 
                 const rawText = await response.text()
@@ -689,6 +715,21 @@ export class ApiClient {
                 } catch (error) {
                     return { success: false, error: error as Error }
                 }
+            },
+
+            updatePathCleaningFilters: async ({
+                projectId,
+                filters,
+            }: {
+                projectId: string
+                filters: Array<{ alias: string; regex: string; order: number }>
+            }): Promise<Result<Schemas.ProjectBackwardCompat>> => {
+                // path_cleaning_filters is a whole-list field on the project — the caller is
+                // responsible for having merged the desired rules into `filters` first.
+                return this.fetchJson<Schemas.ProjectBackwardCompat>(`${this.baseUrl}/api/projects/${projectId}/`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ path_cleaning_filters: filters }),
+                })
             },
         }
     }

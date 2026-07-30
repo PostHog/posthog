@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -45,6 +46,7 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
         }
 
         setSourceConfigValue(['access_method'], source.access_method ?? 'warehouse')
+        setSourceConfigValue(['direct_query_enabled'], source.direct_query_enabled ?? false)
         setSourceConfigValue(['prefix'], source.prefix ?? '')
         setSourceConfigValue(['description'], source.description ?? '')
         setJobInputs({
@@ -55,6 +57,7 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
         // It's also the reason why it can't live in the kea logic - the selector will update on object reference changes
     }, [
         source?.access_method,
+        source?.direct_query_enabled,
         source?.prefix,
         source?.description,
         setSourceConfigValue,
@@ -75,6 +78,10 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
                 <SourceFormComponent
                     showPrefix={false}
                     showDescription={true}
+                    showDirectQueryToggle
+                    directQueryEditorUrl={
+                        source.direct_query_enabled ? urls.sqlEditor({ connectionId: source.id }) : undefined
+                    }
                     sourceConfig={sourceFieldConfig}
                     jobInputs={jobInputs}
                     initialAccessMethod={source.access_method ?? 'warehouse'}

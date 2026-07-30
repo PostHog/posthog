@@ -1,4 +1,4 @@
-// Pure helpers for the duration-histogram sparkline (JON-36). The list sorted by duration pairs
+// Pure helpers for the duration-histogram sparkline. The list sorted by duration pairs
 // with a histogram of trace counts per logarithmic duration bucket; everything here is pure so it
 // can be unit-tested without the kea logic's import graph.
 
@@ -15,10 +15,13 @@ export interface TracingDurationHistogramData {
     labels: string[]
 }
 
-export interface VisibleDurationRange {
+/** A `[minNs, maxNs)` duration range in nanoseconds — the shared currency of selection and filtering. */
+export interface DurationRange {
     minNs: number
     maxNs: number
 }
+
+export type VisibleDurationRange = DurationRange
 
 const BUCKET_MANTISSAS = [1, 2, 5]
 
@@ -114,9 +117,7 @@ export function pivotDurationHistogram(
 
 /** Exclusive upper edge of a 1-2-5 bucket — the next bucket on the series (1→2, 2→5, 5→10). */
 export function bucketUpperBound(bucketNs: number): number {
-    const decade = Math.pow(10, Math.floor(Math.log10(Math.max(bucketNs, 1))))
-    const mantissa = bucketNs / decade
-    return Math.round(mantissa < 2 ? 2 * decade : mantissa < 5 ? 5 * decade : 10 * decade)
+    return fillBucketSeries(bucketNs, bucketNs * 10)[1]
 }
 
 /**
@@ -128,7 +129,7 @@ export function selectionToDurationRange(
     bucketsNs: number[],
     startIndex: number,
     endIndex: number
-): { minNs: number; maxNs: number } | null {
+): DurationRange | null {
     if (bucketsNs.length === 0) {
         return null
     }

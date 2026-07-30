@@ -120,13 +120,11 @@ def verify_and_fix_all_teams(
     result = VerificationResult()
     last_id = 0
 
-    base_qs = config.get_teams_queryset()
+    base_qs = config.narrow_team_queryset(config.get_teams_queryset()).order_by("id")
 
     batch_number = 0
     while True:
-        teams = list(
-            base_qs.filter(id__gt=last_id).select_related("organization", "project").order_by("id")[:chunk_size]
-        )
+        teams = list(base_qs.filter(id__gt=last_id)[:chunk_size])
 
         if not teams:
             break

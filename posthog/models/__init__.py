@@ -32,6 +32,7 @@ from .file_system.folder_context_generation import FileSystemFolderContextGenera
 from .file_system.folder_instructions import FileSystemFolderInstructions
 from .file_system.file_system_view_log import FileSystemViewLog
 from .file_system.persisted_folder import PersistedFolder
+from .file_system.user_product_list import UserProductList
 from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_usage_metric import GroupUsageMetric
@@ -115,6 +116,7 @@ __all__ = [
     "FileSystemFolderInstructions",
     "FileSystemViewLog",
     "PersistedFolder",
+    "UserProductList",
     "Filter",
     "Group",
     "GroupUsageMetric",

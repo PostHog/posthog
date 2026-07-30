@@ -8,7 +8,9 @@ from django.conf import settings
 from django.core.cache import cache, caches
 
 import structlog
+import redis.exceptions
 from botocore.exceptions import BotoCoreError, ClientError
+from django_redis.exceptions import ConnectionInterrupted
 from posthoganalytics import capture_exception
 from prometheus_client import Counter, Histogram
 
@@ -18,6 +20,17 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 
 logger = structlog.get_logger(__name__)
+
+# Redis/transport failures the primary cache read degrades on, mirroring the S3/load_fn tiers below.
+# django-redis wraps the underlying redis error in ConnectionInterrupted; we also catch the raw redis
+# errors (and the builtin socket errors under OSError) in case a backend surfaces them directly.
+_REDIS_READ_ERRORS = (
+    ConnectionInterrupted,
+    redis.exceptions.RedisError,
+    ConnectionError,
+    TimeoutError,
+    OSError,
+)
 
 
 DEFAULT_CACHE_MISS_TTL = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
@@ -242,7 +255,14 @@ class HyperCache:
 
     def get_from_cache_with_source(self, key: KeyType) -> tuple[dict | None, str]:
         cache_key = self.get_cache_key(key)
-        data = self.cache_client.get(cache_key)
+        try:
+            data = self.cache_client.get(cache_key)
+        except _REDIS_READ_ERRORS as e:
+            # A Redis outage on the primary read must degrade to the S3/DB tiers below, never
+            # bubble a 500 up to the request handler. Capture it for visibility, the way the S3
+            # branch does, then fall through as a cache miss.
+            capture_exception(e)
+            data = None
 
         if data:
             HYPERCACHE_CACHE_COUNTER.labels(result="hit_redis", namespace=self.namespace, value=self.value).inc()
@@ -319,7 +339,13 @@ class HyperCache:
         cache_keys = [self.get_cache_key(team) for team in teams]
         etag_keys = [self.get_etag_key(team) for team in teams] if self.enable_etag else []
 
-        cached_values = self.cache_client.get_many(cache_keys + etag_keys)
+        try:
+            cached_values = self.cache_client.get_many(cache_keys + etag_keys)
+        except _REDIS_READ_ERRORS as e:
+            # Degrade a Redis outage to an all-miss result rather than raising; there is no
+            # S3/DB fallback in batch mode, so every team resolves to a clean "miss" below.
+            capture_exception(e)
+            cached_values = {}
 
         # Map results back to team IDs, counting hits and misses for batch metrics
         results: dict[int, tuple[dict | None, str, str | None]] = {}
@@ -356,7 +382,13 @@ class HyperCache:
         """Get just the ETag for a cached value without loading the full response."""
         if not self.enable_etag:
             return None
-        return self.cache_client.get(self.get_etag_key(key))
+        try:
+            return self.cache_client.get(self.get_etag_key(key))
+        except _REDIS_READ_ERRORS as e:
+            # Degrade a Redis outage to a missing ETag rather than raising; callers treat a
+            # None ETag as a miss/mismatch and fall back to the full response.
+            capture_exception(e)
+            return None
 
     def get_if_none_match(self, key: KeyType, client_etag: str | None) -> tuple[dict | None, str | None, bool]:
         """

@@ -110,6 +110,7 @@ function projectMessage(m: RawSlackMessage): {
 
 export const slackPostMessageV1 = defineNativeTool({
     id: '@posthog/slack-post-message',
+    approval: 'allow',
     description: "Post a message to a Slack channel or thread using the agent's bot token.",
     args: Type.Object({
         channel: Type.String(),
@@ -135,6 +136,7 @@ export const slackPostMessageV1 = defineNativeTool({
 
 export const slackUpdateMessageV1 = defineNativeTool({
     id: '@posthog/slack-update-message',
+    approval: 'allow',
     description: 'Edit a previously-posted Slack message.',
     args: Type.Object({
         channel: Type.String(),
@@ -153,6 +155,7 @@ export const slackUpdateMessageV1 = defineNativeTool({
 
 export const slackReadChannelV1 = defineNativeTool({
     id: '@posthog/slack-read-channel',
+    approval: 'allow',
     description:
         'Read recent messages from a Slack channel. Returns top-level messages only (use @posthog/slack-read-thread for replies). Paginate with next_cursor; narrow with oldest/latest (slack ts).',
     args: Type.Object({
@@ -198,6 +201,7 @@ export const slackReadChannelV1 = defineNativeTool({
 
 export const slackReadThreadV1 = defineNativeTool({
     id: '@posthog/slack-read-thread',
+    approval: 'allow',
     description: 'Read a Slack thread — the parent message plus all replies. thread_ts is the parent message ts.',
     args: Type.Object({
         channel: Type.String(),
@@ -239,6 +243,7 @@ export const slackReadThreadV1 = defineNativeTool({
 
 export const slackReactV1 = defineNativeTool({
     id: '@posthog/slack-react',
+    approval: 'allow',
     description: 'Add an emoji reaction to a Slack message.',
     args: Type.Object({
         channel: Type.String(),

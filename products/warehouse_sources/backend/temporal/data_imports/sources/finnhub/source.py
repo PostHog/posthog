@@ -35,6 +35,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class FinnhubSource(SimpleSource[FinnhubSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://finnhub.io/docs/api"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

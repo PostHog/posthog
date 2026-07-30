@@ -38,10 +38,21 @@ _MANAGEMENT_KEY_REQUIRED = (
     "read the models and providers catalogs."
 )
 
+# The organization members and workspaces endpoints resolve only when the management key's account
+# belongs to an OpenRouter organization; an account without one gets a 404. Retrying can't create an
+# organization, so we stop and tell the customer.
+_NO_ORGANIZATION = (
+    "Your OpenRouter account isn't part of an organization, so the organization members and workspaces "
+    "tables can't be synced. Disable these tables, or reconnect with a management key that belongs to an "
+    "organization."
+)
+
 
 @SourceRegistry.register
 class OpenRouterSource(ResumableSource[OpenRouterSourceConfig, OpenRouterResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    api_docs_url = "https://openrouter.ai/docs/api-reference"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -88,6 +99,11 @@ Use a **management API key** (create one under [Settings -> Management Keys](htt
             # status text and base host, not the per-request path/query.
             "401 Client Error: Unauthorized for url: https://openrouter.ai": "Your OpenRouter API key is invalid or has been revoked. Create a new key in your OpenRouter dashboard, then reconnect.",
             "403 Client Error: Forbidden for url: https://openrouter.ai": "Your OpenRouter API key is missing the management scope needed to sync this data. Use a management API key (Settings -> Management Keys), then reconnect.",
+            # Match the org-scoped paths specifically, not a bare host 404, so a genuine bad path on
+            # another endpoint still surfaces instead of being silently disabled. The query string is
+            # dropped as the volatile part.
+            "404 Client Error: Not Found for url: https://openrouter.ai/api/v1/organization/members": _NO_ORGANIZATION,
+            "404 Client Error: Not Found for url: https://openrouter.ai/api/v1/workspaces": _NO_ORGANIZATION,
         }
 
     def get_schemas(

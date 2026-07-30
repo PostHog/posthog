@@ -204,6 +204,7 @@ describe('sqlEditorLogic', () => {
                 '/api/environments/:team_id/data_modeling_jobs/recent/': [],
                 '/api/environments/:team_id/data_modeling_jobs/running/': [],
                 '/api/environments/:team_id/data_modeling_nodes/lineage/': { nodes: [], edges: [] },
+                '/api/projects/:team_id/external_data_sources/connections/': [],
                 '/api/user_home_settings/@me/': {},
             },
             post: {
@@ -1389,6 +1390,44 @@ describe('sqlEditorLogic', () => {
 
             expect(logic.values.sendRawQueryEnabled).toEqual(true)
             expect(logic.values.sourceQuery.source.connectionId).toEqual('conn-123')
+            expect(String(router.values.hashParams.raw)).toEqual('1')
+        })
+
+        it('forces raw SQL mode when the selected connection does not support HogQL', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/external_data_sources/connections/': [
+                        200,
+                        [
+                            {
+                                id: 'raw-conn-1',
+                                prefix: 'mssql',
+                                engine: null,
+                                source_type: 'MSSQL',
+                                access_method: 'direct',
+                                supports_hogql: false,
+                            },
+                        ],
+                    ],
+                },
+            })
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            // No connection selector mounted here — selecting a connection must load the
+            // capability data by itself (embedded editors, URL restores).
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'raw-conn-1' })
+
+            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+            await expectLogic(logic).toDispatchActions(['setSendRawQuery'])
+
+            expect(logic.values.selectedConnectionSupportsHogQL).toEqual(false)
+            expect(logic.values.sourceQuery.source.sendRawQuery).toEqual(true)
+            expect(logic.values.sendRawQueryEnabled).toEqual(true)
             expect(String(router.values.hashParams.raw)).toEqual('1')
         })
 

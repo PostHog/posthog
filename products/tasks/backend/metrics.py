@@ -105,7 +105,7 @@ STREAM_CONNECTION_DURATION_BUCKETS = [
     7_200.0,
     21_600.0,
 ]
-# Stream length is capped at TASK_RUN_STREAM_MAX_LENGTH (~20k); the top buckets
+# Stream length is capped at TASK_RUN_STREAM_MAX_LENGTH (~5k); the top buckets
 # show how close real runs get to the trim threshold.
 STREAM_LENGTH_BUCKETS = [10.0, 50.0, 100.0, 500.0, 1_000.0, 2_500.0, 5_000.0, 10_000.0, 15_000.0, 20_000.0]
 

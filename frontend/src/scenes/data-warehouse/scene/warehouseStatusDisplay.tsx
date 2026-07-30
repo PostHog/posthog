@@ -18,6 +18,7 @@ export const STATUS_LABELS: Record<ManagedWarehouseReadinessStateEnumApi, string
     up_to_date: 'Up to date',
     needs_attention: 'Needs attention',
     unknown: 'Status unavailable',
+    sync_paused: 'Sync paused',
 }
 
 export const STATUS_TAG_TYPES: Record<ManagedWarehouseReadinessStateEnumApi, LemonTagType> = {
@@ -28,6 +29,7 @@ export const STATUS_TAG_TYPES: Record<ManagedWarehouseReadinessStateEnumApi, Lem
     up_to_date: 'success',
     needs_attention: 'danger',
     unknown: 'muted',
+    sync_paused: 'default',
 }
 
 // Most severe first, matching the order the API returns sources/tables in.
@@ -37,8 +39,9 @@ export const STATUS_SEVERITY: Record<ManagedWarehouseReadinessStateEnumApi, numb
     catching_up: 2,
     waiting: 3,
     unknown: 4,
-    up_to_date: 5,
-    not_configured: 6,
+    sync_paused: 5,
+    up_to_date: 6,
+    not_configured: 7,
 }
 
 export function StatusTag({ readinessState }: { readinessState: ManagedWarehouseReadinessStateEnumApi }): JSX.Element {

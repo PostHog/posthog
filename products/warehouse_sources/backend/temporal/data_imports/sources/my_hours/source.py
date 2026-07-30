@@ -33,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MyHoursSource(SimpleSource[MyHoursSourceConfig]):
+    api_docs_url = "https://documenter.getpostman.com/view/8879268/TVmV4YYU"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

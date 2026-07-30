@@ -35,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SquarespaceSource(ResumableSource[SquarespaceSourceConfig, SquarespaceResumeConfig]):
+    api_docs_url = "https://developers.squarespace.com"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SQUARESPACE

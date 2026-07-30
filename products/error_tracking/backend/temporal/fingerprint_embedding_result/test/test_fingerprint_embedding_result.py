@@ -291,6 +291,21 @@ class TestFingerprintEmbeddingResultActivity:
         assert result.query_duration_ms is not None
         assert result.closest_fingerprints == closest_fingerprints
 
+    def test_merge_activity_returns_empty_result_when_team_deleted(self) -> None:
+        with (
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.Team.objects.get",
+                side_effect=Team.DoesNotExist(),
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities._capture_activity_exception"
+            ) as capture_exception,
+        ):
+            result = merge_similar_fingerprints_activity(_inputs())
+
+        assert result == FingerprintEmbeddingMergeResult()
+        capture_exception.assert_not_called()
+
     def test_merge_fingerprint_skips_when_auto_merge_disabled(self) -> None:
         with override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=False):
             result = _merge_fingerprint_into_closest_issue(

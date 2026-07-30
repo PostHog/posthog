@@ -28,6 +28,7 @@ from posthog.models import Team, User
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import Subscription
+from products.exports.backend.temporal.subscriptions.delivery_common import strip_null_bytes
 from products.product_analytics.backend.models.insight import Insight
 
 logger = structlog.get_logger(__name__)
@@ -71,22 +72,37 @@ def _serialize_insight_result(result: InsightResult) -> dict[str, Any]:
     # json.dumps (Django JSONField's default encoder) emits for non-finite floats.
     # `default=str` covers types orjson doesn't serialize natively (notably Decimal) the way
     # DjangoJSONEncoder would have, so switching encoders is a no-op for non-finite-float payloads.
-    return orjson.loads(
-        orjson.dumps(
-            {
-                "result": result.result,
-                "columns": result.columns,
-                "types": result.types,
-                "resolved_date_range": _json_safe_value(result.resolved_date_range),
-                "last_refresh": result.last_refresh.isoformat() if result.last_refresh else None,
-                "is_cached": result.is_cached,
-                "timezone": result.timezone,
-                "has_more": result.has_more,
-                "query_status": _json_safe_value(result.query_status),
-            },
-            default=str,
-        )
+    dumped = orjson.dumps(
+        {
+            "result": result.result,
+            "columns": result.columns,
+            "types": result.types,
+            "resolved_date_range": _json_safe_value(result.resolved_date_range),
+            "last_refresh": result.last_refresh.isoformat() if result.last_refresh else None,
+            "is_cached": result.is_cached,
+            "timezone": result.timezone,
+            "has_more": result.has_more,
+            "query_status": _json_safe_value(result.query_status),
+        },
+        default=str,
     )
+    parsed = orjson.loads(dumped)
+    # Query results can carry NUL bytes from upstream data, and Django's JSONField serializes a NUL
+    # to a unicode escape that Postgres text/jsonb columns reject — failing the whole delivery write
+    # with a DataError. So we strip NUL before returning, but only when one is actually present:
+    #
+    # - Cost: result.result is arbitrary ClickHouse output and can reach several MB; strip_null_bytes
+    #   rebuilds the entire dict/list tree, so running it on every delivery (nearly none carry a NUL)
+    #   would be pure waste. The gate is a single byte scan over the buffer we already serialized.
+    # - Correctness: orjson always emits a real NUL as an escape sequence (JSON forbids a raw control
+    #   byte), including inside object keys, so the check never misses a genuine NUL. It can only
+    #   over-trigger on literal escape text in the data, which is harmless — the walk then finds none.
+    #
+    # The AI-report path scrubs unconditionally instead, since those payloads are small (see
+    # delivery_common.strip_null_bytes callers).
+    if b"\\u0000" in dumped:
+        parsed = strip_null_bytes(parsed)
+    return parsed
 
 
 def _insight_snapshot_base_metadata(*, insight: Insight, tile: DashboardTile | None) -> dict[str, Any]:
@@ -191,7 +207,8 @@ def _execute_and_serialize_insight_query(
         return {
             "query_results": None,
             "cache_key": None,
-            "query_error": {"type": type(e).__name__, "message": str(e)},
+            # str(e) can echo offending query data, so scrub it like the result payload.
+            "query_error": {"type": type(e).__name__, "message": strip_null_bytes(str(e))},
         }
 
     if isinstance(insight_result, NothingInCacheResult):

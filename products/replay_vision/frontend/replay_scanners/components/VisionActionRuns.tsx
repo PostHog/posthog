@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 
-import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { SleepingHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -122,6 +123,20 @@ export function VisionActionRuns(): JSX.Element {
             key: 'observations',
             render: (_, run) => <span className="text-sm">{run.observation_count}</span>,
         },
+        {
+            key: 'actions',
+            width: 0,
+            render: (_, run) => (
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    to={urls.replayVisionActionRun(actionId, run.id)}
+                    data-attr="vision-action-run-view"
+                >
+                    View
+                </LemonButton>
+            ),
+        },
     ]
 
     return (
@@ -134,7 +149,16 @@ export function VisionActionRuns(): JSX.Element {
             ) : runs.length === 0 ? (
                 <EmptyRuns />
             ) : (
-                <LemonTable columns={columns} dataSource={runs} rowKey="id" data-attr="vision-action-runs-table" />
+                <LemonTable
+                    columns={columns}
+                    dataSource={runs}
+                    rowKey="id"
+                    rowClassName="cursor-pointer"
+                    onRow={(run) => ({
+                        onClick: () => router.actions.push(urls.replayVisionActionRun(actionId, run.id)),
+                    })}
+                    data-attr="vision-action-runs-table"
+                />
             )}
         </div>
     )

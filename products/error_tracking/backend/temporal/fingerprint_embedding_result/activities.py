@@ -349,7 +349,12 @@ def merge_similar_fingerprints_activity(
 ) -> FingerprintEmbeddingMergeResult:
     model_name: str | None = None
     try:
-        team = Team.objects.get(id=inputs.team_id)
+        try:
+            team = Team.objects.get(id=inputs.team_id)
+        except Team.DoesNotExist:
+            # The team can be deleted while the workflow waits to invoke this activity.
+            return FingerprintEmbeddingMergeResult()
+
         model_name = _input_model_name(inputs)
 
         start = time.monotonic()

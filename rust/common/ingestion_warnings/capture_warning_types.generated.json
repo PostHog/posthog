@@ -1,0 +1,17 @@
+{
+  "_comment": "GENERATED from INGESTION_WARNING_TYPES (captureProduced) in nodejs/src/ingestion/common/ingestion-warning-types.ts via `pnpm --filter=@posthog/nodejs gen:ingestion-warning-types`. Do not edit by hand; rust/common/ingestion_warnings/build.rs codegens the WarningType enum from this file.",
+  "types": [
+    "distinct_id_too_large",
+    "duplicate_event_uuid",
+    "empty_batch",
+    "event_name_too_long",
+    "invalid_batch",
+    "invalid_event_timestamp",
+    "invalid_event_uuid",
+    "invalid_options",
+    "malformed_event_properties",
+    "missing_distinct_id",
+    "missing_event_name",
+    "missing_event_uuid"
+  ]
+}

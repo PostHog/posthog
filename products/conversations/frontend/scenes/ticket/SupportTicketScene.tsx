@@ -43,11 +43,11 @@ import { StaffActionsPanel } from './StaffActionsPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
 import { TicketActivityPanel } from './TicketActivityPanel'
 
-export const scene: SceneExport<{ ticketId: string }> = {
+export const scene: SceneExport<{ ticketId: string; id: string }> = {
     component: SupportTicketScene,
     logic: supportTicketSceneLogic,
     productKey: ProductKey.CONVERSATIONS,
-    paramsToProps: ({ params: { ticketId } }) => ({ ticketId: ticketId || 'new' }),
+    paramsToProps: ({ params: { ticketId } }) => ({ ticketId, id: ticketId || 'new' }),
 }
 
 // Builds a deep link to the originating Slack thread so the Channel tag can be clickable.

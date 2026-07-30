@@ -6412,6 +6412,15 @@ class TestCohortTypeIntegration(APIBaseTest):
         # cohort_type is auto-computed for realtime-capable filters
         self.assertEqual(cohort.cohort_type, "realtime")
         self.assertEqual(response.data["cohort_type"], "realtime")
+        # condition_type is auto-computed from the filter shape, independent of realtime eligibility
+        expected_condition_type = {
+            "person_properties": True,
+            "behavioral": False,
+            "lifecycle": False,
+            "cohorts": False,
+        }
+        self.assertEqual(cohort.condition_type, expected_condition_type)
+        self.assertEqual(response.data["condition_type"], expected_condition_type)
 
     def test_person_metadata_cohort_not_classified_realtime(self):
         """person_metadata cohorts must route to the non-realtime path: the realtime
@@ -6444,8 +6453,10 @@ class TestCohortTypeIntegration(APIBaseTest):
         self.assertNotEqual(cohort.cohort_type, CohortType.REALTIME)
 
     def test_api_response_includes_cohort_type(self):
-        """API responses should include the cohort_type field"""
+        """API responses should include the cohort_type and condition_type fields"""
 
+        # condition_type is intentionally not passed here: it's derived from filters on
+        # save (even for a direct ORM create, not just through the API serializer).
         cohort = Cohort.objects.create(
             team=self.team,
             name="Test Cohort",
@@ -6479,6 +6490,14 @@ class TestCohortTypeIntegration(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertIn("cohort_type", response.data)
         self.assertEqual(response.data["cohort_type"], CohortType.BEHAVIORAL)
+        self.assertIn("condition_type", response.data)
+        expected_condition_type = {
+            "person_properties": False,
+            "behavioral": True,
+            "lifecycle": False,
+            "cohorts": False,
+        }
+        self.assertEqual(response.data["condition_type"], expected_condition_type)
 
         # Test LIST request
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/")
@@ -6488,6 +6507,8 @@ class TestCohortTypeIntegration(APIBaseTest):
         cohort_data = next(c for c in response.data["results"] if c["id"] == cohort.id)
         self.assertIn("cohort_type", cohort_data)
         self.assertEqual(cohort_data["cohort_type"], CohortType.BEHAVIORAL)
+        self.assertIn("condition_type", cohort_data)
+        self.assertEqual(cohort_data["condition_type"], expected_condition_type)
 
     def test_explicit_cohort_type_validation_success(self):
         """Should accept valid explicit cohort types"""

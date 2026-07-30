@@ -8,6 +8,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { ScoutLink } from 'lib/signals/ScoutLink'
 import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
@@ -36,6 +37,7 @@ import {
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { CommitContent } from './artefactTypes'
 import { DetailSection } from './DetailSection'
+import { DiscussReportButton } from './DiscussReportButton'
 import { PullRequestBranchTag, PullRequestDiffPanel } from './PullRequestDiffPanel'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportDetailAction, useReportDetailActions } from './ReportDetailActions'
@@ -83,13 +85,13 @@ function ReportDetailMeta({
     report,
     evidenceCount,
     actionabilityExplanation,
-    scoutName,
+    scoutSkillName,
 }: {
     report: SignalReport
     evidenceCount: number
     actionabilityExplanation?: string | null
-    /** Authoring scout's display name, when the report was scout-authored — appended to the "Scout" chip. */
-    scoutName?: string | null
+    /** Authoring scout's raw skill slug, when scout-authored — its name links to the scout off the "Scout" chip. */
+    scoutSkillName?: string | null
 }): JSX.Element {
     const hasSource = hasKnownSourceProduct(report.source_products)
     // "Ready" is the default terminal state; surface the status chip only until actionability is known.
@@ -119,7 +121,7 @@ function ReportDetailMeta({
         </span>
     )
     if (hasSource) {
-        stats.push(<MetaSourceStack sourceProducts={report.source_products} scoutName={scoutName} />)
+        stats.push(<MetaSourceStack sourceProducts={report.source_products} scoutSkillName={scoutSkillName} />)
     }
 
     return (
@@ -145,27 +147,33 @@ function ReportDetailMeta({
 /** Source-product icon stack reused inside the detail meta row. */
 function MetaSourceStack({
     sourceProducts,
-    scoutName,
+    scoutSkillName,
 }: {
     sourceProducts?: string[] | null
-    scoutName?: string | null
+    scoutSkillName?: string | null
 }): JSX.Element | null {
     const entries = knownSourceProductEntries(sourceProducts)
     const [primary, ...overflow] = entries
     if (!primary) {
         return null
     }
-    // Name the authoring scout on a scout-authored report so it's clear at a glance who wrote it.
-    const primaryLabel =
-        primary.key === SignalSourceProduct.SignalsScout && scoutName
-            ? `${primary.meta.label} · ${scoutName}`
-            : primary.meta.label
+    // Name the authoring scout on a scout-authored report so it's clear at a glance who wrote it,
+    // and link the name straight to the scout's detail page. The scout may not sort first among mixed
+    // sources, so key off whether any source is a scout rather than just the primary.
+    const scoutName = scoutDisplayName(scoutSkillName)
+    const showScout = entries.some(({ key }) => key === SignalSourceProduct.SignalsScout) && !!scoutName
     return (
         <Tooltip title={sourceProductsTooltipTitle(entries)}>
             <span className="inline-flex items-center gap-1.5 min-w-0 cursor-help">
                 <SourceProductIconRow entries={entries} className="inline-flex items-center gap-1 shrink-0" />
                 <span>
-                    {primaryLabel}
+                    {primary.meta.label}
+                    {showScout && scoutSkillName ? (
+                        <>
+                            {' · '}
+                            <ScoutLink skillName={scoutSkillName} className="text-tertiary" />
+                        </>
+                    ) : null}
                     {overflow.length > 0 ? ` + ${overflow.length}` : null}
                 </span>
             </span>
@@ -278,15 +286,14 @@ export function InboxDetailFrame({
     const evidenceCount = reportSignals !== null ? signals.length : report.signal_count
     const hasEvidence = evidenceCount > 0
 
-    // Which scout authored this report — the serializer resolves the skill_name off the backing signals.
-    const scoutName = scoutDisplayName(report.scout_name)
-
     const summaryPending =
         report.status === SignalReportStatus.IN_PROGRESS || report.status === SignalReportStatus.CANDIDATE
 
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const displayTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
-    const reportPath = urls.inboxReport(tab, report.id)
+    // Absolute URL to this report – used for the copy-link action and seeded into the Discuss prompt
+    // so the agent can open and read the report directly.
+    const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport(tab, report.id))}`
 
     // Secondary actions as data so the same set renders inline as buttons on wide layouts and as a
     // standard `LemonMenu` on narrow ones; the primary action stays inline either way.
@@ -297,8 +304,7 @@ export function InboxDetailFrame({
             label: 'Copy link',
             icon: <IconLink />,
             tooltip: 'Copy a link to this report',
-            onClick: () =>
-                void copyToClipboard(`${window.location.origin}${addProjectIdIfMissing(reportPath)}`, 'report link'),
+            onClick: () => void copyToClipboard(reportUrl, 'report link'),
         },
         ...detailActions,
     ]
@@ -399,12 +405,14 @@ export function InboxDetailFrame({
                                 report={report}
                                 evidenceCount={evidenceCount}
                                 actionabilityExplanation={actionabilityExplanation}
-                                scoutName={scoutName}
+                                scoutSkillName={report.scout_name}
                             />
                         </div>
                     </div>
                     <div className="flex items-center gap-2 @2xl:shrink-0">
                         {primaryAction}
+                        {/* Discuss is always available and stays inline as its own dropdown button. */}
+                        <DiscussReportButton report={report} reportUrl={reportUrl} />
                         {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}
                         <div className="hidden @4xl:flex items-center gap-2">
                             {reportActions.map((action) => (

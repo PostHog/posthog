@@ -62,12 +62,11 @@ posthog:query-error-tracking-issue-events
 {
   "issueId": "<issue_id>",
   "limit": 1,
-  "verbosity": "stack"
+  "include": ["exception", "stacktrace", "environment", "navigation", "correlation"]
 }
 ```
 
-Use `verbosity: "raw"` only if the truncated stack hides the answer. The tool
-defaults to `onlyAppFrames: true`, which strips vendor frames; flip to `false`
+The tool defaults to `onlyAppFrames: true`, which strips vendor frames; flip to `false`
 when the bug appears to live in a third-party library — or when the response
 comes back with `stacktrace.type: "resolved"` but no frames at all (common for
 minified bundles where every frame looks vendor-y to the resolver, e.g. React

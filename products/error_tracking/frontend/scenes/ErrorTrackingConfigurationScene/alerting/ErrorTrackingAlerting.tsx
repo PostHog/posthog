@@ -3,12 +3,12 @@ import posthog from 'posthog-js'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { AlertWizard } from 'scenes/hog-functions/AlertWizard/AlertWizard'
+import { AlertWizard } from 'lib/components/Alerting/AlertWizard/AlertWizard'
 import {
     AlertCreationView,
     AlertWizardLogicProps,
     alertWizardLogic,
-} from 'scenes/hog-functions/AlertWizard/alertWizardLogic'
+} from 'lib/components/Alerting/AlertWizard/alertWizardLogic'
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { getFiltersFromSubTemplateId } from 'scenes/hog-functions/list/LinkedHogFunctions'

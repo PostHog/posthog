@@ -178,6 +178,17 @@ export const CohortTypeEnumApi = {
     Analytical: 'analytical',
 } as const
 
+export interface CohortConditionTypeFlagsApi {
+    /** The filters include a person property or person_metadata condition. */
+    person_properties: boolean
+    /** The filters include a behavioral condition that is not lifecycle-style (e.g. performed_event, performed_event_multiple, performed_event_sequence, or their negations). */
+    behavioral: boolean
+    /** The filters include a lifecycle-style behavioral condition (first-seen/regularly/stopped/restarted performing an event). */
+    lifecycle: boolean
+    /** The filters include a nested reference to another cohort. */
+    cohorts: boolean
+}
+
 export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
 
 export const SearchMatchTypeEnumApi = {
@@ -224,6 +235,8 @@ export interface CohortApi {
      * * `realtime` - realtime
      * * `analytical` - analytical */
     cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
+    /** Flags describing which kinds of conditions the cohort's filters contain. Null when the cohort has no filters to classify. */
+    readonly condition_type: CohortConditionTypeFlagsApi | null
     readonly experiment_set: readonly number[]
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
@@ -279,6 +292,8 @@ export interface PatchedCohortApi {
      * * `realtime` - realtime
      * * `analytical` - analytical */
     cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
+    /** Flags describing which kinds of conditions the cohort's filters contain. Null when the cohort has no filters to classify. */
+    readonly condition_type?: CohortConditionTypeFlagsApi | null
     readonly experiment_set?: readonly number[]
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type?: SearchMatchTypeEnumApi | null

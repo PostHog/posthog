@@ -48,6 +48,7 @@ def get_or_create_webhook_hog_function(
     source_id: str,
     eligible_schemas: list[ExternalDataSchema],
     extra_inputs: dict[str, Any] | None = None,
+    config: Config | None = None,
 ) -> WebhookHogFunctionCreateResult:
     """Create or update a HogFunction for webhook-based data imports."""
 
@@ -56,19 +57,15 @@ def get_or_create_webhook_hog_function(
         return WebhookHogFunctionCreateResult(error="No webhook template available for this source")
 
     schema_mapping: dict[str, str] = {}
-    object_type_map = source.webhook_resource_map
 
     for schema in eligible_schemas:
-        schema_id_str = str(schema.id)
-
-        # Fall back to the schema name as the object type when the resource map
-        # doesn't have an explicit entry (e.g. Slack channels use the channel ID
-        # as both the schema name and the webhook event key, so there's nothing
-        # to translate). Callers pre-filter `eligible_schemas` to schemas the
-        # source declared as webhook-eligible, so this fallback only fires for
-        # schemas we genuinely want events routed to.
-        object_type = object_type_map.get(schema.name, schema.name)
-        schema_mapping[object_type] = schema_id_str
+        # `webhook_mapping_key` defaults to the resource-map translation, falling back to the
+        # schema name when the map has no entry (e.g. Slack channels use the channel ID as both
+        # the schema name and the webhook event key, so there's nothing to translate). Sources
+        # with namespaced schemas (GitHub repos) override it to emit namespace-qualified keys.
+        # Callers pre-filter `eligible_schemas` to schemas the source declared as
+        # webhook-eligible, so this only fires for schemas we genuinely want events routed to.
+        schema_mapping[source.webhook_mapping_key(schema.name)] = str(schema.id)
 
     db_template = HogFunctionTemplate.get_template(webhook_template.id)
     if not db_template:
@@ -80,6 +77,11 @@ def get_or_create_webhook_hog_function(
         "schema_mapping": {"value": schema_mapping},
         "source_id": {"value": source_id},
     }
+    # Static template inputs the source pins on every write (GitHub's legacy_repository, which gates
+    # the template's bare-event fallback). Set here rather than merged so it survives a rewrite of
+    # `inputs` on update and can't drift out of sync with the schema mapping.
+    if config is not None:
+        inputs.update({key: {"value": value} for key, value in source.webhook_template_inputs(config).items()})
     if extra_inputs:
         inputs.update({key: {"value": value} for key, value in extra_inputs.items()})
 

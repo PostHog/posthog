@@ -3,6 +3,11 @@ DEFAULT_ACTIVITY_EVENT = {"kind": "EventsNode", "event": "$pageview", "name": "$
 # Mirrors frontend `FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP`.
 CUSTOMER_ANALYTICS_CSP_FLAG = "customer-analytics-csp"
 
+# Mirrors frontend `FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES`. Gates the whole warehouse -> person
+# properties feature: creating person-target custom property sources (API + UI), staging rows during
+# syncs, and the post-sync upsert workflow.
+WAREHOUSE_PERSON_PROPERTIES_FLAG = "warehouse-person-properties"
+
 # Account assignment roles, each assignable to a user. Shared by the external account API's
 # request validation and the facade write path so the set is defined once.
 ACCOUNT_ASSIGNMENT_ROLE_FIELDS = ("csm", "account_executive", "account_owner")

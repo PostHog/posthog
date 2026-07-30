@@ -95,7 +95,10 @@ class HogFlow(UUIDTModel):
 
 
 @receiver(post_save, sender=HogFlow)
-def hog_flow_saved(sender, instance: HogFlow, created, **kwargs):
+def hog_flow_saved(sender, instance: HogFlow, created, update_fields=None, **kwargs):
+    # Draft columns don't affect live execution, so workers don't need a config reload for them.
+    if update_fields and set(update_fields) <= {"draft", "draft_updated_at"}:
+        return
     reload_hog_flows_on_workers(team_id=instance.team_id, hog_flow_ids=[str(instance.id)])
 
 

@@ -33,6 +33,8 @@ _BIGQUERY_IMPLEMENTATION = BigQueryImplementation()
 
 @SourceRegistry.register
 class BigQuerySource(SQLSource[BigQuerySourceConfig]):
+    api_docs_url = "https://cloud.google.com/bigquery/docs/release-notes"
+
     @property
     def get_implementation(self) -> BigQueryImplementation:
         return _BIGQUERY_IMPLEMENTATION

@@ -35,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PaystackSource(ResumableSource[PaystackSourceConfig, PaystackResumeConfig]):
+    api_docs_url = "https://paystack.com/docs/api/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.PAYSTACK

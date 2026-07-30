@@ -9,7 +9,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models.utils import uuid7
+from posthog.uuidt import uuid7
 
 
 class TestReferringDomainType(ClickhouseTestMixin, APIBaseTest):

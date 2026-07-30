@@ -7,7 +7,7 @@ export function TileOverridesWarning(): JSX.Element | null {
         <Tooltip
             title={
                 <div className="flex items-center gap-1">
-                    <span>Tile filters override all other filters</span>
+                    <span>Tile filters merge with the dashboard's, taking precedence where they overlap</span>
                 </div>
             }
         >

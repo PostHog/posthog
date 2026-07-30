@@ -17,44 +17,17 @@ from __future__ import annotations
 
 from typing import Any
 
+from .generated import TRIGGER_REQUIRED_SECRETS
+
 # ── Per-trigger-type required secrets ──────────────────────────────────────
 #
-# Mirrors `services/agent-shared/src/spec/trigger-secrets.ts` for the
-# Django-side validation path. Keep the two in lockstep — the slack trigger
-# handler in agent-ingress reads `SLACK_SIGNING_SECRET_KEY` and the freeze /
-# promote gate here rejects revisions whose agent's `encrypted_env` is missing
-# the same key.
+# `TRIGGER_REQUIRED_SECRETS` imported from the generated artifact (source: trigger-secrets.ts).
+# The promote gate here rejects revisions whose `encrypted_env` misses a `required` key.
 
 SLACK_SIGNING_SECRET_KEY = "SLACK_SIGNING_SECRET"
 SLACK_BOT_TOKEN_KEY = "SLACK_BOT_TOKEN"
 
-TRIGGER_REQUIRED_SECRETS: dict[str, list[dict[str, Any]]] = {
-    "chat": [],
-    "webhook": [],
-    "cron": [],
-    "mcp": [],
-    "slack": [
-        {
-            "key": SLACK_SIGNING_SECRET_KEY,
-            "label": "Slack signing secret",
-            "description": (
-                "Your Slack app's signing secret. Find it under Settings → Basic Information → "
-                "Signing Secret. Required to verify inbound Slack event signatures."
-            ),
-            "required": True,
-        },
-        {
-            "key": SLACK_BOT_TOKEN_KEY,
-            "label": "Slack bot user OAuth token",
-            "description": (
-                "Your Slack app's bot token (starts with `xoxb-`). Find it under Settings → "
-                "Install App → Bot User OAuth Token after installing the app to your workspace. "
-                "Used by native slack tools to call the Slack API."
-            ),
-            "required": True,
-        },
-    ],
-}
+__all__ = ["SLACK_SIGNING_SECRET_KEY", "SLACK_BOT_TOKEN_KEY", "TRIGGER_REQUIRED_SECRETS", "missing_required_secrets"]
 
 
 def _auth_mode_secret_requirement(mode: dict[str, Any]) -> dict[str, Any] | None:
@@ -97,6 +70,7 @@ def missing_required_secrets(spec: dict[str, Any], env_map: dict[str, str]) -> l
     if not isinstance(triggers, list):
         return out
     seen_keys: set[str] = set()
+    seen_unknown: set[str] = set()
 
     def consider(requirement: dict[str, Any], trigger_type: str) -> None:
         if not requirement.get("required"):
@@ -114,7 +88,27 @@ def missing_required_secrets(spec: dict[str, Any], env_map: dict[str, str]) -> l
         trigger_type = trigger.get("type")
         if not isinstance(trigger_type, str):
             continue
-        for requirement in TRIGGER_REQUIRED_SECRETS.get(trigger_type, []):
+        requirements = TRIGGER_REQUIRED_SECRETS.get(trigger_type)
+        if requirements is None:
+            # Fail closed: a type absent from this registry means Django's secret contract
+            # drifted behind the zod `TriggerType` enum. Block promote loudly rather than pass
+            # with zero required secrets.
+            if trigger_type not in seen_unknown:
+                seen_unknown.add(trigger_type)
+                out.append(
+                    {
+                        "key": f"<no secret contract for '{trigger_type}' trigger>",
+                        "label": "Unregistered trigger type",
+                        "description": (
+                            f"The '{trigger_type}' trigger has no entry in TRIGGER_REQUIRED_SECRETS; "
+                            "add its required-secret contract in spec_schema.py before promoting."
+                        ),
+                        "required": True,
+                        "trigger": trigger_type,
+                    }
+                )
+            continue
+        for requirement in requirements:
             consider(requirement, trigger_type)
         auth = trigger.get("auth")
         modes = auth.get("modes") if isinstance(auth, dict) else None

@@ -356,7 +356,10 @@ This repository is organized to support multiple language implementations:
 
 - `pnpm run dev` - Start the MCP development server
 - `pnpm run dev:proxy` - Start the edge-proxy worker (wrangler)
-- `pnpm run format` - Format and lint code
+- `pnpm run lint` / `pnpm run format:check` - Verify linting and formatting without changing files
+- `pnpm run lint:fix` - Apply safe lint fixes without suggestion fixes
+- `pnpm run format` - Format code with Oxfmt only
+- `pnpm run fix` - Apply safe lint fixes, always format code, and report failures from either tool
 
 ### Adding New Tools
 

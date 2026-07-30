@@ -16,8 +16,10 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from products.review_hog.backend.models import ReviewSkillConfig
 from products.review_hog.backend.reviewer.lazy_seed import seed_canonicals_tolerantly, sync_canonical_blind_spots
 from products.review_hog.backend.reviewer.skill_loader import (
+    CANONICAL_BLIND_SPOTS_SKILL_NAMES,
     REVIEW_HOG_BLIND_SPOTS_PREFIX,
     register_missing_blind_spots_config,
+    visible_skill_names,
 )
 from products.skills.backend.models.skills import LLMSkill
 
@@ -53,13 +55,16 @@ class ReviewBlindSpotsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
     """Per-user selection of ReviewHog's single active blind-spots skill for a project.
 
     A blind-spots skill is any team `review-hog-blind-spots-*` `LLMSkill` (canonical or custom —
-    handled identically): the final per-chunk sweep that reads the perspective wave's findings and
-    hunts for what every perspective missed. The skill itself is team-level; this surface only
-    controls **which one** runs on the requesting user's PR reviews. Like validators (and unlike
-    perspectives), a review runs exactly one, so this is a single-active selection: `list` shows
-    every blind-spots skill with the user's active one flagged (the canonical auto-seeds active on
-    first read); `partial_update` selects one by skill name, flipping the user's others off in the
-    same call. There is always a default (the canonical), so no minimum floor is needed.
+    handled identically at run time): the final per-chunk sweep that reads the perspective wave's
+    findings and hunts for what every perspective missed. The skill itself is team-level; this
+    surface only controls **which one** runs on the requesting user's PR reviews. Visibility is
+    per-user: the menu shows the canonical plus the customs the requesting user authored — a
+    teammate's custom is neither listed nor selectable (`visible_skill_names`). Like validators
+    (and unlike perspectives), a review runs exactly one, so this is a single-active selection:
+    `list` shows the visible blind-spots skills with the user's active one flagged (the canonical
+    auto-seeds active on first read); `partial_update` selects one by skill name, flipping the
+    user's others off in the same call. There is always a default (the canonical), so no minimum
+    floor is needed.
     """
 
     # llm_skill, not INTERNAL: responses carry skill body/description, so the llm_analytics RBAC
@@ -80,9 +85,10 @@ class ReviewBlindSpotsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         },
         summary="List blind-spots skills and which one is active",
         description=(
-            "List every `review-hog-blind-spots-*` skill on this project, flagging the one active for "
-            "the requesting user. The canonical skill is auto-seeded active on the first read; a "
-            "custom skill the user has not selected shows as inactive."
+            "List the `review-hog-blind-spots-*` skills visible to the requesting user — the "
+            "canonical skill plus the customs they authored — flagging the one active for them. "
+            "The canonical skill is auto-seeded active on the first read; a custom skill the user "
+            "has not selected shows as inactive."
         ),
     )
     def list(self, request: Request, **kwargs) -> Response:
@@ -99,9 +105,14 @@ class ReviewBlindSpotsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
             .filter(user_id=user_id, skill_name__startswith=REVIEW_HOG_BLIND_SPOTS_PREFIX)
             .values_list("skill_name", "enabled")
         )
-        skills = LLMSkill.objects.filter(
-            team_id=team_id, name__startswith=REVIEW_HOG_BLIND_SPOTS_PREFIX, is_latest=True, deleted=False
-        ).order_by("name")
+        # Per-user visibility: the menu advertises the canonical plus this user's own customs —
+        # never a teammate's.
+        visible = visible_skill_names(
+            team_id, user_id, prefix=REVIEW_HOG_BLIND_SPOTS_PREFIX, canonical_names=CANONICAL_BLIND_SPOTS_SKILL_NAMES
+        )
+        skills = LLMSkill.objects.filter(team_id=team_id, name__in=visible, is_latest=True, deleted=False).order_by(
+            "name"
+        )
         items = [
             {
                 "skill_name": s.name,
@@ -121,14 +132,15 @@ class ReviewBlindSpotsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
                 description="The blind-spots skill now active for the user.",
             ),
             400: OpenApiResponse(description="Not a blind-spots skill, or `active` was not true."),
-            404: OpenApiResponse(description="No such blind-spots skill on this project."),
+            404: OpenApiResponse(description="No such blind-spots skill visible to the user on this project."),
         },
         summary="Select the active blind-spots skill",
         description=(
             "Make a `review-hog-blind-spots-*` skill the single sweep that runs on the requesting "
             "user's PR reviews, switching the user's other blind-spots skills off in the same call. "
-            "Upserts the per-user config row, so selecting a freshly authored custom skill works in "
-            "one call."
+            "Only skills visible to the user — the canonical plus the customs they authored — can "
+            "be selected; anything else 404s. Upserts the per-user config row, so selecting a "
+            "freshly authored custom skill works in one call."
         ),
     )
     def partial_update(self, request: Request, skill_name: str, **kwargs) -> Response:
@@ -143,7 +155,11 @@ class ReviewBlindSpotsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         # would 404 without it.
         seed_canonicals_tolerantly(team_id, sync_canonical_blind_spots)
         skill = LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).first()
-        if skill is None:
+        # A teammate's custom 404s exactly like a missing skill — visibility is author-only, and a
+        # distinct error would leak that the name exists.
+        if skill is None or skill_name not in visible_skill_names(
+            team_id, user_id, prefix=REVIEW_HOG_BLIND_SPOTS_PREFIX, canonical_names=CANONICAL_BLIND_SPOTS_SKILL_NAMES
+        ):
             raise NotFound(f"No blind-spots skill '{skill_name}' on this project")
 
         select = ReviewBlindSpotsConfigSelectSerializer(data=request.data)

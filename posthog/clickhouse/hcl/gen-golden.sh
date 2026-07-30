@@ -36,6 +36,9 @@ for env in $envs; do
     set --
   fi
 
-  "$HCLEXP" load -manifest "$MANIFEST" -env "$env" -layer-root "$HCL" "$@" -out "$GOLDEN" >/dev/null
-  for role in $roles; do echo "wrote $GOLDEN/$env-$role.hcl"; done
+  # -out-name writes the per-env layout golden/<env>/<role>.hcl directly, creating
+  # subdirs for us (chschema#146).
+  "$HCLEXP" load -manifest "$MANIFEST" -env "$env" -layer-root "$HCL" "$@" \
+    -out-name '{env}/{role}' -out "$GOLDEN" >/dev/null
+  for role in $roles; do echo "wrote $GOLDEN/$env/$role.hcl"; done
 done

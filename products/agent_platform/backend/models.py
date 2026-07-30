@@ -28,6 +28,8 @@ from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.scoping.product_mixin import ProductTeamModel
 from posthog.models.utils import UUIDModel
 
+from .logic.generated import APPROVAL_REQUEST_STATES
+
 REVISION_STATE_CHOICES = [
     ("draft", "draft"),
     ("ready", "ready"),
@@ -296,16 +298,10 @@ class AgentToolApprovalRequest(ProductTeamModel, UUIDModel):
         constraints = [
             models.CheckConstraint(
                 name="agent_tool_approval_request_state_valid",
-                condition=Q(
-                    state__in=[
-                        "queued",
-                        "approving",
-                        "dispatched",
-                        "dispatched_failed",
-                        "rejected",
-                        "expired",
-                    ]
-                ),
+                # Imported from the generated artifact (source: approval-store.ts). Changing it
+                # needs a migration, deploy-ordered vs the runner: widen the CHECK before a new
+                # state, narrow after it stops being written.
+                condition=Q(state__in=APPROVAL_REQUEST_STATES),
             ),
             models.UniqueConstraint(
                 fields=["session_id", "tool_name", "args_hash"],

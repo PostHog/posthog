@@ -4,12 +4,12 @@ import posthog from 'posthog-js'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
-import { AlertWizard } from 'scenes/hog-functions/AlertWizard/AlertWizard'
+import { AlertWizard } from 'lib/components/Alerting/AlertWizard/AlertWizard'
 import {
     AlertCreationView,
     AlertWizardLogicProps,
     alertWizardLogic,
-} from 'scenes/hog-functions/AlertWizard/alertWizardLogic'
+} from 'lib/components/Alerting/AlertWizard/alertWizardLogic'
 
 import { HogFunctionSubTemplateIdType } from '~/types'
 

@@ -7,9 +7,9 @@ from products.review_hog.backend.reviewer.models.issues_review import Issue, Iss
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
 from products.review_hog.backend.reviewer.tools.prepare_validation_markdown import build_review_body
 
-# The default (should_fix) threshold — matches the pre-threshold PUBLISHED_PRIORITIES behavior these
-# tests were written against.
-_DEFAULT_PUBLISHED = published_priorities_for(IssuePriority.SHOULD_FIX)
+# The should_fix threshold: publishes should_fix and must_fix, drops consider. These tests use it to
+# exercise the publish gate, not the default (consider), which publishes everything.
+_SHOULD_FIX_PUBLISHED = published_priorities_for(IssuePriority.SHOULD_FIX)
 
 
 def _issue(issue_id: str, priority: IssuePriority = IssuePriority.MUST_FIX) -> Issue:
@@ -56,7 +56,7 @@ def test_only_validated_issues_count_and_chunk_appears() -> None:
         issues=issues,
         validations=validations,
         pr_files=_pr_files(),
-        published_priorities=_DEFAULT_PUBLISHED,
+        published_priorities=_SHOULD_FIX_PUBLISHED,
     )
 
     assert "# ReviewHog Report" in body
@@ -76,7 +76,7 @@ def test_chunk_with_no_valid_issue_is_skipped() -> None:
         issues=issues,
         validations=validations,
         pr_files=_pr_files(),
-        published_priorities=_DEFAULT_PUBLISHED,
+        published_priorities=_SHOULD_FIX_PUBLISHED,
     )
 
     assert "## Bugfix" in body
@@ -128,7 +128,7 @@ def test_other_findings_section_membership(
         issues=[issue],
         validations=validations,
         pr_files=_pr_files(),
-        published_priorities=_DEFAULT_PUBLISHED,
+        published_priorities=_SHOULD_FIX_PUBLISHED,
     )
 
     assert ("Membership marker finding" in body) is expected_in_section
@@ -158,7 +158,7 @@ def test_chunk_count_reflects_effective_priority(
         issues=[issue],
         validations=validations,
         pr_files=_pr_files(),
-        published_priorities=_DEFAULT_PUBLISHED,
+        published_priorities=_SHOULD_FIX_PUBLISHED,
     )
 
     if expected_count_line is None:

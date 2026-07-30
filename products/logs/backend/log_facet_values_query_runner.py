@@ -39,8 +39,9 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
     facet (e.g. k8s.namespace.name) reads the pre-aggregated log_attributes rollup instead of the
     logs Map column — orders of magnitude cheaper, and the only way to keep the query under the read
     cap at scale. Both exclude the facet's own filter so selecting a value re-scopes the *other*
-    facets. Resource-attribute facet counts honour service_name and other resource-attribute filters
-    but not severity / body-search / log-attribute filters (those dimensions aren't in the rollup).
+    facets. Resource-attribute facet counts honour service_name, severity levels and other
+    resource-attribute filters (severity_text lives on the rollup), but not body-search / log-attribute
+    filters (those dimensions aren't in the rollup).
     """
 
     query: LogsQuery
@@ -167,8 +168,9 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
     def _resource_attribute_query(self) -> ast.SelectQuery:
         # Served from the pre-aggregated log_attributes rollup (sum(attribute_count)) rather than
         # grouping the logs Map column, which reads the whole resource_attributes column and blows
-        # past the read cap at scale. The rollup has no severity/body/log-attribute dimension, so only
-        # service_name and other resource-attribute filters re-scope the counts.
+        # past the read cap at scale. The rollup carries severity_text and service_name, so severity
+        # levels, service_name and other resource-attribute filters re-scope the counts; body-search
+        # and log-attribute filters still aren't in the rollup.
         date_range = self._attributes_query_date_range
         where_exprs: list[ast.Expr] = []
         if self.query.serviceNames:
@@ -177,6 +179,17 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
                     "service_name IN {serviceNames}",
                     placeholders={
                         "serviceNames": ast.Tuple(exprs=[ast.Constant(value=str(sn)) for sn in self.query.serviceNames])
+                    },
+                )
+            )
+        if self.query.severityLevels:
+            where_exprs.append(
+                parse_expr(
+                    "severity_text IN {severityLevels}",
+                    placeholders={
+                        "severityLevels": ast.Tuple(
+                            exprs=[ast.Constant(value=str(sl)) for sl in self.query.severityLevels]
+                        )
                     },
                 )
             )

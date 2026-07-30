@@ -32,6 +32,13 @@ def build_source_configs(*, include_tables: bool = True) -> dict[str, dict]:
     for source_type, source in sources.items():
         config = source.get_source_config.model_dump()
         config["supportsColumnSelection"] = bool(source.supports_column_selection)
+        config["versions"] = list(source.supported_versions)
+        config["defaultVersion"] = source.default_version
+        config["apiDocsUrl"] = source.api_docs_url
+        config["deprecatedVersions"] = [
+            {"version": d.version, "sunsetAt": d.sunset_at.isoformat() if d.sunset_at else None}
+            for d in source.deprecated_versions
+        ]
         if include_tables:
             # Per-source guard: a single misbehaving source must never break the whole catalog.
             try:
@@ -60,8 +67,11 @@ class PublicSourceConfigViewSet(viewsets.ViewSet):
         responses={200: dict[str, SourceConfig]},
         description=(
             "Returns a map of source type identifiers to their full SourceConfig. Each entry is "
-            "augmented with `supportsColumnSelection` and a `tables` array (the credential-free "
-            "documented table catalog; empty for SQL/file sources with user-defined schemas)."
+            "augmented with `supportsColumnSelection`, a `tables` array (the credential-free "
+            "documented table catalog; empty for SQL/file sources with user-defined schemas), and "
+            "vendor API version metadata: `versions` (supported version labels), `defaultVersion`, "
+            "`apiDocsUrl` (vendor API docs/changelog URL or null), and `deprecatedVersions` "
+            "(array of `{version, sunsetAt}` with `sunsetAt` an ISO date or null)."
         ),
     )
     def list(self, request: Request) -> Response:

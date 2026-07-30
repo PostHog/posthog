@@ -31,6 +31,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class CohereSource(SimpleSource[CohereSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://docs.cohere.com/reference/about"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

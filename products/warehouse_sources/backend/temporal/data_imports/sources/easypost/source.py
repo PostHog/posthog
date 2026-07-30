@@ -36,6 +36,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class EasypostSource(ResumableSource[EasypostSourceConfig, EasypostResumeConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://docs.easypost.com"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.EASYPOST

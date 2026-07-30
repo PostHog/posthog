@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
 import { metricsSamplesCreate } from 'products/metrics/frontend/generated/api'
 
@@ -34,6 +35,13 @@ describe('metricsSamplesLogic', () => {
     let logic: ReturnType<typeof metricsSamplesLogic.build>
 
     beforeEach(() => {
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            resource_access_control: {
+                ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                [AccessControlResourceType.Metrics]: AccessControlLevel.Viewer,
+            },
+        } as AppContext
         initKeaTests()
         mockSamplesCreate.mockReset()
         mockSamplesCreate.mockResolvedValue({ results: [SAMPLE] })
@@ -65,6 +73,23 @@ describe('metricsSamplesLogic', () => {
     // Regression: firing the request with an empty metric name spams 400s on the
     // empty state before a metric is picked.
     it('does not call the API without a metric selected', async () => {
+        logic.actions.setActiveTab('samples')
+        await expectLogic(logic).toDispatchActions(['loadSamplesSuccess'])
+
+        expect(mockSamplesCreate).not.toHaveBeenCalled()
+        expect(logic.values.samples).toEqual([])
+    })
+
+    it('does not call the API without metrics viewer access', async () => {
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            resource_access_control: {
+                ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                [AccessControlResourceType.Metrics]: AccessControlLevel.None,
+            },
+        } as AppContext
+        metricsViewerLogic.actions.setMetricName('demo_checkout_duration_ms')
+
         logic.actions.setActiveTab('samples')
         await expectLogic(logic).toDispatchActions(['loadSamplesSuccess'])
 

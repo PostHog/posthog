@@ -463,7 +463,12 @@ def get_hogql_autocomplete(
         ):
             source_query = parse_select("select 1")
         else:
-            source_query = get_query_runner(query=query.sourceQuery, team=team).to_query()
+            try:
+                source_query = get_query_runner(query=query.sourceQuery, team=team).to_query()
+            except Exception:
+                # A malformed source query (e.g. an unquoted reserved keyword used as an
+                # identifier) must not break autocomplete — degrade gracefully instead.
+                source_query = parse_select("select 1")
     else:
         source_query = parse_select("select 1")
 

@@ -50,6 +50,7 @@ class PrepareReportContextOutput:
     period_end: str
     previous_period_start: str
     report_prompt_guidance: str = ""
+    output_type: str = "boolean"
 
 
 @dataclasses.dataclass
@@ -65,6 +66,7 @@ class RunEvalReportAgentInput:
     period_end: str
     previous_period_start: str
     report_prompt_guidance: str = ""
+    output_type: str = "boolean"
 
 
 @dataclasses.dataclass

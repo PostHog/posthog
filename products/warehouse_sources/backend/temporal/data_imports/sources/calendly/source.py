@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class CalendlySource(ResumableSource[CalendlySourceConfig, CalendlyResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://developer.calendly.com/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

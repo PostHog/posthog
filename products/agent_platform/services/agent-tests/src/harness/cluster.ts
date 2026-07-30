@@ -419,6 +419,8 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         identityCredentials,
         identityLinks,
         identities,
+        routingMode: opts.routingMode ?? 'path',
+        domainSuffix: opts.domainSuffix,
         linkRedirectBaseUrl: 'http://callback.test',
         bus,
         logs: logSink,
@@ -457,6 +459,10 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         routingMode: opts.routingMode ?? 'path',
         pathPrefix: '/agents',
         domainSuffix: opts.domainSuffix,
+        // OAuth link-callback base for `path` mode (dev/harness). In `domain`
+        // mode the callback host is derived from the slug + domainSuffix instead.
+        // Matches the worker's linkRedirectBaseUrl so both sides agree.
+        publicBaseUrl: 'http://callback.test',
         slackSigningSecretResolver,
         authProvider: opts.authProvider,
         identities,

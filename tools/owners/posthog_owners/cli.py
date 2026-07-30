@@ -1,0 +1,302 @@
+"""hogli owners:* commands — resolve, who, unowned, lint, fmt."""
+
+from __future__ import annotations
+
+import sys
+import json
+import subprocess
+
+import click
+
+from .matcher import compile_pattern, normalize_path
+from .resolver import OWNERS_FILENAME, PRODUCT_FILENAME, OwnersResolver, read_stdin_paths, resolution_to_wire
+from .schema import is_simple_owners_file, normalize_product_owners
+
+
+def _read_paths(paths: tuple[str, ...]) -> list[str]:
+    """CLI paths, falling back to newline-delimited stdin when none are given."""
+    if paths:
+        return list(paths)
+    if sys.stdin.isatty():
+        return []
+    return read_stdin_paths()
+
+
+@click.command(name="owners:resolve", help="Resolve ownership for paths (args or newline-delimited stdin)")
+@click.option("--json", "as_json", is_flag=True, help="Emit JSON keyed by path")
+@click.argument("paths", nargs=-1)
+def cmd_resolve(as_json: bool, paths: tuple[str, ...]) -> None:
+    resolver = OwnersResolver()
+    targets = _read_paths(paths)
+    result = {normalize_path(path): resolution_to_wire(resolver.resolve(path)) for path in targets}
+    if as_json:
+        click.echo(json.dumps(result, indent=2, sort_keys=True))
+        return
+    for path, info in result.items():
+        owners = ", ".join(info["owners"]) or "(unowned)"
+        click.echo(f"{path}\t{owners}\t{info['status']}\t{info['slack'] or ''}")
+
+
+@click.command(name="owners:who", help="Show who owns a single path")
+@click.argument("path")
+def cmd_who(path: str) -> None:
+    r = OwnersResolver().resolve(path)
+    click.echo(f"path:    {r.path}")
+    if r.owners:
+        click.echo(f"owners:  {', '.join(r.owners)}")
+    elif r.unowned_by_design:
+        click.echo("owners:  (unowned by design — explicit owners: null)")
+    else:
+        click.echo("owners:  (unowned)")
+    click.echo(f"status:  {r.status}")
+    click.echo(f"slack:   {r.slack or '(none)'}")
+    click.echo(f"source:  {r.source or '(none)'}")
+
+
+@click.command(name="owners:unowned", help="List unowned tracked files (respecting owners: null exemptions)")
+@click.argument("prefix", required=False)
+def cmd_unowned(prefix: str | None) -> None:
+    resolver = OwnersResolver()
+    files = resolver.tracked_files(prefix)
+    unowned = resolver.unowned(files)
+    for path in unowned:
+        click.echo(path)
+    click.echo(f"\n{len(unowned)} unowned of {len(files)} tracked file(s)", err=True)
+
+
+def _validate_owners_live(all_owners: set[str]) -> list[str]:
+    """Validate team slugs and @handles against the GitHub org. Returns error strings."""
+    # --live reaches back into the hogli-commands extension for the cached team-slug
+    # fetch. It is a dev/CI convenience gated behind the flag, so a standalone uvx
+    # install (no hogli-commands on the path) simply can't run --live; plain lint works.
+    from hogli_commands.product.gh import get_team_slugs  # noqa: PLC0415 — optional org-validation dep, only on --live
+
+    errors: list[str] = []
+    teams = {o for o in all_owners if not o.startswith("@")}
+    handles = {o[1:] for o in all_owners if o.startswith("@")}
+
+    valid_slugs, slug_err = get_team_slugs()
+    if valid_slugs is None:
+        errors.append(f"could not validate team slugs: {slug_err}")
+    else:
+        for slug in sorted(teams - valid_slugs):
+            errors.append(f"unknown team slug: {slug}")
+
+    for handle in sorted(handles):
+        # Org membership, not mere account existence: the assigner can only
+        # request reviews from members, so a non-member handle would pass a
+        # users/{handle} check yet silently drop at assignment time via the
+        # 422 fallback. (Repo-collaborator status would be tighter still, but
+        # the app token lacks that scope — same trade-off as get_team_slugs.)
+        result = subprocess.run(
+            ["gh", "api", f"orgs/PostHog/members/{handle}"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            errors.append(f"not a PostHog org member (unassignable): @{handle}")
+    return errors
+
+
+def _reserved_location_error(rel: str) -> str | None:
+    """Reject owners.yaml where other tooling globs every YAML in the directory:
+    Actions/actionlint treat all of .github/workflows/ as workflows, and
+    services/mcp generate-tools globs YAML in products/*/mcp/. Hoist ownership
+    into the parent's rules instead."""
+    if rel.startswith(".github/workflows/"):
+        return f"{rel}: owners.yaml is not allowed under .github/workflows/ (Actions parses every YAML there as a workflow); move it to .github/owners.yaml rules"
+    parts = rel.split("/")
+    if parts[0] == "products" and "mcp" in parts[:-1]:
+        return f"{rel}: owners.yaml is not allowed inside a products/*/mcp/ directory (mcp tooling globs every YAML there); move it to the product's product.yaml or a parent owners.yaml"
+    return None
+
+
+def _consolidation_suggestions(owners_dirs: dict[str, bool], threshold: int = 3) -> list[tuple[str, int]]:
+    """Advisory: directories that could fold a cluster of single-purpose owners.yaml
+    files into one anchored ``rules:`` block.
+
+    ``owners_dirs`` maps each owners.yaml's directory ("" = repo root) to whether it
+    is simple (see ``is_simple_owners_file``). A directory D is suggested when at least
+    ``threshold`` simple files sit strictly below it with no non-simple file on the
+    path between (a non-simple file keeps nearest-wins correct, so its subtree stays
+    put), and those files span ≥2 of D's immediate children — so D is their genuine
+    branch point, not a passthrough ancestor. Only the deepest branch point per
+    cluster is reported, so nested/ancestor dirs don't double-report."""
+
+    def is_ancestor(ancestor: str, descendant: str) -> bool:
+        if ancestor == descendant:
+            return False
+        return descendant.startswith(ancestor + "/") if ancestor else True
+
+    non_simple = [d for d, simple in owners_dirs.items() if not simple]
+    simple = [d for d, is_simple in owners_dirs.items() if is_simple]
+
+    candidate_dirs: set[str] = {""}
+    for f in simple:
+        parts = f.split("/")
+        for i in range(1, len(parts)):
+            candidate_dirs.add("/".join(parts[:i]))
+
+    counts: dict[str, int] = {}
+    for directory in candidate_dirs:
+        counted = [
+            f
+            for f in simple
+            if is_ancestor(directory, f)
+            and not any(is_ancestor(directory, ns) and is_ancestor(ns, f) for ns in non_simple)
+        ]
+        if len(counted) < threshold:
+            continue
+        children = {(f[len(directory) + 1 :] if directory else f).split("/", 1)[0] for f in counted}
+        if len(children) < 2:
+            continue
+        counts[directory] = len(counted)
+
+    return sorted(
+        (directory, count)
+        for directory, count in counts.items()
+        if not any(is_ancestor(directory, other) for other in counts if other != directory)
+    )
+
+
+@click.command(name="owners:lint", help="Validate owners.yaml files, conflicts, dead globs, and coverage")
+@click.option("--live", is_flag=True, help="Also validate team slugs and @handles against the GitHub org")
+def cmd_lint(live: bool) -> None:
+    resolver = OwnersResolver()
+    repo_root = resolver.repo_root
+    errors: list[str] = []
+    warnings: list[str] = []
+    all_owners: set[str] = set()
+    owners_dirs: dict[str, bool] = {}
+
+    tracked = resolver.tracked_files()
+    tracked_by_dir: dict[str, list[str]] = {}
+    for path in tracked:
+        directory = path.rsplit("/", 1)[0] if "/" in path else ""
+        tracked_by_dir.setdefault(directory, []).append(path)
+
+    entries = resolver.parsed_ownership_files()  # the single parse pass
+    owners_yaml_dirs = {e.rel_dir for e in entries if e.name == OWNERS_FILENAME}
+
+    for entry in entries:
+        rel = entry.path.relative_to(repo_root).as_posix()
+        directory = entry.rel_dir
+        parsed = entry.parsed
+
+        if entry.name == OWNERS_FILENAME:
+            reserved_error = _reserved_location_error(rel)
+            if reserved_error is not None:
+                errors.append(reserved_error)
+
+        if entry.name == PRODUCT_FILENAME:
+            # Only flags a conflict; product.yaml owners are validated by product:lint:owners.
+            if directory in owners_yaml_dirs:
+                errors.append(f"{directory or '<root>'}: has both product.yaml (with owners) and owners.yaml")
+            if parsed and parsed.owners:
+                all_owners.update(normalize_product_owners(parsed.owners))
+            continue
+
+        for err in entry.errors:
+            errors.append(f"{rel}: {err}")
+        owners_dirs[directory] = is_simple_owners_file(parsed)
+        if parsed is None:
+            continue
+        if parsed.owners:
+            all_owners.update(parsed.owners)
+
+        if not parsed.rules:
+            continue
+
+        # Dead rule globs: a rule matching zero tracked files under its directory.
+        under_dir = (
+            [p for d, files in tracked_by_dir.items() if d == directory or d.startswith(directory + "/") for p in files]
+            if directory
+            else tracked
+        )
+        # Slice paths relative to the file's directory once, not per rule.
+        rel_paths = [p[len(directory) + 1 :] for p in under_dir] if directory else under_dir
+        for rule in parsed.rules:
+            all_owners.update(o for o in (rule.owners if isinstance(rule.owners, list) else []))
+            matcher = compile_pattern(rule.match)
+            if not any(matcher.test(rp) for rp in rel_paths):
+                warnings.append(f"{rel}: rule '{rule.match}' matches zero tracked files (dead glob)")
+
+    if live:
+        errors.extend(_validate_owners_live(all_owners))
+
+    unowned = resolver.unowned(tracked)
+    warnings.append(f"coverage: {len(unowned)} of {len(tracked)} tracked file(s) resolve to unowned")
+
+    for warning in warnings:
+        click.echo(f"⚠ {warning}")
+
+    # Advisory only — never affects the exit code. Points out dirs where a cluster
+    # of single-purpose owners.yaml files could fold into one anchored rules block.
+    for directory, count in _consolidation_suggestions(owners_dirs):
+        target = f"{directory}/{OWNERS_FILENAME}" if directory else OWNERS_FILENAME
+        where = directory or "<repo root>"
+        click.echo(
+            f"suggestion: {where} has {count} single-purpose owners.yaml files below it"
+            f" — consider folding them into {target} rules"
+        )
+
+    for err in errors:
+        click.echo(f"✗ {err}", err=True)
+
+    if errors:
+        click.echo(f"\n✗ {len(errors)} owners.yaml error(s)", err=True)
+        raise SystemExit(1)
+    click.echo(f"\n✓ owners.yaml lint passed ({len(warnings)} warning(s))")
+
+
+@click.command(
+    name="owners:fmt",
+    help="Dry-run oracle: show how the current owners.yaml layout differs from the canonical placement",
+)
+def cmd_fmt() -> None:
+    from .fmt import ALPHA, GAMMA, MAX_RULES, CanonicalPlacer  # noqa: PLC0415 — keeps the DP off the CLI import path
+
+    placer = CanonicalPlacer(OwnersResolver())
+    plan = placer.build()
+
+    if plan.is_canonical:
+        click.echo(f"✓ layout is canonical (cost {plan.canonical_cost})")
+        click.echo("✓ canonical layout resolves identically")
+        return
+
+    if plan.creations:
+        click.echo(f"Create ({len(plan.creations)}):")
+        for path in plan.creations:
+            click.echo(f"    + {path}")
+    if plan.deletions:
+        click.echo(f"Delete ({len(plan.deletions)}) — statements fold into an ancestor:")
+        for path in plan.deletions:
+            click.echo(f"    - {path}")
+    if plan.additions:
+        click.echo("Add rules:")
+        for path in sorted(plan.additions):
+            for line in plan.additions[path]:
+                click.echo(f"    {path}: {line}")
+
+    click.echo(f"\ncost: current {plan.current_cost} → canonical {plan.canonical_cost}")
+    click.echo(f"(constants: ALPHA={ALPHA}, GAMMA={GAMMA}, MAX_RULES={MAX_RULES})")
+    click.echo("✓ canonical layout resolves identically")
+    click.echo("\nnote: owners:fmt is a read-only oracle — it never writes. Reflows are deliberate human decisions.")
+
+
+@click.group()
+def main() -> None:
+    """Distributed owners.yaml resolver, linter, and formatter.
+
+    The console-script entry point (``owners <subcommand>``). hogli registers the
+    same ``cmd_*`` functions directly under their ``owners:*`` names, so this group
+    only exists for the standalone install; the subcommands are named without the
+    ``owners:`` prefix here since the script itself already carries it.
+    """
+
+
+main.add_command(cmd_resolve, name="resolve")
+main.add_command(cmd_who, name="who")
+main.add_command(cmd_unowned, name="unowned")
+main.add_command(cmd_lint, name="lint")
+main.add_command(cmd_fmt, name="fmt")

@@ -62,6 +62,7 @@ def build_dependent_resource(
     incremental_config_factory: Callable[[str], IncrementalConfig] | None = None,
     parent_endpoint_extra: Endpoint | None = None,
     child_endpoint_extra: Endpoint | None = None,
+    child_params_extra: dict[str, Any] | None = None,
     page_size_param: str = "limit",
 ) -> Iterable[Any]:
     parent_config = endpoint_configs[fanout.parent_name]
@@ -105,6 +106,8 @@ def build_dependent_resource(
         },
         page_size_param: child_config.page_size,
     }
+    if child_params_extra:
+        child_params.update(child_params_extra)
     child_endpoint_config: Endpoint = {
         "path": child_path,
         "params": child_params,

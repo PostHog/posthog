@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from llm_gateway.products.config import CreditBucket, get_product_config
 from llm_gateway.rate_limiting.throttles import Throttle, ThrottleContext, ThrottleResult
-from llm_gateway.services.plan_resolver import is_usage_based_plan
 
 _BUCKET_EXHAUSTED_DETAIL = {
     CreditBucket.AI_CREDITS: (
@@ -30,29 +29,23 @@ _DEFAULT_EXHAUSTED_DETAIL = (
 _RETRY_AFTER_SECONDS = 60
 
 
-def bucket_block_applies(product: str, plan_key: str | None, credits_exhausted: bool) -> bool:
+def bucket_block_applies(context: ThrottleContext) -> bool:
     """Whether the product's exhausted credit bucket blocks this caller.
 
     The single source of truth for the bucket-block decision, shared by the
     request-path throttle and the usage endpoint so what's reported always
     matches what's enforced. Unbilled products (``credit_bucket=None``) are
-    never blocked. For a bucket scoped to usage-based plans (see
-    ``ProductConfig.credit_bucket_scope``), only a user on a usage-based plan
-    is blocked — seat-covered usage is excluded from the billed usage counter
-    at the usage-report layer, so the org's usage limit doesn't apply to those
-    users; blocking them would take the product away from free/pro seat holders
-    because of other users' usage-based spend. An unknown/missing plan_key
-    means NOT usage-based here too, i.e. not blocked — consistent with the
-    resolver's fail-open posture.
+    never blocked. For billed products, exhaustion blocks every caller — the
+    usage reporter counts every generation into the bucket regardless of who
+    made it, so the blocked population must match or exempted callers burn
+    past the limit they're filling. A free org's monthly allocation and a
+    paying org's billing limit both surface here as exhaustion; ``limited``
+    fails open on resolution errors, so a quota blip never spuriously blocks.
     """
-    config = get_product_config(product)
+    config = get_product_config(context.product)
     if not (config and config.credit_bucket is not None):
         return False
-    if not credits_exhausted:
-        return False
-    if config.credit_bucket_scope == "usage_based_plans" and not is_usage_based_plan(plan_key):
-        return False
-    return True
+    return context.credits_exhausted
 
 
 class BillableCreditThrottle(Throttle):
@@ -70,7 +63,7 @@ class BillableCreditThrottle(Throttle):
         if config is None or config.credit_bucket is None:
             return ThrottleResult.allow()
 
-        if not bucket_block_applies(context.product, context.plan_key, context.credits_exhausted):
+        if not bucket_block_applies(context):
             return ThrottleResult.allow()
 
         return ThrottleResult.deny(

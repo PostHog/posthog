@@ -15,6 +15,7 @@ import { RecipientPreferencesService } from '../../messaging/recipient-preferenc
 import { trackHogFlowBillableInvocation } from '../billing-utils'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
+import { observeMissingVariableReferences } from '../hogflow-variable-usage'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
 type FunctionActionType = 'function' | 'function_email' | 'function_sms'
@@ -35,6 +36,12 @@ export class HogFunctionHandler implements ActionHandler {
         result,
         hogExecutorOptions,
     }: ActionHandlerOptions<Action>): Promise<ActionHandlerResult> {
+        // Inputs are rendered once, on fresh entry into the action (continuations reuse the
+        // rendered state in hogFunctionState) - so this also fires at most once per step per run
+        if (!invocation.state.currentAction?.hogFunctionState) {
+            observeMissingVariableReferences(invocation, action, result)
+        }
+
         const functionResult = await this.executeHogFunction(invocation, action, hogExecutorOptions)
 
         // Add all logs

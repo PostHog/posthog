@@ -72,6 +72,10 @@
   dockerfile: ./rust/Dockerfile
   project: vglf58qgzw
 
+- image: cohort-seeder
+  dockerfile: ./rust/Dockerfile
+  project: vglf58qgzw
+
 - image: cohort-stream-processor
   dockerfile: ./rust/Dockerfile
   project: vglf58qgzw

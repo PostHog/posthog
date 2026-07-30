@@ -32,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class HuggingFaceSource(ResumableSource[HuggingFaceSourceConfig, HuggingFaceResumeConfig]):
+    api_docs_url = "https://huggingface.co/docs/hub/api"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

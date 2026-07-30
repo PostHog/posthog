@@ -108,6 +108,9 @@ pub const SIGNAL_EMITTED: &str = "cymbal_signal_emitted";
 pub const SIGNAL_EMIT_FAILED: &str = "cymbal_signal_emit_failed";
 pub const SIGNAL_EMIT_RESPONSE: &str = "cymbal_signal_emit_response";
 
+// Fingerprint embedding metrics
+pub const FINGERPRINT_EMBEDDING_SKIPPED: &str = "cymbal_fingerprint_embedding_skipped";
+
 // Stages Name.
 // We want to keep previous value for comparison, can be changed later on
 pub const HTTP_EXCEPTION_PIPELINE: &str = "cymbal_http_exception_pipeline";

@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Any
 
 from products.warehouse_sources.backend.types import IncrementalField
 
@@ -50,6 +51,12 @@ class SourceSchema:
     # this so each incremental run re-reads a trailing window instead of freezing a day
     # at its first-imported value. Only consumed for schemas synced incrementally.
     default_incremental_lookback_seconds: int | None = None
+    # Source-specific keys merged into the persisted `sync_type_config.schema_metadata` at
+    # schema creation, for sources that namespace tables by something other than a SQL
+    # schema (e.g. GitHub stores {"source_repository", "source_endpoint"} per repo table).
+    # The SQL sources' location keys above (source_catalog/source_schema/source_table_name)
+    # stay separate: their persistence is gated on column-selection/direct-query paths.
+    schema_metadata: dict[str, Any] | None = None
 
 
 def _select_incremental_field(incremental_fields: list[IncrementalField]) -> IncrementalField | None:

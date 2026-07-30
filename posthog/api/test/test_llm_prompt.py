@@ -7,14 +7,19 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from rest_framework.test import APIRequestFactory
 
 from posthog.api.llm_prompt import LLMPromptViewSet
-from posthog.api.llm_prompt_serializers import MAX_PROMPT_PAYLOAD_BYTES, LLMPromptDuplicateSerializer
+from posthog.api.llm_prompt_serializers import (
+    MAX_PROMPT_PAYLOAD_BYTES,
+    LLMPromptDuplicateSerializer,
+    validate_prompt_label_name_value,
+)
 from posthog.api.services.llm_prompt import MAX_PROMPT_VERSION
 from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
 
-from products.ai_observability.backend.models.llm_prompt import LLMPrompt
+from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel
 
 
 class TestLLMPromptAPI(APIBaseTest):
@@ -962,3 +967,170 @@ class TestLLMPromptDuplicateSerializerValidationNoDB(SimpleTestCase):
     def test_accepts_valid_new_name(self) -> None:
         serializer = LLMPromptDuplicateSerializer(data={"new_name": "a-valid_name1"})
         assert serializer.is_valid(), serializer.errors
+
+
+class TestLLMPromptLabelsAPI(APIBaseTest):
+    def create_prompt_version(
+        self,
+        *,
+        name: str = "my-prompt",
+        prompt: Any = "Prompt content",
+        version: int = 1,
+        is_latest: bool = True,
+    ) -> LLMPrompt:
+        return LLMPrompt.objects.create(
+            team=self.team,
+            name=name,
+            prompt=prompt,
+            version=version,
+            is_latest=is_latest,
+            created_by=self.user,
+        )
+
+    def _label_url(self, prompt_name: str, label_name: str) -> str:
+        return f"/api/environments/{self.team.id}/llm_prompts/name/{prompt_name}/labels/{label_name}/"
+
+    def _set_label(self, prompt_name: str, label_name: str, version: int):
+        return self.client.put(self._label_url(prompt_name, label_name), data={"version": version}, format="json")
+
+    def _resolve_labels_by_version(self, prompt_name: str) -> dict[int, list[str]]:
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/resolve/name/{prompt_name}/")
+        assert response.status_code == status.HTTP_200_OK
+        return {entry["version"]: entry["labels"] for entry in response.json()["versions"]}
+
+    def test_set_label_creates_pointer_and_exposes_it_on_versions(self):
+        self.create_prompt_version(version=1, is_latest=False)
+        self.create_prompt_version(version=2)
+
+        response = self._set_label("my-prompt", "production", 1)
+
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["name"] == "production"
+        assert data["prompt_name"] == "my-prompt"
+        assert data["version"] == 1
+        assert self._resolve_labels_by_version("my-prompt") == {1: ["production"], 2: []}
+
+    def test_set_label_moves_existing_label_instead_of_duplicating(self):
+        self.create_prompt_version(version=1, is_latest=False)
+        self.create_prompt_version(version=2)
+        assert self._set_label("my-prompt", "production", 1).status_code == status.HTTP_201_CREATED
+
+        response = self._set_label("my-prompt", "production", 2)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["version"] == 2
+        assert self._resolve_labels_by_version("my-prompt") == {1: [], 2: ["production"]}
+        assert LLMPromptLabel.objects.filter(team=self.team).count() == 1
+
+    def test_version_can_hold_multiple_labels(self):
+        self.create_prompt_version(version=1)
+        assert self._set_label("my-prompt", "production", 1).status_code == status.HTTP_201_CREATED
+        assert self._set_label("my-prompt", "staging", 1).status_code == status.HTTP_201_CREATED
+
+        assert self._resolve_labels_by_version("my-prompt") == {1: ["production", "staging"]}
+
+    def test_set_label_unknown_version_returns_404(self):
+        self.create_prompt_version(version=1)
+
+        response = self._set_label("my-prompt", "production", 7)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_set_label_rejects_invalid_name(self):
+        self.create_prompt_version(version=1)
+
+        response = self._set_label("my-prompt", "latest", 1)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_set_label_limit_blocks_creates_but_not_moves(self):
+        self.create_prompt_version(version=1, is_latest=False)
+        self.create_prompt_version(version=2)
+
+        with patch("posthog.api.services.llm_prompt.MAX_PROMPT_LABELS", 1):
+            assert self._set_label("my-prompt", "production", 1).status_code == status.HTTP_201_CREATED
+            assert self._set_label("my-prompt", "staging", 1).status_code == status.HTTP_400_BAD_REQUEST
+            assert self._set_label("my-prompt", "production", 2).status_code == status.HTTP_200_OK
+
+    def test_delete_label_removes_pointer(self):
+        self.create_prompt_version(version=1)
+        assert self._set_label("my-prompt", "production", 1).status_code == status.HTTP_201_CREATED
+
+        response = self.client.delete(self._label_url("my-prompt", "production"))
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert self._resolve_labels_by_version("my-prompt") == {1: []}
+
+        response = self.client.delete(self._label_url("my-prompt", "production"))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_archive_prompt_deletes_its_labels(self):
+        self.create_prompt_version(version=1)
+        assert self._set_label("my-prompt", "production", 1).status_code == status.HTTP_201_CREATED
+
+        response = self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/my-prompt/archive/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert LLMPromptLabel.objects.filter(team=self.team).count() == 0
+
+    def test_label_writes_forbidden_for_read_only_personal_api_key(self):
+        self.create_prompt_version(version=1)
+        api_key = self.create_personal_api_key_with_scopes(["llm_prompt:read"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        put_response = self._set_label("my-prompt", "production", 1)
+        delete_response = self.client.delete(self._label_url("my-prompt", "production"))
+
+        assert put_response.status_code == status.HTTP_403_FORBIDDEN
+        assert delete_response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_label_writes_allowed_for_write_scoped_personal_api_key(self):
+        self.create_prompt_version(version=1)
+        api_key = self.create_personal_api_key_with_scopes(["llm_prompt:write"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        put_response = self._set_label("my-prompt", "production", 1)
+        # DELETE is a mapped method on the set_label action; it must share the
+        # action's required_scopes rather than fall back to "not supported" 403.
+        delete_response = self.client.delete(self._label_url("my-prompt", "production"))
+
+        assert put_response.status_code == status.HTTP_201_CREATED
+        assert delete_response.status_code == status.HTTP_204_NO_CONTENT
+
+
+class TestLLMPromptLabelNameValidationNoDB(SimpleTestCase):
+    # validate_prompt_label_name_value is a pure string check (no context, no DB). The endpoint's
+    # use of it is guarded by test_set_label_rejects_invalid_name.
+    @parameterized.expand(
+        [
+            ("uppercase", "Production"),
+            ("reserved_latest", "latest"),
+            ("reserved_latest_upper", "LATEST"),
+            ("numeric", "3"),
+            ("numeric_long", "42"),
+            ("space", "my label"),
+            ("slash", "prod/eu"),
+            ("leading_dash", "-prod"),
+            ("trailing_dot", "prod."),
+            ("empty", ""),
+            ("too_long", "a" * 129),
+            ("non_ascii", "café"),
+        ]
+    )
+    def test_rejects_invalid_label_name(self, _label: str, bad_name: str) -> None:
+        with self.assertRaises(DRFValidationError):
+            validate_prompt_label_name_value(bad_name)
+
+    @parameterized.expand(
+        [
+            ("word", "production"),
+            ("single_char", "a"),
+            ("digit_mix", "v2.rollout"),
+            ("dashes", "staging-eu"),
+            ("underscore", "tenant_b"),
+            ("max_length", "a" * 128),
+        ]
+    )
+    def test_accepts_valid_label_name(self, _label: str, good_name: str) -> None:
+        assert validate_prompt_label_name_value(good_name) == good_name

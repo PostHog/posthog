@@ -28,7 +28,8 @@ const COHORT_COLUMNS: &str = r#"
     c.id, c.name, c.description, c.team_id, c.deleted, c.filters,
     c.query, c.version, c.pending_version, c.count, c.is_calculating,
     c.is_static, c.errors_calculating, c.groups, c.created_by_id,
-    c.cohort_type, c.last_backfill_person_properties_at, c.last_backfill_events_at
+    c.cohort_type, c.last_backfill_person_properties_at, c.last_backfill_events_at,
+    c.condition_type
 "#;
 
 impl Cohort {
@@ -615,6 +616,7 @@ mod tests {
             cohort_type: None,
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
+            condition_type: None,
         };
 
         // This should not fail even though the filters are malformed
@@ -643,6 +645,7 @@ mod tests {
             cohort_type: None,
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
+            condition_type: None,
         };
 
         let dependencies = static_cohort_empty_filters.extract_dependencies().unwrap();
@@ -668,6 +671,7 @@ mod tests {
             cohort_type: None,
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
+            condition_type: None,
         };
 
         // This should fail because it's dynamic and the filters are malformed
@@ -714,6 +718,7 @@ mod tests {
             cohort_type: None,
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
+            condition_type: None,
         }
     }
 
@@ -762,6 +767,7 @@ mod tests {
             cohort_type: None,
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
+            condition_type: None,
         };
 
         // Create a dynamic cohort (cohort 20) that depends on the static cohort
@@ -797,6 +803,7 @@ mod tests {
             cohort_type: None,
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
+            condition_type: None,
         };
 
         let cohorts = vec![static_cohort, dynamic_cohort];
@@ -892,6 +899,7 @@ mod tests {
             cohort_type: None,
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
+            condition_type: None,
         };
 
         let cohorts = vec![cohort];
@@ -965,6 +973,7 @@ mod tests {
             cohort_type: None,
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
+            condition_type: None,
         };
 
         let cohorts = vec![cohort_with_negation];
@@ -1057,6 +1066,7 @@ mod tests {
             cohort_type: None,
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
+            condition_type: None,
         }
     }
 

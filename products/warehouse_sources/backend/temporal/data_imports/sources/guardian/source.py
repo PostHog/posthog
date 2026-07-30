@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GuardianSource(ResumableSource[GuardianSourceConfig, GuardianResumeConfig]):
+    api_docs_url = "https://open-platform.theguardian.com/documentation/"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

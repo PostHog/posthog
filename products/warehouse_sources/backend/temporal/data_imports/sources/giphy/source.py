@@ -32,6 +32,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GiphySource(ResumableSource[GiphySourceConfig, GiphyResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://developers.giphy.com/docs/api/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GIPHY

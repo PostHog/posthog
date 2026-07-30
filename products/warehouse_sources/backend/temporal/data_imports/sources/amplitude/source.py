@@ -37,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AmplitudeSource(ResumableSource[AmplitudeSourceConfig, AmplitudeResumeConfig]):
+    api_docs_url = "https://amplitude.com/docs/apis/analytics"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

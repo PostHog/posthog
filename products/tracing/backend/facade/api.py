@@ -89,6 +89,7 @@ def run_attribute_breakdown_query(
     filter_group: PropertyGroupFilter | None = None,
     service_names: list[str] | None = None,
     exclude_breakdown_filter: bool = False,
+    facet_search: str | None = None,
 ) -> TraceSpansAttributeBreakdownQueryResponse | CachedTraceSpansAttributeBreakdownQueryResponse:
     """Run a span breakdown grouped by one attribute's value within a filtered span set."""
     return _run_attribute_breakdown_query(
@@ -101,6 +102,7 @@ def run_attribute_breakdown_query(
         filter_group=filter_group,
         service_names=service_names,
         exclude_breakdown_filter=exclude_breakdown_filter,
+        facet_search=facet_search,
     )
 
 

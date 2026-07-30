@@ -57,20 +57,6 @@ def is_pro_plan(plan_key: str | None) -> bool:
     return any(plan_key.startswith(p) for p in PRO_PLAN_PREFIXES)
 
 
-def is_usage_based_plan(plan_key: str | None) -> bool:
-    """Whether the plan bills usage-based (vs seat-based subscription).
-
-    Prefix-matched like :func:`is_pro_plan`, but settings-driven so the prefix
-    can be corrected by env var when billing finalizes the plan key. Unknown or
-    missing plans are NOT usage-based, so a flaky plan resolution falls back to
-    the standard seat-based/free limits rather than the usage-based user cost
-    limit.
-    """
-    if not plan_key:
-        return False
-    return any(plan_key.startswith(p) for p in get_settings().usage_based_plan_prefixes)
-
-
 def parse_iso_utc(value: str) -> datetime:
     parsed = datetime.fromisoformat(value)
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)

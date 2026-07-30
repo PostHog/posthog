@@ -19,6 +19,7 @@ from posthog.errors import (
     CHQueryErrorCannotScheduleTask,
     CHQueryErrorS3Error,
     CHQueryErrorS3FileChangedDuringRead,
+    CHQueryErrorTableIsReadOnly,
     CHQueryErrorTooManySimultaneousQueries,
 )
 from posthog.exceptions import ClickHouseAtCapacity
@@ -437,6 +438,7 @@ def _enqueue_single_cohort_calculation(cohort: Cohort, initiating_user: Optional
         ClickHouseAtCapacity,
         CHQueryErrorS3Error,
         CHQueryErrorS3FileChangedDuringRead,
+        CHQueryErrorTableIsReadOnly,
     ),
     retry_backoff=60,
     retry_backoff_max=1800,

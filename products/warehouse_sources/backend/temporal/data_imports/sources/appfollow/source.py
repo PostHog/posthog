@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AppfollowSource(ResumableSource[AppfollowSourceConfig, AppfollowResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://docs.api.appfollow.io/reference/overview"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

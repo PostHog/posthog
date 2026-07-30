@@ -59,6 +59,10 @@ class SandboxTemplate(str, Enum):
     VM_BASE = "vm_base"
 
     STREAMLIT_BASE = "streamlit_base"
+    # Minimal template (git, node, uv — no agent server, no skills). For review/exec
+    # sandboxes like stamphog that never run the agent server. See
+    # Dockerfile.sandbox-slim and modal_sandbox.py's SLIM_BASE image definition.
+    SLIM_BASE = "slim_base"
 
 
 class ExecutionResult(BaseModel):
@@ -314,6 +318,7 @@ class SandboxBase(ABC):
         reasoning_effort: str | None = None,
         initial_permission_mode: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
+        relayed_mcp_servers: list[str] | None = None,
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,

@@ -230,6 +230,7 @@ def _serialize_cohort(cohort: Cohort) -> dict[str, Any]:
         "groups": cohort.groups,
         "created_by_id": cohort.created_by_id,
         "cohort_type": cohort.cohort_type,
+        "condition_type": cohort.condition_type,
         "last_backfill_person_properties_at": (
             cohort.last_backfill_person_properties_at.isoformat() if cohort.last_backfill_person_properties_at else None
         ),

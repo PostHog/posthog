@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     CUSTOMER_RESOURCE_NAME,
     DISCOUNT_RESOURCE_NAME,
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
+    STRIPE_API_VERSION_ACACIA,
     SUBSCRIPTION_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
@@ -108,6 +109,7 @@ class TestStripeGetRowsIncrementalCursor:
                     db_incremental_field_earliest_value=None,
                     logger=mock.MagicMock(),
                     resumable_source_manager=resumable_source_manager,
+                    api_version=STRIPE_API_VERSION_ACACIA,
                     should_use_incremental_field=True,
                 )
             )
@@ -138,6 +140,7 @@ class TestStripeGetRowsIncrementalCursor:
                     db_incremental_field_earliest_value=1700000100,
                     logger=mock.MagicMock(),
                     resumable_source_manager=resumable_source_manager,
+                    api_version=STRIPE_API_VERSION_ACACIA,
                     should_use_incremental_field=True,
                 )
             )
@@ -338,6 +341,7 @@ def _run_nested_get_rows(nested_method, parent_objects=None, parent_has_nested=N
             db_incremental_field_earliest_value=None,
             logger=MagicMock(),
             resumable_source_manager=resumable_source_manager,
+            api_version=STRIPE_API_VERSION_ACACIA,
         ):
             rows.extend(table.to_pylist())
     return rows
@@ -420,6 +424,7 @@ class TestSubscriptionPageSize:
                     db_incremental_field_earliest_value=None,
                     logger=MagicMock(),
                     resumable_source_manager=resumable_source_manager,
+                    api_version=STRIPE_API_VERSION_ACACIA,
                 )
             )
 
@@ -455,6 +460,7 @@ class TestStripeBatcherDrainsSplitChunks:
                 db_incremental_field_earliest_value=None,
                 logger=MagicMock(),
                 resumable_source_manager=resumable_source_manager,
+                api_version=STRIPE_API_VERSION_ACACIA,
             ):
                 rows.extend(table.to_pylist())
 
@@ -503,6 +509,7 @@ class TestStripeBatcherDrainsSplitChunks:
                 db_incremental_field_earliest_value=None,
                 logger=MagicMock(),
                 resumable_source_manager=resumable_source_manager,
+                api_version=STRIPE_API_VERSION_ACACIA,
             ):
                 rows.extend(table.to_pylist())
 
@@ -558,6 +565,7 @@ class TestWebhookOnlyResponseWiring:
             logger=MagicMock(adebug=mock.AsyncMock()),
             resumable_source_manager=MagicMock(can_resume=MagicMock(return_value=False)),
             webhook_source_manager=manager,
+            api_version=STRIPE_API_VERSION_ACACIA,
         )
 
     def test_discount_response_is_webhook_only(self) -> None:

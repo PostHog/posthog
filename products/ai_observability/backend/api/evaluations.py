@@ -709,7 +709,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         with transaction.atomic():
             instance = serializer.save()
 
-            if evaluation_supports_reports(instance.output_type) and instance.target == EvaluationTarget.GENERATION:
+            if evaluation_supports_reports(instance.output_type, instance.target):
                 # Auto-create a default report config so reports are generated from the start.
                 # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
                 # and users add email/Slack delivery targets later if they want notifications.

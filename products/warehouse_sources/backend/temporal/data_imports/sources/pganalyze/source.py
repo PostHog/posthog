@@ -29,6 +29,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PgAnalyzeSource(SimpleSource[PgAnalyzeSourceConfig]):
+    api_docs_url = "https://pganalyze.com/docs/api"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

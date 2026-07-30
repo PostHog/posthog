@@ -16,6 +16,7 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
+from django.conf import settings
 from django.utils import timezone
 
 from dateutil import parser
@@ -138,7 +139,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         # Group-type-mapping is read via personhog, not Postgres, so it's not in this count.
         # Was 24 before passing team=team into get_restricted_properties_for_team, which lets
         # is_property_access_control_enabled skip its per-call Team+organization lookup.
-        expected_queries = 23
+        expected_queries = 22 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else 23
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(

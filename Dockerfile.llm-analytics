@@ -43,6 +43,9 @@ RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=bind,source=tools/hogli,target=tools/hogli \
+    # uv sync validates workspace membership even with --no-dev, so every
+    # workspace member must be present in the build context.
+    --mount=type=bind,source=tools/owners,target=tools/owners \
     uv sync --locked --no-dev --no-install-project --group sentiment --no-binary-package lxml --no-binary-package xmlsec
 
 # Copy project files
@@ -58,7 +61,15 @@ COPY bin/temporal-django-worker bin/temporal-django-worker
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime \
-    POSTHOG_SENTIMENT_MODEL_CACHE=/opt/posthog-sentiment-model
+    POSTHOG_SENTIMENT_MODEL_CACHE=/opt/posthog-sentiment-model \
+    TIKTOKEN_CACHE_DIR=/code/.tiktoken_cache
+
+# Pre-warm the tiktoken BPE encoding cache into the image so runtime token counting reads the
+# blobs from disk instead of fetching them from OpenAI's blob host on first use, which fails under
+# restricted egress or flaky DNS. Covers the two encodings our callers resolve to: o200k_base
+# (gpt-4o) and cl100k_base (text-embedding-3-small).
+RUN mkdir -p "$TIKTOKEN_CACHE_DIR" && \
+    python -c "import tiktoken; [tiktoken.get_encoding(e) for e in ('o200k_base', 'cl100k_base')]"
 
 # Pre-bake the sentiment ONNX model so workers don't download from HuggingFace on startup.
 # Downloads from a pinned HuggingFace revision, exports to ONNX, verifies file integrity

@@ -36,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class EmailOctopusSource(ResumableSource[EmailOctopusSourceConfig, EmailOctopusResumeConfig]):
+    api_docs_url = "https://emailoctopus.com/api-documentation"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.EMAILOCTOPUS

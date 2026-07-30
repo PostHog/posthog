@@ -87,6 +87,9 @@ tools:
     task-mentions-list:
         operation: task_mentions_list
         enabled: false
+    tasks-active-wizard-run-retrieve:
+        operation: tasks_active_wizard_run_retrieve
+        enabled: false
     tasks-create:
         operation: tasks_create
         enabled: false

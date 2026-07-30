@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from typing import Any, Literal
 
-from django.db import close_old_connections
+from django.db import close_old_connections, transaction
 
 import s3fs
 import pyarrow as pa
@@ -34,6 +34,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
     validate_schema_and_update_table,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
+    OwnershipLostError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.kafka.common import (
     ExportSignalMessage,
@@ -300,20 +303,30 @@ def _release_pipeline_lock_for_job(export_signal: ExportSignalMessage) -> None:
 
 
 def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
-    model = update_external_job_status(
-        job_id=export_signal.job_id,
-        team_id=export_signal.team_id,
-        status=ExternalDataJob.Status.COMPLETED,
-        logger=logger,
-        latest_error=None,
-    )
+    # Reconnect stale connections before the transaction; close_old_connections must never
+    # run inside an atomic block since it can drop the connection mid-transaction.
+    close_old_connections()
 
-    if model.status == ExternalDataJob.Status.COMPLETED:
-        # Promote only when the Completed write landed: if the job was cancelled (absorbing
-        # Failed) after the final batch passed should_process_batch, the staged incremental
-        # cursor must not advance past data that was never fully loaded.
-        _promote_staged_cursor(export_signal)
+    # The Completed write and cursor promotion share one transaction so they commit together:
+    # if promotion raises, the completion rolls back and the batch retries, never stranding a
+    # terminal job with a stale cursor that a later append sync would re-extract past.
+    with transaction.atomic():
+        model = update_external_job_status(
+            job_id=export_signal.job_id,
+            team_id=export_signal.team_id,
+            status=ExternalDataJob.Status.COMPLETED,
+            logger=logger,
+            latest_error=None,
+        )
 
+        job_completed = model.status == ExternalDataJob.Status.COMPLETED
+        if job_completed:
+            # Promote only when the Completed write landed: if the job was cancelled (absorbing
+            # Failed) after the final batch passed should_process_batch, the staged incremental
+            # cursor must not advance past data that was never fully loaded.
+            _promote_staged_cursor(export_signal)
+
+    if job_completed:
         async_to_sync(finish_row_tracking)(export_signal.team_id, export_signal.schema_id)
 
         logger.info(
@@ -335,23 +348,15 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
 
 
 def _promote_staged_cursor(export_signal: ExportSignalMessage) -> None:
-    close_old_connections()
-    try:
-        schema = ExternalDataSchema.objects.get(id=export_signal.schema_id, team_id=export_signal.team_id)
-        promoted = schema.promote_staged_incremental_values(export_signal.run_uuid)
-        if promoted:
-            logger.info(
-                "staged_cursor_promoted",
-                run_uuid=export_signal.run_uuid,
-                external_data_schema_id=export_signal.schema_id,
-            )
-    except Exception as e:
-        logger.exception(
-            "staged_cursor_promotion_failed",
+    # Runs inside the completion transaction; failures roll it back so the batch retries.
+    schema = ExternalDataSchema.objects.get(id=export_signal.schema_id, team_id=export_signal.team_id)
+    promoted = schema.promote_staged_incremental_values(export_signal.run_uuid)
+    if promoted:
+        logger.info(
+            "staged_cursor_promoted",
             run_uuid=export_signal.run_uuid,
             external_data_schema_id=export_signal.schema_id,
         )
-        capture_exception(e)
 
 
 def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> None:
@@ -457,6 +462,10 @@ def process_message(
             if verify_ownership is not None:
                 verify_ownership()
             _run_post_load_for_already_processed_batch(export_signal)
+            # Post-load can run minutes (compaction, S3 prep) — re-check before
+            # completion promotes the cursor and releases the lock under a new owner.
+            if verify_ownership is not None:
+                verify_ownership()
             _mark_job_completed(export_signal)
             return
 
@@ -667,6 +676,11 @@ def process_message(
                 cdc_write_mode=export_signal.cdc_write_mode,
             )
 
+            # Post-load can run minutes (compaction, S3 prep) — re-check before
+            # completion promotes the cursor and releases the lock under a new owner.
+            if verify_ownership is not None:
+                verify_ownership()
+
             _mark_job_completed(export_signal)
 
             logger.debug("post_load_operations_complete")
@@ -689,6 +703,10 @@ def process_message(
                     "total_rows": export_signal.total_rows,
                 },
             )
+    except OwnershipLostError:
+        # Benign fencing abandon: the engine re-raises this without writing a
+        # failure status, so it must not count as a load failure in analytics either.
+        raise
     except Exception as e:
         posthoganalytics.capture(
             distinct_id=get_machine_id(),

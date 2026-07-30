@@ -35,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class VercelSource(ResumableSource[VercelSourceConfig, VercelResumeConfig]):
+    api_docs_url = "https://vercel.com/docs/rest-api"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.VERCEL

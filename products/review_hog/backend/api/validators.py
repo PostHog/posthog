@@ -16,8 +16,10 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from products.review_hog.backend.models import ReviewSkillConfig
 from products.review_hog.backend.reviewer.lazy_seed import seed_canonicals_tolerantly, sync_canonical_validation
 from products.review_hog.backend.reviewer.skill_loader import (
+    CANONICAL_VALIDATION_SKILL_NAMES,
     REVIEW_HOG_VALIDATION_PREFIX,
     register_missing_validation_config,
+    visible_skill_names,
 )
 from products.skills.backend.models.skills import LLMSkill
 
@@ -53,12 +55,14 @@ class ReviewValidatorConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     """Per-user selection of ReviewHog's single active review validator for a project.
 
     A validator is any team `review-hog-validation-*` `LLMSkill` (canonical or custom — handled
-    identically). The skill itself is team-level; this surface only controls **which one** validates
-    the requesting user's PR reviews. Unlike perspectives (multi-enable), a review runs exactly one
-    validator, so this is a single-active selection: `list` shows every validator with the user's
-    active one flagged (the canonical auto-seeds active on first read); `partial_update` selects one
-    by skill name, flipping the user's other validators off in the same call. There is always a
-    default (the canonical), so no minimum floor is needed.
+    identically at run time). The skill itself is team-level; this surface only controls **which
+    one** validates the requesting user's PR reviews. Visibility is per-user: the menu shows the
+    canonical plus the customs the requesting user authored — a teammate's custom is neither listed
+    nor selectable (`visible_skill_names`). Unlike perspectives (multi-enable), a review runs
+    exactly one validator, so this is a single-active selection: `list` shows the visible
+    validators with the user's active one flagged (the canonical auto-seeds active on first read);
+    `partial_update` selects one by skill name, flipping the user's other validators off in the
+    same call. There is always a default (the canonical), so no minimum floor is needed.
     """
 
     # llm_skill, not INTERNAL: responses carry skill body/description, so the llm_analytics RBAC
@@ -79,9 +83,10 @@ class ReviewValidatorConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         },
         summary="List review validators and which one is active",
         description=(
-            "List every `review-hog-validation-*` skill on this project, flagging the one active for "
-            "the requesting user. The canonical validator is auto-seeded active on the first read; a "
-            "custom validator the user has not selected shows as inactive."
+            "List the `review-hog-validation-*` skills visible to the requesting user — the "
+            "canonical validator plus the customs they authored — flagging the one active for "
+            "them. The canonical validator is auto-seeded active on the first read; a custom "
+            "validator the user has not selected shows as inactive."
         ),
     )
     def list(self, request: Request, **kwargs) -> Response:
@@ -98,9 +103,14 @@ class ReviewValidatorConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             .filter(user_id=user_id, skill_name__startswith=REVIEW_HOG_VALIDATION_PREFIX)
             .values_list("skill_name", "enabled")
         )
-        skills = LLMSkill.objects.filter(
-            team_id=team_id, name__startswith=REVIEW_HOG_VALIDATION_PREFIX, is_latest=True, deleted=False
-        ).order_by("name")
+        # Per-user visibility: the menu advertises the canonical plus this user's own customs —
+        # never a teammate's.
+        visible = visible_skill_names(
+            team_id, user_id, prefix=REVIEW_HOG_VALIDATION_PREFIX, canonical_names=CANONICAL_VALIDATION_SKILL_NAMES
+        )
+        skills = LLMSkill.objects.filter(team_id=team_id, name__in=visible, is_latest=True, deleted=False).order_by(
+            "name"
+        )
         items = [
             {
                 "skill_name": s.name,
@@ -119,13 +129,15 @@ class ReviewValidatorConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 response=ReviewValidatorConfigSerializer, description="The validator now active for the user."
             ),
             400: OpenApiResponse(description="Not a validator skill, or `active` was not true."),
-            404: OpenApiResponse(description="No such validator skill on this project."),
+            404: OpenApiResponse(description="No such validator skill visible to the user on this project."),
         },
         summary="Select the active review validator",
         description=(
             "Make a `review-hog-validation-*` skill the single validator that runs on the requesting "
-            "user's PR reviews, switching the user's other validators off in the same call. Upserts the "
-            "per-user config row, so selecting a freshly authored custom validator works in one call."
+            "user's PR reviews, switching the user's other validators off in the same call. Only "
+            "skills visible to the user — the canonical plus the customs they authored — can be "
+            "selected; anything else 404s. Upserts the per-user config row, so selecting a freshly "
+            "authored custom validator works in one call."
         ),
     )
     def partial_update(self, request: Request, skill_name: str, **kwargs) -> Response:
@@ -140,7 +152,11 @@ class ReviewValidatorConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         # would 404 without it.
         seed_canonicals_tolerantly(team_id, sync_canonical_validation)
         skill = LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).first()
-        if skill is None:
+        # A teammate's custom 404s exactly like a missing skill — visibility is author-only, and a
+        # distinct error would leak that the name exists.
+        if skill is None or skill_name not in visible_skill_names(
+            team_id, user_id, prefix=REVIEW_HOG_VALIDATION_PREFIX, canonical_names=CANONICAL_VALIDATION_SKILL_NAMES
+        ):
             raise NotFound(f"No validator skill '{skill_name}' on this project")
 
         select = ReviewValidatorConfigSelectSerializer(data=request.data)

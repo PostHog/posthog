@@ -49,7 +49,7 @@ _STAGE_LABELS = {
     "fetching": "Step 1/6 · Preparing the diff",
     "chunking": "Step 1/6 · Splitting into chunks",
     "selecting": "Step 2/6 · Picking perspectives",
-    "reviewing": "Step 3/6 · Reviewing chunks",
+    "reviewing": "Step 3/6 · Running review passes",
     "deduplicating": "Step 4/6 · Merging overlapping findings",
     "validating": "Step 5/6 · Validating findings",
     "finalizing": "Step 6/6 · Finalizing the review",
@@ -175,6 +175,10 @@ def _find_marker_comment(
         installation_id=installation_id,
         endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
     ):
+        # Adopt only app-bot comments: anyone can paste the marker on a public repo, and the
+        # returned id gets PATCHed — matching a stranger's comment would overwrite it.
+        if (comment.get("user") or {}).get("type") != "Bot":
+            continue
         if marker in (comment.get("body") or ""):
             return comment.get("id")
     return None

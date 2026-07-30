@@ -128,13 +128,16 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
         ]
         self.assertEqual(self._facet_attr("k8s.namespace.name", filterGroup=filter_group), base)
 
-    def test_resource_facet_ignores_severity_filter(self):
-        # Resource-attribute facets are served from the log_attributes rollup, which has no severity
-        # dimension — a severity filter is accepted but does not re-scope the counts.
+    def test_resource_facet_honors_severity_filter(self):
+        # severity_text now lives on the log_attributes rollup, so a severity filter re-scopes
+        # resource-attribute facet counts (previously it was accepted but silently ignored).
         base = self._facet_attr("k8s.namespace.name")
         self.assertGreater(len(base), 0)
-        scoped = self._facet_attr("k8s.namespace.name", severityLevels=["error"])
-        self.assertEqual(scoped, base)
+        one_severity = next(iter(self._facet("severity_text")))
+        scoped = self._facet_attr("k8s.namespace.name", severityLevels=[one_severity])
+        self.assertGreater(len(scoped), 0)
+        self.assertTrue(set(scoped).issubset(set(base)))
+        self.assertLess(sum(scoped.values()), sum(base.values()))
 
     def test_resource_facet_honors_other_resource_attribute_filter(self):
         # A different resource-attribute filter re-scopes the counts via the rollup's

@@ -36,6 +36,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WooCommerceSource(ResumableSource[WooCommerceSourceConfig, WooCommerceResumeConfig]):
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://woocommerce.github.io/woocommerce-rest-api-docs/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

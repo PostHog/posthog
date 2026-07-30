@@ -45,6 +45,8 @@ _DISPUTES_INCREMENTAL_FIELDS: list[IncrementalField] = [
 class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    api_docs_url = "https://api-reference.checkout.com/"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CHECKOUTCOM

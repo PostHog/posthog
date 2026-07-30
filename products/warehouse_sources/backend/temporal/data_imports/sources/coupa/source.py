@@ -39,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class CoupaSource(ResumableSource[CoupaSourceConfig, CoupaResumeConfig], ValidateDatabaseHostMixin):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    api_docs_url = "https://docs.coupa.com/en/developer-documentation/the-coupa-core-api/coupa-core-api-overview"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.COUPA

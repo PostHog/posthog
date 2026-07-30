@@ -527,6 +527,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 tile_filters_override={},
                 cache_age_seconds=None,
                 analytics_props=ANY,
+                allow_raw_results=False,
             )
 
         with patch(
@@ -548,6 +549,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 tile_filters_override={},
                 cache_age_seconds=int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
                 analytics_props=ANY,
+                allow_raw_results=False,
             )
 
     def test_get_shared_insight_with_force_refresh_returns_200(self) -> None:
@@ -609,6 +611,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 tile_filters_override={},
                 cache_age_seconds=int(SHARED_FORCE_BLOCKING_STALENESS_WINDOW.total_seconds()),
                 analytics_props=ANY,
+                allow_raw_results=False,
             )
 
     def test_get_insight_by_short_id(self) -> None:
@@ -4248,7 +4251,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert isinstance(response["query"]["source"], dict)
         assert response["query"]["source"]["dateRange"]["date_from"] == "-7d"
 
-    def test_tile_filters_override_replaces_dashboard_filters_in_returned_query(self) -> None:
+    def test_tile_filters_merge_with_dashboard_filters_in_returned_query(self) -> None:
         insight = Insight.objects.create(
             filters={},
             query={
@@ -4262,18 +4265,14 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team=self.team,
         )
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard 1", created_by=self.user)
-        # Tile has its own date-range filter (no person properties). The compute path treats
-        # this as a complete replacement for all dashboard filters.
         DashboardTile.objects.create(
             dashboard=dashboard,
             insight=insight,
             filters_overrides={"date_from": "-7d"},
         )
 
-        # Dashboard-level filter includes a person property filter (e.g. $initial_host = readdy.ai).
-        dashboard_filters = {
-            "properties": [{"key": "$initial_host", "type": "person", "operator": "exact", "value": ["readdy.ai"]}]
-        }
+        person_filter = {"key": "$initial_host", "type": "person", "operator": "exact", "value": ["readdy.ai"]}
+        dashboard_filters = {"properties": [person_filter]}
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights/{insight.pk}",
@@ -4284,14 +4283,156 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ).json()
 
         source = response["query"]["source"]
-        # The tile's filter (date_from = -7d, no person properties) must win over the
-        # dashboard filter. If the dashboard person properties appeared here the persons
-        # modal would use a different filter set than the chart — the bug this test guards.
         assert source["dateRange"]["date_from"] == "-7d"
-        # properties must be absent or empty — the dashboard's person filter must not appear.
-        assert not source.get("properties"), (
-            f"Tile filters should replace dashboard filters; persons modal would diverge. Got: {source.get('properties')}"
+        merged_properties = source.get("properties") or []
+        assert any(p.get("key") == "$initial_host" and p.get("value") == ["readdy.ai"] for p in merged_properties), (
+            f"Dashboard person filter should be merged into the tile query. Got: {merged_properties}"
         )
+
+    def test_tile_property_override_replaces_insight_and_dashboard_on_same_key(self) -> None:
+        # Insight, dashboard, and tile all filter $browser. The tile must win outright on that key —
+        # over both the insight's own filter and the dashboard's — instead of AND-ing all three (which
+        # would be an impossible intersection and return nothing).
+        insight = Insight.objects.create(
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"event": "$pageview", "kind": "EventsNode"}],
+                    "properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome"]}],
+                },
+            },
+            team=self.team,
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard 1", created_by=self.user)
+        DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight,
+            filters_overrides={
+                "properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Firefox"]}]
+            },
+        )
+        dashboard_filters = {
+            "properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome", "Safari"]}]
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data={"from_dashboard": str(dashboard.pk), "filters_override": json.dumps(dashboard_filters)},
+        ).json()
+
+        browser_values = self._collect_property_values(response["query"]["source"].get("properties"), "$browser")
+        assert browser_values == [["Firefox"]], f"Tile $browser should replace all others. Got: {browser_values}"
+        assert response["filter_override_context"] == {
+            "dashboard": None,
+            "tile": {"properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Firefox"]}]},
+            "overridden_dashboard": {
+                "properties": [
+                    {
+                        "key": "$browser",
+                        "type": "event",
+                        "operator": "exact",
+                        "value": ["Chrome", "Safari"],
+                    }
+                ]
+            },
+        }
+
+    def test_dashboard_property_override_replaces_insight_on_same_key(self) -> None:
+        # Insight and dashboard both filter $browser, no tile. The dashboard must win on that key —
+        # over the insight's own filter — instead of AND-ing (Chrome AND Safari would return nothing).
+        insight = Insight.objects.create(
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"event": "$pageview", "kind": "EventsNode"}],
+                    "properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome"]}],
+                },
+            },
+            team=self.team,
+        )
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard 1", created_by=self.user)
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        dashboard_filters = {
+            "properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Safari"]}]
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data={"from_dashboard": str(dashboard.pk), "filters_override": json.dumps(dashboard_filters)},
+        ).json()
+
+        browser_values = self._collect_property_values(response["query"]["source"].get("properties"), "$browser")
+        assert browser_values == [["Safari"]], f"Dashboard $browser should replace the insight's. Got: {browser_values}"
+
+    def test_from_dashboard_ignores_dashboard_context_without_view_access(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        viewer = self._create_user("viewer@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        insight = Insight.objects.create(
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"event": "$pageview", "kind": "EventsNode"}],
+                },
+            },
+            team=self.team,
+            created_by=self.user,
+        )
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="restricted dashboard",
+            created_by=self.user,
+            filters={
+                "properties": [
+                    {"key": "email", "type": "person", "operator": "exact", "value": ["private@example.com"]}
+                ]
+            },
+        )
+        DashboardTile.objects.create(
+            dashboard=dashboard,
+            insight=insight,
+            filters_overrides={
+                "properties": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome"]}]
+            },
+        )
+        AccessControl.objects.create(
+            resource="dashboard",
+            resource_id=dashboard.id,
+            team=self.team,
+            access_level="none",
+        )
+        self.client.force_login(viewer)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.pk}",
+            data={"from_dashboard": str(dashboard.pk)},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+        assert response_data["filter_override_context"] is None
+        properties = response_data["query"]["source"].get("properties")
+        assert self._collect_property_values(properties, "email") == []
+        assert self._collect_property_values(properties, "$browser") == []
+
+    @staticmethod
+    def _collect_property_values(properties: object, key: str) -> list:
+        """Flatten a query's properties (flat list or nested PropertyGroupFilter) to the values set for one key."""
+        found: list = []
+        if isinstance(properties, list):
+            for prop in properties:
+                found.extend(TestInsight._collect_property_values(prop, key))
+        elif isinstance(properties, dict):
+            if isinstance(properties.get("values"), list):
+                found.extend(TestInsight._collect_property_values(properties["values"], key))
+            elif properties.get("key") == key:
+                found.append(properties.get("value"))
+        return found
 
     def test_insight_cache_key_changes_with_variable_override_when_tile_filters_are_set(self) -> None:
         dashboard = Dashboard.objects.create(

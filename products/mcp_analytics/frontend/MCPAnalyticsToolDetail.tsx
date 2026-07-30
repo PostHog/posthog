@@ -6,6 +6,7 @@ import { LemonDivider, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import {
     type ChartTheme,
     type Series,
+    type TimeInterval,
     TimeSeriesLineChart,
     type TimeSeriesLineChartConfig,
 } from '@posthog/quill-charts'
@@ -30,14 +31,13 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SceneExport } from '~/scenes/sceneTypes'
 
-import { formatBucketLabel, formatMs, formatMsAsSeconds } from './dashboard/formatters'
+import { formatMs, formatMsAsSeconds } from './dashboard/formatters'
 import { HarnessLogo, HarnessPill } from './dashboard/harness'
 import { MetricTile } from './dashboard/MetricTile'
 import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
@@ -49,6 +49,8 @@ import {
     ToolSummary,
     mcpAnalyticsToolDetailLogic,
 } from './mcpAnalyticsToolDetailLogic'
+import { mcpToolQualityUrlWithDates } from './mcpAnalyticsToolQualityLogic'
+import { formatBucketLabel } from './timeBuckets'
 
 export const scene: SceneExport<MCPAnalyticsToolDetailLogicProps> = {
     component: MCPAnalyticsToolDetail,
@@ -116,7 +118,7 @@ function ResultTable({
     rows,
     loading,
     columns,
-    emptyMessage = 'No data for the last 7 days.',
+    emptyMessage = 'No data for the selected date range.',
 }: {
     title?: React.ReactNode
     description?: React.ReactNode
@@ -190,12 +192,9 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }
     )
 }
 
-// Tile sparkline window — the trailing slice of the 30-day daily series.
-const SPARKLINE_DAYS = 7
-
-// Trailing window of a daily series, coalescing latency gaps (NaN) to 0 for the sparkline.
+// Coalesce latency gaps (NaN) to 0 so the sparkline draws a continuous line over the window.
 function spark(values: number[]): number[] {
-    return values.slice(-SPARKLINE_DAYS).map((v) => (Number.isFinite(v) ? v : 0))
+    return values.map((v) => (Number.isFinite(v) ? v : 0))
 }
 
 function StatTiles({
@@ -203,17 +202,21 @@ function StatTiles({
     loading,
     daily,
     theme,
+    dateRangeLabel,
+    interval,
 }: {
     summary: ToolSummary | null
     loading: boolean
     daily: DailyChartData
     theme: ChartTheme
+    dateRangeLabel: string
+    interval: TimeInterval
 }): JSX.Element {
     const calls = summary?.calls ?? 0
     const errors = summary?.errors ?? 0
     const errorRate = calls ? (errors / calls) * 100 : 0
     const errorRateDaily = daily.calls.map((c, i) => (c ? (daily.errors[i] / c) * 100 : 0))
-    const sparkLabels = daily.labels.slice(-SPARKLINE_DAYS).map(formatBucketLabel)
+    const sparkLabels = daily.labels.map((label) => formatBucketLabel(label, interval))
 
     const tiles: {
         label: string
@@ -282,7 +285,7 @@ function StatTiles({
                     loading={loading}
                     labels={sparkLabels}
                     theme={theme}
-                    restingSubtitle="Last 7 days"
+                    restingSubtitle={dateRangeLabel}
                     sparklineHeight={40}
                 />
             ))}
@@ -358,7 +361,11 @@ function DescriptionBlock({
     )
 }
 
-function trendChartConfig(timezone: string, yAxis?: TimeSeriesLineChartConfig['yAxis']): TimeSeriesLineChartConfig {
+function trendChartConfig(
+    timezone: string,
+    interval: TimeInterval,
+    yAxis?: TimeSeriesLineChartConfig['yAxis']
+): TimeSeriesLineChartConfig {
     return {
         curve: 'monotone',
         showAxisLines: true,
@@ -366,7 +373,7 @@ function trendChartConfig(timezone: string, yAxis?: TimeSeriesLineChartConfig['y
         showCrosshair: true,
         showGrid: true,
         yAxis,
-        xAxis: { interval: 'day', timezone },
+        xAxis: { interval, timezone },
         tooltip: { placement: 'cursor' },
     }
 }
@@ -413,7 +420,7 @@ function TrendChart({
                     <Skeleton className="flex-1" />
                 ) : labels.length === 0 ? (
                     <div className="flex flex-1 items-center justify-center text-[12px] text-secondary">
-                        No data for the last 7 days.
+                        No data for the selected date range.
                     </div>
                 ) : (
                     <TimeSeriesLineChart
@@ -459,6 +466,9 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
         byHarnessRowsLoading,
         topUserRows,
         topUserRowsLoading,
+        dateRangeLabel,
+        dateFilter,
+        interval,
     } = useValues(mcpAnalyticsToolDetailLogic({ toolName }))
     const { timezone } = useValues(teamLogic)
 
@@ -471,10 +481,10 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
         () => seriesFor(dailyChartData, theme, ['p50', 'p95']),
         [dailyChartData, theme]
     )
-    const countsConfig = useChartConfig(() => trendChartConfig(timezone), [timezone])
+    const countsConfig = useChartConfig(() => trendChartConfig(timezone, interval), [timezone, interval])
     const latencyConfig = useChartConfig(
-        () => trendChartConfig(timezone, { tickFormatter: formatMsAsSeconds }),
-        [timezone]
+        () => trendChartConfig(timezone, interval, { tickFormatter: formatMsAsSeconds }),
+        [timezone, interval]
     )
 
     return (
@@ -485,20 +495,27 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                 resourceType={{ type: 'mcp_analytics' }}
                 forceBackTo={{
                     name: 'Tool quality',
-                    path: urls.mcpAnalyticsToolQuality(),
+                    path: mcpToolQualityUrlWithDates(dateFilter),
                     key: 'mcp-analytics-tool-quality',
                 }}
             />
 
             <div className="flex flex-col gap-3 px-4 pb-4">
                 <DescriptionBlock descriptions={descriptions} loading={descriptionsLoading} />
-                <StatTiles summary={summary} loading={summaryLoading} daily={dailyChartData} theme={theme} />
+                <StatTiles
+                    summary={summary}
+                    loading={summaryLoading}
+                    daily={dailyChartData}
+                    theme={theme}
+                    dateRangeLabel={dateRangeLabel}
+                    interval={interval}
+                />
             </div>
 
             <LemonDivider />
 
             <div className="flex flex-col gap-3 px-4 pb-4">
-                <SectionHeader title="Reliability" subtitle="Last 30 days" />
+                <SectionHeader title="Reliability" subtitle={dateRangeLabel} />
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     <TrendChart
                         title="Calls and errors"
@@ -531,7 +548,7 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                         action={<IntentCoverageTag coverage={intentCoverage} loading={intentCoverageLoading} />}
                         rows={sampleIntentRows}
                         loading={sampleIntentRowsLoading}
-                        emptyMessage="No intents captured in the last 7 days."
+                        emptyMessage="No intents captured for the selected date range."
                         columns={[
                             { header: 'When', render: (r) => <TZLabel time={String(r[0])} /> },
                             { header: 'Intent', expand: true, render: (r) => <span>{String(r[1] ?? '')}</span> },
@@ -643,7 +660,7 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                     description="Errored calls of this tool grouped by error type and HTTP status. Sourced from the $mcp_is_error flag on $mcp_tool_call events, the same source as the error rate above."
                     rows={failureRows}
                     loading={failureRowsLoading}
-                    emptyMessage="No errored calls recorded for this tool in the last 7 days."
+                    emptyMessage="No errored calls recorded for this tool in the selected date range."
                     columns={[
                         {
                             header: 'Error type',

@@ -25,6 +25,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorTooManySimultaneousQueries
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
+from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
 from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
@@ -487,9 +488,9 @@ def ingestion_lag() -> None:
     from posthog.clickhouse.client import sync_execute
     from posthog.models.team.team import Team
 
-    query = """
+    query = f"""
     SELECT event, date_diff('second', max(timestamp), now())
-    FROM events
+    FROM {events_read_table(use_new_events_schema(None))}
     WHERE team_id IN %(team_ids)s
         AND event IN %(events)s
         AND timestamp > now() - interval 72 hours AND timestamp < now() + toIntervalMinute(3)
@@ -944,7 +945,14 @@ def find_flags_with_enriched_analytics() -> None:
     end = datetime.now()
     begin = end - timedelta(hours=12)
 
-    find_flags_with_enriched_analytics(begin, end)
+    try:
+        find_flags_with_enriched_analytics(begin, end)
+    except Exception as e:
+        logger.exception("Find flags with enriched analytics failed", error=e)
+        capture_exception(
+            e, additional_properties={"feature": "feature_flags", "task": "find_flags_with_enriched_analytics"}
+        )
+        raise
 
 
 @shared_task(ignore_result=True)
@@ -1027,16 +1035,6 @@ def clickhouse_send_license_usage() -> None:
             from ee.tasks.send_license_usage import send_license_usage
 
             send_license_usage()
-    except ImportError:
-        pass
-
-
-@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
-def check_flags_to_rollback() -> None:
-    try:
-        from ee.tasks.auto_rollback_feature_flag import check_flags_to_rollback
-
-        check_flags_to_rollback()
     except ImportError:
         pass
 
@@ -1380,11 +1378,13 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
             )
             return
 
-        # Build lookup map from merged results
+        # Build lookup map from merged results. Skip flag keys containing NUL bytes:
+        # Postgres can't store them, so they can never match a real FeatureFlag.key,
+        # and passing one into the key__in query below raises psycopg.DataError.
         flag_updates: dict[tuple[int, str], datetime] = {}
-        for key, (ts, _count) in merged_results.items():
-            if ts is not None:
-                flag_updates[key] = ts
+        for (team_id, flag_key), (ts, _count) in merged_results.items():
+            if ts is not None and "\x00" not in flag_key:
+                flag_updates[(team_id, flag_key)] = ts
 
         if not flag_updates:
             redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, current_sync_timestamp.isoformat())
@@ -1598,7 +1598,7 @@ def sync_user_product_lists_for_new_team(team_id: int) -> None:
     Sync UserProductList for all users who have access to a new team.
     Called during project creation to avoid request timeouts for large organizations.
     """
-    from posthog.models.file_system.user_product_list import backfill_user_product_list_for_new_user
+    from posthog.models.file_system.user_product_list import add_default_products_for_user
     from posthog.models.team import Team
 
     try:
@@ -1615,6 +1615,6 @@ def sync_user_product_lists_for_new_team(team_id: int) -> None:
     )
 
     for user in users:
-        backfill_user_product_list_for_new_user(user, team)
+        add_default_products_for_user(user, team)
 
     logger.info("sync_user_product_lists_for_new_team: Completed", team_id=team_id)

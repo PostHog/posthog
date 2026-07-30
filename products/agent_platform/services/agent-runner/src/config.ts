@@ -239,12 +239,25 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
         .describe(
             'Comma-separated CIDRs the Modal custom-tool sandbox may reach outbound. Empty (default) → the sandbox has NO outbound internet (Modal `block_network`). Custom tools compute and return; the runner makes any egress through smokescreen. Set only if a custom tool genuinely needs direct egress to a known range.'
         ),
+    routingMode: z
+        .enum(['path', 'domain'])
+        .default('path')
+        .describe(
+            'Ingress routing mode; must match the ingress `ROUTING_MODE`. In `domain` mode the OAuth link callback host is the agent‑specific `<slug><domainSuffix>`; `path` (dev) uses `linkRedirectBaseUrl`.'
+        ),
+    domainSuffix: z
+        .string()
+        .optional()
+        .describe(
+            'Domain suffix for `domain` mode (e.g. `.agents.us.posthog.com`); mirrors the ingress `DOMAIN_SUFFIX`. Builds the per-agent OAuth link callback host (`https://<slug><domainSuffix>/link/<provider>/callback`).'
+        ),
     linkRedirectBaseUrl: z
         .string()
         .url()
-        .default(() => (isDev() ? 'http://localhost:3030' : 'https://agents.posthog.com'))
+        .optional()
+        .transform((v): string | undefined => v ?? (isDev() ? 'http://localhost:3030' : undefined))
         .describe(
-            'Public base URL of the ingress, used to build OAuth callback redirect URIs for identity linking (`<base>/link/<provider>/callback`). Dev defaults to the local ingress; prod sets the deployed ingress URL.'
+            'Flat ingress base URL used to build OAuth link callback URIs (`<base>/link/<provider>/callback`) in `path` mode (dev). Dev defaults to the local ingress. In `domain` mode (prod) the callback host is derived from the agent slug + `domainSuffix`, so this is unused.'
         ),
     webSearchProvider: z
         .enum(WEB_SEARCH_PROVIDER_NAMES)
@@ -318,6 +331,8 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentRunnerConfig>(PLATFORM_ENV_KEY_MAP, {
     SANDBOX_OUTBOUND_CIDR_ALLOWLIST: 'sandboxOutboundCidrAllowlist',
     MODAL_APP_NAME: 'modalAppName',
     MODAL_REGION: 'modalRegion',
+    ROUTING_MODE: 'routingMode',
+    DOMAIN_SUFFIX: 'domainSuffix',
     AGENT_INGRESS_PUBLIC_URL: 'linkRedirectBaseUrl',
     AGENT_WEB_SEARCH_PROVIDER: 'webSearchProvider',
     AGENT_WEB_SEARCH_FALLBACKS: 'webSearchFallbacks',

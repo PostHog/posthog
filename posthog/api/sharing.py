@@ -950,6 +950,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "insight_variables": InsightVariable.objects.filter(team=resource.team).all(),
             "export_cache_keys": export_cache_keys,
             "shared_link_user": shared_link_user,
+            # exported_data is embedded into the page with stdlib json.dumps, which cannot
+            # serialize raw cached result bytes (orjson.Fragment)
+            "require_parsed_results": True,
         }
         exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
 

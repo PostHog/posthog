@@ -59,8 +59,13 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     cdpHogWatcherSampleRate: number
 }
 
-export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPreprocessingSubpipelineInput, TContext>(
-    builder: ChunkPipelineBuilder<TInput, TInput, TContext, TContext>,
+export function createPostTeamPreprocessingSubpipeline<
+    TStart,
+    TInput extends PostTeamPreprocessingSubpipelineInput,
+    TContext,
+    R extends string = never,
+>(
+    builder: ChunkPipelineBuilder<TStart, TInput, TContext, TContext, R>,
     config: PostTeamPreprocessingSubpipelineConfig
 ) {
     const {
@@ -84,18 +89,16 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
     return (
         builder
             // These validation steps are synchronous, so we can process events sequentially.
-            .sequentially((b) => {
-                const validated = b.pipe(createValidateEventMetadataStep()).pipe(createValidateEventPropertiesStep())
-
-                const schemaChecked = eventSchemaEnforcementEnabled
-                    ? validated.pipe(createValidateEventSchemaStep(eventSchemaEnforcementManager))
-                    : validated
-
-                return schemaChecked
+            .sequentially((b) =>
+                b
+                    .pipe(createValidateEventMetadataStep())
+                    .pipe(createValidateEventPropertiesStep())
+                    // Schema enforcement is opt-in; the step passes events through when disabled.
+                    .pipe(createValidateEventSchemaStep(eventSchemaEnforcementManager, eventSchemaEnforcementEnabled))
                     .pipe(createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager))
                     .pipe(createDropOldEventsStep())
                     .pipe(createApplyEventFiltersStep(eventFilterManager))
-            })
+            )
             // We want to call cookieless with the whole batch at once.
             // IMPORTANT: Cookieless processing changes distinct IDs (cookieless events
             // are captured with $posthog_cookieless distinct ID and rewritten here).

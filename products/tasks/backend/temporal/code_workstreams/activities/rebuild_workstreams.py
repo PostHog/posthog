@@ -1,9 +1,11 @@
+import uuid
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Optional
 
-from django.db.models import Max, Q
+from django.db.models import F, Max, Q, Window
+from django.db.models.functions import RowNumber
 from django.utils import timezone
 
 from temporalio import activity
@@ -14,6 +16,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.logic.code_workstreams.classify import pick_primary_situation
 from products.tasks.backend.logic.code_workstreams.grouping import (
+    DEFAULT_BASE_BRANCHES,
     PrInput,
     TaskInput,
     Workstream,
@@ -21,7 +24,11 @@ from products.tasks.backend.logic.code_workstreams.grouping import (
     build_workstreams,
 )
 from products.tasks.backend.models import CodePrSnapshot, CodeWorkstream, Task, TaskRun
-from products.tasks.backend.temporal.code_workstreams.constants import ACTIVITY_WINDOW, MAX_TASKS_PER_TEAM
+from products.tasks.backend.temporal.code_workstreams.constants import (
+    ACTIVITY_WINDOW,
+    MAX_TASKS_PER_TEAM,
+    MAX_TASKS_PER_USER,
+)
 from products.tasks.backend.temporal.process_task.utils import parse_run_state
 
 
@@ -147,6 +154,44 @@ def _github_logins_by_user(user_ids: list[int]) -> dict[int, set[str]]:
     return logins
 
 
+def _select_recent_task_ids(team_id: int, cutoff: datetime) -> list[uuid.UUID]:
+    # Rank each user's tasks by most-recent run activity and keep only their freshest
+    # MAX_TASKS_PER_USER, so one high-volume user can't evict another user's tasks. The
+    # MAX_TASKS_PER_TEAM cap then bounds the whole team's set, still favouring recency.
+    # Candidates come from runs inside the activity window so the query's working set
+    # scales with recent activity, not the team's all-time task count. Only runs that
+    # could form a workstream (a PR, or a branch that isn't a default base — see
+    # workstream_key) consume cap slots: tasks that can never produce a lane must not
+    # evict ones that can. task_id tie-breakers keep ranking stable across rebuilds
+    # when activity timestamps collide, so the cap cutoff can't flicker and prune an
+    # unchanged task's workstream.
+    return list(
+        TaskRun.objects.filter(
+            team_id=team_id,
+            updated_at__gte=cutoff,
+            task__archived=False,
+            task__deleted=False,
+            task__created_by__isnull=False,
+        )
+        .filter(
+            Q(output__pr_url__isnull=False)
+            | (Q(branch__isnull=False) & ~Q(branch="") & ~Q(branch__in=DEFAULT_BASE_BRANCHES))
+        )
+        .values("task_id", "task__created_by_id")
+        .annotate(last_activity=Max("updated_at"))
+        .annotate(
+            user_rank=Window(
+                expression=RowNumber(),
+                partition_by=F("task__created_by_id"),
+                order_by=(F("last_activity").desc(), F("task_id").asc()),
+            )
+        )
+        .filter(user_rank__lte=MAX_TASKS_PER_USER)
+        .order_by("-last_activity", "task_id")
+        .values_list("task_id", flat=True)[:MAX_TASKS_PER_TEAM]
+    )
+
+
 @activity.defn
 @close_db_connections
 def rebuild_team_workstreams(input: RebuildTeamWorkstreamsInput) -> RebuildTeamWorkstreamsOutput:
@@ -154,15 +199,7 @@ def rebuild_team_workstreams(input: RebuildTeamWorkstreamsInput) -> RebuildTeamW
     cutoff = now - ACTIVITY_WINDOW
     now_ms = _epoch_ms(now)
 
-    # Group by task and order by most-recent activity so the MAX_TASKS_PER_TEAM cap deterministically
-    # keeps the freshest tasks instead of an arbitrary slice that flickers between cycles.
-    recent_task_ids = [
-        row["task_id"]
-        for row in TaskRun.objects.filter(team_id=input.team_id, updated_at__gte=cutoff)
-        .values("task_id")
-        .annotate(last_activity=Max("updated_at"))
-        .order_by("-last_activity")[:MAX_TASKS_PER_TEAM]
-    ]
+    recent_task_ids = _select_recent_task_ids(input.team_id, cutoff)
     tasks = list(
         Task.objects.filter(id__in=recent_task_ids, team_id=input.team_id, archived=False, deleted=False)
         .select_related("created_by")

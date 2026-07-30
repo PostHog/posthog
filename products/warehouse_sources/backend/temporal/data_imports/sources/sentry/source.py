@@ -40,6 +40,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SentrySource(ResumableSource[SentrySourceConfig, SentryResumeConfig]):
+    supported_versions = ("0",)
+    default_version = "0"
+    api_docs_url = "https://docs.sentry.io/api/"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

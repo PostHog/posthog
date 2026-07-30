@@ -12,9 +12,10 @@ import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/S
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSearchableSelect } from 'lib/lemon-ui/LemonSelect/LemonSearchableSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { Spinner } from 'lib/lemon-ui/Spinner'
+import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { timeZoneLabel } from 'lib/utils/timezones'
+import { appLogic } from 'scenes/appLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -27,6 +28,7 @@ import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackBu
 import {
     AlertConfigFrequencyEnumApi,
     VisionActionModeEnumApi,
+    VisionAlertDirectionEnumApi,
     VisionAlertMetricEnumApi,
 } from '../generated/api.schemas'
 import { actionEditorSceneLogic } from './actionEditorSceneLogic'
@@ -457,7 +459,16 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
                         options={WINDOW_OPTIONS}
                         data-attr="vision-action-alert-window"
                     />
-                    <span className="text-sm">reaches</span>
+                    <LemonSelect
+                        size="small"
+                        value={actionForm.alert_direction}
+                        onChange={(value) => value && setActionFormValue('alert_direction', value)}
+                        options={[
+                            { value: VisionAlertDirectionEnumApi.Above, label: 'is at least' },
+                            { value: VisionAlertDirectionEnumApi.Below, label: 'is at most' },
+                        ]}
+                        data-attr="vision-action-alert-direction"
+                    />
                     <LemonInput
                         type="number"
                         size="small"
@@ -537,9 +548,14 @@ export function ActionEditorSceneComponent(): JSX.Element {
     const { isNew, actionLoading, loadedAction, actionForm, isActionFormSubmitting, effectiveScannerId, scannerName } =
         useValues(actionEditorSceneLogic)
     const { setActionFormValue } = useActions(actionEditorSceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
+    const { featureFlagsTimedOut } = useValues(appLogic)
 
     if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION] || !featureFlags[FEATURE_FLAGS.REPLAY_VISION_ACTIONS]) {
+        // Flags load asynchronously, so wait for them before deciding the page doesn't exist.
+        if (!receivedFeatureFlags && !featureFlagsTimedOut) {
+            return <SpinnerOverlay sceneLevel />
+        }
         return <NotFound object="page" />
     }
 

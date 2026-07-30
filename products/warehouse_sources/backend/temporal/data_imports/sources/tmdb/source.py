@@ -36,6 +36,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TMDbSource(ResumableSource[TMDbSourceConfig, TMDbResumeConfig]):
+    supported_versions = ("3",)
+    default_version = "3"
+    api_docs_url = "https://developer.themoviedb.org/reference/intro/getting-started"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.TMDB

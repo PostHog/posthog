@@ -293,7 +293,10 @@ export function buildInsertCommands(
                 insertComponent(targetNodeId, 'Query', {
                     query: {
                         kind: 'InsightVizNode',
-                        source: { kind: 'TrendsQuery', series: [{ event: '$pageview', kind: 'EventsNode' }] },
+                        source: {
+                            kind: 'TrendsQuery',
+                            series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview', math: 'total' }],
+                        },
                     },
                 }),
         },
@@ -309,8 +312,8 @@ export function buildInsertCommands(
                         source: {
                             kind: 'FunnelsQuery',
                             series: [
-                                { event: '$pageview', kind: 'EventsNode' },
-                                { event: '$pageleave', kind: 'EventsNode' },
+                                { kind: 'EventsNode', name: '$pageview', event: '$pageview' },
+                                { kind: 'EventsNode', name: '$pageleave', event: '$pageleave' },
                             ],
                         },
                     },

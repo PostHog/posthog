@@ -2,7 +2,7 @@ from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
-from posthog.models import Team
+from posthog.models import Team, User
 
 from products.review_hog.backend.models import ReviewSkillConfig
 from products.review_hog.backend.reviewer.lazy_seed import sync_canonical_validation
@@ -22,9 +22,15 @@ class TestReviewValidatorConfigAPI(APIBaseTest):
         sync_canonical_validation(self.team)
         self.base = f"/api/projects/{self.team.id}/review_hog/validators"
 
-    def _author_custom(self) -> None:
+    def _author_custom(self, created_by: User | None = None) -> None:
         LLMSkill.objects.create(
-            team=self.team, name=_CUSTOM, description="d", body="x" * 250, version=1, is_latest=True
+            team=self.team,
+            name=_CUSTOM,
+            description="d",
+            body="x" * 250,
+            version=1,
+            is_latest=True,
+            created_by=created_by or self.user,
         )
 
     def test_list_shows_canonical_active_and_custom_inactive(self) -> None:
@@ -58,7 +64,13 @@ class TestReviewValidatorConfigAPI(APIBaseTest):
         c1, c2 = f"{REVIEW_HOG_VALIDATION_PREFIX}c1", f"{REVIEW_HOG_VALIDATION_PREFIX}c2"
         for name in (c1, c2):
             LLMSkill.objects.create(
-                team=self.team, name=name, description="d", body="x" * 250, version=1, is_latest=True
+                team=self.team,
+                name=name,
+                description="d",
+                body="x" * 250,
+                version=1,
+                is_latest=True,
+                created_by=self.user,
             )
         configs = ReviewSkillConfig.objects.for_team(self.team.id).filter(user_id=self.user.id)
 
@@ -122,6 +134,19 @@ class TestReviewValidatorConfigAPI(APIBaseTest):
             f"{self.base}/{REVIEW_HOG_VALIDATION_PREFIX}does-not-exist/", {"active": True}, format="json"
         )
         assert res.status_code == 404
+
+    def test_a_teammates_custom_validator_is_hidden_and_not_selectable(self) -> None:
+        # Visibility is author-only: a custom another user authored must not appear in this user's
+        # menu, and selecting it by exact name must 404 as if it didn't exist.
+        teammate = User.objects.create(email="teammate-validators@example.com")
+        self._author_custom(created_by=teammate)
+
+        listing = self.client.get(f"{self.base}/")
+        selected = self.client.patch(f"{self.base}/{_CUSTOM}/", {"active": True}, format="json")
+
+        assert listing.status_code == 200
+        assert _CUSTOM not in {item["skill_name"] for item in listing.json()}
+        assert selected.status_code == 404
 
     def test_environment_url_resolves_to_the_canonical_team(self) -> None:
         # Same failure mode as the settings/perspectives viewsets: an environment (child team) id in

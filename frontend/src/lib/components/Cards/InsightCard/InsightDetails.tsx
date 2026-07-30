@@ -68,11 +68,26 @@ import {
     isTrendsQuery,
     hasBreakdownFilter,
 } from '~/queries/utils'
-import { AnyPropertyFilter, BaseMathType, FilterLogicalOperator, PropertyGroupFilter, UserBasicType } from '~/types'
+import {
+    AnyPropertyFilter,
+    BaseMathType,
+    FilterLogicalOperator,
+    InsightFilterOverrideContext,
+    UserBasicType,
+} from '~/types'
 
 import { PropertyKeyInfo } from '../../PropertyKeyInfo'
 import { TZLabel } from '../../TZLabel'
 import { CompactUniversalFiltersDisplay } from './CompactUniversalFiltersDisplay'
+import {
+    dropDuplicatesOfOverrides,
+    EffectiveDateOverride,
+    getDateRangeOverrideDisplay,
+    getEffectiveFilterOverrides,
+    OverrideSource,
+    PropertiesInput,
+    splitOutOverrideProperties,
+} from './insightDetailsFilterOverrides'
 
 export function InsightDetailSectionDisplay({
     icon,
@@ -98,77 +113,42 @@ function assertNever(value: never): never {
     throw new Error(`Unexpected entity node: ${(value as { kind?: string } | undefined)?.kind ?? 'unknown'}`)
 }
 
-type OverrideSource = 'dashboard' | 'tile'
-
-// A tile override replaces the dashboard override wholesale (matches backend `apply_dashboard_filters`) —
-// never both at once.
-function getEffectiveFilterOverride(
-    filtersOverride: DashboardFilter | undefined,
-    tileFiltersOverride: TileFilters | null | undefined
-): { override: DashboardFilter | TileFilters; source: OverrideSource } | null {
-    if (tileFiltersOverride && Object.keys(tileFiltersOverride).length > 0) {
-        return { override: tileFiltersOverride, source: 'tile' }
-    }
-    if (filtersOverride && Object.keys(filtersOverride).length > 0) {
-        return { override: filtersOverride, source: 'dashboard' }
-    }
-    return null
+const LAYER_LABELS: Record<OverrideSource | 'insight', string> = {
+    insight: 'Insight',
+    dashboard: 'Dashboard',
+    tile: 'Tile',
 }
 
-function OverrideNote({ source, children }: { source: OverrideSource; children: React.ReactNode }): JSX.Element {
+// Distinct colors per layer so the precedence stack reads at a glance: insight (base, grey) →
+// dashboard (purple) → tile (accent, highest priority). Not primary/highlight for two of them — those
+// share --color-accent and would look identical.
+const LAYER_TAG_TYPE: Record<OverrideSource | 'insight', 'muted' | 'completion' | 'primary'> = {
+    insight: 'muted',
+    dashboard: 'completion',
+    tile: 'primary',
+}
+
+function LayerTag({ source }: { source: OverrideSource | 'insight' }): JSX.Element {
+    return (
+        <LemonTag type={LAYER_TAG_TYPE[source]} size="small">
+            {LAYER_LABELS[source]}
+        </LemonTag>
+    )
+}
+
+function OverrideNote({
+    source,
+    children,
+}: {
+    source: OverrideSource | 'insight'
+    children: React.ReactNode
+}): JSX.Element {
     return (
         <div className="mt-1.5 flex items-center gap-1">
-            <LemonTag type="highlight" size="small">
-                {source === 'tile' ? 'Tile' : 'Dashboard'}
-            </LemonTag>
+            <LayerTag source={source} />
             <span className="text-muted-alt">{children}</span>
         </div>
     )
-}
-
-// The override round-trips through the backend into the merged query and picks up normalized fields
-// the raw override lacks, so a deep-equal fails — compare on the fields that actually identify a filter.
-function isSamePropertyFilter(a: AnyPropertyFilter, b: AnyPropertyFilter): boolean {
-    const operatorOf = (f: AnyPropertyFilter): string | undefined => ('operator' in f ? f.operator : undefined)
-    return (
-        (a.type ?? 'event') === (b.type ?? 'event') &&
-        a.key === b.key &&
-        (operatorOf(a) ?? 'exact') === (operatorOf(b) ?? 'exact') &&
-        JSON.stringify(a.value ?? null) === JSON.stringify(b.value ?? null)
-    )
-}
-
-function samePropertyFilters(a: AnyPropertyFilter[], b: AnyPropertyFilter[]): boolean {
-    return a.length === b.length && a.every((f, i) => isSamePropertyFilter(f, b[i]))
-}
-
-// Matches the shape `convertPropertiesToPropertyGroup` accepts: a group, a flat list, or nothing.
-type PropertiesInput = PropertyGroupFilter | AnyPropertyFilter[] | null | undefined
-
-// The query returned for a dashboard tile already has the override's properties ANDed in (as the
-// trailing subgroup/tail), so pull that part out to attribute it rather than list it twice.
-function splitOutOverrideProperties(
-    properties: PropertiesInput,
-    overrideProperties: AnyPropertyFilter[]
-): { base: PropertiesInput; overrideFound: boolean } {
-    if (!properties || overrideProperties.length === 0) {
-        return { base: properties, overrideFound: false }
-    }
-    // Flat list: the backend concatenated the override onto the end.
-    if (Array.isArray(properties)) {
-        const tailStart = properties.length - overrideProperties.length
-        if (tailStart >= 0 && samePropertyFilters(properties.slice(tailStart), overrideProperties)) {
-            return { base: properties.slice(0, tailStart), overrideFound: true }
-        }
-        return { base: properties, overrideFound: false }
-    }
-    // Group: the backend AND-wrapped the insight's group with the override as the final subgroup.
-    const subgroups = properties.values ?? []
-    const last = subgroups[subgroups.length - 1]
-    if (last && samePropertyFilters(last.values as AnyPropertyFilter[], overrideProperties)) {
-        return { base: { ...properties, values: subgroups.slice(0, -1) }, overrideFound: true }
-    }
-    return { base: properties, overrideFound: false }
 }
 
 function EntityDisplay({ entity }: { entity: AnyEntityNode<AnyDataWarehouseNode> }): JSX.Element {
@@ -440,22 +420,48 @@ export function FormulaSummary({ query }: { query: TrendsQuery }): JSX.Element |
 
 export function PropertiesSummary({
     properties,
-    override,
+    overrides,
+    overriddenByTile,
 }: {
     properties: PropertiesInput
-    override?: { properties: AnyPropertyFilter[]; source: OverrideSource } | null
+    overrides?: { properties: AnyPropertyFilter[]; source: OverrideSource }[] | null
+    overriddenByTile?: AnyPropertyFilter[] | null
 }): JSX.Element {
-    const { base, overrideFound } = splitOutOverrideProperties(properties, override?.properties ?? [])
+    const overrideGroups = overrides ?? []
+    const overriddenProperties = overriddenByTile ?? []
+    const allOverrideProperties = overrideGroups.flatMap((group) => group.properties)
+    const { base, overrideFound } = splitOutOverrideProperties(properties, allOverrideProperties)
+    const dedupedBase = overrideFound ? dropDuplicatesOfOverrides(base, allOverrideProperties) : base
+    const label = overrideFound ? 'Active filters' : 'Filters'
     return (
-        <InsightDetailSectionDisplay icon={<IconFilter />} label="Filters">
-            <CompactUniversalFiltersDisplay groupFilter={convertPropertiesToPropertyGroup(base)} />
-            {/* overrideFound means we removed the override from the list above, so show it once here. */}
-            {override && overrideFound && (
+        <InsightDetailSectionDisplay icon={<IconFilter />} label={label}>
+            {overrideFound && <OverrideNote source="insight">base filters:</OverrideNote>}
+            <CompactUniversalFiltersDisplay groupFilter={convertPropertiesToPropertyGroup(dedupedBase)} />
+            {overrideFound &&
+                overrideGroups.map((group) => (
+                    <React.Fragment key={group.source}>
+                        <OverrideNote source={group.source}>filters added on top:</OverrideNote>
+                        <CompactUniversalFiltersDisplay
+                            groupFilter={convertPropertiesToPropertyGroup(group.properties)}
+                        />
+                    </React.Fragment>
+                ))}
+            {/* Dashboard filters the tile shadowed — shown struck-through so precedence is visible. */}
+            {overrideFound && overriddenProperties.length > 0 && (
                 <>
-                    <OverrideNote source={override.source}>filters added on top:</OverrideNote>
-                    <CompactUniversalFiltersDisplay
-                        groupFilter={convertPropertiesToPropertyGroup(override.properties)}
-                    />
+                    <LemonDivider className="my-2" />
+                    <div className="text-muted-alt">
+                        <div className="mt-1.5 flex items-center gap-1">
+                            <LayerTag source="dashboard" />
+                            <span>filter replaced by</span>
+                            <LayerTag source="tile" />
+                        </div>
+                        <div className="line-through opacity-60">
+                            <CompactUniversalFiltersDisplay
+                                groupFilter={convertPropertiesToPropertyGroup(overriddenProperties)}
+                            />
+                        </div>
+                    </div>
                 </>
             )}
         </InsightDetailSectionDisplay>
@@ -575,17 +581,33 @@ export function BreakdownSummary({
 export function DateRangeSummary({
     dateFrom,
     dateTo,
+    override,
 }: {
     dateFrom: string | null | undefined
     dateTo: string | null | undefined
+    override?: EffectiveDateOverride | null
 }): JSX.Element | null {
     const dateFilterText = dateFilterToText(dateFrom, dateTo, null)
     if (!dateFilterText) {
         return null
     }
+    const replaced = override?.replaced
+    const replacedText = replaced ? dateFilterToText(replaced.dateFrom, replaced.dateTo, null) : null
     return (
         <InsightDetailSectionDisplay icon={<IconCalendar />} label="Date range">
-            <div className="font-medium">{dateFilterText}</div>
+            {/* Tag the value with its source layer rather than repeating "date range" in a note. */}
+            <div className="flex items-center gap-1">
+                <span className="font-medium">{dateFilterText}</span>
+                {override && <LayerTag source={override.source} />}
+            </div>
+            {replaced && replacedText && (
+                <div className="text-muted-alt text-xs mt-0.5 flex items-center gap-1">
+                    <span>
+                        was <span className="line-through">{replacedText}</span> from
+                    </span>
+                    <LayerTag source={replaced.source} />
+                </div>
+            )}
         </InsightDetailSectionDisplay>
     )
 }
@@ -602,22 +624,43 @@ interface InsightDetailsProps {
     variablesOverride?: Record<string, HogQLVariable>
     filtersOverride?: DashboardFilter
     tileFiltersOverride?: TileFilters | null
+    filterOverrideContext?: InsightFilterOverrideContext | null
     hasDataWarehouseSeries?: boolean
 }
 
 export const InsightDetails = React.memo(
     React.forwardRef<HTMLDivElement, InsightDetailsProps>(function InsightDetailsInternal(
-        { query, footerInfo, variablesOverride, filtersOverride, tileFiltersOverride, hasDataWarehouseSeries },
+        {
+            query,
+            footerInfo,
+            variablesOverride,
+            filtersOverride,
+            tileFiltersOverride,
+            filterOverrideContext,
+            hasDataWarehouseSeries,
+        },
         ref
     ): JSX.Element {
-        const effectiveOverride = getEffectiveFilterOverride(filtersOverride, tileFiltersOverride)
-        const overrideProperties = effectiveOverride?.override.properties ?? []
-        const overrideBreakdownFilter = effectiveOverride?.override.breakdown_filter
-        const hasPropertyOverrides = overrideProperties.length > 0
+        const {
+            propertyGroups,
+            overriddenByTile,
+            breakdown: overrideBreakdown,
+        } = getEffectiveFilterOverrides(filterOverrideContext, filtersOverride, tileFiltersOverride)
+        const insightDateRange = isInsightVizNode(query) ? query.source.dateRange : undefined
+        const dateOverride = getDateRangeOverrideDisplay(
+            insightDateRange,
+            filterOverrideContext,
+            filtersOverride,
+            tileFiltersOverride
+        )
+        const overrideBreakdownFilter = overrideBreakdown?.breakdownFilter
+        const hasPropertyOverrides = propertyGroups.length > 0
         const hasIgnoredBreakdownOverrides =
             isInsightVizNode(query) &&
             isTrendsQuery(query.source) &&
-            hasUnsupportedBreakdownForDataWarehouseTrends(effectiveOverride?.override)
+            hasUnsupportedBreakdownForDataWarehouseTrends(
+                overrideBreakdownFilter ? { breakdown_filter: overrideBreakdownFilter } : null
+            )
 
         return (
             <div className="InsightDetails space-y-2" ref={ref}>
@@ -630,6 +673,13 @@ export const InsightDetails = React.memo(
                             variables={isHogQLQuery(query.source) ? query.source.variables : undefined}
                             variablesOverride={variablesOverride}
                         />
+                        {dateOverride && (
+                            <DateRangeSummary
+                                dateFrom={dateOverride.dateFrom}
+                                dateTo={dateOverride.dateTo}
+                                override={dateOverride}
+                            />
+                        )}
                         {hasDataWarehouseSeries && hasPropertyOverrides ? (
                             <PropertiesIgnoredWarning />
                         ) : (
@@ -639,19 +689,16 @@ export const InsightDetails = React.memo(
                                         ? query.source.filters?.properties
                                         : query.source.properties
                                 }
-                                override={
-                                    effectiveOverride && hasPropertyOverrides
-                                        ? { properties: overrideProperties, source: effectiveOverride.source }
-                                        : null
-                                }
+                                overrides={hasPropertyOverrides ? propertyGroups : null}
+                                overriddenByTile={hasPropertyOverrides ? overriddenByTile : null}
                             />
                         )}
                         {hasDataWarehouseSeries && hasIgnoredBreakdownOverrides ? (
                             <BreakdownIgnoredWarning />
-                        ) : effectiveOverride && hasBreakdownFilter(overrideBreakdownFilter) ? (
+                        ) : overrideBreakdown && hasBreakdownFilter(overrideBreakdownFilter) ? (
                             <BreakdownSummary
                                 breakdownFilter={overrideBreakdownFilter}
-                                override={{ source: effectiveOverride.source }}
+                                override={{ source: overrideBreakdown.source }}
                             />
                         ) : (
                             <InsightBreakdownSummary query={query.source} />

@@ -223,6 +223,26 @@ class TestMediaAPI(APIBaseTest):
         assert download_response.status_code == status.HTTP_200_OK
         assert download_response.headers["Content-Disposition"] == expected_disposition
 
+    def test_download_returns_404_when_object_storage_key_is_missing(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            with open(get_path_to("a-small-but-valid.gif"), "rb") as image:
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/uploaded_media",
+                    {"image": image},
+                    format="multipart",
+                )
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+                media_id = response.json()["id"]
+
+            self.client.logout()
+            with patch(
+                "posthog.api.uploaded_media.object_storage.read_bytes",
+                return_value=None,
+            ):
+                download_response = self.client.get(f"/uploaded_media/{media_id}")
+
+        assert download_response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_rejects_upload_when_object_storage_is_unavailable(self) -> None:
         with override_settings(OBJECT_STORAGE_ENABLED=False):
             fake_big_file = SimpleUploadedFile(name="test_image.jpg", content=b"", content_type="image/jpeg")

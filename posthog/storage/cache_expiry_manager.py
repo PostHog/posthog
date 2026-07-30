@@ -67,13 +67,7 @@ def get_teams_with_expiring_caches(
 
         # Build query filter dynamically based on token_based setting
         filter_kwargs = {f"{query_field}__in": decoded_identifiers}
-        query = Team.objects.filter(**filter_kwargs).select_related("organization", "project")
-
-        # Narrow the SELECT to the columns the refresh actually reads. Otherwise a
-        # Team column from a migration the read replica hasn't applied yet makes the
-        # implicit `SELECT *` raise UndefinedColumn and silently skip the whole batch.
-        if config.refresh_only_fields is not None:
-            query = query.only(*config.refresh_only_fields)
+        query = config.narrow_team_queryset(Team.objects.filter(**filter_kwargs))
 
         teams = list(query)
 

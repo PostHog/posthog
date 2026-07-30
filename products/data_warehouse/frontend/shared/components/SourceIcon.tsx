@@ -102,7 +102,7 @@ export function SourceIcon({
     disableTooltip = false,
 }: {
     type: string
-    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | 'redshift' | null
     size?: 'xsmall' | 'small' | 'medium'
     sizePx?: number
     disableTooltip?: boolean

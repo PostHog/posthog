@@ -143,6 +143,40 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
     })
 })
 
+function makeCustomerComment(id: string, itemContext: Record<string, any>): CommentType {
+    return {
+        id,
+        content: 'reply body',
+        scope: 'conversations_ticket',
+        item_id: 'ticket-1',
+        item_context: { author_type: 'customer', ...itemContext },
+        created_at: '2026-01-01T00:00:00Z',
+        created_by: null,
+    } as unknown as CommentType
+}
+
+describe('supportTicketSceneLogic chatMessages author attribution', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = supportTicketSceneLogic({ id: 'new' })
+        logic.mount()
+        logic.actions.setTicket({ ...makeTicket(), anonymous_traits: { name: 'Mark' } } as Ticket)
+    })
+
+    // A thread reply from a second Teams/Slack participant must show its own author,
+    // not fall back to the ticket requester's name.
+    test.each<[string, Record<string, any>, string]>([
+        ['teams thread reply author', { teams_author_name: 'Chris' }, 'Chris'],
+        ['slack thread reply author', { slack_author_name: 'Chris' }, 'Chris'],
+        ['requester fallback without per-message author', {}, 'Mark'],
+    ])('%s', (_name, itemContext, expectedName) => {
+        logic.actions.setMessages([makeCustomerComment('msg-1', itemContext)])
+        expect(logic.values.chatMessages[0].authorName).toBe(expectedName)
+    })
+})
+
 type GateTicket = Pick<Ticket, 'channel_source' | 'email_from' | 'email_to'>
 
 const emailTicket = (overrides: Partial<GateTicket> = {}): GateTicket => ({

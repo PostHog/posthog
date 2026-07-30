@@ -36,6 +36,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PicqerSource(ResumableSource[PicqerSourceConfig, PicqerResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://picqer.com/en/api"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

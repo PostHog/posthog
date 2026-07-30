@@ -8,6 +8,7 @@ and lets the logic be unit-tested without the activity decorator.
 import temporalio.activity
 
 from products.experiments.backend.temporal.models import (
+    MAX_METRIC_ATTEMPTS,
     ExperimentMetricToRecalculate,
     MetricRecalculationResult,
     RecalculationProgressUpdate,
@@ -41,7 +42,6 @@ async def calculate_experiment_metric_for_recalculation(
     recalculation_id: str,
     query_to: str,
     metric_type: str = "primary",
-    is_final_attempt: bool = True,
 ) -> MetricRecalculationResult:
     """Calculate one metric, write its recalc-fingerprinted result to ExperimentMetricResult, and fold the
     progress update (counter + error) into the same job atomically. query_to is the run's shared data-window end.
@@ -50,11 +50,12 @@ async def calculate_experiment_metric_for_recalculation(
     PostHog event so the capture path doesn't have to re-query the saved-metric M2M to resolve it. Defaults to
     "primary" so existing call sites and tests that don't pass it remain valid.
 
-    is_final_attempt is owned by the workflow's requeue loop (the activity runs with maximum_attempts=1, so it
-    can't infer this from activity.info().attempt). On the final attempt a transient failure is persisted rather
-    than re-raised silently, so the row reflects the real outcome once the workflow stops retrying. Defaults to
-    True so callers that don't pass it persist failures eagerly.
+    Finality is derived from activity.info().attempt against MAX_METRIC_ATTEMPTS, the same constant the
+    workflow's RetryPolicy is built from, so both sides agree on which attempt is the last. On the final
+    attempt a transient failure is persisted rather than re-raised silently, so the row reflects the real
+    outcome once Temporal stops retrying.
     """
+    is_final_attempt = temporalio.activity.info().attempt >= MAX_METRIC_ATTEMPTS
     return await _calculate_experiment_metric_for_recalculation_sync(
         experiment_id, metric_uuid, recalculation_id, query_to, metric_type, is_final_attempt
     )

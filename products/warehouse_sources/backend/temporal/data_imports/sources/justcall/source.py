@@ -35,6 +35,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class JustCallSource(ResumableSource[JustCallSourceConfig, JustCallResumeConfig]):
+    supported_versions = ("v2.1",)
+    default_version = "v2.1"
+    api_docs_url = "https://developer.justcall.io/reference"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

@@ -16,6 +16,7 @@ import {
     VIEW_DESCRIPTIONS,
     engineeringAnalyticsSceneLogic,
 } from './engineeringAnalyticsSceneLogic'
+import { EngineeringAnalyticsTeams } from './EngineeringAnalyticsTeams'
 import { EngineeringAnalyticsTestHealth } from './EngineeringAnalyticsTestHealth'
 import { EngineeringAnalyticsWorkflows } from './EngineeringAnalyticsWorkflows'
 import { RepoOverviewScene } from './RepoOverviewScene'
@@ -54,6 +55,13 @@ export function EngineeringAnalyticsScene(): JSX.Element {
             content: <EngineeringAnalyticsWorkflows />,
             link: combineUrl(urls.engineeringAnalyticsWorkflows(), linkParams).url,
             'data-attr': 'engineering-analytics-workflows-tab',
+        },
+        {
+            key: 'teams',
+            label: 'Teams',
+            content: <EngineeringAnalyticsTeams />,
+            link: combineUrl(urls.engineeringAnalyticsTeams(), linkParams).url,
+            'data-attr': 'engineering-analytics-teams-tab',
         },
         {
             key: 'test-health',

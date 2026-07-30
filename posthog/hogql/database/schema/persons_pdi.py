@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 import posthoganalytics
 
 from posthog.hogql.ast import SelectQuery
@@ -14,7 +16,8 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.errors import ResolutionError
 
-from posthog.models.organization import Organization
+if TYPE_CHECKING:
+    from posthog.models.organization import Organization
 
 
 # :NOTE: We already have person_distinct_ids.py, which most tables link to. This persons_pdi.py is a hack to

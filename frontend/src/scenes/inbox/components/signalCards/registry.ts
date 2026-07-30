@@ -1,3 +1,7 @@
+import {
+    AnalyticsAnomalyInvestigationSignalCard,
+    analyticsAnomalyInvestigationSignalCardEntry,
+} from './AnalyticsAnomalyInvestigationSignalCard'
 import { ConversationsTicketSignalCard, conversationsTicketSignalCardEntry } from './ConversationsTicketSignalCard'
 import {
     EndpointExecutionFailedSignalCard,
@@ -22,6 +26,7 @@ import { ZendeskTicketSignalCard, zendeskTicketSignalCardEntry } from './Zendesk
 
 // Re-export every per-source card so consumers (stories, tests) can reach them by name.
 export {
+    AnalyticsAnomalyInvestigationSignalCard,
     ConversationsTicketSignalCard,
     EndpointExecutionFailedSignalCard,
     ErrorTrackingSignalCard,
@@ -54,6 +59,7 @@ export const SIGNAL_CARD_REGISTRY: SignalCardEntry[] = [
     conversationsTicketSignalCardEntry,
     endpointExecutionFailedSignalCardEntry,
     logsAlertSignalCardEntry,
+    analyticsAnomalyInvestigationSignalCardEntry,
     signalsScoutSignalCardEntry,
     // External sources
     githubIssueSignalCardEntry,

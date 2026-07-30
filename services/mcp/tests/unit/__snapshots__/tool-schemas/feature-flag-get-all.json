@@ -14,6 +14,11 @@
             "description": "Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.",
             "type": "string"
         },
+        "eligible_for_experiment": {
+            "description": "When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored.",
+            "enum": ["true"],
+            "type": "string"
+        },
         "evaluation_runtime": {
             "description": "Filter feature flags by their evaluation runtime.",
             "enum": ["all", "client", "server"],

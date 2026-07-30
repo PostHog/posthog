@@ -38,6 +38,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TwilioSource(ResumableSource[TwilioSourceConfig, TwilioResumeConfig]):
+    supported_versions = ("2010-04-01",)
+    default_version = "2010-04-01"
+    api_docs_url = "https://www.twilio.com/docs/usage/api"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

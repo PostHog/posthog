@@ -28,8 +28,9 @@ trap 'rm -f "$EMPTY"' EXIT
 envs="$(manifest_envs)"
 for env in $envs; do
   roles="$(manifest_roles "$env")"
+  mkdir -p "$SQL_DIR/$env"
   for role in $roles; do
-    out="$SQL_DIR/$env-$role.sql"
+    out="$SQL_DIR/$env/$role.sql"
     stack="$(manifest_stack "$env" "$role")"
     {
       echo "-- AUTO-GENERATED from the declarative HCL by ops/gen-sql.sh — do not edit."

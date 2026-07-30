@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ScaleAISource(ResumableSource[ScaleAISourceConfig, ScaleAIResumeConfig]):
+    api_docs_url = "https://scale.com/docs/api-reference/introduction-to-scale-api"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

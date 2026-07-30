@@ -1,7 +1,6 @@
 //! `FilterCatalog` + atomic swap + jittered periodic refresh loop.
 
 use std::collections::hash_map::DefaultHasher;
-use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -16,70 +15,10 @@ use sqlx::PgPool;
 use tokio::sync::Notify;
 use tracing::{debug, info, warn};
 
-use crate::filters::loader::{build_catalog_from_rows, load_realtime_cohorts, retain_allowlisted};
-use crate::filters::reverse_index::TeamFilters;
-use crate::filters::{FilterError, TeamId};
+use crate::filters::loader::{build_catalog_from_rows, load_realtime_cohorts, CohortRow};
+use crate::filters::FilterError;
+use crate::filters::{FilterCatalog, Generation};
 use crate::observability::metrics::{FILTER_CATALOG_TEAMS, FILTER_CATALOG_UNIQUE_CONDITIONS};
-
-/// The catalog's content epoch. Compared for memo invalidation; advanced on a content change.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub struct Generation(pub u64);
-
-impl Generation {
-    /// The empty pre-load catalog; no team is evaluated against it.
-    pub const INITIAL: Self = Self(0);
-
-    fn next(self) -> Self {
-        Self(self.0 + 1)
-    }
-}
-
-#[derive(Debug, Default)]
-pub struct FilterCatalog {
-    teams: HashMap<TeamId, Arc<TeamFilters>>,
-    /// Content epoch, stamped by [`CatalogHandle::store`].
-    generation: Generation,
-}
-
-impl FilterCatalog {
-    pub fn new() -> Self {
-        Self {
-            teams: HashMap::new(),
-            generation: Generation::INITIAL,
-        }
-    }
-
-    /// The frozen filters for a team, or `None` if it has no realtime cohorts.
-    pub fn team(&self, team_id: TeamId) -> Option<&Arc<TeamFilters>> {
-        self.teams.get(&team_id)
-    }
-
-    pub fn generation(&self) -> Generation {
-        self.generation
-    }
-
-    pub fn team_count(&self) -> usize {
-        self.teams.len()
-    }
-
-    /// Total distinct conditionHashes across all teams (sum of the per-team dedup sets).
-    pub fn total_unique_conditions(&self) -> usize {
-        self.teams
-            .values()
-            .map(|team| team.unique_condition_hashes.len())
-            .sum()
-    }
-
-    pub fn from_teams(teams: impl IntoIterator<Item = (TeamId, TeamFilters)>) -> Self {
-        Self {
-            teams: teams
-                .into_iter()
-                .map(|(team, filters)| (team, Arc::new(filters)))
-                .collect(),
-            generation: Generation::INITIAL,
-        }
-    }
-}
 
 /// Snapshot counts returned by [`CatalogHandle::refresh`] for logging.
 #[derive(Debug, Clone, Copy)]
@@ -159,7 +98,7 @@ impl CatalogHandle {
         handle
     }
 
-    fn store(&self, mut catalog: FilterCatalog) {
+    fn store(&self, catalog: FilterCatalog) {
         // Advance the generation only on a content change (`INITIAL` is the first store); a no-op
         // refresh reuses it so memo entries stay valid.
         let signature = catalog_signature(&catalog);
@@ -173,7 +112,7 @@ impl CatalogHandle {
         self.current_signature.store(signature, Ordering::Relaxed);
         self.current_generation
             .store(generation.0, Ordering::Relaxed);
-        catalog.generation = generation;
+        let catalog = catalog.with_generation(generation);
 
         gauge!(FILTER_CATALOG_TEAMS).set(catalog.team_count() as f64);
         gauge!(FILTER_CATALOG_UNIQUE_CONDITIONS).set(catalog.total_unique_conditions() as f64);
@@ -204,6 +143,11 @@ impl CatalogHandle {
     }
 }
 
+/// Drop rows outside the configured team scope before catalog construction.
+fn retain_allowlisted(rows: &mut Vec<CohortRow>, allowlist: &TeamAllowlist) {
+    rows.retain(|row| allowlist.includes(row.team_id));
+}
+
 impl Default for CatalogHandle {
     fn default() -> Self {
         Self::new()
@@ -214,15 +158,8 @@ impl Default for CatalogHandle {
 /// `HashMap`/`HashSet` order. `DefaultHasher` is unseeded; only intra-process consistency is needed
 /// (the memo it gates resets on restart).
 fn catalog_signature(catalog: &FilterCatalog) -> u64 {
-    let mut teams: Vec<(&TeamId, &Arc<TeamFilters>)> = catalog.teams.iter().collect();
-    teams.sort_unstable_by_key(|(team, _)| team.0);
     let mut hasher = DefaultHasher::new();
-    for (team, filters) in teams {
-        team.0.hash(&mut hasher);
-        let mut hashes: Vec<[u8; 16]> = filters.unique_condition_hashes.iter().copied().collect();
-        hashes.sort_unstable();
-        hashes.hash(&mut hasher);
-    }
+    catalog.hash(&mut hasher);
     hasher.finish()
 }
 
@@ -268,12 +205,23 @@ fn next_interval(interval: Duration, jitter: Duration) -> Duration {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
     use chrono_tz::UTC;
     use serde_json::json;
 
     use crate::filters::reverse_index::TeamFiltersBuilder;
-    use crate::filters::CohortId;
+    use crate::filters::{CohortId, TeamFilters, TeamId};
+
+    fn cohort_row(id: i32, team_id: i32) -> CohortRow {
+        CohortRow {
+            id,
+            team_id,
+            filters: serde_json::Value::Null,
+            timezone: "UTC".to_string(),
+        }
+    }
 
     fn team_with_one_behavioral() -> TeamFilters {
         let mut builder = TeamFiltersBuilder::default();
@@ -414,6 +362,28 @@ mod tests {
             (TeamId(7), team_with_one_behavioral()),
         ]);
         assert_eq!(catalog_signature(&a), catalog_signature(&b));
+    }
+
+    #[test]
+    fn retain_allowlisted_keeps_only_in_scope_rows() {
+        let mut rows = vec![cohort_row(1, 2), cohort_row(2, 7)];
+        retain_allowlisted(&mut rows, &TeamAllowlist::Only(HashSet::from([2])));
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].team_id, 2);
+    }
+
+    #[test]
+    fn retain_allowlisted_all_keeps_everything() {
+        let mut rows = vec![cohort_row(1, 2), cohort_row(2, 7)];
+        retain_allowlisted(&mut rows, &TeamAllowlist::All);
+        assert_eq!(rows.len(), 2);
+    }
+
+    #[test]
+    fn retain_allowlisted_empty_scope_drops_everything() {
+        let mut rows = vec![cohort_row(1, 2)];
+        retain_allowlisted(&mut rows, &TeamAllowlist::Only(HashSet::new()));
+        assert!(rows.is_empty());
     }
 
     #[test]

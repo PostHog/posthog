@@ -35,6 +35,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class TeamtailorSource(ResumableSource[TeamtailorSourceConfig, TeamtailorResumeConfig]):
+    supported_versions = ("20240404",)
+    default_version = "20240404"
+    api_docs_url = "https://docs.teamtailor.com"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

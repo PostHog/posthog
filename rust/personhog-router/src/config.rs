@@ -165,10 +165,13 @@ pub struct Config {
     #[envconfig(default = "router-0")]
     pub pod_name: String,
 
-    #[envconfig(default = "30")]
+    /// Registration lease TTL. A crashed router stays in every freeze
+    /// quorum until this expires, stalling any handoff frozen in that
+    /// window — keep it short. Graceful exits deregister immediately.
+    #[envconfig(default = "10")]
     pub lease_ttl: i64,
 
-    #[envconfig(default = "10")]
+    #[envconfig(default = "3")]
     pub heartbeat_interval_secs: u64,
 
     /// Leader gRPC port used when resolving pod names to addresses
@@ -209,16 +212,31 @@ pub struct Config {
     pub stash_drain_concurrency: usize,
 
     // ── coordinator (leader election among router-leader pods) ───
-    /// Lease TTL for the coordinator leader election
-    #[envconfig(default = "15")]
+    /// Whether this leader-mode router campaigns for the coordinator
+    /// election. Disabled, the router still registers in the routing
+    /// table, serves traffic, and acks freezes — it just never
+    /// coordinates. Production leaves this on everywhere; the test
+    /// harness disables it on its traffic router so chaos targeting
+    /// "the coordinator" can never land on the traffic path.
+    #[envconfig(default = "true")]
+    pub coordinator_enabled: bool,
+
+    /// Lease TTL for the coordinator leader election. A crashed leader
+    /// blocks every handoff until this expires and a survivor's campaign
+    /// fires, so the worst-case coordinator outage is roughly this plus
+    /// the election retry interval. Graceful exits revoke the lease and
+    /// fail over immediately.
+    #[envconfig(default = "5")]
     pub coordinator_lease_ttl: i64,
 
-    /// Keepalive interval for the coordinator lease
-    #[envconfig(default = "5")]
+    /// Keepalive interval for the coordinator lease. Several attempts
+    /// must fit inside the TTL; a keepalive that reports the lease gone
+    /// makes the leader abdicate.
+    #[envconfig(default = "1")]
     pub coordinator_keepalive_secs: u64,
 
-    /// Retry interval when coordinator fails to acquire leadership
-    #[envconfig(default = "5")]
+    /// Retry interval between a standby candidate's election campaigns.
+    #[envconfig(default = "1")]
     pub coordinator_election_retry_secs: u64,
 
     /// Debounce interval (ms) for batching pod events before rebalancing

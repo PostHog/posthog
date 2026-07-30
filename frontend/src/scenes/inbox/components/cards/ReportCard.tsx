@@ -5,6 +5,7 @@ import { IconArchive, IconPullRequest, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { ScoutLink } from 'lib/signals/ScoutLink'
 import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 import { urls } from 'scenes/urls'
 
@@ -46,28 +47,33 @@ export function ConventionalCommitScopeTag({ type, scope }: { type: string; scop
 /** Icon stack + primary source-product label, with a `+ n` tail when more sources contributed. */
 export function InboxCardSourceMeta({
     sourceProducts,
-    scoutName,
+    scoutSkillName,
 }: {
     sourceProducts?: string[] | null
-    /** Authoring scout's display name, when scout-authored — appended to the "Scout" label. */
-    scoutName?: string | null
+    /** Authoring scout's raw skill slug, when scout-authored — its name links to the scout off the "Scout" label. */
+    scoutSkillName?: string | null
 }): JSX.Element | null {
     const entries = knownSourceProductEntries(sourceProducts)
     const [primary, ...overflow] = entries
     if (!primary) {
         return null
     }
-    // Name the authoring scout on a scout-authored report so it's clear at a glance who wrote it.
-    const primaryLabel =
-        primary.key === SignalSourceProduct.SignalsScout && scoutName
-            ? `${primary.meta.label} · ${scoutName}`
-            : primary.meta.label
+    // Name the authoring scout on a scout-authored report so it's clear at a glance who wrote it,
+    // and link the name straight to the scout's detail page.
+    const scoutName = scoutDisplayName(scoutSkillName)
+    const showScout = primary.key === SignalSourceProduct.SignalsScout && !!scoutName
     return (
         <Tooltip title={sourceProductsTooltipTitle(entries)}>
             <div className="flex items-center gap-2 min-w-0 text-xs text-tertiary leading-none select-none cursor-help">
                 <SourceProductIconRow entries={entries} className="flex items-center gap-1.5 shrink-0" />
                 <span>
-                    {primaryLabel}
+                    {primary.meta.label}
+                    {showScout && scoutSkillName ? (
+                        <>
+                            {' · '}
+                            <ScoutLink skillName={scoutSkillName} className="text-tertiary" />
+                        </>
+                    ) : null}
                     {overflow.length > 0 ? ` + ${overflow.length}` : null}
                 </span>
             </div>
@@ -266,7 +272,7 @@ export function ReportCard({
                             {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
                             <InboxCardSourceMeta
                                 sourceProducts={report.source_products}
-                                scoutName={scoutDisplayName(report.scout_name)}
+                                scoutSkillName={report.scout_name}
                             />
                             {!hasPr && (!isReady || !report.actionability) && (
                                 <SignalReportStatusBadge status={report.status} />

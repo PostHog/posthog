@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class GoogleWebfontsSource(SimpleSource[GoogleWebfontsSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://developers.google.com/fonts/docs/developer_api"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

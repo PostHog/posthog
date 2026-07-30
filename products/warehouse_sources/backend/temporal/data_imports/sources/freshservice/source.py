@@ -45,6 +45,9 @@ _DOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9-]+$")
 @SourceRegistry.register
 class FreshserviceSource(ResumableSource[FreshserviceSourceConfig, FreshserviceResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://api.freshservice.com/"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

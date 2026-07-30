@@ -12,6 +12,7 @@ import {
     type EmailMetric,
     WORKFLOW_SUMMARY_METRICS,
     type EmailMetricRow,
+    type PushMetricRow,
     withDisplayName,
     workflowMetricsSummaryLogic,
     type WorkflowMetricsSummaryLogicProps,
@@ -39,6 +40,8 @@ export function WorkflowMetricsSummary({
         workflowSummaryTrends,
         emailMetricsRows,
         emailTotalsByActionIdLoading,
+        pushMetricsRows,
+        pushTotalsByActionIdLoading,
         conversionRate,
         conversionStats,
         conversionStatsLoading,
@@ -138,6 +141,46 @@ export function WorkflowMetricsSummary({
         [onSelectAction, onMetricClick]
     )
 
+    const pushMetricsColumns: LemonTableColumns<PushMetricRow> = useMemo(
+        () => [
+            {
+                title: 'Push',
+                dataIndex: 'push',
+                key: 'push',
+                render: (_, row) =>
+                    onSelectAction ? (
+                        <span className="cursor-pointer text-link" onClick={() => onSelectAction(row.id)}>
+                            {row.push}
+                        </span>
+                    ) : (
+                        row.push
+                    ),
+            },
+            {
+                title: 'Sent',
+                dataIndex: 'sent',
+                key: 'sent',
+                align: 'right',
+                render: (_, row) => row.sent.toLocaleString(),
+            },
+            {
+                title: 'Skipped',
+                dataIndex: 'skipped',
+                key: 'skipped',
+                align: 'right',
+                render: (_, row) => row.skipped.toLocaleString(),
+            },
+            {
+                title: 'Failed',
+                dataIndex: 'failed',
+                key: 'failed',
+                align: 'right',
+                render: (_, row) => row.failed.toLocaleString(),
+            },
+        ],
+        [onSelectAction]
+    )
+
     return (
         <>
             <div className="flex flex-row gap-2 flex-wrap justify-center">
@@ -230,6 +273,18 @@ export function WorkflowMetricsSummary({
                 size="small"
                 emptyState="No email actions in this workflow"
             />
+
+            {/* Push has no delivery/open/click receipts like email — only the three send-time outcomes. */}
+            {pushMetricsRows.length > 0 && (
+                <LemonTable
+                    columns={pushMetricsColumns}
+                    dataSource={pushMetricsRows}
+                    loading={pushTotalsByActionIdLoading}
+                    rowKey="id"
+                    size="small"
+                    emptyState="No push actions in this workflow"
+                />
+            )}
 
             <AppMetricsTrends appMetricsTrends={workflowSummaryTrends} loading={loading} />
         </>

@@ -38,6 +38,9 @@ def _schema(**kwargs):
         "partition_format": None,
         "partitioning_keys": None,
         "primary_key_columns": None,
+        "incremental_field": None,
+        "incremental_field_type": None,
+        "schema_metadata": None,
     }
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
@@ -125,6 +128,77 @@ class TestSelectRepartitionTarget:
                 {"2024-01-01T00": 5000},
                 1000,
                 None,
+            ),
+            # A date-typed partition key (e.g. Google Ads segments.date) has no time-of-day, so an
+            # `hour` rewrite is a full-table no-op that then parks the controller at "finest tier"
+            # with the table still OOMing. Day is the ceiling for such keys.
+            (
+                "date_granular_cursor_key_caps_at_day",
+                {
+                    "partition_mode": "datetime",
+                    "partition_format": "day",
+                    "partitioning_keys": ["segments_date"],
+                    "incremental_field": "segments.date",
+                    "incremental_field_type": "date",
+                },
+                {"2024-01-01": 5000},
+                1000,
+                None,
+            ),
+            # Already no-op'd to hour before the ceiling existed (the four prod Google Ads tables):
+            # must skip, never select a coarsening rewrite back toward the ceiling.
+            (
+                "date_granular_key_already_at_hour_skips",
+                {
+                    "partition_mode": "datetime",
+                    "partition_format": "hour",
+                    "partitioning_keys": ["segments_date"],
+                    "incremental_field": "segments.date",
+                    "incremental_field_type": "date",
+                },
+                {"2024-01-01T00": 5000},
+                1000,
+                None,
+            ),
+            # Discovery metadata typing the key as a date caps it too, without an incremental cursor.
+            (
+                "date_typed_metadata_column_caps_at_day",
+                {
+                    "partition_mode": "datetime",
+                    "partition_format": "day",
+                    "partitioning_keys": ["report_date"],
+                    "schema_metadata": {"columns": [{"name": "report_date", "data_type": "date32[day]"}]},
+                },
+                {"2024-01-01": 5000},
+                1000,
+                None,
+            ),
+            # A timestamp-typed key must NOT be capped ("datetime64"/"timestamp" are not dates).
+            (
+                "timestamp_typed_metadata_column_still_offers_hour",
+                {
+                    "partition_mode": "datetime",
+                    "partition_format": "day",
+                    "partitioning_keys": ["created_at"],
+                    "schema_metadata": {"columns": [{"name": "created_at", "data_type": "timestamp[us]"}]},
+                },
+                {"2024-01-01": 5000},
+                1000,
+                {"partition_mode": "datetime", "partition_format": "hour"},
+            ),
+            # A date cursor that is NOT the partition key says nothing about the key's granularity.
+            (
+                "date_cursor_on_different_key_still_offers_hour",
+                {
+                    "partition_mode": "datetime",
+                    "partition_format": "day",
+                    "partitioning_keys": ["created_at"],
+                    "incremental_field": "report_date",
+                    "incremental_field_type": "date",
+                },
+                {"2024-01-01": 5000},
+                1000,
+                {"partition_mode": "datetime", "partition_format": "hour"},
             ),
             (
                 "unpartitioned_with_keys_enables_partitioning",

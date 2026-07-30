@@ -299,12 +299,12 @@ Defined in `backend/temporal/agentic/scout_coordinator.py`.
 
 **Flow:**
 
-1. Activity `fetch_enabled_signals_scout_runs_activity` bounds candidates to the teams enrolled via the `signals-scout` feature flag's JSON payload allowlist — `guaranteed_team_ids` minus `skip_team_ids`, with a hardcoded fail-safe default (`_participating_teams` → `_enrolled_team_ids`, modeled on `posthog/temporal/ai_observability/team_discovery.py`). Enrollment is flag-driven: editing the payload in the flag UI enrolls or drains a team next tick with no manual seed. For each enrolled team it calls `sync_canonical_skills(team, prune=True)` to mirror the on-disk `signals-scout-*` skills onto the team's `LLMSkill` rows, then auto-registers a `SignalScoutConfig` for any scout skill missing one (`scout_harness/config_registry.register_missing_configs`; the `signals-scout-config-create` endpoint is the explicit upsert counterpart, so a freshly authored scout is configurable without waiting for a tick). Failures here are logged and the tick continues — a stale skill is preferable to a dead tick.
+1. Activity `fetch_enabled_signals_scout_runs_activity` bounds candidates to the teams enrolled via the `signals-scout` feature flag's JSON payload allowlist — `guaranteed_team_ids` minus `skip_team_ids`, with a hardcoded fail-safe default (`_participating_teams` → `_enrolled_team_ids`, modeled on `posthog/temporal/ai_observability/team_discovery.py`). Enrollment is flag-driven: editing the payload in the flag UI enrolls or drains a team next tick with no manual seed. For each enrolled team it calls `sync_canonical_skills(team, prune=True)` to mirror the on-disk `signals-scout-*` skills onto the team's `LLMSkill` rows, then auto-registers a `SignalScoutConfig` for any scout skill missing one (`scout_harness/config_registry.register_missing_configs`; the `scout-config-create` endpoint is the explicit upsert counterpart, so a freshly authored scout is configurable without waiting for a tick). Failures here are logged and the tick continues — a stale skill is preferable to a dead tick.
 2. For each enabled config, the coordinator computes how overdue the scout is: due when `last_run_at is None`, or `now - last_run_at >= run_interval_minutes`. There is no sampling — every due scout is planned.
 3. Due runs are sorted most-overdue-first and truncated at `MAX_RUNS_PER_TICK` (50 per tick; the cost bound — overflow catches up next tick). `last_run_at` is advanced via `.update()` for everything dispatched (bypasses `save()`, so the per-tick write never hits the activity log). Planned runs are re-sorted by `(team_id, skill_name)` for stable child IDs.
 4. Each `PlannedRun` becomes a child `RunSignalsScoutWorkflow` started with `ParentClosePolicy.ABANDON` and a deterministic workflow ID per `(team_id, skill_name, tick_id)` so retried coordinators can't double-launch within a tick.
 
-The coordinator's lifetime is seconds regardless of fan-out width; throttling happens at the Temporal task queue + worker concurrency layer. Pausing a scout is `enabled=False` on its config; slowing it is a larger `run_interval_minutes` — both tunable via the `signals-scout-config-update` MCP tool.
+The coordinator's lifetime is seconds regardless of fan-out width; throttling happens at the Temporal task queue + worker concurrency layer. Pausing a scout is `enabled=False` on its config; slowing it is a larger `run_interval_minutes` — both tunable via the `scout-config-update` MCP tool.
 
 **Per-scout holdback (`withheld_skills`).** The same flag payload carries a hard denylist for keeping an unreleased scout off the fleet while dogfooding it on a single project. A `withheld_skills` list (a `default_team_config` fleet-wide default, overridable per team via `team_configs[<id>].withheld_skills` with replace-not-merge semantics — set `[]` to release the full fleet to one team) names scouts that, for a held-back team, are never seeded into its `LLMSkill` rows (`sync_canonical_skills` skips them), never get a `SignalScoutConfig` (`register_missing_configs` drops them from its return), and are never dispatched. Resolved by `_resolve_withheld_skills`, most-specific-layer-first like the run caps. Unlike the soft `enabled_skills` seed allowlist (a default a user can still toggle on), this is a hard gate at the seed + dispatch layer — e.g. `default_team_config.withheld_skills = ["signals-scout-error-tracking"]` with `team_configs["2"].withheld_skills = []` dogfoods error tracking on project 2 only.
 
@@ -535,7 +535,7 @@ Thin bridge from a Tasks `TaskRun` to the scout skill that ran inside it: one sc
 
 **Status, timing, and chat log live on the linked `TaskRun`.** The bridge row carries no `status` / `started_at` / `completed_at` / `findings` / `run_metrics` / `metadata` of its own — those moved to `tasks.TaskRun` so the LLM-analytics token / cost roll-up, the Tasks UI, and the harness all see one canonical record. `MultiTurnSession` owns the `TaskRun` lifecycle; the `on_task_run_created` hook attaches the `TaskRun` to the bridge row before the agent's first turn.
 
-**Tasks UI cross-link.** Run serializers expose a computed `task_url` field on `signals-scout-runs-list` and `signals-scout-runs-retrieve` MCP responses — `/project/{team_id}/tasks/{task_run.task_id}?runId={task_run_id}`. `task_url` is `null` for rows whose `task_run` link is missing (rows aborted before `MultiTurnSession.start()` returned).
+**Tasks UI cross-link.** Run serializers expose a computed `task_url` field on `scout-runs-list` and `scout-runs-retrieve` MCP responses — `/project/{team_id}/tasks/{task_run.task_id}?runId={task_run_id}`. `task_url` is `null` for rows whose `task_run` link is missing (rows aborted before `MultiTurnSession.start()` returned).
 
 **Indexes:** `(team, skill_name)`.
 
@@ -801,23 +801,23 @@ View + control API for the v2 grouping pipeline. Uses scope object `INTERNAL`.
 
 #### Signals Agent endpoints (`backend/scout_harness/views.py`)
 
-The harness exposes three viewsets routed under `environment_signals_scout_*` basenames in `posthog/api/__init__.py`. They are surfaced to MCP callers as `signals-scout-*` tools via `products/signals/mcp/tools.yaml`. Reads are scoped to the team; writes (scratchpad remember / forget, signal emit) require the matching MCP scope.
+The harness exposes three viewsets routed under `environment_signals_scout_*` basenames in `posthog/api/__init__.py`. They are surfaced to MCP callers as `scout-*` tools via `products/signals/mcp/tools.yaml`. Reads are scoped to the team; writes (scratchpad remember / forget, signal emit) require the matching MCP scope.
 
 - **`SignalScoutRunViewSet`** — list / retrieve scout run rows; nested action `runs/{id}/emit-signal/` for the harness to push findings during a run.
-- **`SignalScratchpadViewSet`** — search / remember / forget `SignalScratchpad` rows for the team. The `signals-scout-scratchpad-search` tool is the agent's primary "what do I already know" read at prompt-assembly time.
+- **`SignalScratchpadViewSet`** — search / remember / forget `SignalScratchpad` rows for the team. The `scout-scratchpad-search` tool is the agent's primary "what do I already know" read at prompt-assembly time.
 - **`SignalProjectProfileViewSet`** — `GET .../current/` returns the freshest non-expired `SignalProjectProfile` row for the team (recomputes if the cache is stale).
 
 Generated MCP tool names:
 
-| Tool                                | Purpose                                                                        |
-| ----------------------------------- | ------------------------------------------------------------------------------ |
-| `signals-scout-runs-list`           | List scout runs (filterable by skill / status / time)                          |
-| `signals-scout-runs-retrieve`       | Fetch a single run row including the full findings payload                     |
-| `signals-scout-emit-signal`         | Push a finding from inside a run (used by the harness's `emit_signal_*` tools) |
-| `signals-scout-scratchpad-search`   | Search durable scratchpad entries for the team                                 |
-| `signals-scout-scratchpad-remember` | Create or update a scratchpad entry                                            |
-| `signals-scout-scratchpad-forget`   | Remove a scratchpad entry                                                      |
-| `signals-scout-project-profile-get` | Read the current `SignalProjectProfile` snapshot                               |
+| Tool                        | Purpose                                                                        |
+| --------------------------- | ------------------------------------------------------------------------------ |
+| `scout-runs-list`           | List scout runs (filterable by skill / status / time)                          |
+| `scout-runs-retrieve`       | Fetch a single run row including the full findings payload                     |
+| `scout-emit-signal`         | Push a finding from inside a run (used by the harness's `emit_signal_*` tools) |
+| `scout-scratchpad-search`   | Search durable scratchpad entries for the team                                 |
+| `scout-scratchpad-remember` | Create or update a scratchpad entry                                            |
+| `scout-scratchpad-forget`   | Remove a scratchpad entry                                                      |
+| `scout-project-profile-get` | Read the current `SignalProjectProfile` snapshot                               |
 
 ### Serializers (`backend/serializers.py`)
 

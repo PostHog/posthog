@@ -65,8 +65,9 @@
       .tab.active { color: var(--text); background: var(--panel-2); border-color: var(--border); }
       .tab .badge { color: var(--muted); font-family: var(--mono); font-size: 11px; margin-left: 4px; }
 
-      /* live feed */
-      #feed { max-height: calc(100vh - 190px); overflow-y: auto; font-family: var(--mono); font-size: 12px; }
+      /* live feed: a bounded tail — fixed height, not vh-based, so it stays
+         stable when the page is embedded in an auto-sizing iframe. */
+      #feed { max-height: 600px; overflow-y: auto; font-family: var(--mono); font-size: 12px; }
       .ev { padding: 5px 14px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: baseline; }
       .ev .t { color: var(--muted); flex: 0 0 62px; font-size: 11px; }
       .ev .body { flex: 1 1 auto; word-break: break-word; }
@@ -80,8 +81,9 @@
       .controls { display: flex; gap: 8px; align-items: center; }
       .controls label { color: var(--muted); font-size: 11px; }
 
-      /* batches list */
-      #batches-view { max-height: calc(100vh - 190px); overflow-y: auto; }
+      /* batches list: grows with content — the page (or embedding iframe)
+         expands instead of squeezing the list into an inner scroll box. */
+      #batches-view { overflow-y: visible; }
       .brow { display: grid; grid-template-columns: 96px 90px 1fr auto; gap: 10px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
       .brow:hover { background: var(--panel-2); }
       .brow .id { font-family: var(--mono); color: #d2a8ff; }
@@ -132,7 +134,7 @@
       .banner { margin: 12px 14px 0; padding: 8px 12px; border-radius: 6px; font-size: 12px; }
       .banner.ok { background: rgba(63,185,80,0.12); color: var(--good); }
       .banner.bad { background: rgba(248,81,73,0.14); color: var(--error); font-weight: 600; }
-      #commits { max-height: calc(100vh - 240px); overflow-y: auto; }
+      #commits { overflow-y: visible; }
       tr.ooo td { background: rgba(248,81,73,0.12); }
       .offchips { display: flex; flex-wrap: wrap; gap: 6px; }
       .offchip { display: inline-flex; align-items: baseline; gap: 6px; padding: 2px 8px; border-radius: 6px;
@@ -247,6 +249,18 @@
         const d = new Date(ms);
         return d.toLocaleTimeString("en-US", { hour12: false }) + "." + String(d.getMilliseconds()).padStart(3, "0");
       };
+      const fmtDur = (ms) => {
+        if (ms == null || !isFinite(ms) || ms < 0) return "—";
+        if (ms < 1000) return `${Math.round(ms)}ms`;
+        // Round before picking the unit so 59,999ms doesn't render as "60.0s"
+        // or 119,999ms as "1m 60s".
+        if (ms < 60000) {
+          const seconds = Math.round(ms / 100) / 10;
+          if (seconds < 60) return `${seconds.toFixed(1)}s`;
+        }
+        const totalSeconds = Math.round(ms / 1000);
+        return `${Math.floor(totalSeconds / 60)}m ${String(totalSeconds % 60).padStart(2, "0")}s`;
+      };
 
       // ---------- point-in-time load (polled fast, no event backlog) ----------
       let loadSamples = []; // rolling {t, v} of total in-flight, for a peak-hold
@@ -327,10 +341,10 @@
             case "BatchAssigned":
               b.assigned = ev.sub_batches; b.distinct_ids = ev.distinct_ids;
               b.deferredGroups = (b.deferredGroups || 0) + ev.deferred_groups + ev.unroutable_groups; break;
-            case "Deferred": b.deferred.push({ reason: ev.reason, groups: ev.groups }); break;
-            case "DeferredFlushed": ev.sub_batches.forEach((s) => b.flushed.push(s)); break;
-            case "SendRetry": b.retries.push({ worker: ev.worker, attempt: ev.attempt, reason: ev.reason }); break;
-            case "SendExhausted": b.exhausted.push({ worker: ev.worker, error: ev.error }); break;
+            case "Deferred": b.deferred.push({ reason: ev.reason, groups: ev.groups, ts: ev.ts_ms }); break;
+            case "DeferredFlushed": ev.sub_batches.forEach((s) => b.flushed.push({ ...s, ts: ev.ts_ms })); break;
+            case "SendRetry": b.retries.push({ worker: ev.worker, attempt: ev.attempt, reason: ev.reason, ts: ev.ts_ms }); break;
+            case "SendExhausted": b.exhausted.push({ worker: ev.worker, error: ev.error, ts: ev.ts_ms }); break;
             case "BatchCommitted":
               b.committed = { accepted: ev.accepted, duration_ms: ev.duration_ms, partitions: ev.partitions, ts: ev.ts_ms };
               recordCommit(ev); break;
@@ -490,9 +504,20 @@
 
         const flow = buildFlow(b, workers);
 
+        // Annotate flushes with the stash dwell time so defer → retry gaps are
+        // readable without diffing timestamps by hand. Measured from the first
+        // deferral of the current stash cycle: several Deferred events can pile
+        // up before one flush, and the earliest is what waited longest.
+        let cycleDeferTs = null;
         const timeline = b.events.map((ev) => {
           const [cls, html] = describe(ev);
-          return `<div class="item ${cls}"><span class="t">${fmtTime(ev.ts_ms)}</span>${html}</div>`;
+          let extra = "";
+          if (ev.type === "Deferred" && cycleDeferTs === null) cycleDeferTs = ev.ts_ms;
+          if (ev.type === "DeferredFlushed" && cycleDeferTs !== null) {
+            extra = `<span class="tag"> · waited ${fmtDur(ev.ts_ms - cycleDeferTs)}</span>`;
+            cycleDeferTs = null;
+          }
+          return `<div class="item ${cls}"><span class="t">${fmtTime(ev.ts_ms)}</span>${html}${extra}</div>`;
         }).join("");
 
         const fresh = openDetailId !== b.id;
@@ -526,8 +551,14 @@
         b.deferred.forEach((d) => (deferBy[d.reason] = (deferBy[d.reason] || 0) + d.groups));
         const hasStash = b.deferred.length > 0;
         const totalDeferred = b.deferred.reduce((a, d) => a + d.groups, 0);
+        const firstDefer = hasStash ? b.deferred[0].ts : null;
+        const firstFlush = b.flushed.length ? Math.min(...b.flushed.map((s) => s.ts)) : null;
         const flushedBy = {};
-        b.flushed.forEach((s) => (flushedBy[s.worker] = (flushedBy[s.worker] || 0) + s.messages));
+        b.flushed.forEach((s) => {
+          const f = (flushedBy[s.worker] = flushedBy[s.worker] || { messages: 0, ts: s.ts });
+          f.messages += s.messages;
+          f.ts = Math.max(f.ts, s.ts);
+        });
 
         const partsShort = b.partitions.map((p) => `${p.partition}@${p.offset}`).join(" ") || "—";
         const sourceNode = `<div class="node src" id="n-source"><div class="title">Kafka batch</div><div class="big">${b.messages}</div><div class="sub">msgs · p ${partsShort}</div></div>`;
@@ -549,8 +580,11 @@
         }).join("") || '<div class="node" id="n-w-none"><div class="sub">not yet assigned</div></div>';
 
         const reasons = Object.entries(deferBy).filter(([, n]) => n > 0).map(([r, n]) => `${r}: ${n}`).join(" · ");
+        const stashTiming = b.flushed.length
+          ? `↻ flushed after ${fmtDur(firstFlush - firstDefer)}`
+          : "awaiting flush";
         const stashNode = hasStash
-          ? `<div class="node stash" id="n-stash"><div class="title">Stash / defer</div><div class="big">${totalDeferred}</div><div class="sub">${reasons}</div><div class="sub">${b.flushed.length ? "↻ flushed &amp; re-routed" : "awaiting flush"}</div></div>`
+          ? `<div class="node stash" id="n-stash"><div class="title">Stash / defer</div><div class="big">${totalDeferred}</div><div class="sub">${reasons}</div><div class="sub">⏸ ${fmtTime(firstDefer)}</div><div class="sub">${stashTiming}</div></div>`
           : "";
 
         const sinkNode = b.committed
@@ -571,7 +605,7 @@
         const C = { muted: "#8b93a1", warn: "#d29922", good: "#3fb950", error: "#f85149", accent: "#4f7cff" };
         const edges = [];
         edges.push({ from: "n-source", to: "n-assign", label: `${b.messages} msgs`, color: C.accent });
-        workers.forEach((w, i) => { if (w.assignedMsgs > 0) edges.push({ from: "n-assign", to: `n-w-${i}`, label: `sent ${w.assignedMsgs}`, color: C.muted }); });
+        workers.forEach((w, i) => { if (w.assignedMsgs > 0) edges.push({ from: "n-assign", to: `n-w-${i}`, label: `sent ${w.assignedMsgs}${w.retries ? ` · ↻${w.retries}` : ""}`, color: w.retries ? C.warn : C.muted }); });
 
         if (hasStash) {
           let incoming = 0;
@@ -583,7 +617,7 @@
           }
           workers.forEach((w, i) => { if (w.exhausted) { edges.push({ from: `n-w-${i}`, to: "n-stash", label: "send failed", color: C.error }); incoming++; } });
           if (deferBy.send_failed > 0 && incoming === 0) edges.push({ from: "n-assign", to: "n-stash", label: "send failed", color: C.error });
-          Object.entries(flushedBy).forEach(([worker, msgs]) => { const i = idx[worker]; if (i != null) edges.push({ from: "n-stash", to: `n-w-${i}`, label: `flushed ${msgs}`, color: C.warn }); });
+          Object.entries(flushedBy).forEach(([worker, f]) => { const i = idx[worker]; if (i != null) edges.push({ from: "n-stash", to: `n-w-${i}`, label: `flushed ${f.messages} · +${fmtDur(f.ts - firstDefer)}`, color: C.warn }); });
         }
 
         if (b.committed) {

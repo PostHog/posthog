@@ -37,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AppsFlyerSource(SimpleSource[AppsFlyerSourceConfig]):
+    api_docs_url = "https://support.appsflyer.com/hc/en-us/articles/207034366-Pull-APIs-aggregate-and-raw-data"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

@@ -43,6 +43,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    supported_versions = ("v25.0",)
+    default_version = "v25.0"
+    api_docs_url = "https://developers.facebook.com/docs/graph-api/changelog"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.METAADS

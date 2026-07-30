@@ -11,7 +11,9 @@ import type { Credential } from './credential-broker'
 import type { HttpFetcher } from './http-client'
 import type { IdentityCredentialStore, StoredCredential } from './identity-credential-store'
 import type { IdentityLinkStateStore } from './identity-link-state-store'
+import { IdentityProviderUnavailableError } from './identity-provider'
 import type {
+    BearerVerification,
     IdentityCompleteInput,
     IdentityCompleteResult,
     IdentityExchangeResult,
@@ -56,14 +58,74 @@ interface TokenResponse {
 
 const b64url = (buf: Buffer): string => buf.toString('base64url')
 
+/** Bearer verification blocks the chat request — far tighter than the 30s fetch default. */
+const VERIFY_BEARER_TIMEOUT_MS = 5_000
+
 export class Oauth2AuthProvider implements IdentityProvider {
     // Typed `boolean` (not the literal `false`) so an identity-establishing
     // subclass can override it to `true`.
     readonly establishesIdentity: boolean = false
 
+    /**
+     * Per-request bearer verification via userinfo. Assigned in the constructor
+     * (not a prototype method) so it is genuinely `undefined` when the provider
+     * has no `userinfoUrl` — admission treats a present `verifyBearer` as "this
+     * provider can judge bearers", and a present-but-invalid bearer forces
+     * re-auth WITHOUT consulting the durable binding. A stub that always
+     * returned null would therefore lock bound users out.
+     */
+    readonly verifyBearer?: (token: string) => Promise<BearerVerification | null>
+
     // `protected` (not `private`) so an identity-establishing subclass
     // (PostHogAuthProvider) can reach the config + http to derive a subject.
-    constructor(protected readonly deps: Oauth2ProviderDeps) {}
+    constructor(protected readonly deps: Oauth2ProviderDeps) {
+        if (deps.config.userinfoUrl) {
+            const userinfoUrl = deps.config.userinfoUrl
+            this.verifyBearer = async (token: string): Promise<BearerVerification | null> => {
+                // Runs on the chat hot path (every request), so: a tight
+                // timeout instead of the fetcher's 30s default, and only the
+                // provider's actual judgement on the token (401/403) reads as
+                // "invalid". Transport failures, timeouts, and server errors
+                // say nothing about the token — surface them as
+                // `IdentityProviderUnavailableError` so admission fails closed
+                // but RETRYABLE instead of demanding re-auth.
+                let res: Response
+                try {
+                    res = await this.deps.http.fetch(userinfoUrl, {
+                        method: 'GET',
+                        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+                        signal: AbortSignal.timeout(VERIFY_BEARER_TIMEOUT_MS),
+                    })
+                } catch (err) {
+                    throw new IdentityProviderUnavailableError(
+                        this.id,
+                        err instanceof Error ? err.message : 'userinfo_fetch_failed'
+                    )
+                }
+                if (res.status === 401 || res.status === 403) {
+                    return null
+                }
+                if (!res.ok) {
+                    throw new IdentityProviderUnavailableError(this.id, `userinfo_status_${res.status}`)
+                }
+                let json: { sub?: string }
+                try {
+                    json = (await res.json()) as { sub?: string }
+                } catch {
+                    throw new IdentityProviderUnavailableError(this.id, 'userinfo_malformed_body')
+                }
+                const subject = typeof json.sub === 'string' && json.sub.length > 0 ? json.sub : undefined
+                if (!subject) {
+                    // 200 but no provable subject — the provider can't establish
+                    // who this is, which for admission is the same as invalid.
+                    return null
+                }
+                // The bearer is the credential — no refresh token and no known
+                // expiry; admission re-verifies it on every request anyway.
+                return { subject, stored: { access_token: token }, scopes: [] }
+            }
+        }
+    }
 
     get id(): string {
         return this.deps.config.id

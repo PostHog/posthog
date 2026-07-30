@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AnthropicSource(ResumableSource[AnthropicSourceConfig, AnthropicResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("2023-06-01",)
+    default_version = "2023-06-01"
+    api_docs_url = "https://platform.claude.com/docs/en/api/versioning"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

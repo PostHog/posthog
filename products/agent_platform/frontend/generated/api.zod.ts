@@ -638,6 +638,26 @@ export const AgentApplicationsApprovalsDecideBody = /* @__PURE__ */ zod
     .describe('Body shape for POST \/agent_applications\/<id>\/approvals\/<approval_id>\/decide\/.')
 
 /**
+ * Start a new session on this agent's LIVE (promoted) revision.
+ *
+ * Bridges to ingress `POST /agents/<slug>/run`, forwarding the caller's PAT
+ * so the session principal is the real caller. Returns the new `session_id`;
+ * drive the conversation with `agent-applications-send` and read progress with
+ * `agent-applications-listen`. For non-live / draft revisions use `preview_proxy` instead.
+ */
+export const AgentApplicationsInvokeBody = /* @__PURE__ */ zod
+    .object({
+        message: zod.string().describe('The user message that starts the session. Required, non-empty.'),
+        external_key: zod
+            .string()
+            .optional()
+            .describe(
+                'Optional idempotency \/ threading key. A repeat invoke with the same external_key resumes the existing session instead of starting a new one.'
+            ),
+    })
+    .describe("Body for `agent-applications-invoke` — start a new session on the agent's live (promoted) revision.")
+
+/**
  * Authoring-side proxy for invoking a *draft* (or any non-live) revision.
  *
  * Closes the anonymous-draft-invoke gap: the public ingress URL refuses
@@ -666,3 +686,23 @@ export const AgentApplicationsPreviewProxyBody = /* @__PURE__ */ zod
     .describe(
         'Body forwarded verbatim to the agent ingress for a \*preview\* invoke of a\nnon-live revision. The meaningful shape depends on the `rest` path segment:\n\n- `run` — `{ message }`: the user message that starts a new session.\n- `send` — `{ session_id, message }`: append a message to a running session.\n- `cancel` \/ `listen` — no body.\n\nDocuments `message` \/ `session_id` so the generated MCP tool exposes them;\nany extra keys are still forwarded as-is to ingress.'
     )
+
+/**
+ * Append a message to an existing LIVE session and re-queue it.
+ *
+ * Bridges to ingress `POST /agents/<slug>/send`, forwarding the caller's PAT
+ * so the ACL principal-match passes. A `completed` session is NOT terminal —
+ * it's a per-turn idle state for a multi-turn agent, so send re-queues it for
+ * another turn; only truly-terminal states (failed / cancelled / closed) 410,
+ * which passes through as a 410. A janitor ownership pre-check runs first, but
+ * it's redundant defense-in-depth (ingress `/send` already app-scopes the
+ * load), kept for a clean early 404.
+ */
+export const AgentApplicationsSendBody = /* @__PURE__ */ zod
+    .object({
+        session_id: zod
+            .uuid()
+            .describe('The session to append to (returned by agent-applications-invoke). Must belong to this agent.'),
+        message: zod.string().describe('The user message to append. Required, non-empty.'),
+    })
+    .describe('Body for `agent-applications-send` — append a message to an existing live session.')

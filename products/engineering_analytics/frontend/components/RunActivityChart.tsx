@@ -248,6 +248,8 @@ export function RunActivityChart({
     const now = dayjs().valueOf()
     // Every run with a start contributes an interval to the band; a still-running run extends to now, but
     // only up to MAX_IN_FLIGHT_MS so an abandoned run that never settled doesn't stretch the band by days.
+    // No-op gate runs never reach this component: the workflow activity endpoint hides them server-side
+    // (pre-cap, with an all-fast fallback), and commit rollups deliberately aren't filtered at all.
     const intervals: Interval[] = runs
         .filter((run): run is ActivityRun & { startedAt: string } => run.startedAt != null)
         .map((run) => {

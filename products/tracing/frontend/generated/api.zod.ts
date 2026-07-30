@@ -125,6 +125,12 @@ export const TracingSpansAttributeBreakdownCreateBody = /* @__PURE__ */ zod.obje
                 .describe(
                     "Drop filters targeting the breakdown key itself (including serviceNames for a service_name breakdown), so a facet's value list stays complete while one of its values is selected."
                 ),
+            facetSearch: zod
+                .string()
+                .optional()
+                .describe(
+                    "Type-ahead filter over the breakdown field's own values (case-insensitive substring match). An empty string means no filter. Lets a facet's value search reach past the row limit."
+                ),
             orderBy: zod
                 .enum(['count', 'error_count'])
                 .describe('\* `count` - count\n\* `error_count` - error_count')

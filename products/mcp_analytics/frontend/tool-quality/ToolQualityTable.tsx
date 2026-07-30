@@ -27,10 +27,14 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { formatPercentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
-import { urls } from 'scenes/urls'
 
 import { formatMs, formatNumber } from '../dashboard/formatters'
-import { type SortState, type ToolQualityRow, mcpAnalyticsToolQualityLogic } from '../mcpAnalyticsToolQualityLogic'
+import {
+    type SortState,
+    type ToolQualityRow,
+    mcpAnalyticsToolQualityLogic,
+    mcpToolReportUrl,
+} from '../mcpAnalyticsToolQualityLogic'
 
 const DESTRUCTIVE_ERROR_PCT = 5
 
@@ -113,7 +117,7 @@ function SortableHead({
 }
 
 function ToolRows(): JSX.Element {
-    const { filteredRows, toolRowsLoading, selectedTool } = useValues(mcpAnalyticsToolQualityLogic)
+    const { filteredRows, toolRowsLoading, selectedTool, dateFilter } = useValues(mcpAnalyticsToolQualityLogic)
     const { setSelectedTool } = useActions(mcpAnalyticsToolQualityLogic)
 
     if (toolRowsLoading && filteredRows.length === 0) {
@@ -163,7 +167,7 @@ function ToolRows(): JSX.Element {
                         <Button
                             variant="outline"
                             size="sm"
-                            render={<LinkPrimitive to={urls.mcpAnalyticsTool(row.tool)} />}
+                            render={<LinkPrimitive to={mcpToolReportUrl(row.tool, dateFilter)} />}
                             onClick={(e) => e.stopPropagation()}
                             data-attr="mcp-tool-quality-full-report"
                         >

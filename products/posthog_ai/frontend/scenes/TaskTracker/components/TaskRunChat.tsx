@@ -1,5 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { userLogic } from 'scenes/userLogic'
 
 import { runInteractionLogic, type RunInteractionLogicProps } from 'products/posthog_ai/frontend/api/logics'
@@ -9,6 +10,7 @@ import { Composer, QueuedMessageList } from 'products/posthog_ai/frontend/api/pr
 // flash. The inbox embeds keep the lazy `ReadonlyRunSurface`.
 import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 
+import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
 import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
@@ -97,9 +99,16 @@ function TaskRunChatContent({
 }
 
 function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }): JSX.Element {
-    const { composerForm, isSubmitting, isBusy, queuedMessages, isTerminal, selectedModel, selectedEffort } = useValues(
-        runInteractionLogic(logicProps)
-    )
+    const {
+        composerForm,
+        isSubmitting,
+        isBusy,
+        queuedMessages,
+        isTerminal,
+        selectedModel,
+        selectedEffort,
+        consentBlocked,
+    } = useValues(runInteractionLogic(logicProps))
     const {
         setComposerFormValues,
         submitComposerForm,
@@ -108,6 +117,7 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
         removeQueuedMessage,
         setModel,
         setEffort,
+        clearConsentBlock,
     } = useActions(runInteractionLogic(logicProps))
 
     const draft = useDebouncedDraft(composerForm.draft, (value) => setComposerFormValues({ draft: value }))
@@ -131,6 +141,9 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
                 </Composer.Banner>
             )}
             <Composer.Frame>
+                <Composer.Header>
+                    <AttachedContextBar />
+                </Composer.Header>
                 <Composer.Field>
                     <Composer.Placeholder>
                         {isTerminal ? 'Send a message to start a new run…' : 'Send a follow-up message…'}
@@ -149,7 +162,16 @@ function LiveComposer({ logicProps }: { logicProps: RunInteractionLogicProps }):
                     />
                 </Composer.Footer>
             </Composer.Frame>
-            <Composer.Submit data-attr="sandbox-composer-send" />
+            <AIConsentPopoverWrapper
+                placement="top-end"
+                showArrow
+                ignoreDismissal
+                hidden={!consentBlocked}
+                onApprove={() => submitComposerForm()}
+                onDismiss={() => clearConsentBlock()}
+            >
+                <Composer.Submit data-attr="sandbox-composer-send" />
+            </AIConsentPopoverWrapper>
         </Composer.Root>
     )
 }

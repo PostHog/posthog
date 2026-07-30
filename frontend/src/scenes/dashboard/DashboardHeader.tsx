@@ -1,6 +1,9 @@
 import { useActions, useValues } from 'kea'
 
+import { useFeatureFlagVariantKey } from '@posthog/react'
+
 import { FullScreen } from 'lib/components/FullScreen'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -23,6 +26,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { dashboard, dashboardLoading, dashboardMode, canEditDashboard } = useValues(dashboardLogic)
     const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
     const { updateDashboard } = useActions(dashboardsModel)
+    const postHogAIButtonLabelVariant = useFeatureFlagVariantKey(FEATURE_FLAGS.DASHBOARD_POSTHOG_AI_BUTTON_LABEL)
 
     if (!dashboard && !dashboardLoading) {
         return null
@@ -56,6 +60,7 @@ export function DashboardHeader(): JSX.Element | null {
                 isLoading={dashboardLoading}
                 saveOnBlur
                 renameDebounceMs={0}
+                maxButtonLabel={postHogAIButtonLabelVariant === 'test' ? 'PostHog AI' : undefined}
                 maxToolProps={
                     dashboard && canEditDashboard
                         ? {

@@ -26,7 +26,8 @@ UI, and is gated behind the `mcp-analytics` flag — no hand-written SQL needed.
 
 **HogQL via `posthog:execute-sql` is the path for cross-tool questions** — the
 "which tool errors most" ranking below has no typed tool, so rank with SQL, then
-drill into the worst tool with `posthog:query-mcp-tool-stats` / `-failures`. The full
+drill into the worst tool with `posthog:query-mcp-tool-stats` and
+`posthog:query-mcp-tool-failures`. The full
 property schema and the canonical query recipes live in the shared MCP data
 reference:
 [`products/posthog_ai/skills/querying-posthog-data/references/models-mcp.md`](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md).
@@ -136,8 +137,11 @@ Always surface a UI link so the user can verify visually.
 - `$mcp_client_name` lets you cut quality by harness (Claude Code vs Cursor vs
   …); the canonical bucketing `multiIf` is in
   [models-mcp.md](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md)
-- If the SQL contradicts the tool-quality screen, trust the screen and flag this
-  skill for an update — the frontend bucketing logic is the source of truth
+- Harness bucketing is resolved **server-side** by
+  `products/mcp_analytics/backend/mcp_harness.py` — that's the source of truth,
+  and `posthog:query-mcp-harness-breakdown` runs it. If your hand-written SQL
+  disagrees with the screen, your bucketing has drifted from `mcp_harness.py`;
+  prefer the typed tool over re-deriving it
 
 ## Related skills
 

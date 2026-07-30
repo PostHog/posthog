@@ -25,6 +25,8 @@ import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { RevenueAnalyticsBreakdown } from '~/queries/schema/schema-general'
 import { DateMappingOption } from '~/types'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { DisplayMode, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
 
 const DATE_FILTER_DATE_OPTIONS: DateMappingOption[] = [
@@ -155,6 +157,19 @@ const RevenueAnalyticsPropertyFilters = (): JSX.Element => {
     const { setRevenueAnalyticsFilters, setDates, setBreakdownProperties } = useActions(revenueAnalyticsLogic)
 
     const [displayFilters, setDisplayFilters] = useState(false)
+
+    useAttachedContext([
+        {
+            type: 'revenue_analytics_filters',
+            value: JSON.stringify({
+                date_from: dateFrom,
+                date_to: dateTo,
+                breakdown: breakdownProperties,
+                properties: revenueAnalyticsFilter,
+            }),
+            label: 'Current filters',
+        },
+    ])
 
     return (
         <div className="flex flex-row gap-2">

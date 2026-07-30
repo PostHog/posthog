@@ -90,6 +90,7 @@ class TrackedHTTPAdapter(HTTPAdapter):
                     exception=exception,
                     redact_values=self._redact_values,
                     capture=self._capture,
+                    streamed=stream,
                 )
             except Exception:
                 # Belt-and-braces: record_request should never raise, but if

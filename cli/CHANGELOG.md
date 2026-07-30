@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.8.4 — 2026-07-16
+
+### Patch changes
+
+- [f45778f281](https://github.com/PostHog/posthog/commit/f45778f28141b42559f59dca347aa64e8671c8bd) The dotenv credentials file can now also be pointed at with the `POSTHOG_CLI_DOTENV_FILE` environment variable, equivalent to passing `--dotenv-file` — for callers that control the environment but not the command line (e.g. an Xcode build phase invoking the iOS SDK's upload-symbols.sh). — Thanks @ablaszkiewicz!
+
 ## 0.8.3 — 2026-07-15
 
 ### Patch changes

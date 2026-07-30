@@ -1351,7 +1351,9 @@ def delete_cohort_member(team_id: int, cohort_id: int, person_id: int) -> bool:
 _DELETE_BULK_MAX_ITERATIONS = 10_000
 
 
-def _delete_cohort_members_bulk_via_personhog(cohort_ids: list[int], batch_size: int) -> int:
+def _delete_cohort_members_bulk_via_personhog(
+    cohort_ids: list[int], batch_size: int, timeout: float | None = None
+) -> int:
     from posthog.personhog_client.client import get_personhog_client
     from posthog.personhog_client.proto import DeleteCohortMembersBulkRequest
 
@@ -1362,7 +1364,8 @@ def _delete_cohort_members_bulk_via_personhog(cohort_ids: list[int], batch_size:
     total_deleted = 0
     for _ in range(_DELETE_BULK_MAX_ITERATIONS):
         resp = client.delete_cohort_members_bulk(
-            DeleteCohortMembersBulkRequest(cohort_ids=cohort_ids, batch_size=batch_size)
+            DeleteCohortMembersBulkRequest(cohort_ids=cohort_ids, batch_size=batch_size),
+            timeout=timeout,
         )
         total_deleted += resp.deleted_count
         if resp.deleted_count < batch_size:
@@ -1377,7 +1380,9 @@ def _delete_cohort_members_bulk_via_personhog(cohort_ids: list[int], batch_size:
     return total_deleted
 
 
-def delete_cohort_members_bulk(team_id: int, cohort_ids: list[int], batch_size: int = 10_000) -> int:
+def delete_cohort_members_bulk(
+    team_id: int, cohort_ids: list[int], batch_size: int = 10_000, timeout: float | None = None
+) -> int:
     """Delete all cohort membership rows for the given cohort IDs via personhog.
 
     Returns the total number of deleted rows.
@@ -1389,7 +1394,7 @@ def delete_cohort_members_bulk(team_id: int, cohort_ids: list[int], batch_size: 
 
     return personhog_call(
         "delete_cohort_members_bulk",
-        lambda: _delete_cohort_members_bulk_via_personhog(cohort_ids, batch_size),
+        lambda: _delete_cohort_members_bulk_via_personhog(cohort_ids, batch_size, timeout),
     )
 
 

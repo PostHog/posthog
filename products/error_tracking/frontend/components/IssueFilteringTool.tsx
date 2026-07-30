@@ -8,6 +8,8 @@ import MaxTool from 'scenes/max/MaxTool'
 import { ErrorTrackingIssueFilteringToolOutput } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { errorTrackingSceneLogic } from '../scenes/ErrorTrackingScene/errorTrackingSceneLogic'
 import { TAXONOMIC_FILTER_LOGIC_KEY, TAXONOMIC_GROUP_TYPES } from './IssueFilters/consts'
 import { issueFiltersLogic } from './IssueFilters/issueFiltersLogic'
@@ -74,6 +76,8 @@ export function ErrorTrackingIssueFilteringTool(): JSX.Element {
             taxonomicGroupTypes: TAXONOMIC_GROUP_TYPES,
         })
     )
+
+    useAttachedContext([{ type: 'error_tracking_query', value: JSON.stringify(query), label: 'Current filters' }])
 
     const callback = (update: ErrorTrackingIssueFilteringToolOutput): void => {
         if (update.orderBy) {

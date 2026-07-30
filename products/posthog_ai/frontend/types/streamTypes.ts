@@ -71,6 +71,26 @@ export interface ToolInvocation {
     meta?: unknown
 }
 
+/**
+ * A tool-call lifecycle event published on the global `toolStreamEventsLogic` bus so a consumer can
+ * react to the agent invoking a specific (resolved) tool — e.g. a scene that refreshes when the agent
+ * creates a dashboard. Carries plain data only; the resolved name is computed in `runStreamLogic`.
+ */
+export type ToolStreamPhase = 'started' | 'updated' | 'completed' | 'failed'
+
+export interface ToolStreamEvent {
+    /** The `runStreamLogic` key the event was emitted from (conversation id or run/task id). */
+    streamKey: string
+    toolCallId: string
+    /** Resolved registry key (inner PostHog MCP tool, e.g. 'create_dashboard') via `resolveToolCall`. */
+    toolName: string
+    /** The raw ACP tool name before resolution. */
+    rawToolName: string
+    phase: ToolStreamPhase
+    invocation: ToolInvocation
+    source: 'live' | 'replay' | 'client'
+}
+
 export type ThreadItemType =
     | 'human_message'
     | 'assistant_message'

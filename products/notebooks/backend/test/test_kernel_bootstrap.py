@@ -129,6 +129,23 @@ class TestKernelSessionRunNode(SimpleTestCase):
         self.assertEqual(first["row_count"], 1)
         self.assertEqual(second["row_count"], 3)
 
+    def test_missed_save_names_the_created_frame_and_leaves_the_output_unbound(self):
+        # The silent-miss footgun: the cell assigns `top50` while its output name says
+        # `top50_people` — the run must say so instead of succeeding with an empty preview.
+        envelope = self._run("import pandas as pd\ntop50 = pd.DataFrame({'id': [1, 2]})", output_name="top50_people")
+        self.assertEqual(envelope["status"], "ok")
+        self.assertIn("nothing was saved as 'top50_people'", envelope["stderr"])
+        self.assertIn("'top50'", envelope["stderr"])
+        self.assertNotIn("top50_people", self.session.shell.user_ns)
+
+    def test_frameless_run_does_not_warn_about_a_missed_save(self):
+        # Every cell carries a default output name, so a print-only cell warning on each
+        # run would flag ordinary side-effect cells as failures (stderr renders red).
+        self._run("import pandas as pd\ntop50 = pd.DataFrame({'id': [1, 2]})", output_name="top50")
+        envelope = self._run("print(top50)", output_name="df")
+        self.assertEqual(envelope["status"], "ok")
+        self.assertNotIn("nothing was saved", envelope["stderr"])
+
     def test_oversized_stdout_is_truncated(self):
         envelope = self._run("print('x' * 100_000)")
         self.assertLess(len(envelope["stdout"]), 33_000)

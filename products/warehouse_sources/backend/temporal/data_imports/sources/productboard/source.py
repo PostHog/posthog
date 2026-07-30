@@ -48,6 +48,10 @@ def _probe_path(schema_name: Optional[str]) -> str:
 
 @SourceRegistry.register
 class ProductboardSource(ResumableSource[ProductboardSourceConfig, ProductboardResumeConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://developer.productboard.com"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

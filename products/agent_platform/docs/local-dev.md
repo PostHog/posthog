@@ -232,25 +232,36 @@ When you change a serializer or viewset under `products/agent_platform/backend/`
 **always rerun `hogli build:openapi`** before testing via MCP — the MCP
 tool schemas come from the generated OpenAPI and silently drift otherwise.
 
-### Gap: no MCP tools for invoking a created agent
+### Invoking a created agent: `agent-applications-invoke` / `agent-applications-send` / `agent-applications-listen`
 
-The `agent_platform` MCP surface today is **authoring-only** — `agent-applications-*`
-and `agent-applications-revisions-*` cover create / edit bundle / freeze /
-promote, but there is no MCP tool that wraps the ingress runtime endpoints
-(`/agents/<slug>/run`, `/send`, `/listen`). After an authoring harness like
-Claude Code creates and promotes an agent via MCP, it has no in-band way to
-then talk to it — the next step ("invoke the thing I just built") is not
-discoverable from the tool list.
+The `agent_platform` MCP surface covers both authoring (`agent-applications-*`
+and `agent-applications-revisions-*` — create / edit bundle / freeze / promote)
+and **invocation** of a live agent, so an authoring harness like Claude Code can
+create, promote, and then talk to an agent without leaving MCP:
 
-Workarounds until invocation tools land:
+- **`agent-applications-invoke`** — start a session on the agent's live (promoted)
+  revision; returns a `session_id`. Bridges to ingress `POST /agents/<slug>/run`,
+  forwarding your PAT so the session runs as you.
+- **`agent-applications-send`** — append a message to an existing session (`POST .../send`).
+- **`agent-applications-listen`** — poll a session's progress as a single JSON digest
+  (non-streaming): last assistant text, a one-line tool-activity summary, and
+  state / usage. Pass the returned `next_cursor` back as `cursor` to get only
+  what's new; stop when `done` is true. (An MCP tool call can't hold an SSE
+  stream open, so cursor polling replaces the `/listen` SSE tail.)
+
+These wrap the ingress runtime via thin Django viewset actions — invoke/send
+forward the caller's PAT (so the session principal is the real caller), listen
+reads a digest over an internal ingress RPC — and regenerate through the same
+`hogli build:openapi` pipeline as the rest of the surface.
+Invoke and send require a bearer PAT; session-cookie authentication is rejected
+instead of silently creating or continuing an anonymous ingress session.
+
+For **non-live / draft** revisions, use `agent-applications-preview-proxy`
+instead. Lower-level manual alternatives remain for debugging:
 
 - `bin/run-agent --slug=<your-slug>` from a terminal pane.
 - `curl -XPOST localhost:3030/agents/<slug>/run -d '{"message":"hi"}'` plus
   `curl -N localhost:3030/agents/<slug>/listen?session_id=...` for SSE.
-- The [`agent-authoring-flow.md`](../plans/agent-authoring-flow.md) plan
-  covers the proper fix: dedicated `agent-invoke` / `agent-send` /
-  `agent-listen` MCP tools (and a scripted test-run surface) so the
-  authoring AI can iterate end-to-end without leaving MCP.
 
 ## E2E tests — `products/agent_platform/services/agent-tests`
 

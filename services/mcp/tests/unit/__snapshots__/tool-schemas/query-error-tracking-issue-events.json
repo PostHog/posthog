@@ -147,6 +147,24 @@
             "description": "When true, exclude internal/test account data from results. Defaults to true.",
             "type": "boolean"
         },
+        "include": {
+            "description": "Context groups to return. Defaults to exception, environment, navigation, and correlation. Request stacktrace for frames, code_variables for captured and SDK-masked frame variables, release for release metadata, or diagnostics for ingestion errors. code_variables implies stacktrace.",
+            "items": {
+                "description": "* `exception` - exception\n* `stacktrace` - stacktrace\n* `code_variables` - code_variables\n* `environment` - environment\n* `release` - release\n* `navigation` - navigation\n* `correlation` - correlation\n* `diagnostics` - diagnostics",
+                "enum": [
+                    "exception",
+                    "stacktrace",
+                    "code_variables",
+                    "environment",
+                    "release",
+                    "navigation",
+                    "correlation",
+                    "diagnostics"
+                ],
+                "type": "string"
+            },
+            "type": "array"
+        },
         "issueId": {
             "description": "Error tracking issue ID.",
             "type": "string"
@@ -178,12 +196,6 @@
         "searchQuery": {
             "description": "Search exception types, exception values, and current URL among sampled events.",
             "maxLength": 500,
-            "type": "string"
-        },
-        "verbosity": {
-            "default": "summary",
-            "description": "Controls exception detail size: summary, stack, or raw. Defaults to summary.\n\n* `summary` - summary\n* `stack` - stack\n* `raw` - raw",
-            "enum": ["summary", "stack", "raw"],
             "type": "string"
         }
     },

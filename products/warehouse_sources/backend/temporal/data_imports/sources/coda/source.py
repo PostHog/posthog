@@ -32,6 +32,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class CodaSource(SimpleSource[CodaSourceConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://coda.io/developers/apis/v1"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CODA

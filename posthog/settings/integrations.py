@@ -1,4 +1,4 @@
-from posthog.settings.utils import get_from_env, str_to_bool
+from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 HUBSPOT_APP_CLIENT_ID = get_from_env("HUBSPOT_APP_CLIENT_ID", "")
 HUBSPOT_APP_CLIENT_SECRET = get_from_env("HUBSPOT_APP_CLIENT_SECRET", "")
@@ -39,6 +39,27 @@ GITHUB_APP_PRIVATE_KEY = get_from_env("GITHUB_APP_PRIVATE_KEY", "")
 # which is separate from the private key used for App-as-App JWT signing.
 GITHUB_APP_CLIENT_SECRET = get_from_env("GITHUB_APP_CLIENT_SECRET", "")
 
+# Stamphog runs as its own dedicated GitHub App (separate identity from the core
+# GITHUB_APP_* above), so it carries its own App id, JWT-signing private key, and
+# webhook secret. Empty defaults keep the app importable when Stamphog is unconfigured.
+STAMPHOG_GITHUB_APP_ID = get_from_env("STAMPHOG_GITHUB_APP_ID", "")
+STAMPHOG_GITHUB_APP_PRIVATE_KEY = get_from_env("STAMPHOG_GITHUB_APP_PRIVATE_KEY", "")
+STAMPHOG_GITHUB_WEBHOOK_SECRET = get_from_env("STAMPHOG_GITHUB_WEBHOOK_SECRET", "")
+# OAuth client id/secret for the Stamphog App's user-to-server authorization flow (enabled via
+# "Request user authorization during installation"). Used to exchange the post-install `code` for a
+# user access token and prove the caller actually owns the installation before its repos are bound to
+# their team. Separate from the JWT-signing private key above. Empty until the App is provisioned, in
+# which case installation binding fails closed.
+STAMPHOG_GITHUB_APP_CLIENT_ID = get_from_env("STAMPHOG_GITHUB_APP_CLIENT_ID", "")
+STAMPHOG_GITHUB_APP_CLIENT_SECRET = get_from_env("STAMPHOG_GITHUB_APP_CLIENT_SECRET", "")
+# URL-friendly App name in github.com/apps/<slug>; the install URL is built from it. Empty until
+# the App is provisioned, in which case the install-info endpoint returns a blank install URL.
+STAMPHOG_GITHUB_APP_SLUG = get_from_env("STAMPHOG_GITHUB_APP_SLUG", "")
+# Extra outbound domains the review sandbox may reach, on top of the built-in allowlist (GitHub,
+# PyPI, the LLM gateway host, the PostHog capture host). Comma-separated; an ops escape hatch for
+# when a legitimate dependency host is missing — never a way to open the sandbox wide.
+STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS = get_list(get_from_env("STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS", ""))
+
 ZENDESK_ADMIN_EMAIL = get_from_env("ZENDESK_ADMIN_EMAIL", "")
 ZENDESK_API_TOKEN = get_from_env("ZENDESK_API_TOKEN", "")
 ZENDESK_SUBDOMAIN = get_from_env("ZENDESK_SUBDOMAIN", "posthoghelp")
@@ -48,6 +69,8 @@ META_ADS_APP_CLIENT_SECRET = get_from_env("META_ADS_APP_CLIENT_SECRET", "")
 
 BING_ADS_CLIENT_ID = get_from_env("BING_ADS_CLIENT_ID", "")
 BING_ADS_CLIENT_SECRET = get_from_env("BING_ADS_CLIENT_SECRET", "")
+BING_ADS_CLIENT_ID_FALLBACK = get_from_env("BING_ADS_CLIENT_ID_FALLBACK", "")
+BING_ADS_CLIENT_SECRET_FALLBACK = get_from_env("BING_ADS_CLIENT_SECRET_FALLBACK", "")
 BING_ADS_DEVELOPER_TOKEN = get_from_env("BING_ADS_DEVELOPER_TOKEN", "")
 
 REDDIT_ADS_CLIENT_ID = get_from_env("REDDIT_ADS_CLIENT_ID", "")
@@ -121,3 +144,13 @@ HEATMAP_BROWSERLESS_TOKEN = get_from_env("HEATMAP_BROWSERLESS_TOKEN", "")
 HEATMAP_BROWSERLESS_TIMEOUT_MS = get_from_env("HEATMAP_BROWSERLESS_TIMEOUT_MS", 180000, type_cast=int)
 HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS = get_from_env("HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS", 30000, type_cast=int)
 HEATMAP_BROWSERLESS_BLOCK_ADS = get_from_env("HEATMAP_BROWSERLESS_BLOCK_ADS", False, type_cast=str_to_bool)
+
+# Legacy OAuth client credentials kept alive during an app or secret rotation.
+# Refreshes fall back to these when the primary credentials fail, so tokens issued
+# by a since-migrated app keep working until users reconnect.
+OAUTH_CLIENT_FALLBACKS: dict[str, dict[str, str]] = {
+    "bing-ads": {
+        "client_id": BING_ADS_CLIENT_ID_FALLBACK,
+        "client_secret": BING_ADS_CLIENT_SECRET_FALLBACK,
+    },
+}

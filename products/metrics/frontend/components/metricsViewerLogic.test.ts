@@ -5,6 +5,9 @@ import { insightsApi } from 'scenes/insights/utils/api'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    AppContext,
     FilterLogicalOperator,
     PropertyFilterType,
     PropertyOperator,
@@ -12,7 +15,11 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
-import { metricsAttributesRetrieve, metricsValuesRetrieve } from 'products/metrics/frontend/generated/api'
+import {
+    metricsAttributesRetrieve,
+    metricsQueryCreate,
+    metricsValuesRetrieve,
+} from 'products/metrics/frontend/generated/api'
 
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import { metricsViewerLogic, NEW_QUERY_STARTED_ERROR_MESSAGE } from './metricsViewerLogic'
@@ -21,6 +28,7 @@ jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
     metricsValuesRetrieve: jest.fn(),
     metricsAttributesRetrieve: jest.fn(),
+    metricsQueryCreate: jest.fn(),
 }))
 
 jest.mock('scenes/insights/utils/api', () => ({
@@ -47,12 +55,29 @@ const PICKER_ITEMS = [
     { name: 'mystery_metric', metric_type: 'unknown_type' },
 ]
 
+const setResourceAccess = (overrides: Partial<Record<AccessControlResourceType, AccessControlLevel>>): void => {
+    window.POSTHOG_APP_CONTEXT = {
+        ...window.POSTHOG_APP_CONTEXT,
+        resource_access_control: {
+            ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+            [AccessControlResourceType.Metrics]: AccessControlLevel.Viewer,
+            [AccessControlResourceType.Insight]: AccessControlLevel.Editor,
+            [AccessControlResourceType.Tracing]: AccessControlLevel.Viewer,
+            ...overrides,
+        },
+    } as AppContext
+}
+
 describe('metricsViewerLogic', () => {
     let logic: ReturnType<typeof metricsViewerLogic.build>
 
     beforeEach(() => {
+        setResourceAccess({})
         initKeaTests()
         jest.mocked(metricsValuesRetrieve).mockResolvedValue({ results: PICKER_ITEMS })
+        jest.mocked(metricsQueryCreate).mockReset().mockResolvedValue({ results: [] })
+        jest.mocked(metricsAttributesRetrieve).mockReset()
+        jest.mocked(insightsApi.create).mockReset()
         logic = metricsViewerLogic()
         logic.mount()
         metricNamePickerLogic.actions.loadItemsSuccess(PICKER_ITEMS)
@@ -287,5 +312,39 @@ describe('metricsViewerLogic', () => {
             { key: 'env', label: 'env' },
             { key: 'service_name', label: 'service_name' },
         ])
+    })
+
+    it('does not call metrics APIs without metrics viewer access', async () => {
+        setResourceAccess({ [AccessControlResourceType.Metrics]: AccessControlLevel.None })
+        jest.mocked(metricsValuesRetrieve).mockClear()
+
+        await expectLogic(metricNamePickerLogic, () => {
+            metricNamePickerLogic.actions.loadItems({})
+        }).toDispatchActions(['loadItemsSuccess'])
+
+        logic.actions.setMetricName('queue_depth')
+        await expectLogic(logic, () => {
+            logic.actions.fetchQueryResults({})
+        }).toDispatchActions(['fetchQueryResultsSuccess'])
+        await expectLogic(logic, () => {
+            logic.actions.setGroupBySearch('env')
+        }).toDispatchActions(['loadAttributeKeyOptionsSuccess'])
+
+        expect(metricsValuesRetrieve).not.toHaveBeenCalled()
+        expect(metricsQueryCreate).not.toHaveBeenCalled()
+        expect(metricsAttributesRetrieve).not.toHaveBeenCalled()
+    })
+
+    it('does not create insights without insight editor access', async () => {
+        setResourceAccess({ [AccessControlResourceType.Insight]: AccessControlLevel.Viewer })
+        logic.actions.setMetricName('queue_depth')
+
+        await expectLogic(logic, () => {
+            logic.actions.saveAsInsight()
+        }).toDispatchActions(['saveAsInsightSuccess'])
+        logic.actions.addToDashboard()
+
+        expect(insightsApi.create).not.toHaveBeenCalled()
+        expect(logic.values.pendingAddToDashboard).toBe(false)
     })
 })

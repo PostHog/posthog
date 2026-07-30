@@ -37,6 +37,9 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class AlgunaSource(ResumableSource[AlgunaSourceConfig, AlgunaResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    supported_versions = ("2026-04-01",)
+    default_version = "2026-04-01"
+    api_docs_url = "https://alguna.com/docs/api-reference/v2/overview"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

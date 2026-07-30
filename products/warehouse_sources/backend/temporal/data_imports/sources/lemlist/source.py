@@ -36,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LemlistSource(ResumableSource[LemlistSourceConfig, LemlistResumeConfig]):
+    api_docs_url = "https://developer.lemlist.com/api-reference"
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.LEMLIST

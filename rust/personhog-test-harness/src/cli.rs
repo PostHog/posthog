@@ -127,9 +127,11 @@ pub struct GateArgs {
     #[arg(long, default_value_t = 2)]
     pub leaders: u32,
 
-    /// Number of leader-mode routers to spawn (each is a coordinator
-    /// candidate). Traffic targets the last one, so a coordinator kill —
-    /// which targets the first — leaves the traffic path intact.
+    /// Number of leader-mode routers to spawn. Traffic targets the last
+    /// one, which (with 2+ routers) opts out of election candidacy —
+    /// coordinator chaos resolves the live election holder and can never
+    /// land on the traffic path. Use 3+ so a crash leaves a standby
+    /// candidate to win the election.
     #[arg(long, default_value_t = 1)]
     pub routers: u32,
 
@@ -213,10 +215,24 @@ pub struct GateArgs {
     #[arg(long, default_value = "10s", value_parser = humantime::parse_duration)]
     pub writer_pause_duration: Duration,
 
-    /// SIGKILL the first router (the presumed coordinator) this long into
-    /// the traffic phase. Requires --routers >= 2.
+    /// SIGKILL the router holding the coordinator election this long
+    /// into the traffic phase. Requires --routers >= 3.
     #[arg(long, value_parser = humantime::parse_duration)]
     pub router_kill_after: Option<Duration>,
+
+    /// With --router-kill-after: also revoke the router's registration and
+    /// election leases so failover is immediate. Set false for a true
+    /// crash — the survivor is blind until both leases expire, exercising
+    /// the slow-failover window (election TTL + campaign retry).
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    pub router_kill_fast: bool,
+
+    /// Gracefully shut down (SIGTERM) the router holding the coordinator
+    /// election this long into the traffic phase: the election must hand
+    /// over to a survivor immediately via the revoke-on-exit path, not by
+    /// waiting out the lease TTL. Requires --routers >= 3.
+    #[arg(long, value_parser = humantime::parse_duration)]
+    pub router_shutdown_after: Option<Duration>,
 
     /// After the first handoff-creating event (--shutdown-after or
     /// --scale-up-after) fires, watch for the resulting handoff and SIGKILL

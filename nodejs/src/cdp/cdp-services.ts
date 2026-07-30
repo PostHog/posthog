@@ -414,6 +414,9 @@ export function createCdpCoreServices(
         {
             trackedFetch: cdpTrackedFetch,
             maxFetchTimeoutMs: MAX_FETCH_TIMEOUT_MS,
+            maxRetries: config.CDP_FETCH_RETRIES,
+            backoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
+            backoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
         },
         redis
     )

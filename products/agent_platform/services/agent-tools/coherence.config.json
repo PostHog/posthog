@@ -1,0 +1,10 @@
+{
+    "outputDir": ".coherence-out",
+    "entryDir": "src",
+    "ignore": ["node_modules", "dist", ".coherence-out"],
+    "codeExt": ["ts"],
+    "typecheck": ["npx", "tsc", "--noEmit", "-p", "."],
+    "test": ["npx", "vitest", "run", "-t"],
+    "testMatch": "[1-9][0-9]* passed",
+    "language": "typescript"
+}

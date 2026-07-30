@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
@@ -52,21 +53,60 @@ class TestQuotaLimitsAPI(APIBaseTest):
         response = self.client.get(self._url())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        self.assertEqual(data["limited"]["ai_credits"], {"limited": False})
+        self.assertEqual(data["limited"]["ai_credits"], {"limited": False, "usage": None, "limit": None})
+        # Org holds no billing-granted Code usage feature -> reads as not paying
+        self.assertIs(data["code_usage_billing_active"], False)
+
+    def test_reports_code_usage_billing_state(self) -> None:
+        # The LLM gateway keys posthog_code per-user cap bypass and model gating
+        # on this field - dropping it (or resolving the wrong org) silently
+        # re-caps paying users.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.POSTHOG_CODE_USAGE, "name": "PostHog Code usage billing"}
+        ]
+        self.organization.save()
+
+        response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIs(response.json()["code_usage_billing_active"], True)
+
+    def test_reports_org_usage_and_limit_for_synced_resources(self) -> None:
+        # The LLM gateway forwards these to clients (PostHog Code renders
+        # "used $X of $Y"); usage mirrors the limiter's usage + todays_usage sum.
+        self.organization.usage = {
+            "period": ["2026-07-01T00:00:00Z", "2026-08-01T00:00:00Z"],
+            "posthog_code_credits": {"usage": 1500, "todays_usage": 200, "limit": 2000},
+            "ai_credits": {"usage": 50, "todays_usage": 0},
+            "signals_credits": {"usage": None, "todays_usage": None, "limit": 5000},
+        }
+        self.organization.save()
+
+        response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        limited = response.json()["limited"]
+        self.assertEqual(limited["posthog_code_credits"], {"limited": False, "usage": 1700, "limit": 2000})
+        # Synced but unlimited: usage without a limit.
+        self.assertEqual(limited["ai_credits"], {"limited": False, "usage": 50, "limit": None})
+        # Synced with a limit but null usage figures: unknown usage, not zero.
+        self.assertEqual(limited["signals_credits"], {"limited": False, "usage": None, "limit": 5000})
+        # Never synced: unknown, not zero.
+        self.assertEqual(limited["events"], {"limited": False, "usage": None, "limit": None})
 
     def test_returns_limited_when_team_is_over_quota(self) -> None:
         self._set_ai_credits_limit(self.team.api_token, 9_999_999_999)
 
         response = self.client.get(self._url())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["limited"]["ai_credits"], {"limited": True})
+        self.assertEqual(response.json()["limited"]["ai_credits"], {"limited": True, "usage": None, "limit": None})
 
     def test_returns_unlimited_when_limit_has_already_expired(self) -> None:
         self._set_ai_credits_limit(self.team.api_token, 1)  # epoch 1970
 
         response = self.client.get(self._url())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["limited"]["ai_credits"], {"limited": False})
+        self.assertEqual(response.json()["limited"]["ai_credits"], {"limited": False, "usage": None, "limit": None})
 
     def test_personal_api_key_auth_works(self) -> None:
         self.client.logout()
@@ -85,7 +125,7 @@ class TestQuotaLimitsAPI(APIBaseTest):
             headers={"authorization": f"Bearer {raw_key}"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["limited"]["ai_credits"], {"limited": True})
+        self.assertEqual(response.json()["limited"]["ai_credits"], {"limited": True, "usage": None, "limit": None})
 
     def test_user_not_in_teams_org_is_forbidden(self) -> None:
         other_org = Organization.objects.create(name="other-org")
@@ -160,5 +200,5 @@ class TestQuotaLimitsAPI(APIBaseTest):
         resp_self = self.client.get(self._url())
         resp_other = self.client.get(self._url(other_team.pk))
 
-        self.assertEqual(resp_self.json()["limited"]["ai_credits"], {"limited": True})
-        self.assertEqual(resp_other.json()["limited"]["ai_credits"], {"limited": False})
+        self.assertEqual(resp_self.json()["limited"]["ai_credits"], {"limited": True, "usage": None, "limit": None})
+        self.assertEqual(resp_other.json()["limited"]["ai_credits"], {"limited": False, "usage": None, "limit": None})

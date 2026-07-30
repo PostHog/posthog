@@ -45,7 +45,6 @@ export const API_SCOPES: APIScope[] = [
     { key: 'approvals', objectName: 'Approvals', objectPlural: 'approvals' },
     { key: 'batch_export', objectName: 'Batch export', objectPlural: 'batch exports' },
     { key: 'business_knowledge', objectName: 'Business knowledge', objectPlural: 'business knowledge' },
-    // `clickhouse_test_cluster_perf` is omitted — see `INTERNAL_API_SCOPE_OBJECTS` in posthog/scopes.py.
     { key: 'cohort', objectName: 'Cohort', objectPlural: 'cohorts' },
     { key: 'comment', objectName: 'Comment', objectPlural: 'comments' },
     {
@@ -79,6 +78,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'endpoint', objectName: 'Endpoint', objectPlural: 'endpoints' },
     { key: 'engineering_analytics', objectName: 'Engineering analytics', objectPlural: 'engineering analytics' },
     { key: 'event_definition', objectName: 'Event definition', objectPlural: 'event definitions' },
+    { key: 'event_filter', objectName: 'Event filter', objectPlural: 'event filters' },
     { key: 'error_tracking', objectName: 'Error tracking', objectPlural: 'error tracking' },
     { key: 'evaluation', objectName: 'Evaluation', objectPlural: 'evaluations' },
     { key: 'experiment', objectName: 'Experiment', objectPlural: 'experiments' },
@@ -112,6 +112,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'insight_variable', objectName: 'Insight variable', objectPlural: 'insight variables' },
     { key: 'integration', objectName: 'Integration', objectPlural: 'integrations', disabledActions: ['write'] },
     { key: 'legal_document', objectName: 'Legal document', objectPlural: 'legal documents' },
+    { key: 'link', objectName: 'Link', objectPlural: 'links' },
     { key: 'live_debugger', objectName: 'Live debugger', objectPlural: 'live debugger' },
     { key: 'llm_analytics', objectName: 'AI observability', objectPlural: 'AI observability' },
     {
@@ -169,8 +170,6 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'property_definition', objectName: 'Property definition', objectPlural: 'property definitions' },
     { key: 'query', objectName: 'Query', objectPlural: 'queries', disabledActions: ['write'] },
-    // `query_performance` is omitted — OAuth-hidden, PAT-grantable only (see `OAUTH_HIDDEN_SCOPE_OBJECTS` in posthog/scopes.py).
-    // `wizard_session` is also omitted for the same reason.
     { key: 'replay_scanner', objectName: 'Replay scanner', objectPlural: 'replay scanners' },
     { key: 'revenue_analytics', objectName: 'Revenue analytics', objectPlural: 'revenue analytics' },
     { key: 'session_recording', objectName: 'Session recording', objectPlural: 'session recordings' },
@@ -211,8 +210,11 @@ export const API_SCOPES: APIScope[] = [
         },
     },
     { key: 'signal_scout', objectName: 'Signals agent', objectPlural: 'signals agents' },
+    { key: 'stamphog', objectName: 'Stamphog', objectPlural: 'stamphog' },
+    { key: 'streamlit_app', objectName: 'Streamlit app', objectPlural: 'Streamlit apps' },
     { key: 'task', objectName: 'Task', objectPlural: 'tasks' },
     { key: 'user_interview', objectName: 'User interview', objectPlural: 'user interviews' },
+    { key: 'vision_action', objectName: 'Vision action', objectPlural: 'vision actions' },
     { key: 'visual_review', objectName: 'Visual review', objectPlural: 'visual reviews' },
     {
         key: 'webhook',
@@ -225,6 +227,29 @@ export const API_SCOPES: APIScope[] = [
     { key: 'web_analytics', objectName: 'Web analytics', objectPlural: 'web analytics' },
 ]
 API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
+
+// Scope objects deliberately absent from the key-creation modal above, each with the reason.
+// Every scope object in `API_SCOPE_OBJECTS` must be either offered in `API_SCOPES` or listed here —
+// scopes.test.ts enforces that partition so a newly added backend scope can't silently go missing.
+// Keep the internal/hidden entries in sync with `INTERNAL_API_SCOPE_OBJECTS` and
+// `OAUTH_HIDDEN_SCOPE_OBJECTS` in posthog/scopes.py.
+export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, string>> = {
+    // INTERNAL_API_SCOPE_OBJECTS — server-minted only, never user-grantable.
+    clickhouse_test_cluster_perf: 'Internal: minted programmatically only.',
+    internal_run: 'Internal: marks a server-minted sandbox/agent run credential.',
+    signal_scout_internal: 'Internal: sandbox-only writes for the headless Signals agent.',
+    signal_scout_report: 'Internal: sandbox-only writes for the scout report channel.',
+    // OAUTH_HIDDEN_SCOPE_OBJECTS — pasteable into a PAT, but never advertised via OAuth/CLI/MCP.
+    query_performance: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
+    wizard_session: 'OAuth-hidden: pasteable into a PAT but not advertised.',
+    // Umbrella access-control resource that `warehouse_view`/`warehouse_table` inherit from —
+    // the granular scopes are offered instead, so keep the umbrella out of the modal.
+    warehouse_objects: 'Umbrella resource: grant warehouse_view/warehouse_table instead.',
+    // Pending removal — no endpoint enforces these, so they do nothing when granted.
+    // Remove from posthog/scopes.py once no PAK/OAuth grant references them.
+    batch_import: 'Pending removal: no endpoint enforces it (its viewset is INTERNAL).',
+    external_data_schema: 'Pending removal: covered by external_data_source; no viewset uses it.',
+}
 
 export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read', 'feature_flag:read'] as const
 

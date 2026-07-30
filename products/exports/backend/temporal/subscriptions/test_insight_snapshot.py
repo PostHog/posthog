@@ -74,6 +74,26 @@ def test_serialize_insight_result_non_finite_floats_become_null():
     ]
 
 
+def test_serialize_insight_result_strips_null_bytes():
+    # Regression witness: ClickHouse result strings can carry NUL (\x00). Django's JSONField
+    # serializes it to a unicode escape that Postgres text/jsonb reject, failing the whole
+    # subscription delivery write. The NUL must be stripped while the rest of the string survives.
+    result = _build_insight_result(
+        # A Map(String, …) column deserializes to a dict, so NUL can land in a key too.
+        result=[["Success?\x00 Yes: Env", {"la\x00bel": "val\x00ue"}], ["\x00leading", "trailing\x00"]],
+        columns=["label\x00", "value"],
+        types=["String", "String"],
+    )
+
+    serialized = _serialize_insight_result(result)
+
+    # Round-trip through stdlib json (what JSONField uses) must not raise and must be NUL-free.
+    reparsed = json.loads(json.dumps(serialized))
+    assert reparsed["result"] == [["Success? Yes: Env", {"label": "value"}], ["leading", "trailing"]]
+    assert reparsed["columns"] == ["label", "value"]
+    assert "\x00" not in json.dumps(serialized)
+
+
 def test_serialize_insight_result_handles_decimal_and_date():
     # Regression witness: orjson raises on Decimal without a default= hook, and stdlib json
     # raises on bare date. Both used to live on the ClickHouse result path for revenue /

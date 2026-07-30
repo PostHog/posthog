@@ -237,6 +237,7 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
                 evaluation_description=context.evaluation_description,
                 evaluation_prompt=context.evaluation_prompt,
                 evaluation_type=context.evaluation_type,
+                output_type=context.output_type,
                 period_start=context.period_start,
                 period_end=context.period_end,
                 previous_period_start=context.previous_period_start,

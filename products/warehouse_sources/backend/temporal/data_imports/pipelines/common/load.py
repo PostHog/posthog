@@ -45,6 +45,23 @@ async def update_job_row_count(job_id: str, count: int, logger: FilteringBoundLo
     )()
 
 
+class IncrementalFieldMissingFromDataError(Exception):
+    """The configured incremental field isn't a column in the extracted rows.
+
+    A config error (e.g. a display label like "created_at" persisted instead of the real field
+    "created", or a field the endpoint simply doesn't return) — retrying can never fix it, so the
+    message is registered in ``Any_Source_Errors`` to pause the schema with user guidance instead
+    of failing every scheduled sync with a raw pyarrow KeyError.
+    """
+
+    def __init__(self, field_name: str, table: pa.Table) -> None:
+        super().__init__(
+            f'Incremental field "{field_name}" was not found in the data returned by the source. '
+            f"Edit the table's sync method and pick a valid incremental field. "
+            f"Available columns: {', '.join(sorted(table.column_names)[:50])}"
+        )
+
+
 def get_incremental_field_value(
     schema: ExternalDataSchema | None, table: pa.Table, aggregate: Literal["max"] | Literal["min"] = "max"
 ) -> Any:
@@ -55,7 +72,11 @@ def get_incremental_field_value(
     if incremental_field_name is None:
         return None
 
-    column = table[normalize_column_name(incremental_field_name)]
+    normalized_field_name = normalize_column_name(incremental_field_name)
+    if normalized_field_name not in table.column_names:
+        raise IncrementalFieldMissingFromDataError(incremental_field_name, table)
+
+    column = table[normalized_field_name]
     processed_column = pa.array(
         [process_incremental_value(val, schema.incremental_field_type) for val in column.to_pylist()]
     )

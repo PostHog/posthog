@@ -30,16 +30,21 @@ ReadinessState = Literal[
     "up_to_date",
     "needs_attention",
     "unknown",
+    "sync_paused",
 ]
 
 QUEUE_RETENTION_DAYS = 14
 PERSISTENT_BACKFILL_FAILURES = 3
+# sync_paused ranks below every active-work or failure state (those are still worth surfacing even
+# on a paused schema's source) but above up_to_date: a source with some schemas paused shouldn't
+# read as fully "up to date" when part of it isn't being kept current at all.
 READINESS_PRIORITY: tuple[ReadinessState, ...] = (
     "needs_attention",
     "backfilling",
     "catching_up",
     "waiting",
     "unknown",
+    "sync_paused",
     "up_to_date",
 )
 
@@ -300,10 +305,13 @@ def _schema_table_statuses(team_id: int, *, source_id: str | None = None) -> lis
     if not states:
         return []
 
+    # should_sync is deliberately not filtered here: a schema with sync paused still has real,
+    # queryable data in the warehouse (or a genuine backfill-in-progress state), and hiding it
+    # entirely reads as "nothing here" rather than "this one isn't actively syncing right now".
+    # Only schemas/sources that no longer exist (soft-deleted) are excluded.
     schema_filter: dict[str, object] = {
         "team_id": team_id,
         "id__in": [state.schema_id for state in states],
-        "should_sync": True,
         "deleted": False,
         "source__deleted": False,
     }
@@ -323,7 +331,15 @@ def _schema_table_statuses(team_id: int, *, source_id: str | None = None) -> lis
         schema_id = str(state.schema_id)
         schema = schema_by_id[schema_id]
         queue_status = queue_statuses.get(schema_id) if queue_statuses is not None else None
-        readiness_state, detail = source_table_readiness(state, queue_status, queue_available)
+        if schema.should_sync:
+            readiness_state, detail = source_table_readiness(state, queue_status, queue_available)
+        else:
+            # Paused wins over whatever the sink state says: a stale failure streak from before
+            # the pause isn't actionable while nothing is actively importing for this table.
+            readiness_state, detail = (
+                "sync_paused",
+                "Sync is paused for this table. Data already in the warehouse is unaffected.",
+            )
         tables.append(
             {
                 "schema_id": schema_id,
@@ -356,6 +372,7 @@ _SOURCE_SUMMARY_DETAILS: dict[ReadinessState, str] = {
     "catching_up": "Recent imports are still being applied for one or more schemas.",
     "waiting": "One or more schemas are waiting to start.",
     "unknown": "Live import status is temporarily unavailable for one or more schemas.",
+    "sync_paused": "Sync is paused for one or more schemas.",
     "up_to_date": "All schemas are up to date.",
     "not_configured": "No schemas are configured for this source.",
 }
@@ -434,6 +451,7 @@ def _sources_status(team_id: int) -> SourcesStatus:
         "catching_up": "Recent imports are still being applied to the warehouse.",
         "waiting": "One or more imported sources are waiting to start.",
         "unknown": "Some live import statuses are temporarily unavailable.",
+        "sync_paused": "Sync is paused for one or more imported sources.",
         "up_to_date": "All imported sources are up to date.",
         "not_configured": "No imported source tables are configured for this warehouse.",
     }

@@ -12,7 +12,9 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.session_replay.surfacing_score_export_sweep.constants import (
     EXPORT_PARTITION_ACTIVITY_TIMEOUT,
     EXPORT_PARTITION_HEARTBEAT_TIMEOUT,
+    EXPORT_PARTITION_MAX_ATTEMPTS,
     LIST_PARTITIONS_ACTIVITY_TIMEOUT,
+    MAX_CONCURRENT_EXPORT_PARTITIONS,
     WORKFLOW_NAME,
 )
 from posthog.temporal.session_replay.surfacing_score_export_sweep.types import (
@@ -27,6 +29,9 @@ with workflow.unsafe.imports_passed_through():
         export_scores_partition_activity,
         list_export_partitions_activity,
     )
+
+
+_PATCH_BOUNDED_PARTITION_FANOUT = "surfacing-score-export-bounded-partition-fanout"
 
 
 @workflow.defn(name=WORKFLOW_NAME)
@@ -51,8 +56,20 @@ class ExportSurfacingScoresWorkflow(PostHogWorkflow):
             workflow.logger.info("surfacing_score_export_sweep.no_work")
             return ExportScoresSweepResult()
 
+        # Activity dispatch is recorded in Temporal history, so gate this change for deterministic replay.
+        # The schedule timeout covers the retry budget for every bounded wave.
+        concurrency = len(plan.partitions)
+        if workflow.patched(_PATCH_BOUNDED_PARTITION_FANOUT):
+            concurrency = min(MAX_CONCURRENT_EXPORT_PARTITIONS, concurrency)
+
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async def _export_with_semaphore(spec: ExportPartitionSpec) -> ExportPartitionResult:
+            async with semaphore:
+                return await self._export_partition(spec)
+
         results = await asyncio.gather(
-            *(self._export_partition(spec) for spec in plan.partitions),
+            *(_export_with_semaphore(spec) for spec in plan.partitions),
             return_exceptions=True,
         )
         return _summarize(plan.partitions, results)
@@ -64,7 +81,7 @@ class ExportSurfacingScoresWorkflow(PostHogWorkflow):
             start_to_close_timeout=EXPORT_PARTITION_ACTIVITY_TIMEOUT,
             heartbeat_timeout=EXPORT_PARTITION_HEARTBEAT_TIMEOUT,
             retry_policy=RetryPolicy(
-                maximum_attempts=3,
+                maximum_attempts=EXPORT_PARTITION_MAX_ATTEMPTS,
                 non_retryable_error_types=[
                     "PseudonymKeyNotConfiguredError",
                     "PseudonymKeyFingerprintMismatchError",

@@ -30,6 +30,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OptimizelySource(SimpleSource[OptimizelySourceConfig]):
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://library.optimizely.com/docs/api/app/v2/index.html"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

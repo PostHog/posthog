@@ -575,8 +575,8 @@ describe('llmEvaluationLogic', () => {
                 expect(logic.values.runsSummary).toBeNull()
             })
 
-            it('calculates summary correctly', async () => {
-                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+            it('calculates summary from server-side aggregate counts', async () => {
+                logic.actions.loadRunsStatsSuccess({ total: 3, applicable: 2, passed: 1 })
 
                 await expectLogic(logic).toMatchValues({
                     runsSummary: {
@@ -1088,14 +1088,14 @@ describe('llmEvaluationLogic', () => {
             })
         })
 
-        it('switching to sentiment moves away from reports tab', async () => {
+        it('switching to sentiment keeps the reports tab active', async () => {
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
             logic.actions.setActiveTab('reports')
             logic.actions.setEvaluationType('sentiment')
 
             await expectLogic(logic).toMatchValues({
-                activeTab: 'configuration',
+                activeTab: 'reports',
             })
         })
 
@@ -1348,6 +1348,62 @@ describe('llmEvaluationLogic', () => {
                 expect(reportWriteCount).toBe(0)
                 resolveInitialReports({ results: [mockEvaluationReport] })
                 await expectLogic(reportLogic).toFinishAllListeners()
+            } finally {
+                pushSpy.mockRestore()
+                reportLogic.unmount()
+            }
+        })
+
+        it('updates the backend-created report when saving a new sentiment evaluation', async () => {
+            let evaluationCreateCount = 0
+            let reportListCount = 0
+            let reportCreateCount = 0
+            let reportUpdateCount = 0
+            const pushSpy = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+
+            useMocks({
+                get: {
+                    '/api/projects/:teamId/llm_analytics/evaluation_reports/': () => {
+                        reportListCount += 1
+                        return { results: [mockEvaluationReport] }
+                    },
+                },
+                post: {
+                    '/api/projects/:teamId/evaluations/': () => {
+                        evaluationCreateCount += 1
+                        return mockSentimentEvaluation
+                    },
+                    '/api/projects/:teamId/llm_analytics/evaluation_reports/': () => {
+                        reportCreateCount += 1
+                        return mockEvaluationReport
+                    },
+                },
+                patch: {
+                    '/api/projects/:teamId/llm_analytics/evaluation_reports/:id/': () => {
+                        reportUpdateCount += 1
+                        return mockEvaluationReport
+                    },
+                },
+            })
+
+            logic = llmEvaluationLogic({ evaluationId: 'new', evaluationType: 'sentiment' })
+            const reportLogic = evaluationReportLogic({ evaluationId: 'new' })
+            logic.mount()
+            reportLogic.mount()
+
+            try {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                logic.actions.setEvaluationName('Sentiment evaluation')
+                reportLogic.actions.setDraftTriggerThreshold(500)
+                reportLogic.actions.setDraftEmailValue('sentiment@example.com')
+
+                logic.actions.saveEvaluation()
+
+                await expectLogic(logic).toFinishAllListeners()
+                expect(evaluationCreateCount).toBe(1)
+                expect(reportListCount).toBe(1)
+                expect(reportUpdateCount).toBe(1)
+                expect(reportCreateCount).toBe(0)
             } finally {
                 pushSpy.mockRestore()
                 reportLogic.unmount()

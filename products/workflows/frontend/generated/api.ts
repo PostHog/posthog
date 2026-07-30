@@ -16,6 +16,8 @@ import type {
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowInvocationApi,
+    HogFlowPublishRequestApi,
+    HogFlowPublishResponseApi,
     HogFlowScheduleApi,
     HogFlowTemplateApi,
     HogFlowTemplatesListParams,
@@ -414,6 +416,21 @@ export const hogFlowsBatchJobsCreate = async (
     })
 }
 
+export const getHogFlowsDiscardDraftCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/discard_draft/`
+}
+
+export const hogFlowsDiscardDraftCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsDiscardDraftCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getHogFlowsGraphPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/graph/`
 }
@@ -590,6 +607,24 @@ export const hogFlowsMetricsTotalsRetrieve = async (
     return apiMutator<AppMetricsTotalsResponseApi>(getHogFlowsMetricsTotalsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getHogFlowsPublishCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/publish/`
+}
+
+export const hogFlowsPublishCreate = async (
+    projectId: string,
+    id: string,
+    hogFlowPublishRequestApi?: HogFlowPublishRequestApi,
+    options?: RequestInit
+): Promise<HogFlowPublishResponseApi> => {
+    return apiMutator<HogFlowPublishResponseApi>(getHogFlowsPublishCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFlowPublishRequestApi),
     })
 }
 

@@ -90,10 +90,18 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
 
     # TODO: this could cause a race condition where each schema worker creates the missing schema
 
+    # GitHub keeps its legacy repo's rows bare alongside qualified rows for added repos, so
+    # bare↔qualified tail matching would wrongly collapse them; match names exactly and seed
+    # per-repo location metadata on newly created rows.
+    is_github = source_type_enum == ExternalDataSourceType.GITHUB
     schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
         schemas_to_sync,
         source_id=inputs.source_id,
         team_id=inputs.team_id,
+        strict_name_match=is_github,
+        schema_metadata_by_name={s.name: s.schema_metadata for s in schemas if s.schema_metadata}
+        if is_github
+        else None,
     )
 
     if len(schemas_created) > 0:

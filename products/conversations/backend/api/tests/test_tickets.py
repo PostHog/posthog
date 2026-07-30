@@ -1860,14 +1860,45 @@ class TestTicketMessagesAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("customer_with_name", {"name": "Bob", "email": "bob@example.com"}, "customer", "Bob"),
-            ("customer_email_fallback", {"email": "bob@example.com"}, "customer", "bob@example.com"),
-            ("customer_default", {}, "customer", "Customer"),
-            ("ai_author", {}, "AI", "PostHog Assistant"),
-            ("support_without_user", {}, "support", "Support"),
+            ("customer_with_name", {"name": "Bob", "email": "bob@example.com"}, "customer", {}, "Bob"),
+            ("customer_email_fallback", {"email": "bob@example.com"}, "customer", {}, "bob@example.com"),
+            ("customer_default", {}, "customer", {}, "Customer"),
+            ("ai_author", {}, "AI", {}, "PostHog Assistant"),
+            ("support_without_user", {}, "support", {}, "Support"),
+            # Per-comment author overrides the ticket requester (thread replies from other participants)
+            (
+                "teams_thread_reply_author",
+                {"name": "Mark"},
+                "customer",
+                {"teams_author_name": "Chris"},
+                "Chris",
+            ),
+            (
+                "slack_thread_reply_author",
+                {"name": "Mark"},
+                "customer",
+                {"slack_author_name": "Chris"},
+                "Chris",
+            ),
+            (
+                "zendesk_import_author",
+                {"name": "Mark"},
+                "customer",
+                {"author_name": "Chris"},
+                "Chris",
+            ),
+            (
+                "context_author_on_support_comment",
+                {},
+                "support",
+                {"teams_author_name": "Chris"},
+                "Chris",
+            ),
         ]
     )
-    def test_messages_author_name_resolution(self, mock_on_commit, _name, traits, author_type, expected_name):
+    def test_messages_author_name_resolution(
+        self, mock_on_commit, _name, traits, author_type, extra_context, expected_name
+    ):
         self.ticket.anonymous_traits = traits
         self.ticket.save(update_fields=["anonymous_traits"])
         Comment.objects.create(
@@ -1875,7 +1906,7 @@ class TestTicketMessagesAPI(APIBaseTest):
             scope="conversations_ticket",
             item_id=str(self.ticket.id),
             content="msg",
-            item_context={"author_type": author_type},
+            item_context={"author_type": author_type, **extra_context},
         )
 
         response = self.client.get(self.url)

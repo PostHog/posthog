@@ -35,6 +35,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CrunchbaseSource(ResumableSource[CrunchbaseSourceConfig, CrunchbaseResumeConfig]):
+    supported_versions = ("v4",)
+    default_version = "v4"
+    api_docs_url = "https://data.crunchbase.com/docs"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

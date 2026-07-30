@@ -80,7 +80,8 @@ describe('tracingOperationSceneLogic', () => {
                         },
                     ],
                 },
-            })
+            }),
+            expect.anything()
         )
     })
 
@@ -91,12 +92,51 @@ describe('tracingOperationSceneLogic', () => {
         expect(logic.values.sampleTraceSpansLoading).toBe(true)
 
         await logic.asyncActions.fetchSampleTrace({ sample: logic.values.currentSample! })
-        expect(getTraceSpy).toHaveBeenLastCalledWith('trace-2', expect.anything())
+        expect(getTraceSpy).toHaveBeenLastCalledWith('trace-2', expect.anything(), expect.anything())
         expect(logic.values.selectedSpanId).toBe('span-2')
     })
 
     it('ignores a negative sample index restored from the URL', () => {
         router.actions.push('/tracing/operation', { sample: '-1' })
         expect(logic.values.sampleIndex).toBe(0)
+    })
+
+    // A trace longer than the ±1h lookup window can share a trace_id with the loaded waterfall yet
+    // omit spans that fell outside it — reuse must be gated on the span actually being present.
+    it.each([
+        { desc: 'refetches when the loaded trace lacks the paged-to span', loaded: ['span-a'], expectLoading: true },
+        {
+            desc: 'reuses the loaded trace when it already contains the paged-to span',
+            loaded: ['span-a', 'span-b'],
+            expectLoading: false,
+        },
+    ])('paging within a shared trace $desc', async ({ loaded, expectLoading }) => {
+        const sameTrace = (spanId: string): Span => ({
+            ...createMockSample(1),
+            span_id: spanId,
+            trace_id: 'trace-long',
+        })
+        logic.actions.fetchSamplesSuccess([sameTrace('span-a'), sameTrace('span-b')])
+        logic.actions.fetchSampleTraceSuccess(loaded.map(sameTrace))
+
+        logic.actions.setSampleIndex(1)
+        expect(logic.values.sampleTraceSpansLoading).toBe(expectLoading)
+
+        // Settle any in-flight fetch so it can't resolve after the test ends.
+        await logic.asyncActions.fetchSampleTrace({ sample: logic.values.currentSample! })
+    })
+
+    it('recovers a retained sample when a failed refetch is left with a stale index', async () => {
+        logic.actions.fetchSamplesSuccess([1, 2].map(createMockSample))
+        // Browser navigation can move the index past the retained set while a refetch is in flight.
+        logic.actions.setSampleIndex(5)
+        getTraceSpy.mockClear()
+
+        logic.actions.fetchSamplesFailure('network down')
+        // The stale index clamps back into the retained set so the waterfall reloads, not stays blank.
+        expect(logic.values.sampleIndex).toBe(0)
+
+        await logic.asyncActions.fetchSampleTrace({ sample: logic.values.currentSample! })
+        expect(getTraceSpy).toHaveBeenCalledWith('trace-1', expect.anything(), expect.anything())
     })
 })

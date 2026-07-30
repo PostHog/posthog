@@ -702,7 +702,7 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
         # click "Open ticket" (handled by the interactivity endpoint). Heuristics
         # keep us from pestering the whole channel.
         if settings_dict.get("slack_nudge_enabled", True):
-            decision = _should_send_nudge(team, channel, slack_user_id, text, blocks, files)
+            decision = _should_send_nudge(team, channel, slack_user_id, text, blocks, files, message_ts or "")
             if decision.send:
                 post_ticket_confirmation_prompt(
                     team=team,
@@ -756,6 +756,8 @@ def _is_trivial_message(text: str, files: list[dict] | None) -> bool:
 # package's __init__ pulls in the whole Temporal workflow surface). Must stay in the gateway's
 # `conversations` product allowlist (services/llm-gateway/src/llm_gateway/products/config.py).
 NUDGE_CLASSIFIER_MODEL = "claude-haiku-4-5"
+# Both the feature tag and the $ai_span_name on captured generations — they must stay equal.
+NUDGE_CLASSIFIER_FEATURE = "slack_nudge_classifier"
 # Bound the call so a slow gateway can't stall Slack event processing on the Celery worker.
 NUDGE_CLASSIFIER_TIMEOUT_SECONDS = 10
 # A yes/no read doesn't get better past this much text; cap what we send.
@@ -836,7 +838,9 @@ def _is_nudge_classifier_flag_enabled(team: Team) -> bool:
         return False
 
 
-def _nudge_classifier_verdict(team: Team, text: str, files: list[dict] | None) -> NudgeClassifierVerdict:
+def _nudge_classifier_verdict(
+    team: Team, text: str, files: list[dict] | None, channel: str, message_ts: str
+) -> NudgeClassifierVerdict:
     """Final nudge gate: ask a cheap LLM whether the message reads like a genuine support
     request rather than channel chatter.
 
@@ -875,7 +879,13 @@ def _nudge_classifier_verdict(team: Team, text: str, files: list[dict] | None) -
             temperature=0,
             timeout=NUDGE_CLASSIFIER_TIMEOUT_SECONDS,
             user=f"team-{team_id}",
-            extra_headers={"x-posthog-property-feature": "slack_nudge_classifier"},
+            # slack_* keys mirror nudge_event_properties so a generation joins its funnel outcome.
+            extra_headers={
+                "x-posthog-property-feature": NUDGE_CLASSIFIER_FEATURE,
+                "x-posthog-property-$ai_span_name": NUDGE_CLASSIFIER_FEATURE,
+                "x-posthog-property-slack_channel_id": channel,
+                "x-posthog-property-slack_thread_ts": message_ts,
+            },
             messages=[
                 {"role": "system", "content": NUDGE_CLASSIFIER_SYSTEM_PROMPT},
                 {"role": "user", "content": content},
@@ -902,6 +912,7 @@ def _should_send_nudge(
     text: str,
     blocks: list[dict] | None,
     files: list[dict] | None,
+    message_ts: str,
 ) -> NudgeDecision:
     """Heuristics to avoid pestering the channel: nudge only external users on substantive
     messages, skipping anyone recently nudged/dismissed or who @mentioned the bot (which
@@ -935,7 +946,7 @@ def _should_send_nudge(
     # message from a chatty author re-runs the classifier, unbounded; with it, the cadence
     # is what the pre-classifier nudge already established: one evaluation per
     # user/channel per window.
-    verdict = _nudge_classifier_verdict(team, text, files)
+    verdict = _nudge_classifier_verdict(team, text, files, channel, message_ts)
     if verdict == "no":
         suppress_nudge(team_id, channel, slack_user_id, NUDGE_COOLDOWN_TTL)
         return NudgeDecision(send=False, classifier_verdict=verdict)

@@ -38,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MixpanelSource(ResumableSource[MixpanelSourceConfig, MixpanelResumeConfig]):
+    api_docs_url = "https://developer.mixpanel.com"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

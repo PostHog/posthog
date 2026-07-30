@@ -7,7 +7,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import { evaluationReportLogic } from '../evaluationReportLogic'
 import type { EvaluationReportRun } from '../types'
-import { EvaluationReportViewer } from './EvaluationReportViewer'
+import { EvaluationReportViewer, summarizeEvaluationReportResults } from './EvaluationReportViewer'
 
 interface EvaluationReportsTabProps {
     evaluationId: string
@@ -20,6 +20,7 @@ const STATUS_STYLES: Record<
     { label: string; type: 'success' | 'warning' | 'danger' | 'muted' }
 > = {
     delivered: { label: 'Delivered', type: 'success' },
+    generated: { label: 'Generated', type: 'success' },
     pending: { label: 'Pending', type: 'muted' },
     partial_failure: { label: 'Partial failure', type: 'warning' },
     failed: { label: 'Failed', type: 'danger' },
@@ -100,11 +101,11 @@ export function EvaluationReportsTab({ evaluationId, onConfigureClick }: Evaluat
                         ),
                     },
                     {
-                        title: 'Pass rate',
-                        key: 'pass_rate',
+                        title: 'Results',
+                        key: 'results',
                         render: (_, run: EvaluationReportRun) => {
-                            const pct = run.content?.metrics?.pass_rate ?? run.metadata?.pass_rate
-                            return typeof pct === 'number' ? `${pct.toFixed(1)}%` : '–'
+                            const metrics = run.content?.metrics ?? run.metadata
+                            return metrics ? summarizeEvaluationReportResults(metrics) : '–'
                         },
                     },
                     {

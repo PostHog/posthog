@@ -223,8 +223,14 @@ describe('taxonomicFilterLogic', () => {
         // react-window new rowProps every render, which drives its layout-effect setState past React's
         // update limit (error #185). This locks the reference in so that cascade cannot start.
         const state = getContext().store.getState()
-        const propsA = { ...logic.props, metadataSource: { kind: NodeKind.HogQLQuery, query: 'select 1' } }
-        const propsB = { ...logic.props, metadataSource: { kind: NodeKind.HogQLQuery, query: 'select 1' } }
+        const propsA: TaxonomicFilterLogicProps = {
+            ...logic.props,
+            metadataSource: { kind: NodeKind.HogQLQuery, query: 'select 1' },
+        }
+        const propsB: TaxonomicFilterLogicProps = {
+            ...logic.props,
+            metadataSource: { kind: NodeKind.HogQLQuery, query: 'select 1' },
+        }
 
         expect(propsA.metadataSource).not.toBe(propsB.metadataSource)
 

@@ -25,7 +25,6 @@ import { PersonType } from '~/types'
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { DataSourceIcon } from './components/DataSourceIcon'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { OPTIONAL_PROJECT_NON_CAPTURE_GROUP } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttributes>): JSX.Element => {
     const { id, distinctId } = attributes
@@ -299,12 +298,6 @@ export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttr
     attributes: {
         id: {},
         distinctId: {},
-    },
-    pasteOptions: {
-        find: OPTIONAL_PROJECT_NON_CAPTURE_GROUP + urls.personByUUID('(.+)', false),
-        getAttributes: async (match) => {
-            return { distinctId: undefined, id: match[1] }
-        },
     },
     serializedText: (attrs) => {
         const personTitle = attrs?.title || ''

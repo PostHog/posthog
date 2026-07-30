@@ -45,6 +45,10 @@ jobs:
                         - .github/workflows/ci-agents.yml
                         - 'products/agent_platform/services/**'
                         - 'products/agent_platform/packages/**'
+                        # Generated vocabularies (TS source of truth → checked-in JSON
+                        # Django imports). A JSON-only edit must re-run the freshness
+                        # test in agent-shared, else drift ships green.
+                        - 'products/agent_platform/backend/logic/*.generated.json'
                         # Transitional: in-flight branches still have these at the
                         # old paths. Drop once they've rebased onto the move.
                         - 'services/agent-ingress/**'

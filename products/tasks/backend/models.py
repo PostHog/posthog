@@ -1103,6 +1103,23 @@ class TaskRun(models.Model):
         help_text="Run state data for resuming or tracking execution state",
     )
 
+    # Local url-based MCP servers imported from the creating client (PostHog Code),
+    # merged into the sandbox agent server's --mcpServers at spawn. Encrypted because
+    # header values carry credentials; never exposed through API responses.
+    imported_mcp_servers = EncryptedJSONStringField(
+        blank=True,
+        null=True,
+        default=None,
+        help_text="Client-imported MCP server configs (type/name/url/headers) to make available in the sandbox",
+    )
+
+    relayed_mcp_servers = models.JSONField(
+        blank=True,
+        null=True,
+        default=None,
+        help_text="Names of desktop-only MCP servers the creating client relays into this run (docs/cloud-mcp-relay.md). Names only — configuration never crosses the wire.",
+    )
+
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     completed_at = models.DateTimeField(null=True, blank=True)

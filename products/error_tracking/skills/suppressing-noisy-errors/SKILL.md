@@ -92,7 +92,7 @@ posthog:query-error-tracking-issue-events
 {
   "issueId": "<candidate_issue_id>",
   "limit": 10,
-  "verbosity": "stack"
+  "include": ["exception", "stacktrace", "environment", "navigation"]
 }
 ```
 
@@ -225,7 +225,7 @@ posthog:query-error-tracking-issue-events
 {
   "issueId": "<id from the list>",
   "limit": 3,
-  "verbosity": "stack",
+  "include": ["exception", "stacktrace", "environment", "navigation"],
   "onlyAppFrames": false
 }
 ```

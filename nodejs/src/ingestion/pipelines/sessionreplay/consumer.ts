@@ -1,7 +1,8 @@
-import { CODES, Message, TopicPartition, TopicPartitionOffset, features, librdkafkaVersion } from 'node-rdkafka'
+import { Message, TopicPartition, TopicPartitionOffset, features, librdkafkaVersion } from 'node-rdkafka'
+import pLimit from 'p-limit'
 
 import { buildIntegerMatcher } from '~/common/config/config'
-import { KafkaConsumer } from '~/common/kafka/consumer/consumer-v1'
+import { KafkaConsumerV2 } from '~/common/kafka/consumer/consumer-v2'
 import { DlqOutput, IngestionWarningsOutput, LogEntriesOutput, OverflowOutput, TophogOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
@@ -11,7 +12,6 @@ import {
     EventIngestionRestrictionManagerComponent,
 } from '~/common/utils/event-ingestion-restrictions'
 import { logger } from '~/common/utils/logger'
-import { captureException } from '~/common/utils/posthog'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { IngestionConsumerConfig } from '~/ingestion/config'
 import { TopHog } from '~/ingestion/framework/tophog/tophog'
@@ -43,6 +43,7 @@ import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-b
 import { RetentionAwareStorage } from './sessions/retention-aware-batch-writer'
 import { SessionBatchFileStorage } from './sessions/session-batch-file-storage'
 import { SessionBatchManager } from './sessions/session-batch-manager'
+import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 import { SessionConsoleLogStore } from './sessions/session-console-log-store'
 import { SessionFilter } from './sessions/session-filter'
 import { SessionTracker } from './sessions/session-tracker'
@@ -80,15 +81,24 @@ export interface SessionRecordingIngesterCollaborators {
 }
 
 export class SessionRecordingIngester {
-    kafkaConsumer: KafkaConsumer
+    kafkaConsumer: KafkaConsumerV2
     topic: string
     consumerGroupId: string
-    totalNumPartitions = 0
     isStopping = false
 
     private isDebugLoggingEnabled: ValueMatcher<number>
     private readonly promiseScheduler: PromiseScheduler
     private readonly sessionBatchManager: SessionBatchManager
+    /** The accumulator for the current flush cycle. Owned here, minted and flushed via the manager. */
+    private currentBatch: SessionBatchRecorder
+    /** When the current accumulation cycle started (last flush, or startup), for the age flush trigger. */
+    private lastFlushTime: number
+    /**
+     * Serializes access to {@link currentBatch}: recording a poll batch, flushing on size/age, and
+     * flushing on partition revoke all run one at a time, so a revoke can't flush a batch a concurrent
+     * poll is still recording into. (The accumulating pipeline will own this serialization later.)
+     */
+    private readonly batchLock = pLimit(1)
     private readonly redisPool: RedisPool
     private readonly restrictionRedisPool: RedisPool
     private readonly teamService: TeamService
@@ -136,7 +146,10 @@ export class SessionRecordingIngester {
 
         this.promiseScheduler = new PromiseScheduler()
 
-        this.kafkaConsumer = new KafkaConsumer({
+        // The v2 consumer defers the unassign on revoke until in-flight work is drained and the
+        // revoke hook has run, so a revoke can flush the current batch (persisting sessions and
+        // storing offsets) before the revoked partitions are given up.
+        this.kafkaConsumer = new KafkaConsumerV2({
             topic: this.topic,
             groupId: this.consumerGroupId,
             callEachBatchWhenEmpty: true,
@@ -227,6 +240,9 @@ export class SessionRecordingIngester {
             featureStore,
             encryptor: this.encryptor,
         })
+
+        this.currentBatch = this.sessionBatchManager.createBatch()
+        this.lastFlushTime = Date.now()
     }
 
     public get service(): PluginServerService {
@@ -238,8 +254,6 @@ export class SessionRecordingIngester {
     }
 
     public async handleEachBatch(messages: Message[]): Promise<void> {
-        this.kafkaConsumer.heartbeat()
-
         if (messages.length > 0) {
             logger.info('🔁', `blob_ingester_consumer_v2 - handling batch`, {
                 size: messages.length,
@@ -269,24 +283,38 @@ export class SessionRecordingIngester {
 
         // Run messages through the pipeline (handles restrictions, parsing, team filtering, and recording)
         // and track the highest offset reached per partition — the single place Kafka progress is tracked.
+        // Recording holds the batch lock so a concurrent revoke can't flush the batch mid-record.
         const offsets = await instrumentFn(`recordingingesterv2.handleEachBatch.runPipeline`, async () =>
-            runSessionReplayPipeline(this.sessionReplayPipeline, messages, this.promiseScheduler)
+            this.batchLock(() =>
+                runSessionReplayPipeline(this.sessionReplayPipeline, messages, this.currentBatch, this.promiseScheduler)
+            )
         )
         this.sessionBatchManager.trackProcessedOffsets(offsets)
 
-        this.kafkaConsumer.heartbeat()
-
-        if (this.sessionBatchManager.shouldFlush()) {
-            // The pipeline schedules its side effects (DLQ and overflow produces) fire-and-forget on
-            // the promise scheduler. Drain them before flushing so we never commit a message's offset
-            // before its produce is durable — otherwise a crash in that window would lose it.
-            await instrumentFn(`recordingingesterv2.handleEachBatch.flush.awaitSideEffects`, async () => {
-                await this.promiseScheduler.waitForAllSettled()
-            })
-            await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () =>
-                this.sessionBatchManager.flush()
-            )
+        if (this.sessionBatchManager.shouldFlush(this.currentBatch, this.lastFlushTime)) {
+            await this.flushCurrentBatch()
         }
+    }
+
+    /**
+     * Flush the current accumulator (persisting it and committing its tracked offsets) and start a new
+     * cycle. Serialized by the batch lock so it can't run while a batch is being recorded or another
+     * flush (e.g. a partition revoke) is in progress.
+     */
+    private async flushCurrentBatch(): Promise<void> {
+        // The pipeline schedules its side effects (DLQ and overflow produces) fire-and-forget on the
+        // promise scheduler. Drain them before flushing so we never commit a message's offset before its
+        // produce is durable — otherwise a crash in that window would lose it. Drain outside the lock so a
+        // scheduled revoke waiting on the lock can't deadlock this drain.
+        await instrumentFn(`recordingingesterv2.handleEachBatch.flush.awaitSideEffects`, async () => {
+            await this.promiseScheduler.waitForAllSettled()
+        })
+        await this.batchLock(async () => {
+            logger.info('🔁', 'blob_ingester_consumer_v2 - flushing batch', { batchSize: this.currentBatch.size })
+            await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () => this.currentBatch.flush())
+            this.currentBatch = this.sessionBatchManager.createBatch()
+            this.lastFlushTime = Date.now()
+        })
     }
 
     public async start(): Promise<void> {
@@ -313,46 +341,18 @@ export class SessionRecordingIngester {
             keyStore: this.keyStore,
             sessionKeyResolutionMaxConcurrency: this.config.SESSION_RECORDING_KEY_RESOLUTION_MAX_CONCURRENCY,
             topHog: this.topHog,
-            sessionBatchManager: this.sessionBatchManager,
             isDebugLoggingEnabled: this.isDebugLoggingEnabled,
         })
 
         // Check that the storage backend is healthy before starting the consumer
         // This is especially important in local dev with minio
         await this.fileStorage.checkHealth()
-        await this.kafkaConsumer.connect((messages) => this.handleEachBatch(messages))
-
-        this.totalNumPartitions = (await this.kafkaConsumer.getPartitionsForTopic(this.topic)).length
-
-        this.kafkaConsumer.on('rebalance', async (err, topicPartitions) => {
-            logger.info('🔁', 'blob_ingester_consumer_v2 - rebalancing', { err, topicPartitions })
-            /**
-             * see https://github.com/Blizzard/node-rdkafka#rebalancing
-             *
-             * This event is received when the consumer group starts _or_ finishes rebalancing.
-             *
-             * NB if the partition assignment strategy changes then this code may need to change too.
-             * e.g. round-robin and cooperative strategies will assign partitions differently
-             */
-
-            if (err.code === CODES.ERRORS.ERR__ASSIGN_PARTITIONS) {
-                return
-            }
-
-            if (err.code === CODES.ERRORS.ERR__REVOKE_PARTITIONS) {
-                return this.promiseScheduler.schedule(this.onRevokePartitions(topicPartitions))
-            }
-
-            // We had a "real" error
-            logger.error('🔥', 'blob_ingester_consumer_v2 - rebalancing error', { err })
-            captureException(err)
-            // TODO: immediately die? or just keep going?
-        })
-
-        // nothing happens here unless we configure SESSION_RECORDING_KAFKA_CONSUMPTION_STATISTICS_EVENT_INTERVAL_MS
-        this.kafkaConsumer.on('event.stats', (stats) => {
-            logger.info('🪵', 'blob_ingester_consumer_v2 - kafka stats', { stats })
-        })
+        // The revoke hook runs inside the rebalance callback, before the partitions are unassigned, so
+        // the flush it triggers stores offsets that librdkafka commits as it gives the partitions up.
+        await this.kafkaConsumer.connect(
+            (messages) => this.handleEachBatch(messages),
+            (revokedPartitions) => this.onRevokePartitions(revokedPartitions)
+        )
 
         // Start periodic flushing of TopHog metrics
         this.topHog.start()
@@ -362,13 +362,17 @@ export class SessionRecordingIngester {
         logger.info('🔁', 'blob_ingester_consumer_v2 - stopping')
         this.isStopping = true
 
+        // Stop the consume loop and drain in-flight batches first, so the final flush below can't
+        // race a poll batch that is still recording (and scheduling side effects) concurrently.
+        await this.kafkaConsumer.stopConsuming()
+
         // Stop TopHog and flush final metrics
         await this.topHog.stop()
 
-        const assignedPartitions = this.assignedTopicPartitions
+        // Persist whatever is buffered and store its offsets while we still own the partitions;
+        // disconnect commits them as it leaves the group.
+        await this.flushCurrentBatch()
         await this.kafkaConsumer.disconnect()
-
-        void this.promiseScheduler.schedule(this.onRevokePartitions(assignedPartitions))
 
         const promiseResults = await this.promiseScheduler.waitForAllSettled()
 
@@ -397,8 +401,10 @@ export class SessionRecordingIngester {
 
     private onRevokePartitions(topicPartitions: TopicPartition[]): Promise<void> {
         /**
-         * The revoke_partitions indicates that the consumer group has had partitions revoked.
-         * As a result, we need to drop all sessions currently managed for the revoked partitions
+         * The revoke_partitions event indicates that the consumer group has had partitions revoked.
+         * Rather than reaching into the live batch to discard the revoked partitions' sessions, we flush
+         * whatever is buffered (persisting it and committing its offsets), so the new owner resumes from
+         * after the work we already persisted instead of reprocessing it.
          */
 
         const revokedPartitions = topicPartitions.map((x) => x.partition)
@@ -407,8 +413,7 @@ export class SessionRecordingIngester {
         }
 
         SessionRecordingIngesterMetrics.resetSessionsHandled()
-        this.sessionBatchManager.discardPartitions(revokedPartitions)
-        return Promise.resolve()
+        return this.flushCurrentBatch()
     }
 
     private async commitOffsets(offsets: TopicPartitionOffset[]): Promise<void> {

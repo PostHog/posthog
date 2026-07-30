@@ -98,6 +98,8 @@ export const AGENT_USE_CASE_SCOPES = [
     'session_recording_playlist:write',
     'signal_scout:read',
     'signal_scout:write',
+    'stamphog:read',
+    'stamphog:write',
     'subscription:read',
     'subscription:write',
     'survey:read',

@@ -1,5 +1,12 @@
-import { AnyPropertyFilter } from '~/types'
+import { AnyPropertyFilter, UserBasicType } from '~/types'
 
+import type {
+    EvaluationReportCitationApi,
+    EvaluationReportMetricsApi,
+    EvaluationReportRunApi,
+    EvaluationReportRunContentApi,
+    EvaluationReportSectionApi,
+} from '../generated/api.schemas'
 import { LLMProvider } from '../settings/llmProviderKeysLogic'
 
 export type EvaluationType = 'llm_judge' | 'hog' | 'sentiment'
@@ -68,6 +75,7 @@ export interface BaseEvaluationConfig {
     last_run_at?: string
     created_at: string
     updated_at: string
+    created_by?: UserBasicType | null
     deleted?: boolean
 }
 
@@ -166,52 +174,12 @@ export interface EvaluationReport {
     created_at: string
 }
 
-/** A titled markdown section of the report (v2: agent-chosen title). */
-export interface EvaluationReportSection {
-    title: string
-    content: string
-}
-
-/** A trace reference cited by the agent to ground a specific finding. */
-export interface EvaluationReportCitation {
-    generation_id: string
-    trace_id: string
-    reason: string
-}
-
-/** Structured metrics computed mechanically from ClickHouse (agent cannot fabricate). */
-export interface EvaluationReportMetrics {
-    total_runs: number
-    pass_count: number
-    fail_count: number
-    na_count: number
-    pass_rate: number
-    period_start: string
-    period_end: string
-    previous_total_runs: number | null
-    previous_pass_rate: number | null
-}
-
-/** Top-level report content stored in EvaluationReportRun.content. */
-export interface EvaluationReportRunContent {
-    title: string
-    sections: EvaluationReportSection[]
-    citations: EvaluationReportCitation[]
-    metrics: EvaluationReportMetrics
-}
-
-export interface EvaluationReportRun {
-    id: string
-    report: string
-    content: EvaluationReportRunContent
-    /** Legacy mirror of content.metrics — populated by the store activity for backwards compat. */
-    metadata: EvaluationReportMetrics
-    period_start: string
-    period_end: string
-    delivery_status: 'pending' | 'delivered' | 'partial_failure' | 'failed'
-    delivery_errors: string[]
-    created_at: string
-}
+export type EvaluationReportSection = EvaluationReportSectionApi
+export type EvaluationReportCitation = EvaluationReportCitationApi
+export type EvaluationReportMetrics = EvaluationReportMetricsApi
+export type EvaluationReportStoredMetrics = EvaluationReportMetricsApi
+export type EvaluationReportRunContent = EvaluationReportRunContentApi
+export type EvaluationReportRun = EvaluationReportRunApi
 
 export type SentimentEvaluationRunsFilter = 'negative' | 'positive' | 'neutral' | 'all'
 export type EvaluationSummaryFilter = 'pass' | 'fail' | 'na' | SentimentEvaluationRunsFilter
