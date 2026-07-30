@@ -223,19 +223,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &config.pod_name,
         &config.writer_consumer_group,
     ));
-    // Open connections up front: warms cluster in deploy bursts, and a
-    // cold pool would make every burst's first operations pay the client
-    // setup the pool exists to amortize. Sized to the pod's warm
-    // concurrency; the offsets pool also serves the dirty-index prune
-    // tick. Best-effort — a failure only defers the cost.
-    {
-        let pools = Arc::clone(&warm_pools);
-        let warm_slots = personhog_coordination::pod::PodConfig::default().warm_concurrency;
-        tokio::spawn(async move {
-            pools.offsets.warm_up(2).await;
-            pools.warming.warm_up(warm_slots).await;
-        });
-    }
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),
         Arc::clone(&inflight),
@@ -266,18 +253,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Invalid advertise address configuration");
     tracing::info!(%advertise_address, "advertising gRPC address for routing");
 
-    let pod = PodHandle::new(
-        store,
-        PodConfig {
-            pod_name: config.pod_name.clone(),
-            lease_ttl: config.lease_ttl,
-            heartbeat_interval: config.heartbeat_interval(),
-            advertise_address: Some(advertise_address),
-            ..Default::default()
-        },
-        Arc::new(handler),
-        None,
-    );
+    let pod_config = PodConfig {
+        pod_name: config.pod_name.clone(),
+        lease_ttl: config.lease_ttl,
+        heartbeat_interval: config.heartbeat_interval(),
+        advertise_address: Some(advertise_address),
+        ..Default::default()
+    };
+
+    // Open connections up front: warms cluster in deploy bursts, and a
+    // cold pool would make every burst's first operations pay the client
+    // setup the pool exists to amortize. Sized from the pod's actual
+    // configured warm concurrency — the bound the semaphore enforces —
+    // so the pool and the concurrency limit cannot drift apart; the
+    // offsets pool also serves the dirty-index prune tick. Best-effort:
+    // a failure only defers the cost.
+    {
+        let pools = Arc::clone(&warm_pools);
+        let warm_slots = pod_config.warm_concurrency;
+        tokio::spawn(async move {
+            pools.offsets.warm_up(2).await;
+            pools.warming.warm_up(warm_slots).await;
+        });
+    }
+
+    let pod = PodHandle::new(store, pod_config, Arc::new(handler), None);
 
     tokio::spawn(async move {
         let _guard = coordination_handle.process_scope();
