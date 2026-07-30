@@ -409,7 +409,7 @@ describe('llmPromptLogic', () => {
         await expectLogic(logic).toDispatchActions(['submitPromptForm', 'submitPromptFormFailure'])
         expect(logic.values.isPublishReviewOpen).toBe(false)
         expect(logic.values.promptFormErrors.config).toBe(
-            'Configuration must be a JSON object, e.g. {"model": "gpt-4o"}'
+            'Configuration must be a JSON object, e.g. {"model": "your-model-name"}'
         )
         expect(mockPartialUpdate).not.toHaveBeenCalled()
 

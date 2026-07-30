@@ -871,7 +871,7 @@ function PromptConfigEditField(): JSX.Element | null {
                     </div>
                 }
                 help={
-                    'Optional JSON object with model parameters or other settings for your app, for example {"model": "gpt-4o", "temperature": 0}. ' +
+                    'Optional JSON object with model parameters or other settings for your app, for example {"model": "your-model-name", "temperature": 0}. ' +
                     "Stored with this version and returned when you fetch the prompt. Don't store secrets here."
                 }
             >

@@ -96,7 +96,7 @@ export function parsePromptConfig(text: string): { config: Record<string, unknow
         return { config: null, error: 'Configuration must be valid JSON' }
     }
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-        return { config: null, error: 'Configuration must be a JSON object, e.g. {"model": "gpt-4o"}' }
+        return { config: null, error: 'Configuration must be a JSON object, e.g. {"model": "your-model-name"}' }
     }
     return { config: parsed as Record<string, unknown> }
 }
@@ -119,7 +119,7 @@ const DEFAULT_PROMPT_FORM_VALUES: PromptFormValues = {
 
 // Seeded into the empty editor when "Add configuration" is clicked, so users see the
 // expected shape instead of a blank JSON editor.
-const STARTER_PROMPT_CONFIG = '{\n  "model": "gpt-4o",\n  "temperature": 0.7\n}'
+const STARTER_PROMPT_CONFIG = '{\n  "model": "your-model-name",\n  "temperature": 0.7\n}'
 
 const PROMPT_FETCHED_EVENT = '$llm_prompt_fetched'
 const PROMPT_VERSIONS_LIMIT = 50
