@@ -6583,13 +6583,13 @@ snapshots:
     scenes-app-notebooks-nodes-customer-journey--with-optional-steps--light:
         hash: v1.k794b7964.121bfeb17a2130a74bda0cb2ba561f6c56e11c13834033a3ef39dd40432271cc.pSCqPjfCB9aUr8yyJ1xkpyRu8z5jlnGD8kHMWg-Ynpg
     scenes-app-notebooks-nodes-support-tickets--empty--dark:
-        hash: v1.k794b7964.35a44b69111b9461bb8444d68e6fcaf2ee83224967d814fdde223c1da97ddd7d.9MRhpmyd-ANfZ9Ds8YITknhenvMo0ANpv5b3rm__8oo
+        hash: v1.k794b7964.37df2352d3f7e5de4a6c35ddc00cff5bc758aef6cd7bc364d6d66531c144e414.i7stw2Aq-GOYyCNqrmxWs6rHzz-MaK978IIZwha9l5c
     scenes-app-notebooks-nodes-support-tickets--empty--light:
-        hash: v1.k794b7964.857015668d40b06d0201d0ee5f2f8fb9aa4f54e74724a133d953f6853ed9c129.NPjoAsbJMtH-ytQ2r0wEZ99MbLfz0rPDDtPpos3v9uQ
+        hash: v1.k794b7964.eda2c18b5f91dfc25e209990576bed3424ce58c3de934124c46eaec07500b44c.H6wNqXudiYg4OnHkFCSgnl9tKU7ImxWT0kJkNj2yo2o
     scenes-app-notebooks-nodes-support-tickets--with-tickets--dark:
-        hash: v1.k794b7964.2cff37bfe4dc8ccdeb760b23776eb50a8ec90cb663a4777a1a5febbc94a1c0f6.jzbcJ4dS-zqEp19Io2b3HhltAWMYLfm4pHAMxsVuqgA
+        hash: v1.k794b7964.b3dacae4783f3503d7699a411994eddcbfd738e48c0e456d78451e71a87450a9.nAsIuLw9gbOStfJaFGxtrHnsa2xxh9NIa8xcA8M8r0Y
     scenes-app-notebooks-nodes-support-tickets--with-tickets--light:
-        hash: v1.k794b7964.54556ab17d8c666747eae15995e9e5f04325f9dbaeb65372d2826d6df2b08efe.6RaepMj40ax5zOKD214rXEyn_nB69TKH_BwzjnNAWzc
+        hash: v1.k794b7964.ad53d8f07e198ed12486c24eb2aa70a1fbc7ab013aa11b6b118378f9b79522ac.8da34O99cVnLm0B_SCIEbZ9r-U4H-gD3at02xHQ7SxY
     scenes-app-oauth-authorize--all-scopes-optional--dark:
         hash: v1.k794b7964.03746d2e3646b97e4af61e54557db2ccb6268512cda02721b819fa30980af155.ZPcclnqMQQh8Qi_v2Z3cnVA1_LaYFx8XXncRQ8NQAdc
     scenes-app-oauth-authorize--all-scopes-optional--light:
