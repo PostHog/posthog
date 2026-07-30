@@ -19,7 +19,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_si
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_sign.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_sign.source import DropboxSignSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DropboxSignSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dropboxsign import (
+    DropboxSignSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

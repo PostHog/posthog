@@ -20,7 +20,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OpenRouterSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openrouter import (
+    OpenRouterSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter.openrouter import (
     OpenRouterResumeConfig,
     get_key_info,
@@ -113,6 +115,7 @@ Use a **management API key** (create one under [Settings -> Management Keys](htt
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint == "activity":
@@ -140,7 +143,11 @@ Use a **management API key** (create one under [Settings -> Management Keys](htt
         return schemas
 
     def validate_credentials(
-        self, config: OpenRouterSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: OpenRouterSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         info = get_key_info(config.api_key)
         if info is None:
@@ -157,7 +164,7 @@ Use a **management API key** (create one under [Settings -> Management Keys](htt
         return True, None
 
     def get_endpoint_permissions(
-        self, config: OpenRouterSourceConfig, team_id: int, endpoints: list[str]
+        self, config: OpenRouterSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
         info = get_key_info(config.api_key)
         # A None here is a transient /key failure, not a denial (the key was already validated at

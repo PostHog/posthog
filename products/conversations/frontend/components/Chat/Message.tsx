@@ -3,7 +3,6 @@ import { useRef, useState } from 'react'
 
 import {
     IconCopy,
-    IconLock,
     IconThumbsDown,
     IconThumbsDownFilled,
     IconThumbsUp,
@@ -17,6 +16,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import type { AiReplyFeedbackRating, ChatMessage, MessageDeliveryStatus } from '../../types'
 import { SupportMarkdown, SupportRichContentPreview } from '../Editor'
+import { TeamOnlyBadge } from './TeamOnlyBadge'
 
 export interface MessageProps {
     message: ChatMessage
@@ -64,7 +64,7 @@ export function Message({
 
     return (
         <div className={`flex ${isCustomer ? 'mr-10' : 'flex-row-reverse ml-10'} mb-4`}>
-            <div className="flex gap-2">
+            <div className="flex gap-2 min-w-0">
                 <div className="flex flex-col min-w-0 items-start">
                     <div className="flex items-center justify-between w-full gap-2 mb-1">
                         <ProfilePicture
@@ -75,14 +75,7 @@ export function Message({
                             showName={true}
                         />
                         <div className="flex items-center gap-1.5">
-                            {isPrivate && (
-                                <Tooltip title="Only visible to your team">
-                                    <span className="inline-flex items-center gap-0.5 text-xs text-warning-dark bg-warning-highlight px-1.5 py-0.5 rounded">
-                                        <IconLock className="text-xs" />
-                                        Private note
-                                    </span>
-                                </Tooltip>
-                            )}
+                            {isPrivate && <TeamOnlyBadge label="Private note" />}
                             <span className="text-xs text-muted-alt">
                                 <TZLabel time={message.createdAt} />
                             </span>
@@ -91,7 +84,11 @@ export function Message({
                     <div className="max-w-full min-w-80">
                         <div
                             className={`border py-2 px-3 rounded-lg ${
-                                isPrivate ? 'bg-warning-highlight border-warning' : 'bg-surface-primary'
+                                isPrivate
+                                    ? 'bg-warning-highlight border-warning'
+                                    : isCustomer
+                                      ? 'bg-surface-secondary'
+                                      : 'bg-surface-primary'
                             } [&_img]:max-h-64 [&_.SupportEditor__image]:max-h-64`}
                         >
                             {isPrivate && (
@@ -106,13 +103,18 @@ export function Message({
                                     </Tooltip>
                                 </div>
                             )}
+                            {/* Every message here is untrusted: customers write them, imports carry them,
+                                and agents generate them from customer text. An inline remote image would
+                                fetch on open, leaking the reader's IP or probing hosts their browser can
+                                reach. PostHog-hosted images (attachments included) still render inline;
+                                anything else becomes a click-to-open link. */}
                             {message.richContent ? (
                                 <SupportRichContentPreview
                                     content={message.richContent as JSONContent}
                                     className="text-sm"
                                 />
                             ) : (
-                                <SupportMarkdown className="text-sm" disableImages={message.fromZendesk}>
+                                <SupportMarkdown className="text-sm" disableImages>
                                     {message.content}
                                 </SupportMarkdown>
                             )}

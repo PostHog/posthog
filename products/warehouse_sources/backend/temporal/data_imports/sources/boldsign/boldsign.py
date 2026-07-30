@@ -1,10 +1,8 @@
 import dataclasses
-from collections.abc import Iterator
-from typing import Any
+from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+import structlog
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.boldsign.settings import (
@@ -12,7 +10,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.boldsign.s
     BoldSignEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    SinglePagePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+
+logger = structlog.get_logger(__name__)
 
 # BoldSign serves separate US and EU regional hosts; the account decides which one is live.
 BOLDSIGN_HOSTS = {
@@ -22,15 +31,6 @@ BOLDSIGN_HOSTS = {
 PAGE_SIZE = 100
 # Page-number access is capped at 10,000 records; document/list pages past it via NextCursor.
 RECORD_CURSOR_THRESHOLD = 10_000
-REQUEST_TIMEOUT_SECONDS = 60
-MAX_RETRY_ATTEMPTS = 5
-# Backstop against a non-advancing cursor looping forever (10k records / 100 per page ≈ 100 pages,
-# so this only trips on a genuinely misbehaving response).
-MAX_PAGES = 100_000
-
-
-class BoldSignRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -58,143 +58,184 @@ def _get_headers(api_key: str) -> dict[str, str]:
     }
 
 
-@retry(
-    retry=retry_if_exception_type((BoldSignRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
-    wait=wait_exponential_jitter(initial=2, max=90),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    url: str,
-    headers: dict[str, str],
-    params: dict[str, Any],
-    logger: FilteringBoundLogger,
-) -> dict[str, Any]:
-    response = session.get(url, headers=headers, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+class BoldSignPaginator(BasePaginator):
+    """Page-number pagination with BoldSign's 10,000-record page-number cap.
 
-    # 429 (account-level rate limit, 2000/hour prod) and transient 5xx are retried with backoff.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise BoldSignRetryableError(f"BoldSign API error (retryable): status={response.status_code}, url={url}")
+    Standard pages advance ``Page``; once the running record count crosses the cap, endpoints that
+    support it (document/list) switch to cursor paging via ``NextCursor`` (taken from the last
+    row's ``cursor`` field, with ``Page`` reset to 1). Endpoints without cursor support stop at
+    the cap rather than loop.
+    """
 
-    if not response.ok:
-        logger.error(f"BoldSign API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
+    def __init__(self, endpoint: str, supports_cursor: bool) -> None:
+        super().__init__()
+        self._endpoint = endpoint
+        self._supports_cursor = supports_cursor
+        self._page = 1
+        self._next_cursor: str | int | None = None
+        self._records_fetched = 0
 
-    return response.json()
+    def _inject_params(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params["Page"] = self._page
+        request.params["PageSize"] = PAGE_SIZE
+        if self._next_cursor is not None:
+            request.params["NextCursor"] = self._next_cursor
+
+    def init_request(self, request: Request) -> None:
+        self._inject_params(request)
+
+    def update_request(self, request: Request) -> None:
+        self._inject_params(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        items = data or []
+        if not items:
+            self._has_next_page = False
+            return
+
+        self._records_fetched += len(items)
+
+        # A short page means we've reached the end.
+        if len(items) < PAGE_SIZE:
+            self._has_next_page = False
+            return
+
+        if self._records_fetched >= RECORD_CURSOR_THRESHOLD:
+            if not self._supports_cursor:
+                # Page-number access is capped at 10k and this endpoint can't cursor past it.
+                logger.warning(
+                    f"BoldSign: {self._endpoint} reached the 10,000-record page-number cap; "
+                    "remaining records are not synced (endpoint has no cursor pagination)."
+                )
+                self._has_next_page = False
+                return
+            last = items[-1]
+            last_cursor = last.get("cursor") if isinstance(last, dict) else None
+            # No (or non-advancing) cursor means we can't make progress; stop rather than loop.
+            if last_cursor is None or last_cursor == self._next_cursor:
+                self._has_next_page = False
+                return
+            self._next_cursor = last_cursor
+            self._page = 1
+        else:
+            self._page += 1
+
+        self._has_next_page = True
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        if not self._has_next_page:
+            return None
+        return {
+            "page": self._page,
+            "next_cursor": self._next_cursor,
+            "records_fetched": self._records_fetched,
+        }
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        self._page = int(state.get("page") or 1)
+        self._next_cursor = state.get("next_cursor")
+        self._records_fetched = int(state.get("records_fetched") or 0)
+        self._has_next_page = True
+
+    def __str__(self) -> str:
+        return f"BoldSignPaginator(page={self._page}, next_cursor={self._next_cursor})"
 
 
 def validate_credentials(region: str, api_key: str) -> tuple[bool, str | None]:
     """Confirm the API key is genuine with one cheap, low-privilege list call."""
-    url = f"{_base_url(region)}/v1/document/list"
-    try:
-        response = make_tracked_session(redact_values=(api_key,)).get(
-            url,
-            headers=_get_headers(api_key),
-            params={"Page": 1, "PageSize": 1},
-            timeout=10,
-        )
-    except Exception as e:
-        # A network error (timeout, connection failure) is not an auth problem — surface the
-        # real cause instead of misreporting it as an invalid key and sending the user on a
-        # fruitless key-rotation hunt during a transient outage.
-        return False, f"Could not reach BoldSign: {e}"
-
-    if response.status_code == 200:
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{_base_url(region)}/v1/document/list?Page=1&PageSize=1",
+        headers=_get_headers(api_key),
+    )
+    if ok:
         return True, None
-    if response.status_code in (401, 403):
+    if status in (401, 403):
         return False, "Invalid BoldSign API key"
-    return False, f"Unexpected response from BoldSign (status {response.status_code})"
-
-
-def get_rows(
-    region: str,
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[BoldSignResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = BOLDSIGN_ENDPOINTS[endpoint]
-    url = f"{_base_url(region)}{config.path}"
-    headers = _get_headers(api_key)
-    session = make_tracked_session(redact_values=(api_key,))
-
-    if not config.paginated:
-        data = _fetch_page(session, url, headers, dict(config.extra_params), logger)
-        items = data.get(config.data_key) or []
-        if items:
-            yield items
-        return
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = resume.page if resume is not None else 1
-    next_cursor = resume.next_cursor if resume is not None else None
-    records_fetched = resume.records_fetched if resume is not None else 0
-    if resume is not None:
-        logger.debug(f"BoldSign: resuming {endpoint} from page={page}, next_cursor={next_cursor}")
-
-    for _ in range(MAX_PAGES):
-        params: dict[str, Any] = dict(config.extra_params)
-        params["Page"] = page
-        params["PageSize"] = PAGE_SIZE
-        if next_cursor is not None:
-            params["NextCursor"] = next_cursor
-
-        data = _fetch_page(session, url, headers, params, logger)
-        items = data.get(config.data_key) or []
-        if not items:
-            break
-
-        yield items
-        records_fetched += len(items)
-
-        # A short page means we've reached the end.
-        if len(items) < PAGE_SIZE:
-            break
-
-        if records_fetched >= RECORD_CURSOR_THRESHOLD:
-            if not config.supports_cursor:
-                # Page-number access is capped at 10k and this endpoint can't cursor past it.
-                logger.warning(
-                    f"BoldSign: {endpoint} reached the 10,000-record page-number cap; "
-                    "remaining records are not synced (endpoint has no cursor pagination)."
-                )
-                break
-            last_cursor = items[-1].get("cursor")
-            # No (or non-advancing) cursor means we can't make progress; stop rather than loop.
-            if last_cursor is None or last_cursor == next_cursor:
-                break
-            next_cursor = last_cursor
-            page = 1
-        else:
-            page += 1
-
-        # Save AFTER yielding the page so a crash re-fetches from the next position and never
-        # skips a page; if we crash between the yield and this save, the prior state still points
-        # at the just-yielded page, which merge dedupes on the primary key.
-        resumable_source_manager.save_state(
-            BoldSignResumeConfig(page=page, next_cursor=next_cursor, records_fetched=records_fetched)
-        )
+    if status is None:
+        # A network error (timeout, connection failure) is not an auth problem — don't misreport
+        # it as an invalid key and send the user on a fruitless key-rotation hunt.
+        return False, "Could not reach BoldSign"
+    return False, f"Unexpected response from BoldSign (status {status})"
 
 
 def boldsign_source(
     region: str,
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[BoldSignResumeConfig],
 ) -> SourceResponse:
     config: BoldSignEndpointConfig = BOLDSIGN_ENDPOINTS[endpoint]
 
+    paginator: BasePaginator
+    if config.paginated:
+        paginator = BoldSignPaginator(endpoint=endpoint, supports_cursor=config.supports_cursor)
+    else:
+        # `brand/list` returns the full set in one response with no pagination params.
+        paginator = SinglePagePaginator()
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": _base_url(region),
+            # The API key is supplied via the framework auth config so its value is redacted
+            # from logs; only the non-secret Accept header is set here.
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "api_key", "api_key": api_key, "name": "X-API-KEY", "location": "header"},
+            "paginator": paginator,
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": dict(config.extra_params),
+                    # A missing data key is treated as an empty page (not an error), matching the
+                    # API's occasional key-less empty responses.
+                    "data_selector": config.data_key,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if config.paginated and resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {
+                "page": resume.page,
+                "next_cursor": resume.next_cursor,
+                "records_fetched": resume.records_fetched,
+            }
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-fetches
+        # from the next position and never skips a page — the prior state still points at the
+        # just-yielded page, which merge dedupes on the primary key.
+        if state and state.get("page") is not None:
+            resumable_source_manager.save_state(
+                BoldSignResumeConfig(
+                    page=int(state["page"]),
+                    next_cursor=state.get("next_cursor"),
+                    records_fetched=int(state.get("records_fetched") or 0),
+                )
+            )
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,  # every BoldSign endpoint is full refresh
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            region=region,
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         # Full refresh only — BoldSign timestamps are int64 epoch values, not datetimes, so there
         # is no stable datetime column to partition on.

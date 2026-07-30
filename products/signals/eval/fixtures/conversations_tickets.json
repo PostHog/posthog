@@ -26,6 +26,9 @@
     "messages": [
       ["customer", "Can't find the reset button on an experiment. We're keeping the bulk of the settings, but have made changes to the experiment and just want to reset the data. The AI seems to think this exists, I just can't find it. Hoping someone can point me in the right direction. Thanks."],
       ["support", "Hi, thanks for reaching out, sorry for the confusion here. We've recently had some UI changes and the AI hasn't quite caught up where everything is located now. You can find the 'reset' button in the side bar menu on the experiment."]
+    ],
+    "image_attachments": [
+      {"url": "https://us.posthog.com/uploaded_media/00000000-0000-0000-0000-0000000000a1", "author": "customer"}
     ]
   },
   {

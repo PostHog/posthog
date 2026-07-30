@@ -321,23 +321,6 @@ export const conversationsTicketsList = async (
     })
 }
 
-export const getConversationsTicketsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/conversations/tickets/`
-}
-
-export const conversationsTicketsCreate = async (
-    projectId: string,
-    ticketApi?: NonReadonly<TicketApi>,
-    options?: RequestInit
-): Promise<TicketApi> => {
-    return apiMutator<TicketApi>(getConversationsTicketsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(ticketApi),
-    })
-}
-
 export const getConversationsTicketsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/conversations/tickets/${id}/`
 }

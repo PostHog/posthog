@@ -1,27 +1,26 @@
 import dataclasses
-from collections.abc import Iterator
 from typing import Any, Optional
-
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    PageNumberPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.flowlu.settings import FLOWLU_ENDPOINTS
 
-REQUEST_TIMEOUT_SECONDS = 60
 # Flowlu pages are 1-indexed. List endpoints return ~50 records per page by default; a per-page
 # size param isn't reliably documented, so we only advance `page` and stop on the first empty page.
 BASE_PAGE = 1
 # Cheap list endpoint used to confirm an API key is genuine. Tasks are part of Flowlu's core
 # module set, so the endpoint exists on every account regardless of which apps are enabled.
 DEFAULT_PROBE_PATH = "/task/tasks/list"
-
-
-class FlowluRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -36,152 +35,91 @@ def base_url(subdomain: str) -> str:
     return f"https://{subdomain}.flowlu.com/api/v1/module"
 
 
-@retry(
-    retry=retry_if_exception_type((FlowluRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    api_key: str,
-    subdomain: str,
-    path: str,
-    page: int,
-    logger: FilteringBoundLogger,
-) -> list[dict[str, Any]]:
-    # Flowlu authenticates via the `api_key` query parameter (not a header); the tracked session
-    # redacts it from logged URLs via `redact_values`.
-    params: dict[str, str | int] = {"api_key": api_key, "page": page}
-    response = session.get(
-        f"{base_url(subdomain)}{path}",
-        params=params,
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise FlowluRetryableError(f"Flowlu API error (retryable): status={response.status_code}, path={path}")
-
-    if not response.ok:
-        logger.error(f"Flowlu API error: status={response.status_code}, body={response.text[:500]}, path={path}")
-        # Raise manually instead of `raise_for_status()`: that embeds `response.url`, which carries the
-        # `api_key` query param, and this message reaches sync error logs viewable by users who can't see
-        # secret fields. Keep the "<status> Client Error: <reason> for url" shape that
-        # `get_non_retryable_errors()` matches on, but point it at the query-string-free URL.
-        kind = "Client Error" if response.status_code < 500 else "Server Error"
-        raise requests.HTTPError(
-            f"{response.status_code} {kind}: {response.reason} for url: {base_url(subdomain)}{path}",
-            response=response,
-        )
-
-    data = response.json()
-    # Every list endpoint wraps its payload as `{"response": {"items": [...], "total": ..., ...}}`;
-    # anything else means a malformed response, so fail loudly rather than silently advancing the
-    # cursor past lost rows.
-    if not isinstance(data, dict) or not isinstance(data.get("response"), dict):
-        raise FlowluRetryableError(f"Flowlu returned an unexpected payload for {path}: {type(data).__name__}")
-
-    items = data["response"].get("items")
-    if not isinstance(items, list):
-        raise FlowluRetryableError(f"Flowlu response for {path} is missing the 'items' list")
-
-    return items
-
-
-def get_rows(
-    api_key: str,
-    subdomain: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[FlowluResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = FLOWLU_ENDPOINTS[endpoint]
-    # `redact_values` masks the API key in logged URLs and captured samples. `allow_redirects=False`
-    # stops a 30x from replaying the credentialed `api_key` query param off-host (defense-in-depth;
-    # Smokescreen already blocks internal hosts).
-    session = make_tracked_session(
-        headers={"Accept": "application/json"}, redact_values=(api_key,), allow_redirects=False
-    )
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = resume.next_page if resume else BASE_PAGE
-    if resume and resume.next_page > BASE_PAGE:
-        logger.debug(f"Flowlu: resuming {endpoint} from page {page}")
-
-    while True:
-        items = _fetch_page(session, api_key, subdomain, config.path, page, logger)
-
-        # An empty `items` page is the end-of-collection signal (page-number pagination with no
-        # authoritative `has_more` flag).
-        if not items:
-            break
-
-        yield items
-
-        page += 1
-        # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages are
-        # persisted); merge dedupes the re-pulled page on the primary key.
-        resumable_source_manager.save_state(FlowluResumeConfig(next_page=page))
-
-
 def flowlu_source(
     api_key: str,
     subdomain: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[FlowluResumeConfig],
 ) -> SourceResponse:
     config = FLOWLU_ENDPOINTS[endpoint]
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": base_url(subdomain),
+            "headers": {"Accept": "application/json"},
+            # Flowlu authenticates via the `api_key` query param. The framework redacts its value
+            # from logged URLs AND from every raised error message (e.g. a 401 raise_for_status
+            # whose URL carries the key), so the secret never reaches a user-visible latest_error.
+            "auth": {"type": "api_key", "api_key": api_key, "name": "api_key", "location": "query"},
+            # 1-indexed page-number pagination with no authoritative has_more flag: stop on the
+            # first empty page.
+            "paginator": PageNumberPaginator(base_page=BASE_PAGE, page_param="page", total_path=None),
+            # Defense-in-depth: a 30x must not replay the credentialed `api_key` query param off-host.
+            "allow_redirects": False,
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    # Every list endpoint wraps its payload as `{"response": {"items": [...]}}`.
+                    "data_selector": "response.items",
+                    # A body that doesn't match means a malformed/changed response — fail loud
+                    # rather than silently advancing the cursor past lost rows.
+                    "data_selector_required": True,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"page": resume.next_page}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Save AFTER a page is yielded, pointing at the next page to fetch; a crash re-fetches from
+        # there (merge dedupes on `id`). No save once pagination is exhausted (state is None).
+        if state and state.get("page") is not None:
+            resumable_source_manager.save_state(FlowluResumeConfig(next_page=int(state["page"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            subdomain=subdomain,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
     )
 
 
-def check_access(api_key: str, subdomain: str, path: str = DEFAULT_PROBE_PATH) -> tuple[int, Optional[str]]:
+def validate_credentials(api_key: str, subdomain: str) -> tuple[bool, str | None]:
     """Probe a single list endpoint to validate the API key.
 
-    Returns ``(status, message)``: ``200`` reachable, ``401``/``403`` auth failure, ``0`` for a
-    connection problem, other HTTP status otherwise.
+    Returns ``(is_valid, message)``: 200 valid; 401/403 an auth failure; a connection problem or any
+    other HTTP status a non-retryable message. The api_key is redacted from logs and the probe
+    swallows exceptions, so the secret never leaks.
     """
-    session = make_tracked_session(
-        headers={"Accept": "application/json"}, redact_values=(api_key,), allow_redirects=False
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,), allow_redirects=False),
+        f"{base_url(subdomain)}{DEFAULT_PROBE_PATH}?page={BASE_PAGE}",
+        auth=APIKeyAuth(api_key=api_key, name="api_key", location="query"),
     )
-    try:
-        params: dict[str, str | int] = {"api_key": api_key, "page": BASE_PAGE}
-        response = session.get(
-            f"{base_url(subdomain)}{path}",
-            params=params,
-            timeout=15,
-        )
-    except Exception:
-        # Don't surface the exception text: `requests` transport errors can embed the prepared URL,
-        # which carries the `api_key` query param, and this message can reach editors who can't view secrets.
-        return 0, "Could not connect to Flowlu"
-
-    if response.status_code in (401, 403):
-        return response.status_code, None
-
-    if not response.ok:
-        return response.status_code, f"Flowlu returned HTTP {response.status_code}"
-
-    return 200, None
-
-
-def validate_credentials(api_key: str, subdomain: str) -> tuple[bool, str | None]:
-    status, message = check_access(api_key, subdomain)
-    if status == 200:
+    if ok:
         return True, None
     if status in (401, 403):
         return False, "Invalid Flowlu API key"
-    return False, message or "Could not validate Flowlu credentials"
+    if status is None:
+        return False, "Could not connect to Flowlu"
+    return False, f"Flowlu returned HTTP {status}"

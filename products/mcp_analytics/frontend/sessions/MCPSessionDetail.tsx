@@ -4,8 +4,11 @@ import { IconBolt, IconClock, IconSparkles, IconUser, IconWarning } from '@posth
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { Button, Spinner } from '@posthog/quill-primitives'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { mcpSessionsLogic } from './mcpSessionsLogic'
 import { formatDuration, formatRelativeOffset, sessionDurationMs, shortenSessionId } from './utils'
@@ -219,15 +222,20 @@ export function MCPSessionDetail(): JSX.Element {
                         <p className="text-xs leading-relaxed text-default">{selectedSessionIntent}</p>
                     </>
                 ) : (
-                    <LemonButton
-                        type="primary"
-                        size="xsmall"
-                        icon={<IconSparkles />}
-                        loading={isSelectedSessionGenerating}
-                        onClick={() => generateIntent(selectedSession.session_id)}
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.McpAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
                     >
-                        {isSelectedSessionGenerating ? 'Thinking…' : 'Summarize session intent'}
-                    </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            size="xsmall"
+                            icon={<IconSparkles />}
+                            loading={isSelectedSessionGenerating}
+                            onClick={() => generateIntent(selectedSession.session_id)}
+                        >
+                            {isSelectedSessionGenerating ? 'Thinking…' : 'Summarize session intent'}
+                        </LemonButton>
+                    </AccessControlAction>
                 )}
             </footer>
         </div>

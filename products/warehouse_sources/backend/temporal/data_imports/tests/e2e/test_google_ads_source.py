@@ -14,7 +14,7 @@ from posthog.models import Team
 from posthog.models.organization import Organization
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
     GoogleAdsIsMccAccountConfig,
     GoogleAdsSourceConfig,
 )
@@ -147,7 +147,7 @@ def test_get_schemas(customer_id: str, developer_token: str, service_account_con
     cfg = GoogleAdsServiceAccountSourceConfig(
         customer_id=customer_id, developer_token=developer_token, **service_account_config
     )
-    schemas = get_schemas(cfg, team_id=team.id)
+    schemas = get_schemas(cfg, team_id=team.id, api_version=GoogleAdsSource().default_version)
 
     assert "campaign" in schemas
     assert "ad_group" in schemas
@@ -214,6 +214,7 @@ def test_google_ads_source(customer_id: str, developer_token: str, service_accou
             resource_name=resource,
             team_id=team.id,
             resumable_source_manager=manager,
+            api_version=GoogleAdsSource().default_version,
         )
 
         items = source.items()

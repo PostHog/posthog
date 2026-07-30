@@ -276,9 +276,21 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
+export const AnnouncementsCreateBody = /* @__PURE__ */ zod.object({
+    message: zod.string().describe('Message body to send, rendered as Slack mrkdwn.'),
+    channels: zod
+        .array(zod.string())
+        .describe(
+            'Slack channel IDs to send to. Each must be a channel the SupportHog bot is a member of; names are resolved server-side.'
+        ),
+})
+
 export const customPropertyDefinitionsCreateBodyNameMax = 400
 
 export const customPropertyDefinitionsCreateBodyTargetTypeDefault = `account`
+export const customPropertyDefinitionsCreateBodyGroupTypeIndexMin = 0
+export const customPropertyDefinitionsCreateBodyGroupTypeIndexMax = 4
+
 export const customPropertyDefinitionsCreateBodyIsBigNumberDefault = false
 export const customPropertyDefinitionsCreateBodyOptionsItemLabelMax = 400
 
@@ -298,11 +310,19 @@ export const CustomPropertyDefinitionsCreateBody = /* @__PURE__ */ zod
                 "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
             ),
         target_type: zod
-            .enum(['account', 'person'])
-            .describe('\* `account` - account\n\* `person` - person')
+            .enum(['account', 'person', 'group'])
+            .describe('\* `account` - account\n\* `person` - person\n\* `group` - group')
             .default(customPropertyDefinitionsCreateBodyTargetTypeDefault)
             .describe(
-                "What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).\n\n\* `account` - account\n\* `person` - person"
+                "What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person\/group property (feature flags, cohorts, insights).\n\n\* `account` - account\n\* `person` - person\n\* `group` - group"
+            ),
+        group_type_index: zod
+            .number()
+            .min(customPropertyDefinitionsCreateBodyGroupTypeIndexMin)
+            .max(customPropertyDefinitionsCreateBodyGroupTypeIndexMax)
+            .nullish()
+            .describe(
+                "For 'group' targets only: which group type (0-4) the property attaches to. Required when target_type is 'group'; must be omitted otherwise. Create-only."
             ),
         is_big_number: zod
             .boolean()
@@ -356,6 +376,9 @@ export const CustomPropertyDefinitionsCreateBody = /* @__PURE__ */ zod
 export const customPropertyDefinitionsUpdateBodyNameMax = 400
 
 export const customPropertyDefinitionsUpdateBodyTargetTypeDefault = `account`
+export const customPropertyDefinitionsUpdateBodyGroupTypeIndexMin = 0
+export const customPropertyDefinitionsUpdateBodyGroupTypeIndexMax = 4
+
 export const customPropertyDefinitionsUpdateBodyIsBigNumberDefault = false
 export const customPropertyDefinitionsUpdateBodyOptionsItemLabelMax = 400
 
@@ -375,11 +398,19 @@ export const CustomPropertyDefinitionsUpdateBody = /* @__PURE__ */ zod
                 "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
             ),
         target_type: zod
-            .enum(['account', 'person'])
-            .describe('\* `account` - account\n\* `person` - person')
+            .enum(['account', 'person', 'group'])
+            .describe('\* `account` - account\n\* `person` - person\n\* `group` - group')
             .default(customPropertyDefinitionsUpdateBodyTargetTypeDefault)
             .describe(
-                "What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).\n\n\* `account` - account\n\* `person` - person"
+                "What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person\/group property (feature flags, cohorts, insights).\n\n\* `account` - account\n\* `person` - person\n\* `group` - group"
+            ),
+        group_type_index: zod
+            .number()
+            .min(customPropertyDefinitionsUpdateBodyGroupTypeIndexMin)
+            .max(customPropertyDefinitionsUpdateBodyGroupTypeIndexMax)
+            .nullish()
+            .describe(
+                "For 'group' targets only: which group type (0-4) the property attaches to. Required when target_type is 'group'; must be omitted otherwise. Create-only."
             ),
         is_big_number: zod
             .boolean()
@@ -433,6 +464,9 @@ export const CustomPropertyDefinitionsUpdateBody = /* @__PURE__ */ zod
 export const customPropertyDefinitionsPartialUpdateBodyNameMax = 400
 
 export const customPropertyDefinitionsPartialUpdateBodyTargetTypeDefault = `account`
+export const customPropertyDefinitionsPartialUpdateBodyGroupTypeIndexMin = 0
+export const customPropertyDefinitionsPartialUpdateBodyGroupTypeIndexMax = 4
+
 export const customPropertyDefinitionsPartialUpdateBodyIsBigNumberDefault = false
 export const customPropertyDefinitionsPartialUpdateBodyOptionsItemLabelMax = 400
 
@@ -454,11 +488,19 @@ export const CustomPropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
                 "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
             ),
         target_type: zod
-            .enum(['account', 'person'])
-            .describe('\* `account` - account\n\* `person` - person')
+            .enum(['account', 'person', 'group'])
+            .describe('\* `account` - account\n\* `person` - person\n\* `group` - group')
             .default(customPropertyDefinitionsPartialUpdateBodyTargetTypeDefault)
             .describe(
-                "What entity this property is attached to: 'account' (default) or 'person'. Person properties are populated from a warehouse schema and become usable like any other person property (feature flags, cohorts, insights).\n\n\* `account` - account\n\* `person` - person"
+                "What entity this property is attached to: 'account' (default), 'person', or 'group'. Person and group properties are populated from a warehouse schema and become usable like any other person\/group property (feature flags, cohorts, insights).\n\n\* `account` - account\n\* `person` - person\n\* `group` - group"
+            ),
+        group_type_index: zod
+            .number()
+            .min(customPropertyDefinitionsPartialUpdateBodyGroupTypeIndexMin)
+            .max(customPropertyDefinitionsPartialUpdateBodyGroupTypeIndexMax)
+            .nullish()
+            .describe(
+                "For 'group' targets only: which group type (0-4) the property attaches to. Required when target_type is 'group'; must be omitted otherwise. Create-only."
             ),
         is_big_number: zod
             .boolean()
@@ -530,7 +572,7 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             .uuid()
             .nullish()
             .describe(
-                'Person sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.'
+                'Person and group sources only: UUID of the warehouse schema (raw incremental table) to read from. Mutually exclusive with saved_query.'
             ),
         source_column: zod
             .string()
@@ -541,13 +583,19 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             .unknown()
             .optional()
             .describe(
-                'Person sources only: {warehouse_column: person_property_name} mapping the columns this source writes onto the person.'
+                'Person and group sources only: {warehouse_column: property_name} mapping the columns this source writes onto the person or group.'
+            ),
+        column_descriptions: zod
+            .unknown()
+            .optional()
+            .describe(
+                "Person sources only: {warehouse_column: description} giving each mapped column a human-facing description, seeded from the warehouse column's information_schema description. Optional per column. Create-only."
             ),
         key_column: zod
             .string()
             .max(customPropertySourcesCreateBodyKeyColumnMax)
             .describe(
-                "Column whose value identifies the target: an account's external_id for account sources, or the person's distinct_id for person sources."
+                "Column whose value identifies the target: an account's external_id for account sources, the person's distinct_id for person sources, or the group key for group sources."
             ),
         is_enabled: zod
             .boolean()
@@ -557,7 +605,7 @@ export const CustomPropertySourcesCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe(
-        "Binds a materialized data-warehouse view column to a custom property definition; the view's\nvalues are synced onto matching accounts on each materialization."
+        'Binds a data-warehouse source to a custom property definition. Account sources read a\nmaterialized view column and sync onto matching accounts; person and group sources read a\nwarehouse schema and sync onto matching persons or groups on each warehouse sync.'
     )
 
 export const customPropertySourcesUpdateBodySourceColumnMax = 400
@@ -664,6 +712,173 @@ export const CustomerProfileConfigsPartialUpdateBody = /* @__PURE__ */ zod.objec
     content: zod.unknown().optional(),
     sidebar: zod.unknown().optional(),
 })
+
+/**
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
+ */
+export const eventStreamsCreateBodyEnabledDefault = false
+export const eventStreamsCreateBodyEventNamesItemMax = 400
+
+export const eventStreamsCreateBodySlackChannelIdDefault = ``
+export const eventStreamsCreateBodySlackChannelIdMax = 200
+
+export const eventStreamsCreateBodySlackChannelNameDefault = ``
+export const eventStreamsCreateBodySlackChannelNameMax = 200
+
+export const EventStreamsCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod
+            .boolean()
+            .default(eventStreamsCreateBodyEnabledDefault)
+            .describe(
+                'Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel.'
+            ),
+        event_names: zod
+            .array(zod.string().max(eventStreamsCreateBodyEventNamesItemMax))
+            .optional()
+            .describe('Names of the events to stream (matched exactly). Duplicates and blanks are dropped.'),
+        slack_integration: zod
+            .number()
+            .nullish()
+            .describe("ID of the team's Slack workspace integration to deliver through."),
+        slack_channel_id: zod
+            .string()
+            .max(eventStreamsCreateBodySlackChannelIdMax)
+            .default(eventStreamsCreateBodySlackChannelIdDefault)
+            .describe('Slack channel ID to post to (e.g. C0123ABC).'),
+        slack_channel_name: zod
+            .string()
+            .max(eventStreamsCreateBodySlackChannelNameMax)
+            .default(eventStreamsCreateBodySlackChannelNameDefault)
+            .describe('Display name of the Slack channel (e.g. #customer-events). Informational only.'),
+    })
+    .describe(
+        "The caller's event stream — a live feed of selected accounts' events posted to a\nSlack channel of their choice. One stream per user per project."
+    )
+
+/**
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
+ */
+export const eventStreamsUpdateBodyEnabledDefault = false
+export const eventStreamsUpdateBodyEventNamesItemMax = 400
+
+export const eventStreamsUpdateBodySlackChannelIdDefault = ``
+export const eventStreamsUpdateBodySlackChannelIdMax = 200
+
+export const eventStreamsUpdateBodySlackChannelNameDefault = ``
+export const eventStreamsUpdateBodySlackChannelNameMax = 200
+
+export const EventStreamsUpdateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod
+            .boolean()
+            .default(eventStreamsUpdateBodyEnabledDefault)
+            .describe(
+                'Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel.'
+            ),
+        event_names: zod
+            .array(zod.string().max(eventStreamsUpdateBodyEventNamesItemMax))
+            .optional()
+            .describe('Names of the events to stream (matched exactly). Duplicates and blanks are dropped.'),
+        slack_integration: zod
+            .number()
+            .nullish()
+            .describe("ID of the team's Slack workspace integration to deliver through."),
+        slack_channel_id: zod
+            .string()
+            .max(eventStreamsUpdateBodySlackChannelIdMax)
+            .default(eventStreamsUpdateBodySlackChannelIdDefault)
+            .describe('Slack channel ID to post to (e.g. C0123ABC).'),
+        slack_channel_name: zod
+            .string()
+            .max(eventStreamsUpdateBodySlackChannelNameMax)
+            .default(eventStreamsUpdateBodySlackChannelNameDefault)
+            .describe('Display name of the Slack channel (e.g. #customer-events). Informational only.'),
+    })
+    .describe(
+        "The caller's event stream — a live feed of selected accounts' events posted to a\nSlack channel of their choice. One stream per user per project."
+    )
+
+/**
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
+ */
+export const eventStreamsPartialUpdateBodyEnabledDefault = false
+export const eventStreamsPartialUpdateBodyEventNamesItemMax = 400
+
+export const eventStreamsPartialUpdateBodySlackChannelIdDefault = ``
+export const eventStreamsPartialUpdateBodySlackChannelIdMax = 200
+
+export const eventStreamsPartialUpdateBodySlackChannelNameDefault = ``
+export const eventStreamsPartialUpdateBodySlackChannelNameMax = 200
+
+export const EventStreamsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod
+            .boolean()
+            .default(eventStreamsPartialUpdateBodyEnabledDefault)
+            .describe(
+                'Whether the stream delivers to Slack. Delivery also requires at least one event, at least one member account with an external ID, and a Slack workspace + channel.'
+            ),
+        event_names: zod
+            .array(zod.string().max(eventStreamsPartialUpdateBodyEventNamesItemMax))
+            .optional()
+            .describe('Names of the events to stream (matched exactly). Duplicates and blanks are dropped.'),
+        slack_integration: zod
+            .number()
+            .nullish()
+            .describe("ID of the team's Slack workspace integration to deliver through."),
+        slack_channel_id: zod
+            .string()
+            .max(eventStreamsPartialUpdateBodySlackChannelIdMax)
+            .default(eventStreamsPartialUpdateBodySlackChannelIdDefault)
+            .describe('Slack channel ID to post to (e.g. C0123ABC).'),
+        slack_channel_name: zod
+            .string()
+            .max(eventStreamsPartialUpdateBodySlackChannelNameMax)
+            .default(eventStreamsPartialUpdateBodySlackChannelNameDefault)
+            .describe('Display name of the Slack channel (e.g. #customer-events). Informational only.'),
+    })
+    .describe(
+        "The caller's event stream — a live feed of selected accounts' events posted to a\nSlack channel of their choice. One stream per user per project."
+    )
+
+/**
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
+ */
+export const EventStreamsAddAccountCreateBody = /* @__PURE__ */ zod
+    .object({
+        account_id: zod.uuid().describe('UUID of the account to add to or remove from the stream.'),
+    })
+    .describe('Request body for adding or removing an event-stream member account.')
+
+/**
+ * The caller's event stream: a live feed of selected accounts' events posted to a
+ * Slack channel of their choice. Per-user — each team member owns at most one stream, and
+ * every endpoint is scoped to the caller's own. Delivery runs through a managed CDP
+ * destination that is re-provisioned inside the same transaction as every write, so
+ * config and delivery can't drift apart.
+ */
+export const EventStreamsRemoveAccountCreateBody = /* @__PURE__ */ zod
+    .object({
+        account_id: zod.uuid().describe('UUID of the account to add to or remove from the stream.'),
+    })
+    .describe('Request body for adding or removing an event-stream member account.')
 
 export const groupsTypesMetricsCreateBodyNameMax = 255
 

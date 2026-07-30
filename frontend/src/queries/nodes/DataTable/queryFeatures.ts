@@ -9,9 +9,6 @@ import {
     isMarketingAnalyticsTableQuery,
     isNonIntegratedConversionsTableQuery,
     isPersonsNode,
-    isRevenueAnalyticsTopCustomersQuery,
-    isRevenueExampleDataWarehouseTablesQuery,
-    isRevenueExampleEventsQuery,
     isSessionAttributionExplorerQuery,
     isSessionsQuery,
     isTracesQuery,
@@ -51,12 +48,7 @@ export enum QueryFeature {
 export function getQueryFeatures(query: Node): Set<QueryFeature> {
     const features = new Set<QueryFeature>()
 
-    if (
-        isHogQLQuery(query) ||
-        isEventsQuery(query) ||
-        isSessionAttributionExplorerQuery(query) ||
-        isRevenueExampleEventsQuery(query)
-    ) {
+    if (isHogQLQuery(query) || isEventsQuery(query) || isSessionAttributionExplorerQuery(query)) {
         features.add(QueryFeature.dateRangePicker)
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.eventPropertyFilters)
@@ -76,12 +68,6 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.testAccountFilters)
         features.add(QueryFeature.columnConfigurator)
         features.add(QueryFeature.selectAndOrderByColumns)
-    }
-
-    if (isRevenueExampleDataWarehouseTablesQuery(query)) {
-        features.add(QueryFeature.columnsInResponse)
-        features.add(QueryFeature.resultIsArrayOfArrays)
-        features.add(QueryFeature.displayResponseError)
     }
 
     if (isEventsQuery(query)) {
@@ -122,8 +108,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         isWebOverviewQuery(query) ||
         isWebExternalClicksQuery(query) ||
         isWebStatsTableQuery(query) ||
-        isWebGoalsQuery(query) ||
-        isRevenueAnalyticsTopCustomersQuery(query)
+        isWebGoalsQuery(query)
     ) {
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.resultIsArrayOfArrays)

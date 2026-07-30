@@ -17,6 +17,8 @@ import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { ChunkPipelineBuilder, GroupProcessingBuilder } from '~/ingestion/framework/builders/chunk-pipeline-builders'
 import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders/pipeline-builders'
 import { GroupingFunction } from '~/ingestion/framework/concurrently-grouping-chunk-pipeline'
+import { TopHogMetricFactory, TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
+import { FanInFunction, FanOutFunction, FanOutSubContext } from '~/ingestion/framework/fan-out-fan-in-chunk-pipeline'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { ok } from '~/ingestion/framework/results'
 import { RetryOptions } from '~/ingestion/framework/retry'
@@ -24,7 +26,12 @@ import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, IncomingEvent, Team } from '~/types'
 
-import { createParseHeadersStep, createParseKafkaMessageStep, createResolveTeamStep } from './steps/event-preprocessing'
+import {
+    createParseHeadersStep,
+    createParseKafkaMessageStep,
+    createResolveTeamStep,
+    parseMessageTopHogMetrics,
+} from './steps/event-preprocessing'
 import { addTeamToContext } from './subpipelines/helpers'
 
 /**
@@ -44,7 +51,9 @@ import { addTeamToContext } from './subpipelines/helpers'
  *     body steps                               .pipe
  *     resolve team, lift team into context     .resolveTeam()
  *     team-aware processing                    .pipe / .pipeChunk / .gather /
- *                                              .concurrentlyPerGroup / .compose
+ *                                              .concurrentlyPerGroup /
+ *                                              .fanOut(…).via(…).fanIn(…) /
+ *                                              .compose
  *     handleIngestionWarnings                  (automatic)
  *   handleResults                              (automatic)
  *   handleSideEffects                          (automatic)
@@ -52,7 +61,7 @@ import { addTeamToContext } from './subpipelines/helpers'
  * ```
  *
  * Consecutive `.pipe()` calls coalesce into one sequential per-element block;
- * any chunk-level call (`.pipeChunk`, `.gather`, `.concurrentlyPerGroup`,
+ * any chunk-level call (`.pipeChunk`, `.gather`, `.concurrentlyPerGroup`, `.fanOut`,
  * `.compose`, a phase marker that is chunk-level) closes the block. Block
  * boundaries therefore fall out of where the chunk operations sit, which is
  * how the hand-written pipelines were already shaped.
@@ -73,6 +82,13 @@ export interface CommonIngestionPipelineConfig<ROut extends string = never> {
     teamManager: TeamManager
     outputs: IngestionOutputs<IngestionWarningsOutput | DlqOutput | ROut>
     promiseScheduler: PromiseScheduler
+    /**
+     * TopHog registry for per-tenant metrics. The skeleton itself records
+     * parse timing and message sizes (see `parseMessageTopHogMetrics`);
+     * pipelines can layer their own metrics via the `parseMessage` /
+     * `resolveTeam` factory lists.
+     */
+    topHog: TopHogRegistry
     /** Maximum number of batches accepted concurrently. Defaults to the framework default. */
     concurrentBatches?: number
     /**
@@ -270,12 +286,14 @@ export class CommonPreTeamStage<
         private readonly chain: PreTeamChain<TInput, TContext, ROut, CBatch, TCurrent>
     ) {}
 
-    /** Per-element step; consecutive pipes run in one sequential block. */
+    /** Per-element step; consecutive pipes run in one sequential block.
+     * `options.topHog` records metric factories around the step. */
     pipe<U extends { message: Message; headers: EventHeaders }, R2 extends ROut>(
         step: ProcessingStep<TCurrent, U, R2>,
-        options?: { retry?: RetryOptions }
+        options?: { retry?: RetryOptions; topHog?: TopHogMetricFactory<TCurrent, U>[] }
     ): CommonPreTeamStage<TInput, TContext, ROut, CBatch, U> {
-        return new CommonPreTeamStage(this.config, this.beforeBatchCallback, this.chain.extend(step, options))
+        const wrapped = options?.topHog?.length ? createTopHogWrapper(this.config.topHog)(step, options.topHog) : step
+        return new CommonPreTeamStage(this.config, this.beforeBatchCallback, this.chain.extend(wrapped, options))
     }
 
     /** Chunk-level step (e.g. rate-limit-to-overflow); closes the open sequential block. */
@@ -291,9 +309,23 @@ export class CommonPreTeamStage<
         )
     }
 
-    /** Parse the message body; after this, body-dependent steps can be piped. */
-    parseMessage(): CommonPreTeamStage<TInput, TContext, ROut, CBatch, TCurrent & { event: IncomingEvent }> {
-        return this.pipe(createParseKafkaMessageStep())
+    /**
+     * Parse the message body; after this, body-dependent steps can be piped.
+     *
+     * Parse timing and raw message sizes are always recorded to topHog
+     * (`parseMessageTopHogMetrics`); `options.topHog` appends
+     * pipeline-specific metric factories on top.
+     */
+    parseMessage(options?: {
+        topHog?: TopHogMetricFactory<TCurrent, TCurrent & { event: IncomingEvent }>[]
+    }): CommonPreTeamStage<TInput, TContext, ROut, CBatch, TCurrent & { event: IncomingEvent }> {
+        const topHog = createTopHogWrapper(this.config.topHog)
+        return this.pipe(
+            topHog(createParseKafkaMessageStep<TCurrent>(), [
+                ...parseMessageTopHogMetrics<TCurrent, TCurrent & { event: IncomingEvent }>(),
+                ...(options?.topHog ?? []),
+            ])
+        )
     }
 
     /**
@@ -301,19 +333,19 @@ export class CommonPreTeamStage<
      * open the team-aware scope: every step piped after this runs inside
      * `handleIngestionWarnings`, with warnings routed to the resolved team.
      *
-     * `options.wrap` decorates the team-resolution step while preserving its
-     * types — e.g. a topHog metrics wrapper.
+     * `options.topHog` records metric factories around the team-resolution
+     * step (e.g. a per-team resolved counter).
      */
     resolveTeam(
         this: CommonPreTeamStage<TInput, TContext, ROut, CBatch, TCurrent & { event: IncomingEvent }>,
         options?: {
-            wrap?: (
-                step: ProcessingStep<TCurrent & { event: IncomingEvent }, TeamResolved<TCurrent>>
-            ) => ProcessingStep<TCurrent & { event: IncomingEvent }, TeamResolved<TCurrent>, ROut>
+            topHog?: TopHogMetricFactory<TCurrent & { event: IncomingEvent }, TeamResolved<TCurrent>>[]
         }
     ): CommonTeamStage<TInput, TContext, ROut, CBatch, TeamResolved<TCurrent>, TeamResolved<TCurrent>> {
         const step = createResolveTeamStep<TCurrent & { event: IncomingEvent }>(this.config.teamManager)
-        const resolved = this.chain.extend(options?.wrap ? options.wrap(step) : step)
+        const topHog = createTopHogWrapper(this.config.topHog)
+        const metrics = options?.topHog
+        const resolved = this.chain.extend(metrics?.length ? topHog(step, metrics) : step)
         return new CommonTeamStage(
             this.config,
             this.beforeBatchCallback,
@@ -322,6 +354,18 @@ export class CommonPreTeamStage<
         )
     }
 }
+
+/**
+ * Subpipeline callback of a fan-out stage. Sub-pipelines are context-agnostic
+ * (typed over the minimal base context, not the team-aware context): context
+ * gated surface like `teamAware` or `handleIngestionWarnings` is uncallable
+ * inside — sub warnings/side effects merge into the parent and are handled
+ * once by the skeleton. Fan-out functions put any team/message data sub-steps
+ * need into the sub-element value.
+ */
+type FanOutViaCallback<TSub, TSubOut, ROut extends string> = (
+    builder: ChunkPipelineBuilder<TSub, TSub, FanOutSubContext, FanOutSubContext>
+) => ChunkPipelineBuilder<TSub, TSubOut, FanOutSubContext, FanOutSubContext, ROut>
 
 export class CommonTeamStage<
     TInput extends { message: Message },
@@ -338,16 +382,18 @@ export class CommonTeamStage<
         private readonly chain: TeamChain<TPost, TContext, ROut, TCurrent>
     ) {}
 
-    /** Per-element step; consecutive pipes run in one sequential block. */
+    /** Per-element step; consecutive pipes run in one sequential block.
+     * `options.topHog` records metric factories around the step. */
     pipe<U, R2 extends ROut>(
         step: ProcessingStep<TCurrent, U, R2>,
-        options?: { retry?: RetryOptions }
+        options?: { retry?: RetryOptions; topHog?: TopHogMetricFactory<TCurrent, U>[] }
     ): CommonTeamStage<TInput, TContext, ROut, CBatch, TPost, U> {
+        const wrapped = options?.topHog?.length ? createTopHogWrapper(this.config.topHog)(step, options.topHog) : step
         return new CommonTeamStage(
             this.config,
             this.beforeBatchCallback,
             this.preTeamTransform,
-            this.chain.extend(step, options)
+            this.chain.extend(wrapped, options)
         )
     }
 
@@ -385,7 +431,7 @@ export class CommonTeamStage<
         groupingFn: GroupingFunction<TCurrent, TKey>,
         callback: (
             group: GroupProcessingBuilder<TPost, TCurrent, TeamAwareContext<TContext>, TeamAwareContext<TContext>, ROut>
-        ) => ChunkPipelineBuilder<TPost, U, TeamAwareContext<TContext>, TeamAwareContext<TContext>, ROut>,
+        ) => GroupProcessingBuilder<TPost, U, TeamAwareContext<TContext>, TeamAwareContext<TContext>, ROut>,
         options?: { maxConcurrency?: number }
     ): CommonTeamStage<TInput, TContext, ROut, CBatch, TPost, U> {
         const committed = this.chain.build()
@@ -394,6 +440,31 @@ export class CommonTeamStage<
             this.beforeBatchCallback,
             this.preTeamTransform,
             committedChain((builder) => committed(builder).concurrentlyPerGroup(groupingFn, callback, options))
+        )
+    }
+
+    /**
+     * Open a fan-out/fan-in stage: `.fanOut(fn).via(cb).fanIn(fn)` (mirrors
+     * the framework method — the staged sequencing holds on the skeleton
+     * surface too, so an unclosed stage can't reach `afterBatch`/`build`).
+     */
+    fanOut<TSub>(
+        fanOutFn: FanOutFunction<TCurrent, TSub>
+    ): CommonFanOutStage<TInput, TContext, ROut, CBatch, TPost, TCurrent, TSub> {
+        const committed = this.chain.build()
+        return new CommonFanOutStage(
+            <TSubOut, U>(
+                subpipelineCallback: FanOutViaCallback<TSub, TSubOut, ROut>,
+                fanInFn: FanInFunction<TCurrent, TSubOut, U>
+            ) =>
+                new CommonTeamStage(
+                    this.config,
+                    this.beforeBatchCallback,
+                    this.preTeamTransform,
+                    committedChain((builder) =>
+                        committed(builder).fanOut(fanOutFn).via(subpipelineCallback).fanIn(fanInFn)
+                    )
+                )
         )
     }
 
@@ -431,6 +502,70 @@ export class CommonTeamStage<
             preTeam(builder).filterMap(addTeamToContext, (b) =>
                 b.teamAware((teamAware) => inner(teamAware)).handleIngestionWarnings(outputs)
             )
+    }
+}
+
+/**
+ * Middle stage of the skeleton's `.fanOut(fn).via(cb).fanIn(fn)`. Its only
+ * method is `via`, so an unclosed fan-out stage cannot reach `afterBatch` or
+ * `build`.
+ */
+export class CommonFanOutStage<
+    TInput extends { message: Message },
+    TContext extends { message: Message },
+    ROut extends string,
+    CBatch,
+    TPost extends { team: Team },
+    TCurrent,
+    TSub,
+> {
+    // Completion-closure shape, like the framework's FanOutBuilder: TCurrent
+    // only appears in variance-neutral positions.
+    constructor(
+        private readonly completeStage: <TSubOut, U>(
+            subpipelineCallback: FanOutViaCallback<TSub, TSubOut, ROut>,
+            fanInFn: FanInFunction<TCurrent, TSubOut, U>
+        ) => CommonTeamStage<TInput, TContext, ROut, CBatch, TPost, U>
+    ) {}
+
+    /**
+     * Route the sub-elements through a subpipeline built on the full chunk
+     * builder surface, under the team-aware context (exactly what `compose`
+     * would provide).
+     */
+    via<TSubOut>(
+        subpipelineCallback: FanOutViaCallback<TSub, TSubOut, ROut>
+    ): CommonFanInStage<TInput, TContext, ROut, CBatch, TPost, TCurrent, TSubOut> {
+        return new CommonFanInStage(<U>(fanInFn: FanInFunction<TCurrent, TSubOut, U>) =>
+            this.completeStage(subpipelineCallback, fanInFn)
+        )
+    }
+}
+
+/**
+ * Final stage of the skeleton's `.fanOut(fn).via(cb).fanIn(fn)`. Its only
+ * method is `fanIn`, which closes the stage and returns the regular
+ * {@link CommonTeamStage} surface.
+ */
+export class CommonFanInStage<
+    TInput extends { message: Message },
+    TContext extends { message: Message },
+    ROut extends string,
+    CBatch,
+    TPost extends { team: Team },
+    TCurrent,
+    TSubOut,
+> {
+    // Completion-closure shape for the same variance reason as CommonFanOutStage.
+    constructor(
+        private readonly completeStage: <U>(
+            fanInFn: FanInFunction<TCurrent, TSubOut, U>
+        ) => CommonTeamStage<TInput, TContext, ROut, CBatch, TPost, U>
+    ) {}
+
+    /** Close the stage: fold each parent's collected sub-results back into the original element. */
+    fanIn<U>(fanInFn: FanInFunction<TCurrent, TSubOut, U>): CommonTeamStage<TInput, TContext, ROut, CBatch, TPost, U> {
+        return this.completeStage(fanInFn)
     }
 }
 

@@ -13,7 +13,8 @@ module.exports = {
     clearMocks: true,
     coverageProvider: 'v8',
     setupFiles: ['./jest.setup-env.ts'],
-    setupFilesAfterEnv: ['./jest.setup.ts'],
+    // jest.quarantine.ts first so it wraps the describe/it/test globals before any test file declares tests.
+    setupFilesAfterEnv: ['../frontend/jest.quarantine.ts', './jest.setup.ts'],
     testMatch: ['<rootDir>/tests/**/*.test.ts', '<rootDir>/src/**/*.test.ts'],
     testTimeout: 60000,
     // The image-scrub sidecar is a standalone package with its own jest run; keep the plugin-server suite out of it.

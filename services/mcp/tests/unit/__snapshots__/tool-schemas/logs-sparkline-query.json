@@ -74,6 +74,10 @@
                     },
                     "type": "array"
                 },
+                "personId": {
+                    "description": "Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys.",
+                    "type": "string"
+                },
                 "searchTerm": {
                     "description": "Full-text search term to filter log bodies.",
                     "type": "string"

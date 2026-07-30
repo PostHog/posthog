@@ -27,10 +27,7 @@ from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
 
 from products.replay_vision.backend.api.scanners import _scanner_config_error_message
 from products.replay_vision.backend.billing import observation_credits_for_model
-from products.replay_vision.backend.feature_flag import (
-    ReplayVisionEnabledPermission,
-    ReplayVisionQualityEnabledPermission,
-)
+from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
@@ -72,7 +69,7 @@ class PromptEvaluationResultSerializer(serializers.Serializer):
     )
     outcome = serializers.CharField(
         help_text="kept (up, unchanged), regressed (up, changed), fixed (down, changed), "
-        "still_wrong (down, unchanged), or error."
+        "still_wrong (down, unchanged), error, or preview (scorer/summarizer: raw before/after, no classification)."
     )
     error = serializers.CharField(allow_null=True, help_text="Why this session's re-run failed, when it did.")
 
@@ -112,6 +109,11 @@ class ReplayScannerPromptSuggestionSerializer(serializers.ModelSerializer):
     evaluation = serializers.SerializerMethodField(
         help_text="Test-before-apply results: the suggested prompt re-run against rated sessions."
     )
+    base_config = serializers.SerializerMethodField(
+        help_text="The scanner config this suggestion was generated against."
+    )
+    suggested_config = serializers.SerializerMethodField(help_text="The full proposed scanner config, ready to apply.")
+    changes = serializers.SerializerMethodField(help_text="Typed per-field diff entries driving the change cards.")
 
     @extend_schema_field(PromptSuggestionEvaluationSerializer(allow_null=True))
     def get_evaluation(self, suggestion: ReplayScannerPromptSuggestion) -> dict[str, Any] | None:
@@ -126,6 +128,23 @@ class ReplayScannerPromptSuggestionSerializer(serializers.ModelSerializer):
             return {**evaluation, "status": "failed"}
         return evaluation
 
+    @extend_schema_field(serializers.JSONField(allow_null=True))
+    def get_base_config(self, suggestion: ReplayScannerPromptSuggestion) -> dict[str, Any] | None:
+        # Rows written before config-generic suggestions existed only have the prompt shim.
+        if suggestion.base_config is not None:
+            return suggestion.base_config
+        return {"prompt": suggestion.base_prompt} if suggestion.base_prompt else None
+
+    @extend_schema_field(serializers.JSONField(allow_null=True))
+    def get_suggested_config(self, suggestion: ReplayScannerPromptSuggestion) -> dict[str, Any] | None:
+        if suggestion.suggested_config is not None:
+            return suggestion.suggested_config
+        return {"prompt": suggestion.suggested_prompt}
+
+    @extend_schema_field(serializers.JSONField())
+    def get_changes(self, suggestion: ReplayScannerPromptSuggestion) -> list[dict[str, Any]]:
+        return suggestion.changes or []
+
     class Meta:
         model = ReplayScannerPromptSuggestion
         fields = [
@@ -133,6 +152,9 @@ class ReplayScannerPromptSuggestionSerializer(serializers.ModelSerializer):
             "status",
             "suggested_prompt",
             "base_prompt",
+            "base_config",
+            "suggested_config",
+            "changes",
             "rationale",
             "based_on_up",
             "based_on_down",
@@ -155,6 +177,14 @@ class ReplayScannerPromptSuggestionSerializer(serializers.ModelSerializer):
         }
 
 
+class ApplyPromptSuggestionRequestSerializer(serializers.Serializer):
+    config = serializers.JSONField(
+        required=False,
+        help_text="The edited config to apply, assembled from the recommendation's approved fields. "
+        "Omit to apply the full suggested config unchanged.",
+    )
+
+
 class EvaluatePromptSuggestionRequestSerializer(serializers.Serializer):
     session_limit = serializers.IntegerField(
         required=False,
@@ -166,6 +196,11 @@ class EvaluatePromptSuggestionRequestSerializer(serializers.Serializer):
             f"credits like a normal observation of the same model. Defaults to {EVALUATION_SESSION_DEFAULT}. "
             "The maximum is `evaluation_session_cap`."
         ),
+    )
+    config = serializers.JSONField(
+        required=False,
+        help_text="The edited config to test, assembled from the recommendation's approved fields. "
+        "Omit to test the full suggested config.",
     )
 
 
@@ -195,7 +230,7 @@ class ReplayScannerPromptSuggestionViewSet(
 
     scope_object = "replay_scanner"
     required_scopes = ["replay_scanner:read", "session_recording:read"]
-    permission_classes = [ReplayVisionEnabledPermission, ReplayVisionQualityEnabledPermission]
+    permission_classes = [ReplayVisionEnabledPermission]
     serializer_class = ReplayScannerPromptSuggestionSerializer
     queryset = ReplayScannerPromptSuggestion.objects.all()
 
@@ -218,10 +253,11 @@ class ReplayScannerPromptSuggestionViewSet(
         self._scanner_for_url_cache = scanner
         return scanner
 
-    def _require_editor(self) -> None:
-        # Generating and acting on suggestions mutates team-wide scanner state, matching the "Edit scanner" gate.
-        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="editor"):
-            raise PermissionDenied("Managing prompt suggestions requires session_recording edit access.")
+    def _require_editor(self, scanner: ReplayScanner) -> None:
+        # Generating and acting on suggestions mutates team-wide scanner state — object-check the scanner
+        # itself (replay_scanner editor), mirroring the `retry` action in observations.py, rather than
+        # gating on the unrelated session_recording resource.
+        self.check_object_permissions(self.request, scanner)
 
     def safely_get_queryset(
         self, queryset: QuerySet[ReplayScannerPromptSuggestion]
@@ -266,8 +302,8 @@ class ReplayScannerPromptSuggestionViewSet(
         responses={200: ReplayScannerPromptSuggestionSerializer},
         description=(
             "Generate a fresh prompt suggestion from the team's current ratings. The previous pending "
-            "suggestion becomes history (superseded). Requires at least one rated observation and session "
-            "recording edit access."
+            "suggestion becomes history (superseded). Requires at least one rated observation and editor "
+            "access to the scanner."
         ),
     )
     # Each call is an inline LLM request, so it gets the shared AI rate limits on top of the editor gate.
@@ -279,7 +315,7 @@ class ReplayScannerPromptSuggestionViewSet(
     )
     def generate(self, request: Request, **kwargs: Any) -> Response:
         scanner = self._scanner_for_url()
-        self._require_editor()
+        self._require_editor(scanner)
         user = cast(User, request.user)
         try:
             suggestion = generate_prompt_suggestion(scanner, user)
@@ -290,19 +326,24 @@ class ReplayScannerPromptSuggestionViewSet(
         return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)
 
     @extend_schema(
-        request=None,
+        request=ApplyPromptSuggestionRequestSerializer,
         responses={200: ReplayScannerPromptSuggestionSerializer},
         description=(
-            "Apply this suggestion: write its prompt to the scanner (bumping the scanner version) and mark "
-            "the suggestion applied. Only the current pending suggestion can be applied. Requires session "
-            "recording edit access."
+            "Apply this suggestion: write a config to the scanner (the prompt plus any type-specific config "
+            "such as classifier tags or the monitor allow_inconclusive flag), bumping the scanner version, "
+            "and mark the suggestion applied. Pass `config` to apply an edited subset of the recommendation; "
+            "omit it to apply the full suggested config. Only the current pending suggestion can be applied. "
+            "Requires session recording edit access."
         ),
     )
     @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
     def apply(self, request: Request, **kwargs: Any) -> Response:
         scanner = self._scanner_for_url()
-        self._require_editor()
+        self._require_editor(scanner)
         suggestion = self.get_object()
+        input_serializer = ApplyPromptSuggestionRequestSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        edited_config = input_serializer.validated_data.get("config")
         # Guards must run on locked rows: unlocked reads let two concurrent applies both pass,
         # and the second silently overwrites the first.
         with transaction.atomic():
@@ -315,8 +356,14 @@ class ReplayScannerPromptSuggestionViewSet(
                 raise ValidationError("Only the current recommendation can be applied.")
             if suggestion.scanner_version != scanner.scanner_version:
                 raise ValidationError("The scanner prompt changed since this was generated. Generate a fresh one.")
-            config = dict(scanner.scanner_config or {})
-            config["prompt"] = suggestion.suggested_prompt
+            # The edited config the user assembled wins. Otherwise new rows carry the full proposed config,
+            # and old prompt-only rows fall back to a prompt overwrite.
+            if edited_config is not None:
+                config = dict(edited_config)
+            elif suggestion.suggested_config is not None:
+                config = dict(suggestion.suggested_config)
+            else:
+                config = {**(scanner.scanner_config or {}), "prompt": suggestion.suggested_prompt}
             # Same validation as the scanner edit endpoint: an oversized or malformed LLM rewrite
             # must not land in the config that every future observation snapshots.
             message = _scanner_config_error_message(ScannerType(scanner.scanner_type), config)
@@ -340,22 +387,30 @@ class ReplayScannerPromptSuggestionViewSet(
             "`session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to "
             "`evaluation_session_cap`). Each successful re-run charges credits like a normal observation of "
             "the same model. The request is refused with 402 when the planned credits exceed what is left of "
-            "the monthly limit. Only monitor and classifier scanners are supported. Requires session "
+            "the monthly limit. Monitor and classifier scanners get a kept/fixed/regressed classification, "
+            "while scorer and summarizer scanners show the raw before and after output. Requires session "
             "recording edit access."
         ),
     )
     @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
     def evaluate(self, request: Request, **kwargs: Any) -> Response:
         scanner = self._scanner_for_url()
-        self._require_editor()
+        self._require_editor(scanner)
         suggestion = self.get_object()
         input_serializer = EvaluatePromptSuggestionRequestSerializer(data=request.data)
         input_serializer.is_valid(raise_exception=True)
         session_limit = input_serializer.validated_data["session_limit"]
+        edited_config = input_serializer.validated_data.get("config")
         if suggestion.status != SuggestionStatus.PENDING:
             raise ValidationError("Only the current pending suggestion can be tested.")
         if not evaluation_supported(scanner):
-            raise ValidationError("Testing is available for monitor and classifier scanners.")
+            raise ValidationError("Testing isn't available for this scanner type.")
+        # A malformed edited config must be rejected before it charges credits on runs that can't succeed,
+        # matching the validation apply runs before it writes the config.
+        if edited_config is not None:
+            message = _scanner_config_error_message(ScannerType(scanner.scanner_type), edited_config)
+            if message:
+                raise ValidationError(f"This config can't be tested: {message}")
         rated_count = self._rated_count(scanner)
         if rated_count == 0:
             raise ValidationError("Rate some results first. They are what the suggestion is tested against.")
@@ -387,7 +442,10 @@ class ReplayScannerPromptSuggestionViewSet(
             async_to_sync(client.start_workflow)(  # type: ignore[misc]
                 EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME,  # type: ignore[arg-type]
                 EvaluatePromptSuggestionInputs(  # type: ignore[arg-type]
-                    suggestion_id=suggestion.id, team_id=scanner.team_id, session_limit=session_limit
+                    suggestion_id=suggestion.id,
+                    team_id=scanner.team_id,
+                    session_limit=session_limit,
+                    config_override=edited_config,
                 ),
                 id=build_evaluate_prompt_suggestion_workflow_id(suggestion.id),
                 task_queue=settings.REPLAY_VISION_TASK_QUEUE,
@@ -410,13 +468,13 @@ class ReplayScannerPromptSuggestionViewSet(
         responses={200: ReplayScannerPromptSuggestionSerializer},
         description=(
             "Dismiss this suggestion without applying it. Only the current pending suggestion can be "
-            "dismissed. Requires session recording edit access."
+            "dismissed. Requires editor access to the scanner."
         ),
     )
     @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
     def dismiss(self, request: Request, **kwargs: Any) -> Response:
-        self._scanner_for_url()
-        self._require_editor()
+        scanner = self._scanner_for_url()
+        self._require_editor(scanner)
         suggestion = self.get_object()
         with transaction.atomic():
             suggestion = ReplayScannerPromptSuggestion.objects.select_for_update().get(

@@ -116,6 +116,7 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         impl = self.get_implementation
         with impl.connect(config) as conn:

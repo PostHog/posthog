@@ -19,6 +19,7 @@ def validate_via_probe(
     auth: AuthBase | None = None,
     ok_statuses: tuple[int, ...] = (200,),
     timeout: float = 10.0,
+    allow_redirects: bool = True,
 ) -> tuple[bool, int | None]:
     """Probe ``url`` with a GET and report ``(is_valid, status_code)``.
 
@@ -31,10 +32,20 @@ def validate_via_probe(
     (bad token) from 403 (valid token, missing scope) — accept 403 at source-create when
     ``schema_name`` is None, per the skill. The caller wraps the result into the ``(bool, message)``
     its ``validate_credentials`` returns.
+
+    Pass ``allow_redirects=False`` when the probe sends credentials via custom (non-``Authorization``)
+    headers: ``requests`` does not strip those on a cross-origin redirect, so following one would
+    replay the secret to the redirect's ``Location``.
     """
     try:
         session = session_factory()
-        response = session.get(url, headers=dict(headers) if headers else None, auth=auth, timeout=timeout)
+        response = session.get(
+            url,
+            headers=dict(headers) if headers else None,
+            auth=auth,
+            timeout=timeout,
+            allow_redirects=allow_redirects,
+        )
     except Exception:  # noqa: BLE001 — a credential probe must never raise; any failure means "not validated"
         return False, None
     return response.status_code in ok_statuses, response.status_code

@@ -79,6 +79,7 @@ Pushes still trigger CI, which burns runner credits, so batch related commits an
 #### Stacked PRs
 
 Restacking force-pushes every branch, and each push triggers a full CI fan-out.
+Never restack while any branch in the stack is sitting in the merge queue — the force-push removes it from the queue.
 Pushing a deep stack at once can exceed GitHub's per-repo dispatch cap (500 workflow runs / 10s).
 The overflow fails as `startup_failure` and takes unrelated runs in the same window down too.
 Draft status doesn't help, since runs are dispatched before draft/skip logic applies.
@@ -92,6 +93,17 @@ Draft status doesn't help, since runs are dispatched before draft/skip logic app
 A pre-push hook runs `hogli ci:preflight --strict`, failing the push on deterministic CI breakage reachable from your diff (lint, lockfiles, migration conflicts). Never bypass it (`--no-verify`).
 If it blocks the push, run `hogli ci:preflight --fix`, resolve the remaining `✗ fail` lines, act on the `→ advisory` ones (regenerate OpenAPI types, merge master in), and push again.
 In environments without hooks (no `node_modules`), run `hogli ci:preflight --fix` yourself before pushing or reporting a task done. If the command reports it is disabled, that's intentional — proceed.
+
+### Merging PRs
+
+All merges into `master` go through the Trunk merge queue.
+Never run `gh pr merge` or click the GitHub merge button — both are blocked by branch ruleset.
+
+- Enqueue: `gh pr comment <number> --body "/trunk merge"`. Cancel: `gh pr comment <number> --body "/trunk cancel"`.
+- After enqueueing, babysit the PR until it merges or fails — follow [`.agents/skills/merging-prs/SKILL.md`](./.agents/skills/merging-prs/SKILL.md) for the preflight, watch, and failure-handling loop.
+- Queue progress is the `Trunk Merge Queue (master)` check run on the PR's head commit. The PR's own checks don't reflect the queue's testing — it runs CI on a `trunk-merge/**` branch.
+- On failure the Trunk bot comments with links to the failing workflows; fix, push, and re-enqueue.
+- Never force-push a branch while it is in the queue — it removes the PR from the queue.
 
 ### Public open source repo guidance
 
@@ -134,7 +146,7 @@ See [.agents/security.md](.agents/security.md) for security guidelines — least
 - **Django admin `ForeignKey` fields need explicit widget config.** When adding a `ForeignKey`/`OneToOneField` to a model that's exposed in Django admin (including via inlines attached to a _related_ admin), list the new field in `autocomplete_fields`, `raw_id_fields`, or `readonly_fields` on **every** admin class that renders the model — otherwise the default `<select>` widget loads the entire target table per row on each change-page render. Prefer declaring the config on a shared base inline so per-parent variants (e.g., subclasses differentiated by `fk_name`) inherit it automatically.
 - **Use personhog client for all person/group data access — do not query persons DB tables via the Django ORM or raw SQL.** The `posthog/personhog_client/` gRPC client is the required interface for reading and writing person-related data. This applies to the following tables: `posthog_person`, `posthog_persondistinctid`, `posthog_cohortpeople`, `posthog_group`, `posthog_grouptypemapping`, and related override tables (`posthog_personoverride`, `posthog_pendingpersonoverride`, `posthog_flatpersonoverride`, `posthog_featureflaghashkeyoverride`, `posthog_personlessdistinctid`, `posthog_personoverridemapping`). Use the helpers in `posthog/models/person/util.py` (e.g. `get_person_by_uuid`, `get_persons_by_distinct_ids`, `get_person_by_distinct_id`) and `posthog/models/group_type_mapping.py` (`get_group_types_for_project`) — these already route through personhog with ORM fallback via `_personhog_routed()`. When adding new person/group data access, follow the same `_personhog_routed()` pattern: provide a `personhog_fn` using `get_personhog_client()` and an `orm_fn` fallback. Never add new direct ORM queries like `Person.objects.filter(...)` or `PersonDistinctId.objects.filter(...)` — use the existing routed helpers or create new ones following the established pattern. See `posthog/personhog_client/README.md` for client details and `posthog/personhog_client/client.py` for the full RPC interface.
 - **PostHog does not enable `ATOMIC_REQUESTS` — there is no implicit per-request transaction.** Each database operation runs in autocommit mode unless explicitly wrapped. Use `with transaction.atomic():` around the specific writes that must succeed or fail together. Do not wrap an entire view method atomically — keep the block as narrow as possible around the related writes. Avoid performing irreversible side effects (sending emails, calling external APIs, enqueuing Celery tasks) inside an atomic block: if the transaction rolls back, those side effects have already happened. Schedule such side effects after the commit, or use `transaction.on_commit()` for Celery task dispatch.
-- **Prefer SeaweedFS over MinIO for object storage — we are working to remove MinIO from the stack.** SeaweedFS (the `seaweedfs` service, S3 API on `:8333`) is the direction of travel for S3-compatible object storage and already backs session replay v2 (`SESSION_RECORDING_V2_S3_*` settings, default endpoint `http://seaweedfs:8333`). MinIO (the `objectstorage` service, S3 API on `:19000`) still backs general object storage (`OBJECT_STORAGE_*` settings — exports, media uploads, error-tracking source maps, query cache, tasks), but it is being phased out. Do not introduce new dependencies on MinIO: don't add new docker-compose services, scripts, tests, or docs that stand up a `minio/minio` container or hardcode `objectstorage:19000`. Both stores are S3-compatible, so code that talks to object storage should go through the existing `OBJECT_STORAGE_*` / `SESSION_RECORDING_V2_S3_*` config and a standard S3 client rather than hardcoding an endpoint — that keeps backends swappable as MinIO is retired. When a new local-dev feature needs an S3-compatible store, point it at SeaweedFS.
+- **Object storage is SeaweedFS — do not add new MinIO dependencies.** Both S3-compatible stores in the dev/CI stack are SeaweedFS: the `objectstorage` service (S3 API on `:19000`) backs general object storage (`OBJECT_STORAGE_*` settings — exports, media uploads, error-tracking source maps, query cache, tasks), and the `seaweedfs` service (S3 API on `:8333`) backs session replay v2 (`SESSION_RECORDING_V2_S3_*` settings). MinIO now survives only as migration tooling: `docker-compose.hobby.yml` keeps it as a source for `bin/migrate-storage-hobby`, and `bin/upgrade-objectstorage` starts a throwaway MinIO to salvage objects off the pre-swap volume. Outside that, don't add docker-compose services, scripts, tests, or docs that stand up a `minio/minio` container. Code that talks to object storage should go through the existing `OBJECT_STORAGE_*` / `SESSION_RECORDING_V2_S3_*` config and a standard S3 client rather than hardcoding an endpoint — that keeps backends swappable. Note the `objectstorage` service registers its credentials at runtime via a bootstrap loop and returns `InvalidAccessKeyId` until that completes, so anything depending on it must wait for its readiness sentinel rather than just for the container to start.
 - **Temporal activity payloads have a ~2 MiB hard limit — pass large data by reference, not by value.** Activity inputs and outputs are serialized across a gRPC boundary that Temporal caps at ~2 MiB per payload (the server rejects larger payloads via `blobSizeLimitError`). As a conservative field-level rule, if a field could exceed ~256 KB once serialized (serialized query results, exported file contents, LLM context, rendered HTML, image bytes, unbounded `list[dict[str, Any]]`), write it to Postgres / S3 / object storage from _inside_ the activity and return only the reference (row ID, S3 key). The workflow already has access to any row ID created earlier in the same run; it does not need the content to flow back through. Shuttling large data through the workflow on the way to persistence is a foreseeable failure mode that produces `PayloadSizeError` (`TMPRL1103`) the moment the underlying data crosses the limit.
 - **Outbound calls to a third-party API that need rate-limiting or egress telemetry belong in `posthog/egress/` — add a `<domain>/` incarnation (GitHub is the reference) and route callers through its gated, recorded transport, never hand-rolled `requests`. See `posthog/egress/README.md`.**
 
@@ -166,7 +178,7 @@ See [.agents/security.md](.agents/security.md) for security guidelines — least
 
 ## User-facing copy
 
-For any text a person reads (UI labels, tooltips, empty/error states, notifications, docs, support replies). When unsure whether copy reads well, ask a human.
+For any text a person reads (UI labels, tooltips, empty/error states, notifications, docs, support replies). Invoke `/writing-user-facing-copy` before writing or editing it — that skill carries the full voice, em-dash, and feature-naming rules. When unsure whether copy reads well, ask a human.
 
 - Sentence case, not Title Case: capitalize only the first word and proper nouns ('Product analytics', 'Save as view').
 - Avoid the tells of AI-generated text: em dashes (—), "not just X, but Y", rule-of-three padding, hedging preambles. Write like a person typed it; if you can't tell, ask a human.
@@ -196,9 +208,12 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/clickhouse-migrations` — any ClickHouse migration
 - `/adopting-generated-api-types` — any frontend file using `lib/api`, `api.get<`, `api.create<`, or handwritten API types
 - `/writing-tests` — adding or substantially changing any test (pytest, Jest, or Playwright)
+- `/writing-user-facing-copy` — writing or editing any text a user reads (UI labels, tooltips, empty/error states, notifications, docs, support replies), or any code change that adds or changes a visible string
+- `/writing-code-comments` — writing or editing a code comment in any language, or reviewing a diff that adds comments
 
 **Invoke when in the area:**
 
+- `/merging-prs` — merging a PR, or babysitting one through the Trunk merge queue
 - `/implementing-mcp-tools` — adding/modifying endpoints or `tools.yaml`
 - `/modifying-taxonomic-filter` — any TaxonomicFilter change
 - `/sending-notifications` — adding notification support

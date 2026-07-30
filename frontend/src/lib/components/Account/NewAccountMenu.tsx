@@ -5,6 +5,7 @@ import {
     IconDatabase,
     IconGear,
     IconLeave,
+    IconPeople,
     IconPlusSmall,
     IconReceipt,
     IconServer,
@@ -396,6 +397,21 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                 >
                                                     <IconToggle />
                                                     Flags staff tools
+                                                </Link>
+                                            )}
+                                        />
+                                        <Menu.Item
+                                            render={(props) => (
+                                                <Link
+                                                    {...props}
+                                                    to={urls.cohortsStaffTools()}
+                                                    buttonProps={{
+                                                        menuItem: true,
+                                                    }}
+                                                    data-attr="new-account-menu-cohorts-staff-tools"
+                                                >
+                                                    <IconPeople />
+                                                    Cohorts staff tools
                                                 </Link>
                                             )}
                                         />

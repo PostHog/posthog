@@ -1,16 +1,20 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
-
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponseCursorPaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.oura.settings import (
     OURA_ENDPOINTS,
     OuraEndpointConfig,
@@ -22,13 +26,9 @@ OURA_BASE_URL = "https://api.ouraring.com/v2"
 # The API defaults start_date to end_date - 1 day, so an explicit early start is required to pull
 # history rather than just the most recent day.
 DEFAULT_START_DATE = "2014-01-01"
+DEFAULT_START_DATETIME = f"{DEFAULT_START_DATE}T00:00:00+00:00"
 
-PAGE_TIMEOUT_SECONDS = 60
 VALIDATE_TIMEOUT_SECONDS = 10
-
-
-class OuraRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -36,10 +36,6 @@ class OuraResumeConfig:
     # Opaque pagination cursor returned by the API as `next_token`. Resuming re-issues the same
     # date-windowed request with this token appended.
     next_token: str | None = None
-
-
-def _get_headers(token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
 
 
 def _format_date(value: Any) -> str:
@@ -74,137 +70,116 @@ def _clamp_datetime_to_now(value: str) -> str:
     return now if value > now else value
 
 
-def _build_initial_params(
-    config: OuraEndpointConfig,
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
-) -> dict[str, str]:
-    """Build the date-window query params for the first page of a request."""
-    params: dict[str, str] = {}
-
-    have_cursor = should_use_incremental_field and db_incremental_field_last_value is not None
-
-    if config.date_filter == "date":
-        start = _format_date(db_incremental_field_last_value) if have_cursor else DEFAULT_START_DATE
-        params["start_date"] = _clamp_date_to_today(start)
-    elif config.date_filter == "datetime":
-        if have_cursor:
-            start = _clamp_datetime_to_now(_format_datetime(db_incremental_field_last_value))
-        else:
-            start = f"{DEFAULT_START_DATE}T00:00:00+00:00"
-        params["start_datetime"] = start
-
-    return params
+def _start_date_param(value: Any) -> str:
+    return _clamp_date_to_today(_format_date(value))
 
 
-def _build_url(path: str, params: dict[str, str]) -> str:
-    url = f"{OURA_BASE_URL}{path}"
-    if params:
-        return f"{url}?{urlencode(params)}"
-    return url
-
-
-@retry(
-    retry=retry_if_exception_type((OuraRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger
-) -> dict[str, Any]:
-    response = session.get(url, headers=headers, timeout=PAGE_TIMEOUT_SECONDS)
-
-    # Oura rate-limits at ~5000 requests / 5 min and returns 429 with backoff expected.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise OuraRetryableError(f"Oura API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"Oura API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
+def _start_datetime_param(value: Any) -> str:
+    return _clamp_datetime_to_now(_format_datetime(value))
 
 
 def probe_endpoint(token: str, path: str) -> int:
     """Return the HTTP status code for a minimal GET against `path`. -1 on a transport failure."""
-    try:
-        response = make_tracked_session().get(
-            f"{OURA_BASE_URL}{path}", headers=_get_headers(token), timeout=VALIDATE_TIMEOUT_SECONDS
-        )
-        return response.status_code
-    except Exception:
-        return -1
+    _ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(token,)),
+        f"{OURA_BASE_URL}{path}",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+        timeout=VALIDATE_TIMEOUT_SECONDS,
+    )
+    return status if status is not None else -1
 
 
-def get_rows(
-    token: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[OuraResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = OURA_ENDPOINTS[endpoint]
-    headers = _get_headers(token)
-    # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
-
-    # Single-document endpoints (e.g. personal_info) return a flat object, not a
-    # {data: [...], next_token} envelope.
+def _build_endpoint_config(config: OuraEndpointConfig) -> Endpoint:
     if config.is_single_document:
-        document = _fetch_page(session, _build_url(config.path, {}), headers, logger)
-        yield [document]
-        return
+        # Single-document endpoints (e.g. personal_info) return a flat object, not a
+        # {data: [...], next_token} envelope. With no data_selector the whole body is emitted as
+        # a single row.
+        return {"path": config.path, "paginator": SinglePagePaginator()}
 
-    params = _build_initial_params(config, should_use_incremental_field, db_incremental_field_last_value)
+    endpoint: Endpoint = {
+        "path": config.path,
+        "data_selector": "data",
+        # A 200 body without `data` means the response shape changed — fail loud instead of
+        # silently syncing 0 rows.
+        "data_selector_required": True,
+        "paginator": JSONResponseCursorPaginator(cursor_path="next_token", cursor_param="next_token"),
+    }
 
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume is not None and resume.next_token:
-        params = {**params, "next_token": resume.next_token}
-        logger.debug(f"Oura: resuming {endpoint} from next_token")
+    # A server-side date window is always sent (even on full refresh) so the first sync backfills
+    # history from DEFAULT_START_DATE rather than just the most recent day; the checkpointed
+    # watermark advances it on subsequent runs.
+    if config.date_filter == "date":
+        endpoint["incremental"] = {
+            "start_param": "start_date",
+            "initial_value": DEFAULT_START_DATE,
+            "convert": _start_date_param,
+        }
+    elif config.date_filter == "datetime":
+        endpoint["incremental"] = {
+            "start_param": "start_datetime",
+            "initial_value": DEFAULT_START_DATETIME,
+            "convert": _start_datetime_param,
+        }
 
-    while True:
-        data = _fetch_page(session, _build_url(config.path, params), headers, logger)
-
-        # Use `data["data"]` (not `.get`) so an unexpected 200 without the documented envelope
-        # raises a KeyError and fails the sync loudly, rather than silently ingesting zero rows.
-        items = data["data"]
-        next_token = data.get("next_token")
-
-        if items:
-            yield items
-
-        if not next_token:
-            break
-
-        # Save AFTER yielding so a crash re-yields the last page rather than skipping it; merge
-        # dedupes on the primary key. Advance the cursor before the next fetch to avoid re-looping
-        # the same page.
-        resumable_source_manager.save_state(OuraResumeConfig(next_token=next_token))
-        params = {**params, "next_token": next_token}
+    return endpoint
 
 
 def oura_source(
     token: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[OuraResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = OURA_ENDPOINTS[endpoint]
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": OURA_BASE_URL,
+            # Auth (Bearer) is supplied via the framework auth config so its value is redacted from
+            # logs and error messages; only the non-secret Accept header is set here.
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "bearer", "token": token},
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": _build_endpoint_config(config),
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.next_token:
+            initial_paginator_state = {"cursor": resume.next_token}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes) rather than skipping it.
+        if state and state.get("cursor"):
+            resumable_source_manager.save_state(OuraResumeConfig(next_token=str(state["cursor"])))
+
+    # Gate the incremental cursor on the sync mode: on full refresh the framework falls back to the
+    # endpoint's initial_value (DEFAULT_START_(DATE|DATETIME)).
+    incremental_last_value = db_incremental_field_last_value if should_use_incremental_field else None
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        incremental_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            token=token,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
@@ -214,4 +189,5 @@ def oura_source(
         # Oura returns records in ascending date order; we additionally re-window by start_date on
         # every sync, so the checkpointed watermark advances correctly.
         sort_mode="asc",
+        column_hints=resource.column_hints,
     )

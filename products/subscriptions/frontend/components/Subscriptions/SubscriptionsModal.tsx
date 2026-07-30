@@ -68,13 +68,23 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
                         activeTab={activeTab}
                         onChangeTab={setActiveTab}
                         onCancel={closeModal}
-                        onSelect={(id) => push(urlForSubscription(id, baseProps))}
+                        onSelect={(id, resourceType) =>
+                            push(
+                                urlForSubscription(id, baseProps),
+                                resourceType ? { resource_type: resourceType } : undefined
+                            )
+                        }
                     />
                 ) : (
                     <ManageSubscriptions
                         {...baseProps}
                         onCancel={closeModal}
-                        onSelect={(id) => push(urlForSubscription(id, baseProps))}
+                        onSelect={(id, resourceType) =>
+                            push(
+                                urlForSubscription(id, baseProps),
+                                resourceType ? { resource_type: resourceType } : undefined
+                            )
+                        }
                     />
                 )
             ) : (

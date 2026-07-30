@@ -13,7 +13,7 @@ permissions:
 jobs:
     refresh-depot-test-durations:
         name: Refresh .test_durations in Depot Cache
-        runs-on: depot-ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
         steps:
             - name: Get app token

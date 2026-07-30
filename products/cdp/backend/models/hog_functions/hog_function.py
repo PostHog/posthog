@@ -72,6 +72,17 @@ TYPES_THAT_RELOAD_PLUGIN_SERVER = (
 TYPES_WITH_TRANSPILED_FILTERS = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 
+# Function types a cyclotron worker actually executes, so a "rerun" — which re-enqueues
+# the stored invocation onto the cyclotron hog queue — can run to completion. Every other
+# type executes elsewhere (source webhooks inline in the cdp-api HTTP handler,
+# transformations during ingestion, site_* transpiled to client-side JS) and can never
+# drain from that queue, so enqueuing one wedges the partition. Keep in sync with the Node
+# rerun paginator (`RERUNNABLE_HOG_FUNCTION_TYPES`) and the frontend invocations UI.
+TYPES_THAT_CAN_RERUN = (
+    HogFunctionType.DESTINATION,
+    HogFunctionType.INTERNAL_DESTINATION,
+)
+
 
 class HogFunction(FileSystemSyncMixin, UUIDTModel):
     class Meta:

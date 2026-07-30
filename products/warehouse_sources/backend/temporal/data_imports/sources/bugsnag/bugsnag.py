@@ -21,7 +21,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 # BugSnag uses a single global host for its Data Access API. On-prem / Enterprise installs use a
 # custom host, which this source does not yet support.
 BUGSNAG_BASE_URL = "https://api.bugsnag.com"
-# BugSnag's documented per_page maximum for list endpoints.
+# Default per_page for list endpoints. Endpoints that cap lower override it via
+# BugsnagEndpointConfig.page_size (e.g. releases, which 400s on anything above 10).
 PAGE_SIZE = 100
 # The Data Access API is versioned via the X-Version header. v2 is current; v1 is decommissioned.
 BUGSNAG_API_VERSION = "2"
@@ -184,7 +185,7 @@ def _iter_top_level(
         url = resume.next_url
         logger.debug(f"BugSnag: resuming {config.name} from URL: {url}")
     else:
-        url = _build_url(f"{BUGSNAG_BASE_URL}{config.path}", {"per_page": PAGE_SIZE})
+        url = _build_url(f"{BUGSNAG_BASE_URL}{config.path}", {"per_page": config.page_size})
 
     while True:
         items, next_url = _fetch_list_page(session, url, headers, logger)
@@ -234,7 +235,7 @@ def _iter_fan_out(
     for index in range(start_index, len(parents)):
         parent = parents[index]
         path = config.path.format(**parent.path_kwargs)
-        url = resume_url or _build_url(f"{BUGSNAG_BASE_URL}{path}", {"per_page": PAGE_SIZE})
+        url = resume_url or _build_url(f"{BUGSNAG_BASE_URL}{path}", {"per_page": config.page_size})
         resume_url = None  # only the resumed-into parent uses the saved URL; the rest start fresh
 
         while True:

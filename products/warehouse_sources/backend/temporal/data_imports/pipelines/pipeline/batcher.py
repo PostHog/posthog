@@ -6,6 +6,10 @@ import pyarrow as pa
 import pyarrow.compute as pc
 from structlog.types import FilteringBoundLogger
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.table_stats import (
+    record_table_stats,
+    table_payload_bytes,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
 
 DEFAULT_CHUNK_SIZE_BYTES: int = 200 * 1024 * 1024  # 200 MiB
@@ -40,51 +44,12 @@ def _max_offset_pressure(table: pa.Table) -> int:
     return max((_column_offset_pressure(table.column(name)) for name in table.column_names), default=0)
 
 
-def _column_payload_bytes(col: pa.ChunkedArray) -> int:
-    """Slice-accurate in-memory payload bytes: value bytes + offset buffer (string/binary/list)
-    or col_length * byte_width (fixed-width); nested/other types return 0. Avoids `.nbytes` (wrong for slices)."""
-    col_type = col.type
-    col_length = len(col)
-    if pa.types.is_string(col_type) or pa.types.is_binary(col_type):
-        payload = int(pc.sum(pc.binary_length(col)).as_py() or 0)
-        return payload + col_length * 4  # value bytes + 32-bit offsets
-    if pa.types.is_large_string(col_type) or pa.types.is_large_binary(col_type):
-        # 64-bit offsets can't overflow (the offset guard skips them) but still hold real payload.
-        payload = int(pc.sum(pc.binary_length(col)).as_py() or 0)
-        return payload + col_length * 8
-    if pa.types.is_list(col_type):
-        elements = int(pc.sum(pc.list_value_length(col)).as_py() or 0)
-        return elements + col_length * 4
-    if pa.types.is_struct(col_type):
-        # Recurse into child fields so a nested struct (e.g. a Mongo document carried under `data`) is
-        # counted instead of undercounting to 0 — otherwise the per-table byte split never sees the
-        # payload that actually drives the merge's memory. `flatten()` yields one ChunkedArray per field.
-        # Guarded like the fixed-width branch below: an unexpected flatten failure degrades to 0 rather
-        # than propagating and breaking size accounting for the whole table.
-        try:
-            return sum(_column_payload_bytes(child) for child in col.flatten())
-        except Exception:
-            return 0
-    # Fixed-width primitives expose bit_width; variable-length / other nested types raise -> 0.
-    # Known limitation: map and sub-byte bool columns still undercount to 0 (we bound large string/JSON
-    # and struct payloads, the actual OOM drivers).
-    try:
-        bit_width = col_type.bit_width
-    except (ValueError, AttributeError):
-        return 0
-    return col_length * (bit_width // 8)
-
-
-def _table_payload_bytes(table: pa.Table) -> int:
-    return sum(_column_payload_bytes(table.column(name)) for name in table.column_names)
-
-
 def _split_table(table: pa.Table, *, offset_limit: int, bytes_limit: int) -> list[pa.Table]:
     """Row-halve `table` (zero-copy slices) until every slice is under both the per-column offset limit
     and the total-bytes limit. `num_rows <= 1` is the base case, so a lone oversized row is yielded as-is."""
     if table.num_rows <= 1:
         return [table]
-    if _max_offset_pressure(table) <= offset_limit and _table_payload_bytes(table) <= bytes_limit:
+    if _max_offset_pressure(table) <= offset_limit and table_payload_bytes(table) <= bytes_limit:
         return [table]
 
     mid = table.num_rows // 2
@@ -104,6 +69,9 @@ class Batcher:
     _chunk_size_bytes: int
     _max_column_offset_bytes: int
     _max_table_bytes: int
+    _source_type: Optional[str]
+    _team_id: Optional[int]
+    _schema_name: Optional[str]
 
     def __init__(
         self,
@@ -112,6 +80,9 @@ class Batcher:
         chunk_size_bytes: Optional[int] = None,
         max_column_offset_bytes: Optional[int] = None,
         max_table_bytes: Optional[int] = None,
+        source_type: Optional[str] = None,
+        team_id: Optional[int] = None,
+        schema_name: Optional[str] = None,
     ) -> None:
         self._logger = logger
 
@@ -119,6 +90,12 @@ class Batcher:
         self._chunk_size_bytes = chunk_size_bytes or DEFAULT_CHUNK_SIZE_BYTES
         self._max_column_offset_bytes = max_column_offset_bytes or DEFAULT_MAX_COLUMN_OFFSET_BYTES
         self._max_table_bytes = max_table_bytes or DEFAULT_MAX_TABLE_BYTES
+        # When set, each materialised table is measured under `stage="batcher"`. Left None by
+        # source-internal batchers (e.g. apify), whose output is measured when it reaches the
+        # pipeline's own batcher — so this only records once, with the real source_type.
+        self._source_type = source_type
+        self._team_id = team_id
+        self._schema_name = schema_name
 
         self._buffer = []
         self._buffer_size_bytes = 0
@@ -128,16 +105,27 @@ class Batcher:
         """Split `table` so no yielded chunk overflows a 32-bit offset column or exceeds
         the per-table Arrow-payload cap (keeping the loader's per-batch merge bounded)."""
         chunks = _split_table(table, offset_limit=self._max_column_offset_bytes, bytes_limit=self._max_table_bytes)
-        if len(chunks) > 1:
-            payload_bytes = _table_payload_bytes(table)
-            if payload_bytes > self._max_table_bytes:
-                self._logger.info(
-                    "batcher_split_by_bytes",
-                    payload_bytes=payload_bytes,
-                    bytes_limit=self._max_table_bytes,
-                    chunk_count=len(chunks),
-                    row_count=table.num_rows,
-                )
+        payload_bytes = table_payload_bytes(table)
+        if self._source_type is not None:
+            # The materialised table is the true in-memory peak (an unbounded source yields one giant
+            # list -> one giant table here, before the split into bounded chunks).
+            record_table_stats(
+                source_type=self._source_type,
+                stage="batcher",
+                num_rows=table.num_rows,
+                payload_bytes=payload_bytes,
+                logger=self._logger,
+                team_id=self._team_id,
+                schema_name=self._schema_name,
+            )
+        if len(chunks) > 1 and payload_bytes > self._max_table_bytes:
+            self._logger.info(
+                "batcher_split_by_bytes",
+                payload_bytes=payload_bytes,
+                bytes_limit=self._max_table_bytes,
+                chunk_count=len(chunks),
+                row_count=table.num_rows,
+            )
         self._ready = deque(chunks)
 
     def _estimate_size(self, obj: Any) -> int:

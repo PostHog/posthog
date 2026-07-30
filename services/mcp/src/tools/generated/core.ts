@@ -54,6 +54,9 @@ const desktopFileSystemCanvasPartialUpdate = (): ToolBase<
         if (params.name !== undefined) {
             body['name'] = params.name
         }
+        if (params.expected_current_version_id !== undefined) {
+            body['expected_current_version_id'] = params.expected_current_version_id
+        }
         const result = await context.api.request<Schemas.FileSystem>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/canvas/`,

@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.splunkobservabilitycloud import (
     SplunkObservabilityCloudSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.splunk_observability_cloud.settings import (
@@ -119,6 +119,7 @@ To sync the optional `metric_time_series` table, also provide a [SignalFlow prog
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         def _description(endpoint: str) -> str | None:
             if endpoint == "detector_events":
@@ -154,7 +155,11 @@ To sync the optional `metric_time_series` table, also provide a [SignalFlow prog
         return schemas
 
     def validate_credentials(
-        self, config: SplunkObservabilityCloudSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: SplunkObservabilityCloudSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_splunk_observability_cloud_credentials(config.realm, config.access_token)
 

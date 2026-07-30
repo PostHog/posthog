@@ -29,4 +29,4 @@ rules:
     - match:
           - '/replay-anonymizer/'
           - '/replay-anonymizer-node/'
-      owners: team-ai-research
+      owners: ai-research

@@ -19,7 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.ding_connect.ding_connect import (
     DingConnectResumeConfig,
     ding_connect_source,
@@ -29,7 +32,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ding_conne
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DingConnectSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dingconnect import (
+    DingConnectSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -66,38 +71,29 @@ class DingConnectSource(ResumableSource[DingConnectSourceConfig, DingConnectResu
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        def _description(endpoint: str) -> str | None:
-            if endpoint == "TransferRecords":
-                # DingConnect only retains transfer history for ~2 months, so each full-refresh
-                # sync reflects the currently-retained window.
-                return "Transfer history is only retained upstream for ~2 months. Full refresh only"
-            if endpoint == "Balance":
-                return "Current account balance per currency. Full refresh only"
-            return None
-
         # No DingConnect endpoint exposes a server-side timestamp filter, so every table is full
         # refresh: the catalog endpoints are static lookups and ListTransferRecords only offers
-        # Skip/Take offset paging.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                description=_description(endpoint),
-            )
-            for endpoint in ENDPOINTS
-        ]
-
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-
-        return schemas
+        # Skip/Take offset paging. No incremental fields => every schema is full-refresh only.
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            descriptions={
+                # DingConnect only retains transfer history for ~2 months, so each full-refresh
+                # sync reflects the currently-retained window.
+                "TransferRecords": "Transfer history is only retained upstream for ~2 months. Full refresh only",
+                "Balance": "Current account balance per currency. Full refresh only",
+            },
+        )
 
     def validate_credentials(
-        self, config: DingConnectSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: DingConnectSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_ding_connect_credentials(config.api_key):
             return True, None
@@ -116,7 +112,8 @@ class DingConnectSource(ResumableSource[DingConnectSourceConfig, DingConnectResu
         return ding_connect_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )
 

@@ -6,31 +6,31 @@ from typing import Any, Optional
 from urllib.parse import urlencode, urlparse
 
 import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from posthog.cloud_utils import is_cloud
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.dynatrace.settings import (
     DYNATRACE_ENDPOINTS,
     ENDPOINT_SCOPES,
     DynatraceEndpointConfig,
 )
 
-REQUEST_TIMEOUT_SECONDS = 60
 # Cheap probe used to confirm the token is genuine at source-create. A 403 still proves the token
 # is real (it authenticated but lacks the problems.read scope), so it's accepted there.
 PROBE_PATH = "/api/v2/problems"
 
 HOST_NOT_ALLOWED_ERROR = "Dynatrace environment URL is not allowed"
-
-
-class DynatraceRetryableError(Exception):
-    pass
 
 
 class DynatraceHostNotAllowedError(Exception):
@@ -128,29 +128,6 @@ def _format_from_value(value: Any) -> str:
     return str(value)
 
 
-def _build_first_page_params(
-    config: DynatraceEndpointConfig,
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
-) -> dict[str, str]:
-    params: dict[str, str] = {"pageSize": str(config.page_size)}
-
-    if config.entity_selector:
-        params["entitySelector"] = config.entity_selector
-
-    if config.supports_time_filter or config.default_from:
-        # Continue from the stored watermark on incremental runs; otherwise seed the first sync /
-        # full refresh with the endpoint's lookback so Dynatrace doesn't fall back to its very
-        # narrow defaults (problems/events default to now-2h).
-        if config.supports_time_filter and should_use_incremental_field and db_incremental_field_last_value:
-            params["from"] = _format_from_value(db_incremental_field_last_value)
-        elif config.default_from:
-            params["from"] = config.default_from
-
-    params.update(config.extra_params)
-    return params
-
-
 def _build_url(base_url: str, path: str, params: dict[str, str]) -> str:
     url = f"{base_url}{path}"
     if not params:
@@ -158,17 +135,80 @@ def _build_url(base_url: str, path: str, params: dict[str, str]) -> str:
     return f"{url}?{urlencode(params)}"
 
 
-def _next_page_url(base_url: str, config: DynatraceEndpointConfig, next_page_key: str) -> str:
-    # Dynatrace requires follow-up pages to carry ONLY nextPageKey — the key encodes the original
-    # query (filters, page size, fields), and mixing it with other params is rejected.
-    return _build_url(base_url, config.path, {"nextPageKey": next_page_key})
+def _build_request_params(config: DynatraceEndpointConfig) -> dict[str, Any]:
+    """First-page query params for the framework resource.
+
+    Time-filtered endpoints declare ``from`` as a framework incremental param: it's seeded with the
+    endpoint's lookback (so a first sync / full refresh isn't clamped to Dynatrace's narrow default
+    window) and replaced with the stored watermark on incremental runs. Non-incremental endpoints
+    that still carry a ``default_from`` (the entity tables) send it as a static param.
+    """
+    params: dict[str, Any] = {"pageSize": str(config.page_size)}
+    if config.entity_selector:
+        params["entitySelector"] = config.entity_selector
+    params.update(config.extra_params)
+
+    if config.supports_time_filter and config.incremental_field:
+        params["from"] = {
+            "type": "incremental",
+            "cursor_path": config.incremental_field,
+            "initial_value": config.default_from,
+            "convert": _format_from_value,
+        }
+    elif config.default_from:
+        params["from"] = config.default_from
+    return params
 
 
-def _extract_items(response_json: Any, config: DynatraceEndpointConfig) -> list[dict[str, Any]]:
-    if not isinstance(response_json, dict):
-        return []
-    items = response_json.get(config.data_key, [])
-    return items if isinstance(items, list) else []
+class DynatraceNextPageKeyPaginator(BasePaginator):
+    """Cursor pagination via Dynatrace's ``nextPageKey``.
+
+    Dynatrace requires follow-up pages to carry ONLY ``nextPageKey`` — the key encodes the original
+    query (filters, page size, fields), and mixing it with any other param is rejected. So each
+    follow-up request replaces the whole param set with just the cursor. Resumable: the saved cursor
+    reseeds the first request the same way.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._next_page_key: Optional[str] = None
+
+    def _apply_cursor(self, request: Request) -> None:
+        request.params = {"nextPageKey": self._next_page_key}
+
+    def init_request(self, request: Request) -> None:
+        # Only set on a resumed run — start the first request at the saved cursor, dropping the
+        # first-page filters the cursor already encodes.
+        if self._next_page_key is not None:
+            self._apply_cursor(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            body = response.json()
+        except Exception:
+            body = None
+        key = body.get("nextPageKey") if isinstance(body, dict) else None
+        if key:
+            self._next_page_key = key
+            self._has_next_page = True
+        else:
+            self._has_next_page = False
+
+    def update_request(self, request: Request) -> None:
+        if self._next_page_key is not None:
+            self._apply_cursor(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"next_page_key": self._next_page_key} if self._has_next_page and self._next_page_key else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        key = state.get("next_page_key")
+        if key is not None:
+            self._next_page_key = key
+            self._has_next_page = True
+
+    def __str__(self) -> str:
+        return "DynatraceNextPageKeyPaginator()"
 
 
 def validate_credentials(
@@ -208,24 +248,22 @@ def validate_credentials(
         url = _build_url(base_url, PROBE_PATH, {"pageSize": "1", "from": "now-1h"})
         required_scope = None
 
-    try:
-        session = _get_session(api_token)
-        response = session.get(url, timeout=10)
-    except requests.exceptions.RequestException as e:
-        return False, str(e)
+    _ok, status = validate_via_probe(lambda: _get_session(api_token), url, ok_statuses=(200,))
 
-    if response.status_code == 200:
+    if status is None:
+        return False, "Could not reach Dynatrace to validate credentials. Check the environment URL and try again."
+    if status == 200:
         return True, None
-    if response.status_code == 401:
+    if status == 401:
         return False, "Invalid Dynatrace API token. Check the token and environment URL, then try again."
-    if response.status_code == 403:
+    if status == 403:
         if schema_name is None:
             return True, None
         scope_hint = f" (`{required_scope}`)" if required_scope else ""
         return False, f"Your Dynatrace API token is missing the scope required for this table{scope_hint}."
-    if 300 <= response.status_code < 400:
+    if 300 <= status < 400:
         return False, HOST_NOT_ALLOWED_ERROR
-    return False, f"Dynatrace credential validation failed (status {response.status_code})."
+    return False, f"Dynatrace credential validation failed (status {status})."
 
 
 def check_endpoint_permissions(
@@ -281,107 +319,83 @@ def check_endpoint_permissions(
     return results
 
 
-def get_rows(
-    environment_url: str,
-    api_token: str,
-    endpoint: str,
-    team_id: int,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[DynatraceResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = DYNATRACE_ENDPOINTS[endpoint]
-    # Re-check at run time (not just at source-create) in case the environment URL was edited or
-    # now resolves to an internal address (SSRF / DNS rebinding). Only enforced on cloud.
-    _check_host(environment_url, team_id)
-
-    base_url = normalize_environment_url(environment_url)
-    # One tracked session reused across pages and retries; the token is redacted from logged URLs
-    # and captured samples.
-    session = _get_session(api_token)
-
-    @retry(
-        retry=retry_if_exception_type(
-            (
-                DynatraceRetryableError,
-                requests.ReadTimeout,
-                requests.ConnectionError,
-                requests.exceptions.ChunkedEncodingError,
-            )
-        ),
-        stop=stop_after_attempt(5),
-        wait=wait_exponential_jitter(initial=1, max=30),
-        reraise=True,
-    )
-    def fetch_page(page_url: str) -> Any:
-        response = session.get(page_url, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        # The session never follows redirects: a 3xx would move the sync off the validated host
-        # (SSRF), so refuse it rather than silently fetching an empty body.
-        if 300 <= response.status_code < 400:
-            raise DynatraceHostNotAllowedError(HOST_NOT_ALLOWED_ERROR)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise DynatraceRetryableError(
-                f"Dynatrace API error (retryable): status={response.status_code}, url={page_url}"
-            )
-
-        if not response.ok:
-            logger.error(f"Dynatrace API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config is not None and resume_config.next_page_key:
-        url = _next_page_url(base_url, config, resume_config.next_page_key)
-        logger.debug(f"Dynatrace: resuming {endpoint} from saved nextPageKey")
-    else:
-        params = _build_first_page_params(config, should_use_incremental_field, db_incremental_field_last_value)
-        url = _build_url(base_url, config.path, params)
-
-    while True:
-        data = fetch_page(url)
-
-        items = _extract_items(data, config)
-        if items:
-            yield items
-
-        next_page_key = data.get("nextPageKey") if isinstance(data, dict) else None
-        if not next_page_key:
-            break
-
-        # Save state AFTER yielding the batch — a crash re-yields the last batch (merge dedupes on
-        # the primary key) instead of skipping it.
-        resumable_source_manager.save_state(DynatraceResumeConfig(next_page_key=next_page_key))
-        url = _next_page_url(base_url, config, next_page_key)
-
-
 def dynatrace_source(
     environment_url: str,
     api_token: str,
     endpoint: str,
     team_id: int,
-    logger: FilteringBoundLogger,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[DynatraceResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = DYNATRACE_ENDPOINTS[endpoint]
 
+    def items() -> Iterator[list[dict[str, Any]]]:
+        # Re-check at run time (not just at source-create) in case the environment URL was edited or
+        # now resolves to an internal address (SSRF / DNS rebinding). Raises before any request — and
+        # before a session is built — so an unsafe host never sees a packet. Only enforced on cloud.
+        _check_host(environment_url, team_id)
+        base_url = normalize_environment_url(environment_url)
+
+        initial_paginator_state: Optional[dict[str, Any]] = None
+        if resumable_source_manager.can_resume():
+            resume = resumable_source_manager.load_state()
+            if resume is not None and resume.next_page_key:
+                initial_paginator_state = {"next_page_key": resume.next_page_key}
+
+        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+            # the last batch (merge dedupes on the primary key) rather than skipping it.
+            if state and state.get("next_page_key"):
+                resumable_source_manager.save_state(DynatraceResumeConfig(next_page_key=state["next_page_key"]))
+
+        rest_config: RESTAPIConfig = {
+            "client": {
+                "base_url": base_url,
+                # Non-secret headers only; the token rides the framework api_key auth so it's redacted
+                # from logs and raised error messages.
+                "headers": {"Accept": "application/json"},
+                "auth": {
+                    "type": "api_key",
+                    "api_key": f"Api-Token {api_token}",
+                    "name": "Authorization",
+                    "location": "header",
+                },
+                "paginator": DynatraceNextPageKeyPaginator(),
+                # The environment URL is user-supplied: pin every request to its host and refuse any
+                # redirect so the Authorization header can't be bounced off the validated target.
+                "allowed_hosts": [],
+                "allow_redirects": False,
+            },
+            "resource_defaults": {},
+            "resources": [
+                {
+                    "name": endpoint,
+                    "endpoint": {
+                        "path": config.path,
+                        "params": _build_request_params(config),
+                        # Missing key / non-list body yields 0 rows (matches the previous behavior),
+                        # so no data_selector_required here.
+                        "data_selector": config.data_key,
+                    },
+                }
+            ],
+        }
+
+        resource = rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
+        yield from resource
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            environment_url=environment_url,
-            api_token=api_token,
-            endpoint=endpoint,
-            team_id=team_id,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=items,
         primary_keys=[config.primary_key],
         # Dynatrace documents no reliable ascending sort we can verify for the time-filtered
         # endpoints (audit logs default to newest-first), so incremental endpoints run in desc

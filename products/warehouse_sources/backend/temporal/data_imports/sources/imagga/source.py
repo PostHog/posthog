@@ -19,7 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ImaggaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.imagga import ImaggaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.imagga.imagga import (
     imagga_source,
     validate_credentials as validate_imagga_credentials,
@@ -98,6 +98,7 @@ Imagga is an on-demand image-recognition API, so the only account data available
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Both endpoints are full refresh only: Imagga's /usage response exposes no server-side
         # timestamp filter, so there is no cursor to sync incrementally.
@@ -120,7 +121,11 @@ Imagga is an on-demand image-recognition API, so the only account data available
         return schemas
 
     def validate_credentials(
-        self, config: ImaggaSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: ImaggaSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_imagga_credentials(config.api_key, config.api_secret):
             return True, None
@@ -137,5 +142,6 @@ Imagga is an on-demand image-recognition API, so the only account data available
             api_key=config.api_key,
             api_secret=config.api_secret,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
         )

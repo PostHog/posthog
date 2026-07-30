@@ -310,26 +310,17 @@ class TestTaskRunEventIngest(TestCase):
         self.assertEqual(body["accepted"], 1)
         self.assertEqual(self._read_notification_methods(), ["session/update"])
 
-    @parameterized.expand([(True,), (False,)])
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-    def test_turn_complete_ingest_notifies_interactive_run_awaiting_input_only_with_flag(
-        self, flag_enabled: bool
-    ) -> None:
+    def test_turn_complete_ingest_notifies_interactive_run(self) -> None:
         self.task.created_by = User.objects.create_user("ingest-push@posthog.com", None, "Ingest")
         self.task.save(update_fields=["created_by"])
         self.task_run.state = {"mode": "interactive"}
         self.task_run.save(update_fields=["state"])
         token = self._create_token()
 
-        with (
-            patch(
-                "products.tasks.backend.logic.stream.event_ingest.notify_task_run_awaiting_input"
-            ) as notify_awaiting_input,
-            patch(
-                "products.tasks.backend.logic.stream.event_ingest.posthoganalytics.feature_enabled",
-                return_value=flag_enabled,
-            ),
-        ):
+        with patch(
+            "products.tasks.backend.logic.stream.event_ingest.notify_task_run_turn_completed"
+        ) as notify_turn_completed:
             status, body = self._call_ingest(
                 token,
                 [
@@ -345,11 +336,8 @@ class TestTaskRunEventIngest(TestCase):
 
         self.assertEqual(status, 200)
         self.assertEqual(body["accepted"], 1)
-        if flag_enabled:
-            notify_awaiting_input.assert_called_once()
-            self.assertEqual(notify_awaiting_input.call_args.args[0].id, self.task_run.id)
-        else:
-            notify_awaiting_input.assert_not_called()
+        notify_turn_completed.assert_called_once()
+        self.assertEqual(notify_turn_completed.call_args.args[0].id, self.task_run.id)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_workflow_heartbeat_does_not_block_event_loop(self) -> None:

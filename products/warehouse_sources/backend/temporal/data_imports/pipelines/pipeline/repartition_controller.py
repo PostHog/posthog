@@ -277,6 +277,12 @@ async def maybe_flag_for_repartition(
                 partition_count=len(partition_bytes),
             )
             capture_exception(Exception(f"Repartition needed but skipped for schema {schema.id}: {reason}"))
+            # Engage the cooldown even though no rewrite happened: the trigger (over budget or repeated
+            # OOMs) is still true next sync and the table's scheme can't go finer, so without this we
+            # re-measure, re-emit the skip event, and re-alert on every 5-minute sync forever. The
+            # cooldown re-evaluates at most daily; a real change to the table clears it via a later
+            # successful repartition.
+            await asyncio.to_thread(schema.stamp_last_repartition_at)
             return
 
         pending = {**target.to_dict(), "trigger_reason": trigger_reason, "attempts": 0}

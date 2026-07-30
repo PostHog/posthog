@@ -182,6 +182,77 @@ WHERE and({inside_periods}, {event_where}, {all_properties})
 GROUP BY session_id, breakdown_value
 """
 
+# Inner scan for the FirstPageview* breakdowns: one row per session, with the
+# breakdown value computed from the session's earliest in-range $pageview/$screen.
+# Two levels on purpose — the argMinIf aggregate must sit behind an alias so the
+# breakdown expression compares plain subquery fields: a comparison whose subtree
+# contains events.timestamp is treated as non-nullable by the printer's timestamp
+# index optimization (see visit_compare_operation in posthog/hogql/printer/clickhouse.py),
+# which turns the channel-type template's IS [NOT] NULL checks into dead
+# `equals(x, NULL)` SQL. {first_pageview_properties} is a single argMinIf over a
+# tuple, so every property comes from the same anchor event rather than each
+# property independently skipping NULLs across different pageviews.
+# Events without a usable session id are excluded ({session_id_present}): they
+# can't be attributed to a session's first pageview, and GROUP BY session_id
+# would otherwise merge them all into one arbitrary group. argMinIf only sees
+# in-range events, so a session straddling date_from is attributed to its first
+# *in-range* pageview — accepted drift vs the session-entry breakdowns at range edges.
+FIRST_PAGEVIEW_INNER_QUERY = """
+SELECT
+    filtered_person_id,
+    filtered_pageview_count,
+    {breakdown_value} AS breakdown_value,
+    session_id,
+    is_bounce,
+    start_timestamp
+FROM (
+    SELECT
+        any(person_id) AS filtered_person_id,
+        count() AS filtered_pageview_count,
+        {first_pageview_properties} AS first_pageview_properties,
+        session.session_id AS session_id,
+        any(session.$is_bounce) AS is_bounce,
+        min(session.$start_timestamp) AS start_timestamp
+    FROM events
+    WHERE and({inside_periods}, {event_where}, {all_properties}, {session_id_present})
+    GROUP BY session_id
+)
+"""
+
+# No-join variant of MAIN_INNER_QUERY for simple breakdowns that display no
+# session-derived column (no bounce, no conversion goal, event-property
+# breakdown value). The sessions join above contributes only `session_id`
+# (grouping) and `$start_timestamp` (period attribution) in that case — both
+# recoverable from the UUIDv7 session id itself, so the join is pure overhead
+# (prod-measured 10x wall / ~400x memory on DeviceType for a large team).
+# Sessionless and malformed-session-id events still count — the join keeps
+# them too (NULL session row). Non-UUIDv7 ids are lumped under a NULL
+# `session_id` (raw_sessions is v7-only, so the join's `session.session_id`
+# is NULL for all of them) and get a NULL `start_timestamp`, which excludes
+# them from compare-period buckets exactly as the join does. The outer query is
+# unchanged. Unlike the PAGE no-join variants, filters need no special
+# handling: with no sessions side, user and test-account filters apply inline
+# to the single events scan.
+NO_JOIN_MAIN_INNER_QUERY = """
+SELECT
+    any(person_id) AS filtered_person_id,
+    count() AS filtered_pageview_count,
+    {breakdown_value} AS breakdown_value,
+    if(
+        equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7),
+        events.$session_id,
+        NULL
+    ) AS session_id,
+    any(if(
+        equals(bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15), 7),
+        fromUnixTimestamp(intDiv(toInt(bitShiftRight(events.$session_id_uuid, 80)), 1000)),
+        NULL
+    )) AS start_timestamp
+FROM events
+WHERE and({inside_periods}, {event_where}, {all_properties})
+GROUP BY session_id, breakdown_value
+"""
+
 # No-join variants of the PAGE-breakdown queries: counts come straight from events
 # (bucketed by event timestamp) and bounce comes straight from the sessions table
 # (bucketed by session start), instead of routing both through the events↔sessions

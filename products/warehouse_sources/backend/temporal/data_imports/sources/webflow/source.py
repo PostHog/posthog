@@ -22,7 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import WebflowSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.webflow import (
+    WebflowSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.webflow.settings import (
     COLLECTION_SCHEMA_PREFIX,
     STATIC_ENDPOINTS,
@@ -77,6 +79,7 @@ class WebflowSource(ResumableSource[WebflowSourceConfig, WebflowResumeConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Webflow has no verified server-side timestamp range filter on its list
         # endpoints (the createdOn/lastUpdated query params are exact-match, not
@@ -119,7 +122,11 @@ class WebflowSource(ResumableSource[WebflowSourceConfig, WebflowResumeConfig]):
         return schemas
 
     def validate_credentials(
-        self, config: WebflowSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: WebflowSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_webflow_credentials(config.api_token, config.site_id, schema_name)
 
@@ -136,7 +143,8 @@ class WebflowSource(ResumableSource[WebflowSourceConfig, WebflowResumeConfig]):
             api_token=config.api_token,
             site_id=config.site_id,
             schema_name=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )
 

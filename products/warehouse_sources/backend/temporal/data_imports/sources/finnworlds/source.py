@@ -28,7 +28,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds
     ENDPOINTS,
     FINNWORLDS_ENDPOINTS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FinnworldsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finnworlds import (
+    FinnworldsSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -63,6 +65,7 @@ class FinnworldsSource(SimpleSource[FinnworldsSourceConfig]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Finnworlds exposes no server-side update cursor, so every endpoint is full refresh only.
         schemas = [
@@ -83,7 +86,11 @@ class FinnworldsSource(SimpleSource[FinnworldsSourceConfig]):
         return schemas
 
     def validate_credentials(
-        self, config: FinnworldsSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: FinnworldsSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             parse_tickers(config.tickers)

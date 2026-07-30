@@ -49,10 +49,16 @@ class AvailableFeature(StrEnum):
     ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT = "organization_app_query_concurrency_limit"
     SESSION_REPLAY_DATA_RETENTION = "session_replay_data_retention"
     PRODUCT_ANALYTICS_DATA_RETENTION = "product_analytics_data_retention"
+    LOGS_RETENTION_30D = "logs_retention_30d"
     AUDIT_LOGS = "audit_logs"
     APPROVALS = "approvals"
     XAA_AUTHENTICATION = "xaa_authentication"
     POSTHOG_CODE_USAGE = "posthog_code_usage"
+
+
+LOGS_RETENTION_FEATURES_BY_DAYS: dict[int, AvailableFeature] = {
+    30: AvailableFeature.LOGS_RETENTION_30D,
+}
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"

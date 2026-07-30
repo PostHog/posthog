@@ -9,11 +9,13 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
 import { UUIDT } from '~/common/utils/utils'
 import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
+import { TopHogRegistry, countResult } from '~/ingestion/framework/extensions/tophog'
 import { createOkContext } from '~/ingestion/framework/helpers'
-import { dlq, drop, isDropResult, isOkResult, ok, redirect } from '~/ingestion/framework/results'
+import { PipelineResult, dlq, drop, isDropResult, isOkResult, ok, redirect } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
 import { createTestTeam } from '~/tests/helpers/team'
+import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/tophog'
 import { EventHeaders, IncomingEvent, Team } from '~/types'
 
 import { CommonIngestionPipelineConfig, newCommonIngestionPipeline } from './common-ingestion-pipeline'
@@ -61,6 +63,8 @@ describe('CommonIngestionPipelineBuilder', () => {
     let mockTeamManager: jest.Mocked<TeamManager>
     let promiseScheduler: PromiseScheduler
     let config: CommonIngestionPipelineConfig<TestRedirectOutput>
+    let topHog: TopHogRegistry
+    let topHogRecords: Map<string, RecordedTopHogMetric[]>
 
     const team = createTestTeam({ id: 42, api_token: 'token-42' })
 
@@ -177,8 +181,13 @@ describe('CommonIngestionPipelineBuilder', () => {
 
         promiseScheduler = new PromiseScheduler()
 
+        const recording = createRecordingTopHog()
+        topHog = recording.registry
+        topHogRecords = recording.records
+
         config = {
             teamManager: mockTeamManager,
+            topHog,
             outputs: new IngestionOutputs({
                 [DLQ_OUTPUT]: new SingleIngestionOutput(DLQ_OUTPUT, DLQ_TOPIC, mockKafkaProducer, 'test'),
                 [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
@@ -637,19 +646,118 @@ describe('CommonIngestionPipelineBuilder', () => {
         ])
     })
 
-    it('applies the resolveTeam wrap decorator around team resolution', async () => {
-        const wrapObserved: string[] = []
+    it('fans out through the skeleton and hands the fanned-in value to subsequent team-aware steps', async () => {
+        const log: string[] = []
+        const merged: string[] = []
+
+        interface EventPart {
+            distinctId: string
+            index: number
+        }
+
+        // user-0 fans out to three parts (one of which the sub-step drops);
+        // user-1 fans out to nothing and completes via fanIn(input, []).
+        function splitPartsFanOut(input: { event: PluginEvent }): EventPart[] {
+            const count = input.event.distinct_id === 'user-0' ? 3 : 0
+            return Array.from({ length: count }, (_, index) => ({ distinctId: input.event.distinct_id, index }))
+        }
+
+        function processPartStep(part: EventPart): Promise<PipelineResult<EventPart>> {
+            if (part.index === 1) {
+                return Promise.resolve(drop('skipped part'))
+            }
+            log.push(`part:${part.distinctId}:${part.index}`)
+            return Promise.resolve(ok(part))
+        }
+
+        function collectPartsFanIn<T extends { event: PluginEvent }>(original: T, parts: EventPart[]): T {
+            return {
+                ...original,
+                event: {
+                    ...original.event,
+                    properties: {
+                        ...original.event.properties,
+                        part_indexes: parts.map((part) => part.index).sort(),
+                    },
+                },
+            }
+        }
+
+        const pipeline = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config)
+            .parseHeaders()
+            .parseMessage()
+            .resolveTeam()
+            .pipe(teamLogStep(log, 'A'))
+            .fanOut(splitPartsFanOut)
+            .via((sub) => sub.concurrently((b) => b.pipe(processPartStep)))
+            .fanIn(collectPartsFanIn)
+            .pipe(function recordMergedStep(input) {
+                merged.push(`${input.event.distinct_id}:${JSON.stringify(input.event.properties!.part_indexes)}`)
+                return Promise.resolve(ok(input))
+            })
+            .build()
+
+        const batches = await runPipeline(pipeline, [createMessage('user-0'), createMessage('user-1')])
+
+        // The open sequential block (A) was committed before the fan-out stage.
+        expect(log).toEqual(['A:user-0', 'A:user-1', 'part:user-0:0', 'part:user-0:2'])
+        // Downstream team-aware steps see the fanned-in values: user-0 keeps
+        // the surviving parts (the dropped one excluded), user-1 fans in empty.
+        expect(merged.sort()).toEqual(['user-0:[0,2]', 'user-1:[]'])
+        expect(okValues(batches)).toHaveLength(2)
+    })
+
+    it('routes warnings from fan-out sub-steps to the warnings output with the resolved team', async () => {
+        interface EventPart {
+            distinctId: string
+        }
+
+        function splitSingleFanOut(input: { event: PluginEvent }): EventPart[] {
+            return [{ distinctId: input.event.distinct_id }]
+        }
+
+        function warnPartStep(part: EventPart): Promise<PipelineResult<EventPart>> {
+            return Promise.resolve(
+                ok(part, [], [{ type: 'client_ingestion_warning', details: { marker: 'sub-step' }, alwaysSend: true }])
+            )
+        }
+
+        function keepOriginalFanIn<T>(original: T): T {
+            return original
+        }
+
+        const pipeline = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config)
+            .parseHeaders()
+            .parseMessage()
+            .resolveTeam()
+            .fanOut(splitSingleFanOut)
+            .via((sub) => sub.concurrently((b) => b.pipe(warnPartStep)))
+            .fanIn(keepOriginalFanIn)
+            .build()
+
+        await runPipeline(pipeline, [createMessage('user-0')])
+
+        // The stage sits inside the team-aware warning scope: a warning raised
+        // on a sub-element lands on the parent and routes with the resolved team.
+        const warnings = warningsProduced()
+        expect(warnings).toHaveLength(1)
+        expect(warnings[0].team_id).toBe(42)
+        expect(warnings[0].type).toBe('client_ingestion_warning')
+        expect(parseJSON(warnings[0].details).marker).toBe('sub-step')
+    })
+
+    it('records resolveTeam topHog metrics around team resolution', async () => {
         const pipeline = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config)
             .parseHeaders()
             .parseMessage()
             .resolveTeam({
-                wrap: (step) => async (input) => {
-                    const result = await step(input)
-                    wrapObserved.push(
-                        isOkResult(result) ? `ok:${result.value.team.id}` : `miss:${input.headers.distinct_id}`
-                    )
-                    return result
-                },
+                topHog: [
+                    countResult('teams_resolved', (result, input) =>
+                        isOkResult(result)
+                            ? { outcome: `ok:${result.value.team.id}` }
+                            : { outcome: `miss:${input.headers.distinct_id}` }
+                    ),
+                ],
             })
             .build()
 
@@ -658,10 +766,29 @@ describe('CommonIngestionPipelineBuilder', () => {
             createMessage('user-1', 'test_event', 'unknown-token'),
         ])
 
-        expect(wrapObserved).toEqual(['ok:42', 'miss:user-1'])
+        expect((topHogRecords.get('teams_resolved') ?? []).map((r) => r.key)).toEqual([
+            { outcome: 'ok:42' },
+            { outcome: 'miss:user-1' },
+        ])
         const elements = batches.flatMap((batch) => batch.elements)
         expect(isOkResult(elements[0].result)).toBe(true)
         expect(isDropResult(elements[1].result)).toBe(true)
+    })
+
+    it('records parse timing and message sizes for every parsed message', async () => {
+        const pipeline = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config)
+            .parseHeaders()
+            .parseMessage()
+            .resolveTeam()
+            .build()
+
+        await runPipeline(pipeline, [createMessage('user-0')])
+
+        const sizes = topHogRecords.get('message_size_by_token') ?? []
+        expect(sizes).toHaveLength(1)
+        expect(sizes[0].key).toEqual({ token: team.api_token })
+        expect(sizes[0].value).toBeGreaterThan(0)
+        expect(topHogRecords.get('parse_time_ms_by_token')).toHaveLength(1)
     })
 
     it('passes retry options through to chunk steps', async () => {
@@ -735,6 +862,33 @@ describe('CommonIngestionPipelineBuilder', () => {
             narrowed.pipe(teamDependentStep)
 
             expect(narrowed).toBeDefined()
+        })
+
+        it('rejects an unclosed fan-out stage at compile time', () => {
+            const teamStage = newCommonIngestionPipeline<MessageOnly, MessageOnly>(config)
+                .parseHeaders()
+                .parseMessage()
+                .resolveTeam()
+
+            const opened = teamStage.fanOut(function splitFanOut(input) {
+                return [input.team.id]
+            })
+
+            // @ts-expect-error fanIn is only available after via()
+            const _noEarlyFanIn = opened.fanIn
+            // @ts-expect-error an unclosed fan-out stage cannot be built
+            const _noFanOutBuild = opened.build
+            // @ts-expect-error an unclosed fan-out stage cannot register afterBatch hooks
+            const _noFanOutAfterBatch = opened.afterBatch
+
+            const routed = opened.via((sub) => sub)
+
+            // @ts-expect-error only fanIn can close the stage
+            const _noFanInBuild = routed.build
+            // @ts-expect-error only fanIn can close the stage
+            const _noFanInAfterBatch = routed.afterBatch
+
+            expect(routed).toBeDefined()
         })
     })
 })

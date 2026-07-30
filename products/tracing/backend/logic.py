@@ -59,6 +59,18 @@ TIME_BUCKET_DATE_RANGE_WHERE = (
     "and toStartOfDay(time_bucket, 'UTC') <= toStartOfDay({date_to}, 'UTC')"
 )
 
+# Hard cap on number of rows returned per period by the span aggregation runners. Keeps
+# payloads bounded when name cardinality blows up (e.g. untemplated URL paths). The flame
+# graph collapses long tails anyway so the lower-ranked rows aren't visible.
+_ROW_LIMIT = 5000
+
+# Default row cap for the flat aggregation when a caller does not pass an explicit `limit`.
+# Kept small because this endpoint feeds agent/MCP callers, where the full 5000-row tail can
+# push a single response past a million tokens once name cardinality blows up. Rows are
+# ordered by total_duration_nano DESC, so the default still surfaces the heaviest operations;
+# callers that need the long tail opt into a higher `limit` (up to _ROW_LIMIT) or paginate.
+DEFAULT_AGGREGATION_ROW_LIMIT = 100
+
 # Value-search probes attribute_value with ILIKE %search%, which scans far more rows than
 # the key-only path. Require a meaningfully specific term so short prefixes (e.g. "id")
 # don't trigger an expensive scan.
@@ -1069,6 +1081,8 @@ def run_aggregation_query(
     compare_filter: CompareFilter | None = None,
     filter_group: PropertyGroupFilter | None = None,
     service_names: list[str] | None = None,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:
     """Facade-friendly entry point for running a flat span aggregation query."""
     # The runners import `translate_span_filter` from this module, so a module-level import here is circular.
@@ -1080,7 +1094,7 @@ def run_aggregation_query(
         filterGroup=filter_group,
         serviceNames=service_names,
     )
-    runner = TraceSpansAggregationQueryRunner(query, team)
+    runner = TraceSpansAggregationQueryRunner(query, team, limit=limit, offset=offset)
     response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
     assert isinstance(response, TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse)
     return response

@@ -45,7 +45,7 @@ local llm-gateway allowlists** — sandbox agents authenticate as product `posth
 gateway's cost logs), and neither `_POSTHOG_CODE_AGENT_MODELS` nor `background_agents` listed fable-5.
 Without the gateway entry the agent's `sanitizedModel` silently falls back to Opus — a fallback run looks
 normal. Fix: add `"claude-fable-5"` to both sets in
-`services/llm-gateway/src/llm_gateway/products/config.py` (commit-worthy parity — PostHog Code's composer
+`services/llm-gateway/src/llm_gateway/products/config.py` (commit-worthy parity — PostHog Desktop's composer
 already offers Fable 5). **The local gateway runs `uvicorn --reload`, so this edit must wait until no run
 is in flight** — the reload severs live sandbox streams (A1's validator died exactly that way).
 Arm D constants: `REVIEW_MODEL`/`VALIDATION_MODEL = "claude-fable-5"`,
