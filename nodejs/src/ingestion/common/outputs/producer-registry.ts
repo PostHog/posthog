@@ -7,6 +7,8 @@ import {
     INGESTION_UPSTREAM_PRODUCER,
     INGESTION_UPSTREAM_PRODUCER_CONFIG_MAP,
     ProducerName,
+    WARPSTREAM_SHARED_PRODUCER,
+    WARPSTREAM_SHARED_PRODUCER_CONFIG_MAP,
 } from './producers'
 
 /**
@@ -24,6 +26,7 @@ export function createIngestionProducerRegistry(kafkaClientRack: string | undefi
     return new KafkaProducerRegistryBuilder(kafkaClientRack)
         .register(INGESTION_UPSTREAM_PRODUCER, INGESTION_UPSTREAM_PRODUCER_CONFIG_MAP)
         .register(INGESTION_DOWNSTREAM_PRODUCER, INGESTION_DOWNSTREAM_PRODUCER_CONFIG_MAP)
+        .register(WARPSTREAM_SHARED_PRODUCER, WARPSTREAM_SHARED_PRODUCER_CONFIG_MAP)
 }
 
 type ProducerRegistryConfig = Parameters<ReturnType<typeof createIngestionProducerRegistry>['build']>[0]

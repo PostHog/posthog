@@ -21,8 +21,12 @@ export type IngestionUpstreamProducer = typeof INGESTION_UPSTREAM_PRODUCER
 export const INGESTION_DOWNSTREAM_PRODUCER = 'INGESTION_DOWNSTREAM' as const
 export type IngestionDownstreamProducer = typeof INGESTION_DOWNSTREAM_PRODUCER
 
+/** SHARED — shared Warpstream VC; low-volume ClickHouse-bound outputs (e.g. finops usage meters). */
+export const WARPSTREAM_SHARED_PRODUCER = 'WARPSTREAM_SHARED' as const
+export type WarpstreamSharedProducer = typeof WARPSTREAM_SHARED_PRODUCER
+
 /** Union of all known producer names. Extend this as new producers are added. */
-export type ProducerName = IngestionUpstreamProducer | IngestionDownstreamProducer
+export type ProducerName = IngestionUpstreamProducer | IngestionDownstreamProducer | WarpstreamSharedProducer
 
 // =============================================================================
 // Cluster-accurate producer slots: env-var maps and their default env config.
@@ -130,5 +134,61 @@ export function getDefaultKafkaDownstreamProducerEnvConfig(): KafkaDownstreamPro
         KAFKA_INGESTION_DOWNSTREAM_PRODUCER_METADATA_MAX_AGE_MS: '',
         KAFKA_INGESTION_DOWNSTREAM_PRODUCER_RETRIES: '',
         KAFKA_INGESTION_DOWNSTREAM_PRODUCER_MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION: '',
+    }
+}
+
+/** SHARED — shared Warpstream VC (serverless); ssl + sasl auth, like UPSTREAM. */
+export const WARPSTREAM_SHARED_PRODUCER_CONFIG_MAP = {
+    'client.id': 'KAFKA_WARPSTREAM_SHARED_PRODUCER_CLIENT_ID',
+    'metadata.broker.list': 'KAFKA_WARPSTREAM_SHARED_PRODUCER_METADATA_BROKER_LIST',
+    'security.protocol': 'KAFKA_WARPSTREAM_SHARED_PRODUCER_SECURITY_PROTOCOL',
+    'sasl.mechanisms': 'KAFKA_WARPSTREAM_SHARED_PRODUCER_SASL_MECHANISMS',
+    'sasl.username': 'KAFKA_WARPSTREAM_SHARED_PRODUCER_SASL_USERNAME',
+    'sasl.password': 'KAFKA_WARPSTREAM_SHARED_PRODUCER_SASL_PASSWORD',
+    'compression.codec': 'KAFKA_WARPSTREAM_SHARED_PRODUCER_COMPRESSION_CODEC',
+    'linger.ms': 'KAFKA_WARPSTREAM_SHARED_PRODUCER_LINGER_MS',
+    'batch.size': 'KAFKA_WARPSTREAM_SHARED_PRODUCER_BATCH_SIZE',
+    'queue.buffering.max.messages': 'KAFKA_WARPSTREAM_SHARED_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES',
+    'queue.buffering.max.kbytes': 'KAFKA_WARPSTREAM_SHARED_PRODUCER_QUEUE_BUFFERING_MAX_KBYTES',
+    'enable.ssl.certificate.verification': 'KAFKA_WARPSTREAM_SHARED_PRODUCER_ENABLE_SSL_CERTIFICATE_VERIFICATION',
+    'enable.idempotence': 'KAFKA_WARPSTREAM_SHARED_PRODUCER_ENABLE_IDEMPOTENCE',
+    'message.max.bytes': 'KAFKA_WARPSTREAM_SHARED_PRODUCER_MESSAGE_MAX_BYTES',
+    'batch.num.messages': 'KAFKA_WARPSTREAM_SHARED_PRODUCER_BATCH_NUM_MESSAGES',
+    'sticky.partitioning.linger.ms': 'KAFKA_WARPSTREAM_SHARED_PRODUCER_STICKY_PARTITIONING_LINGER_MS',
+    'topic.metadata.refresh.interval.ms': 'KAFKA_WARPSTREAM_SHARED_PRODUCER_TOPIC_METADATA_REFRESH_INTERVAL_MS',
+    'metadata.max.age.ms': 'KAFKA_WARPSTREAM_SHARED_PRODUCER_METADATA_MAX_AGE_MS',
+    'message.send.max.retries': 'KAFKA_WARPSTREAM_SHARED_PRODUCER_RETRIES',
+    'max.in.flight.requests.per.connection': 'KAFKA_WARPSTREAM_SHARED_PRODUCER_MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION',
+} as const satisfies Partial<Record<AllowedConfigKey, string>>
+
+/** Env var config for the SHARED slot — keys derived from the config map above. */
+export type KafkaWarpstreamSharedProducerEnvConfig = Record<
+    (typeof WARPSTREAM_SHARED_PRODUCER_CONFIG_MAP)[keyof typeof WARPSTREAM_SHARED_PRODUCER_CONFIG_MAP],
+    string
+>
+
+/** Defaults for the SHARED slot — every key '' so unset keys fall through to schema defaults. */
+export function getDefaultKafkaWarpstreamSharedProducerEnvConfig(): KafkaWarpstreamSharedProducerEnvConfig {
+    return {
+        KAFKA_WARPSTREAM_SHARED_PRODUCER_CLIENT_ID: '',
+        KAFKA_WARPSTREAM_SHARED_PRODUCER_METADATA_BROKER_LIST: '',
+        KAFKA_WARPSTREAM_SHARED_PRODUCER_SECURITY_PROTOCOL: '',
+        KAFKA_WARPSTREAM_SHARED_PRODUCER_SASL_MECHANISMS: '',
+        KAFKA_WARPSTREAM_SHARED_PRODUCER_SASL_USERNAME: '',
+        KAFKA_WARPSTREAM_SHARED_PRODUCER_SASL_PASSWORD: '',
+        KAFKA_WARPSTREAM_SHARED_PRODUCER_COMPRESSION_CODEC: '',
+        KAFKA_WARPSTREAM_SHARED_PRODUCER_LINGER_MS: '',
+        KAFKA_WARPSTREAM_SHARED_PRODUCER_BATCH_SIZE: '',
+        KAFKA_WARPSTREAM_SHARED_PRODUCER_QUEUE_BUFFERING_MAX_MESSAGES: '',
+        KAFKA_WARPSTREAM_SHARED_PRODUCER_QUEUE_BUFFERING_MAX_KBYTES: '',
+        KAFKA_WARPSTREAM_SHARED_PRODUCER_ENABLE_SSL_CERTIFICATE_VERIFICATION: '',
+        KAFKA_WARPSTREAM_SHARED_PRODUCER_ENABLE_IDEMPOTENCE: '',
+        KAFKA_WARPSTREAM_SHARED_PRODUCER_MESSAGE_MAX_BYTES: '',
+        KAFKA_WARPSTREAM_SHARED_PRODUCER_BATCH_NUM_MESSAGES: '',
+        KAFKA_WARPSTREAM_SHARED_PRODUCER_STICKY_PARTITIONING_LINGER_MS: '',
+        KAFKA_WARPSTREAM_SHARED_PRODUCER_TOPIC_METADATA_REFRESH_INTERVAL_MS: '',
+        KAFKA_WARPSTREAM_SHARED_PRODUCER_METADATA_MAX_AGE_MS: '',
+        KAFKA_WARPSTREAM_SHARED_PRODUCER_RETRIES: '',
+        KAFKA_WARPSTREAM_SHARED_PRODUCER_MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION: '',
     }
 }

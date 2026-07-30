@@ -22,9 +22,11 @@ import { createIngestionProducerRegistry } from '~/ingestion/common/outputs/prod
 import {
     KafkaDownstreamProducerEnvConfig,
     KafkaUpstreamProducerEnvConfig,
+    KafkaWarpstreamSharedProducerEnvConfig,
     ProducerName,
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
+    getDefaultKafkaWarpstreamSharedProducerEnvConfig,
 } from '~/ingestion/common/outputs/producers'
 import {
     ErrorTrackingConsumerConfig,
@@ -68,6 +70,7 @@ export type ErrorTrackingServerConfig = BaseServerConfig &
     KafkaBrokerConfig &
     KafkaUpstreamProducerEnvConfig &
     KafkaDownstreamProducerEnvConfig &
+    KafkaWarpstreamSharedProducerEnvConfig &
     ErrorTrackingOutputsConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
@@ -103,6 +106,7 @@ export class ErrorTrackingServer implements NodeServer {
             ...overrideConfigWithEnv(getDefaultErrorTrackingConsumerConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaUpstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaDownstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamSharedProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultErrorTrackingOutputsConfig()),
             ...config,
         }

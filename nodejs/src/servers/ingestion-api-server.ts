@@ -30,9 +30,11 @@ import { createIngestionProducerRegistry } from '~/ingestion/common/outputs/prod
 import {
     KafkaDownstreamProducerEnvConfig,
     KafkaUpstreamProducerEnvConfig,
+    KafkaWarpstreamSharedProducerEnvConfig,
     ProducerName,
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
+    getDefaultKafkaWarpstreamSharedProducerEnvConfig,
 } from '~/ingestion/common/outputs/producers'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { effectivePersonMergeEventsEnabled } from '~/ingestion/common/persons/person-merge-event'
@@ -96,6 +98,7 @@ export type IngestionApiServerConfig = BaseServerConfig &
     HogTransformerServiceConfig &
     KafkaUpstreamProducerEnvConfig &
     KafkaDownstreamProducerEnvConfig &
+    KafkaWarpstreamSharedProducerEnvConfig &
     KafkaBrokerConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
@@ -198,6 +201,7 @@ export class IngestionApiServer implements NodeServer {
             ...overrideConfigWithEnv(getDefaultIngestionConsumerConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaUpstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaDownstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamSharedProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultIngestionOutputsConfig()),
             ...config,
         }

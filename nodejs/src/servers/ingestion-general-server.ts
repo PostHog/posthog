@@ -30,8 +30,10 @@ import { KafkaProducerRegistryComponent } from '~/ingestion/common/outputs/produ
 import {
     KafkaDownstreamProducerEnvConfig,
     KafkaUpstreamProducerEnvConfig,
+    KafkaWarpstreamSharedProducerEnvConfig,
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
+    getDefaultKafkaWarpstreamSharedProducerEnvConfig,
 } from '~/ingestion/common/outputs/producers'
 import { createAiConsumer, createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
 import { createOutputsRegistry as createAiOutputsRegistry } from '~/ingestion/pipelines/ai/outputs/registry'
@@ -80,6 +82,7 @@ export type IngestionGeneralServerConfig = BaseServerConfig &
     KafkaBrokerConfig &
     KafkaUpstreamProducerEnvConfig &
     KafkaDownstreamProducerEnvConfig &
+    KafkaWarpstreamSharedProducerEnvConfig &
     IngestionOutputsConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
@@ -116,6 +119,7 @@ export class IngestionGeneralServer implements NodeServer {
             ...overrideConfigWithEnv(getDefaultIngestionConsumerConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaUpstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaDownstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamSharedProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultIngestionOutputsConfig()),
             ...config,
         }
