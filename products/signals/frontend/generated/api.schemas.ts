@@ -214,7 +214,7 @@ export interface SignalReportApi {
      */
     readonly actionability: string | null
     /**
-     * Whether the issue appears already fixed, from the actionability judgment artefact.
+     * Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task) — from the actionability judgment artefact.
      * @nullable
      */
     readonly already_addressed: boolean | null
