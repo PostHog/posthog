@@ -44,9 +44,7 @@ test.describe('Signup', () => {
                 config: {
                     enable_collect_everything: true,
                 },
-                featureFlags: {
-                    'passkey-signup-enabled': true,
-                },
+                featureFlags: {},
                 isAuthenticated: false,
             }
             await route.fulfill({ json: response })
