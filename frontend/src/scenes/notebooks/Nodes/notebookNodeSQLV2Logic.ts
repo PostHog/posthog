@@ -18,7 +18,7 @@ import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { notebookKernelInfoLogic } from '../Notebook/notebookKernelInfoLogic'
-import { notebookNodeStalenessLogic } from '../Notebook/notebookNodeStalenessLogic'
+import { NotebookNodeRunTerminalStatus, notebookNodeStalenessLogic } from '../Notebook/notebookNodeStalenessLogic'
 import { NotebookOperation, notebookOperationsLogic } from '../Notebook/notebookOperationsLogic'
 import { notebookSettingsLogic } from '../Notebook/notebookSettingsLogic'
 import { NotebookNodeType } from '../types'
@@ -100,6 +100,7 @@ export interface NotebookNodeSQLV2LogicProps {
         nodeId?: string
         runId?: string | null
         result?: NotebookNodeSQLV2Result | null
+        runStatus?: NotebookNodeRunTerminalStatus | null
     }) => void
     // The live notebook document, for staleness marking and chain-dispatched runs (Journey 10).
     getContent?: () => JSONContent | null
@@ -135,12 +136,12 @@ export interface notebookNodeSQLV2LogicActions {
     } // notebookNodeStalenessLogic
     nodeRunFinished: (
         nodeId: string,
-        status: import('../Notebook/notebookNodeStalenessLogic').NotebookNodeRunTerminalStatus,
+        status: NotebookNodeRunTerminalStatus,
         content: JSONContent | null
     ) => {
         content: JSONContent | null
         nodeId: string
-        status: import('../Notebook/notebookNodeStalenessLogic').NotebookNodeRunTerminalStatus
+        status: NotebookNodeRunTerminalStatus
     } // notebookNodeStalenessLogic
     registerChainNode: (nodeId: string) => {
         nodeId: string
@@ -504,7 +505,12 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     // Persisting nodeId pins the cell's identity: markdown-notebook cell ids are
                     // content fingerprints otherwise, so without the pin any later prop change
                     // would orphan this run's node_id and break refs to this cell.
-                    props.updateAttributes({ nodeId: props.nodeId, runId: run_id, result: null })
+                    props.updateAttributes({
+                        nodeId: props.nodeId,
+                        runId: run_id,
+                        result: null,
+                        runStatus: null,
+                    })
                     actions.startPolling(run_id)
                 } catch (error) {
                     actions.setRunError(error instanceof Error ? error.message : 'Failed to run query')
@@ -596,7 +602,9 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                                   }
                                 : null
                         )
-                        props.updateAttributes({ result: envelopeResult })
+                        // The outcome rides along with the result so a reload can tell a completed
+                        // run from an interrupted one — both leave a result behind.
+                        props.updateAttributes({ result: envelopeResult, runStatus: 'done' })
                         // A fresh envelope replaces whatever page the user had drilled into.
                         actions.resetPaging()
                         actions.stopPolling()
@@ -606,7 +614,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     } else if (status === 'interrupted') {
                         // A user-requested stop: the envelope still carries whatever stdout,
                         // stderr, and figures the cell produced before the interrupt landed.
-                        props.updateAttributes({ result: envelopeResult })
+                        props.updateAttributes({ result: envelopeResult, runStatus: 'interrupted' })
                         actions.setRunError(error ?? 'Run interrupted.')
                         actions.resetPaging()
                         actions.stopPolling()

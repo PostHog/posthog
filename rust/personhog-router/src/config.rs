@@ -174,6 +174,36 @@ pub struct Config {
     #[envconfig(default = "3")]
     pub heartbeat_interval_secs: u64,
 
+    /// Fail the coordination run when the handoff watch loop makes no
+    /// progress for this long, so the router deregisters and restarts as
+    /// a healthy participant instead of wedging freeze quorums while its
+    /// lease stays alive. `0` disables the watchdog.
+    #[envconfig(default = "60")]
+    pub router_participant_stall_secs: u64,
+
+    /// How often the routing table re-derives stash, table, and drain
+    /// state from a fresh etcd snapshot, independent of watch events.
+    #[envconfig(default = "5")]
+    pub router_reconcile_secs: u64,
+
+    /// How many consecutive reconcile-pass failures the routing table
+    /// tolerates before failing the run. A failed pass only means the
+    /// router stays as stale as the previous tick — the watch-driven
+    /// steady state — so brief etcd blips must not be fatal; sustained
+    /// outage is already handled by lease self-fencing. The budget
+    /// bounds the partial-failure mode where snapshot reads fail while
+    /// the lease stays healthy, which would otherwise silently degrade
+    /// the liveness the reconcile provides.
+    #[envconfig(default = "12")]
+    pub router_reconcile_failure_budget: u32,
+
+    /// How long a handoff may sit in Warming before the coordinator
+    /// cancels it by replacement. Warming replays the partition's
+    /// changelog, so its budget is far above the general handoff
+    /// deadline; `0` disables it.
+    #[envconfig(default = "1800")]
+    pub coordinator_warming_deadline_secs: u64,
+
     /// Maximum number of stashed write requests held per partition while
     /// a handoff is in progress. Excess requests return UNAVAILABLE and
     /// rely on caller-side retries.
@@ -452,6 +482,19 @@ impl Config {
 
     pub fn coordinator_handoff_deadline(&self) -> Duration {
         Duration::from_secs(self.coordinator_handoff_deadline_secs)
+    }
+
+    pub fn router_reconcile_interval(&self) -> Duration {
+        Duration::from_secs(self.router_reconcile_secs)
+    }
+
+    pub fn coordinator_warming_deadline(&self) -> Duration {
+        Duration::from_secs(self.coordinator_warming_deadline_secs)
+    }
+
+    pub fn participant_stall_threshold(&self) -> Option<Duration> {
+        (self.router_participant_stall_secs > 0)
+            .then(|| Duration::from_secs(self.router_participant_stall_secs))
     }
 
     pub fn stash_max_wait(&self) -> Duration {

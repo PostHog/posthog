@@ -45,6 +45,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.validation import validate_alert_config
+from products.alerts.backend.insight_alert_state_machine import apply_unsnooze
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -166,8 +167,8 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
                 return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.SNOOZED)
             # Snooze expired — persist clear so evaluate_alert reads the fresh state.
             alert.snoozed_until = None
-            alert.state = AlertState.NOT_FIRING
-            alert.save(update_fields=["snoozed_until", "state"])
+            state_fields = apply_unsnooze(alert)
+            alert.save(update_fields=["snoozed_until", *state_fields])
 
         try:
             insight = alert.insight

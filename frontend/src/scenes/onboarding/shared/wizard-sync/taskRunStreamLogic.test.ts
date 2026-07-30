@@ -587,6 +587,22 @@ describe('taskRunStreamLogic transport', () => {
         expect(logic.values.isStalled).toBe(true)
     })
 
+    it('stamps lastActivityAt from delivered updates, never from connection events', async () => {
+        logic.actions.connect()
+        const stream = MockEventSource.last()
+        stream.emitOpen()
+        await expectLogic(logic).toDispatchActions(['connectionOpened'])
+        // A stream that reconnects forever without ever saying anything must not read as a run that
+        // is alive: only what the pipeline actually delivers counts as activity.
+        expect(logic.values.lastActivityAt).toBeNull()
+
+        stream.emitMessage(
+            JSON.stringify({ type: 'task_run_state', status: 'in_progress', updated_at: '2026-01-01T00:05:00Z' })
+        )
+        await expectLogic(logic).toDispatchActions(['taskRunStateUpdated'])
+        expect(logic.values.lastActivityAt).toEqual(expect.any(Number))
+    })
+
     it('keeps the no-state stall through a scheduled reconnect', async () => {
         // The regression: a reconnect clears isStalled, and a per-connect timer would be re-armed
         // for another full window (or, armed once per lifetime, never re-armed at all), putting the
