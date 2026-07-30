@@ -16,12 +16,14 @@ _RE_SLACK_LINK_BARE = re.compile(r"<([^>]+)>")
 _RE_SLACK_BOLD_ITALIC = re.compile(r"\*_([^_]+)_\*")
 _RE_SLACK_BOLD = re.compile(r"(?<!\*)\*([^*\n]+)\*(?!\*)")
 _RE_SLACK_ITALIC = re.compile(r"(?<!_)_([^_\n]+)_(?!_)")
+_RE_SLACK_STRIKE = re.compile(r"(?<!~)~([^~\n]+)~(?!~)")
 
 # Markdown patterns
 _RE_MD_IMAGE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 _RE_MD_BOLD_ITALIC = re.compile(r"\*\*\*(.+?)\*\*\*")
 _RE_MD_BOLD = re.compile(r"\*\*(.+?)\*\*")
 _RE_MD_ITALIC = re.compile(r"(?<!\*)\*([^*]+?)\*(?!\*)")
+_RE_MD_STRIKE = re.compile(r"~~(.+?)~~")
 _RE_MD_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 _RE_MD_MENTION = re.compile(r"@member:([a-f0-9-]+)")
 _RE_SINGLE_NEWLINE = re.compile(r"(?<!\n)\n(?!\n)")
@@ -176,6 +178,7 @@ def content_to_slack_mrkdwn(content: str) -> str:
     text = _RE_MD_BOLD_ITALIC.sub(capture_bold_italic, text)
     text = _RE_MD_BOLD.sub(r"*\1*", text)
     text = _RE_MD_ITALIC.sub(r"_\1_", text)
+    text = _RE_MD_STRIKE.sub(r"~\1~", text)
     text = _RE_MD_LINK.sub(r"<\2|\1>", text)
 
     for index, value in enumerate(bold_italic_matches):
@@ -219,6 +222,7 @@ def slack_mrkdwn_to_content(text: str, user_names: dict[str, str] | None = None)
     text = _RE_SLACK_BOLD_ITALIC.sub(r"***\1***", text)
     text = _RE_SLACK_BOLD.sub(r"**\1**", text)
     text = _RE_SLACK_ITALIC.sub(r"*\1*", text)
+    text = _RE_SLACK_STRIKE.sub(r"~~\1~~", text)
 
     return text
 

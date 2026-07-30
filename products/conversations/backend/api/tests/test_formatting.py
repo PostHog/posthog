@@ -28,6 +28,7 @@ class TestSlackFormatting(SimpleTestCase):
             ("single_newline", "line1\nline2", "line1  \nline2"),
             ("double_newline", "line1\n\nline2", "line1\n\nline2"),
             ("mrkdwn_marks", "*bold*\n_italic_", "**bold**  \n*italic*"),
+            ("mrkdwn_strike", "~gone~", "~~gone~~"),
         ]
     )
     def test_text_fallback_normalizes_newlines(self, _name: str, slack_text: str, expected: str) -> None:
