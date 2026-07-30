@@ -225,11 +225,14 @@ function Heatmap(): JSX.Element {
     const { visibleClusters, hiddenClusterCount, toolColumns, totalToolCount, selectedClusterId } =
         useValues(mcpClusteringLogic)
     const { selectCluster, showAllClusters } = useActions(mcpClusteringLogic)
+    const { toolSearch } = useValues(mcpClusteringLogic)
 
     if (toolColumns.length === 0) {
         return (
             <div className="bg-surface-primary border rounded p-4 text-center text-muted text-sm">
-                No tool calls observed in any cluster yet.
+                {toolSearch.trim()
+                    ? `No clusters call a tool matching "${toolSearch.trim()}". Clear the search to see all clusters.`
+                    : 'No tool calls observed in any cluster yet.'}
             </div>
         )
     }

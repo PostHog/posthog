@@ -9,7 +9,12 @@ import type {
     MCPToolPivotApi,
     MCPToolPivotClusterEntryApi,
 } from '../generated/api.schemas'
-import { MAX_HEATMAP_TOOL_COLUMNS, MAX_VISIBLE_CLUSTERS, mcpClusteringLogic, weightedMeanFit } from './mcpClusteringLogic'
+import {
+    MAX_HEATMAP_TOOL_COLUMNS,
+    MAX_VISIBLE_CLUSTERS,
+    mcpClusteringLogic,
+    weightedMeanFit,
+} from './mcpClusteringLogic'
 
 jest.mock('lib/api')
 jest.mock('../generated/api', () => ({

@@ -24,6 +24,7 @@ import math
 import asyncio
 import hashlib
 from collections import Counter, defaultdict
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -42,7 +43,7 @@ from posthog.sync import database_sync_to_async
 
 from products.mcp_analytics.backend.constants import MAX_SNAPSHOT_CLUSTERS, MCP_TOOL_CALL_EVENT, MCP_TOOLS_LIST_EVENT
 from products.mcp_analytics.backend.hogql_queries.base import EFFECTIVE_DESCRIPTION_SQL, EFFECTIVE_TOOL_SQL
-from products.mcp_analytics.backend.models import MCPIntentEmbeddingCache, MCPSession
+from products.mcp_analytics.backend.models import MCPIntentEmbeddingCache
 
 logger = structlog.get_logger(__name__)
 
@@ -174,6 +175,11 @@ MAX_TOOL_NAME_LENGTH = 256
 # listed once or twice per session, so both bounds sit far above honest traffic.
 MAX_TOOLS_PER_ADVERTISED_LIST = 500
 MAX_ADVERTISED_LIST_EVENTS_PER_SESSION = 20
+# The two caps above still multiply (events x names, across every sampled session), so
+# the distinct union itself is also bounded per session. This is the bound that limits
+# what leaves ClickHouse and lands in worker memory; the honest case (a few hundred
+# distinct tools per catalog) sits comfortably under it.
+MAX_ADVERTISED_TOOLS_PER_SESSION = 1000
 
 # Sessions that recorded at least one $mcp_intent, sampled deterministically.
 # Ordering by cityHash64(session_id) is a pseudo-random sample: unbiased across
@@ -220,7 +226,11 @@ LIMIT {max_rows}
 _SESSION_ADVERTISED_TOOLS_SQL = """
 SELECT
     session_id,
-    arrayDistinct(arrayMap(x -> left(x, {max_tool_len}), arrayFlatten(groupArray(listed)))) AS advertised_tools
+    arraySlice(
+        arrayDistinct(arrayMap(x -> left(x, {max_tool_len}), arrayFlatten(groupArray(listed)))),
+        1,
+        {max_advertised_tools}
+    ) AS advertised_tools
 FROM (
     SELECT
         $session_id AS session_id,
@@ -257,6 +267,9 @@ WHERE event = {event}
 
 # Latest observed description per effective tool. argMax(description, timestamp)
 # picks the newest revision, which is the one agents currently see.
+# The tool filter is applied before GROUP BY so aggregate state only exists for the
+# bounded corpus tool set — without it, a sender emitting unique tool names per call
+# forces argMax state for every name before LIMIT applies.
 _TOOL_DESCRIPTIONS_SQL = """
 SELECT
     left({tool_expr}, {max_tool_len}) AS tool,
@@ -264,7 +277,7 @@ SELECT
 FROM events
 WHERE event = {event}
     AND timestamp >= now() - INTERVAL {lookback_days} DAY
-    AND notEmpty({tool_expr_where})
+    AND left({tool_expr_where}, {max_tool_len}) IN {tools}
     AND notEmpty({description_expr_where})
 GROUP BY tool
 LIMIT {max_rows}
@@ -359,6 +372,7 @@ def fetch_advertised_tools(
             "max_tool_len": ast.Constant(value=MAX_TOOL_NAME_LENGTH),
             "max_tools_per_list": ast.Constant(value=MAX_TOOLS_PER_ADVERTISED_LIST),
             "max_list_events": ast.Constant(value=MAX_ADVERTISED_LIST_EVENTS_PER_SESSION),
+            "max_advertised_tools": ast.Constant(value=MAX_ADVERTISED_TOOLS_PER_SESSION),
         },
     )
     out: dict[str, set[str]] = {}
@@ -390,8 +404,16 @@ def fetch_window_stats(team: Team, lookback_days: int = DEFAULT_LOOKBACK_DAYS) -
     )
 
 
-def fetch_tool_descriptions(team: Team, lookback_days: int = DEFAULT_LOOKBACK_DAYS) -> dict[str, str]:
-    """Latest observed description per effective tool, clipped for embedding."""
+def fetch_tool_descriptions(
+    team: Team, tools: Collection[str], lookback_days: int = DEFAULT_LOOKBACK_DAYS
+) -> dict[str, str]:
+    """Latest observed description per effective tool, clipped for embedding.
+
+    ``tools`` bounds the aggregation: only the given (already clipped) tool names
+    enter the GROUP BY, so sender-invented names never build aggregate state.
+    """
+    if not tools:
+        return {}
     query = parse_select(
         _TOOL_DESCRIPTIONS_SQL,
         placeholders={
@@ -400,6 +422,7 @@ def fetch_tool_descriptions(team: Team, lookback_days: int = DEFAULT_LOOKBACK_DA
             "tool_expr_where": parse_expr(EFFECTIVE_TOOL_SQL),
             "description_expr": parse_expr(EFFECTIVE_DESCRIPTION_SQL),
             "description_expr_where": parse_expr(EFFECTIVE_DESCRIPTION_SQL),
+            "tools": ast.Tuple(exprs=[ast.Constant(value=tool) for tool in sorted(tools)]),
             "lookback_days": ast.Constant(value=lookback_days),
             "max_rows": ast.Constant(value=MAX_QUERY_ROWS),
             "max_tool_len": ast.Constant(value=MAX_TOOL_NAME_LENGTH),
@@ -773,6 +796,17 @@ def _medoid_index(embeddings: np.ndarray, indices: list[int]) -> int:
     return indices[best_local]
 
 
+def top_corpus_tools(records: list[IntentRecord], max_tools: int = MAX_TOOLS_IN_SNAPSHOT) -> set[str]:
+    """The top ``max_tools`` corpus tools by attributed call volume — the same
+    population and cap the tool pivot uses. Everything description-related
+    (the ClickHouse aggregation, the embedding fan-out) is bounded to this set."""
+    totals: Counter[str] = Counter()
+    for record in records:
+        for tool, count in record.tool_counts.items():
+            totals[tool] += count
+    return {tool for tool, _ in sorted(totals.items(), key=lambda item: (-item[1], item[0]))[:max_tools]}
+
+
 def select_tools_for_description_fit(
     records: list[IntentRecord],
     tool_descriptions: dict[str, str],
@@ -780,16 +814,10 @@ def select_tools_for_description_fit(
 ) -> dict[str, str]:
     """Bound the description-embedding fan-out to tools that can appear in the snapshot.
 
-    Keeps descriptions only for the top ``max_tools`` corpus tools by attributed
-    call volume (the same population and cap the tool pivot uses). Without the
-    bound, a caller emitting a unique tool name and description per call could
-    turn one recompute into one embedding request per unique name.
+    Defense in depth for callers that fetched descriptions elsewhere; the primary
+    bound is passing ``top_corpus_tools`` into ``fetch_tool_descriptions``.
     """
-    totals: Counter[str] = Counter()
-    for record in records:
-        for tool, count in record.tool_counts.items():
-            totals[tool] += count
-    kept = {tool for tool, _ in sorted(totals.items(), key=lambda item: (-item[1], item[0]))[:max_tools]}
+    kept = top_corpus_tools(records, max_tools)
     return {tool: text for tool, text in tool_descriptions.items() if tool in kept}
 
 

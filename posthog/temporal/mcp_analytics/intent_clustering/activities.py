@@ -151,13 +151,10 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                 window_stats = await database_sync_to_async(intent_clustering.fetch_window_stats)(
                     team, lookback_days=inputs.lookback_days
                 )
+                # Bound the description aggregation and embedding fan-out to the tools
+                # that can appear in the snapshot; see top_corpus_tools for why.
                 tool_descriptions = await database_sync_to_async(intent_clustering.fetch_tool_descriptions)(
-                    team, lookback_days=inputs.lookback_days
-                )
-                # Bound the embedding fan-out to the tools that can appear in the
-                # snapshot; see select_tools_for_description_fit for why.
-                tool_descriptions = intent_clustering.select_tools_for_description_fit(
-                    aligned_records, tool_descriptions
+                    team, intent_clustering.top_corpus_tools(aligned_records), lookback_days=inputs.lookback_days
                 )
                 described = sorted(tool_descriptions.items())
                 description_matrix, described_valid = await intent_clustering.embed_texts_async(

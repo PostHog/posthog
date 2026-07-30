@@ -31,6 +31,7 @@ from products.mcp_analytics.backend.intent_clustering import (
     EMBEDDING_MODEL,
     JOURNEY_DEPTH,
     MAX_ADVERTISED_LIST_EVENTS_PER_SESSION,
+    MAX_ADVERTISED_TOOLS_PER_SESSION,
     MAX_DESCRIPTION_LENGTH,
     MAX_INTENT_TEXT_LENGTH,
     MAX_TOOL_NAME_LENGTH,
@@ -861,10 +862,17 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
             self._seed_tools_list("session-chatty", [f"chatty-{i}"])
         flush_persons_and_events()
 
-        advertised = fetch_advertised_tools(self.team, ["session-wide", "session-chatty"])
+        # A third session pushes the distinct union past the per-session bound with
+        # events that each stay under the per-event and per-session-event caps.
+        for i in range(3):
+            self._seed_tools_list("session-union", [f"union-{i}-{j}" for j in range(400)])
+        flush_persons_and_events()
+
+        advertised = fetch_advertised_tools(self.team, ["session-wide", "session-chatty", "session-union"])
 
         assert len(advertised["session-wide"]) == MAX_TOOLS_PER_ADVERTISED_LIST
         assert len(advertised["session-chatty"]) <= MAX_ADVERTISED_LIST_EVENTS_PER_SESSION
+        assert len(advertised["session-union"]) == MAX_ADVERTISED_TOOLS_PER_SESSION
 
     def test_window_stats_count_calls_intents_and_sessions(self) -> None:
         self._seed_tool_call("session-a", "execute_sql", intent="find slow queries")
@@ -888,11 +896,14 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
         self._seed_tool_call("s1", "query_trends", timestamp=base)
         flush_persons_and_events()
 
-        descriptions = fetch_tool_descriptions(self.team)
+        descriptions = fetch_tool_descriptions(self.team, ["execute_sql"])
 
+        # query_trends has calls in the window but is outside the requested set, so
+        # it never enters the aggregation; execute_sql resolves to its newest text.
         assert set(descriptions) == {"execute_sql"}
         assert descriptions["execute_sql"].startswith("new ")
         assert len(descriptions["execute_sql"]) == MAX_DESCRIPTION_LENGTH
+        assert fetch_tool_descriptions(self.team, []) == {}
 
     def test_corpus_queries_are_not_truncated_at_the_default_hogql_limit(self) -> None:
         # execute_hogql_query injects LIMIT 100 into any query without an explicit

@@ -195,8 +195,6 @@ export interface mcpClusteringLogicMeta {
         hasToolPivot: (tools: readonly MCPToolPivotApi[]) => boolean
         sortedClusters: (clusters: readonly MCPIntentClusterApi[], sortKey: ClusterSortKey) => MCPIntentClusterApi[]
         filteredClusters: (sortedClusters: MCPIntentClusterApi[], toolSearch: string) => MCPIntentClusterApi[]
-        visibleClusters: (filteredClusters: MCPIntentClusterApi[], allClustersShown: boolean) => MCPIntentClusterApi[]
-        hiddenClusterCount: (filteredClusters: MCPIntentClusterApi[], visibleClusters: MCPIntentClusterApi[]) => number
         sortedTools: (
             tools: readonly MCPToolPivotApi[],
             toolSortKey: ToolSortKey,
@@ -206,6 +204,8 @@ export interface mcpClusteringLogicMeta {
         scatterPoints: (tools: readonly MCPToolPivotApi[]) => ScatterPoint[]
         fitMedian: (scatterPoints: ScatterPoint[]) => number | null
         discoveryMedian: (scatterPoints: ScatterPoint[]) => number | null
+        visibleClusters: (filteredClusters: MCPIntentClusterApi[], allClustersShown: boolean) => MCPIntentClusterApi[]
+        hiddenClusterCount: (filteredClusters: MCPIntentClusterApi[], visibleClusters: MCPIntentClusterApi[]) => number
         toolColumns: (filteredClusters: MCPIntentClusterApi[]) => string[]
         totalToolCount: (filteredClusters: MCPIntentClusterApi[]) => number
         totalClusterCount: (snapshot: MCPIntentClusterSnapshotApi) => number

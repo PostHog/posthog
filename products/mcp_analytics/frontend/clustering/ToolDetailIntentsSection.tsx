@@ -13,11 +13,26 @@ import { ToolIntentDetail } from './ToolIntentDetail'
  * shows, so the numbers always agree between the two surfaces.
  */
 export function ToolDetailIntentsSection({ toolName }: { toolName: string }): JSX.Element {
-    const { tools, hasSnapshot, snapshotLoading } = useValues(mcpClusteringLogic)
+    const { tools, hasSnapshot, snapshotLoading, snapshot } = useValues(mcpClusteringLogic)
     const tool = tools.find((t) => t.tool === toolName) ?? null
 
     if (tool) {
         return <ToolIntentDetail tool={tool} showToolLink={false} />
+    }
+
+    // Mirror the clustering tab's error handling: a failed run must not read as
+    // "never computed", or the owner keeps hitting compute with no idea why it fails.
+    if (snapshot.status === 'error' && !snapshotLoading) {
+        return (
+            <div className="bg-surface-primary border rounded p-6 text-center text-muted text-sm">
+                The last intent clustering run failed
+                {snapshot.error_message ? `: ${snapshot.error_message}` : '.'}{' '}
+                <LinkPrimitive to={urls.mcpAnalyticsIntentClustering()} className="text-accent">
+                    Retry from the clustering tab
+                </LinkPrimitive>
+                .
+            </div>
+        )
     }
 
     return (

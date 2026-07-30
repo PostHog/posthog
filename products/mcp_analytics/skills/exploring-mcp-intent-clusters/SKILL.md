@@ -49,7 +49,9 @@ cluster has a `label`, `intent_count`, `call_count`, `error_count`,
 `error_rate_pct`, `routing_entropy`, a `tool_distribution` (which tools that
 goal routes to, with per-tool error rates), `sample_intents`, plus `switches`
 (errored call immediately followed by a different tool for the same intent —
-the strongest "agents mix these tools up" evidence) and `self_retries`.
+the strongest "agents mix these tools up" evidence) and `self_retries`
+(errored call immediately retried with the same tool — a sign the tool's
+error messages aren't helping agents self-correct).
 
 Read clusters by `call_count` for "what are agents mostly doing", or by
 `error_rate_pct` for "which goals are failing" — a high error rate on a cluster
