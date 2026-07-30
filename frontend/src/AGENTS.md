@@ -26,6 +26,8 @@ Common reinventions and what to use instead:
 
 If nothing fits, say so and propose extending the existing component before adding a new one. Don't silently fork. If you do end up building custom, stay on brand: system tokens and primitives only, matching the surrounding scene's density and flatness — and none of the generic AI-generated look (purple/blue gradients, glassmorphism, gradient text, icon-tile card grids, decorative motion). The full slop-tell catalog is in the `/writing-ui-components` skill.
 
+The same goes for patterns, not just components: before building a new scene or view, read 2–3 comparable ones and model yours on those that follow these rules. Precedent that violates Rule 4 or `/writing-ui-components` is legacy to route around, not license to repeat — conventions outrank precedent, and compliant precedent outranks invention.
+
 > LemonUI vs quill, and the quill spacing/composition rules, live in the root `AGENTS.md` ("Code Style → Frontend (quill …)") and `packages/quill/packages/primitives/AGENTS.md`. Follow those — don't mix quill and Lemon inside one component's internals.
 
 ## Rule 2 — Don't handwrite API types; use the generated ones

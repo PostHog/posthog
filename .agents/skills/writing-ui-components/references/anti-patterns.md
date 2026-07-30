@@ -5,6 +5,21 @@ writing or reviewing, convert it. Companion to [SKILL.md](../SKILL.md); the kea-
 lives in
 [writing-kea-logics/references/anti-patterns.md](../../writing-kea-logics/references/anti-patterns.md).
 
+## Precedent
+
+### "The scene next door does it" as justification
+
+```tsx
+// don't — copying a violation because a neighboring scene has one
+<div className="cursor-pointer" onClick={() => actions.open()}> {/* same as FooScene */}
+```
+
+Surveying comparable scenes before building is required — imitation is how new UI stays
+on-brand — but the codebase carries legacy that predates these conventions. An existing
+violation is history, not license, and copying it doubles it. Conventions outrank precedent:
+model on compliant, recently-touched code and the reference implementations named in skills,
+and if the neighboring violation is cheap to fix, convert it while you're there.
+
 ## Files and exports
 
 ### A second exported component in the same file

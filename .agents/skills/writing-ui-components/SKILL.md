@@ -26,7 +26,7 @@ below it usually follow on their own.
 
 ## Use this skill when
 
-- Creating a new component, hook, or frontend module
+- Creating a new component, scene, view, hook, or frontend module
 - Splitting or restructuring an existing component file, or moving one between folders
 - Extracting a repeated shape into a shared/generic component, or promoting one toward `lib/`
 - Renaming a frontend symbol, file, or feature vocabulary
@@ -50,6 +50,34 @@ This skill owns _structure_. These own their own territory — link to them, don
 - [scene-menu-bar](../scene-menu-bar/SKILL.md) — scene action surfaces.
 - [setting-feature-flags-in-storybook](../setting-feature-flags-in-storybook/SKILL.md) — stories
   for flag-gated components.
+
+## Survey precedent before you build
+
+> **Gate: which existing scene or component are you modeling this on — and does that model
+> itself follow these rules?**
+
+Brand consistency comes from imitation, not invention. Before building any new UI, read how
+2–3 comparable scenes or components are implemented — component choice, density, layout, file
+structure, logic wiring, `data-attr` naming — and name the precedent you're following. A new
+surface that matches its compliant neighbors is on-brand by construction.
+
+But **filter precedent through the conventions**. The codebase carries legacy that predates
+these rules — clickable divs, hand-rolled tables, new-style-banned `LemonMenu`s, deprecated
+`ProductIntroduction` call sites, re-export shims, slop styling. An existing violation is
+history, not license: this skill and `frontend/src/AGENTS.md` outrank precedent. When the
+nearest example violates the rules, follow the rules — and if the violation is cheap to fix,
+convert it while you're there ([references/anti-patterns.md](references/anti-patterns.md)).
+
+Telling good precedent from bad:
+
+- **Prefer reference implementations named in skills** — e.g. MCP analytics for
+  [empty states](../building-product-empty-states/SKILL.md), the migrated scenes listed in
+  [scene-menu-bar](../scene-menu-bar/SKILL.md) — and recently-touched code (`git log`) over
+  untouched corners.
+- **Prefer current primitives**: quill menus/comboboxes over `LemonMenu`/Radix menus,
+  `ProductEmptyState` over `ProductIntroduction`, generated `*Api` types over handwritten ones.
+- When they conflict, the priority order is **conventions > compliant precedent > invention**.
+  Inventing a new pattern when a compliant precedent exists is itself a reuse violation.
 
 ## Code organization
 
@@ -190,6 +218,7 @@ before/after for the rules above. Read it when reviewing UI diffs.
 
 ## Before you open the PR
 
+- [ ] New UI is modeled on named, compliant precedent — violating neighbors were not copied
 - [ ] Every new file exports what its name promises — one component each, named exports
 - [ ] No new re-export shims or barrels; moved symbols' consumers all updated, old paths deleted
 - [ ] New generics: call sites read as content; no variant booleans; feature-local unless a
