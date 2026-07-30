@@ -302,7 +302,15 @@ class AccessControlViewSetMixin(_GenericViewSet):
             # so the UI can spell out what removing the override means. Follows
             # RESOURCE_INHERITANCE_MAP because that's the resource the runtime check consults —
             # a warehouse view is gated by the warehouse_objects rules, not by its own.
-            inherited_resource = self._inherited_resource(resource)
+            #
+            # None for a project is load-bearing: it is what stops the UI offering "No override" on
+            # a project's own default, which has nothing above it to fall back to. The project
+            # permissions panel renders the same component as any object.
+            inherited_resource = (
+                None
+                if resource in ("project", "organization", "plugin")
+                else RESOURCE_INHERITANCE_MAP.get(resource, resource)
+            )
             payload["inherited_resource"] = inherited_resource
             payload["inherited_access_controls"] = (
                 self._get_access_control_serializer(
@@ -316,18 +324,6 @@ class AccessControlViewSetMixin(_GenericViewSet):
             )
 
         return Response(payload)
-
-    @staticmethod
-    def _inherited_resource(resource: APIScopeObject) -> APIScopeObject | None:
-        """The resource whose project-wide rules gate `resource`, or None when it has none.
-
-        None is load-bearing: it is what stops the UI offering "No override" on a project's own
-        default, which has nothing above it to fall back to. The project permissions panel renders
-        the same component as any object, so removing this would offer a choice that cannot work.
-        """
-        if resource in ("project", "organization", "plugin"):
-            return None
-        return RESOURCE_INHERITANCE_MAP.get(resource, resource)
 
     def _get_users_with_access(self, request: Request):
         """
