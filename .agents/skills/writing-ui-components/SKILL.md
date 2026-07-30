@@ -9,7 +9,8 @@ description: >
   re-export shims or barrels), when duplication becomes a component and when a generic is premature,
   rename sweeps and the frozen-strings contract (event names, properties, flag keys, `data-attr`
   values are API), UI resolution states (loading, empty, and error are three different screens), and
-  visual discipline (design tokens, Tailwind, real interactive elements, reduced motion, Storybook).
+  visual discipline (design tokens, on-brand custom components with no AI slop, real interactive
+  elements, reduced motion, Storybook).
   Component choice (Lemon vs quill) lives in `frontend/src/AGENTS.md` Rule 1; state management in
   `/writing-kea-logics`.
 ---
@@ -82,7 +83,10 @@ That's the litmus for a good extraction: callers pass data and slots; the generi
 scaffolding. Climb the ladder one rung at a time:
 
 1. **Reuse before you create** — [frontend/src/AGENTS.md Rule 1](../../../frontend/src/AGENTS.md).
-   Hand-rolling markup that an existing Lemon/quill component already is counts as duplication.
+   The design system is the brand: Lemon/quill components carry PostHog's tokens, density, and
+   interaction patterns, so building from them is what keeps a scene looking like PostHog.
+   Hand-rolling markup that an existing component already is counts as duplication _and_ a
+   branding leak.
 2. **Duplicate before you abstract.** Extract a shared component when the same shape appears
    **three times**, or **twice within one feature with a third clearly coming**. Below that
    threshold, duplication is cheaper than the wrong abstraction.
@@ -155,6 +159,15 @@ acts on it.
   in `frontend/src/styles/base.scss`) — a hardcoded hex is invisible to dark mode. Spacing comes
   from the Tailwind scale; an arbitrary value (`w-[347px]`) needs a comment explaining the
   constraint, or it should be a scale value.
+- **Custom components stay on brand.** When the design system genuinely lacks what you need,
+  build the new component from the system's primitives and tokens (colors, spacing, radii,
+  typography) and match the density and tone of the surrounding scene — PostHog's product UI is
+  dense, flat, and utilitarian. Do not fill the gap with the generic AI-generated look ("AI
+  slop"): purple/blue gradients and neon glows, gradient text, glassmorphism and blurred orbs,
+  oversized radii and decorative shadows, icon-tile-above-heading card grids, pill badges
+  floating over headings, and motion that isn't tied to a state change. The test: every styling
+  choice is traceable to a token or an existing PostHog pattern — if it isn't, it's a tell. Full
+  catalog: [references/anti-patterns.md](references/anti-patterns.md#the-ai-slop-component).
 - **Tailwind utilities over inline styles; components over repeated class strings.** A class
   string copy-pasted across three files is a component in disguise. SCSS is the fallback for
   what Tailwind can't express, namespaced BEM-style under the component's class (handbook rule).

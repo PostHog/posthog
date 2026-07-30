@@ -4,7 +4,7 @@ Applies to any change under `frontend/src`. This is a **discovery + cadence** gu
 
 ## Rule 1 — Reuse before you create
 
-**Before building any UI element, search for an existing one.** PostHog already has a badge, a label, a table, a tag, a card, a modal. Hand-rolling one with raw `<div>`/`<table>` + Tailwind is the single most common agent mistake here, and it produces unbounded, off-design output.
+**Before building any UI element, search for an existing one.** PostHog already has a badge, a label, a table, a tag, a card, a modal. Hand-rolling one with raw `<div>`/`<table>` + Tailwind is the single most common agent mistake here, and it produces unbounded, off-design output. Reuse is also how the product stays on-brand: Lemon/quill components carry PostHog's tokens, density, and interaction patterns, so a scene built from them looks like PostHog without anyone having to think about it.
 
 Where to look, in order:
 
@@ -24,7 +24,7 @@ Common reinventions and what to use instead:
 | a card / panel                       | `LemonCard`                                                                               |
 | a modal / confirm dialog             | `LemonModal` / `LemonDialog`                                                              |
 
-If nothing fits, say so and propose extending the existing component before adding a new one. Don't silently fork.
+If nothing fits, say so and propose extending the existing component before adding a new one. Don't silently fork. If you do end up building custom, stay on brand: system tokens and primitives only, matching the surrounding scene's density and flatness — and none of the generic AI-generated look (purple/blue gradients, glassmorphism, gradient text, icon-tile card grids, decorative motion). The full slop-tell catalog is in the `/writing-ui-components` skill.
 
 > LemonUI vs quill, and the quill spacing/composition rules, live in the root `AGENTS.md` ("Code Style → Frontend (quill …)") and `packages/quill/packages/primitives/AGENTS.md`. Follow those — don't mix quill and Lemon inside one component's internals.
 

@@ -162,6 +162,30 @@ value (aligning to an embedded iframe, a chart's fixed gutter), say so in a comm
 
 `prefers-reduced-motion` is an accessibility setting, not a preference to override.
 
+### The AI-slop component
+
+A custom component that fills a design-system gap with the statistical average of every
+Tailwind tutorial instead of PostHog's brand. The tells cluster:
+
+- **Color:** purple/blue gradients, cyan-on-dark, gradient text, neon glows, radial halo
+  backgrounds. PostHog's palette comes from tokens — if a color isn't a token, it isn't ours.
+- **Surfaces:** glassmorphism/`backdrop-blur` as decoration, blurred gradient orbs, cards
+  nested inside cards, a thick colored stripe down one side of a rounded card, hairline border
+  plus a wide soft shadow, corners rounded into blobs.
+- **Layout:** the icon-tile-above-heading three-card feature grid, pill badges floating above a
+  centered heading, big-number hero metrics with tiny labels, identical even spacing everywhere
+  (vary rhythm: tight within groups, generous between sections).
+- **Motion:** entrance animations and bounce easing for their own sake, pulsing status dots on
+  static data, hover-scale on images — motion that isn't tied to a state change.
+
+None of these are banned for being ugly; they're banned because nobody _decided_ them — they're
+what generated UI converges on without constraints. The fix is constraint, not taste: build
+from Lemon/quill primitives and design tokens, match the density and flatness of the
+surrounding scene (PostHog product UI is dense and utilitarian), and make every styling choice
+traceable to a token or an existing PostHog pattern. The copy equivalent — hype words, punchy
+antithesis, em-dash addiction — is already covered by
+[writing-user-facing-copy](../../writing-user-facing-copy/SKILL.md).
+
 ## Resolution states
 
 ### Empty state derived from unresolved data
