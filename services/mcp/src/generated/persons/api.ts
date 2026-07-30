@@ -169,7 +169,7 @@ export const PersonsDeletePropertyCreateQueryParams = /* @__PURE__ */ zod.object
 
 export const PersonsDeletePropertyCreateBody = /* @__PURE__ */ zod.object({
     $unset: zod
-        .union([zod.string(), zod.array(zod.string())])
+        .union([zod.string().min(1), zod.array(zod.string().min(1)).min(1)])
         .describe('A property key, or a list of property keys, to remove from this person.'),
 })
 

@@ -180,8 +180,8 @@ class PersonUpdatePropertyRequestSerializer(serializers.Serializer):
 @extend_schema_field(
     {
         "oneOf": [
-            {"type": "string"},
-            {"type": "array", "items": {"type": "string"}},
+            {"type": "string", "minLength": 1},
+            {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1},
         ]
     }
 )
