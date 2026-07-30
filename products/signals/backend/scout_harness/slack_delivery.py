@@ -109,7 +109,9 @@ def _post_scout_slack_reply(
             unfurl_links=False,
             unfurl_media=False,
         )
-    except SlackApiError:
+    except Exception:
+        # Swallow everything (not just SlackApiError): a transport-level failure here must never
+        # fail the task and retry the already-delivered parent message.
         logger.warning("scout_slack_followup_reply_failed", channel=channel_id, exc_info=True)
 
 

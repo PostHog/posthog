@@ -164,6 +164,24 @@ class TestScoutSlackDelivery(BaseTest):
         reply = fake_client.chat_postMessage.call_args_list[1].kwargs
         assert reply["thread_ts"] == "1785418710.000400"
 
+    def test_reply_transport_failure_does_not_fail_delivery(self) -> None:
+        # The parent message already landed, so a failing follow-up reply — even a non-SlackApiError
+        # transport error — must be swallowed rather than fail the task and retry the whole delivery.
+        emission = self._make_emission()
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.side_effect = [{"ts": "1785418710.000500"}, ConnectionError("boom")]
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            post_scout_emission_to_slack(
+                emission,
+                integration_id=integration.id,
+                channel="CSCOUTS|#scout-findings",
+            )
+
+        assert fake_client.chat_postMessage.call_count == 2
+
     def test_task_skips_report_suppressed_before_delivery(self) -> None:
         emission = self._make_emission()
         report = SignalReport.objects.create(
