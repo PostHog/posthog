@@ -95,6 +95,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.services.batch_audience import (
     PERSON_BATCH_SIZE as WORKFLOWS_PERSON_BATCH_SIZE,
     SUPPORTED_DEDUPE_KEYS,
@@ -1220,6 +1221,39 @@ class TeamEmailReputationResponseSerializer(serializers.Serializer):
             "Latest snapshot per workflow, worst state and highest rates first, capped at the worst 50 workflows."
         ),
     )
+    email_sending_suspended = serializers.BooleanField(
+        read_only=True,
+        help_text="True while workflow email sending is suspended for this project to protect deliverability.",
+    )
+    email_sending_suspended_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When email sending was suspended; null while sending is enabled.",
+    )
+    email_sending_suspension_reason = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text="Staff-authored reason shown to customers alongside the suspension notice; empty when not suspended.",
+    )
+
+
+class EmailSendingSuspensionStatusSerializer(serializers.Serializer):
+    """Cheap suspension-only read for the persistent scene-wide banner — no reputation computation."""
+
+    email_sending_suspended = serializers.BooleanField(
+        read_only=True,
+        help_text="True while workflow email sending is suspended for this project to protect deliverability.",
+    )
+    email_sending_suspended_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When email sending was suspended; null while sending is enabled.",
+    )
+    email_sending_suspension_reason = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text="Staff-authored reason shown to customers alongside the suspension notice; empty when not suspended.",
+    )
 
 
 class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -2010,6 +2044,7 @@ class HogFlowViewSet(
         "metrics_totals",
         "metrics_global",
         "team_reputation",
+        "email_sending_suspension",
         "user_blast_radius",
         "assets",
         "asset_content",
@@ -3285,13 +3320,61 @@ class HogFlowViewSet(
         )
         workflow_snapshots = workflow_snapshots[: self.WORKFLOW_REPUTATION_LIMIT]
 
+        # Shown to every project member regardless of per-object grants: a suspension stops
+        # everyone's email, so hiding it would just leave silent send failures unexplained.
+        suspension = (
+            TeamWorkflowsConfig.objects.filter(team_id=self.team_id)
+            .values("email_sending_suspended_at", "email_sending_suspension_reason")
+            .first()
+        )
+        suspended_at = suspension["email_sending_suspended_at"] if suspension else None
+        suspension_reason = suspension["email_sending_suspension_reason"] if suspension else ""
+
         return Response(
             TeamEmailReputationResponseSerializer(
                 {
                     "reputation": latest,
                     "workflows": workflow_snapshots,
+                    "email_sending_suspended": suspended_at is not None,
+                    "email_sending_suspended_at": suspended_at,
+                    "email_sending_suspension_reason": suspension_reason if suspended_at is not None else "",
                 },
                 context={"workflow_history": history_by_flow},
+            ).data
+        )
+
+    @extend_schema(
+        operation_id="hog_flows_email_sending_suspension_retrieve",
+        responses={200: EmailSendingSuspensionStatusSerializer},
+    )
+    @action(
+        detail=False,
+        methods=["GET"],
+        pagination_class=None,
+        filter_backends=[],
+        url_path="email_sending_suspension",
+    )
+    def email_sending_suspension(self, request: Request, **kwargs) -> Response:
+        """
+        Cheap read for the scene-wide suspension banner: single-row `TeamWorkflowsConfig` lookup
+        with no reputation computation. Every project member sees this — a suspension stops
+        everyone's email, so hiding it would leave silent send failures unexplained.
+        """
+        suspension = (
+            TeamWorkflowsConfig.objects.filter(team_id=self.team_id)
+            .values("email_sending_suspended_at", "email_sending_suspension_reason")
+            .first()
+        )
+        suspended_at = suspension["email_sending_suspended_at"] if suspension else None
+        return Response(
+            EmailSendingSuspensionStatusSerializer(
+                {
+                    "email_sending_suspended": suspended_at is not None,
+                    "email_sending_suspended_at": suspended_at,
+                    "email_sending_suspension_reason": (
+                        suspension["email_sending_suspension_reason"] if suspension and suspended_at is not None else ""
+                    ),
+                }
             ).data
         )
 

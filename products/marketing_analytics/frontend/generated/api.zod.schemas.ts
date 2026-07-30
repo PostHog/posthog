@@ -9,13 +9,25 @@
  */
 import { z as zod } from 'zod'
 
+export const ConversionGoalKindEnumApi = zod
+    .enum(['EventsNode', 'ActionsNode', 'DataWarehouseNode'])
+    .describe(
+        '\* `EventsNode` - EventsNode\n\* `ActionsNode` - ActionsNode\n\* `DataWarehouseNode` - DataWarehouseNode'
+    )
+
+export type ConversionGoalKindEnumApi = zod.input<typeof ConversionGoalKindEnumApi>
+export type ConversionGoalKindEnumApiOutput = zod.output<typeof ConversionGoalKindEnumApi>
+
 export const ConversionGoalSummaryApi = zod.object({
     id: zod.string().describe('Unique id of the goal (event name, action id, or DW goal id)'),
     name: zod.string().describe('Display name of the conversion goal'),
     kind: zod
-        .string()
+        .enum(['EventsNode', 'ActionsNode', 'DataWarehouseNode'])
         .describe(
-            'Goal type — one of: EventsNode (PostHog event), ActionsNode (PostHog action), DataWarehouseNode (external table)'
+            '\* `EventsNode` - EventsNode\n\* `ActionsNode` - ActionsNode\n\* `DataWarehouseNode` - DataWarehouseNode'
+        )
+        .describe(
+            'Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)\n\n\* `EventsNode` - EventsNode\n\* `ActionsNode` - ActionsNode\n\* `DataWarehouseNode` - DataWarehouseNode'
         ),
     target_label: zod.string().describe('Human-readable target the goal matches (event\/action name or table)'),
     last_30d_count: zod.number().describe('Count of matching conversion events in the last 30 days'),
@@ -61,9 +73,12 @@ export const ConversionGoalsListResponseApi = zod.object({
                 id: zod.string().describe('Unique id of the goal (event name, action id, or DW goal id)'),
                 name: zod.string().describe('Display name of the conversion goal'),
                 kind: zod
-                    .string()
+                    .enum(['EventsNode', 'ActionsNode', 'DataWarehouseNode'])
                     .describe(
-                        'Goal type — one of: EventsNode (PostHog event), ActionsNode (PostHog action), DataWarehouseNode (external table)'
+                        '\* `EventsNode` - EventsNode\n\* `ActionsNode` - ActionsNode\n\* `DataWarehouseNode` - DataWarehouseNode'
+                    )
+                    .describe(
+                        'Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)\n\n\* `EventsNode` - EventsNode\n\* `ActionsNode` - ActionsNode\n\* `DataWarehouseNode` - DataWarehouseNode'
                     ),
                 target_label: zod
                     .string()
@@ -545,9 +560,12 @@ export const MarketingDiagnosticResponseApi = zod.object({
                             id: zod.string().describe('Unique id of the goal (event name, action id, or DW goal id)'),
                             name: zod.string().describe('Display name of the conversion goal'),
                             kind: zod
-                                .string()
+                                .enum(['EventsNode', 'ActionsNode', 'DataWarehouseNode'])
                                 .describe(
-                                    'Goal type — one of: EventsNode (PostHog event), ActionsNode (PostHog action), DataWarehouseNode (external table)'
+                                    '\* `EventsNode` - EventsNode\n\* `ActionsNode` - ActionsNode\n\* `DataWarehouseNode` - DataWarehouseNode'
+                                )
+                                .describe(
+                                    'Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)\n\n\* `EventsNode` - EventsNode\n\* `ActionsNode` - ActionsNode\n\* `DataWarehouseNode` - DataWarehouseNode'
                                 ),
                             target_label: zod
                                 .string()
@@ -652,7 +670,14 @@ export type GoalEventSampleApiOutput = zod.output<typeof GoalEventSampleApi>
 export const GoalExplanationApi = zod.object({
     goal_id: zod.string().describe('Id of the explained conversion goal'),
     goal_name: zod.string().describe('Display name of the conversion goal'),
-    kind: zod.string().describe('EventsNode\/ActionsNode\/DataWarehouseNode'),
+    kind: zod
+        .enum(['EventsNode', 'ActionsNode', 'DataWarehouseNode'])
+        .describe(
+            '\* `EventsNode` - EventsNode\n\* `ActionsNode` - ActionsNode\n\* `DataWarehouseNode` - DataWarehouseNode'
+        )
+        .describe(
+            'Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)\n\n\* `EventsNode` - EventsNode\n\* `ActionsNode` - ActionsNode\n\* `DataWarehouseNode` - DataWarehouseNode'
+        ),
     period: zod
         .object({
             date_from: zod.string().nullable().describe('Start of the analyzed period (ISO)'),

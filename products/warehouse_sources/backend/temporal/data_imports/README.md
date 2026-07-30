@@ -34,7 +34,7 @@ If the table has no partitions, but it could be partitioned, then again just res
 
 ### Automated in-place repartitioning
 
-The manual flow above re-pulls every row from the source. We also have an automated path that repartitions the data **already in S3**, so it never re-extracts from the source and never materialises an oversized partition. It lives in `pipelines/pipeline/repartition.py` (the streaming rewrite + crash-safe swap), `pipelines/pipeline/repartition_controller.py` (size-aware detection + gating), and `workflow_activities/repartition_table.py` (the pre-extraction activity that runs it).
+The manual flow above re-pulls every row from the source. We also have an automated path that repartitions the data **already in S3**, so it never re-extracts from the source and never materialises an oversized partition. It lives in `pipelines/core/repartition.py` (the streaming rewrite + crash-safe swap), `pipelines/core/repartition_controller.py` (size-aware detection + gating), and `workflow_activities/repartition_table.py` (the pre-extraction activity that runs it).
 
 How it works:
 

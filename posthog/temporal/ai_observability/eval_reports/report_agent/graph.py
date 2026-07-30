@@ -269,7 +269,7 @@ def run_eval_report_agent(
 
     agent = create_react_agent(
         model=llm,
-        tools=get_eval_report_tools(evaluation_target),
+        tools=get_eval_report_tools(evaluation_target, output_type),
         prompt=system_prompt,
         state_schema=EvalReportAgentState,
     )

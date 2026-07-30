@@ -37,8 +37,10 @@ from products.signals.backend.models import (
     SignalScoutRun,
     SignalScratchpad,
 )
+from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY, stamp_derived_metadata
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, discover_canonical_skills
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
+from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.serializers import SignalScoutConfigUpdateSerializer
 from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM_PER_TICK
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
@@ -2139,3 +2141,101 @@ class TestScoutHarnessMembersAPI(APIBaseTest):
             _authenticate_as_scout(self, scopes=scopes)
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+class TestScoutRunDerivedMetadata(APIBaseTest):
+    def _stamp(self, run: SignalScoutRun) -> dict:
+        stamp_derived_metadata(run_id=run.id, team_id=self.team.id)
+        run.refresh_from_db()
+        return (run.metadata or {})[DERIVED_METADATA_KEY]
+
+    def _make_report(self, *, title: str = "A finding", charts: list | None = None) -> SignalReport:
+        return SignalReport.objects.create(team=self.team, title=title, charts=charts or [])
+
+    def test_stamp_preserves_runner_stamped_keys(self) -> None:
+        run = _make_run(self.team, metadata={"model": "some-model", "runtime_adapter": "some-adapter"})
+        self._stamp(run)
+        stamped = run.metadata or {}
+        assert stamped["model"] == "some-model"
+        assert stamped["runtime_adapter"] == "some-adapter"
+
+    def test_stamp_writes_every_flag_so_absent_means_never_finalized(self) -> None:
+        run = _make_run(self.team)
+        assert set(self._stamp(run)) == {
+            "has_emit_report",
+            "has_edit_report",
+            "has_self_improvement",
+            "has_chart",
+            "has_self_validation",
+        }
+
+    @parameterized.expand(
+        [
+            ("authored", True, True),
+            ("only_edited", False, False),
+        ]
+    )
+    def test_report_derived_flags_only_count_authored_reports(self, _name: str, authored: bool, expected: bool) -> None:
+        report = self._make_report(
+            title="Scout self-improvement: signals-scout-general – noisy rule",
+            charts=[{"chart_id": "c1", "title": "Trend", "query": "select 1"}],
+        )
+        ids = [str(report.id)]
+        run = _make_run(
+            self.team,
+            emitted_report_ids=ids if authored else [],
+            edited_report_ids=[] if authored else ids,
+        )
+        flags = self._stamp(run)
+        assert flags["has_self_improvement"] is expected
+        assert flags["has_chart"] is expected
+        assert flags["has_emit_report"] is authored
+        assert flags["has_edit_report"] is not authored
+
+    @parameterized.expand(
+        [
+            # An entry that predates the run and was written during it: the queue was worked.
+            ("worked_existing_entry", timedelta(hours=-2), timedelta(minutes=1), True),
+            ("existing_entry_untouched", timedelta(hours=-2), timedelta(hours=-1), False),
+            # An entry this run created is an ordinary investigation recording a future probe,
+            # not a validation pass. Both timestamps land inside the window, so only the
+            # created-before-the-run guard separates the two.
+            ("created_this_run", timedelta(minutes=1), timedelta(minutes=1), False),
+        ]
+    )
+    def test_self_validation_counts_only_writes_to_a_queue_that_already_existed(
+        self, _name: str, created_offset: timedelta, updated_offset: timedelta, expected: bool
+    ) -> None:
+        run = _make_run(self.team)
+        entry = SignalScratchpad.objects.create(
+            team=self.team,
+            key=f"{FOLLOWUP_KEY_PREFIX}{run.skill_name}:checkout-errors",
+            content="pending",
+        )
+        # Both columns are auto-managed, so a queryset update is the only way to place the row
+        # relative to the run window.
+        SignalScratchpad.all_teams.filter(pk=entry.pk).update(
+            created_at=run.created_at + created_offset, updated_at=run.created_at + updated_offset
+        )
+        assert self._stamp(run)["has_self_validation"] is expected
+
+    def test_sibling_skills_queue_does_not_count(self) -> None:
+        run = _make_run(self.team)
+        entry = SignalScratchpad.objects.create(
+            team=self.team,
+            key=f"{FOLLOWUP_KEY_PREFIX}signals-scout-experiments:checkout-errors",
+            content="pending",
+        )
+        SignalScratchpad.all_teams.filter(pk=entry.pk).update(created_at=run.created_at - timedelta(hours=2))
+        assert self._stamp(run)["has_self_validation"] is False
+
+    def test_derived_map_round_trips_as_an_object_not_a_string(self) -> None:
+        # Guards the serializer field: a `DictField(child=CharField())` coerces the nested map to
+        # its Python repr, which turns a queryable object into unparseable prose.
+        run = _make_run(self.team, metadata={"model": "some-model"})
+        self._stamp(run)
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/scout/runs/{run.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        metadata = response.json()["metadata"]
+        assert metadata["model"] == "some-model"
+        assert metadata[DERIVED_METADATA_KEY]["has_emit_report"] is False

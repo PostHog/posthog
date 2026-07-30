@@ -359,6 +359,12 @@ tools:
             deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is
             optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`).
         feature_flag: customer-analytics-csp
+    accounts-summaries-list:
+        operation: accounts_summaries_list
+        enabled: false
+    accounts-support-tickets-list:
+        operation: accounts_support_tickets_list
+        enabled: false
     accounts-update:
         operation: accounts_update
         enabled: false

@@ -210,80 +210,6 @@ def _row_team_id(row: dict) -> int | None:
         return None
 
 
-def configure_project_reader(
-    *, organization_id: UUID | str, team_id: int, table_suffix: str, password: str
-) -> dict[str, str]:
-    """Apply the project's read-only credential, creating its team row only when absent.
-
-    The org-team row is Duckgres-owned state that also drives external-writer discovery
-    (viaduck/millpond write targets) and may be hand-set (break-glass edits, legacy layouts).
-    An existing row is therefore never rewritten from this path; the derived naming below is
-    used only to create a row that does not exist yet.
-    """
-    row = _get_project_team_row(organization_id=organization_id, team_id=team_id)
-    if row is None:
-        team_response = _request(
-            "POST",
-            organization_id,
-            "/teams",
-            json_body={
-                "team_id": team_id,
-                "schema_name": f"team_{team_id}",
-                "enabled": True,
-                "events_table_name": f"events_{table_suffix}",
-                "persons_table_name": f"persons_{table_suffix}",
-                "schema_data_imports_name": f"posthog_data_imports_{table_suffix}",
-            },
-            require_enabled=False,
-        )
-        if not status.is_success(team_response.status_code):
-            raise RuntimeError("Failed to register the project's managed warehouse namespaces")
-    elif row.get("enabled") is not True:
-        # `enabled` is an operator-facing serving hold; do not silently lift it here.
-        raise RuntimeError("The project's managed warehouse team row is disabled")
-
-    credential_response = _request(
-        "PUT",
-        organization_id,
-        f"/teams/{team_id}/project-reader",
-        json_body={"password": password},
-        require_enabled=False,
-    )
-    if not status.is_success(credential_response.status_code) or not isinstance(credential_response.data, dict):
-        raise RuntimeError("Failed to create the project's managed warehouse reader")
-    username = credential_response.data.get("username")
-    response_password = credential_response.data.get("password")
-    if not isinstance(username, str) or not username or not isinstance(response_password, str) or not response_password:
-        raise RuntimeError("Managed warehouse reader response did not include credentials")
-    return {"username": username, "password": response_password}
-
-
-def project_reader_namespaces(
-    *, organization_id: UUID | str, team_id: int
-) -> tuple[set[str], set[tuple[str, str]]] | None:
-    """Return the (whole schemas, legacy posthog-schema tables) the project's reader may see.
-
-    Mirrors the Duckgres policy derivation from the org-team row: the reader is granted the row's
-    schema_name, its data-imports schema (override or `<schema>_data_imports`), the modeled-data
-    schema, and `posthog.<override>` for each non-NULL legacy events/persons override — including
-    overrides that spell the derived default name. None means no enabled row exists (fail closed).
-    """
-    row = _get_project_team_row(organization_id=organization_id, team_id=team_id)
-    if row is None or row.get("enabled") is not True:
-        return None
-    schema_name = str(row.get("schema_name") or "")
-    if not schema_name:
-        return None
-    imports_schema = str(row.get("schema_data_imports_name") or "") or f"{schema_name}_data_imports"
-    schemas = {schema_name, imports_schema, f"shadow_{team_id}_models"}
-    relations: set[tuple[str, str]] = set()
-    for override_field in ("events_table_name", "persons_table_name"):
-        override = row.get(override_field)
-        if isinstance(override, str) and override:
-            relations.add(("posthog", override))
-    return schemas, relations
-
-
 def _block_if_pending_deletion(organization_id: UUID | str) -> Response | None:
     """Refuse warehouse-creating calls for an organization whose deletion is underway.
 
@@ -347,7 +273,7 @@ def provision(
     if status.is_success(resp.status_code) and isinstance(resp.data, dict):
         _persist_duckgres_server(organization_id, database_name, resp.data)
         # Complete the row BEFORE registering the team: registration kicks off the
-        # SQL-editor reader handshake, whose namespace grants derive from this row.
+        # SQL-editor query-source setup and discovery against this row's warehouse.
         _complete_provisioning_team_row(organization_id, team_id, schema_name, require_enabled=require_enabled)
         _register_provisioning_team(organization_id, team_id)
         # The bucket is internal infra detail, persisted above and consumed by the
@@ -362,8 +288,8 @@ def _complete_provisioning_team_row(
 ) -> None:
     """Pin the first team's legacy table names onto the row duckgres just created.
 
-    The provision body cannot carry them, and without them the team's SQL-editor reader is
-    granted only the derived schemas no data lands in yet (see onboard_team). Best-effort:
+    The provision body cannot carry them, so without this step the row describes the derived
+    layout no data lands in yet (see onboard_team). Best-effort:
     the warehouse is already provisioned, so a transient failure must not fail the provision —
     re-running onboarding completes the row later.
     """
@@ -427,11 +353,11 @@ def _register_provisioning_team(organization_id: UUID | str, team_id: int) -> No
 
 
 def _ensure_direct_source(team_id: int, organization_id: UUID | str) -> None:
-    """Best-effort: register the org's managed warehouse as the team's restricted query connection.
+    """Best-effort: register the org's managed warehouse as the team's query connection.
 
     A managed warehouse speaks the Postgres wire protocol, so each member team gets an
-    ExternalDataSource pointed at the org server. Duckgres scopes its credential to the
-    project and enforces read-only SQL. A failure here must never block onboarding.
+    ExternalDataSource pointed at the org server and authenticated with its org root
+    credential. A failure here must never block onboarding.
     """
     try:
         # Keep the data_warehouse/warehouse_sources stack off this adapter's import path.
@@ -657,9 +583,9 @@ def onboard_team(
     else:
         # Pin the legacy table names the duckling DAG writes today (posthog.events_<suffix>,
         # posthog_data_imports_<suffix>): the suffix for a newly onboarded team IS its schema
-        # name. A row without them describes the derived layout no data lands in yet, which
-        # grants the project's SQL-editor reader nothing (the EU placeholder-row bug). Drop
-        # this once the duckling DAG writes the derived <schema_name>.events layout for real.
+        # name. A row without them describes the derived layout no data lands in yet (the EU
+        # placeholder-row bug). Drop this once the duckling DAG writes the derived
+        # <schema_name>.events layout for real.
         legacy = _legacy_table_fields(schema_name)
         resp = create_team(
             organization_id,
