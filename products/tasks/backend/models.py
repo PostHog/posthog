@@ -655,8 +655,9 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         if ai_stage:
             extra_state["ai_stage"] = ai_stage
 
-        # Same channel as `ai_stage`, lifted as `$ai_session_id` — groups the run's generations
-        # under the caller's logical operation (e.g. one ReviewHog review turn) in LLM analytics.
+        # Same channel as `ai_stage`, transported unreserved ($-keys are stripped at gateway
+        # header boundaries) and promoted to the native `$ai_session_id` by the LLM gateway —
+        # groups the run's generations under the caller's logical operation in LLM analytics.
         if ai_session_id:
             extra_state["ai_session_id"] = ai_session_id
 

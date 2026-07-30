@@ -70,7 +70,7 @@ async def run_oneshot_review(
                     "x-posthog-property-ai_stage": step_name,
                     # Same key the sandbox path stamps via the agent-server, so the one-shot
                     # groups with its turn's generations in LLM analytics.
-                    **({"x-posthog-property-$ai_session_id": ai_session_id} if ai_session_id else {}),
+                    **({"x-posthog-property-ai_session_id": ai_session_id} if ai_session_id else {}),
                 },
                 timeout=_TIMEOUT_SECONDS,
             )

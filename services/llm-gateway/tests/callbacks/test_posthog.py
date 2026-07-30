@@ -161,6 +161,33 @@ class TestPostHogCallback:
             assert props["$ai_effort"] == expected
 
     @pytest.mark.asyncio
+    async def test_on_success_promotes_ai_session_id(
+        self,
+        callback: PostHogCallback,
+        auth_user: AuthenticatedUser,
+        standard_logging_object: dict,
+        mock_posthog_client: tuple,
+    ) -> None:
+        # Callers transport the session key unreserved (the ai-gateway strips $-keys at its
+        # header boundary); losing this promotion silently breaks session grouping in LLM analytics.
+        _, mock_client = mock_posthog_client
+        kwargs = {"standard_logging_object": standard_logging_object, "litellm_params": {}}
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="posthog_code"),
+            patch(
+                "llm_gateway.callbacks.posthog.get_posthog_properties",
+                return_value={"ai_session_id": "report-1:r2"},
+            ),
+        ):
+            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+        props = mock_client.capture.call_args.kwargs["properties"]
+        assert props["$ai_session_id"] == "report-1:r2"
+        assert props["ai_session_id"] == "report-1:r2"
+
+    @pytest.mark.asyncio
     async def test_on_success_header_team_id_overrides_auth_user_team(
         self,
         callback: PostHogCallback,

@@ -255,6 +255,12 @@ class PostHogCallback(InstrumentedCallback):
             for key, value in posthog_properties.items():
                 properties[key] = value
 
+        # Reserved $-keys can't travel from callers (the ai-gateway strips them at its header
+        # boundary), so the session key arrives as `ai_session_id` and is promoted to the native
+        # `$ai_session_id` here, where the event's properties are final.
+        if properties.get("ai_session_id") and not properties.get("$ai_session_id"):
+            properties["$ai_session_id"] = properties["ai_session_id"]
+
         posthog_flags = get_posthog_flags() or {}
         if isinstance(posthog_flags, dict):
             for flag_key, variant in posthog_flags.items():
@@ -342,6 +348,12 @@ class PostHogCallback(InstrumentedCallback):
         if isinstance(posthog_properties, dict):
             for key, value in posthog_properties.items():
                 properties[key] = value
+
+        # Reserved $-keys can't travel from callers (the ai-gateway strips them at its header
+        # boundary), so the session key arrives as `ai_session_id` and is promoted to the native
+        # `$ai_session_id` here, where the event's properties are final.
+        if properties.get("ai_session_id") and not properties.get("$ai_session_id"):
+            properties["$ai_session_id"] = properties["ai_session_id"]
 
         posthog_flags = get_posthog_flags() or {}
         if isinstance(posthog_flags, dict):
