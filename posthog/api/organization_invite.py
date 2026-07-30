@@ -319,6 +319,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             ).count(),
             is_bulk=self.context.get("bulk_create", False),
             email_available=is_email_available(with_absolute_urls=True),
+            level=invite.level,
             current_url=self.context.get("current_url"),
             session_id=self.context.get("session_id"),
         )
@@ -692,6 +693,7 @@ class OrganizationInviteViewSet(
             current_invite_count=organization.active_invites.count(),
             current_member_count=organization.memberships.count(),
             email_available=is_email_available(),
+            levels=[invite["level"] for invite in serializer.validated_data if invite.get("level") is not None],
             current_url=current_url,
             session_id=session_id,
         )

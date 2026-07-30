@@ -17,10 +17,9 @@ export const OnboardingInviteTeammates: OnboardingStepComponentType = () => {
     const { preflight } = useValues(preflightLogic)
     const { productKey } = useValues(onboardingLogic)
     const { inviteTeamMembers } = useActions(inviteLogic)
-    const { invitesToSend, canSubmit: canSubmitInvites, inviteContainsOwnerLevel, invites } = useValues(inviteLogic)
+    const { invitesToSend, canSubmit: canSubmitInvites, submitDisabledReason, invites } = useValues(inviteLogic)
 
     const hasFilledEmail = invitesToSend.some(({ target_email }) => !!target_email)
-    const hasInvalidEmail = invitesToSend.some(({ isValid }) => !isValid)
     const emailServiceAvailable = !!preflight?.email_service_available
 
     // The continue button is the gate that sends pending invites when email service is available.
@@ -28,15 +27,7 @@ export const OnboardingInviteTeammates: OnboardingStepComponentType = () => {
     // advances. We only block Continue when the user has entered something that we can't submit —
     // otherwise the click was a silent no-op.
     const continueDisabledReason: string | undefined =
-        emailServiceAvailable && hasFilledEmail
-            ? hasInvalidEmail
-                ? 'Please enter a valid email address'
-                : inviteContainsOwnerLevel && !canSubmitInvites
-                  ? 'Type "send invites" to confirm owner-level invites'
-                  : !canSubmitInvites
-                    ? 'Please fill out all fields'
-                    : undefined
-            : undefined
+        emailServiceAvailable && hasFilledEmail ? (submitDisabledReason ?? undefined) : undefined
 
     const titlePrefix = (): string => {
         switch (productKey) {

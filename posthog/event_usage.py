@@ -14,7 +14,7 @@ from opentelemetry import trace
 from rest_framework.authentication import SessionAuthentication
 
 from posthog.clickhouse.query_tagging import get_query_tag_value
-from posthog.models import Organization, User
+from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.team import Team
 from posthog.settings import SITE_URL
@@ -174,6 +174,7 @@ def report_team_member_invited(
     current_member_count: int,
     is_bulk: bool,
     email_available: bool,
+    level: Optional[int] = None,
     current_url: Optional[str] = None,
     session_id: Optional[str] = None,
 ) -> None:
@@ -183,6 +184,7 @@ def report_team_member_invited(
     """
 
     properties = {
+        "level": OrganizationMembership.Level(level).label if level is not None else None,
         "name_provided": name_provided,
         "current_invite_count": current_invite_count,  # number of invites including this one
         "current_member_count": current_member_count,
@@ -221,6 +223,7 @@ def report_bulk_invited(
     current_invite_count: int,
     current_member_count: int,
     email_available: bool,
+    levels: Optional[list[int]] = None,
     current_url: Optional[str] = None,
     session_id: Optional[str] = None,
 ) -> None:
@@ -230,10 +233,14 @@ def report_bulk_invited(
     if not user.distinct_id:
         return
 
+    level_labels = [OrganizationMembership.Level(level).label for level in levels or []]
+
     posthoganalytics.capture(
         distinct_id=user.distinct_id,
         event="bulk invite executed",
         properties={
+            "levels": level_labels,
+            "contains_owner_level": OrganizationMembership.Level.OWNER.label in level_labels,
             "invitee_count": invitee_count,
             "name_count": name_count,
             "current_invite_count": current_invite_count,  # number of invites including this set

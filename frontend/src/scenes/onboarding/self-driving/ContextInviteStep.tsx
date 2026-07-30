@@ -16,20 +16,11 @@ import { InviteTeamMatesComponent } from 'scenes/settings/organization/InviteMod
  */
 export function ContextInviteStep(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { invitesToSend, canSubmit, isInviting, inviteContainsOwnerLevel } = useValues(inviteLogic)
+    const { invitesToSend, submitDisabledReason, isInviting } = useValues(inviteLogic)
     const { inviteTeamMembers } = useActions(inviteLogic)
 
     const emailServiceAvailable = !!preflight?.email_service_available
     const hasFilledEmail = invitesToSend.some(({ target_email }) => !!target_email)
-    const hasInvalidEmail = invitesToSend.some(({ isValid }) => !isValid)
-
-    const sendDisabledReason = hasInvalidEmail
-        ? 'Enter a valid email address'
-        : inviteContainsOwnerLevel && !canSubmit
-          ? 'Type "send invites" to confirm inviting owners'
-          : !canSubmit
-            ? 'Fill out all fields first'
-            : undefined
 
     return (
         <div className="flex flex-col gap-4">
@@ -50,7 +41,9 @@ export function ContextInviteStep(): JSX.Element {
                         icon={<IconCheckCircle />}
                         onClick={() => inviteTeamMembers()}
                         loading={isInviting}
-                        disabledReason={!hasFilledEmail ? 'Add a teammate to invite' : sendDisabledReason}
+                        disabledReason={
+                            !hasFilledEmail ? 'Add a teammate to invite' : (submitDisabledReason ?? undefined)
+                        }
                         data-attr="context-onboarding-send-invites"
                     >
                         Send invites

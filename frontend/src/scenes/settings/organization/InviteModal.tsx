@@ -20,7 +20,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlLevel, AvailableFeature } from '~/types'
 
-import { inviteLogic } from './inviteLogic'
+import { INVITE_CONFIRMATION, inviteLogic } from './inviteLogic'
 
 /** Shuffled placeholder names */
 const PLACEHOLDER_NAMES: string[] = [...Array(10).fill('Jane'), ...Array(10).fill('John'), 'Sonic'].sort(
@@ -236,6 +236,9 @@ export function InviteRow({
                         autoFocus={index === 0}
                         data-attr="invite-email-input"
                     />
+                    {!invitesToSend[index]?.isValid && (
+                        <div className="text-danger text-xs mt-1">This doesn't look like a valid email address</div>
+                    )}
                 </div>
                 {preflight?.email_service_available && (
                     <div className="flex-1 flex gap-1 items-center justify-between">
@@ -296,14 +299,48 @@ export function InviteRow({
     )
 }
 
+/**
+ * Confirmation gate for owner-level invites. Rendered next to the submit action rather than at the
+ * bottom of the invite list, so it can't end up below the fold while the submit button stays visible.
+ */
+export function OwnerInviteConfirmation(): JSX.Element | null {
+    const { inviteContainsOwnerLevel, inviteConfirmationText, isInviteConfirmed } = useValues(inviteLogic)
+    const { setInviteConfirmationText } = useActions(inviteLogic)
+
+    if (!inviteContainsOwnerLevel) {
+        return null
+    }
+
+    return (
+        <div className="w-full whitespace-normal">
+            <b>Confirm owner-level invites</b>
+            <div className="mb-2">
+                At least one invite is for an owner, who will have full control of this organization. Type{' '}
+                <strong>{INVITE_CONFIRMATION}</strong> to confirm.
+            </div>
+            <LemonInput
+                type="text"
+                placeholder={INVITE_CONFIRMATION}
+                value={inviteConfirmationText}
+                status={inviteConfirmationText && !isInviteConfirmed ? 'danger' : undefined}
+                onChange={setInviteConfirmationText}
+                data-attr="invite-owner-confirmation"
+            />
+        </div>
+    )
+}
+
 export function InviteTeamMatesComponent({
     hideProjectAccessSelector = false,
+    hideOwnerConfirmation = false,
 }: {
     hideProjectAccessSelector?: boolean
+    /** Set when the caller renders `OwnerInviteConfirmation` itself, next to its own submit action. */
+    hideOwnerConfirmation?: boolean
 }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { invitesToSend, inviteContainsOwnerLevel } = useValues(inviteLogic)
-    const { appendInviteRow, updateMessage, setIsInviteConfirmed } = useActions(inviteLogic)
+    const { invitesToSend } = useValues(inviteLogic)
+    const { appendInviteRow, updateMessage } = useActions(inviteLogic)
 
     const areInvitesCreatable = invitesToSend.length + 1 < MAX_INVITES_AT_ONCE
     const areInvitesDeletable = invitesToSend.length > 1
@@ -368,21 +405,9 @@ export function InviteTeamMatesComponent({
                 </div>
             )}
 
-            {inviteContainsOwnerLevel && (
+            {!hideOwnerConfirmation && (
                 <div className="mt-4">
-                    <b>Confirm owner-level invites</b>
-
-                    <div className="mb-2">
-                        At least one invite is for an owner level member. Please type <strong>send invites</strong> to
-                        confirm that you wish to send these invites.
-                    </div>
-                    <LemonInput
-                        type="text"
-                        placeholder="send invites"
-                        onChange={(value) => {
-                            setIsInviteConfirmed(value.toLowerCase() === 'send invites')
-                        }}
-                    />
+                    <OwnerInviteConfirmation />
                 </div>
             )}
         </>
@@ -393,7 +418,7 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
-    const { invitesToSend, canSubmit, isInviting } = useValues(inviteLogic)
+    const { invitesToSend, submitDisabledReason, isInviting } = useValues(inviteLogic)
     const { resetInviteRows, inviteTeamMembers } = useActions(inviteLogic)
 
     const validInvitesCount = invitesToSend.filter((invite) => invite.isValid && invite.target_email).length
@@ -445,6 +470,7 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                             </LemonButton>
                         ) : (
                             <>
+                                <OwnerInviteConfirmation />
                                 <LemonButton
                                     onClick={() => {
                                         resetInviteRows()
@@ -462,9 +488,7 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                                     disabledReason={
                                         userCannotInvite
                                             ? "You don't have permissions to invite others."
-                                            : !canSubmit
-                                              ? 'Please fill out all fields'
-                                              : undefined
+                                            : (submitDisabledReason ?? undefined)
                                     }
                                     data-attr="invite-team-member-submit"
                                 >
@@ -477,7 +501,9 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                     </>
                 }
             >
-                <InviteTeamMatesComponent />
+                {/* The owner confirmation lives in the footer, next to the submit button, so it can't
+                    scroll out of view while the button it unblocks stays pinned. */}
+                <InviteTeamMatesComponent hideOwnerConfirmation={!!preflight?.email_service_available} />
             </LemonModal>
         </div>
     )
