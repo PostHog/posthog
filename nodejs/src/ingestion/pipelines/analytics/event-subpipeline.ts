@@ -5,6 +5,7 @@ import { HogTransformer } from '~/common/hog-transformations/hog-transformer.int
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { TeamManager } from '~/common/utils/team-manager'
+import { ExperimentExposureService } from '~/ingestion/common/experiment-exposure/experiment-exposure-service'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
 import { WithMergeFoldDecision } from '~/ingestion/common/persons/person-merge-fold'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
@@ -63,6 +64,7 @@ export interface EventSubpipelineConfig {
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformer
     topHog: TopHogWrapper
+    experimentExposureService?: ExperimentExposureService
 }
 
 // The WithMergeFoldDecision constraint (not a field on EventSubpipelineInput) is deliberate: the
@@ -72,7 +74,8 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput & Wi
     builder: StartPipelineBuilder<TInput, TContext>,
     config: EventSubpipelineConfig
 ): PipelineBuilder<TInput, EmitEventStepOutput, TContext, AsyncOutput> {
-    const { options, outputs, teamManager, groupTypeManager, hogTransformer, topHog } = config
+    const { options, outputs, teamManager, groupTypeManager, hogTransformer, topHog, experimentExposureService } =
+        config
 
     return builder
         .pipe(createNormalizeProcessPersonFlagStep())
@@ -150,7 +153,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput & Wi
             ]),
             { retry: { tries: 5, sleepMs: 100, name: 'process_groups' } }
         )
-        .pipe(createCreateEventStep(EVENTS_OUTPUT))
+        .pipe(createCreateEventStep(EVENTS_OUTPUT, experimentExposureService))
         .pipe(
             topHog(
                 createEmitEventStep({

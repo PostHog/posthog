@@ -53,6 +53,10 @@ import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginS
 
 import { EventFilterManager, EventFilterManagerComponent } from './common/event-filters'
 import {
+    ExperimentExposureService,
+    createExperimentExposureService,
+} from './common/experiment-exposure/experiment-exposure-service'
+import {
     FeatureFlagCalledDedupService,
     createFeatureFlagCalledDedupService,
 } from './common/feature-flag-called-dedup/feature-flag-called-dedup-service'
@@ -123,6 +127,7 @@ export class IngestionConsumer {
     private overflowRedirectService?: OverflowRedirectService
     private overflowLaneTTLRefreshService?: OverflowRedirectService
     private featureFlagCalledDedupService?: FeatureFlagCalledDedupService
+    private experimentExposureService?: ExperimentExposureService
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
@@ -212,6 +217,8 @@ export class IngestionConsumer {
             this.deps.featureFlagCalledDedupRedisPool ?? this.deps.redisPool,
             this.config
         )
+
+        this.experimentExposureService = createExperimentExposureService(this.config)
 
         this.hogTransformer = deps.hogTransformer
 
@@ -309,6 +316,7 @@ export class IngestionConsumer {
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
             featureFlagCalledDedupService: this.featureFlagCalledDedupService,
+            experimentExposureService: this.experimentExposureService,
             teamManager: this.deps.teamManager,
             cookielessManager: this.deps.cookielessManager,
             groupTypeManager: this.deps.groupTypeManager,

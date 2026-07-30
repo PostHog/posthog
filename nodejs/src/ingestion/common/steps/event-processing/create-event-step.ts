@@ -1,5 +1,7 @@
 import { Message } from 'node-rdkafka'
 
+import { applyExperimentExposure } from '~/ingestion/common/experiment-exposure/apply-experiment-exposure'
+import { ExperimentExposureService } from '~/ingestion/common/experiment-exposure/experiment-exposure-service'
 import { createEvent } from '~/ingestion/common/steps/event-processing/create-event'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
@@ -24,15 +26,26 @@ export interface CreateEventStepResult<O extends string> {
 }
 
 export function createCreateEventStep<O extends string, T extends CreateEventStepInput>(
-    output: O
+    output: O,
+    experimentExposureService?: ExperimentExposureService
 ): ProcessingStep<T, CreateEventStepResult<O>> {
     return function createEventStep(input) {
         const { person, preparedEvent, processPerson, historicalMigration, headers, message } = input
 
         const capturedAt = headers.now ?? null
         const rawEvent = createEvent(preparedEvent, person, processPerson, historicalMigration, capturedAt)
+        const eventsToEmit: EventToEmit<O>[] = [{ event: rawEvent, output }]
+
+        // Runs here rather than earlier in the pipeline so the exposure inherits
+        // the fully processed row, including person properties and person mode,
+        // and is emitted through the same produce loop.
+        const exposure = applyExperimentExposure(rawEvent, experimentExposureService)
+        if (exposure) {
+            eventsToEmit.push({ event: exposure, output })
+        }
+
         const result: CreateEventStepResult<O> = {
-            eventsToEmit: [{ event: rawEvent, output }],
+            eventsToEmit,
             teamId: preparedEvent.teamId,
             headers,
             message,

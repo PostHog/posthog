@@ -214,6 +214,13 @@ export type IngestionConsumerConfig = {
     /** Claim TTL: the keep-first dedup window */
     INGESTION_FEATURE_FLAG_CALLED_DEDUP_TTL_SECONDS: number
     /** Dedicated Redis host for dedup claims; empty reuses the ingestion Redis */
+    /** 'disabled' | 'metrics' (classify + count only) | 'enabled' (also write $experiment_exposure) */
+    INGESTION_EXPERIMENT_EXPOSURE_MODE: string
+    /** Teams that get real duplicate events in 'enabled' mode: '*' for all, or comma-separated team IDs */
+    INGESTION_EXPERIMENT_EXPOSURE_TEAMS: string
+    /** Comma-separated team IDs that never get duplicates, even when TEAMS is '*' */
+    INGESTION_EXPERIMENT_EXPOSURE_EXCLUDED_TEAMS: string
+
     INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_HOST: string
     INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_PORT: number
 
@@ -347,6 +354,9 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
 
         INGESTION_FEATURE_FLAG_CALLED_DEDUP_EXCLUDED_TEAMS: '',
         INGESTION_FEATURE_FLAG_CALLED_DEDUP_TTL_SECONDS: 60 * 60,
+        INGESTION_EXPERIMENT_EXPOSURE_MODE: 'disabled',
+        INGESTION_EXPERIMENT_EXPOSURE_TEAMS: '',
+        INGESTION_EXPERIMENT_EXPOSURE_EXCLUDED_TEAMS: '',
         INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_HOST: '',
         INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_PORT: 6379,
 

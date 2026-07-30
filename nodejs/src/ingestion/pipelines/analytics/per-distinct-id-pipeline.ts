@@ -5,6 +5,7 @@ import { HogTransformer } from '~/common/hog-transformations/hog-transformer.int
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { TeamManager } from '~/common/utils/team-manager'
+import { ExperimentExposureService } from '~/ingestion/common/experiment-exposure/experiment-exposure-service'
 import { WithMergeFoldDecision } from '~/ingestion/common/persons/person-merge-fold'
 import { EmitEventStepOutput } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '~/ingestion/common/steps/event-processing/event-pipeline-options'
@@ -42,6 +43,7 @@ export interface PerDistinctIdPipelineConfig {
     aiSubpipelineFactory: AiEventSubpipelineFactory
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
+    experimentExposureService?: ExperimentExposureService
     hogTransformer: HogTransformer
     topHog: TopHogWrapper
 }

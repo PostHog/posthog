@@ -11,6 +11,7 @@ import { TeamManager } from '~/common/utils/team-manager'
 import { newCommonIngestionPipeline } from '~/ingestion/common/common-ingestion-pipeline'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManager } from '~/ingestion/common/event-filters'
+import { ExperimentExposureService } from '~/ingestion/common/experiment-exposure/experiment-exposure-service'
 import { FeatureFlagCalledDedupService } from '~/ingestion/common/feature-flag-called-dedup/feature-flag-called-dedup-service'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
 import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
@@ -98,6 +99,7 @@ export interface JoinedIngestionPipelineDeps {
     overflowRedirectService?: OverflowRedirectService
     overflowLaneTTLRefreshService?: OverflowRedirectService
     featureFlagCalledDedupService?: FeatureFlagCalledDedupService
+    experimentExposureService?: ExperimentExposureService
     teamManager: TeamManager
     cookielessManager: CookielessManager
     groupTypeManager: GroupTypeManager
@@ -145,6 +147,7 @@ export function createJoinedIngestionPipeline<
         overflowRedirectService,
         overflowLaneTTLRefreshService,
         featureFlagCalledDedupService,
+        experimentExposureService,
         teamManager,
         cookielessManager,
         groupTypeManager,
@@ -180,6 +183,7 @@ export function createJoinedIngestionPipeline<
         groupTypeManager,
         hogTransformer,
         topHog: topHogWrapper,
+        experimentExposureService,
     }
 
     const mergeFoldPlanningStep = createMergeFoldPlanningStep<PerDistinctIdPipelineInput>(perDistinctIdOptions)
