@@ -49,11 +49,11 @@
             },
             "required": ["name", "url"]
         },
-        "ConversationsResponseTargetsGetSchema": {
+        "ConversationsTicketGroupsGetSchema": {
             "type": "object",
             "properties": {}
         },
-        "ConversationsResponseTargetsUpdateSchema": {
+        "ConversationsTicketGroupsUpdateSchema": {
             "type": "object",
             "properties": {
                 "groups": {
@@ -71,25 +71,146 @@
                                         "maxLength": 100,
                                         "description": "Display name for the group, e.g. \"Enterprise\". Must be unique across groups."
                                     },
-                                    "tags": {
-                                        "maxItems": 100,
+                                    "filters": {
+                                        "maxItems": 10,
                                         "type": "array",
                                         "items": {
-                                            "type": "string",
-                                            "minLength": 1,
-                                            "maxLength": 200
+                                            "anyOf": [
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "type": {
+                                                            "type": "string",
+                                                            "const": "ticket_tags"
+                                                        },
+                                                        "operator": {
+                                                            "type": "string",
+                                                            "const": "any_of"
+                                                        },
+                                                        "value": {
+                                                            "minItems": 1,
+                                                            "maxItems": 100,
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "string",
+                                                                "minLength": 1,
+                                                                "maxLength": 200
+                                                            },
+                                                            "description": "Tag names — matches tickets carrying ANY of these tags. Matching is exact (no prefixes)."
+                                                        }
+                                                    },
+                                                    "required": ["type", "operator", "value"]
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "type": {
+                                                            "type": "string",
+                                                            "const": "ticket_property"
+                                                        },
+                                                        "key": {
+                                                            "type": "string",
+                                                            "enum": ["channel_source", "status", "priority"],
+                                                            "description": "channel_source: widget/email/slack/teams/github. status: new/open/pending/on_hold/resolved. priority: low/medium/high/critical."
+                                                        },
+                                                        "operator": {
+                                                            "type": "string",
+                                                            "const": "in"
+                                                        },
+                                                        "value": {
+                                                            "minItems": 1,
+                                                            "maxItems": 100,
+                                                            "type": "array",
+                                                            "items": {
+                                                                "type": "string",
+                                                                "minLength": 1,
+                                                                "maxLength": 200
+                                                            },
+                                                            "description": "Matches tickets whose property is ANY of these."
+                                                        }
+                                                    },
+                                                    "required": ["type", "key", "operator", "value"]
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "type": {
+                                                            "type": "string",
+                                                            "const": "ticket_property"
+                                                        },
+                                                        "key": {
+                                                            "type": "string",
+                                                            "const": "email_from"
+                                                        },
+                                                        "operator": {
+                                                            "type": "string",
+                                                            "const": "icontains"
+                                                        },
+                                                        "value": {
+                                                            "type": "string",
+                                                            "minLength": 1,
+                                                            "maxLength": 200,
+                                                            "description": "Case-insensitive substring of the sender, e.g. \"@bigcorp.com\"."
+                                                        }
+                                                    },
+                                                    "required": ["type", "key", "operator", "value"]
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "type": {
+                                                            "type": "string",
+                                                            "const": "ticket_property"
+                                                        },
+                                                        "key": {
+                                                            "type": "string",
+                                                            "const": "sla_due_at"
+                                                        },
+                                                        "operator": {
+                                                            "type": "string",
+                                                            "enum": ["is_set", "is_not_set"],
+                                                            "description": "Whether the ticket has an SLA deadline. No value field."
+                                                        }
+                                                    },
+                                                    "required": ["type", "key", "operator"],
+                                                    "additionalProperties": false
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "type": {
+                                                            "type": "string",
+                                                            "const": "ticket_property"
+                                                        },
+                                                        "key": {
+                                                            "type": "string",
+                                                            "const": "created_at"
+                                                        },
+                                                        "operator": {
+                                                            "type": "string",
+                                                            "enum": ["date_before", "date_after"]
+                                                        },
+                                                        "value": {
+                                                            "type": "string",
+                                                            "minLength": 1,
+                                                            "description": "Either a relative date \"-N<unit>\" — units h/d/w/m/y, N 1..1000, optional case-sensitive Start/End suffix (e.g. \"-3d\" = rolling: now minus 3 days, \"-1mStart\" = start of last month) — or a strict ISO datetime like \"2026-07-01\" or \"2026-07-01T12:00:00Z\". Relative values resolve at query time."
+                                                        }
+                                                    },
+                                                    "required": ["type", "key", "operator", "value"]
+                                                }
+                                            ]
                                         },
-                                        "description": "Ticket tags that map a ticket into this group. Matching is exact (no prefixes or substrings), a tag may appear in only one group, and the list may be empty (a placeholder tier)."
+                                        "description": "A ticket matches this group only when ALL of these filters match (AND). An empty list matches nothing — a placeholder while configuring."
                                     }
                                 },
-                                "required": ["label", "tags"]
+                                "required": ["label", "filters"]
                             }
                         },
                         {
                             "type": "null"
                         }
                     ],
-                    "description": "The complete ordered ladder, highest priority first — this REPLACES the saved list, so include every group you want to keep (read the current ladder with the conversations-response-targets-get tool first). Tickets whose tags match no group rank with the FIRST group. Pass null to reset the team to the built-in example groups."
+                    "description": "The complete ordered list of groups, highest priority first — this REPLACES the saved list, so include every group you want to keep (read the current groups with the conversations-ticket-groups-get tool first). A ticket takes the FIRST group whose filters all match, so groups may overlap (the earlier group wins). Tickets matching no group rank with the FIRST group. Pass null to reset the team to the built-in example groups."
                 },
                 "confirm": {
                     "description": "Omitted/false returns a preview without saving. Re-run with true to save.",

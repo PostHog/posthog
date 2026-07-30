@@ -805,34 +805,88 @@ export const EmailTemplateDesignPatchSchema = z.object({
         ),
 })
 
-const ResponseTargetGroupField = z.object({
+const TicketGroupFilterField = z.union([
+    z.object({
+        type: z.literal('ticket_tags'),
+        operator: z.literal('any_of'),
+        value: z
+            .array(z.string().min(1).max(200))
+            .min(1)
+            .max(100)
+            .describe('Tag names — matches tickets carrying ANY of these tags. Matching is exact (no prefixes).'),
+    }),
+    z.object({
+        type: z.literal('ticket_property'),
+        key: z
+            .enum(['channel_source', 'status', 'priority'])
+            .describe(
+                'channel_source: widget/email/slack/teams/github. status: new/open/pending/on_hold/resolved. ' +
+                    'priority: low/medium/high/critical.'
+            ),
+        operator: z.literal('in'),
+        value: z
+            .array(z.string().min(1).max(200))
+            .min(1)
+            .max(100)
+            .describe('Matches tickets whose property is ANY of these.'),
+    }),
+    z.object({
+        type: z.literal('ticket_property'),
+        key: z.literal('email_from'),
+        operator: z.literal('icontains'),
+        value: z.string().min(1).max(200).describe('Case-insensitive substring of the sender, e.g. "@bigcorp.com".'),
+    }),
+    // strictObject: the backend rejects a stray `value` on is_set/is_not_set
+    // loudly; default zod objects would silently strip it instead.
+    z.strictObject({
+        type: z.literal('ticket_property'),
+        key: z.literal('sla_due_at'),
+        operator: z.enum(['is_set', 'is_not_set']).describe('Whether the ticket has an SLA deadline. No value field.'),
+    }),
+    z.object({
+        type: z.literal('ticket_property'),
+        key: z.literal('created_at'),
+        operator: z.enum(['date_before', 'date_after']),
+        value: z
+            .string()
+            .min(1)
+            .describe(
+                'Either a relative date "-N<unit>" — units h/d/w/m/y, N 1..1000, optional case-sensitive Start/End ' +
+                    'suffix (e.g. "-3d" = rolling: now minus 3 days, "-1mStart" = start of last month) — or a strict ' +
+                    'ISO datetime like "2026-07-01" or "2026-07-01T12:00:00Z". Relative values resolve at query time.'
+            ),
+    }),
+])
+
+const TicketGroupField = z.object({
     label: z
         .string()
         .min(1)
         .max(100)
         .describe('Display name for the group, e.g. "Enterprise". Must be unique across groups.'),
-    tags: z
-        .array(z.string().min(1).max(200))
-        .max(100)
+    filters: z
+        .array(TicketGroupFilterField)
+        .max(10)
         .describe(
-            'Ticket tags that map a ticket into this group. Matching is exact (no prefixes or substrings), a tag ' +
-                'may appear in only one group, and the list may be empty (a placeholder tier).'
+            'A ticket matches this group only when ALL of these filters match (AND). An empty list matches ' +
+                'nothing — a placeholder while configuring.'
         ),
 })
 
-export const ConversationsResponseTargetsGetSchema = z.object({})
+export const ConversationsTicketGroupsGetSchema = z.object({})
 
-export const ConversationsResponseTargetsUpdateSchema = z.object({
+export const ConversationsTicketGroupsUpdateSchema = z.object({
     groups: z
-        .array(ResponseTargetGroupField)
+        .array(TicketGroupField)
         .min(1)
         .max(50)
         .nullable()
         .describe(
-            'The complete ordered ladder, highest priority first — this REPLACES the saved list, so include every ' +
-                'group you want to keep (read the current ladder with the conversations-response-targets-get tool ' +
-                'first). Tickets whose tags match no group rank with the FIRST group. Pass null to reset the team ' +
-                'to the built-in example groups.'
+            'The complete ordered list of groups, highest priority first — this REPLACES the saved list, so ' +
+                'include every group you want to keep (read the current groups with the ' +
+                'conversations-ticket-groups-get tool first). A ticket takes the FIRST group whose filters all ' +
+                'match, so groups may overlap (the earlier group wins). Tickets matching no group rank with the ' +
+                'FIRST group. Pass null to reset the team to the built-in example groups.'
         ),
     confirm: z
         .boolean()

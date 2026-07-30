@@ -4,7 +4,7 @@ import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 // AI observability
 import getLLMCosts from './aiObservability/getLLMCosts'
 // Conversations (settings tools are hand-written; ticket/view CRUD is codegen)
-import { getResponseTargetsTool, updateResponseTargetsTool } from './conversations/responseTargets'
+import { getTicketGroupsTool, updateTicketGroupsTool } from './conversations/ticketGroups'
 // Debug
 import debugMcpUiApps from './debug/debugMcpUiApps'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
@@ -81,9 +81,9 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     'path-cleaning-rules-update': updatePathCleaning,
 
-    // Conversations settings (team-level response-target ladder)
-    'conversations-response-targets-get': getResponseTargetsTool,
-    'conversations-response-targets-update': updateResponseTargetsTool,
+    // Conversations settings (team-level ticket groups)
+    'conversations-ticket-groups-get': getTicketGroupsTool,
+    'conversations-ticket-groups-update': updateTicketGroupsTool,
 
     // Experiments (results is hand-written; CRUD + lifecycle are codegen)
     'experiment-results-get': getExperimentResults,

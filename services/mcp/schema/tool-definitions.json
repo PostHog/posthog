@@ -807,12 +807,12 @@
             "readOnlyHint": false
         }
     },
-    "conversations-response-targets-get": {
-        "description": "Read the team's response-target ladder: the ordered priority groups (label + ticket tags) that `order_by=response_target` on conversations-tickets-list sorts and groups by. Returns the saved custom ladder, or customized:false when the team follows the built-in example groups. Group order is priority order (first = highest); tickets whose tags match no group rank with the first group; within a group, tickets order by SLA deadline. Read this before any edit with conversations-response-targets-update, since updates replace the whole list.",
+    "conversations-ticket-groups-get": {
+        "description": "Read the team's ticket groups: the ordered priority groups (label + filters) that `order_by=ticket_group` on conversations-tickets-list ranks by. Returns the saved custom groups, or customized:false when the team follows the built-in example groups. List order is priority order (first = highest); a ticket takes the FIRST group whose filters ALL match; tickets matching no group rank with the first group; within a group, tickets order by SLA deadline. Filters match ticket tags (any_of) or ticket properties (channel_source/status/priority in, email_from icontains, sla_due_at is_set/is_not_set, created_at date_before/date_after). Read this before any edit with conversations-ticket-groups-update, since updates replace the whole list.",
         "category": "Conversations",
         "feature": "conversations",
-        "summary": "Read the team's response-target priority groups.",
-        "title": "Get response target groups",
+        "summary": "Read the team's ticket priority groups.",
+        "title": "Get ticket groups",
         "required_scopes": ["project:read"],
         "annotations": {
             "destructiveHint": false,
@@ -821,12 +821,12 @@
             "readOnlyHint": true
         }
     },
-    "conversations-response-targets-update": {
-        "description": "Replace or reset the team's response-target ladder — the ordered priority groups (label + ticket tags) that `order_by=response_target` on conversations-tickets-list sorts and groups by. Pass the COMPLETE ordered list (highest priority first; read the current ladder with conversations-response-targets-get first, and include every group to keep), or groups:null to reset to the built-in examples. Unless confirm:true, returns a PREVIEW without saving — surface it to the user, then re-run with confirm:true. Rules: labels unique, tag matching is exact, a tag may appear in only one group, tickets matching no group rank with the FIRST group, and other conversations settings are left untouched.",
+    "conversations-ticket-groups-update": {
+        "description": "Replace or reset the team's ticket groups — the ordered priority groups (label + filters) that `order_by=ticket_group` on conversations-tickets-list ranks by. Pass the COMPLETE ordered list (highest priority first; read the current groups with conversations-ticket-groups-get first, and include every group to keep), or groups:null to reset to the built-in examples. Unless confirm:true, returns a PREVIEW without saving — surface it to the user, then re-run with confirm:true. Semantics: within a group ALL filters must match (AND); across groups the FIRST matching group wins, so overlap is fine; a group with no filters matches nothing; tickets matching no group rank with the FIRST group. Filters cover ticket tags (any_of) and ticket properties (channel_source/status/priority in, email_from icontains, sla_due_at is_set/is_not_set, created_at date_before/date_after with relative \"-3d\"-style or ISO dates). Labels must be unique; other conversations settings are left untouched.",
         "category": "Conversations",
         "feature": "conversations",
-        "summary": "Replace or reset the team's response-target priority groups, with a preview step.",
-        "title": "Update response target groups",
+        "summary": "Replace or reset the team's ticket priority groups, with a preview step.",
+        "title": "Update ticket groups",
         "required_scopes": ["project:write"],
         "annotations": {
             "destructiveHint": true,
