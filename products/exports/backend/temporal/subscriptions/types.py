@@ -4,7 +4,7 @@ import dataclasses
 
 from posthog.slo.types import SloConfig
 
-from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
+from products.exports.backend.constants import DEFAULT_MAX_ASSET_COUNT
 
 
 class DeliveryStatus:

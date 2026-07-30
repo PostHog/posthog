@@ -45,6 +45,7 @@ from posthog.utils import str_to_bool
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.exports.backend.constants import DEFAULT_MAX_ASSET_COUNT
 from products.exports.backend.models.subscription import (
     Subscription,
     SubscriptionDelivery,
@@ -67,7 +68,6 @@ from products.product_analytics.backend.models.insight import Insight
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
-from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
 
 SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
 SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600

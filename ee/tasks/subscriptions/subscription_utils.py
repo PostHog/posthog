@@ -11,6 +11,7 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.tasks import exporter
 from posthog.utils import wait_for_parallel_celery_group
 
+from products.exports.backend.constants import DEFAULT_MAX_ASSET_COUNT
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.models.insight import Insight
@@ -19,7 +20,6 @@ logger = structlog.get_logger(__name__)
 
 UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
 # Keep in sync with MAX_INSIGHTS in frontend/src/lib/components/Subscriptions/insightSelectorLogic.ts
-DEFAULT_MAX_ASSET_COUNT = 6
 ASSET_GENERATION_FAILED_MESSAGE = "Failed to generate content"
 # Prometheus metrics for Temporal workers (web/worker pods)
 SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
