@@ -20,6 +20,7 @@ from clickhouse_driver.errors import ServerException
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.utils import aretry_on_db_connection_drop
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
@@ -119,7 +120,7 @@ async def update_last_synced_at(job_id: str, schema_id: str, team_id: int) -> No
         schema.last_synced_at = job.created_at
         schema.save()
 
-    await _update()
+    await aretry_on_db_connection_drop(_update)
 
 
 async def set_initial_sync_complete(schema_id: str, team_id: int) -> None:

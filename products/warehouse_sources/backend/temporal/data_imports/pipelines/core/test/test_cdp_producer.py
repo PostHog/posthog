@@ -7,7 +7,10 @@ import pytest
 from unittest import mock
 from unittest.mock import MagicMock, patch
 
-from django.db.utils import OperationalError as DjangoOperationalError
+from django.db.utils import (
+    InterfaceError as DjangoInterfaceError,
+    OperationalError as DjangoOperationalError,
+)
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -912,3 +915,58 @@ def test_build_event_id_changes_when_row_data_changes(row_a, row_b):
 def test_build_event_id_changes_with_job_id():
     row = {"id": 1, "name": "Alice"}
     assert _make_producer("job_1")._build_event_id(row) != _make_producer("job_2")._build_event_id(row)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_get_dot_notated_table_name_retries_once_on_connection_drop(team):
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        team=team, source_type=ExternalDataSourceType.POSTGRES
+    )
+    table = await sync_to_async(DataWarehouseTable.objects.create)(
+        team=team, name="postgres_table_1", external_data_source=source
+    )
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        team=team, name="table_1", source=source, table=table
+    )
+
+    producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.AsyncMock())
+
+    real_get = ExternalDataSchema.objects.get
+    calls = []
+
+    def _flaky_get(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise DjangoOperationalError("server closed the connection unexpectedly")
+        return real_get(*args, **kwargs)
+
+    with patch.object(ExternalDataSchema.objects, "get", side_effect=_flaky_get):
+        assert await producer.get_dot_notated_table_name() == "postgres.table_1"
+
+    assert len(calls) == 2
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error", [DjangoOperationalError, DjangoInterfaceError])
+async def test_get_dot_notated_table_name_database_failure_stays_retryable(team, error):
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        team=team, source_type=ExternalDataSourceType.POSTGRES
+    )
+    table = await sync_to_async(DataWarehouseTable.objects.create)(
+        team=team, name="postgres_table_1", external_data_source=source
+    )
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        team=team, name="table_1", source=source, table=table
+    )
+
+    producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.AsyncMock())
+
+    with patch.object(ExternalDataSchema.objects, "get", side_effect=error("[Errno -2] Name or service not known")):
+        with pytest.raises(PostHogInternalDatabaseError) as exc_info:
+            await producer.get_dot_notated_table_name()
+
+    non_retryable = PostgresSource().get_non_retryable_errors()
+    error_msg = str(exc_info.value)
+    assert not any(pattern in error_msg for pattern in non_retryable.keys()), error_msg

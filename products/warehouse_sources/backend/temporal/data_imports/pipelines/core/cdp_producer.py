@@ -4,7 +4,10 @@ import asyncio
 import hashlib
 
 from django.conf import settings
-from django.db.utils import OperationalError as DjangoOperationalError
+from django.db.utils import (
+    InterfaceError as DjangoInterfaceError,
+    OperationalError as DjangoOperationalError,
+)
 
 import orjson
 import pyarrow as pa
@@ -19,6 +22,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.routing import KafkaClusterProfile, async_producer_scope
 from posthog.kafka_client.topics import KAFKA_DWH_CDP_RAW_TABLE
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.utils import aretry_on_db_connection_drop
 
 from products.cdp.backend.models.hog_functions import HogFunction
 from products.data_warehouse.backend.facade.api import aget_s3_client, ensure_bucket_exists
@@ -97,7 +101,15 @@ class CDPProducer:
             raw_table_name = build_table_name(schema.source, schema.name)
             return get_data_warehouse_table_name(schema.source, raw_table_name)
 
-        self._table_name_cache = await _resolve()
+        try:
+            self._table_name_cache = await aretry_on_db_connection_drop(_resolve)
+        except (DjangoOperationalError, DjangoInterfaceError) as e:
+            # Same reasoning as `should_produce_table` below: this reads PostHog's own
+            # database, and a raw connection error stringifies like a customer's
+            # misconfigured source host, which `get_non_retryable_errors` would
+            # misclassify and permanently stop a healthy sync.
+            raise PostHogInternalDatabaseError("Failed to resolve the table name from PostHog's database") from e
+
         return self._table_name_cache
 
     def _build_event_id(self, row: object) -> str:
