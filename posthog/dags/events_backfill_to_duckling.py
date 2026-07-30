@@ -2999,7 +2999,7 @@ EVENTS_BACKFILL_TARGET_QUEUE_DEPTH = 100
 # budget) even when filling the queue from empty.
 EVENTS_BACKFILL_MAX_PARTITIONS_PER_TICK = 100
 # Cap on per-team earliest-event ClickHouse lookups per tick. This is the only expensive
-# sensor op; it runs once per team ever, then the result is cached on the model row.
+# sensor op; it runs once per team ever, then the result is cached on the control-plane team row.
 EVENTS_BACKFILL_MAX_EARLIEST_LOOKUPS_PER_TICK = 5
 # Existing installations predate the durable UI projection. Reconcile a bounded
 # number of historical partitions per tick so the sensor stays within its budget.

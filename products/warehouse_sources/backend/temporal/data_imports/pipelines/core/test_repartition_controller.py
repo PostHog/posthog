@@ -4,7 +4,7 @@ import datetime
 import tempfile
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.db import OperationalError
 
@@ -227,6 +227,25 @@ class TestRepartitionDetection:
         assert schema.repartition_pending is not None
         assert schema.repartition_pending["partition_mode"] is None
         assert schema.repartition_pending["partition_keys"] == ["id"]
+
+
+class TestIsAutoRepartitionEnabled:
+    def test_retries_once_on_transient_db_connection_drop(self, team):
+        # The Team lookup runs on a long-lived Temporal worker thread; a pooler-dropped connection
+        # raises OperationalError on first use. Without a retry this propagates out of
+        # is_auto_repartition_enabled uncaught (it's outside the function's Team.DoesNotExist/
+        # feature_enabled try blocks) instead of resolving the flag.
+        schema = _make_schema(team, {})
+        mock_queryset = MagicMock()
+        mock_queryset.get.side_effect = [OperationalError("server closed the connection unexpectedly"), team]
+
+        with (
+            patch("posthog.models.Team.objects.only", return_value=mock_queryset),
+            patch.object(ctrl.posthoganalytics, "feature_enabled", return_value=True),
+        ):
+            assert ctrl.is_auto_repartition_enabled(schema) is True
+
+        assert mock_queryset.get.call_count == 2
 
 
 class TestRepartitionOOMHistoryTrigger:
