@@ -230,13 +230,18 @@ class TestRecalculationActivities(BaseTest):
         # Both attempts return the same canonical query_to so the workflow threads the same value either way.
         assert first == second == first_query_to.isoformat()
 
-    def test_mark_started_does_not_revive_a_force_failed_run(self):
-        # A force-fail (admin "Mark as failed" or the staleness sweep) lands while discovery is still running:
-        # it sets status=FAILED + completed_at but never touches query_to, so the row is terminal with
-        # query_to still NULL. A later mark_started must NOT match — without the completed_at guard, its
-        # query_to__isnull=True filter would still match and flip the run back to IN_PROGRESS, wedging it.
-        recalc = self._recalc(self._experiment(flag_key="progress-start-force-failed"))
-        completed_at = timezone.now()
+    @parameterized.expand(
+        [
+            # name, set_completed_at — both force-fail shapes leave query_to NULL while discovery runs.
+            # admin "Mark as failed" stamps completed_at; the staleness sweep deliberately leaves it NULL, so
+            # a completed_at-only guard would miss the sweep. The status guard catches both.
+            ("admin_sets_completed_at", True),
+            ("sweep_leaves_completed_at_null", False),
+        ]
+    )
+    def test_mark_started_does_not_revive_a_force_failed_run(self, name: str, set_completed_at: bool):
+        recalc = self._recalc(self._experiment(flag_key=f"progress-start-force-failed-{name}"))
+        completed_at = timezone.now() if set_completed_at else None
         ExperimentMetricsRecalculation.objects.filter(id=recalc.id).update(
             status=ExperimentMetricsRecalculation.Status.FAILED, completed_at=completed_at
         )

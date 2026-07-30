@@ -197,7 +197,12 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
 
             won = (
                 ExperimentMetricsRecalculation.objects.filter(
-                    id=update.recalculation_id, query_to__isnull=True, completed_at__isnull=True
+                    id=update.recalculation_id,
+                    query_to__isnull=True,
+                    status__in=[
+                        ExperimentMetricsRecalculation.Status.PENDING,
+                        ExperimentMetricsRecalculation.Status.IN_PROGRESS,
+                    ],
                 ).update(
                     query_to=proposed_query_to,
                     started_at=timezone.now(),
