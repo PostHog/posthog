@@ -43,7 +43,7 @@ from posthog.hogql.feature_extractor import extract_hogql_features
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_select, sanitize_client_parser_mode
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.printer.access_control import build_access_control_warning
@@ -146,7 +146,8 @@ class HogQLQueryExecutor:
                 self.select_query = parse_select(
                     str(self.query),
                     timings=self.timings,
-                    parser_mode=self.query_modifiers.parserMode,
+                    # Client-supplied `parserMode` can't force the best-effort-guarded cpp backend.
+                    parser_mode=sanitize_client_parser_mode(self.query_modifiers.parserMode),
                 )
 
     @tracer.start_as_current_span("HogQLQueryExecutor._process_variables")

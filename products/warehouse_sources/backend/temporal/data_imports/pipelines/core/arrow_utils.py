@@ -1206,8 +1206,22 @@ def conditional_lru_cache_async(
             key = _make_key(args, kwargs, typed)
             cache.pop(key, None)
 
+        def cache_pop(*args, **kwargs) -> Any:
+            """Remove and return a cached value without ever invoking `func` — unlike calling
+            `wrapper` itself, a cache miss returns `None` instead of computing and storing a
+            fresh result. For callers that only want to release an already-cached resource.
+
+            Checks membership before popping: CircularDict.pop(key, None) treats a `None`
+            default as "no default" and raises KeyError on a miss instead of returning it.
+            """
+            key = _make_key(args, kwargs, typed)
+            if key not in cache:
+                return None
+            return cache.pop(key)
+
         cast(Any, wrapper).cache_remove = cache_remove
         cast(Any, wrapper).cache_clear = lambda: cache.clear()
+        cast(Any, wrapper).cache_pop = cache_pop
 
         return wrapper
 

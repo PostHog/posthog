@@ -7,6 +7,12 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 import { incidentStatusLogic } from 'lib/components/HelpMenu/incidentStatusLogic'
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import {
+    DEFAULT_PAID_RESPONSE_TIME,
+    PAY_AS_YOU_GO_RESPONSE_TIME,
+    getCurrentSupportPlan,
+    getSupportResponseTimeFeature,
+} from 'lib/components/Support/supportResponseTime'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -16,7 +22,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AvailableFeature, BillingFeatureType, BillingPlan, BillingType, SidePanelTab } from '~/types'
+import { BillingPlan, BillingType, SidePanelTab } from '~/types'
 
 import { SidePanelTickets } from 'products/conversations/frontend/components/SidePanel/SidePanelTickets'
 import { sidepanelTicketsLogic } from 'products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic'
@@ -114,37 +120,17 @@ const SupportResponseTimesTable = ({
     const { supportPlans, billingPlan } = useValues(billingLogic)
     const { user } = useValues(userLogic)
 
-    const knownEnterpriseOrgIds = ['018713f3-8d56-0000-32fa-75ce97e6662f']
-    const isKnownEnterpriseOrg = knownEnterpriseOrgIds.includes(user?.organization?.id || '')
-
     const hasBoostTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'boost'
     const hasScaleTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'scale'
     const hasEnterpriseTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'enterprise'
 
     const hasExpiredTrial = billing?.trial?.status === 'expired'
     const expiredTrialDate = hasExpiredTrial ? dayjs(billing?.trial?.expires_at) : null
-    const getResponseTimeFeature = (planName: string): BillingFeatureType | undefined => {
-        // Find the plan in supportPlans
-        const plan = supportPlans?.find((p) => p.name?.includes(planName))
-
-        // Return the support_response_time feature if found
-        return plan?.features?.find((f) => f.key === AvailableFeature.SUPPORT_RESPONSE_TIME)
-    }
-
-    const getCurrentPlan = (): string => {
-        if (isKnownEnterpriseOrg || hasEnterpriseTrial || billingPlan === BillingPlan.Enterprise) {
-            return 'enterprise'
-        } else if (hasScaleTrial) {
-            return 'scale_trial'
-        } else if (hasBoostTrial) {
-            return 'boost_trial'
-        } else if (billingPlan) {
-            return billingPlan
-        }
-        return 'free'
-    }
-
-    const currentPlan = getCurrentPlan()
+    const currentPlan = getCurrentSupportPlan({
+        billing,
+        billingPlan,
+        organizationId: user?.organization?.id,
+    })
 
     const plansToDisplay: {
         name: string
@@ -156,29 +142,31 @@ const SupportResponseTimesTable = ({
     }[] = [
         {
             name: 'Free',
-            current_plan: currentPlan === 'free',
+            current_plan: currentPlan === BillingPlan.Free,
             features: [{ note: 'Community support only' }],
             plan_key: BillingPlan.Free,
             link: 'https://posthog.com/questions',
         },
         {
             name: 'Pay-as-you-go',
-            current_plan: currentPlan === 'paid',
-            features: [{ note: '72 hours' }],
+            current_plan: currentPlan === BillingPlan.Paid,
+            features: [{ note: PAY_AS_YOU_GO_RESPONSE_TIME }],
             plan_key: BillingPlan.Paid,
         },
         {
             name: 'Boost',
-            current_plan: currentPlan === 'boost',
-            features: [getResponseTimeFeature('Boost') || { note: '1 business day' }],
+            current_plan: currentPlan === BillingPlan.Boost,
+            features: [getSupportResponseTimeFeature(supportPlans, 'Boost') || { note: DEFAULT_PAID_RESPONSE_TIME }],
             plan_key: BillingPlan.Boost,
         },
         ...(billingPlan === BillingPlan.Teams
             ? [
                   {
                       name: 'Teams',
-                      current_plan: currentPlan === 'teams',
-                      features: [getResponseTimeFeature('Teams') || { note: '1 business day' }],
+                      current_plan: currentPlan === BillingPlan.Teams,
+                      features: [
+                          getSupportResponseTimeFeature(supportPlans, 'Teams') || { note: DEFAULT_PAID_RESPONSE_TIME },
+                      ],
                       plan_key: BillingPlan.Teams,
                       legacy_product: true,
                   },
@@ -186,14 +174,16 @@ const SupportResponseTimesTable = ({
             : []),
         {
             name: 'Scale',
-            current_plan: currentPlan === 'scale',
-            features: [getResponseTimeFeature('Scale') || { note: '1 business day' }],
+            current_plan: currentPlan === BillingPlan.Scale,
+            features: [getSupportResponseTimeFeature(supportPlans, 'Scale') || { note: DEFAULT_PAID_RESPONSE_TIME }],
             plan_key: BillingPlan.Scale,
         },
         {
             name: 'Enterprise',
-            current_plan: currentPlan === 'enterprise',
-            features: [getResponseTimeFeature('Enterprise') || { note: '1 business day' }],
+            current_plan: currentPlan === BillingPlan.Enterprise,
+            features: [
+                getSupportResponseTimeFeature(supportPlans, 'Enterprise') || { note: DEFAULT_PAID_RESPONSE_TIME },
+            ],
             plan_key: BillingPlan.Enterprise,
         },
     ]
@@ -249,7 +239,7 @@ const SupportResponseTimesTable = ({
             {(hasBoostTrial || hasScaleTrial || hasEnterpriseTrial) && (
                 <>
                     <div className="font-bold border-t">Your trial</div>
-                    <div className="font-bold border-t text-right">1 business day</div>
+                    <div className="font-bold border-t text-right">{DEFAULT_PAID_RESPONSE_TIME}</div>
                     {billing?.trial?.expires_at && (
                         <div className="col-span-2 text-sm">
                             (Trial expires {dayjs(billing.trial.expires_at).format('MMMM D, YYYY')})

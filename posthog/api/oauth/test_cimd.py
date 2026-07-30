@@ -591,11 +591,11 @@ class TestApplyProvisioningDefaults(APIBaseTest):
         app = apply_provisioning_defaults(existing)
 
         self.assertTrue(app.is_provisioning_partner)
-        self.assertTrue(app.provisioning_active)
-        self.assertTrue(app.provisioning_can_create_accounts)
-        self.assertTrue(app.provisioning_can_provision_resources)
+        self.assertTrue(app.provisioning.active)
+        self.assertTrue(app.provisioning.can_create_accounts)
+        self.assertTrue(app.provisioning.can_provision_resources)
         self.assertEqual(
-            app.provisioning_rate_limit_account_requests,
+            app.provisioning.rate_limits.account_requests,
             CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
         )
 
@@ -619,8 +619,9 @@ class TestApplyProvisioningDefaults(APIBaseTest):
         mock_get.return_value = _mock_response(_make_metadata(), headers={})
         existing = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
         assert existing is not None
-        existing.provisioning_disabled = True
-        existing.save(update_fields=["provisioning_disabled"])
+        # Disabled through a separate row read, so `existing` still holds the pre-revocation
+        # copy - the state a registration is in when its metadata fetch overlaps an admin edit.
+        OAuthApplication.objects.get(pk=existing.pk).update_provisioning(disabled=True)
         mock_capture.reset_mock()
 
         app = apply_provisioning_defaults(existing)
@@ -629,6 +630,22 @@ class TestApplyProvisioningDefaults(APIBaseTest):
         app.refresh_from_db()
         self.assertFalse(app.is_provisioning_partner)
         self.assertNotIn("cimd_provisioning_partner_registered", _captured_events(mock_capture))
+
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_registration_does_not_restore_a_capability_revoked_mid_fetch(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+        existing = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert existing is not None
+        existing.update_provisioning(can_use_github_grants=True)
+        OAuthApplication.objects.get(pk=existing.pk).update_provisioning(can_use_github_grants=False)
+
+        app = apply_provisioning_defaults(existing)
+
+        self.assertFalse(app.provisioning.can_use_github_grants)
+        app.refresh_from_db()
+        self.assertFalse(app.provisioning.can_use_github_grants)
+        # The self-serve defaults still land - only the admin's revocation survives on top.
+        self.assertTrue(app.provisioning.can_create_accounts)
 
 
 @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
@@ -680,7 +697,7 @@ class TestCIMDVerificationToken(APIBaseTest):
         assert app is not None
         self.assertEqual(app.organization_id, self.organization.id)
         self.assertEqual(
-            app.provisioning_rate_limit_account_requests,
+            app.provisioning.rate_limits.account_requests,
             CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT,
         )
 
@@ -693,7 +710,7 @@ class TestCIMDVerificationToken(APIBaseTest):
         assert app is not None
         self.assertIsNone(app.organization_id)
         self.assertEqual(
-            app.provisioning_rate_limit_account_requests,
+            app.provisioning.rate_limits.account_requests,
             CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
         )
 
@@ -751,7 +768,7 @@ class TestCIMDVerificationToken(APIBaseTest):
         app = OAuthApplication.objects.get(cimd_metadata_url=VALID_CIMD_URL)
         self.assertIsNone(app.organization_id)
         self.assertEqual(
-            app.provisioning_rate_limit_account_requests,
+            app.provisioning.rate_limits.account_requests,
             CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
         )
 
@@ -768,7 +785,7 @@ class TestCIMDVerificationToken(APIBaseTest):
         assert refreshed is not None
         self.assertEqual(refreshed.organization_id, self.organization.id)
         self.assertEqual(
-            refreshed.provisioning_rate_limit_account_requests,
+            refreshed.provisioning.rate_limits.account_requests,
             CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT,
         )
 
@@ -782,7 +799,7 @@ class TestCIMDVerificationToken(APIBaseTest):
         app = OAuthApplication.objects.get(cimd_metadata_url=VALID_CIMD_URL)
         self.assertEqual(app.organization_id, self.organization.id)
         self.assertEqual(
-            app.provisioning_rate_limit_account_requests,
+            app.provisioning.rate_limits.account_requests,
             CIMD_PROVISIONING_ACCOUNT_REQUESTS_VERIFIED_RATE_LIMIT,
         )
 
@@ -793,7 +810,7 @@ class TestCIMDVerificationToken(APIBaseTest):
         assert refreshed is not None
         self.assertIsNone(refreshed.organization_id)
         self.assertEqual(
-            refreshed.provisioning_rate_limit_account_requests,
+            refreshed.provisioning.rate_limits.account_requests,
             CIMD_PROVISIONING_ACCOUNT_REQUESTS_DEFAULT_RATE_LIMIT,
         )
 
@@ -802,15 +819,8 @@ class TestCIMDVerificationToken(APIBaseTest):
         mock_get.return_value = _mock_response(_make_metadata(), headers={})
         _register_provisioning_partner()
         app = OAuthApplication.objects.get(cimd_metadata_url=VALID_CIMD_URL)
-        app.provisioning_rate_limit_account_requests = 250
-        app.provisioning_rate_limit_account_requests_source = "admin"
-        app.save(
-            update_fields=[
-                "provisioning_rate_limit_account_requests",
-                "provisioning_rate_limit_account_requests_source",
-            ]
-        )
-
+        app.update_provisioning(rate_limit_source="admin")
+        app.update_provisioning_rate_limits(account_requests=250)
         _, plaintext = create_cimd_verification_token(
             organization=self.organization, label="Post-admin-override", cimd_url=VALID_CIMD_URL, created_by=self.user
         )
@@ -820,8 +830,8 @@ class TestCIMDVerificationToken(APIBaseTest):
 
         assert refreshed is not None
         self.assertEqual(refreshed.organization_id, self.organization.id)
-        self.assertEqual(refreshed.provisioning_rate_limit_account_requests, 250)
-        self.assertEqual(refreshed.provisioning_rate_limit_account_requests_source, "admin")
+        self.assertEqual(refreshed.provisioning.rate_limits.account_requests, 250)
+        self.assertEqual(refreshed.provisioning.rate_limit_source, "admin")
 
 
 @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})

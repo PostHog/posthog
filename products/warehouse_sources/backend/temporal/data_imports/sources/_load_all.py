@@ -154,6 +154,7 @@ from .beamer.source import BeamerSource
 from .beehiiv.source import BeehiivSource
 from .better_stack.source import BetterStackSource
 from .bettermode.source import BettermodeSource
+from .bexio.source import BexioSource
 from .bigcommerce.source import BigCommerceSource
 from .bigeye.source import BigeyeSource
 from .bigmailer.source import BigMailerSource
@@ -416,6 +417,7 @@ from .firebolt.source import FireboltSource
 from .firecrawl.source import FirecrawlSource
 from .firehydrant.source import FireHydrantSource
 from .fireworks_ai.source import FireworksAISource
+from .first_promoter.source import FirstPromoterSource
 from .five9.source import Five9Source
 from .flagsmith.source import FlagsmithSource
 from .fleetio.source import FleetioSource
@@ -584,6 +586,7 @@ from .instantly.source import InstantlySource
 from .instatus.source import InstatusSource
 from .intercom.source import IntercomSource
 from .interzoid.source import InterzoidSource
+from .inth.source import InthSource
 from .intruder.source import IntruderSource
 from .invoiced.source import InvoicedSource
 from .invoiceninja.source import InvoiceninjaSource
@@ -616,6 +619,7 @@ from .kernel.source import KernelSource
 from .kestra.source import KestraSource
 from .kick.source import KickSource
 from .kickscale.source import KickscaleSource
+from .kickstarter.source import KickstarterSource
 from .kinde.source import KindeSource
 from .kion.source import KionSource
 from .kisi.source import KisiSource
@@ -682,6 +686,7 @@ from .mailjet.source import MailJetSource
 from .mailosaur.source import MailosaurSource
 from .mailtrap.source import MailtrapSource
 from .mantle.source import MantleSource
+from .manychat.source import ManychatSource
 from .marketo.source import MarketoSource
 from .marketstack.source import MarketstackSource
 from .mastodon.source import MastodonSource
@@ -1158,9 +1163,11 @@ from .twitter_ads.source import TwitterAdsSource
 from .two_c2p.source import TwoC2pSource
 from .tyntec_sms.source import TyntecSMSSource
 from .typeform.source import TypeformSource
+from .typesense.source import TypesenseSource
 from .ubidots.source import UbidotsSource
 from .uk_companies_house.source import UkCompaniesHouseSource
 from .uk_ons.source import UkOnsSource
+from .umami.source import UmamiSource
 from .un_comtrade.source import UnComtradeSource
 from .unleash.source import UnleashSource
 from .unstructured.source import UnstructuredSource
@@ -1245,6 +1252,7 @@ from .zenduty.source import ZendutySource
 from .zenefits.source import ZenefitsSource
 from .zenloop.source import ZenloopSource
 from .zep.source import ZepSource
+from .zero.source import ZeroSource
 from .zluri.source import ZluriSource
 from .zoho_analytics.source import ZohoAnalyticsSource
 from .zoho_bigin.source import ZohoBiginSource
