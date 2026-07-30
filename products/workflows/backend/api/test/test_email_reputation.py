@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from rest_framework import status
@@ -12,6 +13,12 @@ from products.workflows.backend.models.team_workflows_config import TeamWorkflow
 
 
 class TestEmailReputationAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # Totals are cached per team and the team persists across this class's tests — clear so
+        # one test's mocked totals can't leak into the next.
+        cache.clear()
+
     def _create_flow(self, name: str) -> HogFlow:
         return HogFlow.objects.create(
             team=self.team,

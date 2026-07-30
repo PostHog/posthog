@@ -7,6 +7,7 @@ from copy import deepcopy
 from datetime import timedelta
 from typing import Any, Optional, cast
 
+from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import transaction
@@ -3223,13 +3224,21 @@ class HogFlowViewSet(
         # Members holding just object-level grants still get their (filtered) per-workflow rows.
         can_read_all_workflows = self.user_access_control.check_access_level_for_resource("hog_flow", "viewer")
 
-        after = timezone.now() - timedelta(days=self.REPUTATION_WINDOW_DAYS)
-        totals_by_source = fetch_app_metric_totals_by_source(
-            team_id=self.team_id,
-            app_source="hog_flow",
-            after=after,
-            name=["email_sent", "email_bounced_hard", "email_blocked"],
-        )
+        # Cached briefly: the UI reloads per search keystroke, but search filters in Python — the
+        # ClickHouse totals are search-independent. Session-authenticated requests bypass the
+        # default (personal-API-key-only) ClickHouse throttles, so without this a member could
+        # re-run the 30-day aggregation on every request.
+        totals_cache_key = f"workflows_email_reputation_totals_{self.team_id}"
+        totals_by_source = cache.get(totals_cache_key)
+        if totals_by_source is None:
+            after = timezone.now() - timedelta(days=self.REPUTATION_WINDOW_DAYS)
+            totals_by_source = fetch_app_metric_totals_by_source(
+                team_id=self.team_id,
+                app_source="hog_flow",
+                after=after,
+                name=["email_sent", "email_bounced_hard", "email_blocked"],
+            )
+            cache.set(totals_cache_key, totals_by_source, 60)
 
         # email_blocked is how SES complaint events are recorded (see the plugin server's SES
         # webhook handler), hence "complained".
