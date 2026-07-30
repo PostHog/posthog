@@ -161,6 +161,7 @@ rules:
                               |FeatureFlag
                               |TeamExperimentsConfig
                               |TeamFeatureFlagDefaultsConfig
+                              |TeamFeatureFlagGuidelinesConfig
                               |TeamSessionSummariesConfig
                               |TeamWorkflowsConfig
                               |FieldNote
@@ -486,6 +487,7 @@ rules:
                         |FeatureFlag
                         |TeamExperimentsConfig
                         |TeamFeatureFlagDefaultsConfig
+                        |TeamFeatureFlagGuidelinesConfig
                         |TeamSessionSummariesConfig
                         |TeamWorkflowsConfig
                         |FieldNote
