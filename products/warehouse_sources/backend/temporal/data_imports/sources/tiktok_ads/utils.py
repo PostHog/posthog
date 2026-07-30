@@ -85,6 +85,14 @@ def list_advertisers(access_token: str) -> list[dict]:
 # matches on this exact prefix to fail the job fast instead of looping forever.
 TIKTOK_NON_RETRYABLE_ERROR_PREFIX = "TikTok API client error (non-retryable):"
 
+# Prefix for the TikTokAdsAPIError raised on a retryable code (rate limits, transient 5xxxx,
+# 60001 maintenance). These are TikTok briefly overloaded, not our bug — Temporal retries the
+# activity and the sync self-recovers. `TikTokAdsSource.get_retryable_errors` matches on this
+# prefix so the failure is logged as a warning rather than tracked as an error. The message is
+# kept free of TikTok's raw body (which embeds volatile per-request internals like `cds_key` and
+# `instance`) so it fingerprints stably instead of splintering into a fresh issue every time.
+TIKTOK_RETRYABLE_ERROR_PREFIX = "TikTok API error"
+
 
 class TikTokAdsAPIError(Exception):
     """A TikTok API failure, carrying the body `code` as `api_code` so callers can branch on it: the
@@ -475,8 +483,11 @@ class TikTokAdsPaginator(BasePaginator):
                 ]
 
                 if api_code in retryable_codes:
+                    # Keep TikTok's raw body out of the exception message (it's already in the
+                    # structured log above) so retryable blips fingerprint on a stable string
+                    # instead of splintering on volatile `cds_key`/`instance` internals.
                     raise TikTokAdsAPIError(
-                        f"TikTok API error: {error_message} (code: {api_code})", api_code=api_code, response=response
+                        f"{TIKTOK_RETRYABLE_ERROR_PREFIX} (code: {api_code})", api_code=api_code, response=response
                     )
                 else:
                     raise ValueError(f"{TIKTOK_NON_RETRYABLE_ERROR_PREFIX} {error_message} (code: {api_code})")

@@ -759,8 +759,10 @@ class TestTikTokAdsPaginator:
             with pytest.raises(TikTokAdsAPIError) as exc_info:
                 self.paginator.update_state(mock_response)
 
+            # The message stays stable (code only) — TikTok's raw body must not leak into it,
+            # otherwise volatile per-request internals splinter it into fresh error tracking issues.
             assert str(api_code) in str(exc_info.value)
-            assert message in str(exc_info.value)
+            assert message not in str(exc_info.value)
             assert exc_info.value.api_code == api_code
         else:
             with pytest.raises(ValueError) as value_exc_info:

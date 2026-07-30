@@ -42,6 +42,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import (
     TIKTOK_AUTH_ERROR_CODES,
     TIKTOK_NON_RETRYABLE_ERROR_PREFIX,
+    TIKTOK_RETRYABLE_ERROR_PREFIX,
     TIKTOK_TRANSIENT_ERROR_CODES,
     TIKTOK_TRANSIENT_ERROR_MESSAGE,
     TikTokAdsAPIError,
@@ -82,6 +83,13 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
             # the customer has to reconnect.
             "Integration not found": "The linked TikTok Ads integration no longer exists. Please reconnect your TikTok Ads integration.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # TikTok's own retryable codes (rate limits, transient 5xxxx, 60001 maintenance) mean TikTok
+        # is briefly overloaded, not that our sync is broken. The paginator re-raises them with this
+        # prefix once TikTok stops accepting the request; Temporal retries the whole activity and the
+        # sync self-recovers, so keep these out of error tracking as noise rather than paging on them.
+        return {TIKTOK_RETRYABLE_ERROR_PREFIX}
 
     @property
     def get_source_config(self) -> SourceConfig:

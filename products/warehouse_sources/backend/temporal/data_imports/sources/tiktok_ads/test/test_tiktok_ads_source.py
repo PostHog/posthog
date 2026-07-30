@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source import TikTokAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import (
     TIKTOK_TRANSIENT_ERROR_MESSAGE,
+    TikTokAdsAPIError,
     TikTokAdsPaginator,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
@@ -116,6 +117,34 @@ class TestTikTokAdsSource:
         error_message = str(exc_info.value)
         patterns = self.source.get_non_retryable_errors()
         assert not any(pattern in error_message for pattern in patterns)
+
+    @parameterized.expand(
+        [
+            ("qps_limit", 40100, "App reaches the QPS limit 20, cds_key=THRIFT_INGRESS|foo"),
+            ("system_error", 50000, "Internal server error, instance=fdbd:1234::5"),
+            ("maintenance", 60001, "Service maintenance: UV metric temporarily unavailable"),
+        ]
+    )
+    def test_retryable_paginator_error_matches_source_pattern(self, name, api_code, message):
+        """The TikTokAdsAPIError the paginator raises for retryable codes must match a pattern in
+        get_retryable_errors, otherwise transient TikTok blips fall through to error tracking as
+        noise instead of being logged as recoverable warnings."""
+        paginator = TikTokAdsPaginator()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"code": api_code, "message": message, "data": {}}
+
+        with pytest.raises(TikTokAdsAPIError) as exc_info:
+            paginator.update_state(mock_response)
+
+        error_message = str(exc_info.value)
+        patterns = self.source.get_retryable_errors()
+        assert any(pattern in error_message for pattern in patterns), (
+            f"TikTok retryable error '{error_message}' does not match any retryable pattern"
+        )
+        # TikTok's raw body carries volatile per-request internals (cds_key, instance); keep them
+        # out of the message so the same failure fingerprints stably rather than as a new issue.
+        assert message not in error_message
 
     @parameterized.expand(
         [
