@@ -140,9 +140,9 @@ export interface webAnalyticsHealthLogicValues {
     activeIssuesByKind: Record<string, HealthIssue>
     allChecks: HealthCheck[]
     checksByCategory: Record<HealthCheckCategory, HealthCheck[]>
+    checksUnavailable: boolean
     hasIssues: boolean
     hasUrgentIssues: boolean
-    checksUnavailable: boolean
     healthIssues: HealthIssuesResponse | null
     healthIssuesLoadFailed: boolean
     healthIssuesLoading: boolean
@@ -277,8 +277,8 @@ export interface webAnalyticsHealthLogicMeta {
         ) => HealthCheck[]
         checksByCategory: (allChecks: HealthCheck[]) => Record<HealthCheckCategory, HealthCheck[]>
         overallHealthStatus: (allChecks: HealthCheck[]) => OverallHealthStatus
-        hasIssues: (overallHealthStatus: OverallHealthStatus) => boolean
         checksUnavailable: (healthIssuesLoadFailed: boolean, healthIssues: HealthIssuesResponse | null) => boolean
+        hasIssues: (overallHealthStatus: OverallHealthStatus) => boolean
         urgentFailedChecks: (allChecks: HealthCheck[]) => HealthCheck[]
         hasUrgentIssues: (urgentFailedChecks: HealthCheck[]) => boolean
         refreshDisabledReason: (nextRefreshAvailableAt: number | null, now: number) => string | null
