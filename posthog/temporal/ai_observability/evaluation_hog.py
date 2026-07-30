@@ -172,15 +172,16 @@ def finalize_hog_eval_result(result: dict[str, Any], *, allows_na: bool, unit_la
 
     Shared by the trace and session Hog activities: this is the block that decides whether a
     failure is our bug or the customer's, and a drifted copy would mean a broken evaluation
-    silently retrying against every unit instead of disabling itself. `unit_label` only reaches
-    the error text ("trace" / "session").
+    silently retrying against every unit instead of disabling itself. `unit_label`
+    ("trace" / "session") reaches only the raised our-bug message, so whoever triages the page
+    can tell which target produced it.
     """
     if result["error"]:
         if result.get("unexpected"):
             # A genuine bug in our evaluation code (not the user's Hog). Raise so the Temporal
             # interceptor reports it to error tracking and we get paged to investigate.
             raise ApplicationError(
-                f"Hog evaluation error: {result['error']}",
+                f"Hog evaluation error ({unit_label}): {result['error']}",
                 non_retryable=True,
             )
 

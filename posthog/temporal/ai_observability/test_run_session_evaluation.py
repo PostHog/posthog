@@ -9,6 +9,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.schema import LLMTrace, LLMTraceEvent
 
+from posthog.hogql_queries.ai.ai_table_resolver import AIEventsExpiredError
 from posthog.temporal.ai_observability.run_session_evaluation import (
     _MIN_TRACE_CHARS_IN_SESSION,
     _SESSION_EVENT_COUNT_SQL,
@@ -210,3 +211,85 @@ class TestExecuteSessionActivities:
                     max_age_seconds=86400,
                 )
             )
+
+    def test_hog_reports_an_aged_out_session_as_expired(self):
+        with patch(
+            "posthog.temporal.ai_observability.run_session_evaluation.fetch_session_for_evaluation",
+            side_effect=AIEventsExpiredError(),
+        ):
+            result = async_to_sync(execute_session_hog_eval_activity)(
+                ExecuteSessionEvaluationInputs(
+                    evaluation={
+                        "evaluation_type": "hog",
+                        "evaluation_config": {"bytecode": ["_H", 1, 32, True]},
+                        "output_config": {"allows_na": False},
+                    },
+                    team_id=1,
+                    session_id="s-1",
+                    window_start=datetime.now(UTC).isoformat(),
+                    max_age_seconds=86400,
+                )
+            )
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "session_expired"
+
+    def test_judge_reports_an_aged_out_session_as_expired_without_judging(self):
+        with (
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation.fetch_session_for_evaluation",
+                side_effect=AIEventsExpiredError(),
+            ),
+            patch("posthog.temporal.ai_observability.run_session_evaluation.call_llm_judge") as mock_call_llm_judge,
+        ):
+            result = execute_session_llm_judge_activity(
+                ExecuteSessionEvaluationInputs(
+                    evaluation={
+                        "evaluation_type": "llm_judge",
+                        "evaluation_config": {"prompt": "Did the user accomplish their goal?"},
+                        "output_type": "boolean",
+                        "output_config": {"allows_na": False},
+                    },
+                    team_id=1,
+                    session_id="s-1",
+                    window_start=datetime.now(UTC).isoformat(),
+                    max_age_seconds=86400,
+                )
+            )
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "session_expired"
+        # The whole point of the fail-loud chain: never grade a transcript stripped of message content.
+        mock_call_llm_judge.assert_not_called()
+
+    def test_our_bug_page_names_the_session_target(self):
+        unexpected_error = {
+            "verdict": None,
+            "reasoning": "",
+            "error": "Unexpected error during evaluation: KeyError: 'foo'",
+            "unexpected": True,
+        }
+        with (
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation.fetch_session_for_evaluation",
+                return_value=SessionFetchOutcome(
+                    traces=[_trace("t1", cost=0, latency=0)], skip_reason=None, event_count=1
+                ),
+            ),
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation.execute_hog_eval_bytecode",
+                return_value=unexpected_error,
+            ),
+        ):
+            with pytest.raises(ApplicationError, match=r"Hog evaluation error \(session\)"):
+                async_to_sync(execute_session_hog_eval_activity)(
+                    ExecuteSessionEvaluationInputs(
+                        evaluation={
+                            "evaluation_type": "hog",
+                            "evaluation_config": {"bytecode": ["_H", 1, 32, True]},
+                            "output_config": {"allows_na": False},
+                        },
+                        team_id=1,
+                        session_id="s-1",
+                        window_start=datetime.now(UTC).isoformat(),
+                        max_age_seconds=86400,
+                    )
+                )
