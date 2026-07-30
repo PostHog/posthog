@@ -219,7 +219,7 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                     the query, then resume. If runs keep failing, it will pause again.
                                 </div>
                                 <div className="mt-1 text-xs font-normal">
-                                    Paused {humanFriendlyDetailedTime(suspension.at)}. Last error: {suspension.reason}
+                                    Paused {humanFriendlyDetailedTime(suspension.at)}. Error: {suspension.reason}
                                 </div>
                             </div>
                         </LemonBanner>
