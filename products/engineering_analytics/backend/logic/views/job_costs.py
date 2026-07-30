@@ -35,7 +35,7 @@ from products.engineering_analytics.backend.logic.cost import (
     render_provider,
     render_vcpu,
 )
-from products.engineering_analytics.backend.logic.sources import resolve_job_cost_source_pairs
+from products.engineering_analytics.backend.logic.sources import resolve_job_source_tables
 from products.engineering_analytics.backend.logic.views import workflow_jobs, workflow_runs
 
 if TYPE_CHECKING:
@@ -224,8 +224,8 @@ def build_team_view(team: "Team") -> str | None:
     None when the team has no qualifying source (no view is created). One view over all sources so
     the exposed name stays stable regardless of how many GitHub sources a team connects.
     """
-    pairs = resolve_job_cost_source_pairs(team)
-    if not pairs:
+    sources = resolve_job_source_tables(team)
+    if not sources:
         return None
-    selects = [build_query(jobs_table=jobs_table, runs_table=runs_table) for jobs_table, runs_table in pairs]
+    selects = [build_query(jobs_table=source.workflow_jobs, runs_table=source.workflow_runs) for source in sources]
     return "\nUNION ALL\n".join(selects)
