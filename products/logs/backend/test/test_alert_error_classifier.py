@@ -2,6 +2,7 @@ from unittest import TestCase
 from unittest.mock import patch
 
 from parameterized import parameterized
+from pydantic import BaseModel
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -12,6 +13,18 @@ from products.logs.backend.alert_error_classifier import TRANSIENT_ERROR_CODES, 
 
 def _with_category(category: QueryErrorCategory):
     return patch("products.logs.backend.alert_error_classifier.classify_query_error", return_value=category)
+
+
+class _DummyModel(BaseModel):
+    values: list[str]
+
+
+def _pydantic_validation_error() -> Exception:
+    try:
+        _DummyModel(values=None)
+    except Exception as e:
+        return e
+    raise AssertionError("expected a pydantic ValidationError")
 
 
 class TestClassifyAlertError(TestCase):
@@ -79,6 +92,15 @@ class TestClassifyAlertError(TestCase):
 
         assert "PostHog" in result.user_message
 
+    def test_pydantic_validation_error_maps_to_invalid_query(self) -> None:
+        # A malformed persisted filterGroup fails LogsQuery/PropertyGroupFilter validation
+        # at query-build time, before any ClickHouse call — classify_query_error doesn't
+        # recognize this exception type, so it must be classified before reaching it.
+        result = classify(_pydantic_validation_error())
+
+        assert result.code == "invalid_query"
+        assert result.user_message
+
 
 class TestIsTransient(TestCase):
     @parameterized.expand(
@@ -99,6 +121,13 @@ class TestIsTransient(TestCase):
         with _with_category(QueryErrorCategory.USER_ERROR):
             result = classify(exc)
         assert result.code == "invalid_query"
+        assert result.is_transient is False
+
+    def test_is_transient_false_for_pydantic_validation_error(self) -> None:
+        # Regression: a broken alert config used to classify as "unknown" (transient),
+        # so consecutive_failures never incremented and the alert retried forever
+        # instead of eventually auto-disabling to BROKEN.
+        result = classify(_pydantic_validation_error())
         assert result.is_transient is False
 
     def test_transient_error_codes_covers_all_transient_categories(self) -> None:

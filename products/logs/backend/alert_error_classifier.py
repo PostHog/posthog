@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from pydantic import ValidationError as PydanticValidationError
+
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
@@ -38,6 +40,16 @@ _UNKNOWN = ClassifiedAlertError(
 
 
 def classify(exc: Exception) -> ClassifiedAlertError:
+    # A stored `filterGroup`/`severityLevels`/etc. that no longer matches the LogsQuery
+    # shape raises here, not from ClickHouse — classify_query_error doesn't know this
+    # exception type and would otherwise fall through to "unknown" (transient), letting
+    # a permanently-broken config retry forever instead of counting toward auto-disable.
+    if isinstance(exc, PydanticValidationError):
+        return ClassifiedAlertError(
+            code="invalid_query",
+            user_message="Alert filters are invalid. Edit the alert to fix its filters.",
+        )
+
     category = classify_query_error(exc)
 
     if category == QueryErrorCategory.RATE_LIMITED:
