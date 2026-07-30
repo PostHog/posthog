@@ -1058,97 +1058,38 @@ export interface WorkflowStatsRowApi {
 }
 
 /**
- * * `workflow` - Workflow
- * * `team` - Team
+ * Bounce/complaint rates over the last 30 days of workflow email, computed on the fly from app metrics.
  */
-export type EmailReputationScopeEnumApi = (typeof EmailReputationScopeEnumApi)[keyof typeof EmailReputationScopeEnumApi]
-
-export const EmailReputationScopeEnumApi = {
-    Workflow: 'workflow',
-    Team: 'team',
-} as const
-
-/**
- * * `insufficient_data` - Insufficient Data
- * * `healthy` - Healthy
- * * `warning` - Warning
- * * `critical` - Critical
- */
-export type EmailReputationStateEnumApi = (typeof EmailReputationStateEnumApi)[keyof typeof EmailReputationStateEnumApi]
-
-export const EmailReputationStateEnumApi = {
-    InsufficientData: 'insufficient_data',
-    Healthy: 'healthy',
-    Warning: 'warning',
-    Critical: 'critical',
-} as const
-
-/**
- * One email deliverability reputation snapshot (per workflow or per team, per daily evaluation run).
- */
-export interface EmailReputationSnapshotApi {
-    /** 'workflow' for a single workflow's reputation, 'team' for the project-wide aggregate.
-     *
-     * * `workflow` - Workflow
-     * * `team` - Team */
-    readonly scope: EmailReputationScopeEnumApi
-    /** 'insufficient_data' (too few sends in the window to judge), 'healthy', 'warning' (over a warning threshold), or 'critical' (over a critical threshold).
-     *
-     * * `insufficient_data` - Insufficient Data
-     * * `healthy` - Healthy
-     * * `warning` - Warning
-     * * `critical` - Critical */
-    readonly state: EmailReputationStateEnumApi
-    /** Hard (permanent) bounces / emails sent over the evaluated volume (0-1), matching AWS's account bounce rate — transient bounces are excluded. */
+export interface EmailSendingRatesApi {
+    /** Hard (permanent) bounces / emails sent over the last 30 days (0-1), matching how AWS counts its bounce rate — transient bounces (greylisting, mailbox full) are excluded. Bounces are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
     readonly bounce_rate: number
-    /** Spam complaints / emails sent over the evaluated volume (0-1). */
+    /** Spam complaints / emails sent over the last 30 days (0-1). Complaints are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
     readonly complaint_rate: number
-    /** Emails in the evaluated window: at least the target's last day of sends and at least the configured representative volume (SES-style), whichever covers more. 0 means no recent sending. */
+    /** Emails sent in the last 30 days. */
     readonly emails_sent: number
-    /** When this snapshot was computed; one snapshot exists per target per run. */
-    readonly evaluated_at: string
 }
 
 /**
- * A workflow-scoped reputation snapshot, annotated with the workflow it belongs to.
+ * Bounce/complaint rates over the last 30 days of workflow email, computed on the fly from app metrics.
  */
-export interface WorkflowEmailReputationSnapshotApi {
-    /** 'workflow' for a single workflow's reputation, 'team' for the project-wide aggregate.
-     *
-     * * `workflow` - Workflow
-     * * `team` - Team */
-    readonly scope: EmailReputationScopeEnumApi
-    /** 'insufficient_data' (too few sends in the window to judge), 'healthy', 'warning' (over a warning threshold), or 'critical' (over a critical threshold).
-     *
-     * * `insufficient_data` - Insufficient Data
-     * * `healthy` - Healthy
-     * * `warning` - Warning
-     * * `critical` - Critical */
-    readonly state: EmailReputationStateEnumApi
-    /** Hard (permanent) bounces / emails sent over the evaluated volume (0-1), matching AWS's account bounce rate — transient bounces are excluded. */
+export interface WorkflowEmailSendingRatesApi {
+    /** Hard (permanent) bounces / emails sent over the last 30 days (0-1), matching how AWS counts its bounce rate — transient bounces (greylisting, mailbox full) are excluded. Bounces are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
     readonly bounce_rate: number
-    /** Spam complaints / emails sent over the evaluated volume (0-1). */
+    /** Spam complaints / emails sent over the last 30 days (0-1). Complaints are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
     readonly complaint_rate: number
-    /** Emails in the evaluated window: at least the target's last day of sends and at least the configured representative volume (SES-style), whichever covers more. 0 means no recent sending. */
+    /** Emails sent in the last 30 days. */
     readonly emails_sent: number
-    /** When this snapshot was computed; one snapshot exists per target per run. */
-    readonly evaluated_at: string
-    /** The workflow this snapshot is for. */
+    /** The workflow these rates are for. */
     readonly hog_flow_id: string
-    /**
-     * Display name of the workflow.
-     * @nullable
-     */
-    readonly hog_flow_name: string | null
-    /** This workflow's snapshots from the last 7 days (oldest first, one per daily evaluation run), including the latest. */
-    readonly history: readonly EmailReputationSnapshotApi[]
+    /** Display name of the workflow; empty for unnamed workflows. */
+    readonly hog_flow_name: string
 }
 
 export interface TeamEmailReputationResponseApi {
-    /** Latest project-wide email reputation snapshot across all workflows; null until first evaluated. */
-    readonly reputation: EmailReputationSnapshotApi | null
-    /** Latest snapshot per workflow, worst state and highest rates first, capped at the worst 50 workflows. */
-    readonly workflows: readonly WorkflowEmailReputationSnapshotApi[]
+    /** Project-wide rates across all workflow email in the last 30 days (including sends from since-deleted workflows); null when nothing was sent. */
+    readonly reputation: EmailSendingRatesApi | null
+    /** Rates per workflow, worst first (complaint rate, then bounce rate), capped at the worst 50. */
+    readonly workflows: readonly WorkflowEmailSendingRatesApi[]
     /** True while workflow email sending is suspended for this project to protect deliverability. */
     readonly email_sending_suspended: boolean
     /**

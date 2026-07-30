@@ -305,6 +305,19 @@ class TestClerkEndpoints:
             assert converted[field] == (value // 1000 if value is not None else None)
 
     @pytest.mark.parametrize(
+        "value",
+        [
+            "2026-07-29T12:52:50Z",  # ISO string instead of epoch ms
+            "1700000000000",  # numeric string
+            True,  # bool is an int subclass but not a timestamp
+        ],
+    )
+    def test_non_integer_timestamps_pass_through_unchanged(self, value: Any) -> None:
+        # Clerk occasionally returns a timestamp field as a non-numeric value; `//` on it used
+        # to raise TypeError and abort the whole import.
+        assert _convert_timestamps({"created_at": value}) == {"created_at": value}
+
+    @pytest.mark.parametrize(
         "item,paths,expected",
         [
             # top-level redeemable link on invitations / organization_invitations

@@ -888,8 +888,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def onboard_team(self, request: Request, **kwargs) -> Response:
         """Onboard this project onto the organization's existing managed warehouse.
 
-        Requires a schema name; records the project's membership both in duckgres and in the
-        Django backfill state. Restricted to organization admins.
+        Requires a schema name and records the project's membership in the Duckgres control plane.
+        Restricted to organization admins.
         """
         admin_error = self._require_organization_admin(request, "onboard this project for")
         if admin_error is not None:

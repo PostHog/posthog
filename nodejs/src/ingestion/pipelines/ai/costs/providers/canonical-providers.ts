@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-07-29 10:52:24 UTC
+// Generated at: 2026-07-30 19:39:19 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -41,6 +41,7 @@ export type CanonicalProvider =
     | 'chutes-int4'
     | 'claude-on-aws'
     | 'cloudflare'
+    | 'cloudflare-fast'
     | 'cloudflare-fp8'
     | 'cohere'
     | 'coreweave-bf16'
@@ -124,6 +125,7 @@ export type CanonicalProvider =
     | 'nvidia'
     | 'nvidia-bf16'
     | 'open-inference-bf16'
+    | 'open-inference-fp8'
     | 'openai'
     | 'openai-default'
     | 'openai-default-flex'
@@ -131,6 +133,7 @@ export type CanonicalProvider =
     | 'openai-flex'
     | 'openai-priority'
     | 'parasail-bf16'
+    | 'parasail-fp16'
     | 'parasail-fp4'
     | 'parasail-fp8'
     | 'parasail-int4'

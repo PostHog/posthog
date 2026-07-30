@@ -424,7 +424,11 @@ class SignalReportSerializer(serializers.ModelSerializer):
         help_text="Actionability choice from the latest actionability judgment artefact (when present).",
     )
     already_addressed = serializers.SerializerMethodField(
-        help_text="Whether the issue appears already fixed, from the actionability judgment artefact.",
+        help_text=(
+            "Whether the issue is already being handled — fixed in recent changes, or with a fix in "
+            "flight (an open PR, a recently active branch, an assigned / in-progress issue or agent "
+            "task) — from the actionability judgment artefact."
+        ),
     )
     dismissal_reason = serializers.SerializerMethodField(
         help_text="Reason code from the latest dismissal artefact, set when the report was suppressed (when present).",
