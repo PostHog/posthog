@@ -66,7 +66,10 @@ class IncrementalFieldMissingFromDataError(Exception):
 def get_incremental_field_value(
     schema: ExternalDataSchema | None, table: pa.Table, aggregate: Literal["max"] | Literal["min"] = "max"
 ) -> Any:
-    if schema is None or schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH:
+    # CDC and xmin schemas track their own cursor (CDC log position, xmin ceiling) outside of
+    # sync_type_config["incremental_field"] — that key can be a stale leftover from a prior
+    # incremental config and must not be looked up for these sync types.
+    if schema is None or not schema.should_use_incremental_field:
         return None
 
     incremental_field_name: str | None = schema.sync_type_config.get("incremental_field")
