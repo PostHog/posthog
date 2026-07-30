@@ -3024,7 +3024,7 @@ class SignalReportArtefactViewSet(
 class SignalUserAutonomyConfigView(APIView):
     """Per-user signal autonomy config (singleton keyed by user).
 
-    GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
+    GET    /api/users/<id>/signal_autonomy/ → current config (defaults when unset)
     POST   /api/users/<id>/signal_autonomy/ → create or update
     DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
     """
@@ -3051,7 +3051,13 @@ class SignalUserAutonomyConfigView(APIView):
         user = self._resolve_user(request, user_id)
         config = SignalUserAutonomyConfig.objects.filter(user=user).first()
         if config is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
+            # Having no row is the normal state for a user who never set an override, so answer with
+            # defaults rather than a 404 — a 404 here reads as a failed request to every client and
+            # to our own telemetry. The unsaved instance carries the model defaults; its identity
+            # fields are nulled because nothing was persisted.
+            data = SignalUserAutonomyConfigSerializer(SignalUserAutonomyConfig(user=user)).data
+            data.update({"id": None, "created_at": None, "updated_at": None})
+            return Response(data)
         return Response(SignalUserAutonomyConfigSerializer(config).data)
 
     @extend_schema(responses={200: SignalUserAutonomyConfigSerializer})

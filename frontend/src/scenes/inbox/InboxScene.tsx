@@ -15,7 +15,7 @@ import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDe
 import { FindingsPanel } from './components/findings/FindingsPanel'
 import { InboxOnboardingBanner, InboxOnboardingTakeover } from './components/onboarding/InboxOnboarding'
 import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
-import { AgentSetupColumn } from './components/shell/AgentSetupColumn'
+import { AgentSetupColumn, AgentSetupModals } from './components/shell/AgentSetupColumn'
 import { InboxScopeSelect } from './components/shell/InboxScopeSelect'
 import { InboxTabBar } from './components/shell/InboxTabBar'
 import { ArchivedTab } from './components/tabs/ArchivedTab'
@@ -83,12 +83,14 @@ function InboxListView(): JSX.Element {
     const wide = size === 'wide'
     // Self-driving isn't set up and the inbox is empty: the inbox becomes a single locked "Welcome"
     // tab (the other tabs are visible but disabled) whose body is the onboarding card. The setup rail
-    // is dropped too, so the onboarding is the whole story – just run the one command.
+    // (and the Configuration tab that replaces it when narrow) stays reachable, so there's always
+    // something in-app to click besides copying the wizard command.
     const onboarding = onboardingMode === 'takeover'
-    const showRail = wide && !onboarding
+    const showRail = wide
     // The rail and the Configuration tab are mutually exclusive – never leave 'config' active
     // (e.g. via a deep link) while the rail shows, or the rail and a config body would both appear.
     const effectiveTab = showRail && activeTab === 'config' ? 'pulls' : activeTab
+    const showTakeover = onboarding && effectiveTab !== 'config'
 
     return (
         <div ref={widthRef} className="flex min-h-0 flex-1">
@@ -104,7 +106,7 @@ function InboxListView(): JSX.Element {
                     )}
                 </div>
                 <div className="flex-1 overflow-auto min-h-0">
-                    {onboarding ? (
+                    {showTakeover ? (
                         <InboxOnboardingTakeover />
                     ) : (
                         <ActiveTabBody
@@ -120,6 +122,9 @@ function InboxListView(): JSX.Element {
                     <AgentSetupColumn layout="rail" />
                 </aside>
             )}
+            {/* Mounted once here so the rail, the Configuration tab, and the onboarding takeover all
+                open the same modal instance. */}
+            <AgentSetupModals />
         </div>
     )
 }

@@ -1,6 +1,7 @@
 import { useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
+import { IconLock } from '@posthog/icons'
 import { LemonSkeleton, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
@@ -53,10 +54,10 @@ type InboxTabBarKey = InboxTabKey | typeof WELCOME_TAB_KEY
  * shown when `showConfigTab` is set – i.e. when the scene is too narrow for the setup rail; on wide
  * viewports the rail replaces it.
  *
- * In `onboarding` mode (self-driving not set up, empty inbox) a locked "Welcome" tab is shown and
- * selected, while the real tabs stay visible but disabled – the user can see what's coming, but the
- * inbox only opens up once self-driving is set up. Code review is the exception: it works without
- * self-driving, so its tab stays clickable.
+ * In `onboarding` mode (self-driving not set up, empty inbox) a "Welcome" tab is shown and selected,
+ * while the real tabs stay visible but locked (with a lock icon, so it's clear before clicking) – the
+ * user can see what's coming, but the inbox only opens up once self-driving is set up. Configuration
+ * is the exception: it's the in-app way to set self-driving up, so it stays clickable.
  */
 export function InboxTabBar({
     showConfigTab,
@@ -71,22 +72,29 @@ export function InboxTabBar({
         (key) => (key !== 'config' || showConfigTab) && (!isStaffOnlyTabKey(key) || isStaff)
     )
 
-    const realTabs = visibleTabKeys.map((key) => ({
-        key,
-        label: (
-            <span className="flex items-center gap-1.5">
-                <span>{INBOX_TAB_LABEL[key]}</span>
-                {isFlatListTabKey(key) && <FlatTabCount tabKey={key} />}
-                {INBOX_TAB_TAG[key] && (
-                    <LemonTag type={INBOX_TAB_TAG[key] === 'Alpha' ? 'warning' : 'completion'} size="small">
-                        {INBOX_TAB_TAG[key]}
-                    </LemonTag>
-                )}
-            </span>
-        ),
-        disabledReason: onboarding ? 'Set up self-driving to open your inbox' : undefined,
-        content: <></>,
-    }))
+    const realTabs = visibleTabKeys.map((key) => {
+        // Configuration stays open during onboarding – it's the in-app way to pick sources and scouts.
+        const locked = !!onboarding && key !== 'config'
+        return {
+            key,
+            label: (
+                <span className="flex items-center gap-1.5">
+                    {/* A lock next to the label, not just a hover tooltip: without it these read as
+                        ordinary tabs and people click them repeatedly expecting something to happen. */}
+                    {locked && <IconLock className="shrink-0 text-muted" />}
+                    <span>{INBOX_TAB_LABEL[key]}</span>
+                    {!locked && isFlatListTabKey(key) && <FlatTabCount tabKey={key} />}
+                    {INBOX_TAB_TAG[key] && (
+                        <LemonTag type={INBOX_TAB_TAG[key] === 'Alpha' ? 'warning' : 'completion'} size="small">
+                            {INBOX_TAB_TAG[key]}
+                        </LemonTag>
+                    )}
+                </span>
+            ),
+            disabledReason: locked ? 'Set up self-driving to open your inbox' : undefined,
+            content: <></>,
+        }
+    })
 
     const tabs = onboarding
         ? [{ key: WELCOME_TAB_KEY as InboxTabBarKey, label: <span>Welcome</span>, content: <></> }, ...realTabs]
@@ -94,7 +102,7 @@ export function InboxTabBar({
 
     return (
         <LemonTabs<InboxTabBarKey>
-            activeKey={onboarding ? WELCOME_TAB_KEY : activeTab}
+            activeKey={onboarding && activeTab !== 'config' ? WELCOME_TAB_KEY : activeTab}
             // min-w-0 lets the tab bar shrink inside the header flex row so its own overflow-x scroll
             // engages on narrow/mobile widths – otherwise it grows to fit every tab and the last ones
             // (e.g. Configuration) overflow off-screen with no way to reach them.

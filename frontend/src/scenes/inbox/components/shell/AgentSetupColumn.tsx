@@ -312,7 +312,12 @@ const SETUP_MODALS: Record<
     },
 }
 
-function SetupModal(): JSX.Element {
+/**
+ * Host for the setup modals. Rendered once per scene (not per setup surface) so the rail, the
+ * Configuration tab, and the onboarding takeover can all open the same modal without two of them
+ * mounting duplicate copies.
+ */
+export function AgentSetupModals(): JSX.Element {
     const { openModal } = useValues(agentSetupModalLogic)
     const { closeSetupModal } = useActions(agentSetupModalLogic)
     const config = openModal ? SETUP_MODALS[openModal] : null
@@ -363,7 +368,6 @@ export function AgentSetupColumn({ layout }: { layout: 'rail' | 'stacked' }): JS
             <SetupSection title="Usage">
                 <InboxUsageWidget />
             </SetupSection>
-            <SetupModal />
         </div>
     )
 }

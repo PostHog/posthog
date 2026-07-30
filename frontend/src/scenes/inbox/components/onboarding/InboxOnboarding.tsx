@@ -2,13 +2,14 @@ import './InboxOnboarding.scss'
 
 import { useActions } from 'kea'
 
-import { IconBolt, IconGithub, IconInfo, IconNotebook, IconPause, IconX } from '@posthog/icons'
+import { IconBolt, IconCompass, IconGithub, IconInfo, IconNotebook, IconPause, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand'
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 
 import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
+import { agentSetupModalLogic } from '../shell/agentSetupModalLogic'
 import { PullRequestPreview, ReportPreview } from './InboxOnboardingPreviews'
 
 /** The one command that sets up self-driving. The whole onboarding orbits this string. */
@@ -120,13 +121,13 @@ function Hero(): JSX.Element {
 }
 
 function CommandCard(): JSX.Element {
+    const { openSetupModal } = useActions(agentSetupModalLogic)
+
     return (
         <div className="flex flex-col gap-3 rounded-lg border border-primary bg-surface-primary p-5">
             <div>
-                <h2 className="-mt-1 mb-1 text-base font-semibold">One command. That's the whole setup.</h2>
-                <p className="m-0 text-sm text-secondary">
-                    Run it in your project's repo – there are no in-app steps to click through.
-                </p>
+                <h2 className="-mt-1 mb-1 text-base font-semibold">One command sets up everything.</h2>
+                <p className="m-0 text-sm text-secondary">Run it in your project's repo:</p>
             </div>
             <SelfDrivingCommand size="md" />
             <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
@@ -139,6 +140,27 @@ function CommandCard(): JSX.Element {
                     </li>
                 ))}
             </ul>
+            {/* The wizard is the happy path, but people do come here looking for something to click –
+                so the same source and scout pickers it drives are reachable in-app too. */}
+            <div className="flex flex-wrap items-center gap-2 border-t border-primary pt-3">
+                <span className="text-sm text-secondary">Rather pick sources and scouts here?</span>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconBolt />}
+                    onClick={() => openSetupModal('signal-sources')}
+                >
+                    Signal sources
+                </LemonButton>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconCompass />}
+                    onClick={() => openSetupModal('scout-troop')}
+                >
+                    Scout troop
+                </LemonButton>
+            </div>
         </div>
     )
 }

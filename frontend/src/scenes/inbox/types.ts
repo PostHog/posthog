@@ -244,13 +244,14 @@ export const SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP: SignalReportTaskRelatio
 // ── Autonomy config (per-user override; backend SignalUserAutonomyConfigView) ─
 
 export interface SignalUserAutonomyConfig {
-    id?: string
+    /** Null when nothing is saved yet – the endpoint answers with defaults rather than a 404. */
+    id?: string | null
     autostart_priority: SignalReportPriority | null
     slack_notification_integration_id?: number | null
     slack_notification_channel?: string | null
     slack_notification_min_priority?: SignalReportPriority | null
-    created_at?: string
-    updated_at?: string
+    created_at?: string | null
+    updated_at?: string | null
 }
 
 // ── Team-level autonomy config (backend SignalTeamConfigViewSet; singleton per team) ─
