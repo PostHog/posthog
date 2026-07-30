@@ -83,16 +83,21 @@ def _build_prompt(*, finding: ReviewIssueFinding, verdict: ValidationVerdict, to
     )
 
 
-async def judge_addressed(
+async def judge_finding(
     *,
     team_id: int,
     user_id: int,
     finding: ReviewIssueFinding,
     verdict: ValidationVerdict,
     touching_diff: str,
-) -> bool:
-    """Whether the diff that landed after review resolved ``finding``. Raises for the Temporal retry."""
-    result = await run_oneshot_review(
+) -> OutcomeJudgeVerdict:
+    """Whether the diff that landed after review resolved ``finding``, and why.
+
+    Returns the whole ruling rather than just the boolean: the reasoning is persisted alongside the
+    outcome, so a classification that later looks wrong can be explained from the stored record
+    instead of re-inferring it from a diff that has since moved on. Raises for the Temporal retry.
+    """
+    return await run_oneshot_review(
         team_id=team_id,
         user_id=user_id,
         prompt=_build_prompt(finding=finding, verdict=verdict, touching_diff=touching_diff),
@@ -102,4 +107,3 @@ async def judge_addressed(
         model=OUTCOME_JUDGE_MODEL,
         reasoning_effort=OUTCOME_JUDGE_REASONING_EFFORT,
     )
-    return result.addressed

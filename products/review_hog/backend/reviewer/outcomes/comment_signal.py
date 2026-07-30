@@ -1,4 +1,4 @@
-"""The human-engagement signal: did a finding's inline comment get a reply or a reaction?
+"""The engagement signal: did a finding's inline comment get a reply or a reaction?
 
 ReviewHog's published comments lead with ``### {finding.title}`` and anchor to the finding's file, so
 a finding maps to its posted comment exactly by (path, title) — no stored comment id, and robust to
@@ -10,6 +10,7 @@ summary, so replies and reactions are read without any extra call or GraphQL.
 from typing import Any
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding
+from products.review_hog.backend.reviewer.tools.github_client import is_app_bot_author
 
 
 def _is_bot(user: dict[str, Any] | None) -> bool:
@@ -37,20 +38,33 @@ def find_finding_comment(
 
 
 def engagement_method(*, comment: dict[str, Any], review_comments: list[dict[str, Any]]) -> str | None:
-    """`"comment_reaction"` / `"comment_reply"` if the finding's thread was engaged, else None.
+    """How the finding's thread was engaged, or None if it wasn't. All results map to `reacted`.
 
-    A reaction on the comment or a non-bot comment replying to it (``in_reply_to_id``) counts as a
-    human responding to the finding; bot replies (other review/CI apps chiming in) don't. The
-    ``reactions`` summary carries no actor, so a bot reaction would count — accepted: resolving actors
-    costs an extra call per comment and bots don't react to inline review comments in practice.
-    Reaction wins when both are present — it's the cheaper, unambiguous signal (a reply can be the
-    author asking a clarifying question, still engagement, so both map to `reacted`).
+    Engagement means *someone responded*, not specifically a human: a reply from another agent (a
+    reviewer's own bot answering on their behalf, a fixer agent) is a response to the finding, and the
+    actor is recorded in the method rather than filtered out. `comment_reply` is a human, and
+    `comment_reply_agent` is any other bot, so a query that wants strictly-human engagement can select
+    for it while the coarse `reacted` outcome keeps counting both.
+
+    ReviewHog's own replies are the exception and never count: it publishes the finding comment, so
+    treating its own follow-up as engagement would let the feature grade its own homework. A fix it
+    lands itself still shows up, as a commit in the post-review compare that the judge rules on —
+    engagement is not where that belongs. Note `is_app_bot_author` can only single out our bot when
+    `REVIEWHOG_GITHUB_BOT_LOGIN` is set; unset it fails open to "any bot", which degrades this to the
+    old behavior of ignoring every bot reply.
+
+    A human reply beats an agent one when both are present, and a reaction beats both: it is the
+    cheaper, unambiguous signal. The ``reactions`` summary carries no actor, so a bot reaction counts
+    as a reaction — accepted, and now consistent with replies rather than at odds with them.
     """
     if (comment.get("reactions") or {}).get("total_count", 0) > 0:
         return "comment_reaction"
     comment_id = comment.get("id")
-    if comment_id is not None and any(
-        rc.get("in_reply_to_id") == comment_id and not _is_bot(rc.get("user")) for rc in review_comments
-    ):
+    if comment_id is None:
+        return None
+    replies = [rc for rc in review_comments if rc.get("in_reply_to_id") == comment_id]
+    if any(not _is_bot(rc.get("user")) for rc in replies):
         return "comment_reply"
+    if any(not is_app_bot_author(rc.get("user")) for rc in replies):
+        return "comment_reply_agent"
     return None

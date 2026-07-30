@@ -43,7 +43,10 @@ from products.review_hog.backend.reviewer.artefact_content import (
 )
 from products.review_hog.backend.reviewer.constants import (
     DEFAULT_URGENCY_THRESHOLD,
+    OUTCOME_JUDGE_FAILURE_STREAK,
+    OUTCOME_JUDGE_MIN_SUCCESS_RATIO,
     OUTCOME_JUDGE_MODEL,
+    OUTCOME_JUDGE_REASONING_MAX_CHARS,
     OUTCOME_LINE_PROXIMITY_WINDOW,
     OUTCOME_MAX_JUDGE_CALLS_PER_REPORT,
     OUTCOME_MAX_REPORTS_PER_SWEEP,
@@ -55,7 +58,7 @@ from products.review_hog.backend.reviewer.models.issues_review import IssuePrior
 from products.review_hog.backend.reviewer.outcomes.comment_signal import engagement_method, find_finding_comment
 from products.review_hog.backend.reviewer.outcomes.discovery import unclassified_published_reports
 from products.review_hog.backend.reviewer.outcomes.github_fetch import fetch_compare_files, fetch_review_comments
-from products.review_hog.backend.reviewer.outcomes.judge import judge_addressed
+from products.review_hog.backend.reviewer.outcomes.judge import judge_finding
 from products.review_hog.backend.reviewer.outcomes.line_proximity import parse_compare_files, touched_near
 from products.review_hog.backend.reviewer.persistence import load_findings_bundle
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
@@ -91,6 +94,7 @@ class _ClassifiedOutcome:
     method: str
     reviewed_head: str
     final_head: str
+    judge_reasoning: str | None = None
 
 
 @dataclass(frozen=True)
@@ -220,7 +224,8 @@ def _gather_report_inputs(*, team_id: int, report: ReviewReport, final_head: str
 
 
 class _SkipReport(Exception):
-    """Raised when a single report can't be classified (bad auth) — skip it, don't stop the sweep."""
+    """Raised when a report can't be classified now (bad auth, or a judge that looks down) — skip it,
+    don't stop the sweep. Nothing is persisted, so a later sweep retries it from scratch."""
 
 
 def _persist_outcomes(*, team_id: int, report_id: str, outcomes: list[_ClassifiedOutcome]) -> None:
@@ -242,6 +247,7 @@ def _persist_outcomes(*, team_id: int, report_id: str, outcomes: list[_Classifie
                     method=oc.method,
                     reviewed_head=oc.reviewed_head,
                     final_head=oc.final_head,
+                    judge_reasoning=oc.judge_reasoning,
                     judge_model=OUTCOME_JUDGE_MODEL if oc.method in ("judge_confirmed", "judge_rejected") else None,
                 ),
                 attribution=ArtefactAttribution.system(),
@@ -286,6 +292,17 @@ def _load_persisted_outcomes(*, team_id: int, report: ReviewReport) -> tuple[lis
             logger.warning("Skipping unparseable finding_outcome artefact %s: %s", row.id, e)
             continue
         assert isinstance(content, FindingOutcomeArtefact)
+        if content.issue_key in stored:
+            # An outcome is decided once: the persist is transactional and the resume path re-emits
+            # rather than re-deciding, so a second row for one finding means something re-decided it.
+            # Latest-wins would absorb that silently, and the two rows can disagree — say so instead.
+            logger.warning(
+                "Duplicate finding_outcome for %s on report %s (%s then %s); taking the latest",
+                content.issue_key,
+                report.id,
+                stored[content.issue_key].outcome,
+                content.outcome,
+            )
         stored[content.issue_key] = content
 
     bundle = load_findings_bundle(team_id=team_id, report_ids=[str(report.id)])
@@ -305,6 +322,7 @@ def _load_persisted_outcomes(*, team_id: int, report: ReviewReport) -> tuple[lis
                 method=ruling.method,
                 reviewed_head=ruling.reviewed_head,
                 final_head=ruling.final_head,
+                judge_reasoning=ruling.judge_reasoning,
             )
         )
     return outcomes, _finding_distinct_id(report, report.repository)
@@ -375,7 +393,9 @@ async def classify_report(
     compared = parse_compare_files(inputs.compare_files)
     outcomes: list[_ClassifiedOutcome] = []
 
-    def _decided(pf: _PublishedFinding, outcome: str, method: str) -> _ClassifiedOutcome:
+    def _decided(
+        pf: _PublishedFinding, outcome: str, method: str, judge_reasoning: str | None = None
+    ) -> _ClassifiedOutcome:
         return _ClassifiedOutcome(
             finding=pf.finding,
             verdict=pf.verdict,
@@ -383,6 +403,9 @@ async def classify_report(
             method=method,
             reviewed_head=inputs.reviewed_head,
             final_head=final_head,
+            # The judge is free text, so cap what goes into the durable record; the ruling is meant
+            # to be a sentence or two and only a malfunctioning one would need trimming.
+            judge_reasoning=judge_reasoning[:OUTCOME_JUDGE_REASONING_MAX_CHARS] if judge_reasoning else None,
         )
 
     # Settle everything the cheap signals answer first, so only the findings that genuinely need the
@@ -408,6 +431,9 @@ async def classify_report(
         key=lambda pf: priority_rank(effective_priority(pf.finding.priority, pf.verdict.adjusted_priority)),
         reverse=True,
     )
+    attempted = 0
+    failed = 0
+    streak = 0
     for judged, pf in enumerate(candidates):
         if judged >= OUTCOME_MAX_JUDGE_CALLS_PER_REPORT:
             outcomes.extend(_decided(rest, "ignored", "judge_budget_exhausted") for rest in candidates[judged:])
@@ -418,15 +444,38 @@ async def classify_report(
                 len(candidates) - judged,
             )
             break
-        addressed = await judge_addressed(
-            team_id=team_id,
-            user_id=inputs.judge_user_id,
-            finding=pf.finding,
-            verdict=pf.verdict,
-            touching_diff=_touching_diff(pf.finding.file, inputs.compare_files),
-        )
-        outcomes.append(
-            _decided(pf, *(("addressed", "judge_confirmed") if addressed else ("ignored", "judge_rejected")))
+        attempted += 1
+        try:
+            ruling = await judge_finding(
+                team_id=team_id,
+                user_id=inputs.judge_user_id,
+                finding=pf.finding,
+                verdict=pf.verdict,
+                touching_diff=_touching_diff(pf.finding.file, inputs.compare_files),
+            )
+        except Exception:
+            # One finding the judge could not answer must not discard the judgments already made:
+            # nothing is persisted until the whole report is decided, so raising here would replay
+            # every completed call on the next sweep and never finish a report with a bad finding in
+            # it. A streak instead means the judge itself is down, and then finishing would durably
+            # record a report full of `judge_failed` — abandon it and let a later sweep ask again.
+            failed += 1
+            streak += 1
+            logger.exception("Judge failed for finding %s on report %s", pf.finding.issue_key, report.id)
+            if streak >= OUTCOME_JUDGE_FAILURE_STREAK:
+                raise _SkipReport(f"{streak} consecutive judge failures; leaving report {report.id} for a later sweep")
+            outcomes.append(_decided(pf, "ignored", "judge_failed"))
+            continue
+        streak = 0
+        outcome, method = ("addressed", "judge_confirmed") if ruling.addressed else ("ignored", "judge_rejected")
+        outcomes.append(_decided(pf, outcome, method, ruling.reasoning))
+
+    # Below this many calls the streak rule already governs, and a lone failure on a small report is
+    # better recorded than retried forever.
+    if attempted > OUTCOME_JUDGE_FAILURE_STREAK and (attempted - failed) / attempted < OUTCOME_JUDGE_MIN_SUCCESS_RATIO:
+        raise _SkipReport(
+            f"only {attempted - failed}/{attempted} judge calls succeeded on report {report.id}; "
+            "leaving it for a later sweep rather than recording the failures"
         )
 
     # Persist before any emit: once decided, an outcome is never re-decided. A crash before this

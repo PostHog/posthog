@@ -44,12 +44,9 @@ async def discover_outcome_teams_activity() -> list[int]:
 async def _scoped_capture_off_loop() -> AsyncIterator[ScopedCapture]:
     """`ph_scoped_capture()` with its blocking ends moved off the event loop.
 
-    Leaving the scope calls `Posthog.shutdown()` — a synchronous flush plus a join on the consumer
-    thread. These activities run on the worker's shared asyncio loop, so doing that inline stalls
-    every other activity on the process. The sync helper the one-shot capture sites use (see
-    `_capture_ai_credit_event`) does not fit here because the capture handle has to stay live across
-    the long `classify_team` await, so the scope is entered and exited through the thread pool
-    instead. The `capture()` calls in between are non-blocking enqueues and stay on the loop.
+    Leaving the scope calls `Posthog.shutdown()`, which flushes with `timeout_seconds=None` and so
+    waits indefinitely — unacceptable inline on the worker's shared loop. The `capture()` calls in
+    between are non-blocking enqueues and stay on it.
     """
     scope = ph_scoped_capture()
     capture = await sync_to_async(scope.__enter__, thread_sensitive=False)()

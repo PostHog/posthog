@@ -22,7 +22,11 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ValidationVerdict,
     parse_artefact_content,
 )
-from products.review_hog.backend.reviewer.constants import OUTCOME_MAX_JUDGE_CALLS_PER_REPORT
+from products.review_hog.backend.reviewer.constants import (
+    OUTCOME_JUDGE_FAILURE_STREAK,
+    OUTCOME_JUDGE_REASONING_MAX_CHARS,
+    OUTCOME_MAX_JUDGE_CALLS_PER_REPORT,
+)
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
 from products.review_hog.backend.reviewer.outcomes.classify import (
     _ClassifiedOutcome,
@@ -31,10 +35,12 @@ from products.review_hog.backend.reviewer.outcomes.classify import (
     _mark_outcomes_emitted,
     _PublishedFinding,
     _ReportInputs,
+    _SkipReport,
     classify_report,
     classify_team,
 )
 from products.review_hog.backend.reviewer.outcomes.discovery import unclassified_published_reports
+from products.review_hog.backend.reviewer.outcomes.judge import OutcomeJudgeVerdict
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 
 _CLASSIFY = "products.review_hog.backend.reviewer.outcomes.classify"
@@ -65,6 +71,10 @@ def _finding(
     )
 
 
+def _ruling(addressed: bool, reasoning: str = "the new guard covers the flagged path") -> OutcomeJudgeVerdict:
+    return OutcomeJudgeVerdict(addressed=addressed, reasoning=reasoning)
+
+
 def _verdict(issue_key: str = _ISSUE_KEY) -> ValidationVerdict:
     return ValidationVerdict(issue_key=issue_key, is_valid=True, argumentation="real bug", category="bug")
 
@@ -89,7 +99,7 @@ class TestClassifyReportDecision:
             patch(f"{_CLASSIFY}._gather_report_inputs", return_value=inputs),
             patch(f"{_CLASSIFY}._persist_outcomes"),
             patch(f"{_CLASSIFY}._mark_outcomes_emitted"),
-            patch(f"{_CLASSIFY}.judge_addressed", new=AsyncMock(return_value=judge_return)) as judge,
+            patch(f"{_CLASSIFY}.judge_finding", new=AsyncMock(return_value=_ruling(judge_return))) as judge,
         ):
             async_to_sync(classify_report)(
                 team_id=1, report=report, final_head="head_sha", capture=lambda **kw: captured.append(kw)
@@ -116,6 +126,42 @@ class TestClassifyReportDecision:
         assert captured[0]["properties"]["outcome"] == "ignored"
         assert captured[0]["properties"]["classification_method"] == "judge_rejected"
 
+    def test_the_judges_reasoning_is_persisted_with_the_outcome(self):
+        # The ruling is the only record of why a finding was classified as it was; the diff it read
+        # has moved on by the time anyone asks. It goes in the artefact rather than the event so the
+        # explanation is durable without shipping free text to ClickHouse per finding.
+        with (
+            patch(f"{_CLASSIFY}._gather_report_inputs", return_value=self._candidates(1)),
+            patch(f"{_CLASSIFY}._persist_outcomes") as persist,
+            patch(f"{_CLASSIFY}._mark_outcomes_emitted"),
+            patch(f"{_CLASSIFY}.judge_finding", new=AsyncMock(return_value=_ruling(True, "the guard now covers it"))),
+        ):
+            async_to_sync(classify_report)(
+                team_id=1,
+                report=ReviewReport(repository="o/r", pr_number=7),
+                final_head="head_sha",
+                capture=lambda **kw: None,
+            )
+
+        assert [oc.judge_reasoning for oc in persist.call_args.kwargs["outcomes"]] == ["the guard now covers it"]
+
+    def test_reasoning_is_capped_before_it_reaches_the_record(self):
+        with (
+            patch(f"{_CLASSIFY}._gather_report_inputs", return_value=self._candidates(1)),
+            patch(f"{_CLASSIFY}._persist_outcomes") as persist,
+            patch(f"{_CLASSIFY}._mark_outcomes_emitted"),
+            patch(f"{_CLASSIFY}.judge_finding", new=AsyncMock(return_value=_ruling(True, "x" * 50_000))),
+        ):
+            async_to_sync(classify_report)(
+                team_id=1,
+                report=ReviewReport(repository="o/r", pr_number=7),
+                final_head="head_sha",
+                capture=lambda **kw: None,
+            )
+
+        stored = persist.call_args.kwargs["outcomes"][0].judge_reasoning
+        assert stored is not None and len(stored) == OUTCOME_JUDGE_REASONING_MAX_CHARS
+
     def test_ignored_when_untouched_skips_the_judge(self):
         captured, judge = self._run(inputs=self._inputs(comment=None, compare_files=_FAR))
         judge.assert_not_awaited()
@@ -133,31 +179,18 @@ class TestClassifyReportDecision:
         assert first[0]["uuid"] == second[0]["uuid"]
 
     def test_failure_mid_report_persists_and_emits_nothing(self):
-        # A judge death partway must leave no trace on either side: a partial artefact write would
-        # strand the report's remaining findings, and any event emitted before the outcomes are
-        # durably decided could conflict with what a retry re-decides (a human reply landing in the
-        # gap flips `ignored` to `reacted`) — the double-row corruption the persist-first order
-        # exists to prevent.
-        published = [
-            _PublishedFinding(finding=_finding(), verdict=_verdict(), comment=None),
-            _PublishedFinding(
-                finding=_finding(issue_key="r1:f.py:11:logic", title="Two"), verdict=_verdict(), comment=None
-            ),
-        ]
-        inputs = _ReportInputs(
-            reviewed_head="base_sha",
-            compare_files=_TOUCHING,
-            review_comments=[],
-            published=published,
-            distinct_id="user-distinct",
-            judge_user_id=0,
-        )
+        # Failures the judge itself raises are tolerated and recorded, but anything else partway
+        # through must still leave no trace on either side: a partial artefact write would strand the
+        # report's remaining findings, and any event emitted before the outcomes are durably decided
+        # could conflict with what a retry re-decides (a human reply landing in the gap flips
+        # `ignored` to `reacted`) — the double-row corruption the persist-first order exists to
+        # prevent.
         captured: list[dict[str, Any]] = []
         with (
-            patch(f"{_CLASSIFY}._gather_report_inputs", return_value=inputs),
+            patch(f"{_CLASSIFY}._gather_report_inputs", return_value=self._candidates(2)),
             patch(f"{_CLASSIFY}._persist_outcomes") as persist,
             patch(f"{_CLASSIFY}._mark_outcomes_emitted") as mark,
-            patch(f"{_CLASSIFY}.judge_addressed", new=AsyncMock(side_effect=[True, RuntimeError("judge died")])),
+            patch(f"{_CLASSIFY}.touched_near", side_effect=RuntimeError("proximity blew up")),
             pytest.raises(RuntimeError),
         ):
             async_to_sync(classify_report)(
@@ -270,6 +303,101 @@ class TestClassifyReportDecision:
         assert set(by_method["judge_budget_exhausted"]) == {"consider"}
         unjudged = [e for e in captured if e["properties"]["classification_method"] == "judge_budget_exhausted"]
         assert {e["properties"]["outcome"] for e in unjudged} == {"ignored"}
+
+    def _candidates(self, count: int) -> _ReportInputs:
+        return _ReportInputs(
+            reviewed_head="base_sha",
+            compare_files=_TOUCHING,
+            review_comments=[],
+            published=[
+                _PublishedFinding(
+                    finding=_finding(issue_key=f"r1:f.py:{i}:logic"),
+                    verdict=_verdict(issue_key=f"r1:f.py:{i}:logic"),
+                    comment=None,
+                )
+                for i in range(count)
+            ],
+            distinct_id="user-distinct",
+            judge_user_id=0,
+        )
+
+    def test_a_single_judge_failure_is_recorded_and_the_report_still_completes(self):
+        # Nothing persists until the whole report is decided, so raising on one unanswerable finding
+        # would discard the judgments already made and replay them every sweep, never finishing a
+        # report that contains one. Recording it keeps the completed work and lets the report finish.
+        captured: list[dict[str, Any]] = []
+        with (
+            patch(f"{_CLASSIFY}._gather_report_inputs", return_value=self._candidates(3)),
+            patch(f"{_CLASSIFY}._persist_outcomes") as persist,
+            patch(f"{_CLASSIFY}._mark_outcomes_emitted"),
+            patch(
+                f"{_CLASSIFY}.judge_finding",
+                new=AsyncMock(side_effect=[_ruling(True), RuntimeError("gateway blip"), _ruling(False)]),
+            ),
+        ):
+            async_to_sync(classify_report)(
+                team_id=1,
+                report=ReviewReport(repository="o/r", pr_number=7),
+                final_head="head_sha",
+                capture=lambda **kw: captured.append(kw),
+            )
+
+        persist.assert_called_once()
+        assert sorted(e["properties"]["classification_method"] for e in captured) == [
+            "judge_confirmed",
+            "judge_failed",
+            "judge_rejected",
+        ]
+
+    def test_a_streak_of_judge_failures_abandons_the_report_without_persisting(self):
+        # A run of failures means the judge itself is down. Outcomes are written once and never
+        # re-decided, so finishing would permanently record this report as unjudgeable; skipping
+        # leaves it for a sweep that can actually ask.
+        captured: list[dict[str, Any]] = []
+        with (
+            patch(f"{_CLASSIFY}._gather_report_inputs", return_value=self._candidates(5)),
+            patch(f"{_CLASSIFY}._persist_outcomes") as persist,
+            patch(f"{_CLASSIFY}._mark_outcomes_emitted") as mark,
+            patch(f"{_CLASSIFY}.judge_finding", new=AsyncMock(side_effect=RuntimeError("judge down"))) as judge,
+            pytest.raises(_SkipReport),
+        ):
+            async_to_sync(classify_report)(
+                team_id=1,
+                report=ReviewReport(repository="o/r", pr_number=7),
+                final_head="head_sha",
+                capture=lambda **kw: captured.append(kw),
+            )
+
+        assert judge.await_count == OUTCOME_JUDGE_FAILURE_STREAK  # stops spending once it looks down
+        persist.assert_not_called()
+        mark.assert_not_called()
+        assert captured == []
+
+    def test_intermittent_judge_failures_abandon_the_report_before_persisting(self):
+        # Alternating failures never build a streak, so the ratio is the only thing that catches a
+        # judge that is up but mostly failing. Without it the report would durably record a majority
+        # of `judge_failed` outcomes that can never be re-decided.
+        captured: list[dict[str, Any]] = []
+        with (
+            patch(f"{_CLASSIFY}._gather_report_inputs", return_value=self._candidates(5)),
+            patch(f"{_CLASSIFY}._persist_outcomes") as persist,
+            patch(
+                f"{_CLASSIFY}.judge_finding",
+                new=AsyncMock(
+                    side_effect=[RuntimeError("a"), _ruling(True), RuntimeError("b"), _ruling(True), RuntimeError("c")]
+                ),
+            ),
+            pytest.raises(_SkipReport),
+        ):
+            async_to_sync(classify_report)(
+                team_id=1,
+                report=ReviewReport(repository="o/r", pr_number=7),
+                final_head="head_sha",
+                capture=lambda **kw: captured.append(kw),
+            )
+
+        persist.assert_not_called()
+        assert captured == []
 
     def test_one_report_failing_does_not_strand_the_rest_of_the_sweep(self):
         # The judge raises ApplicationError on any LLM failure, and a failed report writes no

@@ -113,15 +113,25 @@ class FindingOutcomeArtefact(BaseModel):
         "judge_confirmed",
         "judge_rejected",
         "comment_reply",
+        # A reply from an agent other than ReviewHog itself. Engagement like `comment_reply`, kept
+        # apart so "a human responded" stays answerable as agents take over more of the replying.
+        "comment_reply_agent",
         "comment_reaction",
         "no_signal",
         # A line-proximity candidate the judge never ruled on: the report exhausted its per-report
         # judge budget. Counts as `ignored` like `no_signal` (no evidence it was addressed), but is
         # named apart so consumers can tell "nothing touched it" from "we did not look".
         "judge_budget_exhausted",
+        # The judge was asked and errored. Also `ignored`, and also named apart: a rate of these is
+        # a health signal about the judge, not about how the PR's authors respond to review.
+        "judge_failed",
     ] = Field(description="Which signal decided the outcome.")
     reviewed_head: str = Field(description="The head the finding was published at (the compare base).")
     final_head: str = Field(description="The PR branch tip at merge (the compare head).")
+    judge_reasoning: str | None = Field(
+        default=None,
+        description="The judge's stated reason for its ruling, kept so a classification can be explained later.",
+    )
     judge_model: str | None = Field(
         default=None, description="Model that judged whether the change addressed the finding, when the judge ran."
     )

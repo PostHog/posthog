@@ -110,8 +110,11 @@ CHUNK_SOFT_MAX_ADDITIONS = 600
 # `ONESHOT_MODEL` = claude-sonnet-5): a judge sharing the reviewer's model family would inherit the
 # same blind spots the telemetry exists to measure. Effort is "high" — a focused yes/no on a small
 # diff, not the reviewer's exhaustive xhigh pass.
-OUTCOME_JUDGE_MODEL = "claude-opus-4-8"
+OUTCOME_JUDGE_MODEL = "claude-opus-5"
 OUTCOME_JUDGE_REASONING_EFFORT = "high"
+# The judge's stated reason is persisted with the outcome so a classification can be explained later.
+# It is asked for a sentence or two; this only trims a malfunctioning one before it lands in the row.
+OUTCOME_JUDGE_REASONING_MAX_CHARS = 2_000
 # A post-review commit counts as touching a finding when it changes lines within this many lines of
 # the finding's range — absorbs small drift (an import added above, a line renumbered) without
 # matching an unrelated edit elsewhere in the same file. The judge is the real arbiter; this only
@@ -127,6 +130,18 @@ OUTCOME_MAX_REPORTS_PER_SWEEP = 50
 # whole report is decided, the retry and every later sweep would replay the same calls and never
 # finish it. Candidates past this ceiling settle without a judge call so the report always completes.
 OUTCOME_MAX_JUDGE_CALLS_PER_REPORT = 30
+# A judge call that fails settles its finding as `judge_failed` rather than throwing away the whole
+# report's completed judgments and replaying them next sweep. These two bound that tolerance, because
+# an outcome is written once and never re-decided: recording a report's worth of `judge_failed` during
+# an LLM outage would destroy that report's telemetry permanently, so a report that looks
+# systematically broken is abandoned mid-flight and retried on a later sweep instead.
+# Consecutive failures are the fast signal (the gateway is down, so stop spending on it).
+OUTCOME_JUDGE_FAILURE_STREAK = 3
+# The ratio is the slow one, checked before persisting: it catches a gateway failing intermittently,
+# which never trips the streak. Only meaningful once more calls than the streak have been attempted —
+# below that the streak rule already governs, and a lone failure on a small report is better recorded
+# than retried forever.
+OUTCOME_JUDGE_MIN_SUCCESS_RATIO = 0.75
 # Ceiling on pending reports a sweep pulls for one team. A report whose PR is closed without merging
 # is never classifiable and never stamped, so it stays discoverable forever: without a bound, that
 # sediment accumulates through ordinary attrition and every hourly sweep re-materializes it and folds
