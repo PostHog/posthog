@@ -1,4 +1,5 @@
 import { useActions } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconMagicWand } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -41,7 +42,16 @@ export function SourceMapsRecommendationCard({
                 </div>
             </div>
             <div className="flex justify-center gap-2 mt-2">
-                <LemonButton type="tertiary" to={SOURCE_MAPS_DOCS_URL} targetBlank>
+                <LemonButton
+                    type="tertiary"
+                    to={SOURCE_MAPS_DOCS_URL}
+                    targetBlank
+                    onClick={() => {
+                        posthog.capture('error_tracking_source_maps_docs_clicked', {
+                            source: 'recommendation_card',
+                        })
+                    }}
+                >
                     Read docs
                 </LemonButton>
                 <LemonButton type="secondary" icon={<IconMagicWand />} onClick={() => openModal('recommendations')}>

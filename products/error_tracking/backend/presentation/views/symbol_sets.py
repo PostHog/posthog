@@ -290,6 +290,8 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
     def bulk_start_upload(self, request: Request, **kwargs) -> Response:
         if request.user.pk:
             posthoganalytics.identify_context(str(request.user.pk))
+        else:
+            posthoganalytics.identify_context(str(self.team.uuid))
 
         upload_serializer = ErrorTrackingSymbolSetBulkStartUploadSerializer(data=request.data)
         upload_serializer.is_valid(raise_exception=True)
@@ -324,6 +326,8 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
     def bulk_finish_upload(self, request: Request, **kwargs) -> Response:
         if request.user.pk:
             posthoganalytics.identify_context(str(request.user.pk))
+        else:
+            posthoganalytics.identify_context(str(self.team.uuid))
         content_hashes = request.data.get("content_hashes", {})
         if content_hashes is None:
             return Response({"detail": "content_hashes are required"}, status=status.HTTP_400_BAD_REQUEST)
