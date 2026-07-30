@@ -1,4 +1,6 @@
+import asyncio
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from django.conf import settings
@@ -395,6 +397,58 @@ def _capture_delta_revived(
         capture_exception(e)
 
 
+async def schedule_revive_if_table_is_hollow(
+    schema: "ExternalDataSchema",
+    delta_table_helper: DeltaTableHelper,
+    error: BaseException,
+    logger: FilteringBoundLogger,
+) -> bool:
+    """Arm the revive when `error` is the sync tripping over a data file the live log still references.
+
+    The same hollow-table state the repartition scan detects is also reachable from a plain sync: a
+    merge or read 404s on a parquet file that vacuum deleted while the log kept pointing at it. Only
+    the repartition path used to notice, so a schema that hit the 404 during a sync failed the job,
+    failed it again on every retry, and never healed. Setting the marker here routes it into the next
+    run's `handle_corrupted_delta_log`, which resets and rebuilds from source, non-billable.
+
+    Best-effort and non-suppressing: the caller re-raises either way, since this run has already
+    passed the point where the revive would have run.
+    """
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (  # noqa: PLC0415 — deferred to avoid an import cycle with the repartition modules
+        _live_missing_data_file,
+        _missing_live_object_path,
+    )
+
+    try:
+        live_uri = await delta_table_helper.get_table_uri()
+        missing_path = _missing_live_object_path(error, live_uri)
+        if missing_path is None:
+            return False
+        # Verifies the current log still references the missing object, so a stale snapshot racing a
+        # legitimate rewrite doesn't reset a healthy table.
+        if await _live_missing_data_file(live_uri, delta_table_helper.get_storage_options(), missing_path) is None:
+            return False
+
+        await asyncio.to_thread(
+            schema.set_delta_revive_required,
+            {
+                "reason": "sync_missing_data_file",
+                "missing_path": missing_path,
+                "detected_at": datetime.now(UTC).isoformat(),
+            },
+        )
+    except Exception as e:
+        capture_exception(e)
+        return False
+
+    await logger.awarning(
+        f"sync: live table references a missing data file, scheduling revive "
+        f"schema_id={schema.id} missing={missing_path}",
+        schema_id=str(schema.id),
+    )
+    return True
+
+
 async def handle_corrupted_delta_log(
     schema: "ExternalDataSchema",
     job: "ExternalDataJob",
@@ -408,10 +462,11 @@ async def handle_corrupted_delta_log(
     - `_delta_log` unreadable (open raises DeltaError / FileNotFoundError) — interrupted repartition
       swaps and OOM-crashed merges leave this, after which every sync fails to open the table and
       loops forever.
-    - The schema's `delta_revive_required` marker — set by the repartition activity when the log
-      opens fine but references data files that are gone from S3 (a hollow table an interleaved swap
-      left behind). Only a full scan discovers that state, so it arrives as a marker rather than a
-      check here.
+    - The schema's `delta_revive_required` marker — set by the repartition activity, or by
+      `schedule_revive_if_table_is_hollow` on a sync that 404s on one, when the log opens fine but
+      references data files that are gone from S3 (a hollow table an interleaved swap or an
+      over-eager vacuum left behind). Only reading the data discovers that state, so it arrives as a
+      marker rather than a check here.
 
     Runs before extraction so the table self-heals in the same run:
 

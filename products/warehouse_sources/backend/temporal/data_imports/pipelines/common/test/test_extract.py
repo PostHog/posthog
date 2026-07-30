@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     report_heartbeat_timeout,
     resolve_primary_keys,
     run_pre_write_defensive_compact,
+    schedule_revive_if_table_is_hollow,
 )
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
@@ -468,6 +469,89 @@ class TestHandleCorruptedDeltaLog:
         assert ph.capture.call_args.kwargs["event"] == "warehouse_delta_revived"
         assert ph.capture.call_args.kwargs["properties"]["outcome"] == "salvaged"
         assert ph.capture.call_args.kwargs["properties"]["made_non_billable"] is False
+
+
+@pytest.mark.django_db(transaction=True)
+class TestScheduleReviveIfTableIsHollow:
+    LIVE = "s3://bucket/dlt/team_1_stripe_abc/invoice"
+    MISSING = "dlt/team_1_stripe_abc/invoice/date=2017-01-01/part-0.parquet"
+    _REPARTITION_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition"
+
+    def _schema(self, team) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Stripe"
+        )
+        return ExternalDataSchema.objects.create(name="Invoice", team=team, source=source, sync_type_config={})
+
+    def _helper(self) -> MagicMock:
+        return MagicMock(
+            get_table_uri=AsyncMock(return_value=self.LIVE),
+            get_storage_options=MagicMock(return_value={}),
+        )
+
+    def test_missing_data_file_still_in_the_log_arms_the_revive(self, team):
+        # The 404 the customer's sync hit: vacuum deleted a parquet file the live log still points at.
+        # Detection used to exist only on the repartition path, so a sync that tripped over it failed
+        # forever instead of healing. The marker is what routes the next run into the revive.
+        schema = self._schema(team)
+        error = OSError(f"Object at location {self.MISSING} not found: No such file or directory")
+
+        with patch(
+            f"{self._REPARTITION_MODULE}._live_missing_data_file",
+            new=AsyncMock(return_value=f"{self.LIVE}/date=2017-01-01/part-0.parquet"),
+        ):
+            result = async_to_sync(schedule_revive_if_table_is_hollow)(
+                schema, self._helper(), error, MagicMock(awarning=AsyncMock())
+            )
+
+        assert result is True
+        schema.refresh_from_db()
+        marker = schema.sync_type_config["delta_revive_required"]
+        assert marker["reason"] == "sync_missing_data_file"
+        assert marker["missing_path"] == self.MISSING
+
+    @parameterized.expand(
+        [
+            # Nothing about this error names a missing object — the overwhelmingly common case, and it
+            # must not cost a live-log scan or arm a rebuild of a perfectly healthy table.
+            ("unrelated_failure", OSError("connection reset by peer")),
+            # A file under a `__repartitioned` temp sibling is the repartitioner's business, not a hole
+            # in the live table.
+            (
+                "missing_under_temp_sibling",
+                OSError("Object at location dlt/team_1_stripe_abc/invoice__repartitioned/part-0.parquet not found"),
+            ),
+        ]
+    )
+    def test_leaves_the_schema_alone(self, _name: str, error: Exception, team):
+        schema = self._schema(team)
+
+        with patch(
+            f"{self._REPARTITION_MODULE}._live_missing_data_file", new=AsyncMock(return_value=None)
+        ) as verify_mock:
+            result = async_to_sync(schedule_revive_if_table_is_hollow)(
+                schema, self._helper(), error, MagicMock(awarning=AsyncMock())
+            )
+
+        assert result is False
+        verify_mock.assert_not_awaited()
+        schema.refresh_from_db()
+        assert "delta_revive_required" not in schema.sync_type_config
+
+    def test_stale_snapshot_race_does_not_reset_a_healthy_table(self, team):
+        # A reader holding a pre-rewrite handle sees the same missing-object error, but the current log
+        # no longer references the file. Reviving on that would wipe and rebuild a healthy table.
+        schema = self._schema(team)
+        error = OSError(f"Object at location {self.MISSING} not found")
+
+        with patch(f"{self._REPARTITION_MODULE}._live_missing_data_file", new=AsyncMock(return_value=None)):
+            result = async_to_sync(schedule_revive_if_table_is_hollow)(
+                schema, self._helper(), error, MagicMock(awarning=AsyncMock())
+            )
+
+        assert result is False
+        schema.refresh_from_db()
+        assert "delta_revive_required" not in schema.sync_type_config
 
 
 # transaction=True: the webhook-first branch clears the reset flag via update_sync_type_config_keys,

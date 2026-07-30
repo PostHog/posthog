@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     reset_rows_synced_if_needed,
     resolve_primary_keys,
     run_pre_write_defensive_compact,
+    schedule_revive_if_table_is_hollow,
     setup_row_tracking_with_billing_check,
     should_check_shutdown,
     stage_chunk_for_person_property_sink,
@@ -377,9 +378,10 @@ class PipelineV3(Generic[ResumableData]):
                 "should_trigger_cdp_producer": await self._cdp_producer.should_produce_table(),
                 "consumer_manages_job_status": len(self._batch_results) > 0,
             }
-        except Exception:
+        except Exception as e:
             status = "error"
             self._logger.exception("V3 Pipeline: Extraction failed")
+            await schedule_revive_if_table_is_hollow(self._schema, self._delta_table_helper, e, self._logger)
             raise
         finally:
             duration = time.perf_counter() - start_time

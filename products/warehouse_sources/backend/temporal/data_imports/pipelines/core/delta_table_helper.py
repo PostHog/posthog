@@ -960,9 +960,12 @@ class DeltaTableHelper:
 
     async def _vacuum(self, table: deltalake.DeltaTable) -> None:
         await self._logger.adebug("Vacuuming table...")
-        vacuum_stats = await asyncio.to_thread(
-            table.vacuum, retention_hours=24, enforce_retention_duration=False, dry_run=False
-        )
+        # Retention is deliberately left to the table's own `deletedFileRetentionDuration` (a week by
+        # default) with delta-rs's guard enforced. A shorter window with the guard disabled physically
+        # deletes files that a concurrent snapshot, an interleaved repartition swap, or a zombie
+        # activity attempt still references, which hollows the table out: the log keeps pointing at
+        # parquet files S3 404s on, and the only recovery is a full rebuild from source.
+        vacuum_stats = await asyncio.to_thread(table.vacuum, dry_run=False)
         await self._logger.adebug(json.dumps(vacuum_stats))
 
     async def _compact(self, table: deltalake.DeltaTable) -> None:

@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     reset_rows_synced_if_needed,
     resolve_primary_keys,
     run_pre_write_defensive_compact,
+    schedule_revive_if_table_is_hollow,
     setup_row_tracking_with_billing_check,
     should_check_shutdown,
     stage_chunk_for_person_property_sink,
@@ -271,6 +272,9 @@ class PipelineNonDLT(Generic[ResumableData]):
             if isinstance(prepared_queryable_folder, str):
                 result["prepared_queryable_folder"] = prepared_queryable_folder
             return result
+        except Exception as e:
+            await schedule_revive_if_table_is_hollow(self._schema, self._delta_table_helper, e, self._logger)
+            raise
         finally:
             # Help reduce the memory footprint of each job. This is best-effort cleanup of
             # whatever `get_delta_table` already cached this run — pop rather than call, so a
