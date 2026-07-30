@@ -199,11 +199,11 @@ describe('NotebookComponentShell', () => {
 
         const editRender = renderShell('edit')
 
-        const actionButton = screen.getByRole('button', { name: 'Add metric' })
+        const actionButton = screen.getByText('Add metric')
         fireEvent.click(actionButton)
         expect(onAction).toHaveBeenCalled()
 
-        await userEvent.click(screen.getByRole('button', { name: 'More actions' }))
+        await userEvent.click(screen.getByLabelText('More actions'))
         await userEvent.click(await screen.findByText('Refresh'))
         expect(onMenuItem).toHaveBeenCalled()
 
@@ -211,7 +211,7 @@ describe('NotebookComponentShell', () => {
 
         // The menu still renders in view mode (e.g. profile canvases), the actions row does not.
         renderShell('view')
-        expect(screen.queryByRole('button', { name: 'Add metric' })).toBeNull()
-        expect(screen.getByRole('button', { name: 'More actions' })).toBeTruthy()
+        expect(screen.queryByText('Add metric')).toBeNull()
+        expect(screen.getByLabelText('More actions')).toBeTruthy()
     })
 })
