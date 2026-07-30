@@ -187,7 +187,37 @@ SESSION_RECORDING_THROTTLED = Counter(
     labelnames=["location", "auth_type"],
 )
 
+METADATA_NOT_FOUND_COUNTER = Counter(
+    "session_recording_metadata_not_found_total",
+    "Recording metadata lookups that found nothing, split by whether an existence check agreed",
+    labelnames=["existence_check"],
+)
+
 _OTEL_PLAYBACK = OtelInstrumentFactory("session-replay-playback")
+
+
+def _report_metadata_not_found(recording: SessionRecording, team: Team) -> None:
+    """Split expected 404s from ones the existence check disagrees with.
+
+    ``load_metadata`` and the existence check read ``session_replay_events`` separately, and
+    metadata additionally narrows by the persisted ``start_time``. When existence says yes and
+    metadata says no we have sent someone to a recording we could have played — that bucket is
+    a bug rather than an expired or unsampled session.
+    """
+    try:
+        exists = SessionReplayEvents().exists(session_id=str(recording.session_id), team=team)
+    except Exception:
+        METADATA_NOT_FOUND_COUNTER.labels(existence_check="failed").inc()
+        return
+
+    METADATA_NOT_FOUND_COUNTER.labels(existence_check="disagreed" if exists else "agreed").inc()
+    if exists:
+        logger.warning(
+            "session_recording_metadata_not_found_but_exists",
+            team_id=team.pk,
+            session_id=str(recording.session_id),
+            recording_start_time=recording.start_time,
+        )
 
 
 def _count_session_recording_throttled(location: str, auth_type: str) -> None:
@@ -1055,6 +1085,7 @@ class SessionRecordingViewSet(
                 loaded = recording.load_metadata()
 
             if not loaded:
+                _report_metadata_not_found(recording, self.team)
                 raise exceptions.NotFound("Recording not found")
 
             recording.load_person()

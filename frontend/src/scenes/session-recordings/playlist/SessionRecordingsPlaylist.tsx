@@ -177,6 +177,7 @@ function PlayerWrapper({
         filters,
         visiblePinnedRecordings: pinnedRecordings,
         matchingEventsMatchType,
+        activeSessionRecordingId,
         activeSessionRecording,
         allowHogQLFilters,
         totalFiltersCount,
@@ -214,26 +215,24 @@ function PlayerWrapper({
                     />
                 </div>
             )}
-            {showContent && activeSessionRecording ? (
+            {/* Keyed off the id rather than the list entry: a recording opened by direct link may never
+                appear in the list, and a list reload must not unmount the player and throw away the
+                "recording not found" explanation it is showing. */}
+            {showContent && activeSessionRecordingId ? (
                 <div className={cn('h-full', isFiltersExpanded && 'hidden')}>
                     <SessionRecordingPlayer
                         playerKey={props.logicKey ?? 'playlist'}
-                        sessionRecordingId={activeSessionRecording.id}
+                        sessionRecordingId={activeSessionRecordingId}
                         matchingEventsMatchType={matchingEventsMatchType}
                         autoPlay={props.autoPlay}
                         onRecordingDeleted={() => {
                             loadAllRecordings()
                             setSelectedRecordingId(null)
                         }}
-                        pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecording.id)}
+                        pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecordingId)}
                         setPinned={
-                            props.onPinnedChange
-                                ? (pinned) => {
-                                      if (!activeSessionRecording.id) {
-                                          return
-                                      }
-                                      props.onPinnedChange?.(activeSessionRecording, pinned)
-                                  }
+                            props.onPinnedChange && activeSessionRecording
+                                ? (pinned) => props.onPinnedChange?.(activeSessionRecording, pinned)
                                 : undefined
                         }
                         playNextRecording={nextSessionRecording?.id ? onPlayNextRecording : undefined}

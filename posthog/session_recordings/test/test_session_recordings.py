@@ -985,6 +985,27 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "other_viewers": 0,
         }
 
+    @parameterized.expand([("existence_check_disagrees", True, 1), ("existence_check_agrees", False, 0)])
+    def test_metadata_not_found_logs_only_when_existence_check_disagrees(
+        self, _name: str, exists: bool, expected_warnings: int
+    ):
+        with (
+            patch(
+                "posthog.session_recordings.session_recording_api.SessionReplayEvents.exists",
+                return_value=exists,
+            ),
+            patch("posthog.session_recordings.session_recording_api.logger") as mock_logger,
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/a_session_with_no_metadata")
+            assert response.status_code == status.HTTP_404_NOT_FOUND
+
+        warnings = [
+            c
+            for c in mock_logger.warning.call_args_list
+            if c[0] and c[0][0] == "session_recording_metadata_not_found_but_exists"
+        ]
+        assert len(warnings) == expected_warnings
+
     def test_single_session_recording_doesnt_leak_teams(self):
         another_team = Team.objects.create(organization=self.organization)
         self.produce_replay_summary(

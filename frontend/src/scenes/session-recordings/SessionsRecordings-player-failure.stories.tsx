@@ -7,6 +7,7 @@ import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/record
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import { ReplayTabs } from '~/types'
 
 import { recordingPlaylists } from './__mocks__/recording_playlists'
 import { recordings } from './__mocks__/recordings'
@@ -132,6 +133,15 @@ export default meta
 type Story = StoryObj<{}>
 export const NotFound: Story = {
     parameters: {
+        testOptions: { waitForLoadersToDisappear: false, waitForSelector: '[data-attr="not-found-recording"]' },
+    },
+}
+
+// Opened by direct link, and the list query never returns it. The pane still has to explain itself
+// rather than collapsing to the generic "no recording selected" empty state.
+export const NotFoundAndNotInList: Story = {
+    parameters: {
+        pageUrl: urls.replay(ReplayTabs.Home, undefined, 'a-session-that-was-never-recorded'),
         testOptions: { waitForLoadersToDisappear: false, waitForSelector: '[data-attr="not-found-recording"]' },
     },
 }

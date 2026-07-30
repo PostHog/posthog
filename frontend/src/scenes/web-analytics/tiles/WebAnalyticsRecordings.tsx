@@ -118,7 +118,7 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
                                 })
                             }}
                         >
-                            <ViewRecordingButton sessionId={recording.id ?? ''} size="xsmall" />
+                            <ViewRecordingButton sessionId={recording.id ?? ''} size="xsmall" checkRecordingExists />
                         </div>
                     ),
                 },
