@@ -291,6 +291,16 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
         credit_bucket=None,
     ),
+    # warehouse-sources-admin's error-triage classifier: one cheap Haiku call per ingested
+    # pipeline error that decides whether the error is code-fixable and which model the
+    # follow-up PostHog Code task should run on. Server-side only via the shared personal API
+    # key, Haiku-pinned, unbilled internal infra — same posture as warehouse_semantic_enrichment.
+    "warehouse_sources_triage": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"claude-haiku-4-5"}),
+        allow_api_keys=True,
+        credit_bucket=None,
+    ),
     "posthog_ai": ProductConfig(
         allowed_application_ids=frozenset({POSTHOG_AI_US_APP_ID, POSTHOG_AI_EU_APP_ID, POSTHOG_AI_DEV_APP_ID}),
         allowed_models=None,  # any model
