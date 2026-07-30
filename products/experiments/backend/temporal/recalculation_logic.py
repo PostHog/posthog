@@ -223,6 +223,7 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
             )
 
             if existing is None:
+                logger.warning("mark_started_rejected_row_missing", recalculation_id=update.recalculation_id)
                 return None
 
             existing_query_to, existing_status = existing
@@ -230,6 +231,11 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
                 ExperimentMetricsRecalculation.Status.PENDING,
                 ExperimentMetricsRecalculation.Status.IN_PROGRESS,
             ):
+                logger.warning(
+                    "mark_started_rejected_run_terminal",
+                    recalculation_id=update.recalculation_id,
+                    status=existing_status,
+                )
                 return None
 
             return existing_query_to.isoformat() if existing_query_to is not None else None
