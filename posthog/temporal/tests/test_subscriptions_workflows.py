@@ -90,6 +90,17 @@ _IS_OVER_BUDGET = (
 )
 _CREDIT_LIMITED_EMAIL = "products.exports.backend.temporal.subscriptions.ai_subscription.delivery.EmailMessage"
 
+
+def test_subscription_workflows_accept_legacy_previous_target_payload() -> None:
+    payload = '{"subscription_id": 1, "previous_value": "old@example.com"}'
+
+    process_inputs = ProcessSubscriptionWorkflow.parse_inputs([payload])
+    update_inputs = HandleSubscriptionValueChangeWorkflow.parse_inputs([payload])
+
+    assert process_inputs.previous_target_value == "old@example.com"
+    assert update_inputs.previous_target_value == "old@example.com"
+
+
 SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
     Sequence[Callable[..., Any]],
     [
@@ -1349,16 +1360,17 @@ async def test_resolve_exportable_insights_filters_explicit_dashboard_selection(
     dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="Selected", created_by=user)
     selected_insight = await sync_to_async(Insight.objects.create)(team=team, short_id="selected01", name="Selected")
     other_insight = await sync_to_async(Insight.objects.create)(team=team, short_id="other01", name="Other")
+    stale_insight = await sync_to_async(Insight.objects.create)(team=team, short_id="stale02", name="Stale")
     await sync_to_async(DashboardTile.objects.create)(dashboard=dashboard, insight=selected_insight)
     await sync_to_async(DashboardTile.objects.create)(dashboard=dashboard, insight=other_insight)
     subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
-    await sync_to_async(subscription.dashboard_export_insights.add)(selected_insight)
+    await sync_to_async(subscription.dashboard_export_insights.add)(selected_insight, stale_insight)
 
     result = await _resolve_exportable_insights(subscription)
 
     assert [insight.id for _, insight in result.tile_insight_pairs] == [selected_insight.id]
     assert result.available_insight_count == 2
-    assert result.selected_insight_count == 1
+    assert result.selected_insight_count == 2
     assert result.no_exportable_reason is None
 
 

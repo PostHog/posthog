@@ -392,29 +392,38 @@ async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubs
         LOGGER.info("deliver_subscription.skipped_disabled", subscription_id=inputs.subscription_id)
         return DeliverSubscriptionResult(recipient_results=[])
 
+    previous_target_value = inputs.previous_target_value
+    if previous_target_value is None:
+        previous_target_value = inputs.previous_value
+    send_only_to_new_recipients = (
+        inputs.is_new_subscription_target
+        if inputs.is_new_subscription_target is not None
+        else previous_target_value is not None and previous_target_value != subscription.target_value
+    )
+
     await LOGGER.ainfo(
         "deliver_subscription.starting",
         subscription_id=inputs.subscription_id,
         target_type=subscription.target_type,
         asset_count=len(inputs.exported_asset_ids),
-        is_new=(inputs.previous_target_value is not None and inputs.previous_target_value != subscription.target_value),
+        is_new=send_only_to_new_recipients,
         resource_type=subscription.resource_type,
     )
 
     if subscription.resource_type == Subscription.ResourceType.AI_PROMPT:
         return await _deliver_ai_subscription(subscription, inputs, recipient_results)
 
-    return await _deliver_insight_dashboard_subscription(subscription, inputs, recipient_results)
+    return await _deliver_insight_dashboard_subscription(
+        subscription, inputs, recipient_results, send_only_to_new_recipients
+    )
 
 
 async def _deliver_insight_dashboard_subscription(
     subscription: Subscription,
     inputs: DeliverSubscriptionInputs,
     recipient_results: list[RecipientResult],
+    send_only_to_new_recipients: bool,
 ) -> DeliverSubscriptionResult:
-    send_only_to_new_recipients = (
-        inputs.previous_target_value is not None and inputs.previous_target_value != subscription.target_value
-    )
     if (
         get_subscription_disable_reason(subscription.target_type, subscription.integration_id)
         == UNSUPPORTED_TARGET_DISABLE_REASON

@@ -193,6 +193,8 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> TrackedSubscriptionInputs:
         loaded = json.loads(inputs[0])
+        if "previous_target_value" not in loaded and "previous_value" in loaded:
+            loaded["previous_target_value"] = loaded["previous_value"]
         return TrackedSubscriptionInputs(**loaded)
 
     @temporalio.workflow.run
@@ -377,6 +379,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     exported_asset_ids=delivery_asset_ids,
                     total_insight_count=prepare_result.total_insight_count,
                     previous_target_value=inputs.previous_target_value,
+                    previous_value=inputs.previous_value,
                     invite_message=inputs.invite_message,
                     change_summary=change_summary,
                     summary_skipped_over_budget=summary_skipped_over_budget,
@@ -553,6 +556,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                     exported_asset_ids=[],
                     total_insight_count=0,
                     previous_target_value=inputs.previous_target_value,
+                    previous_value=inputs.previous_value,
                     invite_message=inputs.invite_message,
                     delivery_id=delivery_id,
                 ),
@@ -635,6 +639,8 @@ class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> ProcessSubscriptionWorkflowInputs:
         loaded = json.loads(inputs[0])
+        if "previous_target_value" not in loaded and "previous_value" in loaded:
+            loaded["previous_target_value"] = loaded["previous_value"]
         return ProcessSubscriptionWorkflowInputs(**loaded)
 
     @temporalio.workflow.run
@@ -644,6 +650,7 @@ class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
             team_id=inputs.team_id,
             distinct_id=inputs.distinct_id,
             previous_target_value=inputs.previous_target_value,
+            previous_value=inputs.previous_value,
             invite_message=inputs.invite_message,
             trigger_type=inputs.trigger_type,
             resource_type=inputs.resource_type,
