@@ -48,6 +48,7 @@ from products.review_hog.backend.reviewer.constants import (
     OUTCOME_JUDGE_MODEL,
     OUTCOME_JUDGE_REASONING_MAX_CHARS,
     OUTCOME_LINE_PROXIMITY_WINDOW,
+    OUTCOME_MAX_EXTRA_COMPARE_BASES,
     OUTCOME_MAX_JUDGE_CALLS_PER_REPORT,
     OUTCOME_MAX_REPORTS_PER_SWEEP,
     effective_priority,
@@ -73,7 +74,9 @@ class Capture(Protocol):
     def __call__(self, **kwargs: Any) -> None: ...
 
 
-# Blocks until buffered events are transmitted; called before the emitted stamp is written.
+# Blocks until every buffered event has been attempted; called before the emitted stamp is written.
+# Attempted, not confirmed: the capture SDK drops a batch that exhausts its retries with only a log
+# line, so a persistent ingestion outage still loses that report's events despite the ordering here.
 Flush = Callable[[], None]
 
 
@@ -82,6 +85,8 @@ class _PublishedFinding:
     finding: ReviewIssueFinding
     verdict: ValidationVerdict
     comment: dict[str, Any] | None
+    # The head this finding's turn was published at — the base its post-review diff is measured from.
+    reviewed_head: str
 
 
 @dataclass(frozen=True)
@@ -99,8 +104,10 @@ class _ClassifiedOutcome:
 
 @dataclass(frozen=True)
 class _ReportInputs:
-    reviewed_head: str
-    compare_files: list[dict[str, Any]]
+    # One entry per distinct published head: that head's compare against the merge head. A finding
+    # reads the entry for its own `reviewed_head`, so a fix that landed before a later turn is still
+    # inside the diff it is judged on.
+    compares: dict[str, list[dict[str, Any]]]
     review_comments: list[dict[str, Any]]
     published: list[_PublishedFinding]
     distinct_id: str
@@ -162,14 +169,6 @@ def _gather_report_inputs(*, team_id: int, report: ReviewReport, final_head: str
     token, installation_id = auth
     owner, repo = _repo_owner_name(repository)
 
-    compare_files = fetch_compare_files(
-        owner=owner,
-        repo=repo,
-        base_sha=reviewed_head,
-        head_sha=final_head,
-        token=token,
-        installation_id=installation_id,
-    )
     review_comments = fetch_review_comments(
         owner=owner, repo=repo, pr_number=report.pr_number, token=token, installation_id=installation_id
     )
@@ -206,15 +205,48 @@ def _gather_report_inputs(*, team_id: int, report: ReviewReport, final_head: str
     # findings rather than write nothing and re-sweep this report forever.
     to_classify = published or all_valid
 
+    # A finding is measured from the head ITS turn published at. Turns published before this was
+    # recorded fall back to the newest published head, which is what the whole report used to use.
+    published_heads = report.published_head_shas or {}
+    base_by_run = {
+        finding.run_index: published_heads.get(str(finding.run_index), reviewed_head) for finding, _ in to_classify
+    }
+    # Spend the compare budget on the oldest bases: those are the ones whose fixes the newest-base
+    # compare cannot see. The newest base is fetched regardless, so it also serves as the fallback for
+    # any turn beyond the budget — under-counting there, never inventing an `addressed`.
+    extra_bases = sorted({base for base in base_by_run.values() if base != reviewed_head})
+    extra_bases.sort(key=lambda base: min(run for run, b in base_by_run.items() if b == base))
+    if len(extra_bases) > OUTCOME_MAX_EXTRA_COMPARE_BASES:
+        logger.warning(
+            "Report %s published at %d distinct heads; comparing the oldest %d and folding the rest "
+            "into the newest, whose findings may read as ignored",
+            report.id,
+            len(extra_bases) + 1,
+            OUTCOME_MAX_EXTRA_COMPARE_BASES,
+        )
+        extra_bases = extra_bases[:OUTCOME_MAX_EXTRA_COMPARE_BASES]
+
+    compares = {
+        base: fetch_compare_files(
+            owner=owner,
+            repo=repo,
+            base_sha=base,
+            head_sha=final_head,
+            token=token,
+            installation_id=installation_id,
+        )
+        for base in [reviewed_head, *extra_bases]
+    }
+
     return _ReportInputs(
-        reviewed_head=reviewed_head,
-        compare_files=compare_files,
+        compares=compares,
         review_comments=review_comments,
         published=[
             _PublishedFinding(
                 finding=finding,
                 verdict=verdict,
                 comment=find_finding_comment(finding=finding, review_comments=review_comments),
+                reviewed_head=(base if (base := base_by_run[finding.run_index]) in compares else reviewed_head),
             )
             for finding, verdict in to_classify
         ],
@@ -390,7 +422,7 @@ async def classify_report(
     inputs = await database_sync_to_async(_gather_report_inputs, thread_sensitive=False)(
         team_id=team_id, report=report, final_head=final_head
     )
-    compared = parse_compare_files(inputs.compare_files)
+    compared_by_head = {head: parse_compare_files(files) for head, files in inputs.compares.items()}
     outcomes: list[_ClassifiedOutcome] = []
 
     def _decided(
@@ -401,7 +433,7 @@ async def classify_report(
             verdict=pf.verdict,
             outcome=outcome,
             method=method,
-            reviewed_head=inputs.reviewed_head,
+            reviewed_head=pf.reviewed_head,
             final_head=final_head,
             # The judge is free text, so cap what goes into the durable record; the ruling is meant
             # to be a sentence or two and only a malfunctioning one would need trimming.
@@ -418,7 +450,7 @@ async def classify_report(
         elif touched_near(
             file=pf.finding.file,
             lines=pf.finding.lines,
-            compared=compared,
+            compared=compared_by_head[pf.reviewed_head],
             window=OUTCOME_LINE_PROXIMITY_WINDOW,
         ):
             candidates.append(pf)
@@ -440,6 +472,7 @@ async def classify_report(
             logger.warning(
                 "Report %s hit the %d judge-call ceiling; %d candidate finding(s) settled unjudged",
                 report.id,
+                OUTCOME_MAX_EXTRA_COMPARE_BASES,
                 OUTCOME_MAX_JUDGE_CALLS_PER_REPORT,
                 len(candidates) - judged,
             )
@@ -451,7 +484,7 @@ async def classify_report(
                 user_id=inputs.judge_user_id,
                 finding=pf.finding,
                 verdict=pf.verdict,
-                touching_diff=_touching_diff(pf.finding.file, inputs.compare_files),
+                touching_diff=_touching_diff(pf.finding.file, inputs.compares[pf.reviewed_head]),
             )
         except Exception:
             # One finding the judge could not answer must not discard the judgments already made:

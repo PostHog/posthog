@@ -148,6 +148,12 @@ OUTCOME_JUDGE_MIN_SUCCESS_RATIO = 0.75
 # it into the warehouse lookup's `numbers` filter, all before the per-sweep report cap is consulted.
 # Ordered newest-first so the sediment sinks below live work rather than crowding it out.
 OUTCOME_MAX_PENDING_REPORTS_PER_SWEEP = 500
+# Extra compares one report may spend beyond the one from its newest published head. A finding is
+# judged against the head ITS turn published at, so a PR re-reviewed many times needs one compare per
+# distinct base. That is one GitHub read each, so it is bounded: the budget goes to the OLDEST bases,
+# whose fixes the newest-base compare cannot see at all, and anything past it falls back to the newest
+# base — today's behavior, which under-counts rather than inventing an `addressed`.
+OUTCOME_MAX_EXTRA_COMPARE_BASES = 5
 # Ceiling on the diff handed to the judge. The evidence is the finding's whole file patch, and a file
 # can pick up a large unrelated rewrite between review and merge, which `run_oneshot_review` expects
 # its callers to bound. Roughly 25k tokens: orders of magnitude above a normal file patch, so it only

@@ -84,10 +84,11 @@ class TestClassifyReportDecision:
 
     def _inputs(self, *, comment: dict[str, Any] | None, compare_files: list[dict[str, Any]]) -> _ReportInputs:
         return _ReportInputs(
-            reviewed_head="base_sha",
-            compare_files=compare_files,
+            compares={"base_sha": compare_files},
             review_comments=[comment] if comment else [],
-            published=[_PublishedFinding(finding=_finding(), verdict=_verdict(), comment=comment)],
+            published=[
+                _PublishedFinding(finding=_finding(), verdict=_verdict(), comment=comment, reviewed_head="base_sha")
+            ],
             distinct_id="user-distinct",
             judge_user_id=0,
         )
@@ -280,12 +281,12 @@ class TestClassifyReportDecision:
                 ),
                 verdict=_verdict(issue_key=f"r1:f.py:{i}:logic"),
                 comment=None,
+                reviewed_head="base_sha",
             )
             for i in range(over)
         ]
         inputs = _ReportInputs(
-            reviewed_head="base_sha",
-            compare_files=_TOUCHING,
+            compares={"base_sha": _TOUCHING},
             review_comments=[],
             published=published,
             distinct_id="user-distinct",
@@ -306,14 +307,14 @@ class TestClassifyReportDecision:
 
     def _candidates(self, count: int) -> _ReportInputs:
         return _ReportInputs(
-            reviewed_head="base_sha",
-            compare_files=_TOUCHING,
+            compares={"base_sha": _TOUCHING},
             review_comments=[],
             published=[
                 _PublishedFinding(
                     finding=_finding(issue_key=f"r1:f.py:{i}:logic"),
                     verdict=_verdict(issue_key=f"r1:f.py:{i}:logic"),
                     comment=None,
+                    reviewed_head="base_sha",
                 )
                 for i in range(count)
             ],
@@ -472,10 +473,62 @@ class TestGatherAndIdempotency(BaseTest):
         ):
             inputs = _gather_report_inputs(team_id=self.team.id, report=report, final_head="head_sha")
 
-        assert inputs.reviewed_head == "base_sha"
+        assert list(inputs.compares) == ["base_sha"]
+        assert inputs.published[0].reviewed_head == "base_sha"
         assert [pf.finding.issue_key for pf in inputs.published] == [_ISSUE_KEY]
         assert inputs.published[0].comment == comment  # the finding was paired with its posted comment
         assert inputs.distinct_id == self.user.distinct_id
+
+    def test_each_turn_is_compared_from_the_head_it_published_at(self):
+        # A finding posted at turn 1 can be fixed by a commit that lands before turn 2 reviews. That
+        # commit is outside a compare based at the newest published head, so measuring every finding
+        # from there hides the fix and records a finding that was addressed as ignored.
+        report = self._report()
+        report.published_head_shas = {"1": "sha_turn_one", "2": "sha_turn_two"}
+        report.published_head_sha = "sha_turn_two"
+        report.save(update_fields=["published_head_shas", "published_head_sha"])
+        turn_two = _finding(issue_key="r2:f.py:30:logic", title="Race", run_index=2)
+        ReviewReportArtefact.append_finding(
+            team_id=self.team.id, report_id=str(report.id), content=turn_two, attribution=ArtefactAttribution.system()
+        )
+        ReviewReportArtefact.append_verdict(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=_verdict(issue_key=turn_two.issue_key),
+            attribution=ArtefactAttribution.system(),
+        )
+        bases: list[str] = []
+
+        def _capture_base(*, base_sha: str, **kwargs: Any) -> list[dict[str, Any]]:
+            bases.append(base_sha)
+            return _TOUCHING
+
+        with (
+            patch(f"{_CLASSIFY}._installation_auth", return_value=("tok", "inst")),
+            patch(f"{_CLASSIFY}.fetch_compare_files", side_effect=_capture_base),
+            patch(f"{_CLASSIFY}.fetch_review_comments", return_value=[]),
+        ):
+            inputs = _gather_report_inputs(team_id=self.team.id, report=report, final_head="head_sha")
+
+        assert sorted(bases) == ["sha_turn_one", "sha_turn_two"]
+        assert {pf.finding.issue_key: pf.reviewed_head for pf in inputs.published} == {
+            _ISSUE_KEY: "sha_turn_one",
+            "r2:f.py:30:logic": "sha_turn_two",
+        }
+
+    def test_turns_published_before_heads_were_recorded_use_the_newest_head(self):
+        # Reports published before the per-turn map existed carry no entry; they keep the single
+        # newest-head compare rather than losing their compare entirely.
+        report = self._report()
+        with (
+            patch(f"{_CLASSIFY}._installation_auth", return_value=("tok", "inst")),
+            patch(f"{_CLASSIFY}.fetch_compare_files", return_value=_TOUCHING) as compare,
+            patch(f"{_CLASSIFY}.fetch_review_comments", return_value=[]),
+        ):
+            inputs = _gather_report_inputs(team_id=self.team.id, report=report, final_head="head_sha")
+
+        assert compare.call_count == 1
+        assert [pf.reviewed_head for pf in inputs.published] == ["base_sha"]
 
     def test_published_set_uses_the_threshold_snapshotted_at_publish(self):
         # The user's live threshold can change between publish and the merge sweep; the classifier

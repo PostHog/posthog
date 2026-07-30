@@ -112,7 +112,17 @@ def publish_persisted_review(
             **(report.published_urgency_thresholds or {}),
             str(run_index): urgency_threshold.value,
         }
-        report.save(update_fields=["published_head_sha", "published_urgency_thresholds", "updated_at"])
+        # The base a later sweep compares this turn's findings against. Without it every finding is
+        # compared from the newest publish, so a fix landing between two turns falls outside the diff.
+        report.published_head_shas = {**(report.published_head_shas or {}), str(run_index): head_sha}
+        report.save(
+            update_fields=[
+                "published_head_sha",
+                "published_urgency_thresholds",
+                "published_head_shas",
+                "updated_at",
+            ]
+        )
     return outcome
 
 

@@ -77,6 +77,13 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     # may change their threshold in between: each turn posts only its own findings, so a later
     # tightened threshold must not retroactively hide what an earlier, looser turn already posted.
     published_urgency_thresholds = models.JSONField(null=True, blank=True)
+    # The head each turn published at, keyed by `run_index` like the thresholds above, as
+    # `{"1": "abc123", "2": "def456"}`. Outcome classification compares a finding against the head its
+    # own turn was published at: a fix can land between two turns, and comparing every finding against
+    # only the latest published head hides those commits entirely, marking a finding that was fixed as
+    # ignored. Kept beside the thresholds rather than merged into one map because that one already
+    # shipped; both are written together at publish.
+    published_head_shas = models.JSONField(null=True, blank=True)
     # Set once this report's finding-outcome events have been flushed to capture — the outcome
     # sweep's completion marker. Distinct from the `finding_outcome` artefacts (the decided
     # classification, persisted first): a crash between persist and flush leaves this NULL, so the

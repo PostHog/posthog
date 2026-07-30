@@ -64,8 +64,8 @@ class ScopedCapture:
 
     `__call__` only enqueues into the client's buffer; delivery happens on the background
     consumer and at context exit. Callers that checkpoint durable "events delivered" state
-    (e.g. an idempotency stamp) must call `flush()` first — it blocks until the buffer is
-    sent, so a crash after the checkpoint can't lose events that were never transmitted.
+    (e.g. an idempotency stamp) must call `flush()` first, so that a crash after the
+    checkpoint can't lose events still sitting in the buffer.
     """
 
     def __init__(self, client: Any) -> None:
@@ -76,8 +76,20 @@ class ScopedCapture:
             self._client.capture(*args, **kwargs)
 
     def flush(self) -> None:
+        """Wait for every queued event to be attempted. Blocks; keep it off an event loop.
+
+        `timeout_seconds=None` on purpose — the SDK's default is a 10 second budget, and on expiry
+        it logs and returns with items still queued, giving a caller no way to tell a drained buffer
+        from an abandoned one. A checkpoint written on that return is exactly the loss the flush is
+        there to prevent. Unbounded turns that into a caller-visible stall instead, which is the
+        better failure: nothing is checkpointed, so the work is simply retried.
+
+        It is "attempted", not "delivered": the SDK's consumer acknowledges a batch on its way out
+        whether or not the request succeeded, so a batch that exhausts its retries is dropped with
+        only a log line. Delivery past that point is not something this call can promise.
+        """
         if self._client:
-            self._client.flush()
+            self._client.flush(timeout_seconds=None)
 
 
 @contextmanager
