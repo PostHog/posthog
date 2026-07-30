@@ -710,7 +710,7 @@ class TestComputeToolOverlaps:
         # An event sender controls tool names, so one intent can carry thousands of
         # distinct tools; expanding all O(n^2) pairs before ranking would blow up
         # the recompute. Only the head of each distribution enters pair expansion.
-        distribution = [
+        distribution: list[dict[str, Any]] = [
             {"tool": f"t{i}", "count": 100 - i, "pct": 1.0, "errors": 0, "error_rate_pct": 0.0} for i in range(4)
         ]
         clusters = [
