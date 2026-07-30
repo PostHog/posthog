@@ -552,19 +552,21 @@ def duckgres_data_imports_table_name(schema: ExternalDataSchema) -> str:
     prefix = schema.source.prefix
     normalized_name = schema.normalized_name
     raw_name = f"{source_type}_{prefix}_{normalized_name}" if prefix else f"{source_type}_{normalized_name}"
-    return _normalize_duckgres_table_name(raw_name)
+    return _normalize_duckgres_table_name(raw_name, max_length=63)
 
 
 def duckgres_data_modeling_table_name(saved_query_name: str) -> str:
     """Resolve the duckgres table name used for a materialized data model."""
-    return _normalize_duckgres_table_name(saved_query_name)
+    normalized_name = _normalize_duckgres_table_name(saved_query_name)
+    # PostgreSQL caps identifiers at 63 bytes; shadow tables rely on its prefix truncation semantics.
+    return normalized_name[:63]
 
 
-def _normalize_duckgres_table_name(raw_name: str) -> str:
+def _normalize_duckgres_table_name(raw_name: str, max_length: int | None = None) -> str:
     # Deferred to keep warehouse-source model imports off DuckLake's shared configuration path.
     from products.warehouse_sources.backend.facade.sources import NamingConvention  # noqa: PLC0415
 
-    return NamingConvention.normalize_identifier(raw_name, max_length=63)
+    return NamingConvention.normalize_identifier(raw_name, max_length=max_length)
 
 
 def duckgres_data_modeling_schema(team_id: int) -> str:

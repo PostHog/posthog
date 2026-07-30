@@ -79,8 +79,18 @@ class TestDuckgresTableNames:
 
         assert duckgres_data_imports_table_name(schema) == expected
 
-    def test_data_model_name_uses_cluster_convention(self) -> None:
-        assert duckgres_data_modeling_table_name("RevenueByAccount") == "revenue_by_account"
+    @parameterized.expand(
+        [
+            ("short_name", "RevenueByAccount", "revenue_by_account"),
+            (
+                "long_name_keeps_postgres_prefix_truncation",
+                "RevenueByAccount" * 7,
+                "revenue_by_account_revenue_by_account_revenue_by_account_revenu",
+            ),
+        ]
+    )
+    def test_data_model_name_uses_cluster_convention(self, _name: str, model_name: str, expected: str) -> None:
+        assert duckgres_data_modeling_table_name(model_name) == expected
 
 
 TEST_CONFIG = {
