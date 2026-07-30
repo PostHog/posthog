@@ -110,7 +110,8 @@ export function RelationshipsTab(): JSX.Element {
                 }
                 const inFlight = !!actionsInFlight[row.proposalId]
                 return (
-                    <div className="flex gap-1">
+                    // py-1 offsets the negative vertical margin LemonTable applies to buttons in cells
+                    <div className="flex gap-1 py-1">
                         <LemonButton
                             type="primary"
                             size="small"
