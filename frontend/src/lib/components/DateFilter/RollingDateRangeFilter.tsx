@@ -1,6 +1,5 @@
 import './RollingDateRangeFilter.scss'
 
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonButtonProps, LemonInput, LemonSelect, LemonSelectOptionLeaf } from '@posthog/lemon-ui'
@@ -118,7 +117,7 @@ export function RollingDateRangeFilter({
     if (isButton) {
         contents = (
             <LemonButton
-                className={clsx('RollingDateRangeFilter', size === 'small' && 'RollingDateRangeFilter--small')}
+                className="RollingDateRangeFilter"
                 data-attr="rolling-date-range-filter"
                 onClick={select}
                 active={selected}

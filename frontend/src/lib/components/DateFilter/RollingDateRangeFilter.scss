@@ -1,19 +1,11 @@
 .RollingDateRangeFilter {
     display: flex;
     align-items: center;
-    height: 1.6875rem;
-    min-height: 2rem;
-    padding: 1.25rem 0;
-    font-size: 0.875rem;
     font-weight: normal;
     line-height: 1.375em;
     color: var(--text-3000);
     cursor: pointer;
     transition: background 0.3s ease;
-
-    &.RollingDateRangeFilter--small {
-        padding: 0.375rem 0;
-    }
 
     &:hover {
         background-color: var(--color-bg-primary);
