@@ -2,9 +2,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("signals", "0074_signalreport_charts"),
-    ]
+    dependencies = [("signals", "0075_alter_signalsourceconfig_source_product")]
 
     operations = [
         migrations.AlterField(
