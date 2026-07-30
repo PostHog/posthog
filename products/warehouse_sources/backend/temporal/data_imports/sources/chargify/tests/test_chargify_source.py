@@ -18,7 +18,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.chargify.s
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargify.source import ChargifySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ChargifySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.chargify import (
+    ChargifySourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

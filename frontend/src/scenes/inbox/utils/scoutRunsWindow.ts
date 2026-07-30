@@ -1,4 +1,4 @@
-// Ported from PostHog Code desktop `packages/core/src/scouts/scoutRunsWindow.ts`
+// Ported from PostHog Desktop `packages/core/src/scouts/scoutRunsWindow.ts`
 // and `scoutPresentation.ts`. Pure metrics + display helpers over scout runs and
 // configs; no I/O. The runs endpoint caps each response at 100 rows newest-first;
 // `scoutFleetLogic.loadRunsWindow` assembles the full window by walking the
@@ -9,7 +9,9 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 import { objectsEqual } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
 
-import { SignalScoutConfig, SignalScoutRunStatus, SignalScoutRunSummary } from '../types'
+import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
+
+import { SignalScoutRunStatus, SignalScoutRunSummary } from '../types'
 
 /**
  * The window every scout stat describes. The cloud runs endpoint caps each list
@@ -457,6 +459,44 @@ export const RUN_INTERVAL_OPTIONS: RunIntervalOption[] = [
     { minutes: 1440, label: 'Daily' },
 ]
 
+export const SCOUT_DAILY_AT_SCHEDULE_MODE = 'daily_at'
+export const SCOUT_CUSTOM_CRON_SCHEDULE_MODE = 'custom_cron'
+export const DEFAULT_SCOUT_DAILY_TIME = '09:00'
+
+interface ScoutScheduleFields {
+    run_interval_minutes: number
+    run_cron_schedule?: string | null
+}
+
+export function getScoutScheduleMode(config: ScoutScheduleFields): string {
+    if (!config.run_cron_schedule) {
+        return String(config.run_interval_minutes)
+    }
+    return dailyCronToTime(config.run_cron_schedule) ? SCOUT_DAILY_AT_SCHEDULE_MODE : SCOUT_CUSTOM_CRON_SCHEDULE_MODE
+}
+
+export function getScoutScheduleOptions(config: ScoutScheduleFields): { value: string; label: string }[] {
+    const scheduleMode = getScoutScheduleMode(config)
+    const options = RUN_INTERVAL_OPTIONS.map((option) => ({
+        value: String(option.minutes),
+        label: option.label,
+    }))
+    if (!RUN_INTERVAL_OPTIONS.some((option) => option.minutes === config.run_interval_minutes)) {
+        options.push({
+            value: String(config.run_interval_minutes),
+            label: formatRunInterval(config.run_interval_minutes),
+        })
+    }
+    options.push({ value: SCOUT_DAILY_AT_SCHEDULE_MODE, label: 'Daily at a set time' })
+    if (scheduleMode === SCOUT_CUSTOM_CRON_SCHEDULE_MODE) {
+        options.push({
+            value: SCOUT_CUSTOM_CRON_SCHEDULE_MODE,
+            label: `Custom (${config.run_cron_schedule})`,
+        })
+    }
+    return options
+}
+
 export function formatRunInterval(minutes: number): string {
     const preset = RUN_INTERVAL_OPTIONS.find((option) => option.minutes === minutes)
     if (preset) {
@@ -469,6 +509,25 @@ export function formatRunInterval(minutes: number): string {
         return `Every ${minutes / 60} hours`
     }
     return `Every ${minutes} minutes`
+}
+
+/**
+ * "30 9 * * *" → "09:30" when the cron is a plain daily time (the shape the settings form
+ * writes). Anything richer (multiple slots, day-of-week restrictions) returns null and is
+ * displayed as the raw expression instead.
+ */
+export function dailyCronToTime(cron: string | null | undefined): string | null {
+    const match = cron?.trim().match(/^(\d{1,2}) (\d{1,2}) \* \* \*$/)
+    if (!match) {
+        return null
+    }
+    return `${match[2].padStart(2, '0')}:${match[1].padStart(2, '0')}`
+}
+
+/** "09:30" → "30 9 * * *" — the inverse of `dailyCronToTime` for the settings form's time picker. */
+export function timeToDailyCron(time: string): string {
+    const [hours, minutes] = time.split(':')
+    return `${Number(minutes)} ${Number(hours)} * * *`
 }
 
 /** Short form for row badges: "hourly", "every 3h". */

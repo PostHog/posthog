@@ -1,8 +1,10 @@
+import threading
 import dataclasses
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from asgiref.sync import sync_to_async
 from temporalio.testing import ActivityEnvironment
 
 from posthog.temporal.signup_enrichment.workflow import (
@@ -52,6 +54,31 @@ async def test_falls_back_to_deterministic_company_type_on_miss():
 
     assert result == {"matched": False, "fields_filled": 0}
     assert snapshot_mock.call_args.kwargs["snapshot"].company_type == "yc"
+
+
+async def test_connection_cleanup_runs_on_the_orm_thread():
+    # Django connections are thread-local and the ORM work runs on asgiref's shared sync-executor
+    # thread. Cleanup on any other thread is a no-op, and a dead connection in the executor thread
+    # then fails every activity on the worker until the pod is replaced.
+    cleanup_threads = []
+
+    pha_client, (get_client, enrich, det, snapshot) = _patches(enrich_return={"return_value": None})
+    with (
+        get_client,
+        enrich,
+        det,
+        snapshot,
+        patch(
+            "posthog.temporal.common.utils._close_initialized_connections",
+            side_effect=lambda: cleanup_threads.append(threading.get_ident()),
+        ),
+        patch("posthog.temporal.common.utils.settings.TEST", False),
+    ):
+        await ActivityEnvironment().run(enrich_signup_organization_activity, _INPUTS)
+
+    orm_thread = await sync_to_async(threading.get_ident)()
+    assert cleanup_threads and all(t == orm_thread for t in cleanup_threads)
+    assert orm_thread != threading.get_ident()
 
 
 @pytest.mark.parametrize("attempt,expect_signal", [(1, False), (MAX_ENRICH_ATTEMPTS, True)])

@@ -24,6 +24,7 @@ from posthog.ducklake.storage import (
     compute_staging_uri,
     configure_connection,
     connect_to_duckgres,
+    create_staging_read_secret,
     ensure_ducklake_bucket_exists,
     get_deltalake_storage_options,
     setup_duckgres_session,
@@ -525,6 +526,7 @@ def _copy_data_modeling_via_duckgres(inputs: DuckLakeCopyActivityInputs, logger)
 
     with connect_to_duckgres(server) as conn:
         setup_duckgres_session(conn)
+        create_staging_read_secret(conn, bucket)
         logger.info(
             "Creating DuckLake table from staged Delta snapshot via duckgres",
             ducklake_table=table,

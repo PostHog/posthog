@@ -1,139 +1,163 @@
-from collections.abc import Mapping
+import json
 from datetime import UTC, date, datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Optional
 
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
-import requests
 from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.solarwinds_service_desk import (
-    solarwinds_service_desk,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.solarwinds_service_desk.settings import (
     ENDPOINTS,
     PER_PAGE,
     SOLARWINDS_SERVICE_DESK_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.solarwinds_service_desk.solarwinds_service_desk import (
+    ACCEPT_HEADER,
     SolarwindsServiceDeskResumeConfig,
-    SolarwindsServiceDeskRetryableError,
     _format_updated_from,
     _headers,
-    _unwrap_rows,
+    _unwrap_row,
     base_url,
-    check_access,
-    get_rows,
     solarwinds_service_desk_source,
     validate_credentials,
 )
 
-# Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
-_fetch_page_unwrapped = solarwinds_service_desk._fetch_page.__wrapped__  # type: ignore[attr-defined]
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the solarwinds module.
+SWSD_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.solarwinds_service_desk"
+    ".solarwinds_service_desk.make_tracked_session"
+)
 
 
-class _FakeResumableManager:
-    def __init__(self, state: SolarwindsServiceDeskResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[SolarwindsServiceDeskResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> SolarwindsServiceDeskResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: SolarwindsServiceDeskResumeConfig) -> None:
-        self.saved.append(data)
+def _response(items: Optional[list[Any]], *, total_pages: Optional[int] = None, non_list: bool = False) -> Response:
+    resp = Response()
+    resp.status_code = 200
+    body: Any = {"error": "weird"} if non_list else (items or [])
+    resp._content = json.dumps(body).encode()
+    if total_pages is not None:
+        resp.headers["X-Total-Pages"] = str(total_pages)
+    return resp
 
 
-class TestGetRows:
-    @staticmethod
-    def _collect(
-        manager: _FakeResumableManager,
-        pages: Mapping[str, tuple[list[Any], int | None]],
-        endpoint: str = "incidents",
-        **kwargs: Any,
-    ) -> tuple[list[dict], list[str]]:
-        requested_urls: list[str] = []
+def _make_manager(resume_state: Optional[SolarwindsServiceDeskResumeConfig] = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
 
-        def fake_fetch(session: Any, url: str, logger: Any) -> tuple[list[Any], int | None]:
-            requested_urls.append(url)
-            return pages[url]
 
-        rows: list[dict] = []
-        with (
-            patch.object(solarwinds_service_desk, "_fetch_page", fake_fetch),
-            patch.object(solarwinds_service_desk, "make_tracked_session", return_value=MagicMock()),
-        ):
-            for batch in get_rows(
-                region="us",
-                api_token="swsd-token",
-                endpoint=endpoint,
-                logger=MagicMock(),
-                resumable_source_manager=manager,  # type: ignore[arg-type]
-                **kwargs,
-            ):
-                rows.extend(batch)
-        return rows, requested_urls
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and capture each request's params AT SEND TIME.
 
-    @staticmethod
-    def _url(endpoint: str, page: int, updated_from: str | None = None, host: str = "https://api.samanage.com") -> str:
-        path = SOLARWINDS_SERVICE_DESK_ENDPOINTS[endpoint].path
-        base = f"{host}{path}?per_page={PER_PAGE}&page={page}"
-        if updated_from is not None:
-            return f"{base}&updated_from={updated_from.replace(':', '%3A')}"
-        return base
+    ``request.params`` is one dict mutated in place across pages, so inspecting it after the run
+    shows only the final state — snapshot a copy when each request is prepared instead.
+    """
+    session.headers = {}
+    param_snapshots: list[dict[str, Any]] = []
 
-    def test_stops_after_last_page_per_total_pages_header(self) -> None:
-        manager = _FakeResumableManager()
-        pages = {
-            self._url("incidents", 1): ([{"id": 1}], 2),
-            self._url("incidents", 2): ([{"id": 2}], 2),
-        }
-        rows, urls = self._collect(manager, pages)
+    def _prepare(request: Any) -> mock.MagicMock:
+        param_snapshots.append(dict(request.params or {}))
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return param_snapshots
+
+
+def _rows(source_response: Any) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
+
+
+def _run(
+    session: mock.MagicMock,
+    manager: mock.MagicMock,
+    responses: list[Response],
+    endpoint: str = "incidents",
+    **kwargs: Any,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    params = _wire(session, responses)
+    rows = _rows(
+        solarwinds_service_desk_source(
+            region="us",
+            api_token="swsd-token",
+            endpoint=endpoint,
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=manager,
+            **kwargs,
+        )
+    )
+    return rows, params
+
+
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stops_after_last_page_per_total_pages_header(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        manager = _make_manager()
+        rows, params = _run(
+            session,
+            manager,
+            [_response([{"id": 1}], total_pages=2), _response([{"id": 2}], total_pages=2)],
+        )
         assert rows == [{"id": 1}, {"id": 2}]
-        assert len(urls) == 2
-        # State is saved after each yielded page, pointing at the next page to fetch.
-        assert [s.next_page for s in manager.saved] == [2]
+        assert session.send.call_count == 2
+        assert [p["page"] for p in params] == [1, 2]
+        # State is saved after the first page (points at the next page); the header ends it on page 2.
+        assert [c.args[0].next_page for c in manager.save_state.call_args_list] == [2]
 
-    def test_short_page_does_not_stop_pagination(self) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_short_page_does_not_stop_pagination(self, MockSession: mock.MagicMock) -> None:
         # A page smaller than PER_PAGE must not be treated as the end: the server may clamp
         # `per_page`, so only an empty page or the X-Total-Pages header terminates the crawl.
-        manager = _FakeResumableManager()
-        pages: Mapping[str, tuple[list[Any], int | None]] = {
-            self._url("incidents", 1): ([{"id": 1}], None),
-            self._url("incidents", 2): ([{"id": 2}], None),
-            self._url("incidents", 3): ([], None),
-        }
-        rows, urls = self._collect(manager, pages)
-        assert rows == [{"id": 1}, {"id": 2}]
-        assert len(urls) == 3
-
-    def test_resumes_from_saved_page_with_saved_filter(self) -> None:
-        manager = _FakeResumableManager(SolarwindsServiceDeskResumeConfig(next_page=3, updated_from="2026-01-01T00:00"))
-        pages = {self._url("incidents", 3, "2026-01-01T00:00"): ([{"id": 9}], 3)}
-        rows, urls = self._collect(
+        session = MockSession.return_value
+        manager = _make_manager()
+        rows, params = _run(
+            session,
             manager,
-            pages,
+            [_response([{"id": 1}]), _response([{"id": 2}]), _response([])],
+        )
+        assert rows == [{"id": 1}, {"id": 2}]
+        assert session.send.call_count == 3
+        assert [p["page"] for p in params] == [1, 2, 3]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_per_page_param_is_set(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _, params = _run(session, _make_manager(), [_response([{"id": 1}], total_pages=1)])
+        assert params[0]["per_page"] == PER_PAGE
+        assert params[0]["page"] == 1
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_page_with_saved_filter(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        manager = _make_manager(SolarwindsServiceDeskResumeConfig(next_page=3, updated_from="2026-01-01T00:00"))
+        rows, params = _run(
+            session,
+            manager,
+            [_response([{"id": 9}], total_pages=3)],
             # A resumed run must reuse the persisted filter, not recompute one from this watermark.
             should_use_incremental_field=True,
             db_incremental_field_last_value="2026-02-02T00:00:00Z",
         )
         assert rows == [{"id": 9}]
-        assert urls == [self._url("incidents", 3, "2026-01-01T00:00")]
+        assert params[0]["page"] == 3
+        assert params[0]["updated_from"] == "2026-01-01T00:00"
 
-    def test_incremental_watermark_adds_updated_from_param(self) -> None:
-        manager = _FakeResumableManager()
-        pages: Mapping[str, tuple[list[Any], int | None]] = {self._url("incidents", 1, "2026-01-05T08:30"): ([], None)}
-        _, urls = self._collect(
-            manager,
-            pages,
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_watermark_adds_updated_from_param(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _, params = _run(
+            session,
+            _make_manager(),
+            [_response([])],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 1, 5, 8, 30, tzinfo=UTC),
         )
-        assert urls == [self._url("incidents", 1, "2026-01-05T08:30")]
+        assert params[0]["updated_from"] == "2026-01-05T08:30"
 
     @parameterized.expand(
         [
@@ -143,23 +167,58 @@ class TestGetRows:
             ("unparseable_watermark", "incidents", True, "not a datetime"),
         ]
     )
-    def test_no_updated_from_param(self, _name: str, endpoint: str, use_incremental: bool, watermark: Any) -> None:
-        manager = _FakeResumableManager()
-        pages: Mapping[str, tuple[list[Any], int | None]] = {self._url(endpoint, 1): ([], None)}
-        _, urls = self._collect(
-            manager,
-            pages,
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_no_updated_from_param(
+        self, _name: str, endpoint: str, use_incremental: bool, watermark: Any, MockSession: mock.MagicMock
+    ) -> None:
+        session = MockSession.return_value
+        _, params = _run(
+            session,
+            _make_manager(),
+            [_response([])],
             endpoint=endpoint,
             should_use_incremental_field=use_incremental,
             db_incremental_field_last_value=watermark,
         )
-        assert urls == [self._url(endpoint, 1)]
+        assert "updated_from" not in params[0]
 
-    def test_wrapped_rows_are_unwrapped(self) -> None:
-        manager = _FakeResumableManager()
-        pages = {self._url("problems", 1): ([{"problem": {"id": 7, "name": "P"}}], 1)}
-        rows, _ = self._collect(manager, pages, endpoint="problems")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_wrapped_rows_are_unwrapped(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        rows, _ = _run(
+            session,
+            _make_manager(),
+            [_response([{"problem": {"id": 7, "name": "P"}}], total_pages=1)],
+            endpoint="problems",
+        )
         assert rows == [{"id": 7, "name": "P"}]
+
+    @mock.patch("time.sleep")
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_non_list_body_is_retried(self, MockSession: mock.MagicMock, _sleep: mock.MagicMock) -> None:
+        # A 200 whose body isn't a list is a transient wrong-shape payload: retry, don't fail loud
+        # or ingest the stray object as a single row.
+        session = MockSession.return_value
+        rows, _ = _run(
+            session,
+            _make_manager(),
+            [_response(None, non_list=True), _response([{"id": 1}], total_pages=1)],
+        )
+        assert rows == [{"id": 1}]
+        assert session.send.call_count == 2
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_auth_and_accept_headers_on_session(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _run(session, _make_manager(), [_response([{"id": 1}], total_pages=1)])
+        # The versioned Accept header is mandatory — without it the API can serve legacy payloads.
+        assert session.headers.get("Accept") == ACCEPT_HEADER
+
+    def test_probe_headers_carry_vendor_auth_and_versioned_accept(self) -> None:
+        # validate_credentials probes with these headers; auth rides a vendor-specific header.
+        headers = _headers("swsd-token")
+        assert headers["X-Samanage-Authorization"] == "Bearer swsd-token"
+        assert headers["Accept"] == ACCEPT_HEADER
 
 
 class TestFormatUpdatedFrom:
@@ -175,80 +234,26 @@ class TestFormatUpdatedFrom:
             ("none", None, None),
         ]
     )
-    def test_formats(self, _name: str, value: Any, expected: str | None) -> None:
+    def test_formats(self, _name: str, value: Any, expected: Optional[str]) -> None:
         assert _format_updated_from(value) == expected
 
 
-class TestUnwrapRows:
-    def test_handles_both_documented_list_shapes(self) -> None:
-        # The official response samples show bare records on some endpoints and singularly wrapped
-        # records on others — both must normalize to the bare record.
-        items = [
-            {"user": {"id": 1, "name": "A"}},
-            {"id": 2, "name": "B"},
-            {"user": "not a record", "id": 3},
-            "junk",
-        ]
-        assert _unwrap_rows(items, "user") == [
-            {"id": 1, "name": "A"},
-            {"id": 2, "name": "B"},
-            {"user": "not a record", "id": 3},
-        ]
-
-
-class TestFetchPage:
-    def _session_returning(self, status_code: int, body: Any = None, headers: dict | None = None) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        response.ok = status_code < 400
-        response.json.return_value = body if body is not None else []
-        response.headers = headers or {}
-        response.text = ""
-        response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
-        )
-        session = MagicMock()
-        session.get.return_value = response
-        return session
-
-    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(SolarwindsServiceDeskRetryableError):
-            _fetch_page_unwrapped(session, "https://api.samanage.com/incidents.json", MagicMock())
-
-    @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(requests.HTTPError):
-            _fetch_page_unwrapped(session, "https://api.samanage.com/incidents.json", MagicMock())
-
-    def test_non_list_body_is_retryable(self) -> None:
-        session = self._session_returning(200, {"error": "weird"})
-        with pytest.raises(SolarwindsServiceDeskRetryableError):
-            _fetch_page_unwrapped(session, "https://api.samanage.com/incidents.json", MagicMock())
-
+class TestUnwrapRow:
     @parameterized.expand(
         [
-            ("header_present", {"X-Total-Pages": "7"}, 7),
-            ("header_missing", {}, None),
-            ("header_garbage", {"X-Total-Pages": "lots"}, None),
+            ("wrapped", {"user": {"id": 1, "name": "A"}}, "user", {"id": 1, "name": "A"}),
+            ("bare_record", {"id": 2, "name": "B"}, "user", {"id": 2, "name": "B"}),
+            # A single-key dict whose value isn't a record is a real record that merely has one field.
+            ("wrapper_key_not_a_record", {"user": "not a record", "id": 3}, "user", {"user": "not a record", "id": 3}),
         ]
     )
-    def test_total_pages_header_parsing(self, _name: str, headers: dict, expected: int | None) -> None:
-        session = self._session_returning(200, [{"id": 1}], headers)
-        items, total_pages = _fetch_page_unwrapped(session, "https://api.samanage.com/incidents.json", MagicMock())
-        assert items == [{"id": 1}]
-        assert total_pages == expected
+    def test_normalizes_documented_shapes(
+        self, _name: str, item: dict[str, Any], wrapper_key: str, expected: dict[str, Any]
+    ) -> None:
+        assert _unwrap_row(item, wrapper_key) == expected
 
 
-class TestAuthAndHosts:
-    def test_headers_carry_vendor_auth_and_versioned_accept(self) -> None:
-        # The versioned Accept header is mandatory — without it the API can serve legacy payloads.
-        headers = _headers("swsd-token")
-        assert headers["X-Samanage-Authorization"] == "Bearer swsd-token"
-        assert headers["Accept"] == "application/vnd.samanage.v2.1+json"
-
+class TestBaseUrl:
     @parameterized.expand(
         [
             ("us", "https://api.samanage.com"),
@@ -258,50 +263,19 @@ class TestAuthAndHosts:
             ("unknown", "https://api.samanage.com"),
         ]
     )
-    def test_base_url_per_region(self, region: str | None, expected: str) -> None:
+    def test_base_url_per_region(self, region: Optional[str], expected: str) -> None:
         assert base_url(region) == expected
 
 
-class TestCheckAccess:
+class TestValidateCredentials:
     @staticmethod
-    def _session(response: Any) -> MagicMock:
-        session = MagicMock()
-        if isinstance(response, Exception):
-            session.get.side_effect = response
+    def _wire_status(mock_session: mock.MagicMock, response_or_exc: Any) -> None:
+        session = mock.MagicMock()
+        if isinstance(response_or_exc, Exception):
+            session.get.side_effect = response_or_exc
         else:
-            session.get.return_value = response
-        return session
-
-    @parameterized.expand(
-        [
-            ("ok", 200, True, 200, None),
-            ("unauthorized", 401, False, 401, None),
-            ("forbidden", 403, False, 403, None),
-            ("server_error", 500, False, 500, "SolarWinds Service Desk returned HTTP 500"),
-        ]
-    )
-    @patch(f"{solarwinds_service_desk.__name__}.make_tracked_session")
-    def test_status_mapping(
-        self,
-        _name: str,
-        status: int,
-        ok: bool,
-        expected_status: int,
-        expected_message: str | None,
-        mock_session: MagicMock,
-    ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = ok
-        mock_session.return_value = self._session(response)
-        assert check_access("us", "swsd-token") == (expected_status, expected_message)
-
-    @patch(f"{solarwinds_service_desk.__name__}.make_tracked_session")
-    def test_connection_error_maps_to_zero(self, mock_session: MagicMock) -> None:
-        mock_session.return_value = self._session(requests.ConnectionError("boom"))
-        status, message = check_access("us", "swsd-token")
-        assert status == 0
-        assert message is not None and "boom" in message
+            session.get.return_value = response_or_exc
+        mock_session.return_value = session
 
     @parameterized.expand(
         [
@@ -320,33 +294,37 @@ class TestCheckAccess:
             ("server_error", 500, None, False, "SolarWinds Service Desk returned HTTP 500"),
         ]
     )
-    @patch(f"{solarwinds_service_desk.__name__}.make_tracked_session")
-    def test_validate_credentials(
+    @mock.patch(SWSD_SESSION_PATCH)
+    def test_status_mapping(
         self,
         _name: str,
         status: int,
-        path: str | None,
+        path: Optional[str],
         expected_valid: bool,
-        expected_message: str | None,
-        mock_session: MagicMock,
+        expected_message: Optional[str],
+        mock_session: mock.MagicMock,
     ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = status < 400
-        mock_session.return_value = self._session(response)
+        self._wire_status(mock_session, mock.MagicMock(status_code=status))
         assert validate_credentials("us", "swsd-token", path) == (expected_valid, expected_message)
+
+    @mock.patch(SWSD_SESSION_PATCH)
+    def test_connection_error_is_not_validated(self, mock_session: mock.MagicMock) -> None:
+        self._wire_status(mock_session, ConnectionError("boom"))
+        assert validate_credentials("us", "swsd-token") == (False, "Could not connect to SolarWinds Service Desk")
 
 
 class TestSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_source_response_shape(self, endpoint: str, _MockSession: mock.MagicMock) -> None:
         config = SOLARWINDS_SERVICE_DESK_ENDPOINTS[endpoint]
         response = solarwinds_service_desk_source(
             region="us",
             api_token="swsd-token",
             endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
+            team_id=1,
+            job_id="j",
+            resumable_source_manager=_make_manager(),
         )
         assert response.name == endpoint
         assert response.primary_keys == ["id"]

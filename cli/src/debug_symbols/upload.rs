@@ -4,7 +4,11 @@ use anyhow::{anyhow, Result};
 use tracing::info;
 
 use crate::{
-    api::{self, releases::ReleaseBuilder, symbol_sets::SymbolSetUpload},
+    api::{
+        self,
+        releases::ReleaseBuilder,
+        symbol_sets::{SymbolSetUpload, MAX_FILE_SIZE},
+    },
     debug_symbols::{dedup_uploads_by_chunk_id, discover, package_dsym_bundles, report_problems},
     sourcemaps::args::{pack_version, ReleaseArgs, UploadConflictArgs},
     utils::git::get_git_info,
@@ -13,9 +17,10 @@ use crate::{
 #[derive(clap::Args, Clone)]
 pub struct Args {
     /// The directory to scan for native debug symbol files (e.g. target/release).
-    /// ELF executables, shared libraries, and `objcopy --only-keep-debug`
-    /// companions with debug info are uploaded, as are Apple `.dSYM` bundles
-    /// (macOS only — needs `dwarfdump` from Xcode); everything else is skipped.
+    /// ELF and Mach-O executables, shared libraries, and `objcopy
+    /// --only-keep-debug` companions with debug info are uploaded, as are Apple
+    /// `.dSYM` bundles (macOS only — needs `dwarfdump` from Xcode); everything
+    /// else is skipped.
     #[arg(short, long)]
     pub directory: PathBuf,
 
@@ -58,7 +63,7 @@ pub fn upload(args: &Args) -> Result<()> {
     report_problems(&report, &directory)?;
 
     info!(
-        "Found {} ELF debug file(s) and {} dSYM bundle(s)",
+        "Found {} native debug file(s) and {} dSYM bundle(s)",
         report.files.len(),
         report.dsym_bundles.len()
     );
@@ -68,25 +73,20 @@ pub fn upload(args: &Args) -> Result<()> {
     // logs-and-skips failures (e.g. a missing dwarfdump), so a dSYM-only
     // directory can yield zero uploads — creating the release up front would
     // leave a release record behind with no symbols attached to it.
-    let mut uploads: Vec<SymbolSetUpload> = Vec::new();
+    let mut native_uploads = Vec::with_capacity(report.files.len());
     for file in report.files {
         info!(
             "Processing {} (debug id {})",
             file.path.display(),
             file.debug_id
         );
-        uploads.push(file.into_upload(None, *include_source)?);
+        native_uploads.push(file.into_upload(None, *include_source)?);
     }
 
-    // Apple dSYM bundles run through the same packaging path as
-    // `posthog-cli dsym upload` (uppercase UUID chunk_ids, AppleDsym container);
-    // a bundle that can't be processed (e.g. no dwarfdump on Linux) is skipped
-    // with a warning so any ELF symbols above still upload.
-    uploads.extend(package_dsym_bundles(&report.dsym_bundles, *include_source));
-
-    // ELF (lowercase) and dSYM (uppercase) chunk_ids can't collide, but the same
-    // dSYM UUID can appear in more than one bundle — keep one upload per chunk_id.
-    let mut uploads = dedup_uploads_by_chunk_id(uploads);
+    // A failed or oversized dSYM leaves a matching standalone Mach-O as the
+    // fallback. Successfully packaged, uploadable dSYMs take priority.
+    let dsym_uploads = package_dsym_bundles(&report.dsym_bundles, *include_source);
+    let mut uploads = merge_uploads_prefer_dsym(dsym_uploads, native_uploads, MAX_FILE_SIZE);
 
     if uploads.is_empty() {
         anyhow::bail!(
@@ -133,4 +133,62 @@ pub fn upload(args: &Args) -> Result<()> {
     info!("Debug symbol upload complete");
 
     Ok(())
+}
+
+/// Merge packaged native symbols, preferring an uploadable dSYM when both
+/// inputs carry the same uppercase Mach-O UUID. Oversized dSYMs come last so a
+/// matching native upload wins, but remain available when there is no fallback
+/// and the upload layer can preserve its existing warning behavior. ELF ids
+/// remain lowercase and cannot collide.
+fn merge_uploads_prefer_dsym(
+    dsym_uploads: Vec<SymbolSetUpload>,
+    native_uploads: Vec<SymbolSetUpload>,
+    max_file_size: usize,
+) -> Vec<SymbolSetUpload> {
+    let (mut preferred_dsyms, oversized_dsyms): (Vec<_>, Vec<_>) = dsym_uploads
+        .into_iter()
+        .partition(|upload| upload.data.len() <= max_file_size);
+    preferred_dsyms.extend(native_uploads);
+    preferred_dsyms.extend(oversized_dsyms);
+    dedup_uploads_by_chunk_id(preferred_dsyms)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merge_uploads_prefers_dsym_over_matching_macho() {
+        let uuid = "77C2F55F-C959-487A-9601-6A715A9BB5DE";
+        let upload = |chunk_id: &str, data: &[u8]| SymbolSetUpload {
+            chunk_id: chunk_id.to_string(),
+            release_id: None,
+            data: data.to_vec(),
+        };
+
+        let uploads = merge_uploads_prefer_dsym(
+            vec![upload(uuid, b"dsym")],
+            vec![upload(uuid, b"macho")],
+            10,
+        );
+
+        assert_eq!(uploads.len(), 1);
+        assert_eq!(uploads[0].data, b"dsym");
+    }
+
+    #[test]
+    fn merge_uploads_uses_macho_when_matching_dsym_is_oversized() {
+        let uuid = "77C2F55F-C959-487A-9601-6A715A9BB5DE";
+        let upload = |data: &[u8]| SymbolSetUpload {
+            chunk_id: uuid.to_string(),
+            release_id: None,
+            data: data.to_vec(),
+        };
+
+        let uploads =
+            merge_uploads_prefer_dsym(vec![upload(b"oversized-dsym")], vec![upload(b"macho")], 5);
+
+        assert_eq!(uploads.len(), 1);
+        assert_eq!(uploads[0].data, b"macho");
+    }
 }

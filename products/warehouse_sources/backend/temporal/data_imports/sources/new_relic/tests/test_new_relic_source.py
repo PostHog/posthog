@@ -4,7 +4,9 @@ from parameterized import parameterized
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import NewRelicSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.newrelic import (
+    NewRelicSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.new_relic.new_relic import NewRelicResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.new_relic.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.new_relic.source import NewRelicSource

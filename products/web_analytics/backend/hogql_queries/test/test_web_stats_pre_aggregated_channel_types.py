@@ -25,9 +25,9 @@ from products.web_analytics.backend.hogql_queries.test.web_preaggregated_test_ba
 class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
     def _setup_test_data(self):
         with freeze_time("2024-01-01T09:00:00Z"):
-            sessions = [str(uuid7("2024-01-01")) for _ in range(20)]
+            sessions = [str(uuid7("2024-01-01")) for _ in range(21)]
 
-            for i in range(20):
+            for i in range(21):
                 _create_person(team_id=self.team.pk, distinct_ids=[f"user_{i}"])
 
             # 1. Cross Network (requires utm_campaign="cross-network")
@@ -329,6 +329,20 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
                 },
             )
 
+            # 21. AI
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_20",
+                timestamp="2024-01-01T11:40:00Z",
+                properties={
+                    "$session_id": sessions[20],
+                    "$current_url": "https://example.com/",
+                    "$referring_domain": "chatgpt.com",
+                    **self.STANDARD_EVENT_PROPERTIES,
+                },
+            )
+
         flush_persons_and_events()
         self._populate_web_stats_tables()
 
@@ -368,24 +382,25 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
 
         # Assert direct expected results - format: [channel_name, (sessions, persons), (pageviews, views), '']
         expected_results = [
-            ["Affiliate", (1.0, None), (1.0, None), 1 / 20, ""],
-            ["Audio", (1.0, None), (1.0, None), 1 / 20, ""],
-            ["Cross Network", (1.0, None), (1.0, None), 1 / 20, ""],
-            ["Direct", (2.0, None), (2.0, None), 2 / 20, ""],  # Now 2 Direct sessions
-            ["Email", (1.0, None), (1.0, None), 1 / 20, ""],
-            ["Organic Search", (1.0, None), (1.0, None), 1 / 20, ""],
-            ["Organic Shopping", (1.0, None), (1.0, None), 1 / 20, ""],
-            ["Organic Social", (1.0, None), (1.0, None), 1 / 20, ""],
-            ["Organic Video", (1.0, None), (1.0, None), 1 / 20, ""],
-            ["Paid Search", (1.0, None), (1.0, None), 1 / 20, ""],  # gad_source=1
-            ["Paid Shopping", (1.0, None), (1.0, None), 1 / 20, ""],  # shopping source with cpc medium
-            ["Paid Social", (1.0, None), (1.0, None), 1 / 20, ""],  # facebook cpc
-            ["Paid Unknown", (2.0, None), (2.0, None), 2 / 20, ""],  # gclid + unknown_source cpc
-            ["Paid Video", (1.0, None), (1.0, None), 1 / 20, ""],
-            ["Push", (1.0, None), (1.0, None), 1 / 20, ""],
-            ["Referral", (1.0, None), (1.0, None), 1 / 20, ""],
-            ["SMS", (1.0, None), (1.0, None), 1 / 20, ""],
-            ["Unknown", (1.0, None), (1.0, None), 1 / 20, ""],
+            ["AI", (1.0, None), (1.0, None), 1 / 21, ""],
+            ["Affiliate", (1.0, None), (1.0, None), 1 / 21, ""],
+            ["Audio", (1.0, None), (1.0, None), 1 / 21, ""],
+            ["Cross Network", (1.0, None), (1.0, None), 1 / 21, ""],
+            ["Direct", (2.0, None), (2.0, None), 2 / 21, ""],  # Now 2 Direct sessions
+            ["Email", (1.0, None), (1.0, None), 1 / 21, ""],
+            ["Organic Search", (1.0, None), (1.0, None), 1 / 21, ""],
+            ["Organic Shopping", (1.0, None), (1.0, None), 1 / 21, ""],
+            ["Organic Social", (1.0, None), (1.0, None), 1 / 21, ""],
+            ["Organic Video", (1.0, None), (1.0, None), 1 / 21, ""],
+            ["Paid Search", (1.0, None), (1.0, None), 1 / 21, ""],  # gad_source=1
+            ["Paid Shopping", (1.0, None), (1.0, None), 1 / 21, ""],  # shopping source with cpc medium
+            ["Paid Social", (1.0, None), (1.0, None), 1 / 21, ""],  # facebook cpc
+            ["Paid Unknown", (2.0, None), (2.0, None), 2 / 21, ""],  # gclid + unknown_source cpc
+            ["Paid Video", (1.0, None), (1.0, None), 1 / 21, ""],
+            ["Push", (1.0, None), (1.0, None), 1 / 21, ""],
+            ["Referral", (1.0, None), (1.0, None), 1 / 21, ""],
+            ["SMS", (1.0, None), (1.0, None), 1 / 21, ""],
+            ["Unknown", (1.0, None), (1.0, None), 1 / 21, ""],
         ]
 
         actual_sorted = sorted(response.results, key=lambda x: str(x[0]))

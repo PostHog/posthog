@@ -54,7 +54,7 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
                     onClick={() => window.open(`posthog-code://task/${task.id}`, '_blank')}
                     className="hidden lg:inline-flex"
                 >
-                    Open in PostHog Code
+                    Open in PostHog Desktop
                 </LemonButton>
                 {prUrl && (
                     <LemonButton

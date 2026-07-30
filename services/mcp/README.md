@@ -290,6 +290,9 @@ x-posthog-mcp-mode: tools
 The header wins when both the header and the query parameter are set.
 An explicit value always wins over the client auto-detection; any other value is ignored and the auto-detection takes over.
 
+The cli-mode command surface is documented publicly on [posthog.com/docs/model-context-protocol/tools](https://posthog.com/docs/model-context-protocol/tools), which embeds `schema/exec-command-reference.md` at build time.
+That fragment is generated from the templates in `src/templates/sections/` by `scripts/generate-exec-docs.ts` (part of `hogli build:openapi`); edit the templates, not the fragment.
+
 ### Consumer attribution
 
 Wrapping apps and AI-tool plugins that install or proxy the PostHog MCP can self-identify so usage can be attributed to the install path (e.g. plugin-installed vs. manually-pasted URL). The wrapped MCP client (Claude Code, Cursor, …) is already captured separately via the MCP `clientInfo` handshake — this signal is only for the wrapping context.
@@ -302,7 +305,7 @@ https://mcp.posthog.com/mcp?consumer=plugin
 x-posthog-mcp-consumer: plugin
 ```
 
-The header wins when both the header and the query parameter are set. Reserved values: `plugin` (AI-tool plugin installs), `posthog-code` (PostHog Code Tasks sandbox), `slack` (Slack integration).
+The header wins when both the header and the query parameter are set. Reserved values: `plugin` (AI-tool plugin installs), `posthog-code` (PostHog Desktop Tasks sandbox), `slack` (Slack integration).
 
 ### Data processing
 
@@ -397,7 +400,7 @@ npx
 
 ### Developing against Claude Desktop
 
-Claude Desktop is one of the easiest ways to test MCP Apps - while PostHog Code doesn't support it. You can configure access Settings > Developer and then edit `claude_desktop_config.json` with the following:
+Claude Desktop is one of the easiest ways to test MCP Apps - while PostHog Desktop doesn't support it. You can configure access Settings > Developer and then edit `claude_desktop_config.json` with the following:
 
 ```json
 {

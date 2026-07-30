@@ -1,5 +1,5 @@
 import json
-from typing import cast
+from typing import Any, cast
 from urllib.parse import parse_qs, unquote, urlparse
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
@@ -79,7 +79,7 @@ class TestMetricRunExecution(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestMetricRunPreparation(APIBaseTest):
-    def _run(self, definition: dict, **overrides: str) -> tuple[dict, dict]:
+    def _run(self, definition: dict, **overrides: Any) -> tuple[dict, dict]:
         """Run a metric with the engine mocked; returns (query handed to the engine, envelope)."""
         metric = upsert_metric(team=self.team, user=self.user, name="prep", description="d", definition=definition)
         captured: dict = {}
@@ -126,7 +126,13 @@ class TestMetricRunPreparation(APIBaseTest):
         assert linked["source"] == executed
 
     def test_hogql_values_round_trip_through_deep_link(self) -> None:
-        definition = {"kind": "HogQLQuery", "query": "select count() from events", "values": {"threshold": 10}}
+        # Multi-line SQL: json.dumps escapes the newline with a backslash, which quote() encodes as
+        # %5C — a byte absolute_uri rejects. The deep link must survive real, multi-line queries.
+        definition = {
+            "kind": "HogQLQuery",
+            "query": "select count()\nfrom events\nwhere event = 'purchase'",
+            "values": {"threshold": 10},
+        }
         _, envelope = self._run(definition)
         linked = _decoded_sql_editor_link(envelope["posthog_url"])
         assert linked["kind"] == "DataVisualizationNode"
@@ -172,7 +178,7 @@ class TestMetricRunPreparation(APIBaseTest):
         with self.assertRaises(ValidationError) as ctx:
             prepare_execution_query(_HOGQL, **params)
         detail = cast(dict, ctx.exception.detail)
-        assert str(detail["field"]) == expected_field
+        assert expected_field in detail
 
 
 class TestMetricRunAttribution(APIBaseTest):

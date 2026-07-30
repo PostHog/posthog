@@ -6,8 +6,11 @@ Recharge is a subscription-billing platform. The API is pure REST/JSON with
 API-key auth (`X-Recharge-Access-Token`), cursor pagination, and server-side
 timestamp filters (`updated_at_min` / `created_at_min`) for incremental syncs.
 
-Everything here routes through ``make_tracked_session`` so outbound calls show
-up in our HTTP logs, OTel metrics, and sample-capture pipeline.
+Built on the shared ``rest_source`` framework: the framework ``api_key`` auth
+carries the token in the ``X-Recharge-Access-Token`` header and redacts it from
+logs and error messages, and a small custom cursor paginator reproduces
+Recharge's rule that a cursor page accepts only ``cursor`` + ``limit`` (the
+original sort/filter params are baked into the cursor, and re-sending them 422s).
 
 NOTE: these endpoint params were taken from the public 2021-11 docs and could
 not be curl-verified against a live store during implementation (no test
@@ -16,18 +19,20 @@ see inline comments where behavior is assumed rather than confirmed.
 """
 
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.recharge.settings import (
     RECHARGE_ENDPOINTS,
     RechargeEndpointConfig,
@@ -37,11 +42,6 @@ RECHARGE_BASE_URL = "https://api.rechargeapps.com"
 RECHARGE_API_VERSION = "2021-11"
 # Per-endpoint page size lives on each `RechargeEndpointConfig` (default 250,
 # Recharge's max); see `settings.py` for why some endpoints request less.
-REQUEST_TIMEOUT_SECONDS = 60
-
-
-class RechargeRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -58,12 +58,62 @@ class RechargeResumeConfig:
     cursor: str
 
 
-def _get_headers(api_key: str) -> dict[str, str]:
-    return {
-        "X-Recharge-Access-Token": api_key,
-        "X-Recharge-Version": RECHARGE_API_VERSION,
-        "Accept": "application/json",
-    }
+class RechargeCursorPaginator(BasePaginator):
+    """Cursor pagination for Recharge list endpoints.
+
+    Recharge returns a ``next_cursor`` in each list response body. When following
+    it, the API accepts ONLY ``cursor`` + ``limit`` — the original sort/filter
+    params are baked into the cursor, and re-sending them returns a 422. So every
+    cursor page (and a resumed first page) replaces the request params with just
+    cursor + limit, while a fresh first page keeps the initial sort/filter params.
+    """
+
+    def __init__(self, limit: int) -> None:
+        super().__init__()
+        self.limit = limit
+        self._cursor: Optional[str] = None
+
+    def _cursor_params(self) -> dict[str, Any]:
+        return {"cursor": self._cursor, "limit": self.limit}
+
+    def init_request(self, request: Request) -> None:
+        # On a resumed run the seeded cursor replays only cursor + limit; a fresh
+        # run (cursor is None) keeps the initial sort/filter params already set.
+        if self._cursor is not None:
+            request.params = self._cursor_params()
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            next_cursor = response.json().get("next_cursor")
+        except Exception:
+            next_cursor = None
+        if next_cursor:
+            self._cursor = next_cursor
+            self._has_next_page = True
+        else:
+            self._has_next_page = False
+
+    def update_request(self, request: Request) -> None:
+        request.params = self._cursor_params()
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"cursor": self._cursor} if self._has_next_page and self._cursor else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        cursor = state.get("cursor")
+        if cursor:
+            self._cursor = cursor
+            self._has_next_page = True
+
+    def __str__(self) -> str:
+        return f"RechargeCursorPaginator(limit={self.limit})"
+
+
+def _headers() -> dict[str, str]:
+    # Auth (the `X-Recharge-Access-Token` token) is supplied via the framework
+    # api_key auth so its value is redacted from logs and errors; only the
+    # non-secret version/accept headers are set here.
+    return {"X-Recharge-Version": RECHARGE_API_VERSION, "Accept": "application/json"}
 
 
 def _format_incremental_value(value: Any) -> str:
@@ -114,141 +164,103 @@ def _build_initial_params(
     return params
 
 
-def _extract_items(payload: dict[str, Any], resource_key: str) -> list[dict[str, Any]]:
-    """Pull the list of records out of a Recharge list response.
-
-    Recharge wraps results under a key matching the resource (e.g.
-    ``{"customers": [...], "next_cursor": "..."}``). Fall back to the first
-    list-valued, non-cursor key if the resource key isn't present.
-    """
-    items = payload.get(resource_key)
-    if isinstance(items, list):
-        return items
-
-    for key, value in payload.items():
-        if key in ("next_cursor", "previous_cursor"):
-            continue
-        if isinstance(value, list):
-            return value
-    return []
-
-
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     """Probe ``/token_information`` — the cheapest call that confirms the token.
 
     Returns ``(ok, error)``. A 401 means the token is invalid; anything else
     reachable-and-2xx is treated as valid.
     """
-    url = f"{RECHARGE_BASE_URL}/token_information"
-    try:
-        # `redact_values` masks the token wherever it appears in captured HTTP
-        # samples — the `X-Recharge-Access-Token` header isn't in the shared
-        # auth-header denylist, so without this the token would leak in plaintext.
-        response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_get_headers(api_key), timeout=10)
-    except requests.RequestException as e:
-        return False, f"Could not reach Recharge: {e}"
-
-    if response.status_code == 401:
-        return False, "Invalid Recharge API token. Please check the token and try again."
-    if response.ok:
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{RECHARGE_BASE_URL}/token_information",
+        headers={"X-Recharge-Access-Token": api_key, **_headers()},
+    )
+    if ok:
         return True, None
-    return False, f"Recharge rejected the request (HTTP {response.status_code})."
-
-
-def get_rows(
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[RechargeResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = RECHARGE_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
-
-    params = _build_initial_params(
-        config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
-    )
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    cursor: str | None = resume.cursor if resume is not None and resume.endpoint == endpoint else None
-
-    @retry(
-        retry=retry_if_exception_type((RechargeRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(5),
-        wait=wait_exponential_jitter(initial=1, max=60),
-        reraise=True,
-    )
-    def fetch_page(request_params: dict[str, Any]) -> dict[str, Any]:
-        url = f"{RECHARGE_BASE_URL}{config.path}?{urlencode(request_params)}"
-        # `redact_values` masks the token in captured HTTP samples (the custom
-        # `X-Recharge-Access-Token` header isn't in the shared auth denylist).
-        session = make_tracked_session(redact_values=(api_key,))
-        response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise RechargeRetryableError(
-                f"Recharge API error (retryable): status={response.status_code}, endpoint={endpoint}"
-            )
-
-        if not response.ok:
-            logger.error(
-                f"Recharge API error: status={response.status_code}, body={response.text}, endpoint={endpoint}"
-            )
-            response.raise_for_status()
-
-        return response.json()
-
-    while True:
-        # When following a cursor, Recharge only accepts `cursor` + `limit` —
-        # the original sort/filters are baked into the cursor itself. Sending
-        # them again returns a 422.
-        request_params: dict[str, Any] = {"cursor": cursor, "limit": config.page_size} if cursor else params
-
-        data = fetch_page(request_params)
-        items = _extract_items(data, endpoint)
-
-        if items:
-            yield items
-
-        next_cursor = data.get("next_cursor")
-        if not next_cursor:
-            break
-
-        # Save state AFTER yielding so a crash re-yields the last page (merge
-        # dedupes on primary key) rather than skipping it.
-        resumable_source_manager.save_state(RechargeResumeConfig(endpoint=endpoint, cursor=next_cursor))
-        cursor = next_cursor
+    if status == 401:
+        return False, "Invalid Recharge API token. Please check the token and try again."
+    if status is None:
+        return False, "Could not reach Recharge. Please check your connection and try again."
+    return False, f"Recharge rejected the request (HTTP {status})."
 
 
 def recharge_source(
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[RechargeResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
 ) -> SourceResponse:
-    endpoint_config = RECHARGE_ENDPOINTS[endpoint]
+    config = RECHARGE_ENDPOINTS[endpoint]
+
+    params = _build_initial_params(
+        config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+    )
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": RECHARGE_BASE_URL,
+            "headers": _headers(),
+            # api_key auth injects the token into the `X-Recharge-Access-Token`
+            # header and redacts it from logs and raised error messages.
+            "auth": {
+                "type": "api_key",
+                "api_key": api_key,
+                "name": "X-Recharge-Access-Token",
+                "location": "header",
+            },
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    # Recharge wraps records under a key matching the resource
+                    # (e.g. `{"customers": [...], "next_cursor": "..."}`).
+                    "data_selector": endpoint,
+                    "paginator": RechargeCursorPaginator(limit=config.page_size),
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        # Only replay a cursor issued for THIS endpoint — a customers cursor is
+        # meaningless (and rejected) against orders.
+        if resume is not None and resume.endpoint == endpoint:
+            initial_paginator_state = {"cursor": resume.cursor}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next cursor remains; save AFTER a page is yielded so
+        # a crash re-yields the last page (merge dedupes) rather than skipping it.
+        if state and state.get("cursor"):
+            resumable_source_manager.save_state(RechargeResumeConfig(endpoint=endpoint, cursor=state["cursor"]))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        ),
+        items=lambda: resource,
         primary_keys=["id"],
         partition_count=1,
         partition_size=1,
         sort_mode="asc",
-        partition_mode="datetime" if endpoint_config.partition_key else None,
-        partition_format="month" if endpoint_config.partition_key else None,
-        partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
     )

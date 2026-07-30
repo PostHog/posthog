@@ -1141,6 +1141,27 @@ class TestProperty(BaseTest):
             self._parse_expr("revenue_analytics_product.name = 'Product A'"),
         )
 
+    @parameterized.expand([("event_scope", "event"), ("person_scope", "person")])
+    def test_account_custom_property_rejected_in_generic_scopes(self, _name, scope):
+        # Account custom properties only resolve inside customer analytics queries. Before the
+        # explicit guard, the non-strict dict path swallowed the unknown type into Constant(1),
+        # silently widening any query that carried such a filter.
+        with self.assertRaises(QueryError) as e:
+            self._property_to_expr(
+                {
+                    "type": "account_custom_property",
+                    "key": "11111111-2222-3333-4444-555555555555",
+                    "value": "b",
+                    "operator": "exact",
+                },
+                scope=scope,
+                strict=False,
+            )
+        self.assertEqual(
+            str(e.exception),
+            f"The 'account_custom_property' property filter does not work in '{scope}' scope",
+        )
+
     def test_revenue_analytics_property_multiple_values(self):
         self.assertEqual(
             self._property_to_expr(

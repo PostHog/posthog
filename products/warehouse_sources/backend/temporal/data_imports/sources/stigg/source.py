@@ -19,9 +19,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import StiggSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.stigg.settings import ENDPOINTS, STIGG_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stigg import StiggSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.stigg.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    STIGG_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.stigg.stigg import (
     StiggResumeConfig,
     stigg_source,
@@ -89,26 +96,16 @@ You can find your server API key under **Settings → Integrations → API keys*
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only. Stigg's list endpoints filter by `createdAt` but
         # expose no updated-since filter, and billing objects mutate in place, so there is no
-        # incremental cursor that would also capture updates.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # incremental cursor that would also capture updates. INCREMENTAL_FIELDS is empty, so
+        # build_endpoint_schemas marks every endpoint full refresh (supports_incremental=False).
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: StiggSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: StiggSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         # Server API keys are environment-wide, so a single probe validates access to every schema.
         return validate_credentials(config.api_key)
@@ -128,6 +125,8 @@ You can find your server API key under **Settings → Integrations → API keys*
         return stigg_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Stigg endpoint is full refresh
         )

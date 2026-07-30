@@ -3,33 +3,27 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlparse
 
 import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    HeaderLinkPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.okta.settings import (
     OKTA_ENDPOINTS,
     OktaEndpointConfig,
 )
 
-REQUEST_TIMEOUT_SECONDS = 60
-MAX_RETRIES = 5
-MAX_RETRY_AFTER_SECONDS = 60
-
 HOST_NOT_ALLOWED_ERROR = "Okta domain is not allowed"
-
-
-class OktaRetryableError(Exception):
-    def __init__(self, message: str, retry_after: float | None = None) -> None:
-        super().__init__(message)
-        self.retry_after = retry_after
 
 
 class OktaHostNotAllowedError(Exception):
@@ -108,29 +102,6 @@ def _build_initial_params(
     return params
 
 
-def _build_initial_url(domain: str, config: OktaEndpointConfig, params: dict[str, Any]) -> str:
-    url = f"{_base_url(domain)}{config.path}"
-    if not params:
-        return url
-    return f"{url}?{urlencode(params)}"
-
-
-def _parse_next_url(link_header: str) -> str | None:
-    """Return the URL with ``rel="next"`` from Okta's ``Link`` header, if any.
-
-    Note: the System Log endpoint *always* returns a next link (it is designed for
-    polling), so callers must also treat an empty page as the end of pagination.
-    """
-    if not link_header:
-        return None
-    for part in link_header.split(","):
-        part = part.strip()
-        match = re.match(r'<([^>]+)>;\s*rel="next"', part)
-        if match:
-            return match.group(1)
-    return None
-
-
 def _is_same_host(url: str, domain: str) -> bool:
     """Whether ``url`` points at the configured Okta org host.
 
@@ -142,6 +113,30 @@ def _is_same_host(url: str, domain: str) -> bool:
         return (urlparse(url).hostname or "").lower() == normalize_domain(domain).lower()
     except Exception:
         return False
+
+
+class OktaLinkPaginator(HeaderLinkPaginator):
+    """Okta paginates via the ``Link`` header, with two Okta-specific twists on top of
+    the framework's ``rel="next"`` following:
+
+    - The System Log endpoint *always* returns a next link (it is designed for polling),
+      so an empty page must end pagination rather than looping forever.
+    - The next link is server-controlled, so it is pinned to the org host; an off-host
+      link stops pagination (SSRF guard) instead of being followed.
+    """
+
+    def __init__(self, domain: str) -> None:
+        super().__init__()
+        self._domain = domain
+
+    def update_state(self, response: requests.Response, data: Optional[list[Any]] = None) -> None:
+        if not data:
+            self._has_next_page = False
+            return
+        super().update_state(response, data)
+        if self._has_next_page and self._next_url is not None and not _is_same_host(self._next_url, self._domain):
+            self._has_next_page = False
+            self._next_url = None
 
 
 def validate_credentials(
@@ -200,161 +195,87 @@ def validate_credentials(
         return False, response.text
 
 
-def _parse_retry_after(response: requests.Response) -> float | None:
-    """Okta sends ``Retry-After`` in whole seconds on 429. Ignore HTTP-date forms."""
-    raw = response.headers.get("Retry-After")
-    if raw and raw.strip().isdigit():
-        return min(float(raw.strip()), MAX_RETRY_AFTER_SECONDS)
-    return None
-
-
-def _retry_wait(retry_state: RetryCallState) -> float:
-    """Honor a server-provided Retry-After when present, else exponential backoff."""
-    exc = retry_state.outcome.exception() if retry_state.outcome else None
-    if isinstance(exc, OktaRetryableError) and exc.retry_after is not None:
-        return exc.retry_after
-    return wait_exponential_jitter(initial=1, max=30)(retry_state)
-
-
-def get_rows(
+def okta_source(
     domain: str,
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[OktaResumeConfig],
     team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[OktaResumeConfig],
     should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
+    db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
-) -> Iterator[Any]:
+) -> SourceResponse:
     config = OKTA_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
-    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-
-    # Re-check at run time (not just at source-create) in case the domain was edited or now
-    # resolves to an internal address (SSRF / DNS rebinding). Only enforced on cloud.
-    host_ok, host_err = _is_host_safe(normalize_domain(domain), team_id)
-    if not host_ok:
-        raise OktaHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
 
     params = _build_initial_params(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
     )
 
-    initial_url = _build_initial_url(domain, config, params)
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config is not None and _is_same_host(resume_config.next_url, domain):
-        url: str = resume_config.next_url
-        logger.debug(f"Okta: resuming from URL: {url}")
-    else:
-        if resume_config is not None:
-            logger.warning("Okta: ignoring resume URL whose host does not match the configured domain")
-        url = initial_url
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": _base_url(domain),
+            # Auth (the SSWS token) is supplied via the framework auth config so its value is
+            # redacted from logs and raised error messages; only non-secret headers go here.
+            "headers": {"Accept": "application/json", "Content-Type": "application/json"},
+            "auth": {"type": "api_key", "api_key": f"SSWS {api_key}", "name": "Authorization", "location": "header"},
+            "paginator": OktaLinkPaginator(domain),
+            # A validated host could 3xx to an internal address; refuse to follow redirects (SSRF).
+            "allow_redirects": False,
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                },
+            }
+        ],
+    }
 
-    @retry(
-        retry=retry_if_exception_type((OktaRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRIES),
-        wait=_retry_wait,
-        reraise=True,
+    # A poisoned resume URL (off the org host) must be ignored, falling back to the initial org
+    # URL rather than being followed (SSRF).
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and _is_same_host(resume.next_url, domain):
+            initial_paginator_state = {"next_url": resume.next_url}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-fetches
+        # the next page (merge dedupes) rather than skipping data.
+        if state and state.get("next_url"):
+            resumable_source_manager.save_state(OktaResumeConfig(next_url=state["next_url"]))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
     )
-    def fetch_page(page_url: str) -> requests.Response:
-        # Don't follow redirects: an attacker-controlled host could 3xx to an internal address,
-        # bypassing the host validation done before the request (SSRF).
-        response = make_tracked_session().get(
-            page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False
-        )
 
-        if response.status_code == 429 or response.status_code >= 500:
-            retry_after = _parse_retry_after(response) if response.status_code == 429 else None
-            raise OktaRetryableError(
-                f"Okta API error (retryable): status={response.status_code}, url={page_url}",
-                retry_after=retry_after,
-            )
-
-        # A 3xx isn't an error status (`response.ok` is True), so reject it explicitly rather than
-        # silently parsing the redirect body as data.
-        if response.is_redirect or response.is_permanent_redirect:
-            raise OktaHostNotAllowedError(
-                f"Okta API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
-            )
-
-        if not response.ok:
-            logger.error(f"Okta API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response
-
-    while True:
-        response = fetch_page(url)
-
-        data = response.json()
-        if not isinstance(data, list) or not data:
-            break
-
-        next_url = _parse_next_url(response.headers.get("Link", ""))
-
-        # Page and chunk boundaries don't line up, so checkpoint the CURRENT page URL.
-        # On resume we re-fetch it and rely on primary-key merge semantics to dedupe rows
-        # that were already yielded.
-        checkpoint_url = url
-
-        for item in data:
-            batcher.batch(item)
-
-            if batcher.should_yield():
-                py_table = batcher.get_table()
-                yield py_table
-                resumable_source_manager.save_state(OktaResumeConfig(next_url=checkpoint_url))
-
-        if not next_url:
-            break
-
-        # The next-page URL is server-controlled; only follow it if it stays on the org host.
-        if not _is_same_host(next_url, domain):
-            logger.warning("Okta: stopping pagination, next URL host does not match the configured domain")
-            break
-
-        url = next_url
-
-    if batcher.should_yield(include_incomplete_chunk=True):
-        py_table = batcher.get_table()
-        yield py_table
-
-
-def okta_source(
-    domain: str,
-    api_key: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[OktaResumeConfig],
-    team_id: int,
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Optional[Any] = None,
-    incremental_field: str | None = None,
-) -> SourceResponse:
-    endpoint_config = OKTA_ENDPOINTS[endpoint]
+    def items() -> Iterator[list[Any]]:
+        # Re-check at run time (not just at source-create) in case the domain was edited or now
+        # resolves to an internal address (SSRF / DNS rebinding). Only enforced on cloud.
+        host_ok, host_err = _is_host_safe(normalize_domain(domain), team_id)
+        if not host_ok:
+            raise OktaHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
+        yield from resource
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            domain=domain,
-            api_key=api_key,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            team_id=team_id,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        ),
-        primary_keys=[endpoint_config.primary_key],
+        items=items,
+        primary_keys=[config.primary_key],
         # Okta returns the System Log ascending (we request sortOrder=ASCENDING). The filter
         # endpoints don't guarantee an order, but each sync re-applies `filter=lastUpdated gt
         # <watermark>` and paginates every page, so completeness doesn't depend on ordering.
         sort_mode="asc",
         partition_count=1,
         partition_size=1,
-        partition_mode="datetime" if endpoint_config.partition_key else None,
-        partition_format="week" if endpoint_config.partition_key else None,
-        partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="week" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
     )

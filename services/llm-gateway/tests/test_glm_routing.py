@@ -8,6 +8,7 @@ from llm_gateway.api.handler import ProviderError
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.config import Settings
 from llm_gateway.glm_routing import (
+    normalize_glm_anthropic_request,
     send_glm_anthropic_messages,
     send_glm_chat_completions,
     send_glm_responses,
@@ -46,6 +47,7 @@ async def _send(
     flag: bool | None = None,
     send_fn: Any = send_glm_anthropic_messages,
     product: str = PRODUCT,
+    request_data: dict[str, Any] | None = None,
 ) -> tuple[Any, AsyncMock]:
     evaluate = AsyncMock(return_value=flag)
     with (
@@ -54,7 +56,7 @@ async def _send(
         patch("llm_gateway.glm_routing.evaluate_flag", evaluate),
     ):
         result = await send_fn(
-            {"model": GLM_MODEL, "messages": [{"role": "user", "content": "hi"}]},
+            request_data or {"model": GLM_MODEL, "messages": [{"role": "user", "content": "hi"}]},
             _user(),
             False,
             product,
@@ -74,6 +76,36 @@ async def test_routes_to_cloudflare_by_default() -> None:
     # The public model id must reach handle_llm_request unchanged — it drives metrics and the
     # unsupported-model gate.
     assert handle.call_args.kwargs["model"] == GLM_MODEL
+
+
+@pytest.mark.parametrize("effort", ["high", "max"])
+async def test_normalizes_supported_reasoning_effort_for_anthropic_requests(effort: str) -> None:
+    request = {
+        "model": GLM_MODEL,
+        "messages": [{"role": "user", "content": "hi"}],
+        "output_config": {"effort": effort},
+        "context_management": {"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]},
+    }
+    handle = AsyncMock(return_value={"ok": True})
+
+    await _send(_settings(), handle, request_data=request)
+
+    assert handle.call_args.kwargs["request_data"] == {
+        **request,
+        "thinking": {"type": "adaptive"},
+    }
+
+
+def test_drops_clear_thinking_when_no_effort_enables_thinking() -> None:
+    # Edit-level rules live in test_anthropic_request.py; this pins that GLM still applies them
+    # once its effort upgrade has had a chance to enable thinking.
+    request = {
+        "model": GLM_MODEL,
+        "messages": [{"role": "user", "content": "hi"}],
+        "context_management": {"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]},
+    }
+
+    assert "context_management" not in normalize_glm_anthropic_request(request, product=PRODUCT)
 
 
 async def test_routes_to_modal_when_fraction_one_without_flag_roundtrip() -> None:
@@ -110,9 +142,9 @@ async def test_each_surface_routes_to_its_provider_configs(
     assert handle.call_args.kwargs["provider_config"].endpoint_name == cloudflare_endpoint
 
 
-@pytest.mark.parametrize("product", ["twig", "array"])
+@pytest.mark.parametrize("product", ["twig", "array", "custom_image_scans"])
 async def test_alias_products_ramp_through_canonical_fraction(product: str) -> None:
-    # twig/array requests must follow posthog_code's per-product ramp end to end.
+    # These requests must follow posthog_code's per-product ramp end to end.
     handle = AsyncMock(return_value={"ok": True})
     settings = _settings(glm_modal_product_traffic_fractions={"posthog_code": 1.0})
     _, evaluate = await _send(settings, handle, product=product)

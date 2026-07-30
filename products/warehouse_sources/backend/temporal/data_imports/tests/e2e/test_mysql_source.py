@@ -26,7 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DEFAULT_CHUNK_SIZE,
     DEFAULT_TABLE_SIZE_BYTES,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
     MySQLImplementation,
     _build_query,

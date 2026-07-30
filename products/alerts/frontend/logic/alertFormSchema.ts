@@ -1,6 +1,8 @@
 import type { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import { z } from 'zod'
 
+import { AlertConditionType } from '~/queries/schema/schema-general'
+
 import type { AlertType } from '../types'
 import type { AlertFormType } from './alertFormLogic'
 import { quietHoursFormError } from './scheduleRestrictionValidation'
@@ -9,11 +11,8 @@ export const THRESHOLD_BOUNDS_FORM_ERROR = 'Enter at least one threshold (less t
 
 const NAME_REQUIRED_MESSAGE = 'You need to give your alert a name'
 
-function isFiniteThresholdBound(value: number | string | null | undefined): boolean {
-    if (value == null || value === '') {
-        return false
-    }
-    return !Number.isNaN(Number(value))
+function isFiniteThresholdBound(value: number | null | undefined): value is number {
+    return value != null && Number.isFinite(value)
 }
 
 export function thresholdAlertHasBounds(alert: AlertFormType | AlertType): boolean {
@@ -32,14 +31,15 @@ const alertFormSchema = z
     .object({
         name: z.string(),
         detector_config: z.unknown().nullable(),
+        condition: z.object({ type: z.nativeEnum(AlertConditionType) }),
         threshold: z
             .object({
                 configuration: z
                     .object({
                         bounds: z
                             .object({
-                                lower: z.union([z.number(), z.string()]).nullish(),
-                                upper: z.union([z.number(), z.string()]).nullish(),
+                                lower: z.number().finite().nullish(),
+                                upper: z.number().finite().nullish(),
                             })
                             .optional(),
                     })
@@ -68,6 +68,31 @@ const alertFormSchema = z
                 code: z.ZodIssueCode.custom,
                 path: ['threshold'],
                 message: THRESHOLD_BOUNDS_FORM_ERROR,
+            })
+        }
+
+        const bounds = alert.threshold?.configuration?.bounds
+        if (
+            !alert.detector_config &&
+            isFiniteThresholdBound(bounds?.lower) &&
+            isFiniteThresholdBound(bounds?.upper) &&
+            bounds.lower > bounds.upper
+        ) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['threshold'],
+                message: 'The “Less than” value must be lower than the “More than” value',
+            })
+        }
+
+        const hasNegativeRelativeBound =
+            alert.condition.type !== AlertConditionType.ABSOLUTE_VALUE &&
+            [bounds?.lower, bounds?.upper].some((value) => isFiniteThresholdBound(value) && value < 0)
+        if (hasNegativeRelativeBound) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['threshold'],
+                message: 'Enter zero or a positive change value',
             })
         }
     })

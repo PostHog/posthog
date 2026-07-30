@@ -612,7 +612,8 @@ describe('onboardingLogic — flow composition', () => {
     describe('completion redirect URL', () => {
         // Each entry: [primary, expected redirect path-substring].
         // Verifies that each per-product provider's `completeRedirectUrl` is wired up.
-        // EXPERIMENTS has no provider URL, so it falls through to the Quickstart page.
+        // EXPERIMENTS intentionally falls through to urls.default() — same behaviour as
+        // the original central switch.
         const cases: Array<[ProductKey, RegExp]> = [
             [ProductKey.PRODUCT_ANALYTICS, /quickstart|insight/i],
             [ProductKey.WEB_ANALYTICS, /web/i],
@@ -632,36 +633,10 @@ describe('onboardingLogic — flow composition', () => {
             expect(logic.values.onCompleteOnboardingRedirectUrl).toMatch(pattern)
         })
 
-        it('experiments falls through to home, or quickstart in the test variant', () => {
+        it('experiments falls through to urls.default()', () => {
             logic.actions.setProductKey(ProductKey.EXPERIMENTS)
             expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/')
-
-            featureFlagLogic.findMounted()?.actions.setFeatureFlags([FEATURE_FLAGS.QUICKSTART_HOMEPAGE], {
-                [FEATURE_FLAGS.QUICKSTART_HOMEPAGE]: 'control',
-            })
-            expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/')
-
-            featureFlagLogic.findMounted()?.actions.setFeatureFlags([FEATURE_FLAGS.QUICKSTART_HOMEPAGE], {
-                [FEATURE_FLAGS.QUICKSTART_HOMEPAGE]: 'test',
-            })
-            expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/quickstart')
-
-            featureFlagLogic.findMounted()?.actions.setFeatureFlags([], {})
         })
-
-        it.each(cases.map(([product]) => product))(
-            '%s lands on quickstart when the quickstart flag is enabled',
-            (product) => {
-                featureFlagLogic.findMounted()?.actions.setFeatureFlags([FEATURE_FLAGS.QUICKSTART_HOMEPAGE], {
-                    [FEATURE_FLAGS.QUICKSTART_HOMEPAGE]: 'test',
-                })
-                logic.actions.setProductKey(product)
-
-                expect(logic.values.onCompleteOnboardingRedirectUrl).toBe('/quickstart')
-
-                featureFlagLogic.findMounted()?.actions.setFeatureFlags([], {})
-            }
-        )
 
         it('redirect override takes precedence over the per-product URL', () => {
             logic.actions.setProductKey(ProductKey.WEB_ANALYTICS)

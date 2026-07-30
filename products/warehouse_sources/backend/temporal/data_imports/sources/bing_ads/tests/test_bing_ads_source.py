@@ -6,7 +6,9 @@ from posthog.schema import ReleaseStatus, SourceFieldOauthAccountSelectConfig, S
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.source import BingAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.utils import BingAdsResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BingAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bingads import (
+    BingAdsSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
 
 

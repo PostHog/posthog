@@ -61,16 +61,16 @@ End state: we have 5 environments schemas as HCL, a golden per cluster, somethin
 - local-multi (in PostHog/posthog):
   - ops.hcl
   - posthog.hcl
-  - aux.hcl
+  - auxiliary.hcl
   - ...
 - dev (in posthog-cloud-infra):
   - posthog.hcl
-  - aux.hcl
+  - auxiliary.hcl
   - sessions.hcl
   - ...
 - prod-us (in posthog-cloud-infra):
   - posthog.hcl
-  - aux.hcl
+  - auxiliary.hcl
   - sessions.hcl
   - ai_events.hcl
   - ops.hcl

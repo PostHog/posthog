@@ -457,6 +457,56 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
         else:
             assert "created_at" not in records_from_destination[0]
 
+    async def test_workflow_raises_incompatible_schema_error_when_target_table_schema_is_wrong(
+        self,
+        destination_test: DatabricksDestinationTest,
+        interval: str,
+        generate_test_data,
+        data_interval_start: dt.datetime,
+        data_interval_end: dt.datetime,
+        ateam,
+        batch_export_for_destination,
+        integration: Integration,
+        setup_destination,
+    ):
+        # Pre-create the target table with a schema that doesn't match the persons model. None of
+        # these columns match the merge keys (`team_id`, `distinct_id`), so the MERGE condition
+        # references columns that can't be resolved on the target.
+        destination_config = batch_export_for_destination.destination.config
+        catalog = destination_config["catalog"]
+        schema = destination_config["schema"]
+        table_name = destination_config["table_name"]
+        query = f"""
+        CREATE TABLE IF NOT EXISTS `{catalog}`.`{schema}`.`{table_name}` (
+            `wrong_id` BIGINT,
+            `wrong_data` STRING
+        )
+        USING DELTA
+        COMMENT 'User created table with the wrong schema'
+        """
+        with destination_test.cursor(ateam.pk, integration) as cursor:
+            cursor.execute(query)
+
+        batch_export_model = BatchExportModel(name="persons", schema=None)
+
+        inputs = destination_test.create_batch_export_inputs(
+            team_id=ateam.pk,
+            data_interval_end=data_interval_end,
+            interval=interval,
+            batch_export_model=batch_export_model,
+            batch_export_schema=None,
+            batch_export=batch_export_for_destination,
+        )
+
+        run = await destination_test.run_workflow(
+            batch_export_id=batch_export_for_destination.id,
+            inputs=inputs,
+        )
+
+        assert run.status == "Failed"
+        assert run.latest_error is not None
+        assert "DatabricksIncompatibleSchemaError" in run.latest_error
+
     async def test_workflow_cleans_up_volume_and_stage_table_if_there_is_an_error(
         self,
         destination_test: DatabricksDestinationTest,

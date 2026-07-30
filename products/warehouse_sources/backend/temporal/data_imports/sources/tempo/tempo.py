@@ -1,16 +1,19 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlsplit
-
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib.parse import urlencode
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponsePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.tempo.settings import (
     TEMPO_ENDPOINTS,
     TempoEndpointConfig,
@@ -22,7 +25,6 @@ TEMPO_BASE_URL = "https://api.tempo.io/4"
 # List endpoints default to 50 rows per page; 100 keeps round trips down without risking
 # undocumented per-endpoint caps.
 PAGE_SIZE = 100
-REQUEST_TIMEOUT_SECONDS = 60
 # The plans endpoint requires a `from`/`to` window, so a full sync sends a wide fixed one. Plans
 # are resource allocations that can extend into the future, hence the years of headroom.
 PLANS_WINDOW_START = "2001-01-01"
@@ -30,10 +32,6 @@ PLANS_WINDOW_YEARS_AHEAD = 5
 # Cheap endpoint used to confirm an API token is genuine at source-create. Tempo tokens carry
 # granular scopes, so a 403 here still proves the token itself is valid.
 DEFAULT_PROBE_ENDPOINT = "worklogs"
-
-
-class TempoRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
@@ -46,25 +44,6 @@ class TempoResumeConfig:
 
 def _headers(api_token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {api_token}", "Accept": "application/json"}
-
-
-def _get_session(api_token: str) -> requests.Session:
-    # allow_redirects=False so a 3xx can't silently move the credentialed request off the
-    # validated host (SSRF). See _NoRedirectSession in common/http/transport.py.
-    return make_tracked_session(headers=_headers(api_token), redact_values=(api_token,), allow_redirects=False)
-
-
-def _ensure_tempo_url(url: str) -> str:
-    """Reject pagination/resume URLs that leave the Tempo API host.
-
-    `metadata.next` is server-controlled and the session carries the Bearer token on every
-    request, so a tampered response or poisoned resume state could otherwise point the
-    credentialed request at an arbitrary host and leak the token. Compare the full origin
-    (scheme + netloc), not a prefix, so look-alike hosts are rejected too."""
-    parts, base = urlsplit(url), urlsplit(TEMPO_BASE_URL)
-    if (parts.scheme, parts.netloc) != (base.scheme, base.netloc):
-        raise ValueError(f"Tempo pagination URL does not stay on the Tempo API host: {parts.netloc!r}")
-    return url
 
 
 def _plans_window() -> tuple[str, str]:
@@ -121,94 +100,11 @@ def _build_initial_params(
     return params
 
 
-@retry(
-    retry=retry_if_exception_type((TempoRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session,
-    url: str,
-    params: Optional[dict[str, Any]],
-    logger: FilteringBoundLogger,
-) -> tuple[list[dict[str, Any]], Optional[str]]:
-    # `params` is only set for the first request; `metadata.next` is a full URL with limit, offset,
-    # and filters baked in, so follow-up requests must not re-send query params.
-    response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
-
-    # Tempo rate limiting is dynamic (no fixed quota) and surfaces as 429 — back off and retry.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise TempoRetryableError(f"Tempo API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"Tempo API error: status={response.status_code}, body={response.text}, url={url}")
-        # raise_for_status() would embed the full request URL (query string included) in the
-        # exception, which is surfaced as the schema's latest_error. Rebuild it from
-        # scheme/host/path only; the "<status> Client Error: <reason> for url: https://api.tempo.io"
-        # prefix stays stable for get_non_retryable_errors() matching.
-        safe = urlsplit(response.url)
-        raise requests.HTTPError(
-            f"{response.status_code} Client Error: {response.reason} for url: {safe.scheme}://{safe.netloc}{safe.path}",
-            response=response,
-        )
-
-    data = response.json()
-    # Every list endpoint wraps rows in {"results": [...], "metadata": {...}}; paginated ones set
-    # `metadata.next` to the next page's URL (absent on the last page and on unpaginated endpoints).
-    if not isinstance(data, dict) or not isinstance(data.get("results"), list):
-        raise TempoRetryableError(f"Tempo returned an unexpected payload for {url}: {type(data).__name__}")
-
-    metadata = data.get("metadata")
-    next_url = metadata.get("next") if isinstance(metadata, dict) else None
-    if not (isinstance(next_url, str) and next_url):
-        return data["results"], None
-    return data["results"], _ensure_tempo_url(next_url)
-
-
-def get_rows(
-    api_token: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[TempoResumeConfig],
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
-    incremental_field: str | None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = TEMPO_ENDPOINTS[endpoint]
-    session = _get_session(api_token)
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume and resume.next_url:
-        logger.debug(f"Tempo: resuming {endpoint} from {resume.next_url}")
-        # Resume state is persisted outside the process, so re-validate it before use.
-        url = _ensure_tempo_url(resume.next_url)
-        params: Optional[dict[str, Any]] = None
-    else:
-        url = f"{TEMPO_BASE_URL}{config.path}"
-        params = _build_initial_params(
-            config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
-        )
-
-    while True:
-        items, next_url = _fetch_page(session, url, params, logger)
-        if items:
-            yield items
-
-        # No `metadata.next` means we've reached the last page (or the endpoint is unpaginated).
-        if not next_url:
-            break
-
-        url, params = next_url, None
-        # Save AFTER yielding so a crash re-fetches from the next page (already-yielded pages are
-        # persisted); merge dedupes the re-pulled page on the primary key.
-        resumable_source_manager.save_state(TempoResumeConfig(next_url=next_url))
-
-
 def tempo_source(
     api_token: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[TempoResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
@@ -216,17 +112,74 @@ def tempo_source(
 ) -> SourceResponse:
     config = TEMPO_ENDPOINTS[endpoint]
 
+    # The watermark/date-window/order/limit filters are baked into the first request's params;
+    # `metadata.next` carries them forward on every subsequent page, so the paginator never
+    # re-sends them.
+    params = _build_initial_params(
+        config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+    )
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": TEMPO_BASE_URL,
+            # Auth (Bearer) rides in the framework auth config so its value is redacted from logs
+            # and raised error messages; only the non-secret Accept header is set here.
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "bearer", "token": api_token},
+            # `metadata.next` is a full next-page URL (absent on the last page and on unpaginated
+            # endpoints, which terminates pagination).
+            "paginator": JSONResponsePaginator(next_url_path="metadata.next"),
+            # `metadata.next` is server-controlled and the session carries the Bearer token, so a
+            # tampered response or poisoned resume URL could point the credentialed request off-host.
+            # Pin every request (next-page + seeded resume URLs) to the Tempo API host and reject
+            # redirects so the token can't be exfiltrated. allowed_hosts=[] means "base_url host only".
+            "allowed_hosts": [],
+            "allow_redirects": False,
+        },
+        # Per-resource settings are fully specified below, so no shared defaults are needed.
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": params,
+                    "data_selector": "results",
+                    # A 200 whose body isn't the expected `{"results": [...], ...}` envelope (non-dict,
+                    # or missing/non-list `results`) is treated as a transient bad shape and retried —
+                    # matching the old TempoRetryableError raised on an unexpected payload.
+                    "data_selector_malformed_retryable": True,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.next_url:
+            initial_paginator_state = {"next_url": resume.next_url}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only while a next page remains; the checkpoint lands AFTER a page is yielded so a
+        # crash re-yields the last page (merge dedupes on the primary key) rather than skipping it.
+        if state and state.get("next_url"):
+            resumable_source_manager.save_state(TempoResumeConfig(next_url=state["next_url"]))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        # The watermark is already applied via params above, so the framework's incremental
+        # injection is intentionally left unused.
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_token=api_token,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
@@ -244,18 +197,25 @@ def check_access(api_token: str, endpoint: str = DEFAULT_PROBE_ENDPOINT) -> tupl
     missing the endpoint's view scope, ``0`` for a connection problem, other HTTP status otherwise.
     """
     config = TEMPO_ENDPOINTS[endpoint]
-    session = _get_session(api_token)
-    try:
-        response = session.get(f"{TEMPO_BASE_URL}{config.path}", params=_probe_params(config), timeout=15)
-    except Exception as e:
-        return 0, f"Could not connect to Tempo: {e}"
+    probe_params = _probe_params(config)
+    url = f"{TEMPO_BASE_URL}{config.path}"
+    if probe_params:
+        url = f"{url}?{urlencode(probe_params)}"
 
-    if response.status_code in (401, 403):
-        return response.status_code, None
-
-    if not response.ok:
-        return response.status_code, f"Tempo returned HTTP {response.status_code}"
-
+    # allow_redirects=False so a 3xx can't silently move the credentialed request off the
+    # validated host (SSRF).
+    _ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_token,), allow_redirects=False),
+        url,
+        headers=_headers(api_token),
+        timeout=15,
+    )
+    if status is None:
+        return 0, "Could not connect to Tempo"
+    if status in (401, 403):
+        return status, None
+    if status != 200:
+        return status, f"Tempo returned HTTP {status}"
     return 200, None
 
 

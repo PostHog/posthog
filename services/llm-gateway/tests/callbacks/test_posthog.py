@@ -90,7 +90,12 @@ class TestPostHogCallback:
             await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
 
             mock_cls.assert_called_once_with(
-                "test-key", host="https://test.posthog.com", sync_mode=True, enable_local_evaluation=False
+                "test-key",
+                host="https://test.posthog.com",
+                sync_mode=True,
+                enable_local_evaluation=False,
+                _use_ai_lane=True,
+                _enable_multimodal_capture=True,
             )
             mock_client.capture.assert_called_once()
             call_kwargs = mock_client.capture.call_args.kwargs

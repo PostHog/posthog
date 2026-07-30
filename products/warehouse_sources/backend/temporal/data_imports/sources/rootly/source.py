@@ -19,8 +19,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RootlySourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.rootly import RootlySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.rootly.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
@@ -29,7 +32,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rootly.roo
     probe_credentials,
     rootly_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.rootly.settings import ENDPOINTS, ROOTLY_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.rootly.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -73,7 +80,7 @@ You can create an API key in your [Rootly account settings](https://rootly.com/a
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # 401/403 surface as a requests HTTPError when `_fetch_page` calls `raise_for_status()`.
+            # 401/403 surface as a requests HTTPError when the REST client calls `raise_for_status()`.
             # No retry can satisfy a credential/scope problem. Match the stable status text + base
             # host, not the per-request path/query.
             "401 Client Error: Unauthorized for url: https://api.rootly.com": "Your Rootly API key is invalid or has been revoked. Create a new API key in your Rootly account settings, then reconnect.",
@@ -87,25 +94,16 @@ You can create an API key in your [Rootly account settings](https://rootly.com/a
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
-        def _build_schema(endpoint: str) -> SourceSchema:
-            endpoint_config = ROOTLY_ENDPOINTS[endpoint]
-            return SourceSchema(
-                name=endpoint,
-                supports_incremental=endpoint_config.supports_incremental,
-                supports_append=endpoint_config.supports_incremental,
-                incremental_fields=endpoint_config.incremental_fields,
-                should_sync_default=endpoint_config.should_sync_default,
-            )
-
-        schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
 
     def validate_credentials(
-        self, config: RootlySourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: RootlySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         status = probe_credentials(config.api_key, schema_name)
 
@@ -133,7 +131,8 @@ You can create an API key in your [Rootly account settings](https://rootly.com/a
         return rootly_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

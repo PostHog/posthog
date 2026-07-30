@@ -358,14 +358,16 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Manage default evaluation contexts for a project.
+ * Manage default evaluation contexts for a project. Members can read; writing requires
+ * project admin, matching the admin-only settings UI.
  */
 export const OrganizationsProjectsDefaultEvaluationContextsCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Manage default release conditions for new feature flags in this project.
+ * Manage default release conditions for new feature flags in this project. Members can read;
+ * writing requires project admin, matching the admin-only settings UI.
  */
 export const OrganizationsProjectsDefaultReleaseConditionsUpdateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
@@ -419,17 +421,21 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
 /**
  * Create a new password for the sharing configuration.
  */
-export const DashboardsSharingPasswordsCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
+export const DashboardsSharingPasswordsCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
-export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
+export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
@@ -494,13 +500,28 @@ export const DesktopFileSystemPartialUpdateBody = /* @__PURE__ */ zod.object({
  * Merges into the dashboard row's `meta` (never replaces it), so existing
  * keys like `channelId`/`templateId` survive. Appends a full-file version
  * snapshot and points `currentVersionId` at it — the server-side mirror of
- * the app's dashboardsService.saveFreeform.
+ * the app's dashboardsService.saveFreeform, including the linear-discard of
+ * any redo tail left behind by an undo. When the publisher passes
+ * `expected_current_version_id`, a publish based on a stale version is
+ * rejected with 409 `version_conflict` instead of overwriting the newer head.
  */
 export const DesktopFileSystemCanvasPartialUpdateBody = /* @__PURE__ */ zod
     .object({
-        code: zod.string().optional(),
-        prompt: zod.string().optional(),
-        name: zod.string().optional(),
+        code: zod.string().optional().describe('The complete single-file React source for the canvas.'),
+        prompt: zod
+            .string()
+            .optional()
+            .describe('Short description of the change, stored on the appended version history entry.'),
+        name: zod
+            .string()
+            .optional()
+            .describe('Optional new display name for the canvas (rewrites the leaf segment of its path).'),
+        expected_current_version_id: zod
+            .string()
+            .nullish()
+            .describe(
+                "Optimistic-concurrency guard: the currentVersionId the publisher based its edits on (null when it read a canvas with no versions yet). When provided and the canvas has since moved past it (a concurrent publish, or a user's undo) the publish is rejected with a 409 version_conflict instead of overwriting the newer head. Omit to publish unguarded."
+            ),
     })
     .describe("Payload for publishing a freeform canvas's React source via the agent.")
 
@@ -1019,32 +1040,40 @@ export const FileSystemShortcutReorderCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Create a new password for the sharing configuration.
  */
-export const InsightsSharingPasswordsCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
+export const InsightsSharingPasswordsCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
-export const InsightsSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
+export const InsightsSharingRefreshCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Create a new password for the sharing configuration.
  */
-export const NotebooksSharingPasswordsCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
+export const NotebooksSharingPasswordsCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
-export const NotebooksSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
+export const NotebooksSharingRefreshCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
 export const ProductEnablementCreateBody = /* @__PURE__ */ zod.object({
     products: zod
@@ -1171,17 +1200,21 @@ export const PropertyDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.o
 /**
  * Create a new password for the sharing configuration.
  */
-export const SessionRecordingsSharingPasswordsCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
+export const SessionRecordingsSharingPasswordsCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
-export const SessionRecordingsSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
+export const SessionRecordingsSharingRefreshCreateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod.boolean().optional(),
+        settings: zod.unknown().optional(),
+        password_required: zod.boolean().optional(),
+    })
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Replace the authenticated user's profile and settings. Pass `@me` as the UUID to update the authenticated user. Prefer the PATCH endpoint for partial updates — PUT requires every writable field to be provided.
@@ -1468,7 +1501,7 @@ export const UsersIntegrationsGithubStartCreateBody = /* @__PURE__ */ zod.object
     team_id: zod
         .number()
         .nullish()
-        .describe("Optional team\/project id (e.g. PostHog Code); web UI uses the session's current team."),
+        .describe("Optional team\/project id (e.g. PostHog Desktop); web UI uses the session's current team."),
     connect_from: zod
         .string()
         .optional()

@@ -13,6 +13,7 @@ from typing import Any
 
 from fastapi.responses import StreamingResponse
 
+from llm_gateway.anthropic_request import drop_orphaned_clear_thinking
 from llm_gateway.api.handler import (
     CLOUDFLARE_ANTHROPIC_CONFIG,
     CLOUDFLARE_OPENAI_CONFIG,
@@ -35,8 +36,6 @@ from llm_gateway.cloudflare import (
 from llm_gateway.config import Settings, get_settings
 from llm_gateway.flags import GLM_MODAL_FLAG, evaluate_flag
 from llm_gateway.modal import (
-    ensure_modal_configured,
-    ensure_modal_model_allowed,
     is_modal_configured,
     is_modal_served_model,
     make_modal_anthropic_call,
@@ -44,8 +43,23 @@ from llm_gateway.modal import (
     make_modal_responses_call,
     should_route_glm_to_modal,
 )
+from llm_gateway.modal_routing import send_modal_request
 
 LlmCall = Callable[..., Awaitable[Any]]
+
+GLM_REASONING_EFFORTS: frozenset[str] = frozenset({"high", "max"})
+
+
+def normalize_glm_anthropic_request(request_data: dict[str, Any], *, product: str) -> dict[str, Any]:
+    """Make Claude runtime reasoning settings valid for GLM's Anthropic surface."""
+    normalized = dict(request_data)
+    output_config = normalized.get("output_config")
+    effort = output_config.get("effort") if isinstance(output_config, dict) else None
+
+    if effort in GLM_REASONING_EFFORTS:
+        normalized["thinking"] = {"type": "adaptive"}
+
+    return drop_orphaned_clear_thinking(normalized, product=product)
 
 
 async def _route_to_modal(model: str, user: AuthenticatedUser, product: str, settings: Settings) -> bool:
@@ -84,29 +98,6 @@ async def _send_via_cloudflare(
     )
 
 
-async def _send_via_modal(
-    request_data: dict[str, Any],
-    user: AuthenticatedUser,
-    is_streaming: bool,
-    product: str,
-    provider_config: ProviderConfig,
-    make_call: Callable[[str, str, str], LlmCall],
-    settings: Settings,
-) -> dict[str, Any] | StreamingResponse:
-    model = request_data["model"]
-    ensure_modal_model_allowed(model)
-    api_base, modal_key, modal_secret = ensure_modal_configured(settings)
-    return await handle_llm_request(
-        request_data=dict(request_data),
-        user=user,
-        model=model,
-        is_streaming=is_streaming,
-        provider_config=provider_config,
-        llm_call=make_call(api_base, modal_key, modal_secret),
-        product=product,
-    )
-
-
 async def _send_glm_request(
     request_data: dict[str, Any],
     user: AuthenticatedUser,
@@ -122,7 +113,9 @@ async def _send_glm_request(
     settings = get_settings()
 
     if await _route_to_modal(model, user, product, settings):
-        return await _send_via_modal(request_data, user, is_streaming, product, modal_config, make_modal_call, settings)
+        return await send_modal_request(
+            request_data, user, is_streaming, product, modal_config, make_modal_call, settings, handle_llm_request
+        )
 
     return await _send_via_cloudflare(
         request_data, user, is_streaming, product, cloudflare_config, make_cloudflare_call, settings
@@ -140,7 +133,7 @@ async def send_glm_anthropic_messages(
     product: str,
 ) -> dict[str, Any] | StreamingResponse:
     return await _send_glm_request(
-        request_data,
+        normalize_glm_anthropic_request(request_data, product=product),
         user,
         is_streaming,
         product,

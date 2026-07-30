@@ -21,7 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MSSQLSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mssql import MSSQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql import (
     _SSH_HANDSHAKE_EOF_ERROR,
     _TABLE_NOT_FOUND_ERROR,
@@ -149,6 +149,7 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Schema discovery opens a fresh connection on its own periodic cadence. A transient TDS
         # connection death mid-fetch (DB-Lib 20047, "DBPROCESS is dead or not enabled") recovers on
@@ -157,7 +158,12 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         # first blip.
         def discover() -> list[SourceSchema]:
             return super(MSSQLSource, self).get_schemas(
-                config, team_id, with_counts=with_counts, names=names, force_refresh=force_refresh
+                config,
+                team_id,
+                with_counts=with_counts,
+                names=names,
+                force_refresh=force_refresh,
+                api_version=api_version,
             )
 
         return retry_on_transient_connection_error(discover)
@@ -237,7 +243,7 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         )
 
     def validate_credentials(
-        self, config: MSSQLSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: MSSQLSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         from pymssql import OperationalError
 
@@ -252,7 +258,7 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             return valid_host, host_errors
 
         try:
-            self.get_schemas(config, team_id)
+            self.get_schemas(config, team_id, api_version=api_version)
         except OperationalError as e:
             error_msg = " ".join(str(n) for n in e.args)
             for key, value in MSSQLErrors.items():

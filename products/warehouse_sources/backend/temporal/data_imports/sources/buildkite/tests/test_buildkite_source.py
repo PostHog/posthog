@@ -14,7 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.source import BuildkiteSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BuildkiteSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buildkite import (
+    BuildkiteSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -90,7 +92,7 @@ class TestBuildkiteSource:
         [
             ("read_timeout", "HTTPSConnectionPool(host='api.buildkite.com', port=443): Read timed out."),
             ("server_error", "500 Server Error: Internal Server Error for url: https://api.buildkite.com/v2"),
-            ("rate_limited", "Buildkite API error (retryable): status=429"),
+            ("rate_limited", "HTTP 429 for https://api.buildkite.com/v2/organizations/my-org/builds"),
         ]
     )
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
@@ -140,6 +142,8 @@ class TestBuildkiteSource:
         assert captured["api_access_token"] == "bkua_test"
         assert captured["organization"] == "my-org"
         assert captured["endpoint"] == "builds"
+        assert captured["team_id"] is inputs.team_id
+        assert captured["job_id"] is inputs.job_id
         assert captured["should_use_incremental_field"] is True
         assert captured["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
         assert captured["incremental_field"] == "created_at"

@@ -1,5 +1,9 @@
+// Side-effect: registers the CDP hog-function approval-card previews (cdp-functions-partial-update diff)
+// into the shared PostHog AI tool registry. Imported here so it's registered whenever the config scene loads.
+import './registerHogFunctionToolPreviews'
+
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import {
@@ -19,6 +23,9 @@ import { HogFunctionFilters } from 'scenes/hog-functions/filters/HogFunctionFilt
 import { HogFunctionMappings } from 'scenes/hog-functions/mapping/HogFunctionMappings'
 import { HogFunctionEventEstimates } from 'scenes/hog-functions/metrics/HogFunctionEventEstimates'
 import { SurveyResponseKeysReference } from 'scenes/surveys/components/SurveyResponseKeysReference'
+
+import { useAttachedContext, useToolStreamListener } from 'products/posthog_ai/frontend/api/logics'
+import { resolveToolCall } from 'products/posthog_ai/frontend/api/tools'
 
 import { humanizeHogFunctionType } from '../hog-function-utils'
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
@@ -63,6 +70,44 @@ export function HogFunctionConfiguration({
         showTesting,
         survey,
     } = useValues(logic)
+    const { loadHogFunction } = useActions(logic)
+
+    // The section components attach the config blobs (code, inputs, filters) as unkeyed values; only a
+    // keyed item renders its id into the context line, and the agent needs the id for cdp-functions-partial-update.
+    useAttachedContext(
+        hogFunction?.id
+            ? [
+                  {
+                      type: 'hog_function',
+                      key: hogFunction.id,
+                      label: `Current ${humanizeHogFunctionType(type)}: ${hogFunction.name}`,
+                  },
+              ]
+            : null
+    )
+
+    // An approved `cdp-functions-partial-update` mutates the function server-side while this form keeps
+    // pre-update state, so the scene (and the approval-card diff for any later proposal, e.g. a revert)
+    // would show stale values. Refetch on completion — `loadHogFunctionSuccess` resets the form, which
+    // also discards unsaved manual edits; tool results land in the open scene. A plain tool-stream
+    // listener, not `useMcpToolApplyBack`: the refetch is idempotent, so it must not be dropped by the
+    // apply-back claim gating (claims snapshot the targets mounted at prompt-send and release each turn).
+    useToolStreamListener({
+        tools: ['cdp-functions-partial-update'],
+        onEvent: (event) => {
+            if (event.phase !== 'completed' || !hogFunction?.id) {
+                return
+            }
+            // A parseable payload targeting a different function is not ours to absorb; an unparseable
+            // one may still be ours, and a same-data refetch is harmless, so reload in that case.
+            const innerInput = resolveToolCall(event.invocation).innerInput
+            const targetId = typeof innerInput?.id === 'string' ? innerInput.id : null
+            if (targetId && targetId !== hogFunction.id) {
+                return
+            }
+            loadHogFunction()
+        },
+    })
 
     if (loading && !loaded) {
         return <SpinnerOverlay />

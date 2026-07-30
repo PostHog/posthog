@@ -114,6 +114,7 @@ import type { DefaultEvaluationContextsResponse } from './defaultEvaluationConte
 import { defaultReleaseConditionsLogic, resolveDefaultReleaseConditions } from './defaultReleaseConditionsLogic'
 import type { DefaultReleaseConditionsResponse } from './defaultReleaseConditionsLogic'
 import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtils'
+import { FeatureFlagArchivedSource, reportFeatureFlagArchived } from './featureFlagArchiveDialog'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
 import { flagToggleKey, updateFlagActiveInProject } from './updateFlagActiveInProject'
@@ -439,6 +440,19 @@ export function validateFeatureFlagKey(key: string): string | undefined {
           ? 'Key must be 400 characters or less.'
           : !key.match?.(/^[a-zA-Z0-9_-]+$/)
             ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
+            : undefined
+}
+
+/** Check whether a string is a valid variant key. If not, a reason string is returned - otherwise undefined.
+ * Wider than flag keys: dots and slashes are allowed because variant keys often carry values SDKs consume
+ * directly (e.g. model IDs like "provider/model-1.2"), and the API has always accepted them. */
+export function validateFeatureFlagVariantKey(key: string): string | undefined {
+    return !key
+        ? 'Please set a key'
+        : key.length > 400
+          ? 'Key must be 400 characters or less.'
+          : !key.match?.(/^[a-zA-Z0-9_\-./]+$/)
+            ? 'Only letters, numbers, hyphens (-), underscores (_), dots (.) & slashes (/) are allowed.'
             : undefined
 }
 
@@ -1538,6 +1552,7 @@ export interface featureFlagLogicActions {
         dependentFlags: DependentFlag[]
         isBeingDisabled?: boolean
         onConfirm: () => void
+        onDisableAndArchive?: () => void
         originalFlag: FeatureFlagType | null
         requireStatusConfirmation?: boolean
         updatedFlag: Partial<FeatureFlagType>
@@ -1545,6 +1560,7 @@ export interface featureFlagLogicActions {
         dependentFlags: DependentFlag[]
         isBeingDisabled?: boolean | undefined
         onConfirm: () => void
+        onDisableAndArchive?: (() => void) | undefined
         originalFlag: FeatureFlagType | null
         requireStatusConfirmation?: boolean | undefined
         updatedFlag: Partial<FeatureFlagType>
@@ -1757,7 +1773,17 @@ export interface featureFlagLogicActions {
         featureFlagActiveUpdate: FeatureFlagType
         payload?: boolean
     }
-    updateFeatureFlagArchived: (archived: boolean) => boolean
+    updateFeatureFlagArchived: ({
+        archived,
+        via,
+    }: {
+        archived: boolean
+        /** Telemetry source; only meaningful (and only captured) when archiving, not unarchiving. */
+        via?: FeatureFlagArchivedSource
+    }) => {
+        archived: boolean
+        via?: FeatureFlagArchivedSource
+    }
     updateFeatureFlagArchivedFailure: (
         error: string,
         errorObject?: any
@@ -1767,10 +1793,16 @@ export interface featureFlagLogicActions {
     }
     updateFeatureFlagArchivedSuccess: (
         featureFlagActiveUpdate: FeatureFlagType,
-        payload?: boolean
+        payload?: {
+            archived: boolean
+            via?: FeatureFlagArchivedSource
+        }
     ) => {
         featureFlagActiveUpdate: FeatureFlagType
-        payload?: boolean
+        payload?: {
+            archived: boolean
+            via?: FeatureFlagArchivedSource
+        }
     }
 }
 
@@ -1781,6 +1813,7 @@ export interface featureFlagLogicMeta {
         checkDependentFlagsAndConfirm: (
             payload: {
                 onConfirm: () => void
+                onDisableAndArchive?: (() => void) | undefined
                 originalFlag: FeatureFlagType | null
                 requireStatusConfirmation?: boolean | undefined
                 updatedFlag: Partial<FeatureFlagType>
@@ -1790,6 +1823,7 @@ export interface featureFlagLogicMeta {
                 type: string
                 payload: {
                     onConfirm: () => void
+                    onDisableAndArchive?: (() => void) | undefined
                     originalFlag: FeatureFlagType | null
                     requireStatusConfirmation?: boolean | undefined
                     updatedFlag: Partial<FeatureFlagType>
@@ -1802,6 +1836,7 @@ export interface featureFlagLogicMeta {
                 dependentFlags: DependentFlag[]
                 isBeingDisabled?: boolean | undefined
                 onConfirm: () => void
+                onDisableAndArchive?: (() => void) | undefined
                 originalFlag: FeatureFlagType | null
                 requireStatusConfirmation?: boolean | undefined
                 updatedFlag: Partial<FeatureFlagType>
@@ -1813,6 +1848,7 @@ export interface featureFlagLogicMeta {
                     dependentFlags: DependentFlag[]
                     isBeingDisabled?: boolean | undefined
                     onConfirm: () => void
+                    onDisableAndArchive?: (() => void) | undefined
                     originalFlag: FeatureFlagType | null
                     requireStatusConfirmation?: boolean | undefined
                     updatedFlag: Partial<FeatureFlagType>
@@ -2007,6 +2043,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             dependentFlags: DependentFlag[]
             isBeingDisabled?: boolean
             requireStatusConfirmation?: boolean
+            onDisableAndArchive?: () => void
         }) => payload,
         saveDescriptionInline: (name: string) => ({ name }),
         saveTagsInline: (tags: string[]) => ({ tags }),
@@ -2033,7 +2070,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         multivariate: {
                             variants: filters?.multivariate?.variants?.map(
                                 ({ key: variantKey }: MultivariateFlagVariant) => ({
-                                    key: validateFeatureFlagKey(variantKey),
+                                    key: validateFeatureFlagVariantKey(variantKey),
                                 })
                             ),
                         },
@@ -2560,8 +2597,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             updatedFlag: Partial<FeatureFlagType>
             onConfirm: () => void
             requireStatusConfirmation?: boolean
+            onDisableAndArchive?: () => void
         }) => {
-            const { originalFlag, updatedFlag, onConfirm, requireStatusConfirmation = false } = payload
+            const {
+                originalFlag,
+                updatedFlag,
+                onConfirm,
+                requireStatusConfirmation = false,
+                onDisableAndArchive,
+            } = payload
             const isBeingDisabled = !!updatedFlag.id && originalFlag?.active === true && updatedFlag.active === false
 
             let dependentFlagsForConfirmation: DependentFlag[] = []
@@ -2588,6 +2632,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 isBeingDisabled,
                 dependentFlags: dependentFlagsForConfirmation,
                 requireStatusConfirmation,
+                onDisableAndArchive,
             })
         },
         showDependentFlagsConfirmation: (payload: {
@@ -2597,6 +2642,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             dependentFlags: DependentFlag[]
             isBeingDisabled?: boolean
             requireStatusConfirmation?: boolean
+            onDisableAndArchive?: () => void
         }) => {
             const {
                 originalFlag,
@@ -2605,6 +2651,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 dependentFlags,
                 isBeingDisabled = false,
                 requireStatusConfirmation = false,
+                onDisableAndArchive,
             } = payload
 
             const featureFlagConfirmationEnabled = !!values.currentTeam?.feature_flag_confirmation_enabled
@@ -2624,7 +2671,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 onConfirm,
                 dependentFlags,
                 isBeingDisabled,
-                requireStatusConfirmation
+                requireStatusConfirmation,
+                onDisableAndArchive
             )
 
             // If no confirmation was shown, proceed immediately
@@ -2890,7 +2938,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 },
                 // Shares the featureFlagActiveUpdate loader key (and its loading/success state)
-                updateFeatureFlagArchived: async (archived: boolean) => {
+                updateFeatureFlagArchived: async ({
+                    archived,
+                    via,
+                }: {
+                    archived: boolean
+                    /** Telemetry source; only meaningful (and only captured) when archiving, not unarchiving. */
+                    via?: FeatureFlagArchivedSource
+                }) => {
                     if (!values.featureFlag.id) {
                         throw new Error('Cannot archive an unsaved flag')
                     }
@@ -2900,6 +2955,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         archived ? { archived: true, active: false } : { archived: false }
                     )
                     savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
+                    if (archived && via) {
+                        reportFeatureFlagArchived(via)
+                    }
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 },
             },
@@ -3944,6 +4002,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         actions.updateFeatureFlagActive(active)
                     },
                     requireStatusConfirmation: true,
+                    onDisableAndArchive: () => {
+                        actions.updateFeatureFlagArchived({ archived: true, via: 'disable-confirmation' })
+                    },
                 },
                 breakpoint,
                 action as any,
@@ -4152,7 +4213,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (s) => [s.variants],
             (variants: MultivariateFlagVariant[]) => {
                 const errors: VariantError[] = variants.map(({ key: variantKey }: MultivariateFlagVariant) => ({
-                    key: validateFeatureFlagKey(variantKey),
+                    key: validateFeatureFlagVariantKey(variantKey),
                 }))
                 return errors
             },

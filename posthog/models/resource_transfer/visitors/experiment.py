@@ -28,6 +28,9 @@ class ExperimentVisitor(
         "status",
         "conclusion",
         "conclusion_comment",
+        "flag_cleanup_task_id",
+        # Points into the source team's GitHub integration, which does not transfer.
+        "repository",
         "created_at",
         "updated_at",
     ],

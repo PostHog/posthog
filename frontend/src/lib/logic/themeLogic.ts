@@ -180,6 +180,10 @@ export const themeLogic = kea<themeLogicType>([
         afterMount() {
             cache.disposables.add(() => {
                 const prefersColorSchemeMedia = window.matchMedia('(prefers-color-scheme: dark)')
+                // This setup re-runs whenever the tab becomes visible again (disposables pause on hidden
+                // tabs, detaching the listener), so re-read the preference to catch a system theme change
+                // that happened while the tab was hidden and fired no observable `change` event
+                actions.syncDarkModePreference(prefersColorSchemeMedia.matches)
                 const onPrefersColorSchemeChange = (e: MediaQueryListEvent): void =>
                     actions.syncDarkModePreference(e.matches)
                 prefersColorSchemeMedia.addEventListener('change', onPrefersColorSchemeChange)

@@ -1,21 +1,28 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode, urlsplit
 
 import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.settings import (
-    RAMP_ENDPOINTS,
-    TOKEN_SCOPES,
-    RampEndpointConfig,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+    OAuth2Auth,
+    OAuth2AuthRequestError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponsePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.ramp.settings import RAMP_ENDPOINTS, TOKEN_SCOPES
 
 RAMP_HOSTS = {
     "production": "https://api.ramp.com",
@@ -23,23 +30,13 @@ RAMP_HOSTS = {
 }
 # Ramp list pages cap at 100 items.
 PAGE_SIZE = 100
-REQUEST_TIMEOUT_SECONDS = 60
-# ~100 req/min per token; 429s back off.
-MAX_RETRY_ATTEMPTS = 5
-
-
-class RampRetryableError(Exception):
-    pass
 
 
 @dataclasses.dataclass
 class RampResumeConfig:
-    # Ramp paginates via the self-contained page.next URL.
-    next_url: str
-
-
-def _get_session(client_secret: str) -> requests.Session:
-    return make_tracked_session(redact_values=(client_secret,))
+    # Ramp paginates via the self-contained page.next URL. Optional/defaulted so previously
+    # saved state (which always carried next_url) still parses via dataclass(**saved).
+    next_url: Optional[str] = None
 
 
 def _base_url(environment: str) -> str:
@@ -49,29 +46,27 @@ def _base_url(environment: str) -> str:
     return host
 
 
-def _assert_trusted_url(url: str, environment: str) -> str:
-    """Pin a pagination/resume URL to the configured Ramp host before forwarding the bearer token.
-
-    Both the API-derived ``page.next`` value and the Redis-persisted resume URL are
-    attacker-influenceable, so we refuse to send credentials anywhere other than the
-    environment's own scheme + host."""
-    base = urlsplit(_base_url(environment))
-    target = urlsplit(url)
-    if (target.scheme, target.netloc) != (base.scheme, base.netloc):
-        raise ValueError(f"Refusing to send Ramp credentials to untrusted URL host: {target.netloc or url!r}")
-    return url
+def _api_base_url(environment: str) -> str:
+    return f"{_base_url(environment)}/developer/v1"
 
 
-def _mint_token(session: requests.Session, environment: str, client_id: str, client_secret: str) -> str:
-    """Exchange client credentials for a bearer token (~10 day lifetime)."""
-    response = session.post(
-        f"{_base_url(environment)}/developer/v1/token",
-        data={"grant_type": "client_credentials", "scope": TOKEN_SCOPES},
-        auth=(client_id, client_secret),
-        timeout=REQUEST_TIMEOUT_SECONDS,
+def _token_url(environment: str) -> str:
+    return f"{_api_base_url(environment)}/token"
+
+
+def _make_auth(environment: str, client_id: str, client_secret: str) -> OAuth2Auth:
+    """Ramp uses OAuth2 client-credentials with HTTP Basic client auth.
+
+    Tokens last ~10 days; the framework mints one lazily, caches it for the run, and re-mints
+    on expiry — replacing the pre-framework mint-once-then-reactive-401-remint handling."""
+    return OAuth2Auth(
+        token_url=_token_url(environment),
+        client_id=client_id,
+        client_secret=client_secret,
+        grant_type="client_credentials",
+        scopes=TOKEN_SCOPES,
+        client_auth_method="basic",
     )
-    response.raise_for_status()
-    return response.json()["access_token"]
 
 
 def _format_timestamp(value: Any) -> str:
@@ -84,107 +79,46 @@ def _format_timestamp(value: Any) -> str:
     return str(value)
 
 
-def _build_initial_url(
-    environment: str,
-    config: RampEndpointConfig,
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Any,
-) -> str:
-    params: dict[str, Any] = {"page_size": PAGE_SIZE}
-    if (
-        config.incremental_param is not None
-        and should_use_incremental_field
-        and db_incremental_field_last_value is not None
-    ):
-        params[config.incremental_param] = _format_timestamp(db_incremental_field_last_value)
-    return f"{_base_url(environment)}/developer/v1{config.path}?{urlencode(params)}"
+class RampPaginator(JSONResponsePaginator):
+    """Follow Ramp's self-contained ``page.next`` link, stopping on an empty page.
+
+    Ramp returns a ``page.next`` URL until the listing is exhausted; the hand-rolled source
+    also stopped as soon as a page came back empty (even if a ``next`` link was still present),
+    so mirror that guard here. Resume state (the pending ``next_url``) is inherited from the
+    base next-url paginator."""
+
+    def __init__(self) -> None:
+        super().__init__(next_url_path="page.next")
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        if not data:
+            self._has_next_page = False
+            return
+        super().update_state(response, data)
 
 
 def validate_credentials(environment: str, client_id: str, client_secret: str) -> tuple[bool, str | None]:
     """Confirm the developer app credentials are valid by minting a token.
 
-    Distinguishes a genuine credential rejection (4xx) from a transient connectivity problem so the
-    user sees an actionable message instead of a blanket "invalid credentials"."""
+    Distinguishes a genuine credential rejection (permanent 4xx from the token endpoint) from a
+    transient connectivity problem so the user sees an actionable message instead of a blanket
+    "invalid credentials"."""
+    auth = _make_auth(environment, client_id, client_secret)
+    # Force the lazy token mint through the public auth callable; a bad credential raises here.
+    probe = Request(method="GET", url=_api_base_url(environment)).prepare()
     try:
-        _mint_token(_get_session(client_secret), environment, client_id, client_secret)
-    except requests.HTTPError as e:
-        status = e.response.status_code if e.response is not None else None
-        if status in (401, 403):
+        auth(probe)
+    except OAuth2AuthRequestError as e:
+        if e.is_permanent:
             return (
                 False,
                 "Ramp rejected the credentials. Check the client ID and secret, and that the developer "
                 "app has the required scopes.",
             )
-        return False, f"Unexpected response from Ramp (status {status})."
+        return False, "Ramp is temporarily unavailable. Please check your selected environment and retry."
     except requests.RequestException as e:
         return False, f"Could not reach Ramp ({e}). Please check your network and selected environment, then retry."
     return True, None
-
-
-def get_rows(
-    environment: str,
-    client_id: str,
-    client_secret: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[RampResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-) -> Iterator[list[dict[str, Any]]]:
-    config = RAMP_ENDPOINTS[endpoint]
-    session = _get_session(client_secret)
-    token = _mint_token(session, environment, client_id, client_secret)
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config is not None:
-        url: str = _assert_trusted_url(resume_config.next_url, environment)
-        logger.debug(f"Ramp: resuming {endpoint} from URL: {url}")
-    else:
-        url = _build_initial_url(environment, config, should_use_incremental_field, db_incremental_field_last_value)
-
-    @retry(
-        retry=retry_if_exception_type((RampRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
-        wait=wait_exponential_jitter(initial=1, max=60),
-        reraise=True,
-    )
-    def fetch_page(page_url: str) -> dict[str, Any]:
-        nonlocal token
-        response = session.get(page_url, headers={"Authorization": f"Bearer {token}"}, timeout=REQUEST_TIMEOUT_SECONDS)
-
-        # Tokens last ~10 days; re-mint once defensively if one ever expires
-        # mid-sync.
-        if response.status_code == 401:
-            token = _mint_token(session, environment, client_id, client_secret)
-            response = session.get(
-                page_url, headers={"Authorization": f"Bearer {token}"}, timeout=REQUEST_TIMEOUT_SECONDS
-            )
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise RampRetryableError(f"Ramp API error (retryable): status={response.status_code}, url={page_url}")
-
-        if not response.ok:
-            logger.error(f"Ramp API error: status={response.status_code}, body={response.text}, url={page_url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    while True:
-        data = fetch_page(url)
-        items = data.get("data", []) or []
-
-        if items:
-            yield items
-
-        next_url = (data.get("page") or {}).get("next")
-        if not next_url or not items:
-            break
-
-        next_url = _assert_trusted_url(next_url, environment)
-        # Save state AFTER yielding the page so a crash re-yields the last page
-        # (merge dedupes on primary key) rather than skipping it.
-        resumable_source_manager.save_state(RampResumeConfig(next_url=next_url))
-        url = next_url
 
 
 def ramp_source(
@@ -192,25 +126,64 @@ def ramp_source(
     client_id: str,
     client_secret: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[RampResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = RAMP_ENDPOINTS[endpoint]
+    auth = _make_auth(environment, client_id, client_secret)
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    params: dict[str, Any] = {"page_size": PAGE_SIZE}
+    if (
+        config.incremental_param is not None
+        and should_use_incremental_field
+        and db_incremental_field_last_value is not None
+    ):
+        params[config.incremental_param] = _format_timestamp(db_incremental_field_last_value)
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resume is not None and resume.next_url is not None:
+        initial_paginator_state = {"next_url": resume.next_url}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # The framework calls the hook AFTER a page is yielded and only while a next page remains,
+        # so a crash re-yields the last batch (merge dedupes on primary key) rather than skipping it.
+        if state is not None and state.get("next_url") is not None:
+            resumable_source_manager.save_state(RampResumeConfig(next_url=state["next_url"]))
+
+    endpoint_config: Endpoint = {
+        "path": config.path,
+        "params": params,
+        "data_selector": "data",
+        "paginator": RampPaginator(),
+    }
+    client_config: ClientConfig = {
+        "base_url": _api_base_url(environment),
+        "auth": auth,
+        # Pin every request — including page.next links and the seeded resume URL — to the
+        # configured Ramp host so a tampered next/resume link can't exfiltrate the bearer token.
+        "allowed_hosts": [],
+    }
+    rest_config: RESTAPIConfig = {
+        "client": client_config,
+        "resources": [{"name": endpoint, "endpoint": endpoint_config}],
+    }
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            environment=environment,
-            client_id=client_id,
-            client_secret=client_secret,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=[config.primary_key],
         partition_count=1,
         partition_size=1,

@@ -28,7 +28,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BreezometerSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.breezometer import (
+    BreezometerSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -114,6 +116,7 @@ Each sync polls every location once per table. To accumulate a history of point-
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -135,7 +138,11 @@ Each sync polls every location once per table. To accumulate a history of point-
         return schemas
 
     def validate_credentials(
-        self, config: BreezometerSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BreezometerSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_breezometer_credentials(config.api_key, config.locations)
 

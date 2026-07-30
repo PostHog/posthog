@@ -249,6 +249,8 @@ class Command(BaseCommand):
                         url=f"https://github.com/{repository}/commit/{(index + i + 1) * 2468013:07x}",
                     )
                 ],
+                # Alternate so both the reason and no-reason render paths get exercised locally.
+                reason="Top recent author on the affected surface." if i % 2 == 0 else None,
             )
             for i in range(reviewer_count)
         ]

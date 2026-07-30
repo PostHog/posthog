@@ -517,7 +517,13 @@ async def test_reresearch_within_cap_does_not_emit_skipped_event(ateam, patch_si
 
     await assign_and_emit_signal_activity(input_)
 
-    events = [call.kwargs["event"] for call in patch_side_effects["capture"].call_args_list]
+    # The model-level signal_report_status_changed label (READY -> CANDIDATE re-promotion) rides
+    # the same analytics client; this test asserts the pipeline's own telemetry only.
+    events = [
+        call.kwargs["event"]
+        for call in patch_side_effects["capture"].call_args_list
+        if call.kwargs["event"] != "signal_report_status_changed"
+    ]
     assert events == ["signal_assigned_to_report"]
 
 

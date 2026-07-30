@@ -1,17 +1,21 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from urllib.parse import urlparse
 
 import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
-from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    OffsetPaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import AuthConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow.settings import SERVICENOW_ENDPOINTS
 
@@ -21,8 +25,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.servicenow
 # floor) performs better on very large tables, but offset keeps resume state trivial
 # and is adequate for the table sizes this source targets.
 DEFAULT_PAGE_SIZE = 1000
-REQUEST_TIMEOUT = 60
-MAX_RETRY_ATTEMPTS = 5
 
 SERVICENOW_API_VERSION_V1 = "v1"
 SERVICENOW_API_VERSION_V2 = "v2"
@@ -38,23 +40,21 @@ _TABLE_API_PATHS = {
 }
 
 
-def _table_api_url(base_url: str, table: str, api_version: str) -> str:
+def _table_api_path(table: str, api_version: str) -> str:
     # An unrecognized pin falls back to the versionless path — the most conservative choice.
     path = _TABLE_API_PATHS.get(api_version, _TABLE_API_PATHS[SERVICENOW_API_VERSION_V1])
-    return f"{base_url}/{path}/{table}"
+    return f"{path}/{table}"
 
 
-class ServiceNowRetryableError(Exception):
-    pass
-
-
-class ServiceNowError(Exception):
-    """Non-retryable ServiceNow transport error (e.g. an unexpected redirect)."""
+def _table_api_url(base_url: str, table: str, api_version: str) -> str:
+    return f"{base_url}/{_table_api_path(table, api_version)}"
 
 
 @dataclasses.dataclass
 class ServiceNowResumeConfig:
-    offset: int
+    # Row offset of the next unfetched page — ServiceNow's Table API paginates with
+    # sysparm_offset/sysparm_limit.
+    offset: int = 0
 
 
 @dataclasses.dataclass
@@ -75,6 +75,18 @@ class ServiceNowAuth:
         if self.username and self.password:
             return (self.username, self.password)
         return None
+
+    def to_auth_config(self) -> AuthConfig:
+        """Framework auth config so the secret is redacted from logs and error messages."""
+        if self.api_key:
+            return {"type": "api_key", "api_key": self.api_key, "name": "x-sn-apikey", "location": "header"}
+        return cast(
+            AuthConfig,
+            {"type": "http_basic", "username": self.username, "password": self.password},
+        )
+
+    def secret_values(self) -> tuple[str, ...]:
+        return tuple(v for v in (self.api_key, self.password) if v)
 
 
 def normalize_instance_url(instance: str) -> str:
@@ -156,6 +168,8 @@ def validate_credentials(
     auth: ServiceNowAuth,
     team_id: int,
     table: Optional[str] = None,
+    *,
+    api_version: str,
 ) -> tuple[bool, str | None]:
     try:
         base_url = _resolve_base_url(instance_url, team_id)
@@ -164,14 +178,16 @@ def validate_credentials(
 
     # Probe a cheap single-row read. At source-create (no specific table) we probe
     # `sys_user`; otherwise probe the requested table to confirm scope for it.
+    # The probe hits the same versioned Table API path the sync uses, so a v1-pinned
+    # source validates against the path it actually reads from.
     probe_table = table or "sys_user"
-    url = f"{base_url}/api/now/table/{probe_table}"
+    url = _table_api_url(base_url, probe_table, api_version)
     params: dict[str, Any] = {"sysparm_limit": 1, "sysparm_fields": "sys_id"}
 
     try:
         # `instance_url` is user-supplied; don't follow redirects so a safe-looking
         # host can't bounce us to an internal one (SSRF guard).
-        response = make_tracked_session().get(
+        response = make_tracked_session(redact_values=auth.secret_values()).get(
             url,
             params=params,
             headers=auth.headers(),
@@ -199,19 +215,20 @@ def validate_credentials(
     return False, f"ServiceNow returned an unexpected status ({response.status_code})."
 
 
-def get_rows(
-    base_url: str,
-    table: str,
+def servicenow_source(
+    instance_url: str,
     auth: ServiceNowAuth,
-    logger: FilteringBoundLogger,
+    endpoint: str,
     resumable_source_manager: ResumableSourceManager[ServiceNowResumeConfig],
-    api_version: str,
+    team_id: int,
+    job_id: str,
+    api_version: str = SERVICENOW_API_VERSION_V1,
     should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
+    db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
-) -> Iterator[list[dict[str, Any]]]:
-    headers = auth.headers()
-    basic_auth = auth.basic_auth()
+) -> SourceResponse:
+    endpoint_config = SERVICENOW_ENDPOINTS[endpoint]
+    base_url = _resolve_base_url(instance_url, team_id)
 
     if should_use_incremental_field:
         cursor_field = incremental_field or "sys_updated_on"
@@ -224,103 +241,69 @@ def get_rows(
         sort_field = "sys_created_on"
 
     query = build_sysparm_query(cursor_field, last_value, sort_field)
-    url = _table_api_url(base_url, table, api_version)
 
-    # One session for the whole paginated fetch so the TCP/TLS connection is reused
-    # across pages. Disable urllib3-level retries — `tenacity` below is the single
-    # retry mechanism (otherwise a 429 would be retried by both layers).
-    session = make_tracked_session(retry=Retry(total=0))
+    params: dict[str, Any] = {
+        "sysparm_query": query,
+        "sysparm_display_value": "false",
+        "sysparm_exclude_reference_link": "true",
+    }
 
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    offset = resume_config.offset if resume_config else 0
-    if resume_config:
-        logger.debug(f"ServiceNow: resuming '{table}' from offset {offset}")
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": base_url,
+            "headers": {"Accept": "application/json"},
+            "auth": auth.to_auth_config(),
+            # ServiceNow has no top-level total; termination is short/empty page (OffsetPaginator default).
+            "paginator": OffsetPaginator(
+                limit=DEFAULT_PAGE_SIZE,
+                offset_param="sysparm_offset",
+                limit_param="sysparm_limit",
+                total_path=None,
+            ),
+            # `base_url` is user-supplied; refuse redirects so a safe-looking host can't bounce us to
+            # an internal one (SSRF guard). A 3xx raises a non-retryable ValueError before the request
+            # (and its Authorization header) leaves the process.
+            "allow_redirects": False,
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": _table_api_path(endpoint_config.table, api_version),
+                    "params": params,
+                    # A 200 without `result` (e.g. an empty body) reads as an empty page and stops,
+                    # matching the previous `.get("result", [])` behavior.
+                    "data_selector": "result",
+                },
+            }
+        ],
+    }
 
-    @retry(
-        retry=retry_if_exception_type((ServiceNowRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
-        wait=wait_exponential_jitter(initial=1, max=30),
-        reraise=True,
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"offset": resume.offset}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
+        # the last page (merge dedupes on the primary key) rather than skipping it.
+        if state and state.get("offset") is not None:
+            resumable_source_manager.save_state(ServiceNowResumeConfig(offset=int(state["offset"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
     )
-    def fetch_page(page_offset: int) -> list[dict[str, Any]]:
-        params: dict[str, Any] = {
-            "sysparm_query": query,
-            "sysparm_limit": DEFAULT_PAGE_SIZE,
-            "sysparm_offset": page_offset,
-            "sysparm_display_value": "false",
-            "sysparm_exclude_reference_link": "true",
-        }
-        # `base_url` is user-supplied; refuse redirects so a safe-looking host can't
-        # bounce us to an internal one (SSRF guard).
-        response = session.get(
-            url,
-            params=params,
-            headers=headers,
-            auth=basic_auth,
-            timeout=REQUEST_TIMEOUT,
-            allow_redirects=False,
-        )
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise ServiceNowRetryableError(
-                f"ServiceNow API error (retryable): status={response.status_code}, table={table}"
-            )
-
-        if 300 <= response.status_code < 400:
-            raise ServiceNowError(
-                f"ServiceNow returned an unexpected redirect (status={response.status_code}, table={table}); refusing to follow"
-            )
-
-        if not response.ok:
-            logger.error(f"ServiceNow API error: status={response.status_code}, body={response.text}, table={table}")
-            response.raise_for_status()
-
-        return response.json().get("result", [])
-
-    while True:
-        rows = fetch_page(offset)
-        if not rows:
-            break
-
-        yield rows
-
-        offset += DEFAULT_PAGE_SIZE
-        # Save state AFTER yielding so a crash re-yields the last batch (merge dedupes
-        # on the primary key) rather than skipping it.
-        resumable_source_manager.save_state(ServiceNowResumeConfig(offset=offset))
-
-        if len(rows) < DEFAULT_PAGE_SIZE:
-            break
-
-
-def servicenow_source(
-    instance_url: str,
-    auth: ServiceNowAuth,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[ServiceNowResumeConfig],
-    team_id: int,
-    api_version: str = SERVICENOW_API_VERSION_V1,
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Optional[Any] = None,
-    incremental_field: str | None = None,
-) -> SourceResponse:
-    endpoint_config = SERVICENOW_ENDPOINTS[endpoint]
-    base_url = _resolve_base_url(instance_url, team_id)
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            base_url=base_url,
-            table=endpoint_config.table,
-            auth=auth,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            api_version=api_version,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        ),
+        items=lambda: resource,
         primary_keys=[endpoint_config.primary_key],
         partition_count=1,
         partition_size=1,

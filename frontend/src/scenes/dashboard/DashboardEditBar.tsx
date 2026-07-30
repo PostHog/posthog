@@ -11,6 +11,7 @@ import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
+import { DashboardEditBarAdvancedFilters } from 'scenes/dashboard/DashboardEditBarAdvancedFilters'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -152,7 +153,8 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                     ]}
                 />
             </div>
-            <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
+            {/* Single flex item so the "…" button always wraps together with the breakdown button */}
+            <div className={clsx('content-end flex items-end gap-2', { 'h-[61px]': hasVariables })}>
                 <BindLogic logic={insightLogic} props={insightProps}>
                     <TaxonomicBreakdownFilter
                         insightProps={insightProps}
@@ -176,6 +178,7 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                         size="small"
                     />
                 </BindLogic>
+                <DashboardEditBarAdvancedFilters />
             </div>
 
             <VariablesForDashboard />

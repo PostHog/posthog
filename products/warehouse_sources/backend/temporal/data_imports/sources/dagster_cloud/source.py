@@ -30,7 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cl
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DagsterCloudSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dagstercloud import (
+    DagsterCloudSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -111,6 +113,7 @@ Create a user token under **Organization settings → Tokens** in Dagster+, then
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -130,7 +133,11 @@ Create a user token under **Organization settings → Tokens** in Dagster+, then
         return schemas
 
     def validate_credentials(
-        self, config: DagsterCloudSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: DagsterCloudSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_dagster_cloud_credentials(config.organization, config.deployment, config.api_token)
 

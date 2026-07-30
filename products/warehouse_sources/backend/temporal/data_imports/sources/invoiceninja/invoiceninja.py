@@ -7,7 +7,7 @@ configurable. Auth is a single ``X-API-TOKEN`` header; every request must also c
 
 List endpoints are page-number paginated (``page`` / ``per_page``) and wrap their records under a
 top-level ``data`` key alongside a ``meta.pagination`` object that reports ``current_page`` and
-``total_pages``.
+``total_pages`` (and a ``links.next`` URL that is null on the last page).
 
 Every stream is full-refresh. Invoice Ninja documents ``created_at`` / ``updated_at`` filters on its
 index endpoints, but the timestamps are integer unix seconds and the ordering the API applies under
@@ -18,38 +18,30 @@ per endpoint once its server-side filter and sort behaviour are verified with re
 
 import re
 import dataclasses
-from collections.abc import Iterator
 from typing import Any, Optional
 from urllib.parse import urlencode, urlparse
 
 import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.invoiceninja.settings import (
     INVOICENINJA_ENDPOINTS,
-    InvoiceNinjaEndpointConfig,
 )
 
 DEFAULT_API_HOST = "https://invoicing.co"
 API_VERSION_PATH = "/api/v1"
 
-REQUEST_TIMEOUT_SECONDS = 60
-MAX_RETRIES = 5
-MAX_RETRY_AFTER_SECONDS = 60
-
 HOST_NOT_ALLOWED_ERROR = "Invoice Ninja API URL is not allowed"
 HTTP_NOT_ALLOWED_ERROR = "Invoice Ninja API URL must use HTTPS"
-
-
-class InvoiceNinjaRetryableError(Exception):
-    def __init__(self, message: str, retry_after: float | None = None) -> None:
-        super().__init__(message)
-        self.retry_after = retry_after
 
 
 class InvoiceNinjaHostNotAllowedError(Exception):
@@ -61,6 +53,65 @@ class InvoiceNinjaResumeConfig:
     # The next page to fetch on resume. Persisted after each page is yielded, so a crash before this
     # write leaves the previous value in place and the last page is re-yielded (merge dedupes on `id`).
     next_page: int
+
+
+class InvoiceNinjaPaginator(BasePaginator):
+    """Page-number paginator matching Invoice Ninja's Laravel/Fractal envelope.
+
+    A page has more after it when ``meta.pagination`` reports ``current_page < total_pages`` OR
+    carries a non-null ``links.next`` (some deployments expose only one of the two signals). An empty
+    ``data`` list, or a response with no pagination block at all, terminates — the latter guards
+    against an unbounded loop on a malformed index response.
+    """
+
+    def __init__(self, page: int = 1, page_param: str = "page") -> None:
+        super().__init__()
+        self.page = page
+        self.page_param = page_param
+
+    def _set_page(self, request: Request) -> None:
+        if request.params is None:
+            request.params = {}
+        request.params[self.page_param] = self.page
+
+    def init_request(self, request: Request) -> None:
+        self._set_page(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        if not data:
+            self._has_next_page = False
+            return
+
+        try:
+            body = response.json()
+        except Exception:
+            body = {}
+        pagination = (body.get("meta") or {}).get("pagination") or {}
+        current_page = pagination.get("current_page")
+        total_pages = pagination.get("total_pages")
+        has_next_link = bool((pagination.get("links") or {}).get("next"))
+        more_by_count = bool(current_page and total_pages and int(current_page) < int(total_pages))
+
+        if not (more_by_count or has_next_link):
+            self._has_next_page = False
+            return
+
+        # Prefer the server's reported page number; fall back to incrementing our own when the API
+        # exposes only the `links.next` signal without a current-page count.
+        self.page = (int(current_page) + 1) if current_page else self.page + 1
+        self._has_next_page = True
+
+    def update_request(self, request: Request) -> None:
+        self._set_page(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"page": self.page} if self._has_next_page else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        page = state.get("page")
+        if page is not None:
+            self.page = int(page)
+            self._has_next_page = True
 
 
 def normalize_base_url(base_url: Optional[str]) -> str:
@@ -99,6 +150,15 @@ def _get_headers(api_token: str) -> dict[str, str]:
     return {
         "X-API-TOKEN": api_token,
         # Invoice Ninja rejects API requests that omit this header.
+        "X-Requested-With": "XMLHttpRequest",
+        "Accept": "application/json",
+    }
+
+
+def _request_headers() -> dict[str, str]:
+    # Auth (the X-API-TOKEN key) is supplied via the framework auth config so its value is redacted
+    # from logs and raised errors; only the non-secret required headers are set here.
+    return {
         "X-Requested-With": "XMLHttpRequest",
         "Accept": "application/json",
     }
@@ -179,141 +239,77 @@ def validate_credentials(
         return False, response.text
 
 
-def _parse_retry_after(response: requests.Response) -> float | None:
-    """Honor a whole-second ``Retry-After`` on 429. HTTP-date forms are ignored."""
-    raw = response.headers.get("Retry-After")
-    if raw and raw.strip().isdigit():
-        return min(float(raw.strip()), MAX_RETRY_AFTER_SECONDS)
-    return None
-
-
-def _retry_wait(retry_state: RetryCallState) -> float:
-    """Use a server-provided Retry-After when present, else exponential backoff."""
-    exc = retry_state.outcome.exception() if retry_state.outcome else None
-    if isinstance(exc, InvoiceNinjaRetryableError) and exc.retry_after is not None:
-        return exc.retry_after
-    return wait_exponential_jitter(initial=1, max=30)(retry_state)
-
-
-def get_rows(
-    base_url: Optional[str],
-    api_token: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[InvoiceNinjaResumeConfig],
-    team_id: int,
-) -> Iterator[list[dict[str, Any]]]:
-    config: InvoiceNinjaEndpointConfig = INVOICENINJA_ENDPOINTS[endpoint]
-    resolved_base_url = normalize_base_url(base_url)
-    host = _host_of(resolved_base_url)
-
-    # Re-check at run time (not just at source-create) in case the URL was edited or now resolves to an
-    # internal address (SSRF / DNS rebinding). Only enforced on cloud.
-    host_ok, host_err = _is_host_safe(host, team_id)
-    if not host_ok:
-        raise InvoiceNinjaHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
-
-    # Refuse plaintext HTTP before the token is used, so the token is never sent in the clear.
-    if not _is_https(resolved_base_url):
-        raise InvoiceNinjaHostNotAllowedError(HTTP_NOT_ALLOWED_ERROR)
-
-    headers = _get_headers(api_token)
-    request_url = f"{resolved_base_url}{config.path}"
-
-    # One session reused across every page (and retry) so urllib3 keeps the connection alive. It
-    # redacts the token from captured HTTP samples — the token rides in the `X-API-TOKEN` header, which
-    # the transport's name-based denylist doesn't recognise, so value-based masking is what covers it.
-    session = make_tracked_session(redact_values=(api_token,))
-
-    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = resume_config.next_page if resume_config is not None else 1
-    if resume_config is not None:
-        logger.debug(f"Invoice Ninja: resuming {endpoint} from page {page}")
-
-    @retry(
-        retry=retry_if_exception_type((InvoiceNinjaRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRIES),
-        wait=_retry_wait,
-        reraise=True,
-    )
-    def fetch_page(page_number: int) -> requests.Response:
-        query = urlencode({"page": page_number, "per_page": config.page_size})
-        # Don't follow redirects: an attacker-controlled host could 3xx to an internal address,
-        # bypassing the host validation done before the request (SSRF).
-        response = session.get(
-            f"{request_url}?{query}", headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False
-        )
-
-        if response.status_code == 429 or response.status_code >= 500:
-            retry_after = _parse_retry_after(response) if response.status_code == 429 else None
-            raise InvoiceNinjaRetryableError(
-                f"Invoice Ninja API error (retryable): status={response.status_code}, url={request_url}",
-                retry_after=retry_after,
-            )
-
-        # A 3xx isn't an error status (`response.ok` is True), so reject it explicitly rather than
-        # silently parsing the redirect body as data.
-        if response.is_redirect or response.is_permanent_redirect:
-            raise InvoiceNinjaHostNotAllowedError(
-                f"Invoice Ninja API returned an unexpected redirect (status={response.status_code}); "
-                "refusing to follow it"
-            )
-
-        if not response.ok:
-            logger.error(
-                f"Invoice Ninja API error: status={response.status_code}, body={response.text}, url={request_url}"
-            )
-            response.raise_for_status()
-
-        return response
-
-    while True:
-        response = fetch_page(page)
-        body = response.json()
-        rows = body.get("data") or []
-        if not isinstance(rows, list) or not rows:
-            break
-
-        yield rows
-
-        # Invoice Ninja wraps its Laravel/Fractal paginator under `meta.pagination`, reporting the
-        # current/total page count and a `links.next` URL that is null on the last page. Treat either
-        # signal as "more pages remain". If the pagination block is missing entirely (never the case
-        # for a healthy index endpoint), stop rather than risk an unbounded loop.
-        pagination = (body.get("meta") or {}).get("pagination") or {}
-        current_page = pagination.get("current_page")
-        total_pages = pagination.get("total_pages")
-        has_next_link = bool((pagination.get("links") or {}).get("next"))
-        more_by_count = bool(current_page and total_pages and int(current_page) < int(total_pages))
-        if not (more_by_count or has_next_link):
-            break
-        page = (int(current_page) + 1) if current_page else page + 1
-
-        # Checkpoint AFTER yielding the page: a crash before this write re-yields the page on resume
-        # (dedupes on the primary key), while a crash after it resumes at the next page.
-        resumable_source_manager.save_state(InvoiceNinjaResumeConfig(next_page=page))
-
-
 def invoiceninja_source(
     base_url: Optional[str],
     api_token: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[InvoiceNinjaResumeConfig],
     team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[InvoiceNinjaResumeConfig],
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = INVOICENINJA_ENDPOINTS[endpoint]
+    resolved_base_url = normalize_base_url(base_url)
+    host = _host_of(resolved_base_url)
+
+    # Seed the paginator from any saved resume state; map back into the persisted dataclass on save.
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"page": resume.next_page}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields the
+        # last page (merge dedupes on the primary key) rather than skipping it.
+        if state and state.get("page") is not None:
+            resumable_source_manager.save_state(InvoiceNinjaResumeConfig(next_page=int(state["page"])))
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": resolved_base_url,
+            "headers": _request_headers(),
+            "auth": {"type": "api_key", "api_key": api_token, "name": "X-API-TOKEN", "location": "header"},
+            # Don't follow redirects: an attacker-controlled host could 3xx to an internal address,
+            # bypassing the host validation done before the request (SSRF).
+            "allow_redirects": False,
+            "paginator": InvoiceNinjaPaginator(),
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {"per_page": config.page_size},
+                    "data_selector": "data",
+                },
+            }
+        ],
+    }
+
+    def items() -> Any:
+        # Re-check at run time (not just at source-create) in case the URL was edited or now resolves
+        # to an internal address (SSRF / DNS rebinding). Only enforced on cloud. Refuse plaintext HTTP
+        # before the token is used, so the token is never sent in the clear. Both raise before any
+        # request leaves the process.
+        host_ok, host_err = _is_host_safe(host, team_id)
+        if not host_ok:
+            raise InvoiceNinjaHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
+        if not _is_https(resolved_base_url):
+            raise InvoiceNinjaHostNotAllowedError(HTTP_NOT_ALLOWED_ERROR)
+
+        yield from rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            base_url=base_url,
-            api_token=api_token,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            team_id=team_id,
-        ),
+        items=items,
         primary_keys=[config.primary_key],
         # Full-refresh replace: no incremental cursor is enabled, so there is no watermark to
         # checkpoint. Invoice Ninja returns `created_at` / `updated_at` as integer unix seconds rather

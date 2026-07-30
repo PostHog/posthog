@@ -150,6 +150,7 @@
     <header>
       <h1>Ingestion consumer</h1>
       <span class="meta" id="group">group —</span>
+      <span class="meta" id="routing">routing —</span>
       <span class="meta"><span class="dot down" id="conn-dot"></span><span id="conn">connecting…</span></span>
     </header>
 
@@ -271,6 +272,21 @@
         try { s = await (await fetch("debug/load")).json(); } catch (e) { return; }
         $("group").textContent = "group " + s.group_id;
 
+        // Routing summary: strategy, and under aperture this pod's peer
+        // position plus its current ring slice (or the full-pool fallback).
+        const r = s.routing || {};
+        let routingText = "routing " + (r.strategy || "—");
+        if (r.strategy === "aperture") {
+          routingText += s.peer_index != null && s.peer_count
+            ? ` · peer ${s.peer_index + 1}/${s.peer_count}`
+            : " · peers unknown";
+          routingText += r.slice
+            ? ` · slice ${r.slice.length}/${r.ring.length}`
+            : " · full-pool fallback";
+        }
+        $("routing").textContent = routingText;
+        const sliceSet = new Set(r.slice || []);
+
         const d = s.dispatcher;
         // In-flight is transient (a batch is assigned→sent→resolved in ms), so a
         // single sample often reads 0. Hold the peak over a short window so the
@@ -295,8 +311,9 @@
               const label = w.draining ? "draining" : w.state;
               const pct = Math.round((w.in_flight_messages / maxLoad) * 100);
               const rate = (w.passive_error_rate * 100).toFixed(0) + "%";
+              const slice = sliceSet.has(w.url) ? ` <span class="badge-min" title="in this dispatcher's aperture slice">slice</span>` : "";
               return `<tr>
-                <td class="mono">${shortWorker(w.url)}</td>
+                <td class="mono">${shortWorker(w.url)}${slice}</td>
                 <td><span class="pill ${cls}">${label}</span></td>
                 <td class="mono"><div style="display:flex;align-items:center;gap:8px;">
                   <div class="bar" style="width:${pct}%"></div><span>${w.in_flight_messages}</span></div></td>
@@ -547,7 +564,7 @@
       function buildFlow(b, workers) {
         const idx = {};
         workers.forEach((w, i) => (idx[w.worker] = i));
-        const deferBy = { drain: 0, unroutable: 0, send_failed: 0 };
+        const deferBy = { drain: 0, queued_behind_deferral: 0, unroutable: 0, send_failed: 0 };
         b.deferred.forEach((d) => (deferBy[d.reason] = (deferBy[d.reason] || 0) + d.groups));
         const hasStash = b.deferred.length > 0;
         const totalDeferred = b.deferred.reduce((a, d) => a + d.groups, 0);
@@ -609,9 +626,9 @@
 
         if (hasStash) {
           let incoming = 0;
-          const da = deferBy.drain + deferBy.unroutable;
+          const da = deferBy.drain + deferBy.queued_behind_deferral + deferBy.unroutable;
           if (da > 0) {
-            const lbl = [deferBy.drain ? "drain" : "", deferBy.unroutable ? "unroutable" : ""].filter(Boolean).join("/");
+            const lbl = [deferBy.drain ? "drain" : "", deferBy.queued_behind_deferral ? "queued" : "", deferBy.unroutable ? "unroutable" : ""].filter(Boolean).join("/");
             edges.push({ from: "n-assign", to: "n-stash", label: `deferred (${lbl})`, color: C.warn });
             incoming++;
           }

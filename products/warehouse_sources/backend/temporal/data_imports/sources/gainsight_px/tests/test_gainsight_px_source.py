@@ -13,7 +13,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.source import GainsightPxSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GainsightPxSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gainsightpx import (
+    GainsightPxSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -127,7 +129,8 @@ class TestGainsightPxSource:
             api_key="key",
             region="us",
             endpoint="users",
-            logger=logger,
+            team_id=self.team_id,
+            job_id="job-1",
             resumable_source_manager=manager,
         )
         assert response is mock_gainsight_source.return_value

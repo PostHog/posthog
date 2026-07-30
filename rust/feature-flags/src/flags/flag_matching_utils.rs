@@ -16,7 +16,7 @@ use once_cell::sync::Lazy;
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{Acquire, Row};
-use tracing::{info, instrument, warn};
+use tracing::{debug, instrument, warn};
 
 // Add thread-local imports for test-specific counter
 #[cfg(test)]
@@ -206,7 +206,7 @@ async fn fetch_person_and_cohorts(
 
     let mut conn = match conn_result {
         Ok(conn) => {
-            info!(
+            debug!(
                 conn_acquisition_ms = conn_acquisition_duration.as_millis(),
                 "persons_reader connection acquired for person+cohort query"
             );
@@ -270,7 +270,7 @@ async fn fetch_person_and_cohorts(
             "Slow person query detected"
         );
     } else {
-        info!(
+        debug!(
             duration_ms = person_query_duration.as_millis(),
             distinct_id = distinct_id,
             team_id = team_id,
@@ -317,7 +317,7 @@ async fn fetch_person_and_cohorts(
                     "Slow cohort query detected"
                 );
             } else {
-                info!(
+                debug!(
                     duration_ms = cohort_query_duration.as_millis(),
                     person_id = person.id,
                     cohort_count = static_cohort_ids.len(),
@@ -377,7 +377,7 @@ async fn fetch_group_properties(
 
     let mut conn = match conn_result {
         Ok(conn) => {
-            info!(
+            debug!(
                 conn_acquisition_ms = conn_acquisition_duration.as_millis(),
                 "persons_reader connection acquired for group query"
             );
@@ -454,7 +454,7 @@ async fn fetch_group_properties(
             "Slow group query detected"
         );
     } else {
-        info!(
+        debug!(
             duration_ms = group_query_duration.as_millis(),
             team_id = team_id,
             group_pair_count = group_type_to_key.len(),
@@ -562,7 +562,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
 
     // Log pool stats before attempting connections
     if let Some(stats) = reader.as_ref().get_pool_stats() {
-        info!(
+        debug!(
             pool_size = stats.size,
             pool_idle = stats.num_idle,
             pool_in_use = stats.size.saturating_sub(stats.num_idle as u32),
@@ -844,7 +844,7 @@ async fn try_get_feature_flag_hash_key_overrides(
             "Slow hash override lookup query detected"
         );
     } else {
-        info!(
+        debug!(
             duration_ms = query_duration.as_millis(),
             team_id = team_id,
             distinct_id_count = distinct_id_and_hash_key_override.len(),
@@ -1059,7 +1059,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "Slow person data query detected in set_hash_key_overrides"
             );
         } else {
-            info!(
+            debug!(
                 duration_ms = person_query_duration.as_millis(),
                 team_id = team_id,
                 distinct_id_count = distinct_ids.len(),
@@ -1133,7 +1133,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "Slow active flags query detected in set_hash_key_overrides"
             );
         } else {
-            info!(
+            debug!(
                 duration_ms = flags_query_duration.as_millis(),
                 team_id = team_id,
                 "Active flags query completed in set_hash_key_overrides"
@@ -1200,7 +1200,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "Slow bulk insert query detected in set_hash_key_overrides"
             );
         } else {
-            info!(
+            debug!(
                 duration_ms = insert_duration.as_millis(),
                 team_id = team_id,
                 row_count = person_ids_to_insert.len(),

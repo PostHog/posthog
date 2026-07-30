@@ -10,6 +10,7 @@ from requests.exceptions import (
     ChunkedEncodingError,
     ConnectionError as RequestsConnectionError,
     HTTPError,
+    ReadTimeout,
     RequestException,
 )
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
@@ -100,17 +101,28 @@ def _headers(deploy_key: str) -> dict[str, str]:
     }
 
 
+# Convex tables can live in non-default components (e.g. an installed `betterAuth` component), which
+# the streaming-export API addresses by component path (the root component is the empty path). We
+# encode `(component_path, table)` into one warehouse table name so component tables round-trip from
+# the schema list back to the per-table API calls; root tables keep their bare name, so existing
+# synced tables are unaffected.
+_ROOT_COMPONENT = ""
+_COMPONENT_TABLE_DELIMITER = "."
+
+
 @retry(
-    retry=retry_if_exception_type(ChunkedEncodingError),
+    # ChunkedEncodingError is a mid-stream connection break (after response headers, so
+    # _CONVEX_RETRY — a urllib3 Retry, which only covers pre-response failures — never sees it).
+    # ReadTimeout/ConnectionError can also reach here after _CONVEX_RETRY exhausts its own
+    # (much shorter) backoff; retrying them here too gives large snapshot/delta pages a longer
+    # backoff window before failing the whole sync. Every Convex read is an idempotent GET, so a
+    # fresh request safely re-fetches the page.
+    retry=retry_if_exception_type((ChunkedEncodingError, ReadTimeout, RequestsConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
 def _convex_get(url: str, deploy_key: str, params: dict[str, Any], timeout: int) -> Response:
-    # requests reads the body eagerly (stream=False), so a connection broken mid-chunk surfaces
-    # here as ChunkedEncodingError — it happens after the response headers, so _CONVEX_RETRY (a
-    # urllib3 Retry, which only covers pre-response failures) never sees it. It's transient and
-    # every Convex read is an idempotent GET, so a fresh request re-fetches the page.
     return make_tracked_session(retry=_CONVEX_RETRY).get(
         url, headers=_headers(deploy_key), params=params, timeout=timeout
     )
@@ -118,9 +130,56 @@ def _convex_get(url: str, deploy_key: str, params: dict[str, Any], timeout: int)
 
 def get_json_schemas(deploy_url: str, deploy_key: str) -> dict[str, Any]:
     url = f"{deploy_url.rstrip('/')}/api/json_schemas"
-    response = _convex_get(url, deploy_key, {"deltaSchema": "true", "format": "json"}, timeout=30)
+    # byComponent=true groups the response by component so non-default components are discoverable.
+    response = _convex_get(
+        url, deploy_key, {"deltaSchema": "true", "format": "json", "byComponent": "true"}, timeout=30
+    )
     response.raise_for_status()
     return response.json()
+
+
+def iter_component_tables(schemas_response: dict[str, Any]) -> Generator[tuple[str, str]]:
+    """Yield `(component_path, table_name)` for every table; root tables yield `""`.
+
+    `byComponent=true` groups as {component_path: {table: schema}}; older deployments ignore the flag
+    and return the flat {table: schema} shape, where each value is itself a JSON schema.
+    """
+    if not isinstance(schemas_response, dict) or not schemas_response:
+        return
+    # The grouped shape always includes the root component under the "" key, and "" is never a valid
+    # table name — so its presence reliably marks the grouped shape. Only when it's absent do we fall
+    # back to inspecting the first value (a {table: schema} map carries no "type"/"properties").
+    if _ROOT_COMPONENT in schemas_response:
+        grouped = True
+    else:
+        first_value = next(iter(schemas_response.values()))
+        grouped = isinstance(first_value, dict) and "type" not in first_value and "properties" not in first_value
+    if grouped:
+        for component_path, tables in schemas_response.items():
+            if isinstance(tables, dict):
+                for table_name in tables:
+                    yield component_path, table_name
+    else:
+        for table_name in schemas_response:
+            yield _ROOT_COMPONENT, table_name
+
+
+def qualified_table_name(component_path: str, table_name: str) -> str:
+    """Encode a `(component_path, table_name)` pair into a single warehouse table name."""
+    if not component_path:
+        return table_name
+    return f"{component_path}{_COMPONENT_TABLE_DELIMITER}{table_name}"
+
+
+def split_qualified_table_name(name: str) -> tuple[str, str]:
+    """Inverse of `qualified_table_name` — returns `(component_path, table_name)`.
+
+    Splits on the final ".": component path segments join with "/" and table names contain no ".".
+    """
+    component_path, delimiter, table_name = name.rpartition(_COMPONENT_TABLE_DELIMITER)
+    if not delimiter:
+        return _ROOT_COMPONENT, name
+    return component_path, table_name
 
 
 def list_snapshot(
@@ -128,11 +187,14 @@ def list_snapshot(
     deploy_key: str,
     table_name: str,
     resumable_source_manager: ResumableSourceManager[ConvexResumeConfig],
+    component: str = _ROOT_COMPONENT,
 ) -> Generator[list[dict[str, Any]], None, int]:
     """Paginate through a full table snapshot.
 
     Yields batches of documents. Returns the snapshot cursor (as the generator return value)
     which can be used as the starting cursor for document_deltas.
+
+    A non-root `component` reads the table from that component; the root component is the default.
     """
     base_url = f"{deploy_url.rstrip('/')}/api/list_snapshot"
     # Convex returns the snapshot cursor as an opaque {tablet, id} string, not an integer.
@@ -146,6 +208,8 @@ def list_snapshot(
 
     while True:
         params: dict[str, Any] = {"tableName": table_name, "format": "json"}
+        if component:
+            params["component"] = component
         if cursor is not None:
             params["cursor"] = cursor
         if snapshot is not None:
@@ -182,11 +246,14 @@ def document_deltas(
     table_name: str,
     cursor: int,
     resumable_source_manager: ResumableSourceManager[ConvexResumeConfig],
+    component: str = _ROOT_COMPONENT,
 ) -> Generator[list[dict[str, Any]], None, int]:
     """Paginate through incremental document changes since a cursor.
 
     Yields batches of changed documents. Returns the new cursor.
     Deleted documents have _deleted=True.
+
+    A non-root `component` reads the table from that component; the root component is the default.
 
     Raises InvalidWindowError if the cursor is older than Convex's retention window (~30 days).
     """
@@ -210,6 +277,8 @@ def document_deltas(
 
     while True:
         params: dict[str, Any] = {"tableName": table_name, "cursor": current_cursor, "format": "json"}
+        if component:
+            params["component"] = component
 
         response = _convex_get(base_url, deploy_key, params, timeout=60)
 
@@ -289,16 +358,21 @@ def convex_source(
     resumable_source_manager: ResumableSourceManager[ConvexResumeConfig],
 ) -> SourceResponse:
     clean_url = validate_deploy_url(deploy_url)
+    # Decode the warehouse table name into component + bare table for the API; the qualified name
+    # stays as the SourceResponse name so the Delta storage path is stable.
+    component, convex_table_name = split_qualified_table_name(table_name)
 
     def items_generator():
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             cursor = int(db_incremental_field_last_value)
             deltas_manager = resumable_source_manager.with_namespace(_DELTAS_RESUME_NAMESPACE)
-            for batch in document_deltas(clean_url, deploy_key, table_name, cursor, deltas_manager):
+            for batch in document_deltas(
+                clean_url, deploy_key, convex_table_name, cursor, deltas_manager, component=component
+            ):
                 yield _normalize_timestamps(batch)
         else:
             snapshot_manager = resumable_source_manager.with_namespace(_SNAPSHOT_RESUME_NAMESPACE)
-            for batch in list_snapshot(clean_url, deploy_key, table_name, snapshot_manager):
+            for batch in list_snapshot(clean_url, deploy_key, convex_table_name, snapshot_manager, component=component):
                 yield _normalize_timestamps(batch)
 
     return SourceResponse(

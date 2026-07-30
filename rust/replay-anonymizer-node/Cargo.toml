@@ -13,6 +13,7 @@ crate-type = ["cdylib"]
 # Safe here: the addon only runs in PostHog's Node ingestion workers, never in V8
 # sandboxed-pointer environments (Electron), where external buffers abort the VM.
 neon = { workspace = true, features = ["external-buffers"] }
-posthog-replay-anonymizer = { path = "../replay-anonymizer" }
+# default-features = false: the offline typed-parse module has no place in the ingestion cdylib.
+posthog-replay-anonymizer = { path = "../replay-anonymizer", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }

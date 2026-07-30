@@ -10,6 +10,7 @@ import {
 } from 'd3-scale'
 import { stack as stackGen, stackOffsetDiverging, stackOffsetExpand, stackOffsetNone } from 'd3-shape'
 
+import { significantDecimalPlaces } from '../utils/format'
 import type { BandSlot, ChartDimensions, ResolveValueFn, Series, ValueDomain, YAxisScale } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
@@ -728,7 +729,12 @@ function padValueRange(
 
 export function autoFormatYTick(value: number, domainMax: number): string {
     if (domainMax < 2) {
-        return value.toFixed(2)
+        // Two decimals only resolve a domain down to ~0.1; below that every tick rounds to the same
+        // label, so scale the precision to the domain instead.
+        return value.toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: significantDecimalPlaces(domainMax),
+        })
     }
     if (domainMax < 5) {
         return value.toFixed(1)

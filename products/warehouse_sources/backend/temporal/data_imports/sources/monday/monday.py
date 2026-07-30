@@ -148,9 +148,13 @@ def _execute(
     errors = body.get("errors")
     if errors:
         message = "; ".join(str(error.get("message", error)) for error in errors)
-        # Complexity-budget exhaustion comes back as a GraphQL error, not a 429.
-        if "complexity" in message.lower():
+        message_lower = message.lower()
+        # Complexity-budget exhaustion and transient backend failures both come back
+        # as a 200 with a GraphQL error, not a 429/5xx status.
+        if "complexity" in message_lower:
             raise MondayRetryableError(f"monday.com complexity budget exhausted: {message}")
+        if "internal server error" in message_lower:
+            raise MondayRetryableError(f"monday.com internal server error (retryable): {message}")
         raise MondayGraphQLError(f"monday.com GraphQL error: {message}")
 
     return body.get("data") or {}
