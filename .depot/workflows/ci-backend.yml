@@ -12,7 +12,9 @@
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install
 #   and setup-sqlx-cli are byte-equivalent mirrors of the canonical composites)
 # - permissions: pull-requests:read (no comment/auto-commit side effects)
-# - Stripped side effects: artifact uploads, CI report section posters, snapshot
+# - Stripped side effects: artifact uploads, CI report section posters (canonical
+#   additionally skips these on trunk-merge/** branches to save GITHUB_TOKEN budget;
+#   the shadow strips them entirely, so that gating has nothing to mirror), snapshot
 #   auto-commit (handle-snapshots), posthog-github-action telemetry (including the
 #   capture-test-selection job — select-tests still emits its telemetry outputs to
 #   stay apples-to-apples, they just have no consumer here),
@@ -514,6 +516,8 @@ jobs:
                       MIG_HASH=$(printf '%s\n%s' "$MIG_FILES" "$PG_IMAGE" | sha256sum | cut -c1-40)
                       echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
+            # Shadow trial: canonical threads a setup-action app token into
+            # pnpm-install; mint stripped here (secret not available on Depot).
             - name: Install pnpm dependencies
               uses: ./.depot/actions/pnpm-install
               with:
@@ -817,6 +821,8 @@ jobs:
                     db redis7 clickhouse zookeeper kafka objectstorage \
                     temporal elasticsearch objectstorage-azure \
                     </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
+            # Shadow trial: canonical threads a setup-action app token into
+            # pnpm-install; mint stripped here (secret not available on Depot).
             - name: Install pnpm dependencies
               uses: ./.depot/actions/pnpm-install
               with:
