@@ -99,6 +99,7 @@ class FetchDueSubscriptionsActivityInputs:
 class CreateExportAssetsInputs:
     subscription_id: int
     max_asset_count: int | None = None
+    # Retained for Temporal activities scheduled before this field was renamed. Remove only after those payloads expire.
     previous_value: typing.Optional[str] = None
     # When set, the activity persists the per-insight snapshot directly onto
     # SubscriptionDelivery.content_snapshot. Keeps multi-MB query_results off
@@ -131,6 +132,7 @@ class DeliverSubscriptionInputs:
     exported_asset_ids: list[int]
     total_insight_count: int
     previous_target_value: typing.Optional[str] = None
+    # Retained for Temporal activities scheduled before these fields were renamed. Remove only after those payloads expire.
     previous_value: typing.Optional[str] = None
     is_new_subscription_target: bool | None = None
     invite_message: typing.Optional[str] = None
@@ -147,6 +149,7 @@ class ProcessSubscriptionWorkflowInputs:
     team_id: int = 0
     distinct_id: str = ""
     previous_target_value: typing.Optional[str] = None
+    # Retained for Temporal workflows started before this field was renamed. Remove only after those payloads expire.
     previous_value: typing.Optional[str] = None
     invite_message: typing.Optional[str] = None
     trigger_type: str = SubscriptionTriggerType.SUBSCRIPTION_UPDATE
@@ -170,6 +173,7 @@ class TrackedSubscriptionInputs:
     team_id: int = 0
     distinct_id: str = ""
     previous_target_value: typing.Optional[str] = None
+    # Retained for Temporal workflows started before this field was renamed. Remove only after those payloads expire.
     previous_value: typing.Optional[str] = None
     invite_message: typing.Optional[str] = None
     slo: SloConfig | None = None
