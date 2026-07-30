@@ -7,7 +7,7 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { useWizardRunInFlight } from 'scenes/onboarding/shared/wizard-sync/useWizardRunInFlight'
+import { useSelfDrivingRunInFlight } from 'scenes/onboarding/shared/wizard-sync/hooks'
 import { urls } from 'scenes/urls'
 
 import { IntegrationType } from '~/types'
@@ -215,7 +215,7 @@ function ConnectedView({
  * bounced there by the onboarding gate, and an onboarded one is pulled away from the run mid-flight.
  */
 function ConnectedNextStep(): JSX.Element {
-    const wizardRunInFlight = useWizardRunInFlight()
+    const wizardRunInFlight = useSelfDrivingRunInFlight()
 
     if (wizardRunInFlight) {
         return (

@@ -2,13 +2,15 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
-import { elapsedSecondsFrom } from 'lib/utils/datetime'
 import { currentTaskLabel, pipClass, syncHeadline, toneTextClass } from 'scenes/onboarding/shared/wizard-sync/helpers'
+import { useRunElapsedSeconds } from 'scenes/onboarding/shared/wizard-sync/hooks'
 import { installationProgressLogic } from 'scenes/onboarding/shared/wizard-sync/installationProgressLogic'
 import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/shared/wizard-sync/wizardActiveSessionDetectorLogic'
 import { StatusGlyph } from 'scenes/onboarding/shared/wizard-sync/WizardSyncCard'
-import { useNow, WizardSyncDialog } from 'scenes/onboarding/shared/wizard-sync/WizardSyncFab'
+import { WizardSyncDialog } from 'scenes/onboarding/shared/wizard-sync/WizardSyncDialog'
 import { wizardSyncUiLogic } from 'scenes/onboarding/shared/wizard-sync/wizardSyncUiLogic'
+
+import { SetupSection } from './AgentSetupColumn'
 
 /**
  * Rail-sized summary of a live wizard run: glyph + headline, the step it is on, and the pip strip.
@@ -29,9 +31,10 @@ function InstallationCard({ workflowId }: { workflowId: string }): JSX.Element {
 
     // Elapsed clock, frozen at the run's last update once it reaches a terminal phase.
     const isTerminal = installationProgress.phase === 'completed' || installationProgress.phase === 'error'
-    const now = useNow(isTerminal)
-    const endMs = isTerminal && latestSession ? new Date(latestSession.updated_at).getTime() : now
-    const elapsedSeconds = latestSession ? elapsedSecondsFrom(latestSession.started_at, endMs) : 0
+    const elapsedSeconds = useRunElapsedSeconds(
+        latestSession?.started_at,
+        isTerminal ? latestSession?.updated_at : null
+    )
 
     // `currentTaskLabel` over the raw step so a run waiting on the user surfaces the question
     // it is blocked on, which is the whole point of noticing it from here.
@@ -88,11 +91,8 @@ export function InstallationSetupSection(): JSX.Element | null {
     }
 
     return (
-        <div className="flex flex-col">
-            <h4 className="text-sm font-medium text-tertiary mt-0 mb-3.5">Installation</h4>
-            <div className="flex flex-col gap-1.5">
-                <InstallationCard workflowId={activeWorkflowId} />
-            </div>
-        </div>
+        <SetupSection title="Installation">
+            <InstallationCard workflowId={activeWorkflowId} />
+        </SetupSection>
     )
 }

@@ -4,17 +4,15 @@ import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api
 
 import type { FinishedLocalRunHandle } from './finishedLocalRunLogic'
 import {
-    POSTHOG_INTEGRATION_WORKFLOW_ID,
-    SELF_DRIVING_WORKFLOW_ID,
     cloudProgress,
     isSessionFresh,
     localProgress,
     pendingInputFromSession,
     progressFromFinishedLocalRun,
-    resetWizardSyncTelemetryForTests,
-    runLocalSessionBookkeeping,
-} from './installationProgressLogic'
+} from './installationProgress'
+import { resetWizardSyncTelemetryForTests, runLocalSessionBookkeeping } from './installationProgressLogic'
 import { wizardActiveSessionDetectorLogic } from './wizardActiveSessionDetectorLogic'
+import { POSTHOG_INTEGRATION_WORKFLOW_ID, SELF_DRIVING_WORKFLOW_ID } from './workflows'
 
 // Matches the fixtures' timestamps so sessions read as fresh where intended.
 const NOW = new Date('2026-01-01T00:00:30Z').getTime()

@@ -4,7 +4,6 @@ import { activeCloudRunLogic } from 'scenes/onboarding/shared/wizard-sync/active
 import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/shared/wizard-sync/wizardActiveSessionDetectorLogic'
 import { wizardSyncUiLogic } from 'scenes/onboarding/shared/wizard-sync/wizardSyncUiLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import type { CloudRunHandle } from '../../scenes/onboarding/shared/wizard-sync/activeCloudRunLogic'
 import type { TeamPublicType, TeamType } from '../../types'
@@ -20,7 +19,6 @@ export interface installationStatusNavLogicValues {
     hasActiveSession: boolean // wizardActiveSessionDetectorLogic
     dialogOpen: boolean // wizardSyncUiLogic
     isRunActive: boolean
-    onboardingUrl: string
     phase: NavInstallationPhase
     shouldShow: boolean
 }
@@ -130,8 +128,5 @@ export const installationStatusNavLogic = kea<installationStatusNavLogicType>([
             (s) => [s.isRunActive],
             (isRunActive: boolean): NavInstallationPhase => (isRunActive ? 'running' : 'idle'),
         ],
-
-        /** URL to navigate to on click when no run is active. */
-        onboardingUrl: [() => [], (): string => urls.onboarding()],
     }),
 ])

@@ -1,7 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
-
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { useEffect, useRef } from 'react'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -13,16 +11,14 @@ import { userLogic } from 'scenes/userLogic'
 import { onboardingEventUsageLogic } from '../../onboardingEventUsageLogic'
 import { activeCloudRunLogic, CloudRunHandle } from './activeCloudRunLogic'
 import { finishedLocalRunLogic } from './finishedLocalRunLogic'
-import { elapsedLabel, isRunStale, isStreamLost, syncHeadline, toneTextClass } from './helpers'
-import {
-    InstallationProgress,
-    installationProgressLogic,
-    progressFromFinishedLocalRun,
-} from './installationProgressLogic'
-import { InstallationProgressContent } from './InstallationProgressView'
+import { elapsedLabel, isRunStale, isStreamLost } from './helpers'
+import { useNow } from './hooks'
+import { progressFromFinishedLocalRun } from './installationProgress'
+import { InstallationProgress, installationProgressLogic } from './installationProgressLogic'
 import { wizardActiveSessionDetectorLogic } from './wizardActiveSessionDetectorLogic'
-import { DetectedDashboard, wizardDashboardLogic } from './wizardDashboardLogic'
-import { localModeLabel, StatusGlyph, WizardSyncCard, WizardSyncMode } from './WizardSyncCard'
+import { wizardDashboardLogic } from './wizardDashboardLogic'
+import { StatusGlyph, WizardSyncCard, WizardSyncMode } from './WizardSyncCard'
+import { WizardSyncDialog } from './WizardSyncDialog'
 import { wizardSyncUiLogic } from './wizardSyncUiLogic'
 
 // The teammate's name, or null for the viewer's own run (matched on email) or an unknown initiator.
@@ -39,21 +35,6 @@ function resolveStartedByLabel(
 // Corner anchor for the collapsed card and the minimized launcher. The dialog is a portal, so it
 // positions itself.
 const CORNER = 'fixed bottom-5 right-5 z-[60]'
-
-// 1Hz clock for the elapsed timer, scoped to a mounted run so nothing ticks when no run is active.
-// `frozen` stops the interval entirely — a finished run shows its fixed duration, so ticking for it
-// would be pure re-render churn.
-export function useNow(frozen: boolean = false): number {
-    const [now, setNow] = useState(() => Date.now())
-    useEffect(() => {
-        if (frozen) {
-            return
-        }
-        const id = window.setInterval(() => setNow(Date.now()), 1000)
-        return () => window.clearInterval(id)
-    }, [frozen])
-    return now
-}
 
 // The minimized state: a small pill that restores the card. This is the "activate it back" affordance.
 function WizardSyncLauncher({
@@ -88,81 +69,6 @@ function WizardSyncLauncher({
             <span className="text-sm font-medium">PostHog setup</span>
             <span className="text-xs text-muted tabular-nums">{elapsedLabel(elapsedSeconds, stale)}</span>
         </button>
-    )
-}
-
-// The expanded "all the details" dialog: the full pipeline plus the terminal payoff or failure.
-// Also rendered by the inbox rail's Installation card, which claims the run away from this widget.
-export function WizardSyncDialog({
-    progress,
-    elapsedSeconds,
-    mode,
-    dashboard,
-    isOpen,
-    onClose,
-    onClear,
-    onCancel,
-    cancelling = false,
-    stale = false,
-    startedByLabel,
-    onDashboardClick,
-}: {
-    progress: InstallationProgress
-    elapsedSeconds: number
-    mode: WizardSyncMode
-    dashboard?: DetectedDashboard | null
-    isOpen: boolean
-    onClose: () => void
-    onClear?: () => void
-    onCancel?: () => void
-    cancelling?: boolean
-    /** The run has gone quiet for long enough that it can be dismissed without orphaning live work. */
-    stale?: boolean
-    /** A teammate's name for a local run they started (null when it's the viewer's own run or unknown). */
-    startedByLabel?: string | null
-    onDashboardClick?: () => void
-}): JSX.Element {
-    const isTerminal = progress.phase === 'completed' || progress.phase === 'error'
-    return (
-        <LemonModal isOpen={isOpen} onClose={onClose} title="PostHog setup" width={480}>
-            <div className="flex flex-col gap-3">
-                <div className="flex items-center justify-between text-xs">
-                    <span className={cn('font-medium', toneTextClass(progress))}>{syncHeadline(progress)}</span>
-                    <span className="text-muted tabular-nums">
-                        {mode === 'cloud' ? 'Cloud run' : localModeLabel(startedByLabel)} ·{' '}
-                        {elapsedLabel(elapsedSeconds, stale)}
-                    </span>
-                </div>
-                <InstallationProgressContent
-                    progress={progress}
-                    mode={mode}
-                    dashboard={dashboard}
-                    onDashboardClick={onDashboardClick}
-                />
-                {/* A stale run gets the same exit as a terminal one: nothing is reporting on it, so
-                    leaving Cancel as the only control would strand the user behind a request that
-                    cannot bring it back. Cancel stays available below for as long as the run is not
-                    terminal, since the backend may still be holding a sandbox for it. */}
-                {(isTerminal || stale) && onClear && (
-                    <LemonButton type="secondary" onClick={onClear} className="self-end">
-                        Dismiss this run
-                    </LemonButton>
-                )}
-                {!isTerminal && onCancel && (
-                    <LemonButton
-                        type="secondary"
-                        status="danger"
-                        onClick={onCancel}
-                        loading={cancelling}
-                        disabledReason={cancelling ? 'Cancelling the run' : undefined}
-                        className="self-end"
-                        data-attr="wizard-sync-cancel-run"
-                    >
-                        Cancel run
-                    </LemonButton>
-                )}
-            </div>
-        </LemonModal>
     )
 }
 
@@ -212,6 +118,7 @@ function WizardSyncSurface({
         reportWizardSyncDashboardCtaClicked,
     } = useActions(onboardingEventUsageLogic)
     const { detectedDashboard } = useValues(wizardDashboardLogic)
+    // `now` also feeds the staleness check, which needs a live clock while the run is non-terminal.
     const endMs = endedAt ? new Date(endedAt).getTime() : NaN
     const now = useNow(!Number.isNaN(endMs))
     const elapsedSeconds = startedAt ? elapsedSecondsFrom(startedAt, Number.isNaN(endMs) ? now : endMs) : 0
