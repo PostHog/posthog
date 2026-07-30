@@ -37,10 +37,17 @@ def restore_litellm_globals() -> Iterator[None]:
 class TestApplyCostAliases:
     def test_adds_alias_when_canonical_present(self) -> None:
         cost: dict[str, Any] = {
-            "moonshot/kimi-k2.6": {"input_cost_per_token": 0.001, "output_cost_per_token": 0.002},
+            "moonshot/kimi-k2.6": {
+                "input_cost_per_token": 0.001,
+                "output_cost_per_token": 0.002,
+                "litellm_provider": "moonshot",
+            },
         }
         apply_cost_aliases(cost)
-        assert cost["openai/@cf/moonshotai/kimi-k2.6"] == cost["moonshot/kimi-k2.6"]
+        assert cost["openai/@cf/moonshotai/kimi-k2.6"] == {
+            **cost["moonshot/kimi-k2.6"],
+            "litellm_provider": "openai",
+        }
         # Load-bearing: the alias must be a copy, not a shared reference — otherwise an
         # in-place mutation under one key silently mutates the other.
         assert cost["openai/@cf/moonshotai/kimi-k2.6"] is not cost["moonshot/kimi-k2.6"]
@@ -55,7 +62,7 @@ class TestApplyCostAliases:
 
     @patch.dict(
         "llm_gateway.rate_limiting.cost_refresh.COST_ALIASES",
-        {"openai/@cf/moonshotai/kimi-k2.6": "moonshot/kimi-k2.6"},
+        {"openai/@cf/moonshotai/kimi-k2.6": ("moonshot/kimi-k2.6", "openai")},
         clear=True,
     )
     @patch("llm_gateway.rate_limiting.cost_refresh.logger")
@@ -71,7 +78,7 @@ class TestApplyCostAliases:
 
     @patch.dict(
         "llm_gateway.rate_limiting.cost_refresh.COST_ALIASES",
-        {"openai/@cf/moonshotai/kimi-k2.6": "moonshot/kimi-k2.6"},
+        {"openai/@cf/moonshotai/kimi-k2.6": ("moonshot/kimi-k2.6", "openai")},
         clear=True,
     )
     @patch("llm_gateway.rate_limiting.cost_refresh.logger")
@@ -86,8 +93,23 @@ class TestApplyCostAliases:
         letting `apply_cost_aliases` log `cost_alias_canonical_missing` every refresh
         in production and falling back to the default cost for those models.
         """
-        missing = [canonical for canonical in COST_ALIASES.values() if canonical not in litellm.model_cost]
+        missing = [canonical for canonical, _ in COST_ALIASES.values() if canonical not in litellm.model_cost]
         assert not missing, f"COST_ALIASES canonicals missing from litellm.model_cost: {missing}"
+
+    def test_alias_is_priced_for_routed_provider(self) -> None:
+        model_cost = dict(litellm.model_cost)
+        apply_cost_aliases(model_cost)
+        litellm.model_cost = model_cost
+
+        input_cost, output_cost = litellm.cost_per_token(
+            model="@cf/zai-org/glm-5.2",
+            prompt_tokens=1000,
+            completion_tokens=100,
+            custom_llm_provider="openai",
+        )
+
+        assert input_cost == pytest.approx(0.0014)
+        assert output_cost == pytest.approx(0.00044)
 
 
 class TestNormalizeMetricLabels:
@@ -122,7 +144,11 @@ class TestModelCostServiceAliases:
         service = ModelCostService.get_instance()
         cost_for_alias = service.get_costs("openai/@cf/moonshotai/kimi-k2.6")
 
-        assert cost_for_alias == {"input_cost_per_token": 0.001, "output_cost_per_token": 0.002}
+        assert cost_for_alias == {
+            "input_cost_per_token": 0.001,
+            "output_cost_per_token": 0.002,
+            "litellm_provider": "openai",
+        }
         assert "openai/@cf/moonshotai/kimi-k2.6" in litellm.model_cost
 
 
