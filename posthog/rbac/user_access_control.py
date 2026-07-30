@@ -118,8 +118,15 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "vision_action": "replay_scanner",
 }
 
-# Used to apply the more specific access when it's configured, and fall back to a parent
-# otherwise (e.g. a synced table to the source that syncs it).
+# Unlike RESOURCE_INHERITANCE_MAP above, where the child has no access of its own and just uses the
+# parent's, this checks the child's own access first and falls back to the parent.
+# For example:
+# this table (object) -> this source (object) -> all tables (resource) -> all sources (resource) -> default
+#
+# The parent's id is read off the child's foreign key to it (DataWarehouseTable.external_data_source),
+# so an entry only works when that foreign key exists. A null one means no parent, and the object
+# skips it rather than inheriting: a self-managed table has no source, so no rule about sources
+# may reach it.
 RESOURCE_FALLBACK_MAP: dict[APIScopeObject, APIScopeObject] = {
     "warehouse_table": "external_data_source",
 }
