@@ -11,7 +11,17 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
-import { normalizeCohortPercentages, useDebouncedNameInputs } from './utils'
+import {
+    cohortPercentagesAddUp,
+    normalizeCohortPercentages,
+    parseCohortPercentage,
+    useDebouncedNameInputs,
+} from './utils'
+
+// Print enough precision that the two figures in the imbalance warning cannot contradict each other:
+// rounding a 99.996% total to hundredths would claim it adds up to 100% with 0% left over. Number()
+// then drops the zeros toFixed pads with, and clears float noise like 0.0040000000000048.
+const formatPercentage = (value: number): string => Number(value.toFixed(10)).toString()
 
 export function StepRandomCohortBranchConfiguration({
     node,
@@ -85,12 +95,8 @@ export function StepRandomCohortBranchConfiguration({
 
     const updateCohortPercentage = (index: number, value: string): void => {
         setPercentageDrafts((drafts) => ({ ...drafts, [index]: value }))
-        const parsed = Number.parseFloat(value)
-        setCohorts(
-            cohorts.map((cohort, i) =>
-                i === index ? { ...cohort, percentage: Number.isFinite(parsed) ? parsed : 0 } : cohort
-            )
-        )
+        const percentage = parseCohortPercentage(value)
+        setCohorts(cohorts.map((cohort, i) => (i === index ? { ...cohort, percentage } : cohort)))
     }
 
     const clearPercentageDraft = (index: number): void => {
@@ -109,13 +115,10 @@ export function StepRandomCohortBranchConfiguration({
         setCohorts(cohorts.map((cohort, i) => ({ ...cohort, percentage: normalized[i] })))
     }
 
-    const totalPercentage = cohorts.reduce((sum, cohort) => sum + cohort.percentage, 0)
-    // Summing fractional shares in binary lands a hair off a round number (an even thirty-way split
-    // totals 99.99999999999997), so compare against a tolerance finer than the smallest share the
-    // field can express rather than against 100 exactly, which would warn on a correct split.
-    const displayTotal = Math.round(totalPercentage * 100) / 100
-    const isBalanced = Math.abs(totalPercentage - 100) < 0.005
-    const shortfall = Math.round((100 - totalPercentage) * 100) / 100
+    const percentages = cohorts.map((cohort) => cohort.percentage)
+    const totalPercentage = percentages.reduce((sum, percentage) => sum + percentage, 0)
+    const isBalanced = cohortPercentagesAddUp(percentages)
+    const shortfall = 100 - totalPercentage
 
     return (
         <>
@@ -151,11 +154,11 @@ export function StepRandomCohortBranchConfiguration({
                 </div>
             ))}
 
-            {!isBalanced && (
+            {cohorts.length > 0 && !isBalanced && (
                 <div className="text-sm text-orange-600">
                     {shortfall > 0
-                        ? `These add up to ${displayTotal}%. The remaining ${shortfall}% will go to the last cohort.`
-                        : `These add up to ${displayTotal}%. Later cohorts will get less than their share, and some may never be used.`}
+                        ? `These add up to ${formatPercentage(totalPercentage)}%. The remaining ${formatPercentage(shortfall)}% will go to the last cohort.`
+                        : `These add up to ${formatPercentage(totalPercentage)}%. Later cohorts will get less than their share, and some may never be used.`}
                 </div>
             )}
 

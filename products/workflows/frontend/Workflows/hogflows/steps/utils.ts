@@ -51,6 +51,33 @@ export function normalizeCohortPercentages(count: number): number[] {
     return Array.from({ length: count }, (_, i) => (base + (i < leftover ? 1 : 0)) / hundredthsPerPercent)
 }
 
+// Adding floats accumulates error, so a set of shares that ought to total 100 can land a hair off (an
+// even thirty-way split sums to 99.99999999999997). Anything under this counts as that noise. The
+// bound is three orders of magnitude above the worst error an even split accumulates at any workable
+// branch count, and far below a difference anyone would type, so a real imbalance still registers.
+const FLOAT_SUM_TOLERANCE = 1e-9
+
+/** Whether a set of cohort shares adds up to a whole 100%, ignoring float summing error. */
+export function cohortPercentagesAddUp(percentages: number[]): boolean {
+    const total = percentages.reduce((sum, percentage) => sum + percentage, 0)
+    return Math.abs(total - 100) < FLOAT_SUM_TOLERANCE
+}
+
+/**
+ * Read a percentage field's raw text into the value to store, clamped to the 0-100 the field declares.
+ *
+ * The clamp is load-bearing: min/max on a number input only gate form validation, which this field is
+ * not wired to, so without it any out-of-range text a browser accepts as a number gets persisted.
+ * Scientific notation is the easy one to miss, since "1e5" is valid input to a number field.
+ */
+export function parseCohortPercentage(value: string): number {
+    const parsed = Number.parseFloat(value)
+    if (!Number.isFinite(parsed)) {
+        return 0
+    }
+    return Math.min(100, Math.max(0, parsed))
+}
+
 export function updateOptionalName<T>(obj: T & { name?: string }, name: string | undefined): T & { name?: string } {
     const updated = { ...obj }
     if (name) {
