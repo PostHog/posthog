@@ -5,6 +5,7 @@ import pytest
 from fastapi import HTTPException
 
 from llm_gateway.baseten import (
+    BASETEN_METRIC_MODEL,
     _inject_baseten_params,
     ensure_baseten_configured,
     make_baseten_responses_call,
@@ -35,7 +36,7 @@ def test_inject_baseten_params_maps_model_and_pins_api_key() -> None:
     assert MODEL_COST_OVERRIDES[BASETEN_MODEL]["input_cost_per_token"] == 1.4e-06
     assert MODEL_COST_OVERRIDES[BASETEN_MODEL]["cache_read_input_token_cost"] == 1.4e-07
     assert MODEL_COST_OVERRIDES[BASETEN_MODEL]["output_cost_per_token"] == 4.4e-06
-    assert ALIAS_METRIC_LABELS[BASETEN_MODEL] == ("baseten", GLM_MODEL)
+    assert ALIAS_METRIC_LABELS[BASETEN_MODEL] == ("baseten", BASETEN_METRIC_MODEL)
 
 
 def test_inject_baseten_params_forces_streaming_usage() -> None:
