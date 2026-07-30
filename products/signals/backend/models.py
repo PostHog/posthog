@@ -1435,12 +1435,16 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
 
     Two more writers derive rows from inbox activity, both re-checking the RBAC leg of this gate
     themselves (the actions behind them need only `task:write`) against the canonical project whose
-    scouts read the row, and both skipping the `llm_skill:write` key scope because the same text
-    already reaches run context by another path a scout is told to read:
+    scouts read the row. They differ on the key-scope leg, because they differ on whether this note is
+    the only way the text reaches a scout:
     - `REPORT_DISMISSAL` — judging a report with a note (dismiss, snooze, or restore; not resolve),
-      see `dismissal_notes.py`. Its text also lands on the `dismissal_note` field of the reports API.
+      see `dismissal_notes.py`. Its text also lands on the `dismissal_note` field of the reports API,
+      which every scout is told to read, so the note opens no channel a `task:write` caller lacks and
+      the key scopes aren't required on top.
     - `REPORT_DISCUSSION` — opening a discussion on a report with a question, see
-      `discussion_notes.py`. The question also lands in the discussion task the kickoff creates.
+      `discussion_notes.py`. The question otherwise lives only on the ephemeral discussion task, which
+      is in no scout's run context, so this note is its sole carrier and the full gate applies —
+      `llm_skill:write` and `signal_scout:write` included.
     `origin` keeps the kinds apart so the run prompt can frame a dismissal as one reviewer's verdict
     on one report, and a discussion as a question to weigh rather than fleet-level steering.
     """

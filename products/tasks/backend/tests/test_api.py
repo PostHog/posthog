@@ -1440,7 +1440,7 @@ class TestTaskAPI(BaseTaskAPITest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        notes = SignalScoutNote.objects.filter(team=self.team, origin=SignalScoutNote.Origin.REPORT_DISCUSSION)
+        notes = SignalScoutNote.objects.for_team(self.team.id).filter(origin=SignalScoutNote.Origin.REPORT_DISCUSSION)
         if should_forward:
             note = notes.get()
             self.assertIn("Is this still happening?", note.content)
@@ -1465,11 +1465,13 @@ class TestTaskAPI(BaseTaskAPITest):
     def _discussion_notes(self):
         from products.signals.backend.models import SignalScoutNote
 
-        return SignalScoutNote.objects.filter(team=self.team, origin=SignalScoutNote.Origin.REPORT_DISCUSSION)
+        return SignalScoutNote.objects.for_team(self.team.id).filter(origin=SignalScoutNote.Origin.REPORT_DISCUSSION)
 
     def test_discussion_note_targets_authoring_scout(self):
         # A discussion note is addressed to the scout that authored the report (resolved from its run
         # rows), so a reviewer's question reaches the right scout rather than the whole fleet.
+        from posthog.models.scoping import team_scope
+
         from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun
         from products.skills.backend.models.skills import LLMSkill
 
@@ -1479,18 +1481,59 @@ class TestTaskAPI(BaseTaskAPITest):
         scout_task = Task.objects.create(
             team=self.team, title="scout run", description="scout run", origin_product=Task.OriginProduct.SIGNALS_SCOUT
         )
-        config, _ = SignalScoutConfig.objects.get_or_create(team=self.team, skill_name=skill_name)
-        SignalScoutRun.objects.create(
-            team=self.team,
-            task_run=TaskRun.objects.create(task=scout_task, team=self.team),
-            scout_config=config,
-            skill_name=skill_name,
-            skill_version=1,
-            emitted_report_ids=[str(report.id)],
-        )
+        with team_scope(self.team.id):
+            config, _ = SignalScoutConfig.objects.get_or_create(team=self.team, skill_name=skill_name)
+            SignalScoutRun.objects.create(
+                team=self.team,
+                task_run=TaskRun.objects.create(task=scout_task, team=self.team),
+                scout_config=config,
+                skill_name=skill_name,
+                skill_version=1,
+                emitted_report_ids=[str(report.id)],
+            )
 
         self.assertEqual(self._post_discussion_task(report.id).status_code, status.HTTP_201_CREATED)
         self.assertEqual(self._discussion_notes().get().skill_name, skill_name)
+
+    @parameterized.expand(
+        [
+            ("task_write_only", ["task:read", "task:write"], False),
+            ("with_note_scopes", ["task:read", "task:write", "signal_scout:write", "llm_skill:write"], True),
+            ("all_access", ["*"], True),
+        ]
+    )
+    def test_discussion_note_requires_the_note_write_scopes(self, _name, scopes, should_forward):
+        # Creating a discussion task needs only task:write, but the note the question becomes is the
+        # only path that question takes to a scout — so a token without the scopes the notes API
+        # demands still gets its task, and no steering note. Full stack, so the viewset reading the
+        # credential's scopes is covered along with the gate itself.
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team, title="Checkout errors spiked")
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test key", user=self.user, secure_value=hash_key_value(key_value), scopes=scopes
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/tasks/",
+            {
+                "title": "Discuss report",
+                "description": _DISCUSS_PROMPT,
+                "origin_product": "signal_report",
+                "signal_report": str(report.id),
+                "signal_report_task_relationship": "discussion",
+            },
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(self._discussion_notes().exists(), should_forward)
 
     def test_discussion_note_skipped_when_user_lacks_skill_editor_access(self):
         # A caller who couldn't write a scout note by hand (no llm_skill editor access) can't plant one
