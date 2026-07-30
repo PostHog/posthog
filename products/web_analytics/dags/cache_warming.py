@@ -6,7 +6,7 @@ import zlib
 import threading
 import statistics
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Optional
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -622,19 +622,26 @@ WARMING_SLOW_SHAPE_SECONDS = 15
 # rotating cache hashes) synchronizes the fleet and every later run inherits a
 # multi-hour expiry storm that monopolizes the hourly cadence until phases
 # drift apart on their own. Evaluating staleness with the entry aged by a
-# deterministic per-shape offset warms each shape a little early — never late,
-# so served freshness is untouched — and gives every shape a slightly different
-# effective period, which diffuses synchronized cohorts instead of merely
-# phase-shifting them. Worst case extra load is bounded by the offset cap
-# (~1h early on a ~4h cycle ≈ +12% warms on average).
+# bounded offset warms each shape a little early — never late, so served
+# freshness is untouched.
+#
+# The offset is seeded with (shape, last_refresh), not the shape alone: the
+# warmer only samples staleness at run ticks, and with a threshold that is a
+# whole number of ticks, every fixed offset below one tick collapses onto the
+# same tick — a synchronized cohort would march in formation forever. Seeding
+# with last_refresh keeps the offset stable between runs within a cycle (no
+# flapping) but re-draws it each time the shape warms, so every cycle each
+# shape independently lands one tick earlier or not — a synchronized cohort
+# decays geometrically instead of persisting. Mean cost is ~30min early on a
+# multi-hour cycle (~+10-15% warms), well inside the sharded pass's headroom.
 WARMING_STALENESS_JITTER_MAX_SECONDS = 3600
 
 
-def _staleness_jitter(normalized_query_hash: object) -> timedelta:
+def _staleness_jitter(normalized_query_hash: object, last_refresh: datetime) -> timedelta:
     # crc32, not hash(): str hashing is salted per process, and the offset must
-    # be stable across runs or the jitter itself re-randomizes phases each hour.
-    seconds = zlib.crc32(str(normalized_query_hash).encode()) % WARMING_STALENESS_JITTER_MAX_SECONDS
-    return timedelta(seconds=seconds)
+    # be reproducible across runs or it re-randomizes each hour and shapes flap.
+    seed = f"{normalized_query_hash}:{last_refresh.isoformat()}".encode()
+    return timedelta(seconds=zlib.crc32(seed) % WARMING_STALENESS_JITTER_MAX_SECONDS)
 
 
 def _team_still_exists(team_id: int) -> bool:
@@ -823,7 +830,9 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
             if cached_data is not None:
                 last_refresh = parse_datetime(cached_data["last_refresh"])
                 aged_refresh = (
-                    last_refresh - _staleness_jitter(query_info["normalized_query_hash"]) if last_refresh else None
+                    last_refresh - _staleness_jitter(query_info["normalized_query_hash"], last_refresh)
+                    if last_refresh
+                    else None
                 )
                 if not runner._is_stale(aged_refresh):
                     WARMING_QUERIES_COUNTER.labels(outcome="skipped_fresh").inc()
