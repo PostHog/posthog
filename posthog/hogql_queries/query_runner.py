@@ -10,7 +10,7 @@ from typing import Any, Generic, NamedTuple, Optional, Protocol, TypeGuard, Type
 import orjson
 import posthoganalytics
 from prometheus_client import Counter, Histogram
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from posthog.schema import (
     AccountsQuery,
@@ -175,6 +175,12 @@ SURVEY_QUERY_EXECUTION_DURATION = Histogram(
     buckets=[0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 7.5, 10.0, 15.0, 20.0, 30.0, 60.0, 120.0],
 )
 
+QUERY_CACHE_UNKNOWN_KEYS_DROPPED = Counter(
+    "posthog_query_cache_unknown_keys_dropped_total",
+    "Cached responses parsed after dropping keys this version's schema doesn't know about",
+    labelnames=["key"],
+)
+
 
 def _contains_user_hogql_label() -> str:
     # Read the tag set by `tag_contains_user_hogql()` at HogQL parse sites; lets
@@ -249,6 +255,39 @@ def response_results_contain_models(response_class: type[BaseModel]) -> bool:
     if field is None:
         return False
     return _annotation_mentions_base_model(field.annotation)
+
+
+def drop_unknown_cached_keys(payload: dict, error: ValidationError) -> list[str]:
+    """Strip keys a `ValidationError` rejected as unknown from `payload`, in place.
+
+    Every schema model is generated with `extra="forbid"`, so during a deploy a pod on the old
+    image sees keys written by a pod on the new one (e.g. a freshly added optional modifier) and
+    refuses the whole cached response. Unknown keys are a purely additive difference, so dropping
+    them lets the entry be reused instead of recomputed. Returns the dotted paths dropped; a
+    payload whose errors aren't all unknown keys is left untouched and reported empty.
+    """
+    errors = error.errors()
+    if not errors or any(err["type"] != "extra_forbidden" for err in errors):
+        return []
+
+    dropped: list[str] = []
+    for err in errors:
+        loc = err["loc"]
+        container: Any = payload
+        for part in loc[:-1]:
+            if isinstance(container, dict):
+                container = container.get(part)
+            elif isinstance(container, list) and isinstance(part, int) and part < len(container):
+                container = container[part]
+            else:
+                container = None
+            if container is None:
+                break
+        if isinstance(container, dict) and loc[-1] in container:
+            del container[loc[-1]]
+            # List indices are collapsed so the path stays usable as a metric label.
+            dropped.append(".".join("*" if isinstance(part, int) else str(part) for part in loc))
+    return dropped
 
 
 def execution_mode_from_refresh(refresh_requested: bool | str | None) -> ExecutionMode:
@@ -1530,14 +1569,28 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 cached_response_candidate["results"] = []
             cached_response_candidate["is_cached"] = True
             # When rolling out schema changes, cached responses may not match the new schema.
-            # Trigger recomputation in this case.
+            # Trigger recomputation in this case, unless the only difference is additive — keys
+            # this version doesn't know about are dropped and the entry is served as usual.
             try:
                 cached_response = CachedResponse(**cached_response_candidate)
                 if raw_results is not None:
                     self.raw_cached_results_bytes = raw_results
             except Exception as e:
-                capture_exception(Exception(f"Error parsing cached response: {e}"))
                 cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
+                dropped = (
+                    drop_unknown_cached_keys(cached_response_candidate, e) if isinstance(e, ValidationError) else []
+                )
+                if dropped:
+                    try:
+                        cached_response = CachedResponse(**cached_response_candidate)
+                        if raw_results is not None:
+                            self.raw_cached_results_bytes = raw_results
+                        for key in dropped:
+                            QUERY_CACHE_UNKNOWN_KEYS_DROPPED.labels(key=key).inc()
+                    except Exception as retry_error:
+                        capture_exception(Exception(f"Error parsing cached response: {retry_error}"))
+                else:
+                    capture_exception(Exception(f"Error parsing cached response: {e}"))
         elif cached_response_candidate is None:
             cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
         else:

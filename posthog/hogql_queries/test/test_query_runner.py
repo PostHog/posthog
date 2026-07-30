@@ -615,6 +615,45 @@ class TestQueryRunner(BaseTest):
 
     @parameterized.expand(
         [
+            # A pod on an older image reading a payload written by a newer one: the unknown key is
+            # additive, so the entry is still usable.
+            ("unknown_top_level_key", {"someFutureField": None}, True),
+            ("unknown_nested_modifier", {"modifiers": {"someFutureModifier": None}}, True),
+            # Genuinely incompatible shapes must still recompute.
+            ("wrong_type", {"last_refresh": "not a date"}, False),
+        ]
+    )
+    @mock.patch("posthog.hogql_queries.query_runner.QueryCache")
+    def test_additive_schema_drift_serves_cache(self, _name, overrides, expect_cache_hit, mock_query_cache_cls):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        mock_cache_manager = mock.MagicMock()
+        mock_cache_manager.cache_key = "test_cache_key"
+        mock_entry = mock.MagicMock()
+        mock_entry.as_full_response.return_value = {
+            "is_cached": True,
+            "results": [["row", 1, 2, 3]],
+            "last_refresh": "2023-02-04T13:37:00+00:00",
+            "next_allowed_client_refresh": "2023-02-04T13:41:00+00:00",
+            "cache_key": "test_cache_key",
+            "timezone": "UTC",
+            **overrides,
+        }
+        mock_cache_manager.lookup.return_value.entry = mock_entry
+        mock_cache_manager.lookup.return_value.failure = None
+        mock_query_cache_cls.return_value = mock_cache_manager
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with (
+            freeze_time(datetime(2023, 2, 4, 13, 37, 42)),
+            mock.patch("posthog.hogql_queries.query_runner.capture_exception") as mock_capture_exception,
+        ):
+            response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+
+        assert response.is_cached == expect_cache_hit
+        assert mock_capture_exception.called != expect_cache_hit
+
+    @parameterized.expand(
+        [
             ("success", None, None, 1, 0),
             ("error_result", "error", None, 1, 0),
             ("exception", "raise", ValueError, 0, 1),
