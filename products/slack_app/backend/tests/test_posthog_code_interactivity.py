@@ -30,6 +30,9 @@ from products.slack_app.backend.api import (
     _extract_alert_snooze_hints,
     _handle_insight_alert_snooze,
     _handle_insight_alert_snooze_modal_submit,
+    _handle_signals_dismiss_modal_submit,
+    _handle_signals_dismiss_report,
+    _handle_signals_not_me_reviewer,
 )
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
@@ -869,9 +872,6 @@ class TestInteractivityRegionRouting(TestCase):
 
 class TestSignalsDismissReport(TestCase):
     def setUp(self):
-        self.client = APIClient()
-        self.signing_secret = "posthog-code-test-secret"
-
         self.organization = Organization.objects.create(name="Dismiss Org")
         self.team = Team.objects.create(organization=self.organization, name="Dismiss Team")
         self.user = User.objects.create(email="dismisser@example.com", distinct_id="dismiss-user-1")
@@ -895,7 +895,161 @@ class TestSignalsDismissReport(TestCase):
             total_weight=1.0,
         )
 
-    def _dismiss_payload(self, report_id: str, *, team_id: int | None = None) -> dict:
+    def _click_payload(self, report_id: str) -> dict:
+        return {
+            "type": "block_actions",
+            "team": {"id": "T12345"},
+            "user": {"id": "U777"},
+            "trigger_id": "trig.1",
+            "response_url": "https://hooks.slack.test/response",
+            "actions": [
+                {
+                    "action_id": "signals_dismiss_report",
+                    "value": json.dumps(
+                        {"integration_id": self.integration.id, "report_id": report_id, "team_id": self.team.id}
+                    ),
+                }
+            ],
+            "message": {
+                "ts": "1234.9999",
+                "blocks": [{"type": "header", "text": {"type": "plain_text", "text": "Dismissable report"}}],
+            },
+        }
+
+    def _submit_payload(self, report_id: str, *, reason: str = "wrong_reviewer", note=None, team_id=None) -> dict:
+        return {
+            "type": "view_submission",
+            "team": {"id": "T12345"},
+            "user": {"id": "U777"},
+            "view": {
+                "callback_id": "signals_dismiss_report_modal",
+                "private_metadata": json.dumps(
+                    {
+                        "integration_id": self.integration.id,
+                        "team_id": team_id if team_id is not None else self.team.id,
+                        "report_id": report_id,
+                        "response_url": "https://hooks.slack.test/response",
+                        "title": "Dismissable report",
+                    }
+                ),
+                "state": {
+                    "values": {
+                        "signals_dismiss_reason": {"reason": {"selected_option": {"value": reason}}},
+                        "signals_dismiss_note": {"note": {"value": note}},
+                    }
+                },
+            },
+        }
+
+    @patch("products.slack_app.backend.api.SlackIntegration")
+    @patch("products.slack_app.backend.api._is_org_member")
+    def test_click_opens_modal_without_suppressing(self, mock_is_org_member, mock_slack):
+        from products.signals.backend.models import SignalReport
+
+        mock_is_org_member.return_value = self.user
+        report = self._make_ready_report()
+
+        response = _handle_signals_dismiss_report(self._click_payload(str(report.id)))
+
+        assert response.status_code == 200
+        mock_slack.return_value.client.views_open.assert_called_once()
+        view = mock_slack.return_value.client.views_open.call_args.kwargs["view"]
+        assert view["callback_id"] == "signals_dismiss_report_modal"
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY  # not suppressed until the modal is submitted
+
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
+    @patch("products.slack_app.backend.api._is_org_member")
+    def test_modal_submit_suppresses_and_records_reason_and_note(self, mock_is_org_member, mock_requests_post):
+        from products.signals.backend.models import SignalReport, SignalReportArtefact
+
+        mock_is_org_member.return_value = self.user
+        report = self._make_ready_report()
+
+        response = _handle_signals_dismiss_modal_submit(
+            self._submit_payload(str(report.id), reason="wrong_reviewer", note="not my area")
+        )
+
+        assert response.status_code == 200
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+        dismissal = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
+        assert dismissal.created_by_id == self.user.id  # attributed to the resolved user, not system
+        content = json.loads(dismissal.content)
+        assert content["reason"] == "wrong_reviewer"
+        assert content["note"] == "not my area"
+        assert mock_requests_post.call_args.kwargs["json"]["replace_original"] is True
+
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
+    @patch("products.slack_app.backend.api._is_org_member")
+    def test_modal_submit_refuses_non_org_member(self, mock_is_org_member, mock_requests_post):
+        from products.signals.backend.models import SignalReport
+
+        mock_is_org_member.return_value = None  # a modal can be submitted by anyone; the gate must re-run here
+        report = self._make_ready_report()
+
+        response = _handle_signals_dismiss_modal_submit(self._submit_payload(str(report.id)))
+
+        assert json.loads(response.content)["response_action"] == "errors"
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
+    @patch("products.slack_app.backend.api._is_org_member")
+    def test_modal_submit_ignores_report_from_another_team(self, mock_is_org_member, mock_requests_post):
+        from products.signals.backend.models import SignalReport
+
+        mock_is_org_member.return_value = self.user
+        report = self._make_ready_report()
+
+        # A forged private_metadata team_id that doesn't match the integration's team must not suppress.
+        response = _handle_signals_dismiss_modal_submit(
+            self._submit_payload(str(report.id), team_id=self.team.id + 9999)
+        )
+
+        assert response.status_code == 200
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+
+
+class TestSignalsNotMeReviewer(TestCase):
+    def setUp(self):
+        from social_django.models import UserSocialAuth
+
+        self.organization = Organization.objects.create(name="NotMe Org")
+        self.team = Team.objects.create(organization=self.organization, name="NotMe Team")
+        self.user = User.objects.create(email="reviewer@example.com", distinct_id="notme-user-1")
+        OrganizationMembership.objects.create(user=self.user, organization=self.organization)
+        UserSocialAuth.objects.create(user=self.user, provider="github", uid="1", extra_data={"login": "octocat"})
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T12345",
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+
+    def _report_with_reviewers(self, logins: list[str]):
+        from products.signals.backend.artefact_schemas import SuggestedReviewerEntry, SuggestedReviewers
+        from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
+
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Report",
+            summary="S",
+            signal_count=1,
+            total_weight=1.0,
+        )
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=SuggestedReviewers([SuggestedReviewerEntry(github_login=login) for login in logins]),
+            attribution=ArtefactAttribution.system(),
+            reevaluate_autostart=False,
+        )
+        return report
+
+    def _not_me_payload(self, report_id: str) -> dict:
         return {
             "type": "block_actions",
             "team": {"id": "T12345"},
@@ -903,81 +1057,59 @@ class TestSignalsDismissReport(TestCase):
             "response_url": "https://hooks.slack.test/response",
             "actions": [
                 {
-                    "action_id": "signals_dismiss_report",
+                    "action_id": "signals_not_me_reviewer",
                     "value": json.dumps(
-                        {
-                            "integration_id": self.integration.id,
-                            "report_id": report_id,
-                            "team_id": team_id if team_id is not None else self.team.id,
-                        }
+                        {"integration_id": self.integration.id, "report_id": report_id, "team_id": self.team.id}
                     ),
                 }
             ],
-            "message": {"ts": "1234.9999", "blocks": []},
         }
 
-    def _post_interactivity(self, payload: dict) -> Any:
-        body_str = f"payload={json.dumps(payload)}"
-        signature, ts = sign_slack_request(body_str.encode(), self.signing_secret)
-        return self.client.post(
-            "/slack/interactivity-callback/",
-            data=body_str,
-            content_type="application/x-www-form-urlencoded",
-            HTTP_X_SLACK_SIGNATURE=signature,
-            HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
+    def _latest_reviewer_logins(self, report) -> frozenset[str]:
+        from products.signals.backend.models import SignalReportArtefact
+        from products.signals.backend.report_generation.resolve_reviewers import (
+            normalized_github_logins_from_suggested_reviewer_artefacts,
         )
 
+        latest = (
+            SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        return normalized_github_logins_from_suggested_reviewer_artefacts([latest])
+
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
     @patch("products.slack_app.backend.api._is_org_member")
-    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
-    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
-    def test_dismiss_suppresses_report_and_writes_artefact(self, mock_config, mock_requests_post, mock_is_org_member):
-        from products.signals.backend.models import SignalReport, SignalReportArtefact
+    def test_not_me_removes_only_the_clicker(self, mock_is_org_member, mock_requests_post):
+        mock_is_org_member.return_value = self.user
+        report = self._report_with_reviewers(["octocat", "hubot"])
 
-        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
-        mock_is_org_member.return_value = self.user  # clicker resolves to this org member
-        report = self._make_ready_report()
-
-        response = self._post_interactivity(self._dismiss_payload(str(report.id)))
+        response = _handle_signals_not_me_reviewer(self._not_me_payload(str(report.id)))
 
         assert response.status_code == 200
-        report.refresh_from_db()
-        assert report.status == SignalReport.Status.SUPPRESSED
-        dismissal = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
-        # Attributed to the resolved PostHog user, not system.
-        assert dismissal.created_by_id == self.user.id
-        # The original message is replaced with a dismissed acknowledgement.
-        assert mock_requests_post.call_args.kwargs["json"]["replace_original"] is True
+        assert self._latest_reviewer_logins(report) == frozenset({"hubot"})
+        assert mock_requests_post.call_args.kwargs["json"]["response_type"] == "ephemeral"
 
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
     @patch("products.slack_app.backend.api._is_org_member")
-    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
-    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
-    def test_dismiss_refuses_non_org_member(self, mock_config, mock_requests_post, mock_is_org_member):
-        from products.signals.backend.models import SignalReport
+    def test_not_me_writes_nothing_when_clicker_not_listed(self, mock_is_org_member, mock_requests_post):
+        from products.signals.backend.models import SignalReportArtefact
 
-        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
-        mock_is_org_member.return_value = None  # clicker is not a PostHog org member
-        report = self._make_ready_report()
+        mock_is_org_member.return_value = self.user
+        report = self._report_with_reviewers(["hubot"])  # clicker (octocat) isn't a reviewer
 
-        response = self._post_interactivity(self._dismiss_payload(str(report.id)))
+        response = _handle_signals_not_me_reviewer(self._not_me_payload(str(report.id)))
 
         assert response.status_code == 200
-        report.refresh_from_db()
-        assert report.status == SignalReport.Status.READY  # not suppressed
-
-    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
-    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
-    def test_dismiss_ignores_report_from_another_team(self, mock_config, mock_requests_post):
-        from products.signals.backend.models import SignalReport
-
-        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
-        report = self._make_ready_report()
-
-        # team_id in the button value doesn't match the integration's team.
-        response = self._post_interactivity(self._dismiss_payload(str(report.id), team_id=self.team.id + 9999))
-
-        assert response.status_code == 200
-        report.refresh_from_db()
-        assert report.status == SignalReport.Status.READY
+        # No new reviewers artefact appended — the original one stands.
+        assert (
+            SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+            ).count()
+            == 1
+        )
 
 
 class TestInsightAlertSnooze(TestCase):

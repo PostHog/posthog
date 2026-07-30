@@ -128,14 +128,31 @@ def validate_signal_input(
 
 
 def dismiss_report_from_slack(
-    team_id: int, report_id: str, *, slack_user_id: str | None = None, user_id: int | None = None
+    team_id: int,
+    report_id: str,
+    *,
+    slack_user_id: str | None = None,
+    user_id: int | None = None,
+    reason: str | None = None,
+    note: str | None = None,
 ) -> bool:
     """Facade entrypoint for the Slack 'Dismiss' button. See report_actions.suppress_report_from_slack."""
     from products.signals.backend.report_actions import (
         suppress_report_from_slack,  # noqa: PLC0415 — avoids importing model layer at facade import time
     )
 
-    return suppress_report_from_slack(team_id, report_id, slack_user_id=slack_user_id, user_id=user_id)
+    return suppress_report_from_slack(
+        team_id, report_id, slack_user_id=slack_user_id, user_id=user_id, reason=reason, note=note
+    )
+
+
+def remove_reviewer_from_slack(team_id: int, report_id: str, *, user_id: int) -> str:
+    """Facade entrypoint for the Slack 'Not me' button. See report_actions.remove_reviewer_from_slack."""
+    from products.signals.backend.report_actions import (
+        remove_reviewer_from_slack as _remove_reviewer_from_slack,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    return _remove_reviewer_from_slack(team_id, report_id, user_id=user_id)
 
 
 def get_default_slack_notification_channel(team_id: int) -> str | None:

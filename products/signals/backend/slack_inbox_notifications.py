@@ -85,6 +85,11 @@ _SOURCE_PRODUCT_LABELS: dict[str, str] = {
     product.value: label for product, label in SIGNAL_SOURCE_PRODUCT_LABELS.items()
 }
 
+# Slack action_ids for the interactive buttons — must match the handlers in
+# products/slack_app/backend/api.py (SIGNALS_DISMISS_REPORT_ACTION_ID / SIGNALS_NOT_ME_REVIEWER_ACTION_ID).
+_DISMISS_ACTION_ID = "signals_dismiss_report"
+_NOT_ME_ACTION_ID = "signals_not_me_reviewer"
+
 
 def _priority_rank(value: str | None) -> int | None:
     if value is None:
@@ -315,6 +320,7 @@ def _build_message_blocks(
     source_products: list[str],
     reviewer_mentions: list[str],
     repository: str | None = None,
+    integration_id: int | None = None,
 ) -> tuple[list[dict], str]:
     title_line = report.title or "New signals inbox item"
     header_text = (
@@ -369,6 +375,30 @@ def _build_message_blocks(
             "url": f"{settings.SITE_URL}/project/{report.team_id}/inbox/reports/{report.id}",
         }
     ]
+    # The interactive buttons carry the identifiers their handlers need. Omitted when we don't know
+    # the integration (e.g. unit-testing the block shape) since the click couldn't be routed back.
+    if integration_id is not None:
+        action_value = json.dumps(
+            {"integration_id": integration_id, "report_id": str(report.id), "team_id": report.team_id}
+        )
+        action_elements.append(
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Dismiss", "emoji": True},
+                "action_id": _DISMISS_ACTION_ID,
+                "value": action_value,
+            }
+        )
+        # "Not me" only makes sense when reviewers were tagged — it removes the clicker from them.
+        if reviewer_mentions:
+            action_elements.append(
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Not me", "emoji": True},
+                    "action_id": _NOT_ME_ACTION_ID,
+                    "value": action_value,
+                }
+            )
     blocks.append({"type": "actions", "elements": action_elements})
 
     priority_suffix = f" ({priority})" if priority else ""
@@ -615,6 +645,7 @@ def _deliver_route_notification(
             source_products=source_products,
             reviewer_mentions=mentions,
             repository=repository,
+            integration_id=route.integration.id,
         )
         response = slack.client.chat_postMessage(channel=channel_id, blocks=blocks, text=text)
         thread_ts = response.get("ts") if hasattr(response, "get") else None

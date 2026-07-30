@@ -3210,14 +3210,28 @@ def _handle_channel_approval_deny(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
-# Handles the Dismiss button on inbox notifications delivered before that button was removed.
+# Interactive buttons on inbox report notifications. "Dismiss" opens a confirmation modal with a
+# reason picker; "Not me" removes the clicker from the report's suggested reviewers. Keep these
+# action_ids in sync with the message builder in products/signals/backend/slack_inbox_notifications.py.
 SIGNALS_DISMISS_REPORT_ACTION_ID = "signals_dismiss_report"
+SIGNALS_NOT_ME_REVIEWER_ACTION_ID = "signals_not_me_reviewer"
+SIGNALS_DISMISS_MODAL_CALLBACK_ID = "signals_dismiss_report_modal"
+SIGNALS_DISMISS_MODAL_REASON_BLOCK = "signals_dismiss_reason"
+SIGNALS_DISMISS_MODAL_NOTE_BLOCK = "signals_dismiss_note"
+
+# (reason code, label) for the dismiss modal's picker. The code is stored as the dismissal reason.
+SIGNALS_DISMISS_REASONS: tuple[tuple[str, str], ...] = (
+    ("wrong_reviewer", "Assigned to the wrong person"),
+    ("low_priority", "Not important enough"),
+    ("already_handled", "Already being handled"),
+    ("not_actionable", "Not actionable"),
+    ("other", "Something else"),
+)
+SIGNALS_DISMISS_REASON_LABELS: dict[str, str] = dict(SIGNALS_DISMISS_REASONS)
 
 
-def _dismiss_action_value(payload: dict) -> dict | None:
-    action = next(
-        (a for a in payload.get("actions", []) if a.get("action_id") == SIGNALS_DISMISS_REPORT_ACTION_ID), None
-    )
+def _signals_action_value(payload: dict, action_id: str) -> dict | None:
+    action = next((a for a in payload.get("actions", []) if a.get("action_id") == action_id), None)
     if not action:
         return None
     try:
@@ -3227,31 +3241,56 @@ def _dismiss_action_value(payload: dict) -> dict | None:
     return value if isinstance(value, dict) else None
 
 
-def _extract_dismiss_hints(payload: dict) -> int | None:
-    """Integration id carried by a signals 'Dismiss' button, used for region-ownership routing."""
-    value = _dismiss_action_value(payload)
-    if not value:
-        return None
-    integration_id = value.get("integration_id")
+def _signals_action_integration_id(payload: dict, action_id: str) -> int | None:
+    """The integration_id carried in a signals button's JSON value, for region-ownership routing."""
+    value = _signals_action_value(payload, action_id)
+    integration_id = value.get("integration_id") if value else None
     return integration_id if isinstance(integration_id, int) else None
 
 
-def _handle_signals_dismiss_report(payload: dict) -> HttpResponse:
-    """Suppress a signals inbox report when a reviewer clicks 'Dismiss' in Slack."""
-    from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product action kept off the slack import path
-        dismiss_report_from_slack,
-    )
+def _signals_dismiss_modal_meta(view: dict) -> dict | None:
+    try:
+        meta = json.loads(view.get("private_metadata", "") or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return meta if isinstance(meta, dict) else None
 
-    value = _dismiss_action_value(payload)
+
+def _extract_dismiss_hints(payload: dict) -> int | None:
+    """Integration id carried by a signals Dismiss interaction, used for region-ownership routing.
+
+    Covers both the button block_action (id in the action value) and the confirmation modal's
+    view_submission (id in the view's private_metadata, which has no action to read from).
+    """
+    view = payload.get("view")
+    if isinstance(view, dict) and view.get("callback_id") == SIGNALS_DISMISS_MODAL_CALLBACK_ID:
+        meta = _signals_dismiss_modal_meta(view)
+        integration_id = meta.get("integration_id") if meta else None
+        return integration_id if isinstance(integration_id, int) else None
+    return _signals_action_integration_id(payload, SIGNALS_DISMISS_REPORT_ACTION_ID)
+
+
+def _extract_not_me_hints(payload: dict) -> int | None:
+    """Integration id carried by a signals 'Not me' button, used for region-ownership routing."""
+    return _signals_action_integration_id(payload, SIGNALS_NOT_ME_REVIEWER_ACTION_ID)
+
+
+def _resolve_signals_report_action(payload: dict, value: dict | None) -> tuple[Integration, int, str, User] | None:
+    """Shared auth for the Dismiss/'Not me' buttons: validate the button value, match the
+    workspace integration to the report's team, and gate on org membership. Returns
+    (integration, report_team_id, report_id, org_member) or None when any check fails.
+
+    Intended trust boundary is org membership: any PostHog org member may act on the org's reports.
+    """
     slack_team_id = payload.get("team", {}).get("id")
     if not value or not slack_team_id:
-        return HttpResponse(status=200)
+        return None
 
     integration_id = value.get("integration_id")
     report_id = value.get("report_id")
     report_team_id = value.get("team_id")
     if not (isinstance(integration_id, int) and report_id and isinstance(report_team_id, int)):
-        return HttpResponse(status=200)
+        return None
 
     try:
         # Slack webhook: no team context; scoped by PK + kind + workspace ID. The team match below
@@ -3261,33 +3300,161 @@ def _handle_signals_dismiss_report(payload: dict) -> HttpResponse:
             id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
         )
     except Integration.DoesNotExist:
-        logger.info("signals_dismiss_report_no_integration", integration_id=integration_id)
-        return HttpResponse(status=200)
+        logger.info("signals_report_action_no_integration", integration_id=integration_id)
+        return None
 
     if integration.team_id != report_team_id:
         logger.warning(
-            "signals_dismiss_report_team_mismatch",
+            "signals_report_action_team_mismatch",
             integration_team_id=integration.team_id,
             report_team_id=report_team_id,
         )
-        return HttpResponse(status=200)
+        return None
 
     slack_user_id = payload.get("user", {}).get("id", "")
-    # Only PostHog org members may dismiss — a non-member in a shared channel must not suppress reports.
     org_member = _is_org_member(integration, slack_user_id)
     if org_member is None:
         logger.warning(
-            "signals_dismiss_report_not_org_member",
-            integration_id=integration.id,
-            slack_user_id=slack_user_id,
+            "signals_report_action_not_org_member", integration_id=integration.id, slack_user_id=slack_user_id
         )
-        return HttpResponse(status=200)
+        return None
 
-    suppressed = dismiss_report_from_slack(
-        report_team_id, str(report_id), slack_user_id=slack_user_id, user_id=org_member.id
+    return integration, report_team_id, str(report_id), org_member
+
+
+def _signals_message_title(payload: dict) -> str | None:
+    """The report title from the notification's header block, echoed back on the dismissed message."""
+    for block in payload.get("message", {}).get("blocks", []):
+        if block.get("type") == "header":
+            text = (block.get("text") or {}).get("text")
+            return text if isinstance(text, str) else None
+    return None
+
+
+def _render_signals_dismiss_modal(private_metadata: str) -> dict:
+    return {
+        "type": "modal",
+        "callback_id": SIGNALS_DISMISS_MODAL_CALLBACK_ID,
+        "private_metadata": private_metadata,
+        "title": {"type": "plain_text", "text": "Dismiss report"},
+        "submit": {"type": "plain_text", "text": "Dismiss"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": [
+            {
+                "type": "input",
+                "block_id": SIGNALS_DISMISS_MODAL_REASON_BLOCK,
+                "label": {"type": "plain_text", "text": "Why are you dismissing this?"},
+                "element": {
+                    "type": "static_select",
+                    "action_id": "reason",
+                    "placeholder": {"type": "plain_text", "text": "Pick a reason"},
+                    "options": [
+                        {"text": {"type": "plain_text", "text": label}, "value": code}
+                        for code, label in SIGNALS_DISMISS_REASONS
+                    ],
+                },
+            },
+            {
+                "type": "input",
+                "block_id": SIGNALS_DISMISS_MODAL_NOTE_BLOCK,
+                "optional": True,
+                "label": {"type": "plain_text", "text": "Anything to add?"},
+                "element": {"type": "plain_text_input", "action_id": "note", "multiline": True, "max_length": 500},
+            },
+        ],
+    }
+
+
+def _open_signals_dismiss_modal(integration: Integration, payload: dict, report_team_id: int, report_id: str) -> None:
+    trigger_id = payload.get("trigger_id")
+    if not trigger_id:
+        return
+    # response_url is stashed so the modal submit can replace the original channel message from a
+    # context where it has no message of its own; the title re-labels the dismissed acknowledgement.
+    private_metadata = json.dumps(
+        {
+            "integration_id": integration.id,
+            "team_id": report_team_id,
+            "report_id": report_id,
+            "response_url": payload.get("response_url"),
+            "title": _signals_message_title(payload),
+        }
+    )
+    try:
+        SlackIntegration(integration).client.views_open(
+            trigger_id=trigger_id, view=_render_signals_dismiss_modal(private_metadata)
+        )
+    except Exception:
+        logger.exception("signals_dismiss_modal_open_failed", report_id=report_id)
+
+
+def _handle_signals_dismiss_report(payload: dict) -> HttpResponse:
+    """Open the dismiss-confirmation modal when a reviewer clicks 'Dismiss' on a report.
+
+    The suppression itself happens on modal submit (_handle_signals_dismiss_modal_submit), which
+    re-runs this same auth — a modal can be submitted by anyone who still has it open.
+    """
+    resolved = _resolve_signals_report_action(payload, _signals_action_value(payload, SIGNALS_DISMISS_REPORT_ACTION_ID))
+    if resolved is None:
+        return HttpResponse(status=200)
+    integration, report_team_id, report_id, _org_member = resolved
+    _open_signals_dismiss_modal(integration, payload, report_team_id, report_id)
+    return HttpResponse(status=200)
+
+
+def _signals_dismiss_modal_error(message: str) -> JsonResponse:
+    # A view_submission error keeps the modal open and shows the message under the reason field.
+    return JsonResponse({"response_action": "errors", "errors": {SIGNALS_DISMISS_MODAL_REASON_BLOCK: message}})
+
+
+def _handle_signals_dismiss_modal_submit(payload: dict) -> HttpResponse:
+    """Suppress the report chosen in the dismiss modal, recording the picked reason and note."""
+    from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product action kept off the slack import path
+        dismiss_report_from_slack,
     )
 
-    _post_signals_dismiss_feedback(payload, dismissed=suppressed, slack_user_id=slack_user_id)
+    view = payload.get("view", {})
+    meta = _signals_dismiss_modal_meta(view)
+    if not meta:
+        return HttpResponse(status=200)
+
+    # A modal can be submitted by anyone who still has it open, so re-run the same auth the opening
+    # click did. `meta` carries the same integration_id/report_id/team_id the button value does.
+    resolved = _resolve_signals_report_action(payload, meta)
+    if resolved is None:
+        return _signals_dismiss_modal_error(
+            "You can't dismiss this report. It may already be resolved, or you may not have access."
+        )
+    _integration, report_team_id, report_id, org_member = resolved
+    slack_user_id = payload.get("user", {}).get("id", "")
+
+    values = view.get("state", {}).get("values", {})
+    selected = values.get(SIGNALS_DISMISS_MODAL_REASON_BLOCK, {}).get("reason", {}).get("selected_option") or {}
+    reason = selected.get("value")
+    note = values.get(SIGNALS_DISMISS_MODAL_NOTE_BLOCK, {}).get("note", {}).get("value") or None
+
+    dismissed = dismiss_report_from_slack(
+        report_team_id, str(report_id), slack_user_id=slack_user_id, user_id=org_member.id, reason=reason, note=note
+    )
+    _post_signals_dismiss_modal_result(meta, dismissed=dismissed, slack_user_id=slack_user_id, reason=reason)
+    return HttpResponse(status=200)
+
+
+def _handle_signals_not_me_reviewer(payload: dict) -> HttpResponse:
+    """Remove the clicker from a report's suggested reviewers when they click 'Not me'."""
+    from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product action kept off the slack import path
+        remove_reviewer_from_slack,
+    )
+
+    resolved = _resolve_signals_report_action(
+        payload, _signals_action_value(payload, SIGNALS_NOT_ME_REVIEWER_ACTION_ID)
+    )
+    if resolved is None:
+        return HttpResponse(status=200)
+    _integration, report_team_id, report_id, org_member = resolved
+
+    outcome = remove_reviewer_from_slack(report_team_id, report_id, user_id=org_member.id)
+    _post_signals_not_me_result(payload, outcome=outcome)
     return HttpResponse(status=200)
 
 
@@ -3316,19 +3483,50 @@ def _replace_message_stripping_actions(payload: dict, text: str, *, keep_link_bu
     inbox_interactivity.post_response_url(response_url, {"replace_original": True, "text": text, "blocks": kept_blocks})
 
 
-def _post_signals_dismiss_feedback(payload: dict, *, dismissed: bool, slack_user_id: str) -> None:
-    """Best-effort: replace the original message so it reads as dismissed."""
+def _post_signals_dismiss_modal_result(meta: dict, *, dismissed: bool, slack_user_id: str, reason: str | None) -> None:
+    """Best-effort: replace the original channel message (via the stashed response_url) so it
+    reads as dismissed. A view_submission has no message of its own, so it can't use the
+    block_action message-replace path; the response_url from the opening click stands in for it.
+    """
+    response_url = meta.get("response_url")
+    if not response_url:
+        return
+
     if dismissed:
         actor = f"<@{slack_user_id}>" if slack_user_id else "a reviewer"
-        text = f"✅ Dismissed by {actor}"
+        reason_label = SIGNALS_DISMISS_REASON_LABELS.get(reason or "")
+        text = f"✅ Dismissed by {actor}: {reason_label}" if reason_label else f"✅ Dismissed by {actor}"
+        title = meta.get("title")
+        blocks: list[dict] = []
+        if isinstance(title, str) and title:
+            blocks.append({"type": "header", "text": {"type": "plain_text", "text": title[:150]}})
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": text}]})
+        inbox_interactivity.post_response_url(response_url, {"replace_original": True, "text": text, "blocks": blocks})
     else:
-        text = "This report could not be dismissed — it may already be resolved or removed."
+        inbox_interactivity.post_response_url(
+            response_url,
+            {
+                "response_type": "ephemeral",
+                "replace_original": False,
+                "text": "This report could not be dismissed. It may already be resolved or removed.",
+            },
+        )
 
-    # keep_link_buttons=False: historical dismiss-capable messages carried "Review PR"/"Open in
-    # PostHog" link buttons in the same actions block as Dismiss (see the pre-removal
-    # slack_inbox_notifications.py block construction), so dropping the whole block here matches
-    # existing behavior rather than the default.
-    _replace_message_stripping_actions(payload, text, keep_link_buttons=False)
+
+def _post_signals_not_me_result(payload: dict, *, outcome: str) -> None:
+    """Best-effort ephemeral reply to the clicker confirming whether they were removed."""
+    response_url = payload.get("response_url")
+    if not response_url:
+        return
+    if outcome == "removed":
+        text = "Done, you've been removed as a suggested reviewer on this report."
+    elif outcome == "not_a_reviewer":
+        text = "You're not listed as a reviewer on this report, so there was nothing to remove."
+    else:
+        text = "This report could not be updated. It may already be resolved or removed."
+    inbox_interactivity.post_response_url(
+        response_url, {"response_type": "ephemeral", "replace_original": False, "text": text}
+    )
 
 
 # Snoozes an insight alert from the button on its firing Slack message.
@@ -3709,6 +3907,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     terminate_integration_id, terminate_user_id = _extract_terminate_hints(payload)
     authorship_integration_id, _ = _extract_action_value_hints(payload, "posthog_code_continue_as_bot")
     dismiss_integration_id = _extract_dismiss_hints(payload)
+    not_me_integration_id = _extract_not_me_hints(payload)
     alert_snooze_uuid = _extract_alert_snooze_hints(payload)
     inbox_integration_id = inbox_interactivity.extract_inbox_hints(payload)
     requesting_user = payload.get("user", {}).get("id", "")
@@ -3742,12 +3941,13 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
-    elif slack_team_id and dismiss_integration_id:
+    elif slack_team_id and (dismiss_integration_id or not_me_integration_id):
         # Routing/region-ownership only — this just claims the workspace's integration locally.
-        # Authorization (report-team match + org-member gate) is enforced in _handle_signals_dismiss_report.
-        # Intended trust boundary for dismiss is org membership (any org member can dismiss the org's reports).
+        # Authorization (report-team match + org-member gate) is enforced in the signals report-action
+        # handlers. Intended trust boundary is org membership (any org member can act on the org's
+        # reports). Covers the Dismiss button, its confirmation modal's submit, and the 'Not me' button.
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-            id=dismiss_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            id=dismiss_integration_id or not_me_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
@@ -3853,8 +4053,11 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         return _handle_repo_picker_options(payload)
 
     if payload_type == "view_submission":
-        if payload.get("view", {}).get("callback_id") == INSIGHT_ALERT_SNOOZE_MODAL_CALLBACK_ID:
+        callback_id = payload.get("view", {}).get("callback_id")
+        if callback_id == INSIGHT_ALERT_SNOOZE_MODAL_CALLBACK_ID:
             return _handle_insight_alert_snooze_modal_submit(payload)
+        if callback_id == SIGNALS_DISMISS_MODAL_CALLBACK_ID:
+            return _handle_signals_dismiss_modal_submit(payload)
         return _handle_app_home_view_submission(payload)
 
     if payload_type == "block_actions":
@@ -3875,6 +4078,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_channel_approval_deny(payload)
             if action_id == SIGNALS_DISMISS_REPORT_ACTION_ID:
                 return _handle_signals_dismiss_report(payload)
+            if action_id == SIGNALS_NOT_ME_REVIEWER_ACTION_ID:
+                return _handle_signals_not_me_reviewer(payload)
             if action_id in (INSIGHT_ALERT_SNOOZE_ACTION_ID, INSIGHT_ALERT_SNOOZE_UNTIL_ACTION_ID):
                 return _handle_insight_alert_snooze(payload)
             if action_id == onboarding.INBOX_CREATE_ACTION_ID:

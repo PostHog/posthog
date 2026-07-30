@@ -112,10 +112,50 @@ def test_build_message_blocks_includes_recipient_and_open_in_posthog_button() ->
     assert "👤 Suggested reviewers: <@U123>" in context_text
     assert "Inbox" not in context_text
     buttons = blocks[3]["elements"]
+    # Without an integration_id the interactive buttons are omitted (the click couldn't be routed).
     assert len(buttons) == 1
     assert buttons[0]["text"]["text"] == "Review in PostHog"
     assert buttons[0]["url"] == f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid"
     assert text == "Inbox item (P1): Checkout errors spiked"
+
+
+def test_build_message_blocks_adds_dismiss_and_not_me_when_routable() -> None:
+    report = SignalReport(id="report-uuid", team_id=42, title="Checkout errors spiked", signal_count=1)
+    blocks, _ = _build_message_blocks(
+        report,
+        priority="P1",
+        source_products=["error_tracking"],
+        reviewer_mentions=["<@U123>"],
+        integration_id=7,
+    )
+
+    buttons = blocks[-1]["elements"]
+    by_action = {b.get("action_id"): b for b in buttons}
+    assert buttons[0]["text"]["text"] == "Review in PostHog"  # link button stays first
+    assert by_action["signals_dismiss_report"]["text"]["text"] == "Dismiss"
+    assert by_action["signals_not_me_reviewer"]["text"]["text"] == "Not me"
+    # Each interactive button carries the identifiers its handler routes on.
+    assert json.loads(by_action["signals_dismiss_report"]["value"]) == {
+        "integration_id": 7,
+        "report_id": "report-uuid",
+        "team_id": 42,
+    }
+
+
+def test_build_message_blocks_omits_not_me_without_reviewers() -> None:
+    report = SignalReport(id="report-uuid", team_id=42, title="Team-wide report", signal_count=1)
+    blocks, _ = _build_message_blocks(
+        report,
+        priority="P1",
+        source_products=["error_tracking"],
+        reviewer_mentions=[],
+        integration_id=7,
+    )
+
+    action_ids = {b.get("action_id") for b in blocks[-1]["elements"]}
+    # Dismiss is always offered when routable; "Not me" only when reviewers were tagged.
+    assert "signals_dismiss_report" in action_ids
+    assert "signals_not_me_reviewer" not in action_ids
 
 
 def test_build_message_blocks_mentions_every_routed_reviewer() -> None:
