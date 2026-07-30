@@ -8,6 +8,10 @@
         {
             "scopes": ["cohort", "cohorts"],
             "labels": ["team/feature-flags", "feature/cohorts"]
+        },
+        {
+            "scopes": ["mcp-store", "mcp_store"],
+            "labels": ["feature/mcp-store", "team/self-driving"]
         }
     ]
 }
