@@ -257,6 +257,37 @@ async def test_schema_column_type_changed_routes_through_handler_without_source_
     logger.aexception.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_shared_non_retryable_error_routes_through_handler_without_source_opt_in():
+    # "Primary key required for incremental syncs" is raised in shared pipeline code (delta merge),
+    # not any one source, and lives in the shared Any_Source_Errors dict. It must be non-retryable in
+    # this in-activity handler for every source, not just those that duplicate the message into their
+    # own get_non_retryable_errors — otherwise a keyless incremental table retries the activity's whole
+    # budget and reports on every attempt.
+    error = Exception("Primary key required for incremental syncs")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with (
+        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
+        mock.patch.object(module, "handle_non_retryable_error", autospec=True) as handle_mock,
+    ):
+        handle_mock.side_effect = NonRetryableException()
+        with pytest.raises(NonRetryableException):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    handle_mock.assert_awaited_once()
+    assert handle_mock.await_args is not None
+    assert handle_mock.await_args.args[5] is error
+    logger.aexception.assert_not_awaited()
+
+
 def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -> mock.MagicMock:
     schema = mock.MagicMock()
     schema.should_use_incremental_field = True
