@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, patch
 import stripe as stripe_lib
 from stripe import ListObject
 
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import (
     StripeAuthMethodConfig,
@@ -25,7 +27,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     SUBSCRIPTION_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
-from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import (
+    OAUTH_EXPIRED_ERROR,
+    StripeSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
     SUBSCRIPTION_PAGE_LIMIT,
     StripeAuthenticationError,
@@ -231,6 +236,47 @@ class TestStripeSource:
         assert message is not None
         assert pasted_secret not in message
         assert message.startswith("Stripe rejected the API key.")
+
+    def test_get_api_key_raises_when_oauth_refresh_failed(self):
+        # `OauthIntegration.refresh_access_token` records the failure on the integration instead of
+        # raising. Swallowing it handed Stripe a token we already knew was dead, so the user got
+        # Stripe's raw 401 (which echoes the rejected key) instead of a prompt to reconnect.
+        integration = Integration(kind="stripe", sensitive_config={"access_token": "sk_live_dead"})
+        config = StripeSourceConfig(auth_method=StripeAuthMethodConfig(selection="oauth", stripe_integration_id=1))
+
+        def _fail_refresh(oauth_self):
+            oauth_self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+
+        with (
+            mock.patch.object(StripeSource, "get_oauth_integration", return_value=integration),
+            mock.patch.object(OauthIntegration, "access_token_expired", return_value=True),
+            mock.patch.object(OauthIntegration, "refresh_access_token", _fail_refresh),
+        ):
+            with pytest.raises(ValueError, match="reconnect your Stripe account"):
+                self.source._get_api_key(config, team_id=1)
+
+            # The Webhook tab renders `error` inline, so it must say the same thing rather than
+            # bubbling the exception up and leaving the tab blank.
+            info = self.source.get_external_webhook_info(config, "https://ph.example/webhook", team_id=1)
+
+        assert info.exists is False
+        assert info.error == OAUTH_EXPIRED_ERROR
+
+    def test_external_webhook_info_does_not_echo_rejected_key(self):
+        # Stripe's 401 body echoes the rejected key; interpolating it put key material in the
+        # Webhook tab and in the `warehouse credentials invalid` analytics event.
+        mock_client = MagicMock()
+        mock_client.webhook_endpoints.list.side_effect = stripe_lib.AuthenticationError(
+            "invalid API Key provided: sk_live_*******************lhrc"
+        )
+
+        with patch.object(stripe_module, "StripeClient", return_value=mock_client):
+            info = stripe_module.get_external_webhook_info("sk_live_dead", None, "https://ph.example/webhook")
+
+        assert info.exists is False
+        assert info.error is not None
+        assert "sk_live" not in info.error
+        assert "Reconnect your Stripe account" in info.error
 
     @pytest.mark.parametrize(
         "body,expected",

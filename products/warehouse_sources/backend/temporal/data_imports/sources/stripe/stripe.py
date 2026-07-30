@@ -1032,8 +1032,15 @@ def get_external_webhook_info(api_key: str, stripe_account_id: str | None, webho
                 )
 
         return ExternalWebhookInfo(exists=False)
+    except stripe_lib.AuthenticationError:
+        # Stripe's 401 body echoes the rejected key back to us, so interpolating it would put key
+        # material in a user-facing message and in our analytics. The guidance stands on its own.
+        return ExternalWebhookInfo(
+            exists=False,
+            error="Stripe rejected the credentials, so we couldn't check the webhook. Reconnect your Stripe account, or update the API key in your source settings.",
+        )
     except Exception as e:
-        error_str = str(e)
+        error_str = _clean_stripe_error_message(str(e))
         if "permission" in error_str.lower() or "403" in error_str or "forbidden" in error_str.lower():
             return ExternalWebhookInfo(
                 exists=False,

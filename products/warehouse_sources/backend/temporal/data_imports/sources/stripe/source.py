@@ -18,7 +18,7 @@ from posthog.schema import (
 )
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import OauthIntegration
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, OauthIntegration
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
@@ -92,6 +92,8 @@ PERMISSIONS = [
     "rak_webhook_write",
 ]
 STRIPE_API_KEYS_URL = f"{STRIPE_BASE_URL}/apikeys/create?name=PostHog&{'&'.join([f'permissions[{i}]={permission}' for i, permission in enumerate(PERMISSIONS)])}"
+
+OAUTH_EXPIRED_ERROR = "Your Stripe OAuth connection has expired or been revoked. Please reconnect your Stripe account."
 
 
 @SourceRegistry.register
@@ -290,8 +292,17 @@ If automatic creation failed due to a permissions error and you're using a restr
             "Missing integration ID": "Integration ID is not configured. Please reconnect your Stripe account.",
             "Integration not found": "The linked Stripe integration no longer exists. Please reconnect your Stripe account.",
             "Stripe access token not found": "Stripe OAuth access token is missing. Please reconnect your Stripe account.",
-            "Your Stripe OAuth connection has expired or been revoked. Please reconnect your Stripe account.": "Your Stripe OAuth connection has expired or been revoked. Please reconnect your Stripe account.",
+            OAUTH_EXPIRED_ERROR: OAUTH_EXPIRED_ERROR,
         }
+
+    def _friendly_credential_error(self, raw: str) -> str:
+        """Map a deterministic `_get_api_key` / `OAuthMixin` failure onto its curated wording so no
+        internal string ("Missing Stripe integration ID") reaches the UI. Falls back to the raw
+        message, which is only ever one we raised ourselves."""
+        for pattern, friendly in self.get_non_retryable_errors().items():
+            if friendly and pattern in raw:
+                return friendly
+        return raw
 
     def _get_api_key(self, config: StripeSourceConfig, team_id: int) -> str:
         if config.auth_method.selection == "api_key":
@@ -307,6 +318,12 @@ If automatic creation failed due to a permissions error and you're using a restr
         oauth_integration = OauthIntegration(integration)
         if oauth_integration.access_token_expired():
             oauth_integration.refresh_access_token()
+            # `refresh_access_token` records the failure on the integration instead of raising. Stripe
+            # Apps tokens carry no `expires_in`, so we assume an hour and refresh often — without this
+            # check a failed refresh silently hands Stripe the dead token, and the user gets Stripe's
+            # raw 401 (which echoes the rejected key) instead of a prompt to reconnect.
+            if integration.errors == ERROR_TOKEN_REFRESH_FAILED:
+                raise ValueError(OAUTH_EXPIRED_ERROR)
 
         if not integration.access_token:
             raise ValueError("Stripe access token not found")
@@ -362,10 +379,7 @@ If automatic creation failed due to a permissions error and you're using a restr
                 return False, "Invalid Stripe credentials"
         except StripeAuthenticationError:
             if config.auth_method.selection == "oauth":
-                return (
-                    False,
-                    "Your Stripe OAuth connection has expired or been revoked. Please reconnect your Stripe account.",
-                )
+                return False, OAUTH_EXPIRED_ERROR
             # Stripe's 401 body echoes the rejected key verbatim, so interpolating `e.stripe_message`
             # leaks whatever the user pasted (often a password) into the toast and the
             # `warehouse credentials invalid` analytics event. The guidance below stands on its own.
@@ -400,12 +414,8 @@ If automatic creation failed due to a permissions error and you're using a restr
             # `_get_api_key` raises ValueError for deterministic config problems (missing API key,
             # missing integration ID, missing access token). The user-facing wording already lives
             # in `get_non_retryable_errors`; reuse it so this path doesn't leak the internal
-            # "Missing Stripe integration ID" string. Fall back to the raw message if unmapped.
-            raw = str(e)
-            for pattern, friendly in self.get_non_retryable_errors().items():
-                if friendly and pattern in raw:
-                    return False, friendly
-            return False, raw
+            # "Missing Stripe integration ID" string.
+            return False, self._friendly_credential_error(str(e))
         except Exception as e:
             return False, str(e)
 
@@ -463,7 +473,12 @@ If automatic creation failed due to a permissions error and you're using a restr
     def get_external_webhook_info(
         self, config: StripeSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> ExternalWebhookInfo:
-        api_key = self._get_api_key(config, team_id)
+        # The Webhook tab renders `error` inline, so a dead OAuth connection should say "reconnect"
+        # there too rather than bubbling up and leaving the tab blank.
+        try:
+            api_key = self._get_api_key(config, team_id)
+        except ValueError as e:
+            return ExternalWebhookInfo(exists=False, error=self._friendly_credential_error(str(e)))
         return get_external_webhook_info(api_key, config.stripe_account_id, webhook_url)
 
     def delete_webhook(
