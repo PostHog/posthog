@@ -255,6 +255,36 @@ describe('PushNotificationService', () => {
                 })
             })
 
+            it('keeps a delivered notification successful when the capture itself throws', async () => {
+                // The send has already gone out at this point, so letting a capture failure surface
+                // would fail the invocation and the retry would deliver the notification again.
+                respondWith(200)
+                const invocation = createSendPushNotificationInvocation({
+                    '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
+                })
+                invocation.state.actionId = 'action_push_1'
+                const exploding = new PushNotificationService(
+                    integrationManager,
+                    encryptedFields,
+                    fetchUtils,
+                    mockRedis,
+                    {
+                        buildRowForPush: () => {
+                            throw new Error('boom')
+                        },
+                    } as any
+                )
+
+                const result = await exploding.executeSendPushNotification(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(result.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_sent' }))
+                expect(result.emailAssets).toEqual([])
+                expect(result.logs.map((log) => log.message)).toContainEqual(
+                    expect.stringContaining('could not be captured')
+                )
+            })
+
             it('captures one asset per notification, not one per delivered channel', async () => {
                 respondWith(200)
                 integrationManager.get = jest

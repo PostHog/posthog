@@ -9,6 +9,7 @@ import {
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
 import { FetchOptions, FetchResponse } from '~/common/utils/request'
 
 import type { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '../../types'
@@ -186,8 +187,8 @@ export class PushNotificationService {
         let otherErrorCount = 0
         const errors: PushSendError[] = []
         let firstError: string | undefined
-        // Which providers actually took delivery, recorded on the captured asset so the person view can
-        // show where a notification went. Deduped because a step can select several channels of one kind.
+        // Which providers took delivery. Only its emptiness is read, to decide whether there is a
+        // delivered notification worth capturing.
         const deliveredPlatforms = new Set<string>()
         for (const integrationId of integrationIds) {
             try {
@@ -278,9 +279,18 @@ export class PushNotificationService {
         // recipient received, and a skip has no recipient. Skips stay visible as `push_skipped` plus the
         // per-channel run log explaining why.
         if (this.messageAssetsService && successCount > 0) {
-            const assetRow = this.messageAssetsService.buildRowForPush(invocation, params, [...deliveredPlatforms])
-            if (assetRow) {
-                result.emailAssets.push(assetRow)
+            // Best-effort: the notification is already delivered by this point, so a capture failure
+            // must not fail the invocation. Throwing here would send the whole batch back for a retry
+            // and deliver every notification in it a second time. Losing an Assets row is the cheaper
+            // outcome, and it is the same trade the flush path already makes on a Kafka failure.
+            try {
+                const assetRow = this.messageAssetsService.buildRowForPush(invocation, params, [...deliveredPlatforms])
+                if (assetRow) {
+                    result.emailAssets.push(assetRow)
+                }
+            } catch (err) {
+                addLog('warn', 'The notification was delivered but could not be captured for the Assets tab.')
+                logger.warn('⚠️', `failed to capture a sent push notification: ${err}`, { error: String(err) })
             }
         }
         for (const error of errors) {

@@ -176,14 +176,16 @@ export class MessageAssetsService {
             return null
         }
         const payload = params.payload
-        if (!payload?.title) {
+        // Same rule as the email row: drop only when there is no content to show. A title-less push
+        // still delivered something the recipient saw, so a body alone is worth capturing.
+        if (!payload?.title && !payload?.body) {
             return null
         }
         // Nothing took delivery, so there is no notification a recipient saw to snapshot.
         if (platforms.length === 0) {
             return null
         }
-        const recipient = params.distinctId ?? resolveEmailEngagementDistinctId(invocation) ?? ''
+        const recipient = params.distinctId
         return {
             team_id: invocation.teamId,
             function_kind: 'hog_flow',
@@ -194,10 +196,8 @@ export class MessageAssetsService {
             kind: 'push',
             distinct_id: recipient,
             person_id: invocation.state.globals.person?.id ?? '',
-            // Who the notification went to, not which providers carried it: the Assets tab shows this
-            // as RECIPIENT, and for email it is the address. The delivering channels are not stored on
-            // the row - the preview is a snapshot of what the recipient saw, and they never saw those.
-            // Per-channel outcomes stay in the run log ("Push notification accepted by APNs.").
+            // The person, not the providers that carried it, so the Assets tab's RECIPIENT column means
+            // the same thing for push as it does for email. Per-channel outcomes stay in the run log.
             recipient,
             subject: payload.title,
             status: 'sent',
@@ -239,12 +239,11 @@ export class MessageAssetsService {
                     })
                 )
             )
-            for (const [kind, count] of Object.entries(
-                rows.reduce<Record<string, number>>((acc, row) => {
-                    acc[row.kind] = (acc[row.kind] ?? 0) + 1
-                    return acc
-                }, {})
-            )) {
+            const capturedByKind = new Map<MessageAssetRow['kind'], number>()
+            for (const row of rows) {
+                capturedByKind.set(row.kind, (capturedByKind.get(row.kind) ?? 0) + 1)
+            }
+            for (const [kind, count] of capturedByKind) {
                 counterMessageAssetsCaptured.inc({ kind }, count)
             }
         } catch (error) {

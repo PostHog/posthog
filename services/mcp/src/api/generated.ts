@@ -40083,7 +40083,7 @@ export namespace Schemas {
       distinct_id: string;
       /** The recipient's person UUID, if resolved. */
       person_id: string;
-      /** Who the message went to: the email address for 'email', or the recipient's distinct ID for 'push'. The push platforms that took delivery are shown in the captured preview. */
+      /** Who the message went to: the email address for 'email', or the recipient's distinct ID for 'push'. */
       recipient: string;
       /** The email subject line, or the push notification title. */
       subject: string;

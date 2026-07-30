@@ -81,8 +81,7 @@ class MessageAssetSerializer(serializers.Serializer):
     distinct_id = serializers.CharField(help_text="The recipient's distinct_id.")
     person_id = serializers.CharField(help_text="The recipient's person UUID, if resolved.")
     recipient = serializers.CharField(
-        help_text="Who the message went to: the email address for 'email', or the recipient's distinct "
-        "ID for 'push'. The push platforms that took delivery are shown in the captured preview."
+        help_text="Who the message went to: the email address for 'email', or the recipient's distinct ID for 'push'."
     )
     subject = serializers.CharField(help_text="The email subject line, or the push notification title.")
     status = serializers.CharField(

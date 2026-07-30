@@ -577,14 +577,15 @@ export type MessageAssetRow = {
     kind: 'email' | 'push'
     distinct_id: string
     person_id: string
-    // Where the message went. An address for email; for push there is no address, so this carries the
-    // platforms it was delivered to — the person is already identified by distinct_id / person_id.
+    // Where the message went: the address for email. Push has no address, so this carries the
+    // recipient's distinct_id instead. The delivering channels are deliberately not stored here,
+    // because the captured preview is a snapshot of what the recipient saw and they never saw those.
     recipient: string
     // The message's headline: an email subject line, or a push notification title.
     subject: string
-    // A push that reached no device is still worth recording, so the person view can show it was
-    // attempted rather than silently omitting it.
-    status: 'sent' | 'skipped'
+    // Only delivered messages are captured, so this is 'sent' today. It stays a union because open
+    // tracking will write a higher-version row with its own status and collapse onto this one.
+    status: 'sent'
     sent_at: string // ISO microsecond DateTime64
     version: string // microsecond-precision UInt64, serialized as string to dodge JS's 53-bit cap
     is_deleted: 0 | 1
