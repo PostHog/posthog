@@ -531,7 +531,10 @@ export interface sqlEditorLogicValues {
     metadataLoading: boolean
     metricUpdating: boolean
     originalQueryInput: string | null | undefined
-    pendingViewUpdate: { view: UpdateViewPayload; draftId?: string } | null
+    pendingViewUpdate: {
+        draftId?: string
+        view: UpdateViewPayload
+    } | null
     queryInput: string | null
     rejectText: string
     selectedConnectionId: string | undefined
@@ -837,8 +840,8 @@ export interface sqlEditorLogicActions {
         view: UpdateViewPayload,
         draftId?: string
     ) => {
-        view: UpdateViewPayload
         draftId: string | undefined
+        view: UpdateViewPayload
     }
     reportAIQueryAccepted: () => {
         value: true
