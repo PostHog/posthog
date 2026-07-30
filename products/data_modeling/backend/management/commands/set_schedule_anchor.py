@@ -12,6 +12,7 @@ from products.data_modeling.backend.logic.cohort_scheduling import (
     MINUTES_PER_DAY,
     bucket_into_cadence_tiers,
     format_tier,
+    is_tier_schedule_id,
     tier_sort_key,
 )
 from products.data_modeling.backend.logic.freshness import clamp_to_source_floor, compute_effective_cadences
@@ -20,7 +21,11 @@ from products.data_modeling.backend.logic.node_frequency import (
     schedulable_nodes,
     set_declared_anchor,
 )
-from products.data_modeling.backend.logic.schedule_reconcile import reconcile_dag_schedules, tiered_schedules_enabled
+from products.data_modeling.backend.logic.schedule_reconcile import (
+    list_existing_schedule_ids,
+    reconcile_dag_schedules,
+    tiered_schedules_enabled,
+)
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import Node
@@ -47,7 +52,12 @@ class Command(BaseCommand):
         parser.add_argument(
             "--saved-query-names", nargs="+", default=None, help="Anchor only these saved queries' nodes"
         )
-        parser.add_argument("--at", type=str, default=None, help="UTC time to anchor to, HH:MM (e.g. 00:00)")
+        parser.add_argument(
+            "--at",
+            type=str,
+            default=None,
+            help="UTC time to anchor to, HH:MM (e.g. 00:00). Monthly-cadence nodes keep their hash-picked day of month",
+        )
         parser.add_argument(
             "--on",
             type=str,
@@ -74,6 +84,8 @@ class Command(BaseCommand):
             raise CommandError("Pass exactly one of --dag-id or --saved-query-names")
         if options["clear"] == bool(options["at"]):
             raise CommandError("Pass exactly one of --at or --clear")
+        if options["clear"] and options["on"]:
+            raise CommandError("--on has no effect with --clear")
         if not tiered_schedules_enabled(team):
             raise CommandError(
                 f"Team {team.pk} is not on the tiered-schedules flag; anchors only apply to cadence-tier schedules"
@@ -94,7 +106,9 @@ class Command(BaseCommand):
             if options["with_upstream"]:
                 node_ids = self._expand_with_upstream(graph.edges, node_ids, graph.nodes)
                 cadences = {cadence for node_id in node_ids if (cadence := effective.get(node_id)) is not None}
-                if len(cadences) > 1:
+                # clearing cannot create ordering expectations, so it must stay possible
+                # on a cone whose cadences have drifted apart since it was anchored
+                if anchor is not None and len(cadences) > 1:
                     labels = ", ".join(str(c) for c in sorted(cadences))
                     raise CommandError(
                         f"DAG {dag.name} ({dag.id}): the upstream cone spans cadences ({labels}), so the "
@@ -130,8 +144,16 @@ class Command(BaseCommand):
             for node in Node.objects.filter(dag=dag, id__in=[uuid.UUID(node_id) for node_id in node_ids]):
                 set_declared_anchor(node, anchor)
                 written += 1
-            reconcile_dag_schedules(dag, require_tiered=True)
-            self.stdout.write(f"DAG {dag.name} ({dag.id}): anchored {written} node(s), reconciled → {tier_line}")
+            # require_tiered makes reconcile a silent no-op on an unconverted DAG; saying
+            # "reconciled" there would tell the operator a pin took effect when it didn't
+            if any(is_tier_schedule_id(sid) for sid in list_existing_schedule_ids(str(dag.id))):
+                reconcile_dag_schedules(dag, require_tiered=True)
+                self.stdout.write(f"DAG {dag.name} ({dag.id}): anchored {written} node(s), reconciled → {tier_line}")
+            else:
+                self.stdout.write(
+                    f"DAG {dag.name} ({dag.id}): anchored {written} node(s), but the DAG is not on cadence-tier "
+                    "schedules yet — anchors apply once it is converted (reconcile_freshness_schedules)"
+                )
 
         if options["dry_run"]:
             self.stdout.write("(dry run — nothing was written)")

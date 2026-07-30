@@ -38,10 +38,12 @@ class TestSetScheduleAnchor(BaseTest):
         Edge.objects.create(team=self.team, dag=self.dag, source=self.source, target=self.matview)
         set_declared_target(self.matview, H1)
 
-    def _run(self, *args):
+    def _run(self, *args, existing_schedule_ids=None):
         out = StringIO()
+        existing = existing_schedule_ids if existing_schedule_ids is not None else {f"{self.dag.id}:3600"}
         with (
             mock.patch(f"{COMMAND}.tiered_schedules_enabled", return_value=True),
+            mock.patch(f"{COMMAND}.list_existing_schedule_ids", return_value=existing),
             mock.patch(f"{COMMAND}.reconcile_dag_schedules") as reconcile,
         ):
             call_command("set_schedule_anchor", "--team-id", str(self.team.pk), *args, stdout=out)
@@ -97,6 +99,27 @@ class TestSetScheduleAnchor(BaseTest):
         with self.assertRaisesRegex(CommandError, "spans cadences"):
             self._run("--saved-query-names", "report", "--at", "00:00", "--with-upstream")
 
+    def test_clear_with_upstream_is_allowed_on_a_cone_spanning_cadences(self):
+        # a cone anchored while aligned can drift apart later; clearing must stay possible
+        downstream = _saved_query_node(self.team, self.dag, "report", NodeType.MAT_VIEW)
+        Edge.objects.create(team=self.team, dag=self.dag, source=self.matview, target=downstream)
+        set_declared_target(self.matview, M15)
+        set_declared_target(downstream, H1)
+        set_declared_anchor(self.matview, 0)
+        set_declared_anchor(downstream, 0)
+        self._run("--saved-query-names", "report", "--clear", "--with-upstream")
+        self.matview.refresh_from_db()
+        downstream.refresh_from_db()
+        self.assertIsNone(get_declared_anchor(self.matview))
+        self.assertIsNone(get_declared_anchor(downstream))
+
+    def test_untiered_dag_stores_anchor_but_says_so_instead_of_claiming_reconcile(self):
+        output, reconcile = self._run("--dag-id", str(self.dag.id), "--at", "00:00", existing_schedule_ids=set())
+        self.matview.refresh_from_db()
+        self.assertEqual(get_declared_anchor(self.matview), 0)
+        reconcile.assert_not_called()
+        self.assertIn("not on cadence-tier schedules yet", output)
+
     def test_with_upstream_anchors_the_cone_when_cadences_align(self):
         downstream = _saved_query_node(self.team, self.dag, "report", NodeType.MAT_VIEW)
         Edge.objects.create(team=self.team, dag=self.dag, source=self.matview, target=downstream)
@@ -120,6 +143,7 @@ class TestSetScheduleAnchor(BaseTest):
             (["--dag-id", str(self.dag.id)], "exactly one of --at"),
             (["--dag-id", str(self.dag.id), "--at", "00:00", "--clear"], "exactly one of --at"),
             (["--dag-id", str(self.dag.id), "--at", "24:00"], "HH:MM"),
+            (["--dag-id", str(self.dag.id), "--clear", "--on", "monday"], "no effect with --clear"),
         ]:
             with self.assertRaisesRegex(CommandError, message):
                 self._run(*args)
