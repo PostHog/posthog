@@ -214,17 +214,17 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                 onClick: () => resumeMaterialization(),
                                 loading: resumingMaterialization,
                                 disabledReason: materializationAccessReason || undefined,
+                                tooltip: 'If the query keeps failing, it will pause again.',
                             }}
                         >
                             <div data-attr="materialization-suspended-banner">
                                 <div>
                                     Scheduled runs are paused for this {kind === 'endpoint' ? 'endpoint' : 'view'}{' '}
-                                    because materialization kept failing. Fix the query, then resume. If runs keep
-                                    failing, it will pause again.
+                                    because materialization kept failing. Fix the query, then resume.
                                 </div>
                                 <Tooltip title={suspension.reason} interactive>
                                     <div className="mt-1 text-xs font-normal line-clamp-2">
-                                        Paused {humanFriendlyDetailedTime(suspension.at)}. Error: {suspension.reason}
+                                        Paused {humanFriendlyDetailedTime(suspension.at)} · {suspension.reason}
                                     </div>
                                 </Tooltip>
                             </div>
@@ -235,7 +235,7 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                             <div>
                                 {savedQuery?.last_run_at ? (
                                     `Last run at ${humanFriendlyDetailedTime(savedQuery?.last_run_at)}`
-                                ) : (
+                                ) : showSuspendedBanner ? null : (
                                     <div>
                                         <span>Materialization scheduled</span>
                                     </div>
