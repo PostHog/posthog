@@ -177,6 +177,13 @@ export const DEFAULT_AUTO_PREVIEW_TILE_LIMIT = 10
 
 const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
 
+// A refresh that was rejected (concurrency limit, server-side calculation error) still resolves with an
+// insight-shaped payload: no result, an errored query_status. Committing it to the dashboard would wipe
+// the tile's existing data and render as an empty insight instead of an error.
+export function isRefreshRejectionStub(insight: QueryBasedInsightModel): boolean {
+    return !!insight.query_status?.error && insight.result == null
+}
+
 function staleAgeMinutes(effectiveLastRefresh: Dayjs | null): number | null {
     if (!effectiveLastRefresh) {
         return null

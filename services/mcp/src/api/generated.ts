@@ -666,6 +666,8 @@ export namespace Schemas {
       sessionTableVersion?: SessionTableVersion | null;
       sessionsV2JoinMode?: SessionsV2JoinMode | null;
       timings?: boolean | null;
+      /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
+      typeAwareCastSimplification?: boolean | null;
       useMaterializedViews?: boolean | null;
       usePreaggregatedIntermediateResults?: boolean | null;
       /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
@@ -4553,6 +4555,8 @@ export namespace Schemas {
     }
 
     export interface ActorsQuery {
+      /** Exclude persons matching the team's "internal and test account" filters. Only person-scoped filters (person properties, cohorts) are applied. Event-scoped test account filters have no meaning in a persons query and are ignored. */
+      filterTestAccounts?: boolean | null;
       /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
       fixedProperties?: (PersonPropertyFilter | PersonMetadataPropertyFilter | CohortPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter)[] | null;
       kind?: 'ActorsQuery';
@@ -8798,6 +8802,27 @@ export namespace Schemas {
     }
 
     /**
+     * * `email` - email
+     * * `destination` - destination
+     */
+    export type FailedDeliveryChannelsEnum = typeof FailedDeliveryChannelsEnum[keyof typeof FailedDeliveryChannelsEnum];
+
+
+    export const FailedDeliveryChannelsEnum = {
+      Email: 'email',
+      Destination: 'destination',
+    } as const;
+
+    export interface AlertTestDeliveryResponse {
+      /** Number of active destinations queued for test delivery. */
+      destination_count: number;
+      /** Number of subscribed users sent a test email. */
+      email_recipient_count: number;
+      /** Configured delivery channels that failed to schedule or send. */
+      failed_delivery_channels: FailedDeliveryChannelsEnum[];
+    }
+
+    /**
      * * `trace` - trace
      * * `generation` - generation
      * * `evaluation` - evaluation
@@ -12751,6 +12776,31 @@ export namespace Schemas {
       Warning: 'warning',
     } as const;
 
+    /**
+     * * `not_linked` - not_linked
+     * * `name_collision` - name_collision
+     * * `no_tagged_events` - no_tagged_events
+     * * `unknown_source` - unknown_source
+     * * `missing_source` - missing_source
+     */
+    export type UtmIssueKindEnum = typeof UtmIssueKindEnum[keyof typeof UtmIssueKindEnum];
+
+
+    export const UtmIssueKindEnum = {
+      NotLinked: 'not_linked',
+      NameCollision: 'name_collision',
+      NoTaggedEvents: 'no_tagged_events',
+      UnknownSource: 'unknown_source',
+      MissingSource: 'missing_source',
+    } as const;
+
+    export interface UtmAlternativeSource {
+      /** A utm_source value found on this campaign's pageviews */
+      utm_source: string;
+      /** Number of pageview events with this utm_source */
+      event_count: number;
+    }
+
     export interface UtmIssue {
       /** The UTM field with the issue (e.g. utm_campaign, utm_source) */
       field: string;
@@ -12759,8 +12809,22 @@ export namespace Schemas {
        * * `error` - error
        * * `warning` - warning */
       severity: UtmIssueSeverityEnum;
-      /** Human-readable description of the issue */
+      /** Which kind of UTM problem this campaign has
+       *
+       * * `not_linked` - not_linked
+       * * `name_collision` - name_collision
+       * * `no_tagged_events` - no_tagged_events
+       * * `unknown_source` - unknown_source
+       * * `missing_source` - missing_source */
+      kind: UtmIssueKindEnum;
+      /** Human-readable headline; the frontend composes richer text from the fields below */
       message: string;
+      /** utm_source values actually found on this campaign's pageviews, ordered by event count */
+      alternative_sources: UtmAlternativeSource[];
+      /** Other integrations whose campaigns share this campaign's name (name_collision only) */
+      shared_with_integrations: string[];
+      /** Pageviews that matched this campaign but carried no utm_source, on any issue kind */
+      missing_source_count: number;
     }
 
     export interface CampaignAuditResult {
@@ -13928,6 +13992,7 @@ export namespace Schemas {
 
     export interface CohortFilters {
       properties: CohortFilterGroup;
+      filterTestAccounts?: boolean | null;
     }
 
     /**
@@ -14548,13 +14613,31 @@ export namespace Schemas {
       images?: ConversationsTicketImage[] | null;
     }
 
+    /**
+     * * `EventsNode` - EventsNode
+     * * `ActionsNode` - ActionsNode
+     * * `DataWarehouseNode` - DataWarehouseNode
+     */
+    export type ConversionGoalKindEnum = typeof ConversionGoalKindEnum[keyof typeof ConversionGoalKindEnum];
+
+
+    export const ConversionGoalKindEnum = {
+      EventsNode: 'EventsNode',
+      ActionsNode: 'ActionsNode',
+      DataWarehouseNode: 'DataWarehouseNode',
+    } as const;
+
     export interface ConversionGoalSummary {
       /** Unique id of the goal (event name, action id, or DW goal id) */
       id: string;
       /** Display name of the conversion goal */
       name: string;
-      /** Goal type — one of: EventsNode (PostHog event), ActionsNode (PostHog action), DataWarehouseNode (external table) */
-      kind: string;
+      /** Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)
+       *
+       * * `EventsNode` - EventsNode
+       * * `ActionsNode` - ActionsNode
+       * * `DataWarehouseNode` - DataWarehouseNode */
+      kind: ConversionGoalKindEnum;
       /** Human-readable target the goal matches (event/action name or table) */
       target_label: string;
       /** Count of matching conversion events in the last 30 days */
@@ -16534,6 +16617,20 @@ export namespace Schemas {
 
     export type DataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
 
+    export interface SavedQuerySuspension {
+      /** When materialization was suspended. */
+      at: string;
+      /** Error from the materialization run that tripped suspension. */
+      reason: string;
+      /** Materialization job that tripped suspension. */
+      job_id: string;
+    }
+
+    /**
+     * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+     */
+    export type DataWarehouseSavedQuerySuspended = {[key: string]: SavedQuerySuspension};
+
     /**
      * * `never` - never
      * * `15min` - 15min
@@ -16691,6 +16788,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+      readonly suspended: DataWarehouseSavedQuerySuspended;
     }
 
     /**
@@ -18381,6 +18480,17 @@ export namespace Schemas {
      * * `DuckLake` - DuckLake
      * * `Starburst` - Starburst
      * * `Easybill` - Easybill
+     * * `Bexio` - Bexio
+     * * `Umami` - Umami
+     * * `Manychat` - Manychat
+     * * `Kickstarter` - Kickstarter
+     * * `Typesense` - Typesense
+     * * `FirstPromoter` - FirstPromoter
+     * * `Zero` - Zero
+     * * `Inth` - Inth
+     * * `BCMS` - BCMS
+     * * `Convonite` - Convonite
+     * * `Hookdeck` - Hookdeck
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -19640,6 +19750,17 @@ export namespace Schemas {
       DuckLake: 'DuckLake',
       Starburst: 'Starburst',
       Easybill: 'Easybill',
+      Bexio: 'Bexio',
+      Umami: 'Umami',
+      Manychat: 'Manychat',
+      Kickstarter: 'Kickstarter',
+      Typesense: 'Typesense',
+      FirstPromoter: 'FirstPromoter',
+      Zero: 'Zero',
+      Inth: 'Inth',
+      Bcms: 'BCMS',
+      Convonite: 'Convonite',
+      Hookdeck: 'Hookdeck',
     } as const;
 
     /**
@@ -20912,7 +21033,18 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
-       * * `Easybill` - Easybill */
+       * * `Easybill` - Easybill
+       * * `Bexio` - Bexio
+       * * `Umami` - Umami
+       * * `Manychat` - Manychat
+       * * `Kickstarter` - Kickstarter
+       * * `Typesense` - Typesense
+       * * `FirstPromoter` - FirstPromoter
+       * * `Zero` - Zero
+       * * `Inth` - Inth
+       * * `BCMS` - BCMS
+       * * `Convonite` - Convonite
+       * * `Hookdeck` - Hookdeck */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -22619,7 +22751,18 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
-       * * `Easybill` - Easybill */
+       * * `Easybill` - Easybill
+       * * `Bexio` - Bexio
+       * * `Umami` - Umami
+       * * `Manychat` - Manychat
+       * * `Kickstarter` - Kickstarter
+       * * `Typesense` - Typesense
+       * * `FirstPromoter` - FirstPromoter
+       * * `Zero` - Zero
+       * * `Inth` - Inth
+       * * `BCMS` - BCMS
+       * * `Convonite` - Convonite
+       * * `Hookdeck` - Hookdeck */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -23263,57 +23406,15 @@ export namespace Schemas {
     }
 
     /**
-     * * `workflow` - Workflow
-     * * `team` - Team
+     * Bounce/complaint rates over the last 30 days of workflow email, computed on the fly from app metrics.
      */
-    export type EmailReputationScopeEnum = typeof EmailReputationScopeEnum[keyof typeof EmailReputationScopeEnum];
-
-
-    export const EmailReputationScopeEnum = {
-      Workflow: 'workflow',
-      Team: 'team',
-    } as const;
-
-    /**
-     * * `insufficient_data` - Insufficient Data
-     * * `healthy` - Healthy
-     * * `warning` - Warning
-     * * `critical` - Critical
-     */
-    export type EmailReputationStateEnum = typeof EmailReputationStateEnum[keyof typeof EmailReputationStateEnum];
-
-
-    export const EmailReputationStateEnum = {
-      InsufficientData: 'insufficient_data',
-      Healthy: 'healthy',
-      Warning: 'warning',
-      Critical: 'critical',
-    } as const;
-
-    /**
-     * One email deliverability reputation snapshot (per workflow or per team, per daily evaluation run).
-     */
-    export interface EmailReputationSnapshot {
-      /** 'workflow' for a single workflow's reputation, 'team' for the project-wide aggregate.
-       *
-       * * `workflow` - Workflow
-       * * `team` - Team */
-      readonly scope: EmailReputationScopeEnum;
-      /** 'insufficient_data' (too few sends in the window to judge), 'healthy', 'warning' (over a warning threshold), or 'critical' (over a critical threshold).
-       *
-       * * `insufficient_data` - Insufficient Data
-       * * `healthy` - Healthy
-       * * `warning` - Warning
-       * * `critical` - Critical */
-      readonly state: EmailReputationStateEnum;
-      /** Hard (permanent) bounces / emails sent over the evaluated volume (0-1), matching AWS's account bounce rate — transient bounces are excluded. */
+    export interface EmailSendingRates {
+      /** Hard (permanent) bounces / emails sent over the last 30 days (0-1), matching how AWS counts its bounce rate — transient bounces (greylisting, mailbox full) are excluded. Bounces are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
       readonly bounce_rate: number;
-      /** Spam complaints / emails sent over the evaluated volume (0-1). */
+      /** Spam complaints / emails sent over the last 30 days (0-1). Complaints are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
       readonly complaint_rate: number;
-      /** Emails in the evaluated window: at least the target's last day of sends and at least the configured representative volume (SES-style), whichever covers more. 0 means no recent sending. */
+      /** Emails sent in the last 30 days. */
       readonly emails_sent: number;
-      /** When this snapshot was computed; one snapshot exists per target per run. */
-      readonly evaluated_at: string;
     }
 
     /**
@@ -23554,7 +23655,7 @@ export namespace Schemas {
        * * `requires_human_input` - requires_human_input
        * * `not_actionable` - not_actionable */
       actionability: ActionabilityEnum;
-      /** Whether the issue already appears fixed in recent changes (tracked separately). */
+      /** Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Gates autostart, so a wrong `false` opens a duplicate PR. Tracked separately. */
       already_addressed?: boolean;
       /**
          * Optional repo for autostart (opening a draft PR): `owner/repo` targets that repo, the `NO_REPO` sentinel opts out (report lands without a PR), and omitting it triggers free-form selection across the team's repos — the slow path on a many-repo team, so pass `owner/repo` when you know it.
@@ -25570,7 +25671,7 @@ export namespace Schemas {
 
     /**
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
-     * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
      * * `gemini-3.6-flash` - Gemini 3.6 Flash
      */
     export type ScannerModelEnum = typeof ScannerModelEnum[keyof typeof ScannerModelEnum];
@@ -25608,7 +25709,7 @@ export namespace Schemas {
       /** Proposed model; determines `credits_per_observation` in the response.
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
-       * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
+       * * `gemini-3-flash-preview` - Gemini 3 Flash
        * * `gemini-3.6-flash` - Gemini 3.6 Flash */
       model?: ScannerModelEnum;
     }
@@ -26319,6 +26420,20 @@ export namespace Schemas {
       na_patterns: EvaluationPattern[];
       recommendations: string[];
       statistics: EvaluationSummaryStatistics;
+    }
+
+    export interface EvaluationSummaryThrottleResponse {
+      /** Error category */
+      type: string;
+      /** Machine-readable error code */
+      code: string;
+      /** Why the request was throttled */
+      detail: string;
+      /**
+         * Related request field, when applicable
+         * @nullable
+         */
+      attr: string | null;
     }
 
     export interface EventDefinitionBasic {
@@ -28362,7 +28477,6 @@ export namespace Schemas {
 
     /**
      * * `never` - never
-     * * `1min` - 1min
      * * `5min` - 5min
      * * `15min` - 15min
      * * `30min` - 30min
@@ -28373,12 +28487,11 @@ export namespace Schemas {
      * * `7day` - 7day
      * * `30day` - 30day
      */
-    export type SyncFrequencyEnum = typeof SyncFrequencyEnum[keyof typeof SyncFrequencyEnum];
+    export type ExternalDataSchemaSyncFrequencyEnum = typeof ExternalDataSchemaSyncFrequencyEnum[keyof typeof ExternalDataSchemaSyncFrequencyEnum];
 
 
-    export const SyncFrequencyEnum = {
+    export const ExternalDataSchemaSyncFrequencyEnum = {
       Never: 'never',
-      '1min': '1min',
       '5min': '5min',
       '15min': '15min',
       '30min': '30min',
@@ -28451,10 +28564,9 @@ export namespace Schemas {
          * @nullable
          */
       incremental_field_lookback_seconds?: number | null;
-      /** How often to sync.
+      /** How often to sync. The fastest sync frequency is 5 minutes.
        *
        * * `never` - never
-       * * `1min` - 1min
        * * `5min` - 5min
        * * `15min` - 15min
        * * `30min` - 30min
@@ -28464,7 +28576,7 @@ export namespace Schemas {
        * * `24hour` - 24hour
        * * `7day` - 7day
        * * `30day` - 30day */
-      sync_frequency?: SyncFrequencyEnum | null;
+      sync_frequency?: ExternalDataSchemaSyncFrequencyEnum | null;
       /**
          * UTC time of day to run the sync (HH:MM:SS).
          * @nullable
@@ -29840,7 +29952,18 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
-       * * `Easybill` - Easybill */
+       * * `Easybill` - Easybill
+       * * `Bexio` - Bexio
+       * * `Umami` - Umami
+       * * `Manychat` - Manychat
+       * * `Kickstarter` - Kickstarter
+       * * `Typesense` - Typesense
+       * * `FirstPromoter` - FirstPromoter
+       * * `Zero` - Zero
+       * * `Inth` - Inth
+       * * `BCMS` - BCMS
+       * * `Convonite` - Convonite
+       * * `Hookdeck` - Hookdeck */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -31131,7 +31254,18 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
-       * * `Easybill` - Easybill */
+       * * `Easybill` - Easybill
+       * * `Bexio` - Bexio
+       * * `Umami` - Umami
+       * * `Manychat` - Manychat
+       * * `Kickstarter` - Kickstarter
+       * * `Typesense` - Typesense
+       * * `FirstPromoter` - FirstPromoter
+       * * `Zero` - Zero
+       * * `Inth` - Inth
+       * * `BCMS` - BCMS
+       * * `Convonite` - Convonite
+       * * `Hookdeck` - Hookdeck */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -31314,6 +31448,13 @@ export namespace Schemas {
       Success: 'success',
       Error: 'error',
     } as const;
+
+    export interface FacetCount {
+      /** The facet value as emitted by the summarizer (lowercased). */
+      term: string;
+      /** Number of succeeded observations that emitted this value. */
+      count: number;
+    }
 
     /**
      * * `severity_text` - severity_text
@@ -32545,8 +32686,12 @@ export namespace Schemas {
       goal_id: string;
       /** Display name of the conversion goal */
       goal_name: string;
-      /** EventsNode/ActionsNode/DataWarehouseNode */
-      kind: string;
+      /** Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)
+       *
+       * * `EventsNode` - EventsNode
+       * * `ActionsNode` - ActionsNode
+       * * `DataWarehouseNode` - DataWarehouseNode */
+      kind: ConversionGoalKindEnum;
       /** The period the breakdown was computed over */
       period: GoalExplanationPeriod;
       /** Total matching conversion events in the period */
@@ -32593,6 +32738,16 @@ export namespace Schemas {
       samples: GoalEventSample[];
       /** Caveats about the breakdown (sampling, attribution, etc.) */
       notes: string[];
+    }
+
+    export interface GoogleSearchConsoleSearchOpportunitySignalExtra {
+      page: string;
+      query: string;
+      date: string;
+      clicks: number;
+      impressions: number;
+      ctr: number;
+      position: number;
     }
 
     export interface GorgiasTicketSignalExtra {
@@ -33719,6 +33874,7 @@ export namespace Schemas {
      * * `warehouse_source_webhook` - Warehouse Source Webhook
      * * `site_app` - Site App
      * * `transformation` - Transformation
+     * * `transformation_log` - Transformation Log
      */
     export type HogFunctionTypeEnum = typeof HogFunctionTypeEnum[keyof typeof HogFunctionTypeEnum];
 
@@ -33731,6 +33887,7 @@ export namespace Schemas {
       WarehouseSourceWebhook: 'warehouse_source_webhook',
       SiteApp: 'site_app',
       Transformation: 'transformation',
+      TransformationLog: 'transformation_log',
     } as const;
 
     /**
@@ -33923,7 +34080,7 @@ export namespace Schemas {
 
     export interface HogFunction {
       readonly id: string;
-      /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
+      /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.
        *
        * * `destination` - Destination
        * * `site_destination` - Site Destination
@@ -33931,7 +34088,8 @@ export namespace Schemas {
        * * `source_webhook` - Source Webhook
        * * `warehouse_source_webhook` - Warehouse Source Webhook
        * * `site_app` - Site App
-       * * `transformation` - Transformation */
+       * * `transformation` - Transformation
+       * * `transformation_log` - Transformation Log */
       type?: HogFunctionTypeEnum | null;
       /**
          * Display name for the function.
@@ -37055,6 +37213,12 @@ export namespace Schemas {
       models: LLMModelInfo[];
     }
 
+    /**
+     * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
+     * @nullable
+     */
+    export type LLMPromptConfig = { [key: string]: unknown } | null;
+
     export interface LLMPromptOutlineEntry {
       /**
          * Markdown heading level (1-6).
@@ -37075,6 +37239,11 @@ export namespace Schemas {
       name: string;
       /** Prompt payload as JSON or string data. */
       prompt: unknown;
+      /**
+         * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
+         * @nullable
+         */
+      config?: LLMPromptConfig;
       readonly version: number;
       /**
          * Optional note describing what changed in this version. Set when the version is published.
@@ -37131,12 +37300,23 @@ export namespace Schemas {
       version: number;
     }
 
+    /**
+     * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
+     * @nullable
+     */
+    export type LLMPromptListConfig = { [key: string]: unknown } | null;
+
     export interface LLMPromptList {
       readonly id: string;
       /** Unique prompt name using letters, numbers, hyphens, and underscores only. */
       readonly name: string;
       /** Prompt payload as JSON or string data. */
       readonly prompt: unknown;
+      /**
+         * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
+         * @nullable
+         */
+      config?: LLMPromptListConfig;
       readonly version: number;
       /**
          * Optional note describing what changed in this version. Set when the version is published.
@@ -37161,11 +37341,22 @@ export namespace Schemas {
       readonly all_labels: readonly LLMPromptLabelSummary[];
     }
 
+    /**
+     * JSON object with model parameters or any agent configuration stored with this version, or null when the version has none. Omitted when 'content=preview' or 'content=none'.
+     * @nullable
+     */
+    export type LLMPromptPublicConfig = { [key: string]: unknown } | null;
+
     export interface LLMPromptPublic {
       id: string;
       name: string;
       /** Full prompt content. Omitted when 'content=preview' or 'content=none'. */
       prompt?: unknown;
+      /**
+         * JSON object with model parameters or any agent configuration stored with this version, or null when the version has none. Omitted when 'content=preview' or 'content=none'.
+         * @nullable
+         */
+      config?: LLMPromptPublicConfig;
       /** First 160 characters of the prompt. Only present when 'content=preview'. */
       prompt_preview?: string;
       /** Flat list of markdown headings parsed from the prompt. Useful as a lightweight table of contents. */
@@ -39296,14 +39487,29 @@ export namespace Schemas {
       readonly computed_with: MCPIntentClusterSnapshotMeta | null;
     }
 
+    export interface MCPIntentTheme {
+      /** Short sentence-case name for this group of intents. */
+      readonly name: string;
+      /** One concrete sentence describing what agents in this theme are doing. */
+      readonly description: string;
+      /** How many of the analysed intents the LLM assigned to this theme, counted from the corpus rather than reported by the LLM. Each intent belongs to at most one theme, so these never sum to more than the digest's intent_count. */
+      readonly intent_count: number;
+      /** One of this theme's intents, verbatim from the corpus. */
+      readonly example_intent: string;
+      /** The MCP tool names recorded alongside this theme's intents, sorted, taken from the corpus. */
+      readonly tools: readonly string[];
+    }
+
     export interface MCPIntentDigest {
       /**
-         * LLM-generated digest (at most three sentences) of what agents are trying to do with this MCP server, derived from the most recent recorded $mcp_intents across all sessions. Null when the project has no recorded intents yet.
+         * LLM-generated one-sentence summary of what agents are trying to do with this MCP server, derived from the most recent recorded $mcp_intents across all sessions. Null when the project has no recorded intents yet.
          * @nullable
          */
       readonly digest: string | null;
       /** How many recorded intents (the most recent, capped at 100) the digest was derived from. */
       readonly intent_count: number;
+      /** Up to 5 semantic groupings of the analysed intents, largest first. May be empty when the digest is null, or when none of the LLM's groupings resolved to recorded intents. */
+      readonly themes: readonly MCPIntentTheme[];
     }
 
     export interface MCPMissingCapabilityCreate {
@@ -40954,6 +41160,17 @@ export namespace Schemas {
       histogram: ScorerHistogram | null;
     }
 
+    export interface SummarizerStats {
+      /** Top friction points by emission count. */
+      friction_ranked: FacetCount[];
+      /** Top keywords by emission count. */
+      keyword_ranked: FacetCount[];
+      /** Succeeded observations that emitted at least one friction point or keyword. */
+      total_with_facets: number;
+      /** Succeeded observations that reported at least one friction point. */
+      total_with_friction: number;
+    }
+
     export interface ObservationStats {
       /** Counts of observations by terminal status. */
       status_counts: ObservationStatusCounts;
@@ -40969,6 +41186,8 @@ export namespace Schemas {
       classifier: ClassifierStats | null;
       /** Scorer-type aggregates; null when the scanner is not a scorer. */
       scorer: ScorerStats | null;
+      /** Summarizer-type facet aggregates; null when the scanner is not a summarizer. */
+      summarizer: SummarizerStats | null;
     }
 
     /**
@@ -43666,7 +43885,7 @@ export namespace Schemas {
       /** Concrete model to use for this scanner.
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
-       * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
+       * * `gemini-3-flash-preview` - Gemini 3 Flash
        * * `gemini-3.6-flash` - Gemini 3.6 Flash */
       model: ScannerModelEnum;
       /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
@@ -44577,7 +44796,7 @@ export namespace Schemas {
          */
       readonly actionability: string | null;
       /**
-         * Whether the issue appears already fixed, from the actionability judgment artefact.
+         * Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task) — from the actionability judgment artefact.
          * @nullable
          */
       readonly already_addressed: boolean | null;
@@ -44676,6 +44895,7 @@ export namespace Schemas {
      * * `intercom` - Intercom
      * * `hubspot` - HubSpot
      * * `engineering_analytics` - Engineering analytics
+     * * `google_search_console` - Google Search Console
      */
     export type SignalSourceConfigSourceProductEnum = typeof SignalSourceConfigSourceProductEnum[keyof typeof SignalSourceConfigSourceProductEnum];
 
@@ -44729,6 +44949,7 @@ export namespace Schemas {
       Intercom: 'intercom',
       Hubspot: 'hubspot',
       EngineeringAnalytics: 'engineering_analytics',
+      GoogleSearchConsole: 'google_search_console',
     } as const;
 
     /**
@@ -46784,6 +47005,8 @@ export namespace Schemas {
       passkeys_enabled_for_2fa?: boolean | null;
       /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
       hide_mcp_hints?: boolean;
+      /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+      ui_configuration?: unknown;
       /** @nullable */
       readonly onboarding_skipped_at: string | null;
       readonly onboarding_skipped_reason: OnboardingSkippedReasonEnum | null;
@@ -48276,6 +48499,11 @@ export namespace Schemas {
     export type PatchedDataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
 
     /**
+     * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+     */
+    export type PatchedDataWarehouseSavedQuerySuspended = {[key: string]: SavedQuerySuspension};
+
+    /**
      * Shared methods for DataWarehouseSavedQuery serializers.
      *
      * This mixin is intended to be used with serializers.ModelSerializer subclasses.
@@ -48374,6 +48602,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
+      /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+      readonly suspended?: PatchedDataWarehouseSavedQuerySuspended;
     }
 
     /**
@@ -49471,10 +49701,9 @@ export namespace Schemas {
          * @nullable
          */
       incremental_field_lookback_seconds?: number | null;
-      /** How often to sync.
+      /** How often to sync. The fastest sync frequency is 5 minutes.
        *
        * * `never` - never
-       * * `1min` - 1min
        * * `5min` - 5min
        * * `15min` - 15min
        * * `30min` - 30min
@@ -49484,7 +49713,7 @@ export namespace Schemas {
        * * `24hour` - 24hour
        * * `7day` - 7day
        * * `30day` - 30day */
-      sync_frequency?: SyncFrequencyEnum | null;
+      sync_frequency?: ExternalDataSchemaSyncFrequencyEnum | null;
       /**
          * UTC time of day to run the sync (HH:MM:SS).
          * @nullable
@@ -50075,7 +50304,7 @@ export namespace Schemas {
 
     export interface PatchedHogFunction {
       readonly id?: string;
-      /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
+      /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.
        *
        * * `destination` - Destination
        * * `site_destination` - Site Destination
@@ -50083,7 +50312,8 @@ export namespace Schemas {
        * * `source_webhook` - Source Webhook
        * * `warehouse_source_webhook` - Warehouse Source Webhook
        * * `site_app` - Site App
-       * * `transformation` - Transformation */
+       * * `transformation` - Transformation
+       * * `transformation_log` - Transformation Log */
       type?: HogFunctionTypeEnum | null;
       /**
          * Display name for the function.
@@ -50404,11 +50634,22 @@ export namespace Schemas {
       js_snippet_version?: string | null;
     }
 
+    /**
+     * JSON object with model parameters or any agent configuration to store with this version. If omitted, the current version's config is carried forward; pass null to clear it. Can be combined with either prompt or edits. Don't store secrets here: config is returned to anyone who can read the prompt.
+     * @nullable
+     */
+    export type PatchedLLMPromptPublishConfig = { [key: string]: unknown } | null;
+
     export interface PatchedLLMPromptPublish {
       /** Full prompt payload to publish as a new version. Mutually exclusive with edits. */
       prompt?: unknown;
       /** List of find/replace operations to apply to the current prompt version. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with prompt. */
       edits?: LLMPromptEditOperation[];
+      /**
+         * JSON object with model parameters or any agent configuration to store with this version. If omitted, the current version's config is carried forward; pass null to clear it. Can be combined with either prompt or edits. Don't store secrets here: config is returned to anyone who can read the prompt.
+         * @nullable
+         */
+      config?: PatchedLLMPromptPublishConfig;
       /**
          * Latest version you are editing from. Used for optimistic concurrency checks.
          * @minimum 1
@@ -52399,7 +52640,7 @@ export namespace Schemas {
       /** Concrete model to use for this scanner.
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
-       * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
+       * * `gemini-3-flash-preview` - Gemini 3 Flash
        * * `gemini-3.6-flash` - Gemini 3.6 Flash */
       model?: ScannerModelEnum;
       /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
@@ -54577,6 +54818,8 @@ export namespace Schemas {
       passkeys_enabled_for_2fa?: boolean | null;
       /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
       hide_mcp_hints?: boolean;
+      /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+      ui_configuration?: unknown;
       /** @nullable */
       readonly onboarding_skipped_at?: string | null;
       readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnum | null;
@@ -55133,6 +55376,11 @@ export namespace Schemas {
       tabs?: PinnedSceneTab[];
       /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
       homepage?: PinnedSceneTab | null;
+    }
+
+    export interface PinnedTaskIdsResponse {
+      /** Visible task IDs pinned by the requester, newest pin first. */
+      task_ids: string[];
     }
 
     export interface PlainThreadSignalExtra {
@@ -60135,6 +60383,7 @@ export namespace Schemas {
      * * `intercom` - intercom
      * * `hubspot` - hubspot
      * * `engineering_analytics` - engineering_analytics
+     * * `google_search_console` - google_search_console
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -60188,6 +60437,7 @@ export namespace Schemas {
       Intercom: 'intercom',
       Hubspot: 'hubspot',
       EngineeringAnalytics: 'engineering_analytics',
+      GoogleSearchConsole: 'google_search_console',
     } as const;
 
     /**
@@ -60212,6 +60462,7 @@ export namespace Schemas {
      * * `ci_flaky_check` - ci_flaky_check
      * * `ci_broken_default_branch` - ci_broken_default_branch
      * * `ci_duration_regression` - ci_duration_regression
+     * * `search_opportunity` - search_opportunity
      */
     export type SignalSourceType = typeof SignalSourceType[keyof typeof SignalSourceType];
 
@@ -60238,6 +60489,7 @@ export namespace Schemas {
       CiFlakyCheck: 'ci_flaky_check',
       CiBrokenDefaultBranch: 'ci_broken_default_branch',
       CiDurationRegression: 'ci_duration_regression',
+      SearchOpportunity: 'search_opportunity',
     } as const;
 
     export interface SessionProblemEventEntry {
@@ -60362,7 +60614,7 @@ export namespace Schemas {
       createdDate: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -60420,7 +60672,8 @@ export namespace Schemas {
        * * `judgeme_reviews` - judgeme_reviews
        * * `intercom` - intercom
        * * `hubspot` - hubspot
-       * * `engineering_analytics` - engineering_analytics */
+       * * `engineering_analytics` - engineering_analytics
+       * * `google_search_console` - google_search_console */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
@@ -60444,7 +60697,8 @@ export namespace Schemas {
        * * `review` - review
        * * `ci_flaky_check` - ci_flaky_check
        * * `ci_broken_default_branch` - ci_broken_default_branch
-       * * `ci_duration_regression` - ci_duration_regression */
+       * * `ci_duration_regression` - ci_duration_regression
+       * * `search_opportunity` - search_opportunity */
       source_type: SignalSourceType;
       /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
       source_id: string;
@@ -61692,7 +61946,7 @@ export namespace Schemas {
          * @nullable
          */
       created_by_name: string | null;
-      /** Where the note came from: `human` for one left directly through this API, or `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports. A `report_dismissal` note is one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. */
+      /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. */
       origin: string;
     }
 
@@ -64229,7 +64483,18 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
-       * * `Easybill` - Easybill */
+       * * `Easybill` - Easybill
+       * * `Bexio` - Bexio
+       * * `Umami` - Umami
+       * * `Manychat` - Manychat
+       * * `Kickstarter` - Kickstarter
+       * * `Typesense` - Typesense
+       * * `FirstPromoter` - FirstPromoter
+       * * `Zero` - Zero
+       * * `Inth` - Inth
+       * * `BCMS` - BCMS
+       * * `Convonite` - Convonite
+       * * `Hookdeck` - Hookdeck */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -65528,7 +65793,18 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
-       * * `Easybill` - Easybill */
+       * * `Easybill` - Easybill
+       * * `Bexio` - Bexio
+       * * `Umami` - Umami
+       * * `Manychat` - Manychat
+       * * `Kickstarter` - Kickstarter
+       * * `Typesense` - Typesense
+       * * `FirstPromoter` - FirstPromoter
+       * * `Zero` - Zero
+       * * `Inth` - Inth
+       * * `BCMS` - BCMS
+       * * `Convonite` - Convonite
+       * * `Hookdeck` - Hookdeck */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -66819,7 +67095,18 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
-       * * `Easybill` - Easybill */
+       * * `Easybill` - Easybill
+       * * `Bexio` - Bexio
+       * * `Umami` - Umami
+       * * `Manychat` - Manychat
+       * * `Kickstarter` - Kickstarter
+       * * `Typesense` - Typesense
+       * * `FirstPromoter` - FirstPromoter
+       * * `Zero` - Zero
+       * * `Inth` - Inth
+       * * `BCMS` - BCMS
+       * * `Convonite` - Convonite
+       * * `Hookdeck` - Hookdeck */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -68366,6 +68653,18 @@ export namespace Schemas {
       runtime?: RuntimeEnum;
     }
 
+    export interface TaskPinRequest {
+      /** Whether the task should be pinned for the requester. */
+      pinned: boolean;
+    }
+
+    export interface TaskPinResponse {
+      /** Task whose pin state was updated. */
+      task_id: string;
+      /** Current pin state for the requester. */
+      pinned: boolean;
+    }
+
     /**
      * Request body for the presence beacon and beacon-leave endpoints.
      *
@@ -69628,45 +69927,26 @@ export namespace Schemas {
     }
 
     /**
-     * A workflow-scoped reputation snapshot, annotated with the workflow it belongs to.
+     * Bounce/complaint rates over the last 30 days of workflow email, computed on the fly from app metrics.
      */
-    export interface WorkflowEmailReputationSnapshot {
-      /** 'workflow' for a single workflow's reputation, 'team' for the project-wide aggregate.
-       *
-       * * `workflow` - Workflow
-       * * `team` - Team */
-      readonly scope: EmailReputationScopeEnum;
-      /** 'insufficient_data' (too few sends in the window to judge), 'healthy', 'warning' (over a warning threshold), or 'critical' (over a critical threshold).
-       *
-       * * `insufficient_data` - Insufficient Data
-       * * `healthy` - Healthy
-       * * `warning` - Warning
-       * * `critical` - Critical */
-      readonly state: EmailReputationStateEnum;
-      /** Hard (permanent) bounces / emails sent over the evaluated volume (0-1), matching AWS's account bounce rate — transient bounces are excluded. */
+    export interface WorkflowEmailSendingRates {
+      /** Hard (permanent) bounces / emails sent over the last 30 days (0-1), matching how AWS counts its bounce rate — transient bounces (greylisting, mailbox full) are excluded. Bounces are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
       readonly bounce_rate: number;
-      /** Spam complaints / emails sent over the evaluated volume (0-1). */
+      /** Spam complaints / emails sent over the last 30 days (0-1). Complaints are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
       readonly complaint_rate: number;
-      /** Emails in the evaluated window: at least the target's last day of sends and at least the configured representative volume (SES-style), whichever covers more. 0 means no recent sending. */
+      /** Emails sent in the last 30 days. */
       readonly emails_sent: number;
-      /** When this snapshot was computed; one snapshot exists per target per run. */
-      readonly evaluated_at: string;
-      /** The workflow this snapshot is for. */
+      /** The workflow these rates are for. */
       readonly hog_flow_id: string;
-      /**
-         * Display name of the workflow.
-         * @nullable
-         */
-      readonly hog_flow_name: string | null;
-      /** This workflow's snapshots from the last 7 days (oldest first, one per daily evaluation run), including the latest. */
-      readonly history: readonly EmailReputationSnapshot[];
+      /** Display name of the workflow; empty for unnamed workflows. */
+      readonly hog_flow_name: string;
     }
 
     export interface TeamEmailReputationResponse {
-      /** Latest project-wide email reputation snapshot across all workflows; null until first evaluated. */
-      readonly reputation: EmailReputationSnapshot | null;
-      /** Latest snapshot per workflow, worst state and highest rates first, capped at the worst 50 workflows. */
-      readonly workflows: readonly WorkflowEmailReputationSnapshot[];
+      /** Project-wide rates across all workflow email in the last 30 days (including sends from since-deleted workflows); null when nothing was sent. */
+      readonly reputation: EmailSendingRates | null;
+      /** Rates per workflow, worst first (complaint rate, then bounce rate), capped at the worst 50. */
+      readonly workflows: readonly WorkflowEmailSendingRates[];
       /** True while workflow email sending is suspended for this project to protect deliverability. */
       readonly email_sending_suspended: boolean;
       /**
@@ -70949,8 +71229,13 @@ export namespace Schemas {
       duration_seconds: number | null;
       /** Re-run attempt number; 1 for the first attempt. */
       run_attempt: number;
-      /** Attributed pull request number, or 0 when unattributed. */
+      /** Pull request this run ran for, from the run's own-repo PR association; 0 when unattributed (a default-branch push, or a fork PR). */
       pr_number: number;
+      /**
+         * Pull request whose merge produced this run's head commit, resolved through the merged pull request's merge commit and falling back to the commit subject's '(#NNNN)' suffix. Null when neither resolves. The only PR attribution a default-branch push has: read pr_number first and fall back to this.
+         * @nullable
+         */
+      commit_pr_number: number | null;
     }
 
     export interface WorkflowRunnerCost {
@@ -78569,7 +78854,7 @@ export namespace Schemas {
 
     export type LlmPromptsListParams = {
     /**
-     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
+     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The config field is only included with 'full'. The outline field is always included.
      *
      * * `full` - full
      * * `preview` - preview
@@ -78628,7 +78913,7 @@ export namespace Schemas {
 
     export type LlmPromptsNameRetrieveParams = {
     /**
-     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
+     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The config field is only included with 'full'. The outline field is always included.
      *
      * * `full` - full
      * * `preview` - preview

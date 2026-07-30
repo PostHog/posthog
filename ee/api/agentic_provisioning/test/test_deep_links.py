@@ -57,8 +57,7 @@ class TestDeepLinks(ProvisioningTestBase):
 
     def test_deep_link_denied_when_partner_not_allowed(self):
         token = self._get_bearer_token()
-        self.partner.provisioning_can_issue_deep_links = False
-        self.partner.save(update_fields=["provisioning_can_issue_deep_links"])
+        self.partner.update_provisioning(can_issue_deep_links=False)
         res = self._post_with_bearer(
             "/api/agentic/provisioning/deep_links",
             data={"purpose": "dashboard"},

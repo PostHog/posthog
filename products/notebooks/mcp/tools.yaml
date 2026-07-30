@@ -67,7 +67,8 @@ tools:
             "InsightVizNode", source: <TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery |
             LifecycleQuery>}` for product-analytics insights; or (c) `{kind: "SavedInsightNode", shortId: "..."}` to
             embed a saved insight. The server rejects other shapes and auto-corrects the common `InsightVizNode`
-            wrapping a SQL chart.
+            wrapping a SQL chart. Give every embedded node a short `attrs.title` saying what it shows — it renders in
+            the node's header and is what a reader skims instead of the query.
         exclude_params:
             - _create_in_folder
         feature_flag: revamped-py-notebooks
