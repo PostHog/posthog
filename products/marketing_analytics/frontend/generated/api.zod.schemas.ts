@@ -872,6 +872,15 @@ export const UtmIssueSeverityEnumApi = zod
 export type UtmIssueSeverityEnumApi = zod.input<typeof UtmIssueSeverityEnumApi>
 export type UtmIssueSeverityEnumApiOutput = zod.output<typeof UtmIssueSeverityEnumApi>
 
+export const UtmIssueKindEnumApi = zod
+    .enum(['not_linked', 'name_collision', 'no_tagged_events', 'unknown_source', 'missing_source'])
+    .describe(
+        '\* `not_linked` - not_linked\n\* `name_collision` - name_collision\n\* `no_tagged_events` - no_tagged_events\n\* `unknown_source` - unknown_source\n\* `missing_source` - missing_source'
+    )
+
+export type UtmIssueKindEnumApi = zod.input<typeof UtmIssueKindEnumApi>
+export type UtmIssueKindEnumApiOutput = zod.output<typeof UtmIssueKindEnumApi>
+
 export const UtmAlternativeSourceApi = zod.object({
     utm_source: zod.string().describe("A utm_source value found on this campaign's pageviews"),
     event_count: zod.number().describe('Number of pageview events with this utm_source'),
@@ -887,8 +896,13 @@ export const UtmIssueApi = zod.object({
         .describe('\* `error` - error\n\* `warning` - warning')
         .describe('Issue severity level\n\n\* `error` - error\n\* `warning` - warning'),
     kind: zod
-        .string()
-        .describe('Issue type. One of: not_linked, name_collision, no_tagged_events, unknown_source, missing_source'),
+        .enum(['not_linked', 'name_collision', 'no_tagged_events', 'unknown_source', 'missing_source'])
+        .describe(
+            '\* `not_linked` - not_linked\n\* `name_collision` - name_collision\n\* `no_tagged_events` - no_tagged_events\n\* `unknown_source` - unknown_source\n\* `missing_source` - missing_source'
+        )
+        .describe(
+            'Which kind of UTM problem this campaign has\n\n\* `not_linked` - not_linked\n\* `name_collision` - name_collision\n\* `no_tagged_events` - no_tagged_events\n\* `unknown_source` - unknown_source\n\* `missing_source` - missing_source'
+        ),
     message: zod.string().describe('Human-readable headline; the frontend composes richer text from the fields below'),
     alternative_sources: zod
         .array(
@@ -901,6 +915,9 @@ export const UtmIssueApi = zod.object({
     shared_with_integrations: zod
         .array(zod.string())
         .describe("Other integrations whose campaigns share this campaign's name (name_collision only)"),
+    missing_source_count: zod
+        .number()
+        .describe('Pageviews that matched this campaign but carried no utm_source, on any issue kind'),
 })
 
 export type UtmIssueApi = zod.input<typeof UtmIssueApi>
@@ -924,9 +941,12 @@ export const CampaignAuditResultApi = zod.object({
                     .describe('\* `error` - error\n\* `warning` - warning')
                     .describe('Issue severity level\n\n\* `error` - error\n\* `warning` - warning'),
                 kind: zod
-                    .string()
+                    .enum(['not_linked', 'name_collision', 'no_tagged_events', 'unknown_source', 'missing_source'])
                     .describe(
-                        'Issue type. One of: not_linked, name_collision, no_tagged_events, unknown_source, missing_source'
+                        '\* `not_linked` - not_linked\n\* `name_collision` - name_collision\n\* `no_tagged_events` - no_tagged_events\n\* `unknown_source` - unknown_source\n\* `missing_source` - missing_source'
+                    )
+                    .describe(
+                        'Which kind of UTM problem this campaign has\n\n\* `not_linked` - not_linked\n\* `name_collision` - name_collision\n\* `no_tagged_events` - no_tagged_events\n\* `unknown_source` - unknown_source\n\* `missing_source` - missing_source'
                     ),
                 message: zod
                     .string()
@@ -942,6 +962,9 @@ export const CampaignAuditResultApi = zod.object({
                 shared_with_integrations: zod
                     .array(zod.string())
                     .describe("Other integrations whose campaigns share this campaign's name (name_collision only)"),
+                missing_source_count: zod
+                    .number()
+                    .describe('Pageviews that matched this campaign but carried no utm_source, on any issue kind'),
             })
         )
         .describe('List of detected UTM configuration issues'),
@@ -1006,9 +1029,18 @@ export const UtmAuditResponseApi = zod.object({
                                 .describe('\* `error` - error\n\* `warning` - warning')
                                 .describe('Issue severity level\n\n\* `error` - error\n\* `warning` - warning'),
                             kind: zod
-                                .string()
+                                .enum([
+                                    'not_linked',
+                                    'name_collision',
+                                    'no_tagged_events',
+                                    'unknown_source',
+                                    'missing_source',
+                                ])
                                 .describe(
-                                    'Issue type. One of: not_linked, name_collision, no_tagged_events, unknown_source, missing_source'
+                                    '\* `not_linked` - not_linked\n\* `name_collision` - name_collision\n\* `no_tagged_events` - no_tagged_events\n\* `unknown_source` - unknown_source\n\* `missing_source` - missing_source'
+                                )
+                                .describe(
+                                    'Which kind of UTM problem this campaign has\n\n\* `not_linked` - not_linked\n\* `name_collision` - name_collision\n\* `no_tagged_events` - no_tagged_events\n\* `unknown_source` - unknown_source\n\* `missing_source` - missing_source'
                                 ),
                             message: zod
                                 .string()
@@ -1033,6 +1065,11 @@ export const UtmAuditResponseApi = zod.object({
                                 .array(zod.string())
                                 .describe(
                                     "Other integrations whose campaigns share this campaign's name (name_collision only)"
+                                ),
+                            missing_source_count: zod
+                                .number()
+                                .describe(
+                                    'Pageviews that matched this campaign but carried no utm_source, on any issue kind'
                                 ),
                         })
                     )

@@ -58,6 +58,7 @@ export function NotLinked(): JSX.Element {
                         message: '',
                         alternative_sources: [],
                         shared_with_integrations: [],
+                        missing_source_count: 0,
                     },
                 ],
             }}
@@ -79,6 +80,7 @@ export function MissingSource(): JSX.Element {
                         message: '',
                         alternative_sources: [],
                         shared_with_integrations: [],
+                        missing_source_count: 222,
                     },
                 ],
             }}
@@ -103,6 +105,7 @@ export function SourceMismatch(): JSX.Element {
                             { utm_source: 'meta', event_count: 30 },
                         ],
                         shared_with_integrations: [],
+                        missing_source_count: 18,
                     },
                 ],
             }}
@@ -125,6 +128,7 @@ export function NameCollision(): JSX.Element {
                         message: '',
                         alternative_sources: [],
                         shared_with_integrations: ['google'],
+                        missing_source_count: 0,
                     },
                 ],
             }}

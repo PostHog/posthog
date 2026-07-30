@@ -486,6 +486,7 @@ def _build_issue(
             message=_make_headline(UtmIssueKind.NAME_COLLISION, platform, stats.match_display, shared_with_sorted),
             alternative_sources=alternative_sources,
             shared_with_integrations=shared_with_sorted,
+            missing_source_count=stats.missing_source_count,
             suggested_actions=[SuggestedAction.SWITCH_TO_ID_MATCH, SuggestedAction.FIX_PLATFORM_URLS],
         )
 
@@ -500,6 +501,7 @@ def _build_issue(
                 message=_make_headline(UtmIssueKind.MISSING_SOURCE, platform, stats.match_display, []),
                 alternative_sources=[],
                 shared_with_integrations=[],
+                missing_source_count=stats.missing_source_count,
                 suggested_actions=[SuggestedAction.FIX_PLATFORM_URLS],
             )
         return UtmIssue(
@@ -525,6 +527,7 @@ def _build_issue(
             message=_make_headline(UtmIssueKind.UNKNOWN_SOURCE, platform, stats.match_display, []),
             alternative_sources=alternative_sources,
             shared_with_integrations=[],
+            missing_source_count=stats.missing_source_count,
             suggested_actions=[SuggestedAction.FIX_PLATFORM_URLS, SuggestedAction.ADD_SOURCE_MAPPING],
         )
 
@@ -535,6 +538,7 @@ def _build_issue(
         message=_make_headline(UtmIssueKind.NO_TAGGED_EVENTS, platform, stats.match_display, []),
         alternative_sources=alternative_sources,
         shared_with_integrations=[],
+        missing_source_count=stats.missing_source_count,
         suggested_actions=[SuggestedAction.FIX_PLATFORM_URLS],
     )
 

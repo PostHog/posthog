@@ -34,6 +34,7 @@ from products.marketing_analytics.backend.services.data_source_health import get
 from products.marketing_analytics.backend.services.event_suggestions import suggest_conversion_goals
 from products.marketing_analytics.backend.services.mapping_suggester import suggest_utm_mappings
 from products.marketing_analytics.backend.services.marketing_diagnostic import get_marketing_diagnostic
+from products.marketing_analytics.backend.services.types import UTM_ISSUE_KIND_CHOICES
 from products.marketing_analytics.backend.services.utm_audit import run_utm_audit
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -72,10 +73,12 @@ class UtmAlternativeSourceSerializer(serializers.Serializer):
 class UtmIssueSerializer(serializers.Serializer):
     field = serializers.CharField(help_text="The UTM field with the issue (e.g. utm_campaign, utm_source)")
     severity = serializers.ChoiceField(choices=["error", "warning"], help_text="Issue severity level")
-    # `kind` is a collision-prone enum name in drf-spectacular, so we expose it as a
-    # documented string rather than a ChoiceField to avoid a CI --fail-on-warn break.
-    kind = serializers.CharField(
-        help_text="Issue type. One of: not_linked, name_collision, no_tagged_events, unknown_source, missing_source"
+    # `kind` collides with other enums in drf-spectacular, so it carries a stable name via
+    # ENUM_NAME_OVERRIDES ("UtmIssueKindEnum") rather than being flattened to a plain string —
+    # consumers get the five values as a union instead of having to restate them.
+    kind = serializers.ChoiceField(
+        choices=UTM_ISSUE_KIND_CHOICES,
+        help_text="Which kind of UTM problem this campaign has",
     )
     message = serializers.CharField(
         help_text="Human-readable headline; the frontend composes richer text from the fields below"
@@ -86,6 +89,9 @@ class UtmIssueSerializer(serializers.Serializer):
     shared_with_integrations = serializers.ListField(
         child=serializers.CharField(),
         help_text="Other integrations whose campaigns share this campaign's name (name_collision only)",
+    )
+    missing_source_count = serializers.IntegerField(
+        help_text="Pageviews that matched this campaign but carried no utm_source, on any issue kind"
     )
 
 
