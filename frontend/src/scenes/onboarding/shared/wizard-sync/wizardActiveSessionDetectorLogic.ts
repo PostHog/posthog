@@ -76,6 +76,7 @@ export interface wizardActiveSessionDetectorLogicValues {
     activeWorkflowId: string | null
     extraWorkflowCounts: Record<string, number>
     hasActiveSession: boolean
+    hasResolvedSessionState: boolean
     lastError: string | null
     permanentlyDisabled: boolean
     shouldStream: boolean
@@ -191,6 +192,21 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
                     const { [workflowId]: _dropped, ...rest } = state
                     return rest
                 },
+            },
+        ],
+        // Whether the detector has ever reached a verdict (a poll settled, a stream reported in, or
+        // polling was killed outright). `activeWorkflowId === null` is ambiguous on its own: it also
+        // covers "nobody has asked yet", and the two need different treatment — a consumer that
+        // must not act on a wrong "not running" (the inbox takeover) waits for this instead.
+        hasResolvedSessionState: [
+            false,
+            {
+                markActive: () => true,
+                markInactive: () => true,
+                scheduleMarkInactive: () => true,
+                // Access denial means there will never be a verdict; "resolved, not running" is the
+                // only answer consumers can act on.
+                markPermanentlyDisabled: () => true,
             },
         ],
         lastError: [
