@@ -28,8 +28,8 @@ pub use chunk::{
     ScannedChunk, StreamedChunk, UnknownChunkStatus,
 };
 pub use cohort_core::seed::{
-    BehavioralShapeHash, BehavioralShapeHashError, PersonSeed, ReconcileCompleteMarker,
-    ReconcileTile, SeedTile,
+    BehavioralShapeHash, PersonSeed, PersonShapeHash, ReconcileCompleteMarker, ReconcileScope,
+    ReconcileTile, ScopeKind, SeedTile, ShapeHashError, UnknownScopeKind,
 };
 pub(crate) use completion::MARKER_WATCH_SCHEMA;
 pub use completion::{

@@ -6,7 +6,9 @@
 #![allow(clippy::disallowed_methods)]
 
 use std::cell::Cell;
-use std::collections::HashSet;
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
@@ -188,10 +190,11 @@ pub type RawKv = (Vec<u8>, Vec<u8>);
 
 #[derive(Debug, Default)]
 struct Stage2DirtyTracking {
-    /// The set of cohort prefixes with a reconcile drain currently capturing dirty rows. At most one
-    /// job per prefix ever holds a lease (admission supersedes same `(partition, team, cohort)`, and
-    /// the partition worker is serial), so a set — not a refcount — models the real invariant.
-    active: RwLock<HashSet<Stage2CohortPrefix>>,
+    /// Cohort prefixes with a reconcile drain currently capturing dirty rows, refcounted by lease.
+    /// The prefix carries no run kind, so a mixed cohort reconciled by a behavioral and a
+    /// person-property run can hold two leases at once; capture must stay on until the last one
+    /// releases, or the surviving job's snapshot would silently miss every concurrent mutation.
+    active: RwLock<HashMap<Stage2CohortPrefix, NonZeroUsize>>,
     active_count: AtomicUsize,
 }
 
@@ -201,11 +204,10 @@ impl Stage2DirtyTracking {
             .active
             .write()
             .expect("Stage 2 dirty-tracking lock is not held across fallible work");
-        let inserted = active.insert(prefix);
-        debug_assert!(
-            inserted,
-            "a cohort prefix cannot hold two dirty-tracking leases"
-        );
+        active
+            .entry(prefix)
+            .and_modify(|leases| *leases = leases.saturating_add(1))
+            .or_insert(NonZeroUsize::MIN);
         self.active_count.fetch_add(1, Ordering::Release);
         Stage2DirtyTrackingGuard {
             tracking: self.clone(),
@@ -226,7 +228,7 @@ impl Stage2DirtyTracking {
         self.active
             .read()
             .expect("Stage 2 dirty-tracking lock is not held across fallible work")
-            .contains(&prefix)
+            .contains_key(&prefix)
     }
 
     /// The dirty marker to stage for a `cf_stage2` write, or `None` when no drain tracks its cohort.
@@ -239,12 +241,20 @@ impl Stage2DirtyTracking {
     }
 
     fn release(&self, prefix: Stage2CohortPrefix) {
-        let removed = self
+        let mut active = self
             .active
             .write()
-            .expect("Stage 2 dirty-tracking lock is not held across fallible work")
-            .remove(&prefix);
-        debug_assert!(removed, "every dirty-tracking guard owns one active lease");
+            .expect("Stage 2 dirty-tracking lock is not held across fallible work");
+        match active.entry(prefix) {
+            Entry::Occupied(mut entry) => match NonZeroUsize::new(entry.get().get() - 1) {
+                Some(remaining) => *entry.get_mut() = remaining,
+                None => {
+                    entry.remove();
+                }
+            },
+            Entry::Vacant(_) => debug_assert!(false, "every guard owns one active lease"),
+        }
+        drop(active);
         let previous = self.active_count.fetch_sub(1, Ordering::Release);
         debug_assert!(previous > 0, "dirty-tracking reference count underflow");
     }

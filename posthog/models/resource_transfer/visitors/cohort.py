@@ -25,6 +25,7 @@ class CohortVisitor(
         "last_backfill_person_properties_at",
         "filters_shape_hash",
         "behavioral_filters_shape_hash",
+        "person_filters_shape_hash",
         "count",
         "version",
         "pending_version",

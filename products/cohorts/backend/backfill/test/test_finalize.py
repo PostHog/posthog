@@ -59,7 +59,14 @@ class TestBackfillFinalizer(BaseTest):
                         "time_interval": "day",
                         "operator": "gte",
                         "operator_value": 2,
-                    }
+                    },
+                    {
+                        "type": "person",
+                        "key": "email",
+                        "value": ["person@example.com"],
+                        "operator": "exact",
+                        "conditionHash": "person-condition-hash",
+                    },
                 ],
             }
         }
@@ -78,6 +85,7 @@ class TestBackfillFinalizer(BaseTest):
             cohort=cohort,
             filters_shape_hash=cohort.filters_shape_hash or "",
             behavioral_filters_shape_hash=cohort.behavioral_filters_shape_hash or "",
+            person_filters_shape_hash=cohort.person_filters_shape_hash or "",
             pinned_filters=cohort.filters,
         )
         # Simulate the Rust seeder's per-participation outcome writes (the columns are the interface).
@@ -103,12 +111,17 @@ class TestBackfillFinalizer(BaseTest):
         return cohort, participation
 
     def _make_run(
-        self, outcomes: list[str], *, observed: bool = True, scope: str = CohortBackfillScope.TEAM
+        self,
+        outcomes: list[str],
+        *,
+        observed: bool = True,
+        scope: str = CohortBackfillScope.TEAM,
+        kind: str = CohortBackfillKind.BEHAVIORAL,
     ) -> tuple[CohortBackfillRun, list[Cohort]]:
         cohort_scoped = scope == CohortBackfillScope.COHORT
         run = CohortBackfillRun.objects.for_team(self.team.id).create(
             team_id=self.team.id,
-            backfill_kind=CohortBackfillKind.BEHAVIORAL,
+            backfill_kind=kind,
             trigger_kind=(
                 CohortBackfillTrigger.COHORT_CREATED if cohort_scoped else CohortBackfillTrigger.TEAM_ENABLEMENT
             ),
@@ -166,28 +179,27 @@ class TestBackfillFinalizer(BaseTest):
         self.assertEqual(run.status, CohortBackfillRunStatus.RECONCILING)
         self.assertIsNone(cohorts[0].last_backfill_events_at)
 
-    def test_observed_person_run_is_untouched(self) -> None:
-        run = CohortBackfillRun.objects.for_team(self.team.id).create(
-            team_id=self.team.id,
-            backfill_kind=CohortBackfillKind.PERSON_PROPERTY,
-            trigger_kind=CohortBackfillTrigger.TEAM_ENABLEMENT,
-            scope=CohortBackfillScope.TEAM,
-            status=CohortBackfillRunStatus.RECONCILING,
-            reconcile_observed_at=timezone.now(),
-            timezone="UTC",
-        )
-        cohort, participation = self._make_participation(run, "completed")
+    def test_one_pass_finalizes_each_kind_into_its_own_column(self) -> None:
+        behavioral, behavioral_cohorts = self._make_run(["completed"])
+        person, person_cohorts = self._make_run(["completed"], kind=CohortBackfillKind.PERSON_PROPERTY)
 
         result = finalize_backfill_runs()
 
-        run.refresh_from_db()
-        cohort.refresh_from_db()
-        participation.refresh_from_db()
-        self.assertEqual(result.runs_scanned, 0)
-        self.assertEqual(run.status, CohortBackfillRunStatus.RECONCILING)
-        self.assertIsNone(cohort.last_backfill_events_at)
-        self.assertIsNone(cohort.last_backfill_person_properties_at)
-        self.assertIsNone(participation.stamped_at)
+        behavioral.refresh_from_db()
+        person.refresh_from_db()
+        behavioral_cohorts[0].refresh_from_db()
+        person_cohorts[0].refresh_from_db()
+        self.assertEqual(result.completed, 2)
+        self.assertEqual(behavioral.status, CohortBackfillRunStatus.COMPLETED)
+        self.assertEqual(person.status, CohortBackfillRunStatus.COMPLETED)
+        # Each run stamps its own column and leaves the other for its sibling to earn. Both cohorts
+        # are mixed, so neither is flag-compatible off one run.
+        self.assertIsNotNone(behavioral_cohorts[0].last_backfill_events_at)
+        self.assertIsNone(behavioral_cohorts[0].last_backfill_person_properties_at)
+        self.assertIsNotNone(person_cohorts[0].last_backfill_person_properties_at)
+        self.assertIsNone(person_cohorts[0].last_backfill_events_at)
+        self.assertFalse(behavioral_cohorts[0].is_flag_compatible)
+        self.assertFalse(person_cohorts[0].is_flag_compatible)
 
     def test_second_fire_is_a_noop(self) -> None:
         run, _cohorts = self._make_run(["completed", "completed"])

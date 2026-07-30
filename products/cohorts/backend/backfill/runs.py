@@ -467,7 +467,7 @@ def supersede_active_runs(team_id: int, cohort_ids: Iterable[int], *, kind: Coho
     error = "Cohort definition changed during backfill"
     with transaction.atomic():
         # Resolve the targets first, then write run rows before participation rows. The finalizer
-        # locks in that order (run FOR UPDATE, then participations via stamp_events_readiness), so
+        # locks in that order (run FOR UPDATE, then participations via the readiness stamp), so
         # the opposite order here would deadlock the two on a cohort-scoped run.
         targets = list(
             CohortBackfillRunCohort.objects.for_team(team_id)

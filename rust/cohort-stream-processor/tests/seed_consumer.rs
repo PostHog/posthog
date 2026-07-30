@@ -21,7 +21,8 @@ use std::time::{Duration, Instant};
 
 use chrono_tz::UTC;
 use cohort_core::seed::{
-    BehavioralShapeHash, ClaimEpoch, ConditionHash, ReconcileTile, RunId, SChunkMs, SeedTile,
+    BehavioralShapeHash, ClaimEpoch, ConditionHash, ReconcileScope, ReconcileTile, RunId, SChunkMs,
+    SeedTile,
 };
 use cohort_stream_processor::consumers::{
     CascadeRoute, CohortStreamEventsConsumer, EventDispatcher, FollowerConsumer, MergeRoute,
@@ -910,7 +911,7 @@ async fn reconcile_snapshot_repairs_stale_state_and_commits_after_markers() {
         let reconcile = ReconcileTile::new(
             TeamId(TEAM),
             CohortId(COHORT),
-            BehavioralShapeHash::parse(FILTERS_HASH).unwrap(),
+            ReconcileScope::Behavioral(BehavioralShapeHash::parse(FILTERS_HASH).unwrap()),
             run_id,
         );
         let producer = murmur2_producer();
@@ -1159,7 +1160,7 @@ async fn fence_holds_a_fresh_tile_until_live_consumption_passes_its_scan_point()
         let reconcile = ReconcileTile::new(
             TeamId(TEAM),
             CohortId(COHORT),
-            BehavioralShapeHash::parse(FILTERS_HASH).unwrap(),
+            ReconcileScope::Behavioral(BehavioralShapeHash::parse(FILTERS_HASH).unwrap()),
             run_id,
         );
         assert_eq!(

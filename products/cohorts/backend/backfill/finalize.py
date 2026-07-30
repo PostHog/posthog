@@ -1,7 +1,8 @@
-"""Terminalizes behavioral backfill runs the Rust seeder has fully observed.
+"""Terminalizes backfill runs the Rust seeder has fully observed.
 
-Only ``last_backfill_events_at`` is stamped; mixed person+behavioral cohorts stay flag-incompatible
-until the person-properties column is stamped too (intended fail-closed).
+A run stamps the readiness column of its own kind: behavioral runs stamp ``last_backfill_events_at``,
+person-property runs stamp ``last_backfill_person_properties_at``. A mixed cohort needs both runs to
+finalize before it is flag-compatible (intended fail-closed).
 
 The seeder writes a definitive per-participation outcome (``reconcile_completed_at`` /
 ``superseded_at`` / retryable ``error``) before it sets ``run.reconcile_observed_at`` as its last
@@ -9,6 +10,7 @@ write. This finalizer trusts those columns — never Kafka — and CASes the run
 ``reconciling`` once every participation has a terminal outcome.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -22,7 +24,7 @@ from prometheus_client import Counter, Gauge
 
 from posthog.tasks.utils import CeleryQueue
 
-from products.cohorts.backend.backfill.readiness import stamp_events_readiness
+from products.cohorts.backend.backfill.readiness import stamp_events_readiness, stamp_person_properties_readiness
 from products.cohorts.backend.models.backfill import (
     CohortBackfillKind,
     CohortBackfillRun,
@@ -42,8 +44,10 @@ FLAGS_CACHE_TASK = "products.feature_flags.backend.tasks.update_team_service_fla
 
 READINESS_STAMPS_COUNTER = Counter(
     "posthog_cohort_backfill_readiness_stamps_total",
-    "Backfill participations resolved by the finalizer, by outcome",
-    ["result"],  # labels: "stamped", "superseded"
+    "Backfill participations resolved by the finalizer, by outcome and backfill kind",
+    # Split by kind for the same reason as by result: a person-side supersession spike is invisible
+    # summed against behavioral traffic.
+    ["result", "kind"],  # result: "stamped", "superseded"; kind: the CohortBackfillKind
 )
 
 RUNS_FINALIZED_COUNTER = Counter(
@@ -73,6 +77,16 @@ class FinalizerPass:
     invalidated_teams: int = 0
 
 
+# The one place discovery and dispatch agree on which kinds this finalizer owns. A kind added to
+# the vocabulary without a stamp here raises `KeyError` in `_finalize_one_run`, which the per-run
+# `except` turns into a logged, counted, still-`reconciling` run — never a write to the wrong column.
+_STAMP_BY_KIND: dict[str, Callable[[CohortBackfillRun, int], bool]] = {
+    CohortBackfillKind.BEHAVIORAL: stamp_events_readiness,
+    CohortBackfillKind.PERSON_PROPERTY: stamp_person_properties_readiness,
+}
+FINALIZABLE_KINDS = tuple(_STAMP_BY_KIND)
+
+
 def _dispatch_flags_cache_update(team_id: int) -> None:
     # send_task bypasses the task decorator's options, so the queue must be routed explicitly.
     current_app.send_task(FLAGS_CACHE_TASK, args=(team_id,), queue=CeleryQueue.FEATURE_FLAGS.value)
@@ -88,13 +102,14 @@ def finalize_backfill_runs() -> FinalizerPass:
         return result
 
     # Deliberate, documented cross-team scan: the finalizer serves all teams. Each row is re-locked
-    # per team inside the loop, so the unscoped read is discovery only. Oldest-observed first, which
-    # the partial index already orders by, so a capped pass drains the backlog in arrival order.
+    # per team inside the loop, so the unscoped read is discovery only. Oldest-observed first, so a
+    # capped pass drains the backlog in arrival order. Note the `IN` costs `cohort_bfr_reconciling_idx`
+    # its ordering — the index leads with `backfill_kind`, so the planner sorts rather than walking it
+    # — which makes the cap bound the work done per pass, not the rows read.
     observed = list(
         CohortBackfillRun.objects.unscoped()
         .filter(
-            # Only the events column is stamped, so never terminalize a person-properties run.
-            backfill_kind=CohortBackfillKind.BEHAVIORAL,
+            backfill_kind__in=FINALIZABLE_KINDS,
             status=CohortBackfillRunStatus.RECONCILING,
             reconcile_observed_at__isnull=False,
         )
@@ -169,6 +184,7 @@ def _finalize_one_run(run_id: UUID, team_id: int, result: FinalizerPass) -> bool
                 team_id=team_id,
                 participations=len(participations),
             )
+        stamp_readiness = _STAMP_BY_KIND[run.backfill_kind]
         for participation in participations:
             # Supersede trumps completion, so check it first.
             if participation.superseded_at is not None:
@@ -178,16 +194,16 @@ def _finalize_one_run(run_id: UUID, team_id: int, result: FinalizerPass) -> bool
                 stamped += 1
                 continue
             if participation.reconcile_completed_at is not None:
-                if stamp_events_readiness(run, participation.cohort_id):
+                if stamp_readiness(run, participation.cohort_id):
                     stamped += 1
                     invalidate_team = True
                     result.stamped_participations += 1
-                    READINESS_STAMPS_COUNTER.labels(result="stamped").inc()
+                    READINESS_STAMPS_COUNTER.labels(result="stamped", kind=run.backfill_kind).inc()
                 else:
-                    # stamp_events_readiness superseded the participation (and, for a cohort-scoped
-                    # run, possibly the run row itself) inside this transaction.
+                    # The stamp superseded the participation (and, for a cohort-scoped run, possibly
+                    # the run row itself) inside this transaction.
                     superseded += 1
-                    READINESS_STAMPS_COUNTER.labels(result="superseded").inc()
+                    READINESS_STAMPS_COUNTER.labels(result="superseded", kind=run.backfill_kind).inc()
                 continue
 
             # No outcome despite reconcile_observed_at being set. An empty error means the seeder
@@ -229,7 +245,7 @@ def _finalize_one_run(run_id: UUID, team_id: int, result: FinalizerPass) -> bool
                 RUNS_FINALIZED_COUNTER.labels(status="superseded").inc()
         else:
             # We hold the run row's FOR UPDATE lock, so a missed CAS can only mean our own
-            # stamp_events_readiness call superseded a cohort-scoped run inside this transaction —
+            # readiness stamp superseded a cohort-scoped run inside this transaction —
             # the run is terminal (superseded + finished_at) and counted as such. That reads the
             # one-participation invariant checked above: with more, a run that also stamped a cohort
             # would land here and be counted purely superseded.

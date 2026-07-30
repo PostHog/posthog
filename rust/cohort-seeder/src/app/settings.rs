@@ -114,7 +114,7 @@ impl OrchestratorSettings {
 
     /// The backfill kinds discovery binds. With the person gate off this is `['behavioral']`, so
     /// the running binary's behavior is identical to today's.
-    pub(super) fn discovery_kinds(&self) -> &'static [RunKind] {
+    pub fn discovery_kinds(&self) -> &'static [RunKind] {
         if self.person.is_some() {
             &[RunKind::Behavioral, RunKind::PersonProperty]
         } else {

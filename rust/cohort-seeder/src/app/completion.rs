@@ -1,8 +1,8 @@
 //! App layer: the automatic reconcile-dispatch driver, dark by default. Ticked from the orchestrator
-//! poll arm after `fill_claim_slots`, it discovers seeding/reconciling behavioral runs, transitions a
-//! fully-confirmed run `seeding → reconciling`, produces the reconcile control tiles, and persists the
-//! dispatch record (produce HWMs + marker-watch start positions + fence epoch) through the same store
-//! path the CLI uses. Its second, independently gated half publishes the marker-watch directives and
+//! poll arm after `fill_claim_slots`, it discovers seeding/reconciling runs of the configured kinds,
+//! transitions a fully-confirmed run `seeding → reconciling`, produces the reconcile control tiles,
+//! and persists the dispatch record (produce HWMs + marker-watch start positions + fence epoch)
+//! through the same store path the CLI uses. Its second, independently gated half publishes the marker-watch directives and
 //! runs the per-run observation pass; either half alone is a valid configuration.
 //!
 //! Dispatch runs in a spawned task, never inline: producing `cohorts × COHORT_PARTITION_COUNT` control
@@ -49,7 +49,7 @@ use crate::store::completion::{
     mark_run_observed_unreconcilable, runs_with_all_chunks_confirmed, CompletionStoreError,
     DiscoveredCompletion, ObservationParticipation, ReconcilingClaim,
 };
-use crate::store::runs::ReconcileRunError;
+use crate::store::runs::{ReconcileRunError, RunKind};
 
 use super::observe::{
     observe_run, CommittedOffsetSource, ObservationStore, ObserveError, ObserveStep, ObserveTarget,
@@ -179,6 +179,9 @@ struct ObserveArm {
 pub struct CompletionDriver {
     pool: PgPool,
     allowlist: TeamAllowlist,
+    /// The backfill kinds discovery binds. `[Behavioral]` unless the person seed path is on, which
+    /// keeps a person run invisible to this protocol while its gate is off.
+    kinds: &'static [RunKind],
     dispatch: Option<DispatchArm>,
     observe: Option<ObserveArm>,
     in_flight: Arc<Mutex<HashSet<RunId>>>,
@@ -190,10 +193,11 @@ pub struct CompletionDriver {
 
 impl CompletionDriver {
     /// Base driver with neither half armed. `main` adds the halves the config enables.
-    pub fn new(pool: PgPool, allowlist: TeamAllowlist) -> Self {
+    pub fn new(pool: PgPool, allowlist: TeamAllowlist, kinds: &'static [RunKind]) -> Self {
         Self {
             pool,
             allowlist,
+            kinds,
             dispatch: None,
             observe: None,
             in_flight: Arc::new(Mutex::new(HashSet::new())),
@@ -242,7 +246,7 @@ impl CompletionDriver {
     /// and observe the reconciling ones (observe arm). A discovery failure is logged and retried next
     /// tick; the dark path (driver absent) costs zero queries.
     pub async fn tick(&self) {
-        let discovered = match discover_completions(&self.pool, &self.allowlist).await {
+        let discovered = match discover_completions(&self.pool, &self.allowlist, self.kinds).await {
             Ok(discovered) => discovered,
             Err(error) => {
                 warn!(error = %error, "completion discovery failed");
@@ -278,7 +282,11 @@ impl CompletionDriver {
                     if let (Some(observe), Some(broker)) = (&self.observe, &broker) {
                         let started = Instant::now();
                         // One read per run per tick, shared by the watch directive and the pass.
-                        match observe.store.load_participations(completion.run_id).await {
+                        match observe
+                            .store
+                            .load_participations(completion.run_id, completion.kind)
+                            .await
+                        {
                             Ok(participations) => {
                                 directives.push(build_directive(
                                     &completion,
@@ -334,7 +342,11 @@ impl CompletionDriver {
                                 "reconciling run has no usable dispatch record; re-dispatching"
                             );
                         }
-                        self.spawn_dispatch(completion.run_id, DispatchKind::ReDispatch);
+                        self.spawn_dispatch(
+                            completion.run_id,
+                            completion.kind,
+                            DispatchKind::ReDispatch,
+                        );
                     } else if first_sighting {
                         warn!(
                             run_id = ?completion.run_id,
@@ -346,7 +358,7 @@ impl CompletionDriver {
                 CompletionPhase::SeedingPlanned => {
                     // Only the dispatch arm consumes these, so observe-only skips the batch read.
                     if self.dispatch.is_some() {
-                        planned.push(completion.run_id);
+                        planned.push((completion.run_id, completion.kind));
                     }
                 }
                 CompletionPhase::SeedingUnplanned => {}
@@ -367,10 +379,13 @@ impl CompletionDriver {
         // A standing count: the first-sighting counter goes flat while runs stay stranded.
         gauge!(RECONCILE_RUNS_UNDISPATCHED).set(undispatched.len() as f64);
 
-        match runs_with_all_chunks_confirmed(&self.pool, &planned).await {
+        let planned_ids: Vec<RunId> = planned.iter().map(|(run_id, _)| *run_id).collect();
+        match runs_with_all_chunks_confirmed(&self.pool, &planned_ids).await {
             Ok(confirmed) => {
-                for run_id in confirmed {
-                    self.spawn_dispatch(run_id, DispatchKind::Fresh);
+                for (run_id, kind) in planned {
+                    if confirmed.contains(&run_id) {
+                        self.spawn_dispatch(run_id, kind, DispatchKind::Fresh);
+                    }
                 }
             }
             Err(error) => {
@@ -409,6 +424,7 @@ impl CompletionDriver {
         let target = ObserveTarget {
             run_id: completion.run_id,
             team_id: completion.team_id,
+            kind: completion.kind,
             epoch: dispatched.epoch,
             hwms: dispatched.hwms.clone(),
             watch: dispatched.watch.clone(),
@@ -472,7 +488,7 @@ impl CompletionDriver {
     /// Spawns a dispatch task unless the dispatch arm is disarmed, one is already in flight for this
     /// run on this replica, or the arm is at its concurrency budget. A run that misses the budget
     /// keeps its phase and is picked up on a later tick.
-    fn spawn_dispatch(&self, run_id: RunId, kind: DispatchKind) {
+    fn spawn_dispatch(&self, run_id: RunId, run_kind: RunKind, kind: DispatchKind) {
         let Some(dispatch) = &self.dispatch else {
             return;
         };
@@ -487,7 +503,7 @@ impl CompletionDriver {
         let dispatch = tokio::spawn(async move {
             let _permit = permit;
             let _guard = guard;
-            run_dispatch(&context, run_id, kind).await;
+            run_dispatch(&context, run_id, run_kind, kind).await;
         });
         // `run_dispatch` reports its own failures, so a `JoinError` is a panic. Dropping the handle
         // would make a deterministic one — a poison row, say — an invisible per-tick respawn loop.
@@ -616,8 +632,8 @@ fn lock_recoverable<T>(value: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// produce/record failure leaves the run `reconciling` with no record, which the next tick sees as
 /// `ReconcilingUndispatched` and re-dispatches. On shutdown mid-dispatch the same recovery converges
 /// per the crash-recovery matrix.
-async fn run_dispatch(context: &DispatchArm, run_id: RunId, kind: DispatchKind) {
-    let claim = match acquire_claim(context, run_id, kind).await {
+async fn run_dispatch(context: &DispatchArm, run_id: RunId, run_kind: RunKind, kind: DispatchKind) {
+    let claim = match acquire_claim(context, run_id, run_kind, kind).await {
         Ok(Some(claim)) => claim,
         Ok(None) => {
             counter!(RECONCILE_CAS_LOST).increment(1);
@@ -650,7 +666,9 @@ async fn run_dispatch(context: &DispatchArm, run_id: RunId, kind: DispatchKind) 
             // finalizer only discovers runs carrying `reconcile_observed_at`, and without it the
             // run would classify as `ReconcilingUndispatched` and re-spawn this no-op forever.
             warn!(run_id = ?run_id, "no active participations; marking observed for Django to terminalize");
-            if let Err(error) = mark_run_observed_unreconcilable(&context.pool, run_id).await {
+            if let Err(error) =
+                mark_run_observed_unreconcilable(&context.pool, run_id, run_kind).await
+            {
                 warn!(error = %error, run_id = ?run_id, "marking an unreconcilable run observed failed");
             }
             counter!(RECONCILE_DISPATCHES, "outcome" => "no_participations").increment(1);
@@ -699,14 +717,17 @@ async fn run_dispatch(context: &DispatchArm, run_id: RunId, kind: DispatchKind) 
     }
 }
 
+/// Both claims bind `run_kind`, so a claim is also the proof that the run row still holds the kind
+/// discovery reported — everything downstream inherits it without re-checking.
 async fn acquire_claim(
     context: &DispatchArm,
     run_id: RunId,
+    run_kind: RunKind,
     kind: DispatchKind,
 ) -> Result<Option<ReconcilingClaim>, CompletionStoreError> {
     match kind {
-        DispatchKind::Fresh => cas_run_reconciling(&context.pool, run_id).await,
-        DispatchKind::ReDispatch => confirm_reconciling(&context.pool, run_id).await,
+        DispatchKind::Fresh => cas_run_reconciling(&context.pool, run_id, run_kind).await,
+        DispatchKind::ReDispatch => confirm_reconciling(&context.pool, run_id, run_kind).await,
     }
 }
 

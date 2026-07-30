@@ -58,8 +58,8 @@ mod tests {
 
     use crate::filters::TeamId;
     use crate::seed::{
-        BehavioralShapeHash, ClaimEpoch, ConditionHash, PersonSeed, ReconcileTile, RunId, SChunkMs,
-        ScannedAtMs,
+        BehavioralShapeHash, ClaimEpoch, ConditionHash, PersonSeed, ReconcileScope, ReconcileTile,
+        RunId, SChunkMs, ScannedAtMs,
     };
 
     use super::*;
@@ -82,10 +82,12 @@ mod tests {
         serde_json::to_value(ReconcileTile::new(
             TeamId(2),
             crate::filters::CohortId(42),
-            BehavioralShapeHash::parse(
-                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-            )
-            .unwrap(),
+            ReconcileScope::Behavioral(
+                BehavioralShapeHash::parse(
+                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                )
+                .unwrap(),
+            ),
             RunId(Uuid::nil()),
         ))
         .unwrap()
