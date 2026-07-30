@@ -179,8 +179,7 @@ class TestHogQLQueryRecordBatchModel:
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             s3_folder="https://test-bucket.s3.amazonaws.com/test-prefix",
-            s3_key="test-key",
-            s3_secret="test-secret",
+            credentials=AWSKeyPair.unsafe_from_strings("test-key", "test-secret"),
             num_partitions=5,
         )
 
