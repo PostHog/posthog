@@ -345,9 +345,6 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         # Vanilla trends counts distinct_ids for these teams while the buckets
         # store person-id uniq states — genuinely different numbers.
         self._seed()
-        self.team.modifiers = {
-            "personsOnEventsMode": self.team.modifiers.get("personsOnEventsMode") if self.team.modifiers else None
-        }
         with (
             self._enable_lazy(),
             self._enable_trends_flag(),
