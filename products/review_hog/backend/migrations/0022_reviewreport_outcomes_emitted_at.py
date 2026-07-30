@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("review_hog", "0021_reviewreport_published_urgency_threshold")]
+    dependencies = [("review_hog", "0021_reviewreport_published_urgency_thresholds")]
 
     operations = [
         migrations.AddField(

@@ -70,9 +70,13 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     # `head_sha`, what was reviewed). Publishing skips when this equals the current head, so an
     # activity retry / re-trigger can't double-post the review or the one-time alpha promo comment.
     published_head_sha = models.CharField(max_length=64, null=True, blank=True)
-    # The urgency threshold in force at the latest publish — outcome classification reconstructs the
-    # published finding set from this, since the user's live setting can change after publish.
-    published_urgency_threshold = models.CharField(max_length=20, null=True, blank=True)
+    # The urgency threshold in force at each publish, keyed by the `run_index` that published, as
+    # `{"1": "consider", "2": "must_fix"}`. Outcome classification reconstructs the published finding
+    # set from this, since the user's live setting can change after publish. Keyed per turn rather
+    # than held as one scalar because a report republishes as new commits land and the acting user
+    # may change their threshold in between: each turn posts only its own findings, so a later
+    # tightened threshold must not retroactively hide what an earlier, looser turn already posted.
+    published_urgency_thresholds = models.JSONField(null=True, blank=True)
     # Set once this report's finding-outcome events have been flushed to capture — the outcome
     # sweep's completion marker. Distinct from the `finding_outcome` artefacts (the decided
     # classification, persisted first): a crash between persist and flush leaves this NULL, so the
@@ -114,6 +118,19 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
             models.Index(fields=["team", "acting_user", "-last_run_at"], name="reviewhog_rpt_recent_idx"),
             # Same API's everyone scope: the whole project's reports, newest completed turn first.
             models.Index(fields=["team", "-last_run_at"], name="reviewhog_rpt_team_recent_idx"),
+            # The outcome sweep's backlog: published, PR-bound, not yet stamped emitted. The whole
+            # predicate lives in the condition, so the index holds only the working set and shrinks
+            # as reports are classified; `team` leads it because the cross-team discovery reads
+            # DISTINCT team_id off this index and the per-team read filters on team first.
+            # `-updated_at` trails it so the per-team read's newest-first slice is an index scan
+            # rather than a sort over every pending row.
+            models.Index(
+                fields=["team", "-updated_at"],
+                name="reviewhog_rpt_unclassified_idx",
+                condition=models.Q(
+                    published_head_sha__isnull=False, pr_number__isnull=False, outcomes_emitted_at__isnull=True
+                ),
+            ),
         ]
 
 

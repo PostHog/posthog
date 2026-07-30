@@ -800,3 +800,11 @@ class TestRecentlyMergedPullRequests(_WarehouseMixin, BaseTest):
             team=self.team, repository="PostHog/posthog", since=since, numbers=[20]
         )
         assert [pr.number for pr in scoped] == [20]
+
+        # 22 merged before the cutoff, so the open-ended read above excludes it. Naming it makes the
+        # ask exact and `since` no longer applies: a caller waiting on one PR must not get a silent
+        # empty result that reads identically to "no such merge".
+        by_number = api.list_recently_merged_pull_requests(
+            team=self.team, repository="PostHog/posthog", since=since, numbers=[22]
+        )
+        assert [(pr.number, pr.head_sha) for pr in by_number] == [(22, "sha22")]

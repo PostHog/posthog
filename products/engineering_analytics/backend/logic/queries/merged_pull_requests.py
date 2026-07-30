@@ -7,6 +7,11 @@ merged — the same condition the source derives ``state = 'merged'`` from) at o
 carry a branch-tip SHA (a malformed snapshot without one is excluded, never surfaced empty), scoped
 to a single ``owner/name`` repository, newest merge first.
 
+``since`` and ``numbers`` are alternatives, not cumulative: a caller that names PR numbers gets those
+PRs whatever their merge date, and ``since`` bounds the scan only for the open-ended read. One of the
+two is required, so neither can be omitted into an unbounded scan of every merge in the repository.
+See ``query_merged_pull_requests`` for why an exact ask must not be narrowed by the recency window.
+
 ``head_sha`` is the run / branch-tip SHA (``head.sha``), never the ephemeral ``refs/pull/N/merge``
 commit (SPEC §7). Repo matching is case-insensitive, like ``resolve_branch``: the curated repo
 identity comes from ``base.repo.full_name`` and the caller's slug need not match GitHub's casing.
@@ -32,7 +37,7 @@ _SELECT = f"""
         pr.merged_at AS merged_at
     FROM __PR_SOURCE__ AS pr
     WHERE pr.merged_at IS NOT NULL
-        AND pr.merged_at >= {{since}}
+        __SINCE_FILTER__
         -- head_sha is raw JSONExtractString over the Nullable `head` blob: NULL when the blob is
         -- NULL, '' when the JSON lacks 'sha'. Either way the row is useless to this read (callers
         -- feed the SHA to a GitHub compare) and a NULL would fail MergedPullRequest's non-null
@@ -47,19 +52,37 @@ _SELECT = f"""
 
 
 def query_merged_pull_requests(
-    *, curated: CuratedGitHubSource, repo_owner: str, repo_name: str, since: datetime, numbers: list[int] | None = None
+    *,
+    curated: CuratedGitHubSource,
+    repo_owner: str,
+    repo_name: str,
+    since: datetime | None = None,
+    numbers: list[int] | None = None,
 ) -> list[MergedPullRequest]:
+    if since is None and numbers is None:
+        raise ValueError("query_merged_pull_requests needs either `since` or `numbers` to bound the read")
     placeholders: dict[str, ast.Expr] = {
-        "since": ast.Constant(value=since),
         "repo_owner": ast.Constant(value=repo_owner.lower()),
         "repo_name": ast.Constant(value=repo_name.lower()),
     }
+    # An explicit number list is already a precise, self-bounding ask, so `since` could only drop
+    # rows the caller named. A caller waiting on a specific PR (a ReviewHog report still awaiting
+    # outcome classification) cannot tell that loss apart from "no such merge", and because its
+    # discovery set carries no time bound the report would be re-asked for and re-dropped on every
+    # sweep forever. Applying one filter or the other keeps a by-number ask answerable for a PR of
+    # any age, while `since` still bounds the open-ended scan.
+    since_filter = ""
     numbers_filter = ""
-    if numbers is not None:
+    if numbers is None:
+        since_filter = "AND pr.merged_at >= {since}"
+        placeholders["since"] = ast.Constant(value=since)
+    else:
         numbers_filter = "AND pr.number IN {numbers}"
         placeholders["numbers"] = ast.Constant(value=numbers)
     response = curated.run(
-        _SELECT.replace("__PR_SOURCE__", curated.pr_source()).replace("__NUMBERS_FILTER__", numbers_filter),
+        _SELECT.replace("__PR_SOURCE__", curated.pr_source())
+        .replace("__SINCE_FILTER__", since_filter)
+        .replace("__NUMBERS_FILTER__", numbers_filter),
         query_type="engineering_analytics.merged_pull_requests",
         placeholders=placeholders,
     )

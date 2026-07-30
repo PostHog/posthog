@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="reviewreport",
-            name="published_urgency_threshold",
-            field=models.CharField(blank=True, max_length=20, null=True),
+            name="published_urgency_thresholds",
+            field=models.JSONField(blank=True, null=True),
         ),
     ]

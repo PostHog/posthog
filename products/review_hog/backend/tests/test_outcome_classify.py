@@ -1,3 +1,6 @@
+from collections import defaultdict
+from datetime import timedelta
+from types import SimpleNamespace
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
@@ -8,6 +11,7 @@ from unittest.mock import AsyncMock, patch
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
+from temporalio.exceptions import ApplicationError
 
 from posthog.models.team import Team
 
@@ -18,6 +22,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ValidationVerdict,
     parse_artefact_content,
 )
+from products.review_hog.backend.reviewer.constants import OUTCOME_MAX_JUDGE_CALLS_PER_REPORT
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
 from products.review_hog.backend.reviewer.outcomes.classify import (
     _ClassifiedOutcome,
@@ -42,11 +47,14 @@ _ISSUE_KEY = "r1:f.py:10:logic"
 
 
 def _finding(
-    issue_key: str = _ISSUE_KEY, title: str = "Off-by-one", priority: IssuePriority = IssuePriority.MUST_FIX
+    issue_key: str = _ISSUE_KEY,
+    title: str = "Off-by-one",
+    priority: IssuePriority = IssuePriority.MUST_FIX,
+    run_index: int = 1,
 ) -> ReviewIssueFinding:
     return ReviewIssueFinding(
         issue_key=issue_key,
-        run_index=1,
+        run_index=run_index,
         title=title,
         file="f.py",
         lines=[LineRange(start=10)],
@@ -212,7 +220,6 @@ class TestClassifyReportDecision:
         ):
             classified = async_to_sync(classify_team)(
                 team=Team(id=1),
-                since=timezone.now(),
                 capture=lambda **kw: captured.append(kw),
                 flush=lambda: order.append("flush"),
             )
@@ -221,6 +228,67 @@ class TestClassifyReportDecision:
         assert captured[0]["properties"]["classification_method"] == "comment_reply"
         assert captured[0]["uuid"] == str(uuid5(NAMESPACE_URL, f"reviewhog_finding_outcome:{report.id}:{_ISSUE_KEY}"))
         assert order == ["flush", "mark"]
+
+    def test_judge_calls_are_capped_per_report_and_spent_on_the_worst_findings(self):
+        # Findings accumulate across every turn a PR was reviewed, so a PR pushed and re-reviewed
+        # repeatedly can carry more candidates than the classify activity's budget. Judge calls run
+        # sequentially and outcomes persist only after the whole report is decided, so an unbounded
+        # report would blow the activity ceiling and every retry and later sweep would replay the
+        # same calls without ever finishing it. Over the ceiling the rest settle unjudged, and the
+        # budget goes to the most severe findings rather than whichever happened to be listed first.
+        over = OUTCOME_MAX_JUDGE_CALLS_PER_REPORT + 3
+        published = [
+            _PublishedFinding(
+                finding=_finding(
+                    issue_key=f"r1:f.py:{i}:logic",
+                    # The low-priority ones come first, so an uncapped or unordered pass would spend
+                    # the budget on them and leave the must_fix findings unjudged.
+                    priority=IssuePriority.CONSIDER if i < 4 else IssuePriority.MUST_FIX,
+                ),
+                verdict=_verdict(issue_key=f"r1:f.py:{i}:logic"),
+                comment=None,
+            )
+            for i in range(over)
+        ]
+        inputs = _ReportInputs(
+            reviewed_head="base_sha",
+            compare_files=_TOUCHING,
+            review_comments=[],
+            published=published,
+            distinct_id="user-distinct",
+            judge_user_id=0,
+        )
+        captured, judge = self._run(inputs=inputs, judge_return=True)
+
+        assert judge.await_count == OUTCOME_MAX_JUDGE_CALLS_PER_REPORT
+        assert len(captured) == over  # every published finding still gets exactly one event
+        by_method: dict[str, list[str]] = defaultdict(list)
+        for event in captured:
+            by_method[event["properties"]["classification_method"]].append(event["properties"]["priority"])
+        assert len(by_method["judge_budget_exhausted"]) == 3
+        # The unjudged remainder is the least severe, and stays `ignored` rather than inventing a fate.
+        assert set(by_method["judge_budget_exhausted"]) == {"consider"}
+        unjudged = [e for e in captured if e["properties"]["classification_method"] == "judge_budget_exhausted"]
+        assert {e["properties"]["outcome"] for e in unjudged} == {"ignored"}
+
+    def test_one_report_failing_does_not_strand_the_rest_of_the_sweep(self):
+        # The judge raises ApplicationError on any LLM failure, and a failed report writes no
+        # completion stamp, so discovery hands it back every sweep. Letting that escape the loop
+        # would abort the sweep at the same report forever and never classify the backlog behind it.
+        failing = ReviewReport(repository="o/r", pr_number=7)
+        healthy = ReviewReport(repository="o/r", pr_number=8)
+        merged = [SimpleNamespace(number=7, head_sha="h7"), SimpleNamespace(number=8, head_sha="h8")]
+        classify = AsyncMock(side_effect=[ApplicationError("judge died"), 1])
+        with (
+            patch(f"{_CLASSIFY}.unclassified_published_reports", return_value=[failing, healthy]),
+            patch(f"{_CLASSIFY}._report_ids_with_persisted_outcomes", return_value=set()),
+            patch(f"{_CLASSIFY}.list_recently_merged_pull_requests", return_value=merged),
+            patch(f"{_CLASSIFY}.classify_report", new=classify),
+        ):
+            classified = async_to_sync(classify_team)(team=Team(id=1), capture=lambda **kw: None)
+
+        assert classified == 1
+        assert [call.kwargs["report"] for call in classify.await_args_list] == [failing, healthy]
 
     def test_event_carries_join_keys_and_finding_metadata(self):
         captured, _judge = self._run(inputs=self._inputs(comment=None, compare_files=_FAR))
@@ -286,8 +354,8 @@ class TestGatherAndIdempotency(BaseTest):
         # must reconstruct the published set from the snapshot taken when the review was posted
         # (here must_fix), not from current settings (default consider, which would admit both).
         report = self._report()
-        report.published_urgency_threshold = IssuePriority.MUST_FIX.value
-        report.save(update_fields=["published_urgency_threshold"])
+        report.published_urgency_thresholds = {"1": IssuePriority.MUST_FIX.value}
+        report.save(update_fields=["published_urgency_thresholds"])
         low = _finding(issue_key="r1:f.py:20:style", title="Nitpick", priority=IssuePriority.CONSIDER)
         ReviewReportArtefact.append_finding(
             team_id=self.team.id, report_id=str(report.id), content=low, attribution=ArtefactAttribution.system()
@@ -306,6 +374,71 @@ class TestGatherAndIdempotency(BaseTest):
             inputs = _gather_report_inputs(team_id=self.team.id, report=report, final_head="head_sha")
 
         assert [pf.finding.issue_key for pf in inputs.published] == [_ISSUE_KEY]
+
+    def test_each_turn_keeps_the_threshold_its_own_publish_used(self):
+        # A report republishes as new commits land, and the user can tighten their threshold between
+        # turns. Turn 1 posted a `consider` finding under the looser threshold; turn 2 published at
+        # `must_fix`. Gating the cross-turn set on one threshold drops that turn-1 finding from
+        # telemetry even though it is on the PR, and the report is stamped emitted so it never
+        # returns to be classified later.
+        report = self._report()
+        report.published_urgency_thresholds = {
+            "1": IssuePriority.CONSIDER.value,
+            "2": IssuePriority.MUST_FIX.value,
+        }
+        report.save(update_fields=["published_urgency_thresholds"])
+        turn_one_low = _finding(issue_key="r1:f.py:20:style", title="Nitpick", priority=IssuePriority.CONSIDER)
+        turn_two_high = _finding(
+            issue_key="r2:f.py:30:logic", title="Race", priority=IssuePriority.MUST_FIX, run_index=2
+        )
+        for content in (turn_one_low, turn_two_high):
+            ReviewReportArtefact.append_finding(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                content=content,
+                attribution=ArtefactAttribution.system(),
+            )
+            ReviewReportArtefact.append_verdict(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                content=_verdict(issue_key=content.issue_key),
+                attribution=ArtefactAttribution.system(),
+            )
+        with (
+            patch(f"{_CLASSIFY}._installation_auth", return_value=("tok", "inst")),
+            patch(f"{_CLASSIFY}.fetch_compare_files", return_value=_FAR),
+            patch(f"{_CLASSIFY}.fetch_review_comments", return_value=[]),
+        ):
+            inputs = _gather_report_inputs(team_id=self.team.id, report=report, final_head="head_sha")
+
+        assert sorted(pf.finding.issue_key for pf in inputs.published) == [
+            _ISSUE_KEY,
+            "r1:f.py:20:style",
+            "r2:f.py:30:logic",
+        ]
+
+    def test_discovery_slice_is_bounded_and_newest_first(self):
+        # A report whose PR closes without merging never becomes classifiable and never gets stamped,
+        # so it stays discoverable forever. Unbounded, that sediment is re-read and folded into the
+        # warehouse lookup's `numbers` filter every sweep, before the per-sweep report cap applies.
+        # Oldest-first would make the bound worse than the leak: the sediment would fill the slice
+        # and starve live work permanently.
+        for pr_number, age_minutes in ((1, 30), (2, 10), (3, 20)):
+            report = ReviewReport.objects.for_team(self.team.id).create(
+                team=self.team,
+                repository="o/r",
+                pr_number=pr_number,
+                pr_url=f"https://github.com/o/r/pull/{pr_number}",
+                head_branch=f"feat-{pr_number}",
+                base_branch="main",
+                acting_user=self.user,
+                published_head_sha="base_sha",
+            )
+            ReviewReport.objects.for_team(self.team.id).filter(id=report.id).update(
+                updated_at=timezone.now() - timedelta(minutes=age_minutes)
+            )
+
+        assert [r.pr_number for r in unclassified_published_reports(self.team.id, limit=2)] == [2, 3]
 
     def test_discovery_tracks_the_emitted_stamp_not_artefact_presence(self):
         report = self._report()

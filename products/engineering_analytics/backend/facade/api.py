@@ -309,16 +309,20 @@ def list_recently_merged_pull_requests(
     *,
     team: Team,
     repository: str,
-    since: "datetime",
+    since: "datetime | None" = None,
     numbers: list[int] | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[MergedPullRequest]:
-    """Pull requests in ``repository`` ('owner/name') merged at or after ``since``, newest first, each
-    with its branch-tip ``head_sha`` — the discovery seam for ReviewHog telemetry. ``numbers``
-    optionally narrows to specific PR numbers, keeping a high-merge-volume repo's result under the
-    query's row ceiling. Raises ``GitHubSourceNotConnectedError`` (propagated to the caller) when no
-    GitHub source is connected.
+    """Merged pull requests in ``repository`` ('owner/name'), newest first, each with its branch-tip
+    ``head_sha`` — the discovery seam for ReviewHog telemetry. Raises
+    ``GitHubSourceNotConnectedError`` (propagated to the caller) when no GitHub source is connected.
+
+    Ask one of two ways. ``numbers`` returns exactly those PRs whatever their merge date, which is
+    what a caller waiting on specific PRs wants: it also keeps a high-merge-volume repo from pushing
+    them past the query's row ceiling. ``since`` scans everything merged at or after a cutoff. They
+    are alternatives, not filters that combine, so a by-number ask can never come back empty merely
+    because the PR merged before some cutoff. Supply exactly one; ``numbers`` wins if both are given.
     """
     return logic.build_merged_pull_requests(
         curated=_authorized_source(team, source_id, user_access_control, repo=repository),

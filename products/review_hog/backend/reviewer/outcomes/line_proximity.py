@@ -7,6 +7,7 @@ findings nothing touched.
 """
 
 import re
+import sys
 from dataclasses import dataclass
 
 from products.review_hog.backend.reviewer.models.issues_review import LineRange
@@ -56,6 +57,66 @@ def _changed_new_lines(patch: str) -> set[int]:
         else:
             new_line += 1
     return changed
+
+
+def _split_hunks(patch: str) -> list[str]:
+    """``patch`` split into its ``@@`` hunks, in file order. Anything before the first header is
+    dropped: GitHub's compare `patch` is hunk-only, so there is nothing there to keep."""
+    hunks: list[str] = []
+    current: list[str] = []
+    for line in patch.splitlines():
+        if _HUNK_HEADER.match(line) is not None:
+            if current:
+                hunks.append("\n".join(current))
+            current = [line]
+            continue
+        if current:
+            current.append(line)
+    if current:
+        hunks.append("\n".join(current))
+    return hunks
+
+
+def _distance_to_lines(hunk: str, lines: list[LineRange]) -> int:
+    """How far ``hunk``'s nearest changed line is from ``lines``; ``maxsize`` when it changes none."""
+    changed = _changed_new_lines(hunk)
+    if not changed or not lines:
+        return sys.maxsize
+    return min(
+        0
+        if lr.start <= changed_line <= (lr.end if lr.end is not None else lr.start)
+        else lr.start - changed_line
+        if changed_line < lr.start
+        else changed_line - (lr.end if lr.end is not None else lr.start)
+        for lr in lines
+        for changed_line in changed
+    )
+
+
+def trim_patch_near(patch: str, lines: list[LineRange], *, max_chars: int) -> tuple[str, int]:
+    """``patch`` reduced to the hunks nearest ``lines`` within ``max_chars``, plus the number dropped.
+
+    A file can pick up a large unrelated rewrite (a refactor, a regenerated file) between review and
+    merge, and the whole thing would otherwise ride into the judge's prompt. Cutting the string
+    blindly could drop the very hunk that made the finding a candidate and leave the judge ruling on
+    unrelated changes, so hunks are chosen nearest-first and re-emitted in file order. The nearest
+    hunk is always kept, even alone over budget, because evidence beats the ceiling.
+    """
+    if len(patch) <= max_chars:
+        return patch, 0
+    hunks = _split_hunks(patch)
+    if not hunks:
+        return patch[:max_chars], 0
+    ranked = sorted(range(len(hunks)), key=lambda i: (_distance_to_lines(hunks[i], lines), i))
+    kept: set[int] = set()
+    used = 0
+    for i in ranked:
+        cost = len(hunks[i]) + 2
+        if kept and used + cost > max_chars:
+            break
+        kept.add(i)
+        used += cost
+    return "\n\n".join(hunks[i] for i in sorted(kept)), len(hunks) - len(kept)
 
 
 def parse_compare_files(files: list[dict]) -> list[ComparedFile]:

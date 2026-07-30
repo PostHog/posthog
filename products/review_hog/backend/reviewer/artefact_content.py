@@ -109,9 +109,17 @@ class FindingOutcomeArtefact(BaseModel):
     issue_key: str = Field(description="The `ReviewIssueFinding.issue_key` this outcome rules on.")
     run_index: int = Field(description="The review turn whose published head was compared against the merge.")
     outcome: Literal["addressed", "reacted", "ignored"] = Field(description="The finding's classified fate.")
-    method: Literal["judge_confirmed", "judge_rejected", "comment_reply", "comment_reaction", "no_signal"] = Field(
-        description="Which signal decided the outcome."
-    )
+    method: Literal[
+        "judge_confirmed",
+        "judge_rejected",
+        "comment_reply",
+        "comment_reaction",
+        "no_signal",
+        # A line-proximity candidate the judge never ruled on: the report exhausted its per-report
+        # judge budget. Counts as `ignored` like `no_signal` (no evidence it was addressed), but is
+        # named apart so consumers can tell "nothing touched it" from "we did not look".
+        "judge_budget_exhausted",
+    ] = Field(description="Which signal decided the outcome.")
     reviewed_head: str = Field(description="The head the finding was published at (the compare base).")
     final_head: str = Field(description="The PR branch tip at merge (the compare head).")
     judge_model: str | None = Field(

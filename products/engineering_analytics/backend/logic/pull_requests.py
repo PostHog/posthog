@@ -108,7 +108,7 @@ def build_pull_request_list(
 
 
 def build_merged_pull_requests(
-    *, curated: CuratedGitHubSource, repo: str, since: datetime, numbers: list[int] | None = None
+    *, curated: CuratedGitHubSource, repo: str, since: datetime | None = None, numbers: list[int] | None = None
 ) -> list[MergedPullRequest]:
     owner, name = _require_repo(repo)
     return query_merged_pull_requests(curated=curated, repo_owner=owner, repo_name=name, since=since, numbers=numbers)

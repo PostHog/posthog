@@ -135,9 +135,10 @@ class TestPublishIdempotency(BaseTest):
         assert mock_publish.call_args.kwargs["installation_id"] == "9876543"
         report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
         assert report.published_head_sha == "sha1"
-        # The gating threshold is snapshotted with the watermark — outcome classification reconstructs
-        # the published set from it, so a later settings change can't rewrite what was posted.
-        assert report.published_urgency_threshold == "should_fix"
+        # The gating threshold is snapshotted with the watermark, keyed by the publishing turn —
+        # outcome classification reconstructs the published set from it, so a later settings change
+        # can't rewrite what was posted.
+        assert report.published_urgency_thresholds == {"1": "should_fix"}
 
     @patch(_PUBLISH)
     @patch(_SNAPSHOT, return_value=None)

@@ -66,9 +66,10 @@ def publish_persisted_review(
     rebuilds the inline comments from this run's valid findings against the snapshot diff, and records
     the published-head watermark only on a real post (a no-op turn must not block a later publish at
     the same head). `urgency_threshold` gates which findings publish and is snapshotted on the report
-    with the watermark, so outcome classification later reconstructs the published set from the
-    threshold that actually gated it, not the user's live setting. Reads the DB, so callers run it off
-    the event loop.
+    under this turn's `run_index`, so outcome classification later reconstructs the published set from
+    the threshold that actually gated each turn, not the user's live setting and not whichever
+    threshold happened to be in force at the last publish. Reads the DB, so callers run it off the
+    event loop.
     """
     report = ReviewReport.objects.for_team(team_id).get(id=report_id)
     if report.published_head_sha == head_sha:
@@ -92,9 +93,26 @@ def publish_persisted_review(
         installation_id=installation_id,
     )
     if outcome.posted:
+        if report.outcomes_emitted_at is not None:
+            # Outcome idempotency is report-scoped: the sweep skips any report already stamped
+            # emitted, so this turn's findings will never be classified. Only reachable by
+            # re-triggering a review on a PR that already merged and was already classified, at a
+            # head it had not been published to before. Logged rather than handled because making
+            # the sweep publish-scoped would mean re-deciding outcomes per publish.
+            logger.warning(
+                "Report %s re-published at %s after its outcomes were emitted; this turn's findings "
+                "will not be classified",
+                report_id,
+                head_sha,
+            )
         report.published_head_sha = head_sha
-        report.published_urgency_threshold = urgency_threshold.value
-        report.save(update_fields=["published_head_sha", "published_urgency_threshold", "updated_at"])
+        # Recorded per turn, never overwritten: this turn posted only its own findings, so an
+        # earlier turn's threshold stays the truth about what that turn put on the PR.
+        report.published_urgency_thresholds = {
+            **(report.published_urgency_thresholds or {}),
+            str(run_index): urgency_threshold.value,
+        }
+        report.save(update_fields=["published_head_sha", "published_urgency_thresholds", "updated_at"])
     return outcome
 
 

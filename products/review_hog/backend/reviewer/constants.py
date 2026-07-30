@@ -62,6 +62,11 @@ def published_priorities_for(threshold: IssuePriority) -> set[IssuePriority]:
     return {priority for priority, rank in _PRIORITY_RANK.items() if rank >= _PRIORITY_RANK[threshold]}
 
 
+def priority_rank(priority: IssuePriority) -> int:
+    """Severity as a sortable number, ascending: consider < should_fix < must_fix."""
+    return _PRIORITY_RANK[priority]
+
+
 def effective_priority(base: IssuePriority, adjusted: IssuePriority | None) -> IssuePriority:
     """The priority that gates publishing: the validator's override if it set one, else the reviewer's.
 
@@ -114,9 +119,25 @@ OUTCOME_JUDGE_REASONING_EFFORT = "high"
 OUTCOME_LINE_PROXIMITY_WINDOW = 15
 # Cap on reports classified per sweep, so one run can't fan out unboundedly across GitHub egress.
 OUTCOME_MAX_REPORTS_PER_SWEEP = 50
-# How far back the warehouse merged-PR lookup reaches each sweep — comfortably longer than the sweep
-# interval so a merge is never missed between runs, and bounded so the query stays cheap.
-OUTCOME_LOOKBACK_DAYS = 30
+# Ceiling on judge calls for one report. The per-sweep cap counts reports, but a report accumulates
+# findings across every turn it was reviewed, so a PR pushed and re-reviewed repeatedly before
+# merging can carry far more line-proximity candidates than one report's share of the classify
+# activity's 30-minute budget. Judge calls run sequentially and each can take minutes, so an
+# unbounded report would blow the activity ceiling; because outcomes are persisted only after the
+# whole report is decided, the retry and every later sweep would replay the same calls and never
+# finish it. Candidates past this ceiling settle without a judge call so the report always completes.
+OUTCOME_MAX_JUDGE_CALLS_PER_REPORT = 30
+# Ceiling on pending reports a sweep pulls for one team. A report whose PR is closed without merging
+# is never classifiable and never stamped, so it stays discoverable forever: without a bound, that
+# sediment accumulates through ordinary attrition and every hourly sweep re-materializes it and folds
+# it into the warehouse lookup's `numbers` filter, all before the per-sweep report cap is consulted.
+# Ordered newest-first so the sediment sinks below live work rather than crowding it out.
+OUTCOME_MAX_PENDING_REPORTS_PER_SWEEP = 500
+# Ceiling on the diff handed to the judge. The evidence is the finding's whole file patch, and a file
+# can pick up a large unrelated rewrite between review and merge, which `run_oneshot_review` expects
+# its callers to bound. Roughly 25k tokens: orders of magnitude above a normal file patch, so it only
+# bites the pathological case rather than routinely trimming the judge's context.
+OUTCOME_JUDGE_DIFF_MAX_CHARS = 100_000
 
 
 # BLIND-SPOT CHECK

@@ -20,7 +20,6 @@ import logging
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any, Protocol
 from uuid import NAMESPACE_URL, uuid5
 
@@ -46,8 +45,10 @@ from products.review_hog.backend.reviewer.constants import (
     DEFAULT_URGENCY_THRESHOLD,
     OUTCOME_JUDGE_MODEL,
     OUTCOME_LINE_PROXIMITY_WINDOW,
+    OUTCOME_MAX_JUDGE_CALLS_PER_REPORT,
     OUTCOME_MAX_REPORTS_PER_SWEEP,
     effective_priority,
+    priority_rank,
     published_priorities_for,
 )
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
@@ -171,20 +172,30 @@ def _gather_report_inputs(*, team_id: int, report: ReviewReport, final_head: str
 
     bundle = load_findings_bundle(team_id=team_id, report_ids=[str(report.id)])
     all_valid = bundle.all_valid(str(report.id))
-    # The threshold snapshotted at publish is the one that gated the posted set; the live user setting
-    # is only a fallback for reports published before the snapshot existed (`urgency_threshold` is a
-    # UrgencyThreshold whose values mirror IssuePriority, coerced through the value like the publish
-    # path).
-    threshold = report.published_urgency_threshold or (
+    # Each turn's findings are gated by the threshold snapshotted at THAT turn's publish. `all_valid`
+    # spans every turn, and a report republishes as new commits land, so filtering the whole set by a
+    # single threshold would let a later tightened setting retroactively hide findings an earlier,
+    # looser turn already posted to the PR. The live user setting is only a fallback for turns
+    # published before the snapshot existed (`urgency_threshold` is a UrgencyThreshold whose values
+    # mirror IssuePriority, coerced through the value like the publish path).
+    snapshotted = report.published_urgency_thresholds or {}
+    fallback_threshold = (
         str(ReviewUserSettings.load(team_id, report.acting_user_id).urgency_threshold)
         if report.acting_user_id
         else DEFAULT_URGENCY_THRESHOLD.value
     )
-    publishable_priorities = published_priorities_for(IssuePriority(threshold))
+    priorities_by_run: dict[int, set[IssuePriority]] = {}
+
+    def _publishable_priorities(run_index: int) -> set[IssuePriority]:
+        if run_index not in priorities_by_run:
+            threshold = snapshotted.get(str(run_index), fallback_threshold)
+            priorities_by_run[run_index] = published_priorities_for(IssuePriority(threshold))
+        return priorities_by_run[run_index]
+
     published = [
         (finding, verdict)
         for finding, verdict in all_valid
-        if effective_priority(finding.priority, verdict.adjusted_priority) in publishable_priorities
+        if effective_priority(finding.priority, verdict.adjusted_priority) in _publishable_priorities(finding.run_index)
     ]
     # Fallback guards the idempotency invariant: publishing set the watermark, so at least one valid
     # finding was posted — if a post-review threshold change emptied the gated set, classify all valid
@@ -364,38 +375,58 @@ async def classify_report(
     compared = parse_compare_files(inputs.compare_files)
     outcomes: list[_ClassifiedOutcome] = []
 
-    for pf in inputs.published:
-        finding, verdict = pf.finding, pf.verdict
+    def _decided(pf: _PublishedFinding, outcome: str, method: str) -> _ClassifiedOutcome:
+        return _ClassifiedOutcome(
+            finding=pf.finding,
+            verdict=pf.verdict,
+            outcome=outcome,
+            method=method,
+            reviewed_head=inputs.reviewed_head,
+            final_head=final_head,
+        )
 
+    # Settle everything the cheap signals answer first, so only the findings that genuinely need the
+    # judge compete for its budget.
+    candidates: list[_PublishedFinding] = []
+    for pf in inputs.published:
         method = engagement_method(comment=pf.comment, review_comments=inputs.review_comments) if pf.comment else None
         if method is not None:
-            outcome = "reacted"
+            outcomes.append(_decided(pf, "reacted", method))
         elif touched_near(
-            file=finding.file,
-            lines=finding.lines,
+            file=pf.finding.file,
+            lines=pf.finding.lines,
             compared=compared,
             window=OUTCOME_LINE_PROXIMITY_WINDOW,
         ):
-            addressed = await judge_addressed(
-                team_id=team_id,
-                user_id=inputs.judge_user_id,
-                finding=finding,
-                verdict=verdict,
-                touching_diff=_touching_diff(finding.file, inputs.compare_files),
-            )
-            outcome, method = ("addressed", "judge_confirmed") if addressed else ("ignored", "judge_rejected")
+            candidates.append(pf)
         else:
-            outcome, method = "ignored", "no_signal"
+            outcomes.append(_decided(pf, "ignored", "no_signal"))
 
-        outcomes.append(
-            _ClassifiedOutcome(
-                finding=finding,
-                verdict=verdict,
-                outcome=outcome,
-                method=method,
-                reviewed_head=inputs.reviewed_head,
-                final_head=final_head,
+    # Most urgent first, so a report that overruns the budget spends it where the answer matters and
+    # the findings that go unjudged are the least severe.
+    candidates.sort(
+        key=lambda pf: priority_rank(effective_priority(pf.finding.priority, pf.verdict.adjusted_priority)),
+        reverse=True,
+    )
+    for judged, pf in enumerate(candidates):
+        if judged >= OUTCOME_MAX_JUDGE_CALLS_PER_REPORT:
+            outcomes.extend(_decided(rest, "ignored", "judge_budget_exhausted") for rest in candidates[judged:])
+            logger.warning(
+                "Report %s hit the %d judge-call ceiling; %d candidate finding(s) settled unjudged",
+                report.id,
+                OUTCOME_MAX_JUDGE_CALLS_PER_REPORT,
+                len(candidates) - judged,
             )
+            break
+        addressed = await judge_addressed(
+            team_id=team_id,
+            user_id=inputs.judge_user_id,
+            finding=pf.finding,
+            verdict=pf.verdict,
+            touching_diff=_touching_diff(pf.finding.file, inputs.compare_files),
+        )
+        outcomes.append(
+            _decided(pf, *(("addressed", "judge_confirmed") if addressed else ("ignored", "judge_rejected")))
         )
 
     # Persist before any emit: once decided, an outcome is never re-decided. A crash before this
@@ -419,7 +450,6 @@ async def classify_report(
 async def classify_team(
     *,
     team: Team,
-    since: datetime,
     capture: Capture,
     max_reports: int = OUTCOME_MAX_REPORTS_PER_SWEEP,
     flush: Flush | None = None,
@@ -429,6 +459,10 @@ async def classify_team(
     Merged PRs (and their branch-tip head SHAs) come from the engineering_analytics warehouse; a team
     with no connected GitHub source is skipped. Stops early and returns on rate-limit / budget
     exhaustion — the whole job is idempotent, so the next sweep resumes cleanly.
+
+    Every other per-report failure is isolated to that report: a failed report writes no completion
+    stamp, so discovery hands it back next sweep, and the rest of the team's backlog is classified
+    now instead of waiting behind it.
     """
     reports = await database_sync_to_async(unclassified_published_reports, thread_sensitive=False)(team.id)
     if not reports:
@@ -446,12 +480,18 @@ async def classify_team(
         if str(report.id) not in resumable_ids:
             pending.append(report)
             continue
-        outcomes, distinct_id = await database_sync_to_async(_load_persisted_outcomes, thread_sensitive=False)(
-            team_id=team.id, report=report
-        )
-        await _emit_and_mark(
-            team_id=team.id, report=report, distinct_id=distinct_id, outcomes=outcomes, capture=capture, flush=flush
-        )
+        try:
+            outcomes, distinct_id = await database_sync_to_async(_load_persisted_outcomes, thread_sensitive=False)(
+                team_id=team.id, report=report
+            )
+            await _emit_and_mark(
+                team_id=team.id, report=report, distinct_id=distinct_id, outcomes=outcomes, capture=capture, flush=flush
+            )
+        except Exception:
+            # Resume runs before any classification, so an unhandled failure here would cost the team
+            # its whole sweep. Nothing was stamped, so this report resumes again next sweep.
+            logger.exception("Skipping resume of report %s; continuing the sweep", report.id)
+            continue
         classified += len(outcomes)
 
     by_repo: dict[str, list[ReviewReport]] = defaultdict(list)
@@ -461,12 +501,13 @@ async def classify_team(
     reports_done = 0
     for repository, repo_reports in by_repo.items():
         try:
-            # Scoped to the PR numbers awaiting classification, so a high-merge-volume repo can't
-            # push an eligible older PR past the lookup's row ceiling.
+            # Asking by number keeps a high-merge-volume repo from pushing an eligible PR past the
+            # lookup's row ceiling, and it carries no recency bound. That matters because discovery
+            # has none either: a report that stayed unclassified for a long time must still be
+            # classifiable, not dropped from every future sweep for being old.
             merged = await database_sync_to_async(list_recently_merged_pull_requests, thread_sensitive=False)(
                 team=team,
                 repository=repository,
-                since=since,
                 numbers=[report.pr_number for report in repo_reports if report.pr_number is not None],
             )
         except GitHubSourceNotConnectedError:
@@ -496,5 +537,13 @@ async def classify_team(
             except (GitHubRateLimitError, GitHubEgressBudgetExhausted):
                 logger.warning("Outcome sweep stopping for team %s: GitHub egress exhausted", team.id)
                 return classified
+            except Exception:
+                # Last, so egress exhaustion still stops the sweep. One report must not strand the
+                # rest: the judge raises `ApplicationError` on any LLM failure and the DB steps can
+                # raise too, and nothing is stamped on a failed report, so discovery returns it next
+                # sweep while the reports behind it make progress now. Without this a deterministic
+                # failure would abort every sweep at the same report and never classify the backlog
+                # queued behind it.
+                logger.exception("Skipping report %s after an unexpected failure", report.id)
 
     return classified

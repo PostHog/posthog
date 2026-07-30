@@ -1,7 +1,12 @@
 from parameterized import parameterized
 
 from products.review_hog.backend.reviewer.models.issues_review import LineRange
-from products.review_hog.backend.reviewer.outcomes.line_proximity import ComparedFile, parse_compare_files, touched_near
+from products.review_hog.backend.reviewer.outcomes.line_proximity import (
+    ComparedFile,
+    parse_compare_files,
+    touched_near,
+    trim_patch_near,
+)
 
 
 def _cf(filename: str, changed: set[int], previous: str | None = None) -> ComparedFile:
@@ -63,3 +68,32 @@ class TestTouchedNear:
         # previous_filename bridge would drop every finding on a since-renamed file to "ignored".
         compared = [_cf("new_name.py", {30}, previous="f.py")]
         assert touched_near(file="f.py", lines=[LineRange(start=30)], compared=compared, window=5) is True
+
+
+def _hunk(start: int, body: str) -> str:
+    return f"@@ -{start},1 +{start},1 @@\n+{body}"
+
+
+class TestTrimPatchNear:
+    def test_under_budget_is_returned_untouched(self):
+        patch = _hunk(10, "a") + "\n" + _hunk(500, "b")
+        assert trim_patch_near(patch, [LineRange(start=10)], max_chars=10_000) == (patch, 0)
+
+    def test_keeps_the_hunk_nearest_the_finding_not_the_first_one(self):
+        # The whole point of trimming by proximity: a blind head-truncation would keep the far hunk
+        # and drop the one that made this finding a candidate, leaving the judge to rule on an
+        # unrelated change and durably misclassify the finding.
+        far = _hunk(10, "x" * 400)
+        near = _hunk(900, "y" * 400)
+        trimmed, dropped = trim_patch_near(far + "\n" + near, [LineRange(start=900)], max_chars=500)
+        assert "y" * 400 in trimmed
+        assert "x" * 400 not in trimmed
+        assert dropped == 1
+
+    def test_nearest_hunk_is_kept_even_when_it_alone_exceeds_the_budget(self):
+        # Evidence beats the ceiling: returning an empty diff would make every oversized case read
+        # as "nothing touched it", which is exactly the misclassification the cap must not cause.
+        only = _hunk(900, "y" * 5_000)
+        trimmed, dropped = trim_patch_near(only + "\n" + _hunk(10, "x" * 5_000), [LineRange(start=900)], max_chars=100)
+        assert "y" * 5_000 in trimmed
+        assert dropped == 1
