@@ -6,7 +6,7 @@ from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
-from products.review_hog.backend.reviewer.constants import effective_priority
+from products.review_hog.backend.reviewer.constants import effective_priority, published_priorities_for
 from products.review_hog.backend.reviewer.diff_position import build_diff_line_map, find_diff_position
 from products.review_hog.backend.reviewer.models.github_meta import PRFile
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
@@ -55,7 +55,7 @@ def publish_persisted_review(
     repo: str,
     pr_number: int,
     token: str,
-    published_priorities: set[IssuePriority],
+    urgency_threshold: IssuePriority,
     installation_id: str | None = None,
 ) -> PublishOutcome:
     """Publish an already-computed review for `report_id` at `head_sha`, idempotently.
@@ -65,7 +65,11 @@ def publish_persisted_review(
     already published (so a re-trigger / re-run can't double-post or re-fire the one-time promo),
     rebuilds the inline comments from this run's valid findings against the snapshot diff, and records
     the published-head watermark only on a real post (a no-op turn must not block a later publish at
-    the same head). Reads the DB, so callers run it off the event loop.
+    the same head). `urgency_threshold` gates which findings publish and is snapshotted on the report
+    under this turn's `run_index`, so outcome classification later reconstructs the published set from
+    the threshold that actually gated each turn, not the user's live setting and not whichever
+    threshold happened to be in force at the last publish. Reads the DB, so callers run it off the
+    event loop.
     """
     report = ReviewReport.objects.for_team(team_id).get(id=report_id)
     if report.published_head_sha == head_sha:
@@ -85,12 +89,40 @@ def publish_persisted_review(
         head_sha=head_sha,
         # The alpha promo comment is posted once per report (first real publish), not every turn.
         post_promo=report.published_head_sha is None,
-        published_priorities=published_priorities,
+        published_priorities=published_priorities_for(urgency_threshold),
         installation_id=installation_id,
     )
     if outcome.posted:
+        if report.outcomes_emitted_at is not None:
+            # Outcome idempotency is report-scoped: the sweep skips any report already stamped
+            # emitted, so this turn's findings will never be classified. Only reachable by
+            # re-triggering a review on a PR that already merged and was already classified, at a
+            # head it had not been published to before. Logged rather than handled because making
+            # the sweep publish-scoped would mean re-deciding outcomes per publish.
+            logger.warning(
+                "Report %s re-published at %s after its outcomes were emitted; this turn's findings "
+                "will not be classified",
+                report_id,
+                head_sha,
+            )
         report.published_head_sha = head_sha
-        report.save(update_fields=["published_head_sha", "updated_at"])
+        # Recorded per turn, never overwritten: this turn posted only its own findings, so an
+        # earlier turn's threshold stays the truth about what that turn put on the PR.
+        report.published_urgency_thresholds = {
+            **(report.published_urgency_thresholds or {}),
+            str(run_index): urgency_threshold.value,
+        }
+        # The base a later sweep compares this turn's findings against. Without it every finding is
+        # compared from the newest publish, so a fix landing between two turns falls outside the diff.
+        report.published_head_shas = {**(report.published_head_shas or {}), str(run_index): head_sha}
+        report.save(
+            update_fields=[
+                "published_head_sha",
+                "published_urgency_thresholds",
+                "published_head_shas",
+                "updated_at",
+            ]
+        )
     return outcome
 
 
