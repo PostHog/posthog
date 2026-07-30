@@ -185,11 +185,24 @@ class TestStripeSource:
             "HTTPSConnectionPool(host='api.stripe.com', port=443): Read timed out.",
             "500 Server Error: Internal Server Error for url: https://api.stripe.com/v1/charges",
             "Connection reset by peer",
+            # Rate limits are transient (Retry-After-bounded) — must never disable the source.
+            "Request req_abc123: Request rate limit exceeded. You can learn more about rate limits here https://stripe.com/docs/rate-limits.",
         ],
     )
     def test_non_retryable_errors_do_not_match_transient(self, other_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
+
+    def test_retryable_errors_match_rate_limit(self):
+        # A RateLimitError that survives _RateLimitRetryingRequestsClient's in-process backoff still
+        # gets retried by Temporal at the activity level; it must be classified as retryable so it's
+        # logged as a warning rather than tracked as an exception.
+        observed_error = (
+            "Request req_abc123: Request rate limit exceeded. You can learn more about rate limits here "
+            "https://stripe.com/docs/rate-limits."
+        )
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors)
 
     @pytest.mark.parametrize(
         "config,expected_message",
