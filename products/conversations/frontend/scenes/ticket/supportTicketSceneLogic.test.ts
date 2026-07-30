@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { tagsModel } from '~/models/tagsModel'
 import { initKeaTests } from '~/test/init'
 import type { CommentType } from '~/types'
 
@@ -32,6 +33,10 @@ jest.mock('~/lib/api', () => {
                 get: jest.fn(),
                 update: jest.fn(),
                 list: jest.fn().mockResolvedValue({ results: [] }),
+            },
+            tags: {
+                ...actual.default?.tags,
+                list: jest.fn().mockResolvedValue([]),
             },
         },
     }
@@ -373,6 +378,62 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
         expect(ticketUpdateMock).toHaveBeenLastCalledWith('42', expect.objectContaining({ status: 'pending' }))
         expect(logic.values.status).toBe('pending')
         expect(logic.values.ticketUpdating).toBe(false)
+    })
+})
+
+describe('supportTicketSceneLogic tag pool refresh', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    const ticketGetMock = api.conversationsTickets.get as jest.Mock
+    const ticketUpdateMock = api.conversationsTickets.update as jest.Mock
+    const tagsListMock = api.tags.list as jest.Mock
+
+    const loadedTicket = (): Ticket => ({ ...makeTicket(), priority: 'medium', assignee: null }) as Ticket
+
+    beforeEach(async () => {
+        initKeaTests()
+        tagsListMock.mockReset().mockResolvedValue(['known'])
+        ticketGetMock.mockReset().mockResolvedValue(loadedTicket())
+        ticketUpdateMock.mockReset()
+        // Prime the shared lazy-loaded tag pool so availableTags reflects the existing tags.
+        tagsModel.mount()
+        tagsModel.actions.loadTags()
+        await expectLogic(tagsModel).toDispatchActions(['loadTagsSuccess'])
+        logic = supportTicketSceneLogic({ id: 42 })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['setTicket'])
+        expect(logic.values.availableTags).toEqual(['known'])
+        // Wait out lazyLoaders' deferred refetch, or it lands mid-test and makes the assertions below vacuous.
+        await expectLogic(tagsModel).toDispatchActions(['loadTagsSuccess'])
+        tagsListMock.mockClear()
+    })
+
+    // A newly typed tag is created globally on save, so the shared pool must reload to surface it
+    // on other tickets; an already-known tag needs no reload.
+    it('reloads the shared tag pool when a new tag was saved', async () => {
+        ticketUpdateMock.mockResolvedValue({ ...loadedTicket(), tags: ['known', 'brand-new'] })
+        tagsListMock.mockResolvedValue(['known', 'brand-new'])
+
+        logic.actions.setTags(['known', 'brand-new'])
+        await expectLogic(logic, () => {
+            logic.actions.updateTicket()
+        }).toDispatchActions(['setTicket'])
+        await expectLogic(tagsModel).toDispatchActions(['loadTagsSuccess'])
+
+        expect(tagsListMock).toHaveBeenCalledTimes(1)
+        expect(logic.values.availableTags).toEqual(['known', 'brand-new'])
+    })
+
+    it('does not reload the tag pool when all saved tags are already known', async () => {
+        ticketUpdateMock.mockResolvedValue({ ...loadedTicket(), tags: ['known'] })
+
+        logic.actions.setTags(['known'])
+        await expectLogic(logic, () => {
+            logic.actions.updateTicket()
+        }).toDispatchActions(['setTicket'])
+
+        expect(tagsListMock).not.toHaveBeenCalled()
+        expect(logic.values.availableTags).toEqual(['known'])
     })
 })
 
