@@ -169,11 +169,19 @@ describe('notebook cell tools', () => {
             cell_type: 'markdown',
             markdown: 'Some **notes**.',
         })
+        await addCellHandler(context, {
+            notebook_id: 'aBcD1234',
+            cell_type: 'markdown',
+            markdown: 'More notes.',
+        })
 
         expect(result).toEqual({})
-        expect(state.saveBodies).toHaveLength(1)
-        expect(state.saveBodies[0].content.content[0].attrs.markdown).toContain('Some **notes**.')
         expect(state.runBodies).toHaveLength(0)
+        // Each cell is a node of its own: one blank line would fold consecutive prose cells
+        // into a single card in the editor, two keeps them separate.
+        expect(state.saveBodies[1].content.content[0].attrs.markdown).toBe(
+            '# Doc\n\n\nSome **notes**.\n\n\nMore notes.\n'
+        )
     })
 
     it('add component cell inserts the tag with a minted nodeId and no run', async () => {

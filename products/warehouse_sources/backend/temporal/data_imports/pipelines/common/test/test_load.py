@@ -218,11 +218,16 @@ class TestRunPostLoadDeltaMaintenance:
 
 
 class TestGetIncrementalFieldValue:
-    def _schema(self, incremental_field: str) -> MagicMock:
+    def _schema(self, incremental_field: str, sync_type: str = ExternalDataSchema.SyncType.INCREMENTAL) -> MagicMock:
         schema = MagicMock()
-        schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        schema.sync_type = sync_type
         schema.sync_type_config = {"incremental_field": incremental_field, "incremental_field_type": "integer"}
         schema.incremental_field_type = "integer"
+        schema.should_use_incremental_field = sync_type in (
+            ExternalDataSchema.SyncType.INCREMENTAL,
+            ExternalDataSchema.SyncType.APPEND,
+            ExternalDataSchema.SyncType.WEBHOOK,
+        )
         return schema
 
     def test_returns_max_of_configured_column(self):
@@ -243,3 +248,19 @@ class TestGetIncrementalFieldValue:
         assert "created" in message  # available columns are listed for self-service fixing
         matching_keys = [key for key in Any_Source_Errors if key in message]
         assert matching_keys, "exception message must stay matched by an Any_Source_Errors entry"
+
+    @parameterized.expand(
+        [
+            ("xmin", ExternalDataSchema.SyncType.XMIN),
+            ("cdc", ExternalDataSchema.SyncType.CDC),
+        ]
+    )
+    def test_stale_incremental_field_ignored_for_self_tracking_sync_types(self, _name: str, sync_type: str):
+        # xmin/cdc track their cursor outside sync_type_config (xmin_ceiling, cdc_last_log_position).
+        # A schema switched from incremental to xmin/cdc keeps the old incremental_field key around,
+        # which used to raise IncrementalFieldMissingFromDataError even though this sync type never
+        # reads that column.
+        table = pa.table({"id": ["a"], "created": [10]})
+        schema = self._schema("updated_at", sync_type=sync_type)
+
+        assert get_incremental_field_value(schema, table) is None
