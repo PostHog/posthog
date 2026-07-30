@@ -8,5 +8,6 @@ pub mod metric_record;
 pub mod metrics_avro_schema;
 pub mod middleware;
 pub mod service;
+pub mod token_validator;
 pub mod trace_record;
 pub mod traces_avro_schema;

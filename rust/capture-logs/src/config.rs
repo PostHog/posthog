@@ -26,6 +26,18 @@ pub struct Config {
 
     pub drop_events_by_token: Option<String>, // "<token>,<token>..."
 
+    // When set, tokens are validated against posthog_team (cached, fail-open)
+    // and unknown tokens get 401 instead of a silent consumer-side drop.
+    // Unset = no validation, today's behavior.
+    #[envconfig(from = "TOKEN_VALIDATION_DATABASE_URL")]
+    pub token_validation_database_url: Option<String>,
+
+    #[envconfig(from = "TOKEN_CACHE_CAPACITY", default = "100000")]
+    pub token_cache_capacity: u64,
+
+    #[envconfig(from = "TOKEN_CACHE_TTL_SECS", default = "300")]
+    pub token_cache_ttl_secs: u64,
+
     #[envconfig(from = "MAX_REQUEST_BODY_SIZE_BYTES", default = "2097152")] // 2MB (Axum default)
     pub max_request_body_size_bytes: usize,
 }

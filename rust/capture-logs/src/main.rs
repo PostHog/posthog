@@ -23,6 +23,7 @@ use tracing::level_filters::LevelFilter;
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
+use capture_logs::token_validator::{PgTokenStore, TokenValidator};
 use limiters::token_dropper::TokenDropper;
 
 common_alloc::used!();
@@ -118,9 +119,31 @@ async fn main() {
 
     let token_dropper = TokenDropper::new(&config.drop_events_by_token.unwrap_or_default());
     let token_dropper_arc = Arc::new(token_dropper);
+
+    let token_validator = match &config.token_validation_database_url {
+        Some(url) => match PgTokenStore::connect(url).await {
+            Ok(store) => {
+                info!("Token validation enabled (cached, fail-open)");
+                TokenValidator::new(
+                    Some(Arc::new(store)),
+                    config.token_cache_capacity,
+                    Duration::from_secs(config.token_cache_ttl_secs),
+                )
+            }
+            Err(e) => {
+                // Fail open at startup too: run without validation rather
+                // than refusing to serve ingest because Postgres is away.
+                error!("Token validation disabled, could not reach its database: {e}");
+                TokenValidator::disabled()
+            }
+        },
+        None => TokenValidator::disabled(),
+    };
+
     let logs_service = match Service::new(
         kafka_sink,
         token_dropper_arc,
+        Arc::new(token_validator),
         config.max_request_body_size_bytes,
     )
     .await

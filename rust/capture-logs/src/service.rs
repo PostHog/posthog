@@ -10,6 +10,8 @@ use axum::{
 use bytes::Bytes;
 use common_compression::{decompress_gzip_capped, has_gzip_magic_header, CompressionError};
 use limiters::token_dropper::TokenDropper;
+
+use crate::token_validator::{TokenValidator, TokenVerdict};
 use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
 use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
@@ -304,6 +306,7 @@ pub fn parse_otel_message(json_bytes: &Bytes) -> Result<ExportLogsServiceRequest
 pub struct Service {
     pub(crate) sink: KafkaSink,
     pub(crate) token_dropper: Arc<TokenDropper>,
+    pub(crate) token_validator: Arc<TokenValidator>,
     pub(crate) max_request_body_size_bytes: usize,
 }
 
@@ -316,14 +319,31 @@ impl Service {
     pub async fn new(
         kafka_sink: KafkaSink,
         token_dropper: Arc<TokenDropper>,
+        token_validator: Arc<TokenValidator>,
         max_request_body_size_bytes: usize,
     ) -> Result<Self, anyhow::Error> {
         Ok(Self {
             sink: kafka_sink,
             token_dropper,
+            token_validator,
             max_request_body_size_bytes,
         })
     }
+}
+
+/// 401 for tokens no team owns; unavailable validation fails open.
+pub(crate) async fn reject_unknown_token(
+    service: &Service,
+    token: &str,
+) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+    if service.token_validator.check(token).await == TokenVerdict::Unknown {
+        error!("Unknown project API key");
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(json!({"error": "Unknown project API key"})),
+        ));
+    }
+    Ok(())
 }
 
 pub(crate) fn decode_body_if_gzip_magic(
@@ -416,6 +436,7 @@ pub async fn export_logs_http(
             Json(json!({"error": format!("Invalid token")})),
         ));
     }
+    reject_unknown_token(&service, token).await?;
 
     tracing::Span::current().record("token", token);
 
@@ -607,6 +628,8 @@ pub async fn export_traces_http(
         ));
     }
 
+    reject_unknown_token(&service, token).await?;
+
     tracing::Span::current().record("token", token);
 
     let body = decode_body_if_gzip_magic(body, service.max_request_body_size_bytes)?;
@@ -783,6 +806,8 @@ pub async fn export_metrics_http(
             Json(json!({"error": "Invalid token"})),
         ));
     }
+
+    reject_unknown_token(&service, token).await?;
 
     tracing::Span::current().record("token", token);
 

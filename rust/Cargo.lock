@@ -2238,6 +2238,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "apache-avro",
+ "async-trait",
  "axum 0.7.9",
  "base64 0.22.1",
  "bytes",
@@ -2255,6 +2256,7 @@ dependencies = [
  "jsonwebtoken",
  "limiters",
  "metrics",
+ "moka",
  "opentelemetry-proto 0.29.0",
  "prost 0.13.5",
  "rdkafka",
@@ -2262,6 +2264,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "siphasher 1.0.2",
+ "sqlx",
  "thiserror 2.0.18",
  "tokio",
  "tonic 0.12.3",
