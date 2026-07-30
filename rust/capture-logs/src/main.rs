@@ -122,9 +122,9 @@ async fn main() {
     let token_dropper_arc = Arc::new(token_dropper);
 
     let token_validator = match &config.token_validation_database_url {
-        Some(url) => match PgTokenStore::connect(url).await {
+        Some(url) => match PgTokenStore::connect(url) {
             Ok(store) => {
-                info!("Token validation enabled (cached, fail-open)");
+                info!("Token validation enabled (cached, lazy pool, fail-open)");
                 TokenValidator::new(
                     Some(Arc::new(store)),
                     config.token_cache_capacity,
@@ -132,9 +132,9 @@ async fn main() {
                 )
             }
             Err(e) => {
-                // Fail open at startup too: run without validation rather
-                // than refusing to serve ingest because Postgres is away.
-                error!("Token validation disabled, could not reach its database: {e}");
+                // Only an unparseable URL lands here (the pool is lazy);
+                // run without validation rather than refusing to boot.
+                error!("Token validation disabled, invalid database URL: {e}");
                 TokenValidator::disabled()
             }
         },
