@@ -23,6 +23,11 @@ export type NotebookParentResource = {
     id: string
 }
 
+export enum NotebooksTab {
+    Notebooks = 'notebooks',
+    Templates = 'templates',
+}
+
 export type NotebookType = NotebookListItemType &
     WithAccessControl & {
         content: JSONContent | null

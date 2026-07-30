@@ -1,3 +1,4 @@
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconEllipsis } from '@posthog/icons'
@@ -6,6 +7,7 @@ import { LemonButton, LemonMenu, Tooltip, lemonToast } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { base64Encode } from 'lib/utils/base64'
 import { getTextFromFile, selectFiles } from 'lib/utils/file-utils'
 import { notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
@@ -18,6 +20,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { NotebooksTable } from './NotebooksTable/NotebooksTable'
+import { NotebookTemplateCards } from './NotebookTemplates/NotebookTemplateCards'
+import { NotebooksTab } from './types'
 
 export const scene: SceneExport = {
     component: NotebooksScene,
@@ -26,6 +30,9 @@ export const scene: SceneExport = {
 }
 
 export function NotebooksScene(): JSX.Element {
+    const { tab } = useValues(notebooksTableLogic)
+    const { setTab } = useActions(notebooksTableLogic)
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -103,7 +110,15 @@ export function NotebooksScene(): JSX.Element {
                 }
             />
 
-            <NotebooksTable />
+            <LemonTabs
+                activeKey={tab}
+                onChange={(newKey) => setTab(newKey)}
+                sceneInset
+                tabs={[
+                    { key: NotebooksTab.Notebooks, label: 'Notebooks', content: <NotebooksTable /> },
+                    { key: NotebooksTab.Templates, label: 'Templates', content: <NotebookTemplateCards /> },
+                ]}
+            />
         </SceneContent>
     )
 }

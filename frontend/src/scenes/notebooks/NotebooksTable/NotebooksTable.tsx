@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconEllipsis, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -16,15 +16,14 @@ import { urls } from 'scenes/urls'
 
 import { notebooksModel } from '~/models/notebooksModel'
 
-import { notebookPanelLogic } from '../NotebookPanel/notebookPanelLogic'
-import { NotebookListItemType } from '../types'
+import { NotebookListItemType, NotebooksTab } from '../types'
 
 function titleColumn(): LemonTableColumn<NotebookListItemType, 'title'> {
     return {
         title: 'Title',
         dataIndex: 'title',
         width: '100%',
-        render: function Render(title, { short_id, is_template }) {
+        render: function Render(title, { short_id }) {
             return (
                 <Link
                     data-attr="notebook-title"
@@ -32,7 +31,6 @@ function titleColumn(): LemonTableColumn<NotebookListItemType, 'title'> {
                     className="font-semibold flex items-center gap-2"
                 >
                     {title || 'Untitled'}
-                    {is_template && <LemonTag type="highlight">TEMPLATE</LemonTag>}
                 </Link>
             )
         },
@@ -41,10 +39,8 @@ function titleColumn(): LemonTableColumn<NotebookListItemType, 'title'> {
 }
 
 export function NotebooksTable(): JSX.Element {
-    const { notebooksAndTemplates, filters, notebooksResponseLoading, notebookTemplates, tableSorting, pagination } =
-        useValues(notebooksTableLogic)
-    const { loadNotebooks, setFilters, tableSortingChanged } = useActions(notebooksTableLogic)
-    const { selectNotebook } = useActions(notebookPanelLogic)
+    const { notebooks, filters, notebooksResponseLoading, tableSorting, pagination } = useValues(notebooksTableLogic)
+    const { loadNotebooks, setFilters, tableSortingChanged, setTab } = useActions(notebooksTableLogic)
 
     useOnMountEffect(loadNotebooks)
 
@@ -65,9 +61,6 @@ export function NotebooksTable(): JSX.Element {
         >,
         {
             render: function Render(_, notebook) {
-                if (notebook.is_template) {
-                    return null
-                }
                 return (
                     <LemonMenu
                         items={[
@@ -95,7 +88,7 @@ export function NotebooksTable(): JSX.Element {
                 type="info"
                 action={{
                     onClick: () => {
-                        selectNotebook(notebookTemplates[0].short_id)
+                        setTab(NotebooksTab.Templates)
                     },
                     children: 'Get started',
                 }}
@@ -128,12 +121,17 @@ export function NotebooksTable(): JSX.Element {
             <LemonTable
                 data-attr="notebooks-table"
                 pagination={pagination}
-                dataSource={notebooksAndTemplates}
+                dataSource={notebooks}
                 rowKey="short_id"
                 columns={columns}
                 loading={notebooksResponseLoading}
                 defaultSorting={tableSorting}
-                emptyState="No notebooks matching your filters!"
+                emptyState={
+                    <>
+                        No notebooks matching your filters. You can also{' '}
+                        <Link onClick={() => setTab(NotebooksTab.Templates)}>start from a template</Link>.
+                    </>
+                }
                 nouns={['notebook', 'notebooks']}
                 onSort={tableSortingChanged}
             />

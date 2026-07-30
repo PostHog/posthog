@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { addProductIntent } from 'lib/utils/product-intents'
+import { buildMarkdownNotebookContent } from 'scenes/notebooks/Notebook/markdownNotebookV2'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import type { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogic'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
@@ -94,12 +95,16 @@ export interface notebooksModelActions {
         title?: string,
         content?: JSONContent[],
         onCreate?: (notebook: BuiltLogic<notebookLogicType>) => void,
-        shortId?: string
+        shortId?: string,
+        markdown?: string,
+        templateShortId?: string
     ) => {
         content: JSONContent[] | undefined
         location: NotebookTarget
+        markdown: string | undefined
         onCreate: ((notebook: BuiltLogic<notebookLogicType>) => void) | undefined
         shortId: string | undefined
+        templateShortId: string | undefined
         title: string | undefined
     }
     createNotebookFailure: (
@@ -117,8 +122,10 @@ export interface notebooksModelActions {
         payload?: {
             content: JSONContent[] | undefined
             location: NotebookTarget
+            markdown: string | undefined
             onCreate: ((notebook: BuiltLogic<notebookLogicType>) => void) | undefined
             shortId: string | undefined
+            templateShortId: string | undefined
             title: string | undefined
         }
     ) => {
@@ -126,8 +133,10 @@ export interface notebooksModelActions {
         payload?: {
             content: JSONContent[] | undefined
             location: NotebookTarget
+            markdown: string | undefined
             onCreate: ((notebook: BuiltLogic<notebookLogicType>) => void) | undefined
             shortId: string | undefined
+            templateShortId: string | undefined
             title: string | undefined
         }
     }
@@ -194,13 +203,17 @@ export const notebooksModel = kea<notebooksModelType>([
             title?: string,
             content?: JSONContent[],
             onCreate?: (notebook: BuiltLogic<notebookLogicType>) => void,
-            shortId?: string
+            shortId?: string,
+            markdown?: string,
+            templateShortId?: string
         ) => ({
             title,
             location,
             content,
             onCreate,
             shortId,
+            markdown,
+            templateShortId,
         }),
         receiveNotebookUpdate: (notebook: NotebookListItemType) => ({ notebook }),
         loadNotebooks: true,
@@ -219,10 +232,12 @@ export const notebooksModel = kea<notebooksModelType>([
         notebooks: [
             [] as NotebookListItemType[],
             {
-                createNotebook: async ({ title, location, content, onCreate, shortId }) => {
+                createNotebook: async ({ title, location, content, onCreate, shortId, markdown, templateShortId }) => {
                     const notebook = await api.notebooks.create({
                         title,
-                        content: defaultNotebookContent(title, content),
+                        content: markdown
+                            ? buildMarkdownNotebookContent(markdown)
+                            : defaultNotebookContent(title, content),
                         _create_in_folder: getLastNewFolder(),
                         ...(shortId ? { short_id: shortId } : {}),
                     })
@@ -238,6 +253,7 @@ export const notebooksModel = kea<notebooksModelType>([
                     posthog.capture(`notebook created (client)`, {
                         short_id: notebook.short_id,
                         is_markdown: true,
+                        template: templateShortId ?? null,
                     })
 
                     void addProductIntent({
