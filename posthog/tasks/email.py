@@ -628,6 +628,41 @@ def send_email_sending_suspended(team_id: int, reason: str, suspended_at: str) -
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @with_team_scope()
+def send_email_sending_reputation_finding(team_id: int, impact: str, found_at: str) -> None:
+    """
+    Warn a team's admins that our email provider raised reputation findings against their
+    project's sending. LOW impact is a fix-this warning; HIGH impact means sending can be
+    paused automatically. Not gated by notification settings — inaction escalates to a pause.
+    """
+    if not is_email_available(with_absolute_urls=True):
+        return
+    team = Team.objects.get(id=team_id)
+    memberships_to_email = _get_project_admins_to_notify_of_email_sending_suspension(team)
+    if not memberships_to_email:
+        return
+    high_impact = impact == "HIGH"
+    subject = (
+        f"[Action required] Email sending for project '{team}' is at risk of being paused"
+        if high_impact
+        else f"Reputation warning for email sending in project '{team}'"
+    )
+    message = EmailMessage(
+        campaign_key=f"email_sending_reputation_finding_{team_id}_{impact}_{found_at}",
+        subject=subject,
+        template_name="email_sending_reputation_finding",
+        template_context={
+            "team": team,
+            "high_impact": high_impact,
+            "reputation_path": f"/project/{team.id}/workflows/reputation",
+        },
+    )
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@with_team_scope()
 def send_email_sending_unsuspended(team_id: int, unsuspended_at: str) -> None:
     if not is_email_available(with_absolute_urls=True):
         return

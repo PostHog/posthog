@@ -123,6 +123,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
     reap_stale_prewarm_heatmaps,
     report_stuck_heatmap_screenshots,
 )
+from products.workflows.backend.tasks.ses_tenant_state import reconcile_ses_tenant_states
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
@@ -241,6 +242,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="3", minute="0"),
         cleanup_stale_expiry_tracking_task.s(),
         name="team metadata expiry tracking cleanup",
+    )
+
+    # SES tenant reputation reconciliation - daily at 6:30 AM UTC. EventBridge events are the
+    # real-time path; this sweep catches missed deliveries. Sequential SES API calls per team
+    # with an SES email integration, so kept daily to stay well inside SES API rate limits.
+    sender.add_periodic_task(
+        crontab(hour="6", minute="30"),
+        reconcile_ses_tenant_states.s(),
+        name="ses tenant reputation reconciliation",
     )
 
     # LLM gateway policy cache sync - hourly at :05 to stagger from team_metadata at :00

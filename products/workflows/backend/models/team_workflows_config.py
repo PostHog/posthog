@@ -35,5 +35,13 @@ class TeamWorkflowsConfig(models.Model):
     email_sending_suspended_at = models.DateTimeField(null=True, blank=True)
     email_sending_suspension_reason = models.TextField(blank=True, default="")
 
+    # Last-known state of the team's AWS SES tenant, mirrored so state *changes* can trigger
+    # customer emails exactly once (EventBridge events are best-effort; a periodic sweep
+    # reconciles). Empty string = never synced; the first sync sets a baseline without notifying.
+    # db_default so raw INSERTs from non-Django writers keep working.
+    ses_tenant_sending_status = models.CharField(max_length=16, blank=True, default="", db_default="")
+    ses_tenant_reputation_impact = models.CharField(max_length=8, blank=True, default="", db_default="")
+    ses_tenant_state_synced_at = models.DateTimeField(null=True, blank=True)
+
 
 register_team_extension_signal(TeamWorkflowsConfig, logger=logger)
