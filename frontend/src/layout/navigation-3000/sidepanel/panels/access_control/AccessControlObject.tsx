@@ -22,7 +22,7 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfileBubbles, ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
-import { capitalizeFirstLetter, fullName } from 'lib/utils/strings'
+import { fullName } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -38,6 +38,7 @@ import {
 } from '~/types'
 
 import { AccessControlLogicProps, InheritedAccess, accessControlLogic } from './accessControlLogic'
+import { humanizeAccessControlLevel } from './ResourceAccessControlsV2/helpers'
 
 export function AccessControlObject(props: AccessControlLogicProps): JSX.Element | null {
     const { canEditAccessControls, humanReadableResource, resource } = useValues(accessControlLogic(props))
@@ -403,7 +404,7 @@ function SimplLevelComponent(props: {
             : false
         return {
             value: level,
-            label: level === AccessControlLevel.None ? 'No access' : capitalizeFirstLetter(level ?? ''),
+            label: humanizeAccessControlLevel(level),
             disabledReason: isDisabled ? 'Not available for this resource type' : undefined,
         }
     })
@@ -414,9 +415,9 @@ function SimplLevelComponent(props: {
             placeholder="Select level..."
             value={props.level}
             onChange={(newValue) => props.onChange(newValue)}
-            disabledReason={
-                props.disabledReason ?? (!canEditAccessControls || props.disabled ? 'You cannot edit this' : undefined)
-            }
+            // The permission gate wins over any caller-supplied reason, so a reason passed for
+            // some other purpose can never re-enable the control for someone who cannot edit
+            disabledReason={!canEditAccessControls || props.disabled ? 'You cannot edit this' : props.disabledReason}
             dropdownMatchSelectWidth={false}
             tooltip={
                 inherited

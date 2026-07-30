@@ -319,7 +319,12 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
     @staticmethod
     def _inherited_resource(resource: APIScopeObject) -> APIScopeObject | None:
-        """The resource whose project-wide rules gate `resource`, or None when it has none."""
+        """The resource whose project-wide rules gate `resource`, or None when it has none.
+
+        None is load-bearing: it is what stops the UI offering "No override" on a project's own
+        default, which has nothing above it to fall back to. The project permissions panel renders
+        the same component as any object, so removing this would offer a choice that cannot work.
+        """
         if resource in ("project", "organization", "plugin"):
             return None
         return RESOURCE_INHERITANCE_MAP.get(resource, resource)
