@@ -599,6 +599,25 @@ def _resolve_baselines_with_merge_base(
     return merged, len(healed)
 
 
+_MERGE_QUEUE_BRANCH_RE = re.compile(r"^trunk-merge/pr-(?P<pr_number>\d+)/")
+
+
+def _tombstone_branch_scope(branch: str) -> Q:
+    """Which runs' approved removals tombstone healing for this branch.
+
+    Normally only the branch's own runs. Merge-queue branches
+    (``trunk-merge/pr-<n>/<uuid>``) are freshly minted per attempt, so
+    approvals recorded on the source PR would never apply — every queue
+    attempt would re-heal the removed entries and fail the gate. Those
+    branches also honor tombstones from the source PR's runs.
+    """
+    scope = Q(run__branch=branch)
+    match = _MERGE_QUEUE_BRANCH_RE.match(branch)
+    if match:
+        scope |= Q(run__pr_number=int(match.group("pr_number")))
+    return scope
+
+
 def _tombstoned_identifiers(repo: Repo, run_type: str, branch: str) -> set[str]:
     """Identifiers whose latest approved outcome on this branch was REMOVED.
 
@@ -613,12 +632,14 @@ def _tombstoned_identifiers(repo: Repo, run_type: str, branch: str) -> set[str]:
     """
     from django.db.models import OuterRef, Subquery
 
+    branch_scope = _tombstone_branch_scope(branch)
+
     latest_approved_run = (
         RunSnapshot.objects.using(WRITER_DB)
         .filter(
+            branch_scope,
             run__repo=repo,
             run__run_type=run_type,
-            run__branch=branch,
             run__approved=True,
             review_state=ReviewState.APPROVED,
             identifier=OuterRef("identifier"),
@@ -630,9 +651,9 @@ def _tombstoned_identifiers(repo: Repo, run_type: str, branch: str) -> set[str]:
     return set(
         RunSnapshot.objects.using(WRITER_DB)
         .filter(
+            branch_scope,
             run__repo=repo,
             run__run_type=run_type,
-            run__branch=branch,
             run__approved=True,
             review_state=ReviewState.APPROVED,
             result=SnapshotResult.REMOVED,

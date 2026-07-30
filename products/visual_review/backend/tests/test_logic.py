@@ -2256,17 +2256,38 @@ class TestMergeBaseBaselineHealing:
         assert snapshot.baseline_hash == "master_hash"
 
     @pytest.mark.parametrize(
-        "prior_branch, prior_run_type, prior_approved, prior_review_state, expect_tombstoned",
+        "run_branch, prior_branch, prior_pr_number, prior_run_type, prior_approved, prior_review_state, expect_tombstoned",
         [
-            ("my-branch", RunType.STORYBOOK, True, ReviewState.APPROVED, True),
-            ("someone-else", RunType.STORYBOOK, True, ReviewState.APPROVED, False),
-            ("my-branch", "playwright", True, ReviewState.APPROVED, False),
-            ("my-branch", RunType.STORYBOOK, False, ReviewState.PENDING, False),
+            ("my-branch", "my-branch", None, RunType.STORYBOOK, True, ReviewState.APPROVED, True),
+            ("my-branch", "someone-else", None, RunType.STORYBOOK, True, ReviewState.APPROVED, False),
+            ("my-branch", "my-branch", None, "playwright", True, ReviewState.APPROVED, False),
+            ("my-branch", "my-branch", None, RunType.STORYBOOK, False, ReviewState.PENDING, False),
+            ("trunk-merge/pr-42/0c0ffee", "source-pr-branch", 42, RunType.STORYBOOK, True, ReviewState.APPROVED, True),
+            ("trunk-merge/pr-42/0c0ffee", "source-pr-branch", 43, RunType.STORYBOOK, True, ReviewState.APPROVED, False),
+            ("my-branch", "someone-else", 42, RunType.STORYBOOK, True, ReviewState.APPROVED, False),
         ],
-        ids=["approved_on_branch", "wrong_branch", "wrong_run_type", "not_approved"],
+        ids=[
+            "approved_on_branch",
+            "wrong_branch",
+            "wrong_run_type",
+            "not_approved",
+            "merge_queue_source_pr",
+            "merge_queue_other_pr",
+            "pr_number_ignored_off_queue",
+        ],
     )
     def test_tombstone_excludes_only_approved_removals_on_branch(
-        self, repo, team, mocker, prior_branch, prior_run_type, prior_approved, prior_review_state, expect_tombstoned
+        self,
+        repo,
+        team,
+        mocker,
+        run_branch,
+        prior_branch,
+        prior_pr_number,
+        prior_run_type,
+        prior_approved,
+        prior_review_state,
+        expect_tombstoned,
     ):
         branch_baseline: dict[str, str] = {}
         merge_base_baseline = {"candidate": "h1"}
@@ -2277,6 +2298,7 @@ class TestMergeBaseBaselineHealing:
             repo=repo,
             run_type=prior_run_type,
             branch=prior_branch,
+            pr_number=prior_pr_number,
             commit_sha="prior-sha",
             status=RunStatus.COMPLETED,
             approved=prior_approved,
@@ -2291,7 +2313,7 @@ class TestMergeBaseBaselineHealing:
             review_state=prior_review_state,
         )
 
-        merged, healed = logic._resolve_baselines_with_merge_base(repo, RunType.STORYBOOK, "my-branch")
+        merged, healed = logic._resolve_baselines_with_merge_base(repo, RunType.STORYBOOK, run_branch)
 
         if expect_tombstoned:
             assert merged == {}
