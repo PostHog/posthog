@@ -25,6 +25,8 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 'api/projects/:team_id/error_tracking/issue/:id': () => [200, errorTrackingTypeIssue],
+                // Without this the scene renders its "no exceptions yet" onboarding instead of the list
+                'api/environments/:team_id/error_tracking/issues/exists': () => [200, { exists: true }],
             },
             post: {
                 '/api/environments/:team_id/query/ErrorTrackingQuery': () => [200, errorTrackingQueryResponse],

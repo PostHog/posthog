@@ -110,19 +110,7 @@ export const IssueListTitleColumn = (props: {
         <div className="flex items-start gap-x-2 group my-1 [--line-height:1.3rem] -ml-2">
             <LemonCheckbox className="h-(--line-height) mx-1" checked={checked} onChange={handleSelectionChange} />
             <div className="flex flex-col gap-[2px]">
-                <IssueTitle record={record} issueUrl={issueUrl} runtime={runtime} />
-                <div
-                    title={record.description || undefined}
-                    className="font-medium line-clamp-1 text-[var(--gray-8)] h-(--line-height)"
-                >
-                    {record.description}
-                </div>
-                {(record.function || record.source) && (
-                    <div className="line-clamp-1 text-[var(--gray-6)] italic font-light h-(--line-height)">
-                        {record.function}
-                        {record.source ? <> in {sourceDisplay(record.source)}</> : <></>}
-                    </div>
-                )}
+                <IssueSummary record={record} issueUrl={issueUrl} runtime={runtime} />
                 <IssueMetadata
                     record={record}
                     orderBy={orderBy}
@@ -134,7 +122,7 @@ export const IssueListTitleColumn = (props: {
     )
 }
 
-const IssueTitle = ({
+const IssueSummary = ({
     record,
     issueUrl,
     runtime,
@@ -144,7 +132,7 @@ const IssueTitle = ({
     runtime: ErrorTrackingRuntime
 }): JSX.Element => (
     <Link
-        className="flex-1 pr-12 text-[0.9rem]"
+        className="flex-1 flex flex-col gap-[2px] pr-12 text-[0.9rem]"
         to={issueUrl}
         onClick={() => {
             const issueLogic = errorTrackingIssueSceneLogic({
@@ -159,6 +147,18 @@ const IssueTitle = ({
             <RuntimeIcon className="shrink-0" runtime={runtime} fontSize="0.7rem" />
             <span className="font-semibold line-clamp-1">{record.name || 'Unknown Type'}</span>
         </div>
+        <div
+            title={record.description || undefined}
+            className="font-medium line-clamp-1 text-[var(--gray-8)] h-(--line-height)"
+        >
+            {record.description}
+        </div>
+        {(record.function || record.source) && (
+            <div className="line-clamp-1 text-[var(--gray-6)] italic font-light h-(--line-height)">
+                {record.function}
+                {record.source ? <> in {sourceDisplay(record.source)}</> : <></>}
+            </div>
+        )}
     </Link>
 )
 

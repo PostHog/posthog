@@ -3,6 +3,7 @@ import { useMemo } from 'react'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataNode } from '~/queries/schema/schema-general'
@@ -63,9 +64,17 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
 
     return (
         <div className="m-2 flex items-center">
-            <LemonButton onClick={loadNextData} loading={nextDataLoading} fullWidth center disabled={!canLoadNextData}>
-                {text}
-            </LemonButton>
+            {canLoadNextData && !nextDataLoading ? (
+                <LemonButton onClick={loadNextData} fullWidth center>
+                    {text}
+                </LemonButton>
+            ) : (
+                // Nothing more to fetch (or a fetch is already in flight), so this is status text, not a target
+                <div className="flex-1 flex items-center justify-center gap-2 min-h-[2.3125rem] text-secondary">
+                    {nextDataLoading && <Spinner textColored />}
+                    <span>{text}</span>
+                </div>
+            )}
         </div>
     )
 }
