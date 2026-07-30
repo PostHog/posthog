@@ -77,9 +77,12 @@ class FinalizerPass:
     invalidated_teams: int = 0
 
 
-# The one place discovery and dispatch agree on which kinds this finalizer owns. A kind added to
-# the vocabulary without a stamp here raises `KeyError` in `_finalize_one_run`, which the per-run
-# `except` turns into a logged, counted, still-`reconciling` run — never a write to the wrong column.
+# The one place discovery and dispatch agree on which kinds this finalizer owns: `FINALIZABLE_KINDS`
+# is derived from these keys, so the lookup below can only ever see a kind it has a stamp for. That
+# is what guarantees a run is never stamped into the wrong column — but it also means a kind added to
+# the vocabulary without a stamp here is filtered out of discovery and simply never finalized: it
+# sits in `reconciling` indefinitely, with no exception, no error count, and no gauge movement.
+# `test_every_backfill_kind_has_a_stamp` is what turns that silence into a CI failure instead.
 _STAMP_BY_KIND: dict[str, Callable[[CohortBackfillRun, int], bool]] = {
     CohortBackfillKind.BEHAVIORAL: stamp_events_readiness,
     CohortBackfillKind.PERSON_PROPERTY: stamp_person_properties_readiness,

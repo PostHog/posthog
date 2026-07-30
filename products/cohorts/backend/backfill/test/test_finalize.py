@@ -5,7 +5,7 @@ from unittest import mock
 
 from django.core.cache import cache
 from django.db import connection
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -13,7 +13,7 @@ from parameterized import parameterized
 
 from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs
 
-from products.cohorts.backend.backfill.finalize import FLAGS_CACHE_TASK, finalize_backfill_runs
+from products.cohorts.backend.backfill.finalize import FINALIZABLE_KINDS, FLAGS_CACHE_TASK, finalize_backfill_runs
 from products.cohorts.backend.backfill.readiness import ensure_filters_shape_hash
 from products.cohorts.backend.models.backfill import (
     CohortBackfillKind,
@@ -25,6 +25,16 @@ from products.cohorts.backend.models.backfill import (
 )
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.dependencies import _behavioral_cohort_ids_key
+
+
+class TestFinalizerKindCoverage(SimpleTestCase):
+    def test_every_backfill_kind_has_a_stamp(self) -> None:
+        unmapped = set(CohortBackfillKind.values) - set(FINALIZABLE_KINDS)
+        assert not unmapped, (
+            f"{sorted(unmapped)} has no entry in finalize._STAMP_BY_KIND, so the finalizer's "
+            "discovery filters those runs out entirely: they park in reconciling forever with no "
+            "exception, no error count, and no gauge movement"
+        )
 
 
 @override_settings(

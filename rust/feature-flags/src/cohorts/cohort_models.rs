@@ -64,17 +64,18 @@ pub struct Cohort {
 impl Cohort {
     /// Returns true if this cohort's membership should be resolved via the
     /// realtime cohort_membership table rather than the static cohortpeople table.
-    /// Requires a realtime/behavioral cohort type, at least one populated backfill
-    /// timestamp (indicating the membership table has been written to), AND at least
-    /// one behavioral/lifecycle leaf condition. Cohorts made up only of person
+    /// Requires a realtime/behavioral cohort type, at least one behavioral/lifecycle
+    /// leaf condition, and the events backfill timestamp (indicating the membership
+    /// table has been written to). Cohorts made up only of person
     /// properties never use the membership table, even when otherwise eligible —
     /// there's no realtime signal to gain from it, so they fall through to dynamic
     /// filter evaluation like any other property-only cohort.
     ///
-    /// Note: the events stamp is required and the person stamp is not. Only the events backfill
-    /// populates `cohort_membership` for a behavioral or lifecycle leaf, so accepting the person
-    /// stamp in its place — as this did while nothing wrote that column — routes a cohort whose
-    /// behavioral half is unseeded to the table and silently under-matches it.
+    /// Note: that timestamp is the events one specifically, and the person one is deliberately
+    /// not required. Only the events backfill populates `cohort_membership` for a behavioral or
+    /// lifecycle leaf, so accepting the person stamp in its place — as this did while nothing
+    /// wrote that column — routes a cohort whose behavioral half is unseeded to the table and
+    /// silently under-matches it.
     ///
     /// A mixed cohort therefore still routes here on the events stamp alone, its person half
     /// answered from person records built off the live event stream rather than from a backfill.
