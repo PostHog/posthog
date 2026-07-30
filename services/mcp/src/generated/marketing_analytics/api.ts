@@ -29,7 +29,7 @@ export const MarketingAnalyticsConversionGoalsDeleteDestroyParams = /* @__PURE__
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -42,7 +42,7 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateParams = /* @__
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -69,7 +69,8 @@ export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneOneF
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneOneFixedPropertiesOneItemOnesevenTypeDefault = `error_tracking_issue`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneOneFixedPropertiesOneItemOnenineTypeDefault = `metric_attribute`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneOneFixedPropertiesOneItemTwooneTypeDefault = `revenue_analytics`
-export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneOneFixedPropertiesOneItemTwotwoTypeDefault = `workflow_variable`
+export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneOneFixedPropertiesOneItemTwotwoTypeDefault = `account_custom_property`
+export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneOneFixedPropertiesOneItemTwothreeTypeDefault = `workflow_variable`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneOneKindDefault = `EventsNode`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneOnePropertiesOneItemOneOperatorDefault = `exact`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneOnePropertiesOneItemOneTypeDefault = `event`
@@ -94,7 +95,8 @@ export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneOneP
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneOnePropertiesOneItemOnesevenTypeDefault = `error_tracking_issue`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneOnePropertiesOneItemOnenineTypeDefault = `metric_attribute`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneOnePropertiesOneItemTwooneTypeDefault = `revenue_analytics`
-export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneOnePropertiesOneItemTwotwoTypeDefault = `workflow_variable`
+export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneOnePropertiesOneItemTwotwoTypeDefault = `account_custom_property`
+export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneOnePropertiesOneItemTwothreeTypeDefault = `workflow_variable`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoFixedPropertiesOneItemOneOperatorDefault = `exact`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoFixedPropertiesOneItemOneTypeDefault = `event`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoFixedPropertiesOneItemTwoTypeDefault = `person`
@@ -118,7 +120,8 @@ export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoF
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoFixedPropertiesOneItemOnesevenTypeDefault = `error_tracking_issue`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoFixedPropertiesOneItemOnenineTypeDefault = `metric_attribute`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoFixedPropertiesOneItemTwooneTypeDefault = `revenue_analytics`
-export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoFixedPropertiesOneItemTwotwoTypeDefault = `workflow_variable`
+export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoFixedPropertiesOneItemTwotwoTypeDefault = `account_custom_property`
+export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoFixedPropertiesOneItemTwothreeTypeDefault = `workflow_variable`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoKindDefault = `ActionsNode`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoPropertiesOneItemOneOperatorDefault = `exact`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoPropertiesOneItemOneTypeDefault = `event`
@@ -143,7 +146,8 @@ export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoP
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoPropertiesOneItemOnesevenTypeDefault = `error_tracking_issue`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoPropertiesOneItemOnenineTypeDefault = `metric_attribute`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoPropertiesOneItemTwooneTypeDefault = `revenue_analytics`
-export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoPropertiesOneItemTwotwoTypeDefault = `workflow_variable`
+export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoPropertiesOneItemTwotwoTypeDefault = `account_custom_property`
+export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoPropertiesOneItemTwothreeTypeDefault = `workflow_variable`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreeFixedPropertiesOneItemOneOperatorDefault = `exact`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreeFixedPropertiesOneItemOneTypeDefault = `event`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreeFixedPropertiesOneItemTwoTypeDefault = `person`
@@ -167,7 +171,8 @@ export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThre
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreeFixedPropertiesOneItemOnesevenTypeDefault = `error_tracking_issue`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreeFixedPropertiesOneItemOnenineTypeDefault = `metric_attribute`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreeFixedPropertiesOneItemTwooneTypeDefault = `revenue_analytics`
-export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreeFixedPropertiesOneItemTwotwoTypeDefault = `workflow_variable`
+export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreeFixedPropertiesOneItemTwotwoTypeDefault = `account_custom_property`
+export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreeFixedPropertiesOneItemTwothreeTypeDefault = `workflow_variable`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreeKindDefault = `DataWarehouseNode`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreePropertiesOneItemOneOperatorDefault = `exact`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreePropertiesOneItemOneTypeDefault = `event`
@@ -192,7 +197,8 @@ export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThre
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreePropertiesOneItemOnesevenTypeDefault = `error_tracking_issue`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreePropertiesOneItemOnenineTypeDefault = `metric_attribute`
 export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreePropertiesOneItemTwooneTypeDefault = `revenue_analytics`
-export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreePropertiesOneItemTwotwoTypeDefault = `workflow_variable`
+export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreePropertiesOneItemTwotwoTypeDefault = `account_custom_property`
+export const marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreePropertiesOneItemTwothreeTypeDefault = `workflow_variable`
 
 export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PURE__ */ zod.object({
     goal: zod
@@ -825,7 +831,7 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                         .default(
                                             marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneOneFixedPropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/\" prepended'),
+                                        .describe('Event property with \"$feature\/\" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -1290,9 +1296,66 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                         'not_icontains_multi',
                                     ]),
                                     type: zod
-                                        .literal('workflow_variable')
+                                        .literal('account_custom_property')
                                         .default(
                                             marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneOneFixedPropertiesOneItemTwotwoTypeDefault
+                                        )
+                                        .describe(
+                                            'Customer analytics account custom property — the key is the property definition id'
+                                        ),
+                                    value: zod
+                                        .union([
+                                            zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                            zod.string(),
+                                            zod.number(),
+                                            zod.boolean(),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                }),
+                                zod.object({
+                                    key: zod.string(),
+                                    label: zod.union([zod.string(), zod.null()]).optional(),
+                                    operator: zod.enum([
+                                        'exact',
+                                        'is_not',
+                                        'icontains',
+                                        'not_icontains',
+                                        'regex',
+                                        'not_regex',
+                                        'gt',
+                                        'gte',
+                                        'lt',
+                                        'lte',
+                                        'is_set',
+                                        'is_not_set',
+                                        'is_date_exact',
+                                        'is_date_before',
+                                        'is_date_after',
+                                        'between',
+                                        'not_between',
+                                        'min',
+                                        'max',
+                                        'in',
+                                        'not_in',
+                                        'is_cleaned_path_exact',
+                                        'flag_evaluates_to',
+                                        'semver_eq',
+                                        'semver_neq',
+                                        'semver_gt',
+                                        'semver_gte',
+                                        'semver_lt',
+                                        'semver_lte',
+                                        'semver_tilde',
+                                        'semver_caret',
+                                        'semver_wildcard',
+                                        'icontains_multi',
+                                        'not_icontains_multi',
+                                    ]),
+                                    type: zod
+                                        .literal('workflow_variable')
+                                        .default(
+                                            marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneOneFixedPropertiesOneItemTwothreeTypeDefault
                                         ),
                                     value: zod
                                         .union([
@@ -2150,7 +2213,7 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                         .default(
                                             marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneOnePropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/\" prepended'),
+                                        .describe('Event property with \"$feature\/\" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -2615,9 +2678,66 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                         'not_icontains_multi',
                                     ]),
                                     type: zod
-                                        .literal('workflow_variable')
+                                        .literal('account_custom_property')
                                         .default(
                                             marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneOnePropertiesOneItemTwotwoTypeDefault
+                                        )
+                                        .describe(
+                                            'Customer analytics account custom property — the key is the property definition id'
+                                        ),
+                                    value: zod
+                                        .union([
+                                            zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                            zod.string(),
+                                            zod.number(),
+                                            zod.boolean(),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                }),
+                                zod.object({
+                                    key: zod.string(),
+                                    label: zod.union([zod.string(), zod.null()]).optional(),
+                                    operator: zod.enum([
+                                        'exact',
+                                        'is_not',
+                                        'icontains',
+                                        'not_icontains',
+                                        'regex',
+                                        'not_regex',
+                                        'gt',
+                                        'gte',
+                                        'lt',
+                                        'lte',
+                                        'is_set',
+                                        'is_not_set',
+                                        'is_date_exact',
+                                        'is_date_before',
+                                        'is_date_after',
+                                        'between',
+                                        'not_between',
+                                        'min',
+                                        'max',
+                                        'in',
+                                        'not_in',
+                                        'is_cleaned_path_exact',
+                                        'flag_evaluates_to',
+                                        'semver_eq',
+                                        'semver_neq',
+                                        'semver_gt',
+                                        'semver_gte',
+                                        'semver_lt',
+                                        'semver_lte',
+                                        'semver_tilde',
+                                        'semver_caret',
+                                        'semver_wildcard',
+                                        'icontains_multi',
+                                        'not_icontains_multi',
+                                    ]),
+                                    type: zod
+                                        .literal('workflow_variable')
+                                        .default(
+                                            marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneOnePropertiesOneItemTwothreeTypeDefault
                                         ),
                                     value: zod
                                         .union([
@@ -3269,7 +3389,7 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                         .default(
                                             marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoFixedPropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/\" prepended'),
+                                        .describe('Event property with \"$feature\/\" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -3734,9 +3854,66 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                         'not_icontains_multi',
                                     ]),
                                     type: zod
-                                        .literal('workflow_variable')
+                                        .literal('account_custom_property')
                                         .default(
                                             marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoFixedPropertiesOneItemTwotwoTypeDefault
+                                        )
+                                        .describe(
+                                            'Customer analytics account custom property — the key is the property definition id'
+                                        ),
+                                    value: zod
+                                        .union([
+                                            zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                            zod.string(),
+                                            zod.number(),
+                                            zod.boolean(),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                }),
+                                zod.object({
+                                    key: zod.string(),
+                                    label: zod.union([zod.string(), zod.null()]).optional(),
+                                    operator: zod.enum([
+                                        'exact',
+                                        'is_not',
+                                        'icontains',
+                                        'not_icontains',
+                                        'regex',
+                                        'not_regex',
+                                        'gt',
+                                        'gte',
+                                        'lt',
+                                        'lte',
+                                        'is_set',
+                                        'is_not_set',
+                                        'is_date_exact',
+                                        'is_date_before',
+                                        'is_date_after',
+                                        'between',
+                                        'not_between',
+                                        'min',
+                                        'max',
+                                        'in',
+                                        'not_in',
+                                        'is_cleaned_path_exact',
+                                        'flag_evaluates_to',
+                                        'semver_eq',
+                                        'semver_neq',
+                                        'semver_gt',
+                                        'semver_gte',
+                                        'semver_lt',
+                                        'semver_lte',
+                                        'semver_tilde',
+                                        'semver_caret',
+                                        'semver_wildcard',
+                                        'icontains_multi',
+                                        'not_icontains_multi',
+                                    ]),
+                                    type: zod
+                                        .literal('workflow_variable')
+                                        .default(
+                                            marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoFixedPropertiesOneItemTwothreeTypeDefault
                                         ),
                                     value: zod
                                         .union([
@@ -4590,7 +4767,7 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                         .default(
                                             marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoPropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/\" prepended'),
+                                        .describe('Event property with \"$feature\/\" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -5055,9 +5232,66 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                         'not_icontains_multi',
                                     ]),
                                     type: zod
-                                        .literal('workflow_variable')
+                                        .literal('account_custom_property')
                                         .default(
                                             marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoPropertiesOneItemTwotwoTypeDefault
+                                        )
+                                        .describe(
+                                            'Customer analytics account custom property — the key is the property definition id'
+                                        ),
+                                    value: zod
+                                        .union([
+                                            zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                            zod.string(),
+                                            zod.number(),
+                                            zod.boolean(),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                }),
+                                zod.object({
+                                    key: zod.string(),
+                                    label: zod.union([zod.string(), zod.null()]).optional(),
+                                    operator: zod.enum([
+                                        'exact',
+                                        'is_not',
+                                        'icontains',
+                                        'not_icontains',
+                                        'regex',
+                                        'not_regex',
+                                        'gt',
+                                        'gte',
+                                        'lt',
+                                        'lte',
+                                        'is_set',
+                                        'is_not_set',
+                                        'is_date_exact',
+                                        'is_date_before',
+                                        'is_date_after',
+                                        'between',
+                                        'not_between',
+                                        'min',
+                                        'max',
+                                        'in',
+                                        'not_in',
+                                        'is_cleaned_path_exact',
+                                        'flag_evaluates_to',
+                                        'semver_eq',
+                                        'semver_neq',
+                                        'semver_gt',
+                                        'semver_gte',
+                                        'semver_lt',
+                                        'semver_lte',
+                                        'semver_tilde',
+                                        'semver_caret',
+                                        'semver_wildcard',
+                                        'icontains_multi',
+                                        'not_icontains_multi',
+                                    ]),
+                                    type: zod
+                                        .literal('workflow_variable')
+                                        .default(
+                                            marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneTwoPropertiesOneItemTwothreeTypeDefault
                                         ),
                                     value: zod
                                         .union([
@@ -5711,7 +5945,7 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                         .default(
                                             marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreeFixedPropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/\" prepended'),
+                                        .describe('Event property with \"$feature\/\" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -6176,9 +6410,66 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                         'not_icontains_multi',
                                     ]),
                                     type: zod
-                                        .literal('workflow_variable')
+                                        .literal('account_custom_property')
                                         .default(
                                             marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreeFixedPropertiesOneItemTwotwoTypeDefault
+                                        )
+                                        .describe(
+                                            'Customer analytics account custom property — the key is the property definition id'
+                                        ),
+                                    value: zod
+                                        .union([
+                                            zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                            zod.string(),
+                                            zod.number(),
+                                            zod.boolean(),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                }),
+                                zod.object({
+                                    key: zod.string(),
+                                    label: zod.union([zod.string(), zod.null()]).optional(),
+                                    operator: zod.enum([
+                                        'exact',
+                                        'is_not',
+                                        'icontains',
+                                        'not_icontains',
+                                        'regex',
+                                        'not_regex',
+                                        'gt',
+                                        'gte',
+                                        'lt',
+                                        'lte',
+                                        'is_set',
+                                        'is_not_set',
+                                        'is_date_exact',
+                                        'is_date_before',
+                                        'is_date_after',
+                                        'between',
+                                        'not_between',
+                                        'min',
+                                        'max',
+                                        'in',
+                                        'not_in',
+                                        'is_cleaned_path_exact',
+                                        'flag_evaluates_to',
+                                        'semver_eq',
+                                        'semver_neq',
+                                        'semver_gt',
+                                        'semver_gte',
+                                        'semver_lt',
+                                        'semver_lte',
+                                        'semver_tilde',
+                                        'semver_caret',
+                                        'semver_wildcard',
+                                        'icontains_multi',
+                                        'not_icontains_multi',
+                                    ]),
+                                    type: zod
+                                        .literal('workflow_variable')
+                                        .default(
+                                            marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreeFixedPropertiesOneItemTwothreeTypeDefault
                                         ),
                                     value: zod
                                         .union([
@@ -7033,7 +7324,7 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                         .default(
                                             marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreePropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/\" prepended'),
+                                        .describe('Event property with \"$feature\/\" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -7498,9 +7789,66 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                         'not_icontains_multi',
                                     ]),
                                     type: zod
-                                        .literal('workflow_variable')
+                                        .literal('account_custom_property')
                                         .default(
                                             marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreePropertiesOneItemTwotwoTypeDefault
+                                        )
+                                        .describe(
+                                            'Customer analytics account custom property — the key is the property definition id'
+                                        ),
+                                    value: zod
+                                        .union([
+                                            zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                            zod.string(),
+                                            zod.number(),
+                                            zod.boolean(),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                }),
+                                zod.object({
+                                    key: zod.string(),
+                                    label: zod.union([zod.string(), zod.null()]).optional(),
+                                    operator: zod.enum([
+                                        'exact',
+                                        'is_not',
+                                        'icontains',
+                                        'not_icontains',
+                                        'regex',
+                                        'not_regex',
+                                        'gt',
+                                        'gte',
+                                        'lt',
+                                        'lte',
+                                        'is_set',
+                                        'is_not_set',
+                                        'is_date_exact',
+                                        'is_date_before',
+                                        'is_date_after',
+                                        'between',
+                                        'not_between',
+                                        'min',
+                                        'max',
+                                        'in',
+                                        'not_in',
+                                        'is_cleaned_path_exact',
+                                        'flag_evaluates_to',
+                                        'semver_eq',
+                                        'semver_neq',
+                                        'semver_gt',
+                                        'semver_gte',
+                                        'semver_lt',
+                                        'semver_lte',
+                                        'semver_tilde',
+                                        'semver_caret',
+                                        'semver_wildcard',
+                                        'icontains_multi',
+                                        'not_icontains_multi',
+                                    ]),
+                                    type: zod
+                                        .literal('workflow_variable')
+                                        .default(
+                                            marketingAnalyticsConversionGoalsUpdatePartialUpdateBodyGoalOneThreePropertiesOneItemTwothreeTypeDefault
                                         ),
                                     value: zod
                                         .union([
@@ -7543,7 +7891,7 @@ export const MarketingAnalyticsConversionGoalsCreateCreateParams = /* @__PURE__ 
     project_id: zod
         .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -7570,7 +7918,8 @@ export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneOneFixedPro
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneOneFixedPropertiesOneItemOnesevenTypeDefault = `error_tracking_issue`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneOneFixedPropertiesOneItemOnenineTypeDefault = `metric_attribute`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneOneFixedPropertiesOneItemTwooneTypeDefault = `revenue_analytics`
-export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneOneFixedPropertiesOneItemTwotwoTypeDefault = `workflow_variable`
+export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneOneFixedPropertiesOneItemTwotwoTypeDefault = `account_custom_property`
+export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneOneFixedPropertiesOneItemTwothreeTypeDefault = `workflow_variable`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneOneKindDefault = `EventsNode`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneOnePropertiesOneItemOneOperatorDefault = `exact`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneOnePropertiesOneItemOneTypeDefault = `event`
@@ -7595,7 +7944,8 @@ export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneOneProperti
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneOnePropertiesOneItemOnesevenTypeDefault = `error_tracking_issue`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneOnePropertiesOneItemOnenineTypeDefault = `metric_attribute`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneOnePropertiesOneItemTwooneTypeDefault = `revenue_analytics`
-export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneOnePropertiesOneItemTwotwoTypeDefault = `workflow_variable`
+export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneOnePropertiesOneItemTwotwoTypeDefault = `account_custom_property`
+export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneOnePropertiesOneItemTwothreeTypeDefault = `workflow_variable`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoFixedPropertiesOneItemOneOperatorDefault = `exact`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoFixedPropertiesOneItemOneTypeDefault = `event`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoFixedPropertiesOneItemTwoTypeDefault = `person`
@@ -7619,7 +7969,8 @@ export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoFixedPro
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoFixedPropertiesOneItemOnesevenTypeDefault = `error_tracking_issue`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoFixedPropertiesOneItemOnenineTypeDefault = `metric_attribute`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoFixedPropertiesOneItemTwooneTypeDefault = `revenue_analytics`
-export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoFixedPropertiesOneItemTwotwoTypeDefault = `workflow_variable`
+export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoFixedPropertiesOneItemTwotwoTypeDefault = `account_custom_property`
+export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoFixedPropertiesOneItemTwothreeTypeDefault = `workflow_variable`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoKindDefault = `ActionsNode`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoPropertiesOneItemOneOperatorDefault = `exact`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoPropertiesOneItemOneTypeDefault = `event`
@@ -7644,7 +7995,8 @@ export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoProperti
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoPropertiesOneItemOnesevenTypeDefault = `error_tracking_issue`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoPropertiesOneItemOnenineTypeDefault = `metric_attribute`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoPropertiesOneItemTwooneTypeDefault = `revenue_analytics`
-export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoPropertiesOneItemTwotwoTypeDefault = `workflow_variable`
+export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoPropertiesOneItemTwotwoTypeDefault = `account_custom_property`
+export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoPropertiesOneItemTwothreeTypeDefault = `workflow_variable`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreeFixedPropertiesOneItemOneOperatorDefault = `exact`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreeFixedPropertiesOneItemOneTypeDefault = `event`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreeFixedPropertiesOneItemTwoTypeDefault = `person`
@@ -7668,7 +8020,8 @@ export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreeFixedP
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreeFixedPropertiesOneItemOnesevenTypeDefault = `error_tracking_issue`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreeFixedPropertiesOneItemOnenineTypeDefault = `metric_attribute`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreeFixedPropertiesOneItemTwooneTypeDefault = `revenue_analytics`
-export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreeFixedPropertiesOneItemTwotwoTypeDefault = `workflow_variable`
+export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreeFixedPropertiesOneItemTwotwoTypeDefault = `account_custom_property`
+export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreeFixedPropertiesOneItemTwothreeTypeDefault = `workflow_variable`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreeKindDefault = `DataWarehouseNode`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreePropertiesOneItemOneOperatorDefault = `exact`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreePropertiesOneItemOneTypeDefault = `event`
@@ -7693,7 +8046,8 @@ export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreeProper
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreePropertiesOneItemOnesevenTypeDefault = `error_tracking_issue`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreePropertiesOneItemOnenineTypeDefault = `metric_attribute`
 export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreePropertiesOneItemTwooneTypeDefault = `revenue_analytics`
-export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreePropertiesOneItemTwotwoTypeDefault = `workflow_variable`
+export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreePropertiesOneItemTwotwoTypeDefault = `account_custom_property`
+export const marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreePropertiesOneItemTwothreeTypeDefault = `workflow_variable`
 
 export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */ zod.object({
     goal: zod
@@ -8326,7 +8680,7 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                                         .default(
                                             marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneOneFixedPropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/\" prepended'),
+                                        .describe('Event property with \"$feature\/\" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -8791,9 +9145,66 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                                         'not_icontains_multi',
                                     ]),
                                     type: zod
-                                        .literal('workflow_variable')
+                                        .literal('account_custom_property')
                                         .default(
                                             marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneOneFixedPropertiesOneItemTwotwoTypeDefault
+                                        )
+                                        .describe(
+                                            'Customer analytics account custom property — the key is the property definition id'
+                                        ),
+                                    value: zod
+                                        .union([
+                                            zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                            zod.string(),
+                                            zod.number(),
+                                            zod.boolean(),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                }),
+                                zod.object({
+                                    key: zod.string(),
+                                    label: zod.union([zod.string(), zod.null()]).optional(),
+                                    operator: zod.enum([
+                                        'exact',
+                                        'is_not',
+                                        'icontains',
+                                        'not_icontains',
+                                        'regex',
+                                        'not_regex',
+                                        'gt',
+                                        'gte',
+                                        'lt',
+                                        'lte',
+                                        'is_set',
+                                        'is_not_set',
+                                        'is_date_exact',
+                                        'is_date_before',
+                                        'is_date_after',
+                                        'between',
+                                        'not_between',
+                                        'min',
+                                        'max',
+                                        'in',
+                                        'not_in',
+                                        'is_cleaned_path_exact',
+                                        'flag_evaluates_to',
+                                        'semver_eq',
+                                        'semver_neq',
+                                        'semver_gt',
+                                        'semver_gte',
+                                        'semver_lt',
+                                        'semver_lte',
+                                        'semver_tilde',
+                                        'semver_caret',
+                                        'semver_wildcard',
+                                        'icontains_multi',
+                                        'not_icontains_multi',
+                                    ]),
+                                    type: zod
+                                        .literal('workflow_variable')
+                                        .default(
+                                            marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneOneFixedPropertiesOneItemTwothreeTypeDefault
                                         ),
                                     value: zod
                                         .union([
@@ -9651,7 +10062,7 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                                         .default(
                                             marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneOnePropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/\" prepended'),
+                                        .describe('Event property with \"$feature\/\" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -10116,9 +10527,66 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                                         'not_icontains_multi',
                                     ]),
                                     type: zod
-                                        .literal('workflow_variable')
+                                        .literal('account_custom_property')
                                         .default(
                                             marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneOnePropertiesOneItemTwotwoTypeDefault
+                                        )
+                                        .describe(
+                                            'Customer analytics account custom property — the key is the property definition id'
+                                        ),
+                                    value: zod
+                                        .union([
+                                            zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                            zod.string(),
+                                            zod.number(),
+                                            zod.boolean(),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                }),
+                                zod.object({
+                                    key: zod.string(),
+                                    label: zod.union([zod.string(), zod.null()]).optional(),
+                                    operator: zod.enum([
+                                        'exact',
+                                        'is_not',
+                                        'icontains',
+                                        'not_icontains',
+                                        'regex',
+                                        'not_regex',
+                                        'gt',
+                                        'gte',
+                                        'lt',
+                                        'lte',
+                                        'is_set',
+                                        'is_not_set',
+                                        'is_date_exact',
+                                        'is_date_before',
+                                        'is_date_after',
+                                        'between',
+                                        'not_between',
+                                        'min',
+                                        'max',
+                                        'in',
+                                        'not_in',
+                                        'is_cleaned_path_exact',
+                                        'flag_evaluates_to',
+                                        'semver_eq',
+                                        'semver_neq',
+                                        'semver_gt',
+                                        'semver_gte',
+                                        'semver_lt',
+                                        'semver_lte',
+                                        'semver_tilde',
+                                        'semver_caret',
+                                        'semver_wildcard',
+                                        'icontains_multi',
+                                        'not_icontains_multi',
+                                    ]),
+                                    type: zod
+                                        .literal('workflow_variable')
+                                        .default(
+                                            marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneOnePropertiesOneItemTwothreeTypeDefault
                                         ),
                                     value: zod
                                         .union([
@@ -10770,7 +11238,7 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                                         .default(
                                             marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoFixedPropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/\" prepended'),
+                                        .describe('Event property with \"$feature\/\" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -11235,9 +11703,66 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                                         'not_icontains_multi',
                                     ]),
                                     type: zod
-                                        .literal('workflow_variable')
+                                        .literal('account_custom_property')
                                         .default(
                                             marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoFixedPropertiesOneItemTwotwoTypeDefault
+                                        )
+                                        .describe(
+                                            'Customer analytics account custom property — the key is the property definition id'
+                                        ),
+                                    value: zod
+                                        .union([
+                                            zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                            zod.string(),
+                                            zod.number(),
+                                            zod.boolean(),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                }),
+                                zod.object({
+                                    key: zod.string(),
+                                    label: zod.union([zod.string(), zod.null()]).optional(),
+                                    operator: zod.enum([
+                                        'exact',
+                                        'is_not',
+                                        'icontains',
+                                        'not_icontains',
+                                        'regex',
+                                        'not_regex',
+                                        'gt',
+                                        'gte',
+                                        'lt',
+                                        'lte',
+                                        'is_set',
+                                        'is_not_set',
+                                        'is_date_exact',
+                                        'is_date_before',
+                                        'is_date_after',
+                                        'between',
+                                        'not_between',
+                                        'min',
+                                        'max',
+                                        'in',
+                                        'not_in',
+                                        'is_cleaned_path_exact',
+                                        'flag_evaluates_to',
+                                        'semver_eq',
+                                        'semver_neq',
+                                        'semver_gt',
+                                        'semver_gte',
+                                        'semver_lt',
+                                        'semver_lte',
+                                        'semver_tilde',
+                                        'semver_caret',
+                                        'semver_wildcard',
+                                        'icontains_multi',
+                                        'not_icontains_multi',
+                                    ]),
+                                    type: zod
+                                        .literal('workflow_variable')
+                                        .default(
+                                            marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoFixedPropertiesOneItemTwothreeTypeDefault
                                         ),
                                     value: zod
                                         .union([
@@ -12091,7 +12616,7 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                                         .default(
                                             marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoPropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/\" prepended'),
+                                        .describe('Event property with \"$feature\/\" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -12556,9 +13081,66 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                                         'not_icontains_multi',
                                     ]),
                                     type: zod
-                                        .literal('workflow_variable')
+                                        .literal('account_custom_property')
                                         .default(
                                             marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoPropertiesOneItemTwotwoTypeDefault
+                                        )
+                                        .describe(
+                                            'Customer analytics account custom property — the key is the property definition id'
+                                        ),
+                                    value: zod
+                                        .union([
+                                            zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                            zod.string(),
+                                            zod.number(),
+                                            zod.boolean(),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                }),
+                                zod.object({
+                                    key: zod.string(),
+                                    label: zod.union([zod.string(), zod.null()]).optional(),
+                                    operator: zod.enum([
+                                        'exact',
+                                        'is_not',
+                                        'icontains',
+                                        'not_icontains',
+                                        'regex',
+                                        'not_regex',
+                                        'gt',
+                                        'gte',
+                                        'lt',
+                                        'lte',
+                                        'is_set',
+                                        'is_not_set',
+                                        'is_date_exact',
+                                        'is_date_before',
+                                        'is_date_after',
+                                        'between',
+                                        'not_between',
+                                        'min',
+                                        'max',
+                                        'in',
+                                        'not_in',
+                                        'is_cleaned_path_exact',
+                                        'flag_evaluates_to',
+                                        'semver_eq',
+                                        'semver_neq',
+                                        'semver_gt',
+                                        'semver_gte',
+                                        'semver_lt',
+                                        'semver_lte',
+                                        'semver_tilde',
+                                        'semver_caret',
+                                        'semver_wildcard',
+                                        'icontains_multi',
+                                        'not_icontains_multi',
+                                    ]),
+                                    type: zod
+                                        .literal('workflow_variable')
+                                        .default(
+                                            marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneTwoPropertiesOneItemTwothreeTypeDefault
                                         ),
                                     value: zod
                                         .union([
@@ -13212,7 +13794,7 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                                         .default(
                                             marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreeFixedPropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/\" prepended'),
+                                        .describe('Event property with \"$feature\/\" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -13677,9 +14259,66 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                                         'not_icontains_multi',
                                     ]),
                                     type: zod
-                                        .literal('workflow_variable')
+                                        .literal('account_custom_property')
                                         .default(
                                             marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreeFixedPropertiesOneItemTwotwoTypeDefault
+                                        )
+                                        .describe(
+                                            'Customer analytics account custom property — the key is the property definition id'
+                                        ),
+                                    value: zod
+                                        .union([
+                                            zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                            zod.string(),
+                                            zod.number(),
+                                            zod.boolean(),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                }),
+                                zod.object({
+                                    key: zod.string(),
+                                    label: zod.union([zod.string(), zod.null()]).optional(),
+                                    operator: zod.enum([
+                                        'exact',
+                                        'is_not',
+                                        'icontains',
+                                        'not_icontains',
+                                        'regex',
+                                        'not_regex',
+                                        'gt',
+                                        'gte',
+                                        'lt',
+                                        'lte',
+                                        'is_set',
+                                        'is_not_set',
+                                        'is_date_exact',
+                                        'is_date_before',
+                                        'is_date_after',
+                                        'between',
+                                        'not_between',
+                                        'min',
+                                        'max',
+                                        'in',
+                                        'not_in',
+                                        'is_cleaned_path_exact',
+                                        'flag_evaluates_to',
+                                        'semver_eq',
+                                        'semver_neq',
+                                        'semver_gt',
+                                        'semver_gte',
+                                        'semver_lt',
+                                        'semver_lte',
+                                        'semver_tilde',
+                                        'semver_caret',
+                                        'semver_wildcard',
+                                        'icontains_multi',
+                                        'not_icontains_multi',
+                                    ]),
+                                    type: zod
+                                        .literal('workflow_variable')
+                                        .default(
+                                            marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreeFixedPropertiesOneItemTwothreeTypeDefault
                                         ),
                                     value: zod
                                         .union([
@@ -14534,7 +15173,7 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                                         .default(
                                             marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreePropertiesOneItemOneoneTypeDefault
                                         )
-                                        .describe('Event property with "$feature/\" prepended'),
+                                        .describe('Event property with \"$feature\/\" prepended'),
                                     value: zod
                                         .union([
                                             zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
@@ -14999,9 +15638,66 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                                         'not_icontains_multi',
                                     ]),
                                     type: zod
-                                        .literal('workflow_variable')
+                                        .literal('account_custom_property')
                                         .default(
                                             marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreePropertiesOneItemTwotwoTypeDefault
+                                        )
+                                        .describe(
+                                            'Customer analytics account custom property — the key is the property definition id'
+                                        ),
+                                    value: zod
+                                        .union([
+                                            zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                            zod.string(),
+                                            zod.number(),
+                                            zod.boolean(),
+                                            zod.null(),
+                                        ])
+                                        .optional(),
+                                }),
+                                zod.object({
+                                    key: zod.string(),
+                                    label: zod.union([zod.string(), zod.null()]).optional(),
+                                    operator: zod.enum([
+                                        'exact',
+                                        'is_not',
+                                        'icontains',
+                                        'not_icontains',
+                                        'regex',
+                                        'not_regex',
+                                        'gt',
+                                        'gte',
+                                        'lt',
+                                        'lte',
+                                        'is_set',
+                                        'is_not_set',
+                                        'is_date_exact',
+                                        'is_date_before',
+                                        'is_date_after',
+                                        'between',
+                                        'not_between',
+                                        'min',
+                                        'max',
+                                        'in',
+                                        'not_in',
+                                        'is_cleaned_path_exact',
+                                        'flag_evaluates_to',
+                                        'semver_eq',
+                                        'semver_neq',
+                                        'semver_gt',
+                                        'semver_gte',
+                                        'semver_lt',
+                                        'semver_lte',
+                                        'semver_tilde',
+                                        'semver_caret',
+                                        'semver_wildcard',
+                                        'icontains_multi',
+                                        'not_icontains_multi',
+                                    ]),
+                                    type: zod
+                                        .literal('workflow_variable')
+                                        .default(
+                                            marketingAnalyticsConversionGoalsCreateCreateBodyGoalOneThreePropertiesOneItemTwothreeTypeDefault
                                         ),
                                     value: zod
                                         .union([
