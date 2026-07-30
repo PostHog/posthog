@@ -119,19 +119,31 @@ def _record_marker(
     stats.cohorts_seen.add(cohort_id)
 
 
+def _bound_for(
+    cohort_id: Any,
+    until: Optional[datetime],
+    until_by_cohort: Optional[Mapping[int, datetime]],
+) -> Optional[datetime]:
+    if until_by_cohort is None or not isinstance(cohort_id, int) or isinstance(cohort_id, bool):
+        return until
+    return until_by_cohort.get(cohort_id, until)
+
+
 def fold_membership_changes(
     messages: Iterable[dict[str, Any]],
     *,
     team_id: int,
     since: datetime,
     until: Optional[datetime] = None,
+    until_by_cohort: Optional[Mapping[int, datetime]] = None,
 ) -> tuple[dict[int, dict[str, MembershipRecord]], FoldStats]:
     """Fold messages to {cohort_id: {person_id: final record}}, dropping other teams'
     messages and anything stamped before `since` (pre-wipe residue).
 
     `until` bounds the fold to the converged state at an instant: with a pinned comparison clock the
     fold must not carry decisions the oracle's window cannot see, or every entry made after that
-    instant reads as an unexplained over-count."""
+    instant reads as an unexplained over-count. `until_by_cohort` overrides that bound per cohort,
+    for oracles whose clock is a per-cohort calculation time rather than one team-wide instant."""
     stats = FoldStats()
     state: dict[int, dict[str, MembershipRecord]] = {}
     for message in messages:
@@ -145,9 +157,10 @@ def fold_membership_changes(
             continue
         cohort_id = message.get("cohort_id")
         last_updated = parse_last_updated(message.get("last_updated"))
+        bound = _bound_for(cohort_id, until, until_by_cohort)
 
         if message.get("type") == RECONCILE_COMPLETE_TYPE:
-            _record_marker(message, cohort_id, last_updated, since, until, stats)
+            _record_marker(message, cohort_id, last_updated, since, bound, stats)
             continue
 
         person_id = message.get("person_id")
@@ -165,7 +178,7 @@ def fold_membership_changes(
         if last_updated < since:
             stats.dropped_before_since += 1
             continue
-        if until is not None and last_updated > until:
+        if bound is not None and last_updated > bound:
             stats.dropped_after_until += 1
             continue
         # Match the old side's argMax(status, last_updated): timestamp order, not arrival

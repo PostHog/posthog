@@ -15,6 +15,7 @@ from products.cohorts.backend.parity.classifier import (
     CohortComparison,
 )
 from products.cohorts.backend.parity.fold import ReconcileRunCompleteness
+from products.cohorts.backend.parity.population import PopulationComparison, PopulationSummary
 from products.cohorts.backend.parity.recompute import RecomputeComparison, RecomputeSummary
 
 _VERDICT_ORDER = {VERDICT_FAIL: 0, VERDICT_WARMUP: 1, VERDICT_PASS: 2, VERDICT_SKIP: 3}
@@ -166,4 +167,64 @@ def to_recompute_json(
         "meta": dict(meta),
         "summary": asdict(summary),
         "cohorts": [asdict(r) for r in _sorted_recompute_rows(rows)],
+    }
+
+
+def _sorted_population_rows(rows: Sequence[PopulationComparison]) -> list[PopulationComparison]:
+    # Worst agreement first — with no verdict to sort on, that is what a report-only mode is read for.
+    return sorted(rows, key=lambda r: (not r.compared, r.match_pct, r.cohort_id))
+
+
+_POPULATION_LABEL_WIDTH = 32
+_POPULATION_MATCH_WIDTH = 7
+_POPULATION_HEADER = (
+    f"{'cohort':<{_POPULATION_LABEL_WIDTH}} {'fold':>9} {'legacy':>9} {'both':>9} "
+    f"{'only_fold':>9} {'only_legacy':>11} {'match%':>{_POPULATION_MATCH_WIDTH}}"
+)
+# A skipped row spends every count column on the reason, so the line still aligns.
+_POPULATION_SKIP_WIDTH = len(_POPULATION_HEADER) - _POPULATION_LABEL_WIDTH - _POPULATION_MATCH_WIDTH - 2
+
+
+def format_population_table(rows: Sequence[PopulationComparison]) -> str:
+    lines = [_POPULATION_HEADER, "-" * len(_POPULATION_HEADER)]
+    for r in _sorted_population_rows(rows):
+        label = f"{r.cohort_id} {r.name}"
+        if len(label) > _POPULATION_LABEL_WIDTH - 1:
+            label = label[: _POPULATION_LABEL_WIDTH - 4] + "..."
+        if not r.compared:
+            reason = f"SKIP: {r.skip_reason}"[:_POPULATION_SKIP_WIDTH]
+            lines.append(
+                f"{label:<{_POPULATION_LABEL_WIDTH}} {reason:<{_POPULATION_SKIP_WIDTH}} "
+                f"{'-':>{_POPULATION_MATCH_WIDTH}}"
+            )
+            continue
+        lines.append(
+            f"{label:<{_POPULATION_LABEL_WIDTH}} {r.fold_count:>9} {r.legacy_count:>9} {r.both:>9} "
+            f"{r.only_fold:>9} {r.only_legacy:>11} {r.match_pct:>6.2f}%"
+        )
+    return "\n".join(lines)
+
+
+def format_population_summary(summary: PopulationSummary) -> str:
+    # With nothing compared the aggregate would read as total agreement rather than as no data.
+    match = f"{summary.match_pct:.2f}%" if summary.compared else "-"
+    lines = [
+        f"compared: {summary.compared}, skipped: {summary.skipped}",
+        f"fold={summary.fold_total} legacy={summary.legacy_total} both={summary.both_total} "
+        f"only_fold={summary.only_fold_total} only_legacy={summary.only_legacy_total}; match={match}",
+    ]
+    for warning in summary.warnings:
+        lines.append(f"WARNING: {warning}")
+    return "\n".join(lines)
+
+
+def to_population_json(
+    rows: Sequence[PopulationComparison],
+    summary: PopulationSummary,
+    meta: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "meta": dict(meta),
+        "summary": asdict(summary),
+        "cohorts": [asdict(r) for r in _sorted_population_rows(rows)],
     }

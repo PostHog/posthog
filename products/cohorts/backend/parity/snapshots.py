@@ -30,13 +30,29 @@ LIMIT %(limit)s
 _OLD_MEMBERS_FIRST_PAGE_SQL = _OLD_MEMBERS_SQL_TEMPLATE.format(cursor="")
 _OLD_MEMBERS_NEXT_PAGE_SQL = _OLD_MEMBERS_SQL_TEMPLATE.format(cursor=" AND person_id > %(cursor)s")
 
-_OLD_MEMBERS_SETTINGS = {
+# The legacy batch calculation's population, at the version the cohort page pins
+# (in_cohort.py lowers a cohort property to `raw_cohort_people ... AND version = N`).
+# `sum(sign) > 0` is the CollapsingMergeTree contract of the table; the calc path never
+# tombstones the pinned version, so today it agrees with the UI's DISTINCT form.
+_POPULATION_SQL_TEMPLATE = """
+SELECT person_id
+FROM cohortpeople
+WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND version = %(version)s{cursor}
+GROUP BY person_id
+HAVING sum(sign) > 0
+ORDER BY person_id
+LIMIT %(limit)s
+"""
+_POPULATION_FIRST_PAGE_SQL = _POPULATION_SQL_TEMPLATE.format(cursor="")
+_POPULATION_NEXT_PAGE_SQL = _POPULATION_SQL_TEMPLATE.format(cursor=" AND person_id > toUUID(%(cursor)s)")
+
+_MEMBER_SET_SETTINGS = {
     # The old pipeline's own guards for this aggregation (EXTERNAL_GROUP_BY_MEMORY_RATIO):
     # without spill, a large cohort's GROUP BY person_id can OOM the offline pool.
     "max_bytes_ratio_before_external_group_by": 0.5,
     "distributed_aggregation_memory_efficient": 1,
-    # person_id is a sort-key suffix under the two equality predicates, so aggregate in
-    # order and stream: LIMIT stops the scan instead of materializing every group first.
+    # person_id follows the equality-filtered columns in each table's sort key, so aggregate
+    # in order and stream: LIMIT stops the scan instead of materializing every group first.
     "optimize_aggregation_in_order": 1,
 }
 
@@ -61,7 +77,15 @@ def load_realtime_cohorts(team_id: int) -> QuerySet[Cohort]:
             deleted=False,
             filters__isnull=False,
         )
-        .only("id", "name", "filters", "last_realtime_cohort_calculation_at")
+        .only(
+            "id",
+            "name",
+            "filters",
+            "last_realtime_cohort_calculation_at",
+            "version",
+            "last_calculation",
+            "is_calculating",
+        )
         .order_by("id")
     )
 
@@ -82,7 +106,7 @@ def load_old_membership(team_id: int, cohort_id: int, *, page_size: int = 500_00
         rows = sync_execute(
             _OLD_MEMBERS_FIRST_PAGE_SQL if cursor is None else _OLD_MEMBERS_NEXT_PAGE_SQL,
             params,
-            settings=_OLD_MEMBERS_SETTINGS,
+            settings=_MEMBER_SET_SETTINGS,
             workload=Workload.OFFLINE,
             team_id=team_id,
         )
@@ -90,6 +114,38 @@ def load_old_membership(team_id: int, cohort_id: int, *, page_size: int = 500_00
         members.update(str(row[0]).lower() for row in rows)
         if len(rows) < page_size:
             return members
+        cursor = str(rows[-1][0])
+
+
+def load_cohort_population(team_id: int, cohort_id: int, version: int, *, page_size: int = 500_000) -> set[str]:
+    """The legacy batch calculation's population of one cohort, at its pinned version.
+
+    Keyset-paged on person_id for the same reason as the read above: OFFSET would re-run the
+    aggregation per page, and a group's rows all share one person_id so a cursor never splits one.
+    """
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+    population: set[str] = set()
+    cursor: str | None = None
+    while True:
+        params: dict[str, object] = {
+            "team_id": team_id,
+            "cohort_id": cohort_id,
+            "version": version,
+            "limit": page_size,
+        }
+        if cursor is not None:
+            params["cursor"] = cursor
+        rows = sync_execute(
+            _POPULATION_FIRST_PAGE_SQL if cursor is None else _POPULATION_NEXT_PAGE_SQL,
+            params,
+            settings=_MEMBER_SET_SETTINGS,
+            workload=Workload.OFFLINE,
+            team_id=team_id,
+        )
+        # Lowercased to match the fold's person-id normalization (see fold.py).
+        population.update(str(row[0]).lower() for row in rows)
+        if len(rows) < page_size:
+            return population
         cursor = str(rows[-1][0])
 
 
