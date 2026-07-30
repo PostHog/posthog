@@ -641,6 +641,9 @@ importers:
       '@posthog/products-alerts':
         specifier: workspace:*
         version: link:../products/alerts
+      '@posthog/products-analytics-platform':
+        specifier: workspace:*
+        version: link:../products/analytics_platform
       '@posthog/products-annotations':
         specifier: workspace:*
         version: link:../products/annotations
