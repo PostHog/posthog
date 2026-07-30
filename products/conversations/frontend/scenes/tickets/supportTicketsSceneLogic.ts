@@ -23,7 +23,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlLevel, AccessControlResourceType, TeamType } from '~/types'
 
-import { conversationsViewsRetrieve } from '../../generated/api'
+import { conversationsTicketsDestroy, conversationsViewsRetrieve } from '../../generated/api'
 import { normalizeAssigneeFilter } from '../../types'
 import type {
     AITriageFilterValue,
@@ -246,6 +246,9 @@ export interface supportTicketsSceneLogicActions {
         ids: string[]
         status: TicketStatus
     }
+    bulkDeleteTickets: (ids: string[]) => {
+        ids: string[]
+    }
     clearActiveView: () => {
         value: true
     }
@@ -412,6 +415,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         clearFiltersKeepingSearch: true,
         setDateRangeBeforeView: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         bulkUpdateStatus: (ids: string[], status: TicketStatus) => ({ ids, status }),
+        bulkDeleteTickets: (ids: string[]) => ({ ids }),
         setBulkUpdating: (updating: boolean) => ({ updating }),
         setSelectedTicketIds: (ids: string[]) => ({ ids }),
         clearSelectedTickets: true,
@@ -900,6 +904,27 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 actions.loadTickets()
             } catch {
                 lemonToast.error('Failed to update tickets')
+            } finally {
+                actions.setBulkUpdating(false)
+            }
+        },
+        bulkDeleteTickets: async ({ ids }) => {
+            // No bulk-delete endpoint exists, so delete each ticket individually and tolerate
+            // partial failures rather than aborting the whole batch on the first error.
+            actions.setBulkUpdating(true)
+            try {
+                const teamId = String(teamLogic.values.currentTeamId)
+                const results = await Promise.allSettled(ids.map((id) => conversationsTicketsDestroy(teamId, id)))
+                const deleted = results.filter((r) => r.status === 'fulfilled').length
+                const failed = results.length - deleted
+                if (deleted > 0) {
+                    lemonToast.success(`Deleted ${deleted} ticket${deleted === 1 ? '' : 's'}`)
+                }
+                if (failed > 0) {
+                    lemonToast.error(`Failed to delete ${failed} ticket${failed === 1 ? '' : 's'}`)
+                }
+                actions.clearSelectedTickets()
+                actions.loadTickets()
             } finally {
                 actions.setBulkUpdating(false)
             }

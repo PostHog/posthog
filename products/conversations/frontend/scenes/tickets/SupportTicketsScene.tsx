@@ -3,10 +3,11 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useEffect, useMemo, useRef } from 'react'
 
-import { IconChevronDown, IconRefresh } from '@posthog/icons'
+import { IconChevronDown, IconRefresh, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
+    LemonDialog,
     LemonDropdown,
     LemonInput,
     LemonInputSelect,
@@ -67,7 +68,7 @@ interface SupportTicketsTableProps {
 function SupportTicketsBulkActions(): JSX.Element {
     const { selectedTicketIds, selectedTickets, editableSelectedTicketIds, bulkUpdating } =
         useValues(supportTicketsSceneLogic)
-    const { bulkUpdateStatus } = useActions(supportTicketsSceneLogic)
+    const { bulkUpdateStatus, bulkDeleteTickets } = useActions(supportTicketsSceneLogic)
 
     const hasSelection = selectedTicketIds.length > 0
     const editableTicketIds = editableSelectedTicketIds
@@ -80,34 +81,73 @@ function SupportTicketsBulkActions(): JSX.Element {
         return acc === s ? acc : 'mixed'
     }, null)
 
+    const restrictedTooltip =
+        hasRestrictedSelection && editableTicketIds.length > 0
+            ? `${selectedTicketIds.length - editableTicketIds.length} selected ticket(s) will be skipped because you don't have edit access to them`
+            : undefined
+
     return (
-        <LemonSelect
-            onChange={(value) => {
-                if (!value || value === currentStatus || editableTicketIds.length === 0) {
-                    return
+        <div className="flex items-center gap-2">
+            <LemonSelect
+                onChange={(value) => {
+                    if (!value || value === currentStatus || editableTicketIds.length === 0) {
+                        return
+                    }
+                    bulkUpdateStatus(editableTicketIds, value as TicketStatus)
+                }}
+                value={null}
+                placeholder="Mark as"
+                loading={bulkUpdating}
+                disabledReason={
+                    !hasSelection
+                        ? 'Select tickets first'
+                        : bulkUpdating
+                          ? 'Updating…'
+                          : editableTicketIds.length === 0
+                            ? "You don't have edit access to any of the selected tickets"
+                            : undefined
                 }
-                bulkUpdateStatus(editableTicketIds, value as TicketStatus)
-            }}
-            value={null}
-            placeholder="Mark as"
-            loading={bulkUpdating}
-            disabledReason={
-                !hasSelection
-                    ? 'Select tickets first'
-                    : bulkUpdating
-                      ? 'Updating…'
-                      : editableTicketIds.length === 0
-                        ? "You don't have edit access to any of the selected tickets"
-                        : undefined
-            }
-            tooltip={
-                hasRestrictedSelection && editableTicketIds.length > 0
-                    ? `${selectedTicketIds.length - editableTicketIds.length} selected ticket(s) will be skipped because you don't have edit access to them`
-                    : undefined
-            }
-            options={statusOptionsWithoutAll.map((o) => ({ value: o.value, label: o.label }))}
-            size="small"
-        />
+                tooltip={restrictedTooltip}
+                options={statusOptionsWithoutAll.map((o) => ({ value: o.value, label: o.label }))}
+                size="small"
+            />
+            <LemonButton
+                type="secondary"
+                status="danger"
+                size="small"
+                icon={<IconTrash />}
+                loading={bulkUpdating}
+                tooltip={restrictedTooltip}
+                disabledReason={
+                    !hasSelection
+                        ? 'Select tickets first'
+                        : editableTicketIds.length === 0
+                          ? "You don't have edit access to any of the selected tickets"
+                          : undefined
+                }
+                onClick={() =>
+                    LemonDialog.open({
+                        title: `Delete ${editableTicketIds.length} ${pluralize(
+                            editableTicketIds.length,
+                            'ticket',
+                            'tickets',
+                            false
+                        )}?`,
+                        description:
+                            'This permanently deletes the selected tickets and all their messages. This cannot be undone.',
+                        primaryButton: {
+                            children: 'Delete',
+                            type: 'primary',
+                            status: 'danger',
+                            onClick: () => bulkDeleteTickets(editableTicketIds),
+                        },
+                        secondaryButton: { children: 'Cancel' },
+                    })
+                }
+            >
+                Delete
+            </LemonButton>
+        </div>
     )
 }
 
