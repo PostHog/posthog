@@ -28,6 +28,7 @@ from posthog.temporal.ai_observability.trace_clustering.metrics import (
 from posthog.temporal.ai_observability.trace_summarization.metrics import SummarizationMetricsInterceptor
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.combined_metrics_server import CombinedMetricsServer
+from posthog.temporal.common.finops_interceptor import FinopsUsageMeterInterceptor
 from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor
 from posthog.temporal.common.logger import get_write_only_logger
@@ -164,6 +165,7 @@ ALL_INTERCEPTOR_CLASSES = [
     LivenessInterceptor,
     PostHogClientInterceptor,
     SloInterceptor,
+    FinopsUsageMeterInterceptor,
     BatchExportsMetricsInterceptor,
     DeleteRecordingsMetricsInterceptor,
     SurfacingScoringMetricsInterceptor,

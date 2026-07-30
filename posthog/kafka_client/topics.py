@@ -95,3 +95,7 @@ KAFKA_FLAGS_CACHE_INVALIDATION_DLQ = f"{KAFKA_PREFIX}flags_cache_invalidation_dl
 # Consumer: a dedicated throttling consumer that rate-limits $set events into capture-internal.
 KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES = f"{KAFKA_PREFIX}warehouse_person_property_updates{SUFFIX}"
 KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ = f"{KAFKA_PREFIX}warehouse_person_property_updates_dlq{SUFFIX}"
+
+# FinOps usage meters — internal, produced by PostHog services and consumed into a dedicated
+# ClickHouse table on the AUX cluster. See posthog/models/finops/usage_meters.py.
+KAFKA_CLICKHOUSE_FINOPS_USAGE_METERS = f"{KAFKA_PREFIX}clickhouse_finops_usage_meters{SUFFIX}"

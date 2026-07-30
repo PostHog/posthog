@@ -40,6 +40,10 @@ TEMPORAL_COMBINED_METRICS_SERVER_ENABLED: bool = get_from_env(
 # in Temporal UI workflow details. Set to 0 to disable the links.
 TEMPORAL_LOGS_PROJECT_ID: int = get_from_env("TEMPORAL_LOGS_PROJECT_ID", 1, type_cast=int)
 
+TEMPORAL_FINOPS_USAGE_METERS_ENABLED: bool = get_from_env(
+    "TEMPORAL_FINOPS_USAGE_METERS_ENABLED", False, type_cast=str_to_bool
+)
+
 TEMPORAL_LOG_LEVEL: str = os.getenv("TEMPORAL_LOG_LEVEL", "INFO")
 TEMPORAL_OTEL_PLUGIN_ENABLED: bool = get_from_env("TEMPORAL_OTEL_PLUGIN_ENABLED", False, type_cast=str_to_bool)
 TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT: list[str] = get_list(os.getenv("TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT", ""))
