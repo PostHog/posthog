@@ -153,7 +153,7 @@ function BeatRow({ beat, index }: { beat: Beat; index: number }): JSX.Element {
                     <span className="max-w-prose text-[13px] text-secondary leading-snug">{beat.description}</span>
                 </div>
             </div>
-            {/* Real inbox cards, kept inert by the preview's click interception (it meeps instead).
+            {/* Real inbox cards, marked as examples and kept inert by the preview wrapper.
                 Full-width on mobile; indented to align under the beat text from sm up. */}
             <div className="select-none pl-0 sm:pl-8">{beat.preview}</div>
             {beat.subtext ? (
