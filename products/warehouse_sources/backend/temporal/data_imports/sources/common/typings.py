@@ -31,7 +31,10 @@ else:
 
 
 SortMode = Literal["asc", "desc"]
-PartitionMode = Literal["md5", "numerical", "datetime"]
+# "datetime_md5" is a composite: a datetime bucket (first key) split further by md5 sub-buckets over the
+# remaining keys. It rescues a date-only table stuck at its finest datetime tier (a single day still over
+# budget) while keeping date locality, so incremental merges still touch only recent dates.
+PartitionMode = Literal["md5", "numerical", "datetime", "datetime_md5"]
 PartitionFormat = Literal["month", "week", "day", "hour"]
 
 
