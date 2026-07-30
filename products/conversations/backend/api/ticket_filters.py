@@ -16,7 +16,7 @@ from collections.abc import Mapping
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
-from django.db.models import CharField, Exists, OuterRef, Q, QuerySet
+from django.db.models import CharField, F, OrderBy, Q, QuerySet
 from django.db.models.functions import Cast
 from django.utils import timezone
 
@@ -47,8 +47,19 @@ AI_TRIAGE_FILTER_VALUES = [
     "in_progress",
 ]
 
-ALLOWED_ORDER_COLUMNS = {"updated_at", "sla_due_at", "snoozed_until", "created_at", "ticket_number"}
-DEFAULT_ORDER_BY = "-updated_at"
+ALLOWED_ORDER_COLUMNS = ("updated_at", "sla_due_at", "snoozed_until", "created_at", "ticket_number")
+
+VALID_STATUS_VALUES = frozenset(s.value for s in Status)
+VALID_PRIORITY_VALUES = frozenset(p.value for p in Priority)
+VALID_CHANNEL_VALUES = frozenset(c.value for c in Channel)
+
+# Named choice sets for ChoiceFields below, registered in ENUM_NAME_OVERRIDES
+# (posthog/settings/web.py) so drf-spectacular doesn't mint generic globals like
+# ChannelEnum/SlaEnum/OrderEnum in the shared OpenAPI namespace.
+TICKET_CHANNEL_FILTER_CHOICES = [*(c.value for c in Channel), "all"]
+TICKET_SLA_FILTER_CHOICES = [*SLA_FILTER_VALUES, "all"]
+TICKET_TAGS_MATCH_CHOICES = ["any", "all"]
+TICKET_SORT_ORDER_CHOICES = [1, -1]
 
 
 def _is_assignee_entry(value: Any) -> bool:
@@ -111,10 +122,10 @@ class TicketViewAssigneeFilterField(serializers.Field):
 
 class TicketViewSortingSerializer(serializers.Serializer):
     columnKey = serializers.CharField(
-        help_text="Ticket column to sort by (updated_at, sla_due_at, snoozed_until, created_at, ticket_number). "
+        help_text=f"Ticket column to sort by ({', '.join(ALLOWED_ORDER_COLUMNS)}). "
         "Unknown columns fall back to updated_at."
     )
-    order = serializers.ChoiceField(choices=[1, -1], help_text="1 for ascending, -1 for descending.")
+    order = serializers.ChoiceField(choices=TICKET_SORT_ORDER_CHOICES, help_text="1 for ascending, -1 for descending.")
 
 
 class TicketViewFiltersSerializer(serializers.Serializer):
@@ -132,12 +143,12 @@ class TicketViewFiltersSerializer(serializers.Serializer):
         help_text="Ticket priorities to include. Empty or omitted means all priorities.",
     )
     channel = serializers.ChoiceField(
-        choices=[*(c.value for c in Channel), "all"],
+        choices=TICKET_CHANNEL_FILTER_CHOICES,
         required=False,
         help_text="Channel the ticket originated from. 'all' disables the filter.",
     )
     sla = serializers.ChoiceField(
-        choices=[*SLA_FILTER_VALUES, "all"],
+        choices=TICKET_SLA_FILTER_CHOICES,
         required=False,
         help_text="SLA state: 'breached' is past due, 'at-risk' is due within the next hour, "
         "'on-track' has more than an hour remaining. 'all' disables the filter.",
@@ -159,7 +170,7 @@ class TicketViewFiltersSerializer(serializers.Serializer):
         help_text="Tag names to match, combined according to tagsMatch.",
     )
     tagsMatch = serializers.ChoiceField(
-        choices=["any", "all"],
+        choices=TICKET_TAGS_MATCH_CHOICES,
         required=False,
         help_text="'any' returns tickets with at least one of tags (OR); 'all' requires every tag (AND).",
     )
@@ -189,6 +200,21 @@ class TicketViewFiltersSerializer(serializers.Serializer):
         help_text="Free-text search. A numeric value matches a ticket number exactly; otherwise matches "
         "the customer's name or email, the email subject, or message content.",
     )
+
+
+def parse_stored_view_filters(stored: Any) -> dict[str, Any]:
+    """Leniently validate a stored TicketView.filters blob into the canonical shape.
+
+    Stored blobs predate write validation, so a legacy value must not make the view
+    unusable: offending keys are dropped and the rest still apply."""
+    if not isinstance(stored, dict):
+        return {}
+    serializer = TicketViewFiltersSerializer(data=stored)
+    if not serializer.is_valid():
+        cleaned = {key: value for key, value in stored.items() if key not in serializer.errors}
+        serializer = TicketViewFiltersSerializer(data=cleaned)
+        serializer.is_valid()
+    return dict(serializer.validated_data)
 
 
 def _decode_assignee_param(raw: str) -> list[Any]:
@@ -227,18 +253,22 @@ def query_params_to_view_filters(params: Mapping[str, str]) -> dict[str, Any]:
     rather than rejected, matching the endpoint's long-standing behavior."""
     filters: dict[str, Any] = {}
 
+    # Guard every list on being non-empty: a param whose values all parse away must not
+    # set the key, or merging onto a saved view would clear that filter and widen results.
     status_param = params.get("status")
     if status_param:
-        valid_statuses = {s.value for s in Status}
-        filters["status"] = [s.strip() for s in status_param.split(",") if s.strip() in valid_statuses]
+        statuses = [s.strip() for s in status_param.split(",") if s.strip() in VALID_STATUS_VALUES]
+        if statuses:
+            filters["status"] = statuses
 
     priority_param = params.get("priority")
     if priority_param:
-        valid_priorities = {p.value for p in Priority}
-        filters["priority"] = [p.strip() for p in priority_param.split(",") if p.strip() in valid_priorities]
+        priorities = [p.strip() for p in priority_param.split(",") if p.strip() in VALID_PRIORITY_VALUES]
+        if priorities:
+            filters["priority"] = priorities
 
     channel_source = params.get("channel_source")
-    if channel_source and channel_source in {c.value for c in Channel}:
+    if channel_source and channel_source in VALID_CHANNEL_VALUES:
         filters["channel"] = channel_source
 
     sla_param = params.get("sla")
@@ -253,7 +283,9 @@ def query_params_to_view_filters(params: Mapping[str, str]) -> dict[str, Any]:
 
     assignee_param = params.get("assignee")
     if assignee_param:
-        filters["assignee"] = _decode_assignee_param(assignee_param)
+        assignees = _decode_assignee_param(assignee_param)
+        if assignees:
+            filters["assignee"] = assignees
 
     tags_param = params.get("tags")
     if tags_param:
@@ -295,13 +327,26 @@ def query_params_to_view_filters(params: Mapping[str, str]) -> dict[str, Any]:
     return filters
 
 
-def _sorting_to_order_by(sorting: Mapping[str, Any] | None) -> str:
-    if not sorting:
-        return DEFAULT_ORDER_BY
-    column = sorting.get("columnKey")
-    if column not in ALLOWED_ORDER_COLUMNS:
-        return DEFAULT_ORDER_BY
-    return column if sorting.get("order") == 1 else f"-{column}"
+def _sorting_to_order_expressions(sorting: Mapping[str, Any] | None) -> tuple[OrderBy | str, str]:
+    column, descending = "updated_at", True
+    if sorting and sorting.get("columnKey") in ALLOWED_ORDER_COLUMNS:
+        column = sorting["columnKey"]
+        descending = sorting.get("order") != 1
+
+    primary: OrderBy | str
+    if column in ("sla_due_at", "snoozed_until"):
+        # A ticket with no SLA (or no snooze) sorts to the bottom either direction — an
+        # absent deadline isn't more urgent than a real one, and it keeps the large NULL
+        # block off the first pages so the SLA-sorted rows are what the user actually sees.
+        primary = F(column).desc(nulls_last=True) if descending else F(column).asc(nulls_last=True)
+    else:
+        primary = f"-{column}" if descending else column
+
+    # ticket_number is unique per team (the queryset is already team-scoped), so it breaks
+    # ties deterministically. Without it, rows equal on the primary key — every no-SLA
+    # ticket shares NULL sla_due_at — have no stable order across the separate LIMIT/OFFSET
+    # page queries, so pages overlap or drop rows and the sort looks lost past page 1.
+    return primary, "-ticket_number"
 
 
 def _assignee_filter_q(entries: list[Any], user: User | None) -> Q:
@@ -336,34 +381,36 @@ def _assignee_filter_q(entries: list[Any], user: User | None) -> Q:
     return assignee_q
 
 
-def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
+def is_ticket_number_search(search: str) -> bool:
     # A leading "#" is how ticket numbers are shown in the UI (e.g. "#1234"), so
     # treat "#1234" the same as "1234" and match the ticket number exactly.
     # Restrict to ASCII digits: str.isdigit() also accepts characters like "²"
     # that int() then rejects, which would 500 the request.
-    ticket_number_search = search[1:] if search.startswith("#") else search
-    if ticket_number_search.isascii() and ticket_number_search.isdigit():
-        return queryset.filter(ticket_number=int(ticket_number_search))
+    ticket_number_search = search.removeprefix("#")
+    return ticket_number_search.isascii() and ticket_number_search.isdigit()
 
-    # EXISTS subquery: matches any comment in the ticket's conversation.
-    # Uses the (team_id, scope, item_id) composite index on Comment to
-    # narrow to per-ticket comments; EXISTS short-circuits on first match.
-    # If this becomes slow at scale (10k+ candidate tickets with broad
-    # filters), consider adding a GIN trigram index on Comment.content:
-    #   GinIndex(name="comment_content_trigram", fields=["content"],
-    #            opclasses=["gin_trgm_ops"])
+
+def _apply_search(queryset: QuerySet, search: str, team: Team) -> QuerySet:
+    if is_ticket_number_search(search):
+        return queryset.filter(ticket_number=int(search.removeprefix("#")))
+
+    # Comment match as a non-correlated subquery: self-contained, so Postgres hashes
+    # it once per query (scanning posthog_comment through its trigram index) instead
+    # of probing comments per ticket the way a correlated EXISTS would. The ticket id
+    # is cast to text rather than item_id to uuid — the id side is always a valid
+    # UUID, while a malformed item_id row would make the whole search error.
     comment_match = Comment.objects.filter(
-        team_id=OuterRef("team_id"),
+        team_id=team.id,
         scope="conversations_ticket",
-        item_id=Cast(OuterRef("id"), output_field=CharField()),
-        content__icontains=search,
         deleted=False,
-    )
-    return queryset.filter(
+        content__icontains=search,
+    ).values("item_id")
+
+    return queryset.alias(id_text=Cast("id", output_field=CharField())).filter(
         Q(anonymous_traits__name__icontains=search)
         | Q(anonymous_traits__email__icontains=search)
         | Q(email_subject__icontains=search)
-        | Exists(comment_match)
+        | Q(id_text__in=comment_match)
     )
 
 
@@ -371,8 +418,7 @@ def apply_ticket_filters(queryset: QuerySet, filters: Mapping[str, Any], *, team
     """Apply a canonical TicketViewFilters mapping to a Ticket queryset and order it.
 
     `filters` must already be validated/normalized, either by TicketViewFiltersSerializer
-    (saved-view path) or by query_params_to_view_filters (flat-param path). This is the
-    only place filter values become ORM predicates.
+    (saved-view path) or by query_params_to_view_filters (flat-param path).
     """
     statuses = filters.get("status") or []
     if statuses:
@@ -440,6 +486,6 @@ def apply_ticket_filters(queryset: QuerySet, filters: Mapping[str, Any], *, team
 
     search = filters.get("search")
     if search and len(search) <= MAX_SEARCH_LENGTH:
-        queryset = _apply_search(queryset, search)
+        queryset = _apply_search(queryset, search, team)
 
-    return queryset.order_by(_sorting_to_order_by(filters.get("sorting")))
+    return queryset.order_by(*_sorting_to_order_expressions(filters.get("sorting")))

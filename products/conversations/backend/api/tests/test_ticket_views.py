@@ -163,10 +163,8 @@ class TestTicketViewAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("bad_status", {"status": ["bogus"]}),
-            # A dropped assignee entry would save a view matching more tickets than
-            # asked for, so writes must reject malformed entries outright.
+            # Only rejected in strict mode, so this case proves the write path passes strict_writes.
             ("assignee_string_token", {"assignee": ["user:1"]}),
-            ("assignee_unknown_type", {"assignee": [{"type": "team", "id": 1}]}),
         ]
     )
     def test_create_rejects_invalid_filter_values(self, _label, filters):
