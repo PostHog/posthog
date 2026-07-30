@@ -277,8 +277,15 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         Partner quotas key on this rather than the flag, so an admin who disables a partner
         without revoking its outstanding tokens doesn't also exempt those tokens from the
         rate limits.
+
+        "Grants or records something" rather than "the column is non-empty": the backfill writes
+        a config to every row, ordinary OAuth apps included, so a non-empty blob says nothing
+        about whether an app was ever a partner. A config equal to the all-default one carries no
+        grant, no deactivation and no quota, which is exactly the app that owes no partner quota.
         """
-        return bool(self._provisioning_config)
+        from posthog.models.oauth_provisioning import ProvisioningConfig  # noqa: PLC0415
+
+        return self.is_provisioning_partner or self.provisioning != ProvisioningConfig()
 
     # Client authentication is registration state on purpose. A client_id is public, so
     # inferring the method from what a request happens to present would let anyone act as a

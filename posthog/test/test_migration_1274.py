@@ -5,6 +5,8 @@ from posthog.test.base import TestMigrations
 
 from parameterized import parameterized
 
+from posthog.models.oauth_provisioning import ProvisioningConfig
+
 pytestmark = pytest.mark.skip("old migrations slow overall test run down")
 
 
@@ -47,6 +49,21 @@ class BackfillProvisioningConfigMigrationTest(TestMigrations):
             provisioning_active=True,
             provisioning_can_provision_resources=True,
         )
+        # A self-registered partner an admin killed: flag cleared, kill switch set, deactivated.
+        # None of that shows up in the three columns that used to select rows for this backfill.
+        self.killed = self._create_app(
+            "killed",
+            is_cimd_client=True,
+            cimd_metadata_url="https://killed.example.com/.well-known/oauth-client-metadata.json",
+            provisioning_disabled=True,
+        )
+        # Capabilities that older migrations granted keyed on provisioning_auth_method and
+        # client_id, on a row that 1268 did not make a partner.
+        self.legacy = self._create_app(
+            "legacy",
+            provisioning_can_issue_deep_links=True,
+            provisioning_issues_personal_api_key=True,
+        )
         # An ordinary OAuth app that has nothing to do with provisioning.
         self.plain = self._create_app("plain")
 
@@ -80,6 +97,21 @@ class BackfillProvisioningConfigMigrationTest(TestMigrations):
             ("blank_type", "can_use_github_grants", True),
             # Wizard runs had no such carve-out, and no partner type means no grant.
             ("blank_type", "can_start_wizard_runs", False),
+            # The kill switch is the one capability whose default fails open, so a row that
+            # carries it has to be backfilled however unconfigured it otherwise looks - or the
+            # next CIMD registration re-grants the partner everything.
+            ("killed", "disabled", True),
+            # These two fail closed instead, so losing them silently breaks a live integration.
+            ("legacy", "can_issue_deep_links", True),
+            ("legacy", "issues_personal_api_key", True),
+            # Ordinary OAuth apps are the bulk of the table and never a provisioning partner, so
+            # an unfiltered backfill must not hand them either capability that reads permissively
+            # off an unconfigured row - the old gate let anything non-CIMD through, and
+            # provisioning_can_provision_resources was added with default=True.
+            ("plain", "can_use_github_grants", False),
+            ("plain", "can_provision_resources", False),
+            # And the partners that do hold it have to keep it.
+            ("vouched", "can_provision_resources", True),
         ]
     )
     def test_capability_backfill(self, app_attr: str, key: str, expected: bool) -> None:
@@ -91,7 +123,8 @@ class BackfillProvisioningConfigMigrationTest(TestMigrations):
         assert config["rate_limits"]["account_requests"] == 250
         assert config["rate_limit_source"] == "admin"
 
-    def test_non_partner_app_is_left_empty(self) -> None:
-        # Backfilling every row would hand an ordinary OAuth app a config it should never have,
-        # and the empty object is what makes "never granted" the default.
-        assert self.OAuthApplication.objects.get(pk=self.plain.pk)._provisioning_config == {}
+    def test_non_partner_app_grants_nothing(self) -> None:
+        # Every row is backfilled, so what keeps an ordinary OAuth app harmless is the mapping
+        # rather than being skipped: its config has to mean the same as the column's {} default.
+        config = self.OAuthApplication.objects.get(pk=self.plain.pk)._provisioning_config
+        assert ProvisioningConfig.model_validate(config) == ProvisioningConfig()
