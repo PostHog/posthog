@@ -8,7 +8,7 @@ import pytest
 from asgiref.sync import async_to_sync
 
 from products.tasks.backend.exceptions import SandboxNotFoundError
-from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
 from products.tasks.backend.temporal.process_task.activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
 
@@ -162,7 +162,7 @@ class TestCleanupSandboxActivity:
 
         existing_sandbox = Sandbox.get_by_id(sandbox_id)
         assert existing_sandbox.id == sandbox_id
-        assert existing_sandbox.get_status() == SandboxStatus.RUNNING
+        assert existing_sandbox.is_running()
 
         input_data = CleanupSandboxInput(sandbox_id=sandbox_id)
 
@@ -188,7 +188,7 @@ class TestCleanupSandboxActivity:
         sandbox = Sandbox.create(config)
         sandbox_id = sandbox.id
 
-        assert Sandbox.get_by_id(sandbox_id).get_status() == SandboxStatus.RUNNING
+        assert Sandbox.get_by_id(sandbox_id).is_running()
 
         input_data = CleanupSandboxInput(sandbox_id=sandbox_id)
 
@@ -221,7 +221,7 @@ class TestCleanupSandboxActivity:
 
         time.sleep(5)
 
-        assert Sandbox.get_by_id(sandbox_id).get_status() == SandboxStatus.RUNNING
+        assert Sandbox.get_by_id(sandbox_id).is_running()
 
         input_data = CleanupSandboxInput(sandbox_id=sandbox_id)
         async_to_sync(activity_environment.run)(cleanup_sandbox, input_data)

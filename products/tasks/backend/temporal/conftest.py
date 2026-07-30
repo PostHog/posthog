@@ -9,7 +9,7 @@ from temporalio.testing import ActivityEnvironment
 from posthog.models import Integration, OAuthApplication, Organization, OrganizationMembership, Team, User
 from posthog.temporal.common.logger import configure_logger
 
-from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.create_snapshot.activities.get_snapshot_context import SnapshotContext
 from products.tasks.backend.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
@@ -40,8 +40,8 @@ def assert_sandbox_shutdown():
 
     def _assert_sandbox_shutdown(sandbox_id: str, timeout_seconds: float = 60.0) -> None:
         deadline = time.monotonic() + timeout_seconds
-        while (status := Sandbox.get_by_id(sandbox_id).get_status()) != SandboxStatus.SHUTDOWN:
-            assert time.monotonic() < deadline, f"sandbox {sandbox_id} still {status} after {timeout_seconds}s"
+        while Sandbox.get_by_id(sandbox_id).is_running():
+            assert time.monotonic() < deadline, f"sandbox {sandbox_id} still running after {timeout_seconds}s"
             time.sleep(1)
 
     return _assert_sandbox_shutdown

@@ -5,7 +5,7 @@ import pytest
 
 from asgiref.sync import async_to_sync
 
-from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.create_snapshot.activities.cleanup_sandbox import (
     CleanupSandboxInput,
     cleanup_sandbox,
@@ -29,7 +29,7 @@ class TestCleanupSandboxActivity:
         sandbox = Sandbox.create(config)
         sandbox_id = sandbox.id
 
-        assert Sandbox.get_by_id(sandbox_id).get_status() == SandboxStatus.RUNNING
+        assert Sandbox.get_by_id(sandbox_id).is_running()
 
         input_data = CleanupSandboxInput(sandbox_id=sandbox_id)
 
