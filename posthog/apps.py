@@ -33,6 +33,8 @@ class PostHogConfig(AppConfig):
 
             apply_orjson_jsonfield()
 
+        self._prewarm_psycopg_dumpers()
+
         import posthog.storage.team_access_cache_signal_handlers  # noqa: F401
         from posthog.storage.gateway_credential_signal_handlers import (
             connect_signal_handlers as connect_gateway_credential_signal_handlers,
@@ -148,6 +150,16 @@ class PostHogConfig(AppConfig):
             queue_sync_hog_function_templates()
 
         file_system_registrations.register_core_file_system_types()
+
+    def _prewarm_psycopg_dumpers(self):
+        # Has to happen before the first connection is opened: Django builds its adapters
+        # template by copying the global map, so anything left unresolved here stays
+        # unresolved (and raceable) on every connection. See the module docstring.
+        if settings.STATIC_COLLECTION:
+            return
+        from posthog.helpers.psycopg_dumpers import prewarm_lazy_dumpers  # noqa: PLC0415
+
+        prewarm_lazy_dumpers()
 
     def _prewarm_timezone_offsets_cache(self):
         # The pytz walk in get_available_timezones_with_offsets is hourly-cached but

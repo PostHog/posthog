@@ -98,10 +98,8 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
         event_filters: list[dict[str, Any]] | None = None,
     ) -> list[SampledItem]:
         try:
-            # select_related("organization") hydrates the org up front. HogQL printing
-            # dereferences team.organization for property-access-control, and a lazy fetch
-            # for the org's UUID pk would run in this thread_sensitive=False executor thread
-            # where psycopg3 can't adapt the UUID param, crashing sampling.
+            # HogQL printing dereferences team.organization for property-access-control, so
+            # without this the org is fetched lazily on every run.
             team = Team.objects.select_related("organization").get(id=team_id)
         except Team.DoesNotExist:
             logger.info("Team not found in local database, skipping", team_id=team_id)

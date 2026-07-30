@@ -40,7 +40,9 @@ def _fetch_and_format_trace(
 
     Returns FetchResult with text_repr=None if oversized, or None if not found.
     """
-    team = Team.objects.get(id=team_id)
+    # HogQL printing dereferences team.organization for property-access-control, so
+    # without this the org is fetched lazily on every run.
+    team = Team.objects.select_related("organization").get(id=team_id)
 
     llm_trace = fetch_trace(team, trace_id, window_start, window_end)
     if llm_trace is None:
@@ -96,7 +98,9 @@ def _fetch_and_format_generation(
     range scan instead of a fan-out across all shards. The caller
     (`fetch_and_format_activity`) always has it set on `FetchAndFormatInput`.
     """
-    team = Team.objects.get(id=team_id)
+    # HogQL printing dereferences team.organization for property-access-control, so
+    # without this the org is fetched lazily on every run.
+    team = Team.objects.select_related("organization").get(id=team_id)
 
     start_dt_str = format_datetime_for_clickhouse(window_start)
     end_dt_str = format_datetime_for_clickhouse(window_end)
