@@ -502,14 +502,22 @@ impl PersonHogLeader for PersonHogLeaderService {
             .map(|k| k.replace('\u{0000}', "\u{FFFD}"))
             .collect();
 
-        // Per-key lock serializes concurrent updates for the same person
+        // Per-key lock serializes concurrent updates for the same person.
+        // The wait is measured because it is the queueing component of
+        // handler latency: with every acked write holding the lock
+        // through its acks=all produce, per-person throughput is capped
+        // near 1/produce-latency, and contending updates spend their
+        // time here — invisible in the produce histogram.
         let mutex = self
             .locks
             .entry(cache_key.clone())
             .or_default()
             .value()
             .clone();
+        let lock_wait = std::time::Instant::now();
         let _guard = mutex.lock().await;
+        histogram!("personhog_leader_person_lock_wait_ms")
+            .record(lock_wait.elapsed().as_secs_f64() * 1000.0);
 
         // Admission check before any work: if the dirty index is at
         // capacity and this person is not already marked, acking the write

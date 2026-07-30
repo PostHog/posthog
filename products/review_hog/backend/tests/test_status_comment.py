@@ -145,11 +145,11 @@ class TestRenderFinalBody:
             threshold=IssuePriority.SHOULD_FIX,
             review_url=None,
             resolved_from=resolved_from,
-            report_url="https://ph.test/project/1/code_review?review=rid",
+            report_url="https://ph.test/project/1/code-review?review=rid",
         )
         assert f"2 findings stayed below {expected}" in body, body
         # Held-back findings are otherwise invisible to the author — the comment must not dead-end.
-        assert "[View them in PostHog](https://ph.test/project/1/code_review?review=rid)" in body
+        assert "[View them in PostHog](https://ph.test/project/1/code-review?review=rid)" in body
 
     @patch(f"{_MODULE}.random.choice", return_value=("https://example.test/dog.png", "A happy dog"))
     def test_uses_the_randomly_selected_clean_review_media(self, mock_choice: MagicMock) -> None:
@@ -360,7 +360,7 @@ class TestFinalizeStatusComment(BaseTest):
         assert '2 findings stayed below the author\'s "Should fix" urgency threshold' in body
         # The held-back link into the app. `?review=<report id>` is a permanent public contract
         # (baked into GitHub comments) — the frontend's URL sync accepts exactly this param.
-        assert f"/project/{self.team.id}/code_review?review={report_id})" in body
+        assert f"/project/{self.team.id}/code-review?review={report_id})" in body
 
     def test_failed_edit_rewrites_the_comment_as_failed(
         self, mock_request: MagicMock, mock_integration: MagicMock

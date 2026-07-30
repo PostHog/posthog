@@ -5,7 +5,7 @@ import structlog
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlepagespeedinsights import (
     GooglePageSpeedInsightsSourceConfig,
 )
@@ -100,6 +100,19 @@ class TestGooglePageSpeedInsightsSource:
         errors = self.source.get_non_retryable_errors()
 
         assert any(status in key and "pagespeedonline.googleapis.com" in key for key in errors)
+
+    @pytest.mark.parametrize(
+        "error_message",
+        [
+            "PageSpeed Insights API error (retryable): status=429",
+            "PageSpeed Insights API error (retryable): status=500",
+        ],
+    )
+    def test_retryable_errors_match_exhausted_backoff(self, error_message):
+        # `_fetch` already retries 429/5xx internally with backoff; once those attempts are
+        # exhausted, this must stay classified as retryable so it doesn't get tracked as noise.
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(pattern in error_message for pattern in retryable_errors)
 
     def test_documented_tables_render_without_credentials(self):
         # Exercises the public-docs path: a credential-free placeholder config must list every table.

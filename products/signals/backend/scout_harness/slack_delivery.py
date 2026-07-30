@@ -15,6 +15,7 @@ from products.signals.backend.slack_formatting import (
     escape_slack_mrkdwn,
     markdown_to_slack_mrkdwn,
     slack_channel_id_from_target,
+    strip_chart_references,
     truncate_slack_section,
 )
 
@@ -189,7 +190,8 @@ def build_scout_report_slack_message(report: SignalReport, run: SignalScoutRun) 
         {"type": "header", "text": {"type": "plain_text", "text": header}},
     ]
 
-    rendered_summary = truncate_slack_section(markdown_to_slack_mrkdwn((report.summary or "").strip()))
+    summary_text = strip_chart_references((report.summary or "").strip())
+    rendered_summary = truncate_slack_section(markdown_to_slack_mrkdwn(summary_text))
     if rendered_summary:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": rendered_summary}})
 
