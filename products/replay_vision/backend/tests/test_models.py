@@ -301,7 +301,7 @@ class TestReplayObservation(BaseTest):
         self.assertEqual(obs.scanner_snapshot["scanner_config"], {"prompt": "original"})
 
 
-class TestScannerMonthlyCreditLimit(APIBaseTest):
+class TestScannerCreditLimit(APIBaseTest):
     def _scanner(self, **kwargs: object) -> ReplayScanner:
         return ReplayScanner.objects.create(
             team=self.team,
@@ -313,7 +313,7 @@ class TestScannerMonthlyCreditLimit(APIBaseTest):
         )
 
     def test_defaults_to_none(self) -> None:
-        assert self._scanner().monthly_credit_limit is None
+        assert self._scanner().credit_limit is None
 
     @parameterized.expand([("zero", 0), ("negative", -5)])
     def test_full_clean_rejects_non_positive(self, _name: str, limit: int) -> None:
@@ -323,23 +323,23 @@ class TestScannerMonthlyCreditLimit(APIBaseTest):
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
             model=ScannerModel.GEMINI_3_6_FLASH,
-            monthly_credit_limit=limit,
+            credit_limit=limit,
         )
         with self.assertRaises(ValidationError) as ctx:
             scanner.full_clean()
-        assert "monthly_credit_limit" in ctx.exception.message_dict
+        assert "credit_limit" in ctx.exception.message_dict
 
     @parameterized.expand([("zero", 0), ("negative", -5)])
     def test_database_rejects_non_positive_limit(self, _name: str, limit: int) -> None:
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
-                ReplayScanner.objects.filter(pk=self._scanner().pk).update(monthly_credit_limit=limit)
+                ReplayScanner.objects.filter(pk=self._scanner().pk).update(credit_limit=limit)
 
     def test_database_accepts_null_limit_on_update(self) -> None:
-        scanner = self._scanner(monthly_credit_limit=10)
-        ReplayScanner.objects.filter(pk=scanner.pk).update(monthly_credit_limit=None)
+        scanner = self._scanner(credit_limit=10)
+        ReplayScanner.objects.filter(pk=scanner.pk).update(credit_limit=None)
         scanner.refresh_from_db()
-        assert scanner.monthly_credit_limit is None
+        assert scanner.credit_limit is None
 
     def test_changing_the_limit_does_not_bump_scanner_version_or_stale_the_estimate(self) -> None:
         scanner = self._scanner()
@@ -349,7 +349,7 @@ class TestScannerMonthlyCreditLimit(APIBaseTest):
         scanner.refresh_from_db()
         version_before, estimated_at_before = scanner.scanner_version, scanner.estimated_at
 
-        scanner.monthly_credit_limit = 500
+        scanner.credit_limit = 500
         scanner.save()
         scanner.refresh_from_db()
 

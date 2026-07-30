@@ -2420,18 +2420,6 @@ class TestScannerSpend(_VisionAPITestCase):
         )
         if created_at is not None:
             ReplayObservation.objects.filter(pk=observation.pk).update(created_at=created_at)
-            observation.refresh_from_db()
-        # Mirror production: credits_this_month reads the receipt ledger, not the observation row.
-        model = observation.scanner_snapshot.get("model", "")
-        ReplayObservationUsage.objects.create(
-            observation_id=observation.id,
-            organization_id=observation.team.organization_id,
-            team_id=observation.team_id,
-            scanner_id=observation.scanner_id,
-            observation_created_at=observation.created_at,
-            model=model,
-            credits=observation_credits_for_model(model),
-        )
         return observation
 
     def _credits_by_name(self, response_json: dict) -> dict[str, int]:
@@ -2471,6 +2459,25 @@ class TestScannerSpend(_VisionAPITestCase):
         displayed = [row["credits_this_month"] for row in rows]
         self.assertEqual(displayed, sorted(displayed, reverse=True))
         self.assertEqual([row["name"] for row in rows[:2]], ["high", "low"])
+
+    def test_receipts_without_a_scanner_do_not_zero_the_displayed_credits(self) -> None:
+        # Receipts are never backfilled with a scanner_id, so the displayed column and its sort read
+        # observation rows. Pointing either at the ledger silently zeroes both for a whole period.
+        spender = self._create_scanner(name="spender")
+        observation = self._succeeded_observation(spender, "unattributed")
+        ReplayObservationUsage.objects.create(
+            observation_id=observation.id,
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+            scanner_id=None,
+            observation_created_at=observation.created_at,
+            model=spender.model,
+            credits=observation_credits_for_model(spender.model),
+        )
+
+        resp = self.client.get(f"{self.scanners_url}?order_by=-credits_this_month")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(self._credits_by_name(resp.json())["spender"], observation_credits_for_model(spender.model))
 
 
 class TestCurrentPeriodBounds(SimpleTestCase):

@@ -1,9 +1,9 @@
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from uuid import UUID
 
-from django.db.models import Count, IntegerField, Sum, Value
+from django.db.models import IntegerField, Sum, Value
 from django.db.models.functions import Coalesce
 
 import structlog
@@ -14,7 +14,11 @@ from posthog.models.organization import Organization
 from posthog.settings.utils import get_from_env
 
 from products.replay_vision.backend.billing import observation_credits_for_model
-from products.replay_vision.backend.models.replay_observation import IN_FLIGHT_STATUSES, ReplayObservation
+from products.replay_vision.backend.models.replay_observation import (
+    IN_FLIGHT_STATUSES,
+    ObservationStatus,
+    ReplayObservation,
+)
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_quota_grant import ReplayQuotaGrant
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
@@ -101,7 +105,72 @@ def current_period_bounds(organization_id: UUID) -> BillingPeriod:
 class ScannerSpend:
     credits: int
     observations: int
-    budget: CreditBudget
+
+
+def credits_used_by_scanner(organization_id: UUID, scanner_ids: list[UUID]) -> dict[UUID, ScannerSpend]:
+    """Credits and observation counts for each scanner's succeeded observations in the current billing period.
+
+    This is the displayed figure, deliberately read from observation rows rather than the receipt ledger:
+    it is what the scanner list column and the `credits_this_month` sort both show, and receipts carry no
+    `scanner_id` before that column existed. `compute_scanner_budgets` is the delete-proof figure the
+    limit is enforced against.
+
+    Priced at current rates from each observation's frozen snapshot model. Receipts freeze prices
+    at success time, so these totals can drift from the billed ledger after a mid-period price
+    change. Scanners with no spend are omitted.
+    """
+    if not scanner_ids:
+        return {}
+    period = current_period_bounds(organization_id)
+    period_start, period_end = period.start, period.end
+    pairs = Counter(
+        ReplayObservation.objects.filter(
+            scanner_id__in=scanner_ids,
+            team__organization_id=organization_id,
+            status=ObservationStatus.SUCCEEDED,
+            created_at__gte=period_start,
+            created_at__lt=period_end,
+        ).values_list("scanner_id", "scanner_snapshot__model")
+    )
+    totals: dict[UUID, ScannerSpend] = {}
+    for (scanner_id, model), count in pairs.items():
+        prev = totals.get(scanner_id, ScannerSpend(0, 0))
+        totals[scanner_id] = ScannerSpend(
+            credits=prev.credits + observation_credits_for_model(model or "") * count,
+            observations=prev.observations + count,
+        )
+    return totals
+
+
+@dataclass(frozen=True)
+class ScannerBudget(CreditBudget):
+    """A scanner's own allowance, carrying what one more observation costs.
+
+    `credits_used` is the full draw (settled receipts plus live reservations); `settled_credits` is
+    only what has actually posted to the ledger.
+    """
+
+    credits_per_observation: int
+    settled_credits: int
+
+    @property
+    def blocked(self) -> bool:
+        """Whether this scanner is out of budget: the one answer every caller uses.
+
+        `exhausted` and `would_exceed` disagree for a scanner with less than one observation of
+        headroom left, which is exactly the state a capped scanner ends a period in. Gates and the
+        API both read this so they cannot report different things about the same scanner.
+        """
+        return self.would_exceed(self.credits_per_observation)
+
+    @property
+    def blocked_by_settled_spend(self) -> bool:
+        """`blocked` counting only credits that have posted.
+
+        A reservation can release without ever writing a receipt (a failed observation), so an
+        irreversible reaction to a cap must not fire on a transient in-flight spike.
+        """
+        return replace(self, credits_used=self.settled_credits).blocked
 
 
 def _scanner_in_flight_credits(
@@ -123,19 +192,32 @@ def _scanner_in_flight_credits(
     return totals
 
 
-def compute_scanner_budgets(organization_id: UUID, scanner_ids: list[UUID]) -> dict[UUID, ScannerSpend]:
-    """Per-scanner spend for the org's current billing period, with an entry for every requested scanner.
+def compute_scanner_budgets(
+    organization_id: UUID, scanner_ids: list[UUID], period: BillingPeriod | None = None
+) -> dict[UUID, ScannerBudget]:
+    """Per-scanner budgets for the org's current billing period, with an entry for every requested scanner.
 
     Settled credits come from the immutable receipt ledger, so deleting observations cannot refund a
-    scanner's limit. In-flight rows are reserved live from their frozen snapshot model, exactly as the
-    org snapshot does, because a sweep tick admits many observations concurrently against one read.
-    Receipts written before `scanner_id` existed are null and count toward no scanner.
+    scanner's limit. In-flight observations and running prompt evaluations are reserved live from their
+    frozen snapshot model, exactly as the org snapshot does, because a sweep tick admits many
+    observations concurrently against one read. Receipts written before `scanner_id` existed are null
+    and count toward no scanner.
+
+    Pass `period` to bill against a window the caller already resolved, so an org snapshot and the
+    scanner budgets taken alongside it cannot straddle a period boundary.
     """
+    # noqa comment below: prompt_evaluation pulls in the temporal package, whose activities import
+    # this module — deferring breaks the quota -> prompt_evaluation -> temporal -> quota cycle.
+    from products.replay_vision.backend.prompt_evaluation import (  # noqa: PLC0415
+        in_flight_evaluation_credits_by_scanner,
+    )
+
     if not scanner_ids:
         return {}
-    period = current_period_bounds(organization_id)
+    if period is None:
+        period = current_period_bounds(organization_id)
     settled = {
-        row["scanner_id"]: (row["total_credits"] or 0, row["total_observations"])
+        row["scanner_id"]: row["total_credits"] or 0
         for row in ReplayObservationUsage.objects.filter(
             organization_id=organization_id,
             scanner_id__in=scanner_ids,
@@ -143,35 +225,40 @@ def compute_scanner_budgets(organization_id: UUID, scanner_ids: list[UUID]) -> d
             observation_created_at__lt=period.end,
         )
         .values("scanner_id")
-        .annotate(
-            total_credits=Coalesce(Sum("credits"), Value(0), output_field=IntegerField()),
-            total_observations=Count("id"),
-        )
+        .annotate(total_credits=Coalesce(Sum("credits"), Value(0), output_field=IntegerField()))
     }
     in_flight = _scanner_in_flight_credits(organization_id, scanner_ids, period)
+    # Evaluations write receipts directly and never create observation rows, so without this a running
+    # test would drain a scanner's cap invisibly to every gate that reads this budget. Not period-filtered:
+    # a run that is still alive will charge whichever period it settles in, exactly as the org snapshot treats it.
+    in_flight_evaluations = in_flight_evaluation_credits_by_scanner(organization_id, scanner_ids)
     # Read the limits here rather than taking them as a parameter: a caller that forgot to pass them
     # would get credit_limit=None, which reads as "uncapped" and would silently disable enforcement.
     # nosemgrep: idor-lookup-without-team (org-level aggregation; the pk__in list is co-filtered by team__organization_id, so a scanner id outside this org matches nothing)
-    limit_rows = ReplayScanner.objects.filter(team__organization_id=organization_id, pk__in=scanner_ids).values_list(
-        "id", "monthly_credit_limit"
+    scanner_rows = ReplayScanner.objects.filter(team__organization_id=organization_id, pk__in=scanner_ids).values_list(
+        "id", "credit_limit", "model"
     )
-    limits: dict[UUID, int | None] = dict(limit_rows)
-    result: dict[UUID, ScannerSpend] = {}
+    configs = {scanner_id: (limit, model) for scanner_id, limit, model in scanner_rows}
+    result: dict[UUID, ScannerBudget] = {}
     for scanner_id in scanner_ids:
-        settled_credits, observations = settled.get(scanner_id, (0, 0))
-        used = settled_credits + in_flight.get(scanner_id, 0)
-        result[scanner_id] = ScannerSpend(
-            credits=settled_credits,
-            observations=observations,
-            budget=CreditBudget(credit_limit=limits.get(scanner_id), credits_used=used),
+        config = configs.get(scanner_id)
+        settled_credits = settled.get(scanner_id, 0)
+        reserved = in_flight.get(scanner_id, 0) + in_flight_evaluations.get(scanner_id, 0)
+        result[scanner_id] = ScannerBudget(
+            credit_limit=config[0] if config else None,
+            credits_used=settled_credits + reserved,
+            # An id outside this org, or a scanner deleted mid-read, has no model to price. Don't call
+            # the price table with an empty string: it would log an unknown-model warning per call.
+            credits_per_observation=observation_credits_for_model(config[1]) if config else 0,
+            settled_credits=settled_credits,
         )
     return result
 
 
-def compute_scanner_budget(scanner: ReplayScanner) -> CreditBudget:
+def compute_scanner_budget(scanner: ReplayScanner, period: BillingPeriod | None = None) -> ScannerBudget:
     """This scanner's own credit allowance and draw for the org's current billing period."""
-    spend = compute_scanner_budgets(scanner.team.organization_id, [scanner.id])
-    return spend[scanner.id].budget
+    budgets = compute_scanner_budgets(scanner.team.organization_id, [scanner.id], period)
+    return budgets[scanner.id]
 
 
 def sum_enabled_scanner_estimated_credits(organization_id: UUID, exclude_scanner_id: UUID | None = None) -> int:

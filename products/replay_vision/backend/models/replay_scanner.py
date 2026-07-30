@@ -127,7 +127,9 @@ class ReplayScanner(UUIDModel):
         help_text="When the estimate was last computed. Refreshed on config saves and by the sweep when stale.",
     )
 
-    monthly_credit_limit = models.PositiveIntegerField(
+    # Not "monthly": this resets with the org's billing period, which is only a calendar month
+    # until billing syncs a real one. See quota.current_period_bounds.
+    credit_limit = models.PositiveIntegerField(
         null=True,
         blank=True,
         validators=[MinValueValidator(1)],
@@ -148,7 +150,7 @@ class ReplayScanner(UUIDModel):
             # A stray 0 would read as "block every observation" to the quota check, and be
             # indistinguishable from an unset cap. NULL stays valid: it means no scanner-level cap.
             models.CheckConstraint(
-                condition=models.Q(monthly_credit_limit__isnull=True) | models.Q(monthly_credit_limit__gte=1),
+                condition=models.Q(credit_limit__isnull=True) | models.Q(credit_limit__gte=1),
                 name="replay_scanner_credit_limit_positive",
             ),
         ]

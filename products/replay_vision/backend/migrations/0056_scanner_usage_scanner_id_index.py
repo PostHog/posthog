@@ -16,6 +16,7 @@ class Migration(migrations.Migration):
         SafeAddIndexConcurrently(
             model_name="replayobservationusage",
             index=models.Index(
+                condition=models.Q(("scanner_id__isnull", False)),
                 fields=["scanner_id", "observation_created_at"],
                 name="rlou_scanner_created_idx",
             ),

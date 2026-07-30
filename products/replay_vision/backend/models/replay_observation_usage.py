@@ -46,8 +46,14 @@ class ReplayObservationUsage(UUIDModel):
             models.Index(fields=["organization", "observation_created_at"]),
             # Drives the daily per-team billing usage query, which buckets receipts by write time.
             models.Index(fields=["created_at", "team_id"], name="rlou_created_team_idx"),
-            # Drives the per-scanner credit limit aggregate over the current billing period.
-            models.Index(fields=["scanner_id", "observation_created_at"], name="rlou_scanner_created_idx"),
+            # Drives the per-scanner credit limit aggregate over the current billing period. Partial
+            # because receipts written before this column existed are never backfilled, and the
+            # aggregate only ever looks up concrete scanner ids.
+            models.Index(
+                fields=["scanner_id", "observation_created_at"],
+                name="rlou_scanner_created_idx",
+                condition=models.Q(scanner_id__isnull=False),
+            ),
         ]
 
     def __str__(self) -> str:
