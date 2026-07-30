@@ -8,9 +8,10 @@ from types import UnionType
 from typing import Any, Generic, NamedTuple, Optional, Protocol, TypeGuard, TypeVar, Union, cast, get_args, get_origin
 
 import orjson
+import structlog
 import posthoganalytics
 from prometheus_client import Counter, Histogram
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from posthog.schema import (
     AccountsQuery,
@@ -181,6 +182,24 @@ def _contains_user_hogql_label() -> str:
     # observability split user-HogQL failures from query-builder failures on the
     # same metric. The tag is the canonical source — see `posthog.clickhouse.query_tagging`.
     return "true" if get_query_tag_value("contains_user_hogql") else "false"
+
+
+logger = structlog.get_logger(__name__)
+
+
+def strip_null_modifiers(response_dict: dict[str, Any]) -> dict[str, Any]:
+    # `HogQLQueryModifiers` is `extra="forbid"`, so a modifier added in a new release is
+    # unparseable by pods still on the old image. Persisting only the modifiers that are
+    # actually set keeps cache entries readable across a rollout instead of dumping a wave
+    # of cache misses and recomputation every time someone adds a modifier.
+    modifiers = response_dict.get("modifiers")
+    if isinstance(modifiers, dict):
+        response_dict["modifiers"] = {key: value for key, value in modifiers.items() if value is not None}
+    return response_dict
+
+
+def _is_schema_drift(exc: Exception) -> bool:
+    return isinstance(exc, ValidationError) and any(error.get("type") == "extra_forbidden" for error in exc.errors())
 
 
 EXTENDED_CACHE_AGE = timedelta(days=1)
@@ -1536,7 +1555,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 if raw_results is not None:
                     self.raw_cached_results_bytes = raw_results
             except Exception as e:
-                capture_exception(Exception(f"Error parsing cached response: {e}"))
+                # Schema drift during a rollout is expected and self-healing — recomputing is the
+                # whole point, so it isn't worth an error tracking issue.
+                if _is_schema_drift(e):
+                    logger.info(
+                        "cached_response_schema_drift",
+                        cache_key=cache_manager.cache_key,
+                        response_type=CachedResponse.__name__,
+                    )
+                else:
+                    capture_exception(Exception(f"Error parsing cached response: {e}"))
                 cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
         elif cached_response_candidate is None:
             cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
@@ -1556,7 +1584,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if custom_names_modified:
                 # Update cache with patched response so subsequent requests get the updated names
                 cache_manager.store_result(
-                    response=cached_response.model_dump(),
+                    response=strip_null_modifiers(cached_response.model_dump()),
                     target_age=cached_response.cache_target_age,
                 )
 
@@ -2020,7 +2048,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     SURVEY_QUERY_EXECUTION_DURATION.labels(**survey_query_metric_labels).observe(query_duration_seconds)
 
             fresh_response_dict: dict[str, Any] = {
-                **query_result.model_dump(),
+                **strip_null_modifiers(query_result.model_dump()),
                 "is_cached": False,
                 "last_refresh": last_refresh,
                 "next_allowed_client_refresh": last_refresh + self._refresh_frequency(),

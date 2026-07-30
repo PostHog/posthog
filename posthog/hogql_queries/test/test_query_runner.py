@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
@@ -64,6 +65,7 @@ from posthog.hogql_queries.query_runner import (
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team, WeekStartDay
+from posthog.query_cache.cache import QueryCache
 from posthog.query_cache.failures import (
     BASE_BACKOFF,
     BUDGET_EXTENDED,
@@ -1888,3 +1890,60 @@ class TestQueryFailureCaching(BaseTest):
                     runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
             mock_enqueue.assert_not_called()
             assert getattr(ctx.exception, "served_from_query_failure_cache", False)
+
+
+class TestCachedModifiersSchemaDrift(BaseTest):
+    def tearDown(self):
+        super().tearDown()
+        cache.clear()
+
+    def _runner(self) -> QueryRunner:
+        class RunnerWithModifiers(setup_test_query_runner_class()):  # type: ignore[misc]
+            def _calculate(self):
+                return TheTestBasicQueryResponse(
+                    results=[["row", 1]],
+                    modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED),
+                )
+
+        return RunnerWithModifiers(query={"some_attr": "bla"}, team=self.team)
+
+    def _write_cache(self, poison: Optional[Callable[[dict], None]] = None) -> QueryCache:
+        runner = self._runner()
+        runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        query_cache = QueryCache(team_id=self.team.pk, cache_key=runner.get_cache_key())
+        if poison is not None:
+            entry = query_cache.lookup().entry
+            assert entry is not None
+            stored = entry.as_full_response()
+            assert stored is not None
+            poison(stored)
+            query_cache.store_result(response=stored, target_age=None)
+        return query_cache
+
+    def test_cache_write_omits_unset_modifiers(self):
+        entry = self._write_cache().lookup().entry
+        assert entry is not None
+
+        stored = entry.as_full_response()
+        assert stored is not None
+        modifiers = stored["modifiers"]
+        assert modifiers["personsOnEventsMode"] == PersonsOnEventsMode.DISABLED
+        assert [key for key, value in modifiers.items() if value is None] == []
+
+    @mock.patch("posthog.hogql_queries.query_runner.capture_exception")
+    def test_unknown_modifier_in_cache_recomputes_without_capturing(self, mock_capture_exception):
+        self._write_cache(lambda stored: stored["modifiers"].update(someModifierFromANewerRelease=True))
+
+        response = self._runner().run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+
+        assert isinstance(response, CacheMissResponse)
+        mock_capture_exception.assert_not_called()
+
+    @mock.patch("posthog.hogql_queries.query_runner.capture_exception")
+    def test_other_cache_parse_errors_are_still_captured(self, mock_capture_exception):
+        self._write_cache(lambda stored: stored.update(last_refresh="not a timestamp"))
+
+        response = self._runner().run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+
+        assert isinstance(response, CacheMissResponse)
+        mock_capture_exception.assert_called_once()
