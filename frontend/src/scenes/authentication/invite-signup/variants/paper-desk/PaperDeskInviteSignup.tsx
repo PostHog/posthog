@@ -23,6 +23,7 @@ import { loginLogic } from 'scenes/authentication/login/loginLogic'
 import { CardTitle } from 'scenes/authentication/shared/paperDesk/CardTitle'
 import { OrgTile } from 'scenes/authentication/shared/paperDesk/OrgTile'
 import { PaperDeskCard, PaperDeskScene } from 'scenes/authentication/shared/paperDesk/PaperDeskScene'
+import { useAutofillReconcile } from 'scenes/authentication/shared/useAutofillReconcile'
 import { TurnstileChallenge } from 'scenes/authentication/signup/signupForm/TurnstileChallenge'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
@@ -104,7 +105,8 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
         turnstileSiteKey,
         turnstileToken,
     } = useValues(inviteSignupLogic)
-    const { registerPasskey, setTurnstileToken } = useActions(inviteSignupLogic)
+    const { registerPasskey, setTurnstileToken, setSignupValue } = useActions(inviteSignupLogic)
+    const { fieldRef, reconcile } = useAutofillReconcile()
     const { precheck } = useActions(loginLogic)
     const { precheckResponse, precheckResponseLoading } = useValues(loginLogic)
     const { openSupportForm } = useActions(supportLogic)
@@ -179,7 +181,13 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
                         {passkeyError}
                     </div>
                 )}
-                <Form logic={inviteSignupLogic} formKey="signup" enableFormOnSubmit className="flex flex-col gap-4">
+                <Form
+                    logic={inviteSignupLogic}
+                    formKey="signup"
+                    enableFormOnSubmit
+                    onSubmitCapture={() => reconcile(setSignupValue)}
+                    className="flex flex-col gap-4"
+                >
                     <LemonField.Pure label="Email" help="The invite is tied to this address.">
                         <LemonInput type="email" value={invite.target_email} disabled fullWidth />
                     </LemonField.Pure>
@@ -199,6 +207,7 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
                                     {({ value, onChange, error, id }) => (
                                         <LemonInput
                                             id={id}
+                                            inputRef={fieldRef('password')}
                                             className="ph-ignore-input"
                                             data-attr="password"
                                             type="password"
@@ -216,6 +225,7 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
                                 {({ value, onChange, error, id }) => (
                                     <LemonInput
                                         id={id}
+                                        inputRef={fieldRef('first_name')}
                                         className="ph-ignore-input"
                                         data-attr="first_name"
                                         placeholder="Jane Doe"

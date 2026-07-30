@@ -19,6 +19,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { loginLogic } from 'scenes/authentication/login/loginLogic'
 import { SupportModalButton } from 'scenes/authentication/shared/SupportModalButton'
+import { useAutofillReconcile } from 'scenes/authentication/shared/useAutofillReconcile'
 import { TurnstileChallenge } from 'scenes/authentication/signup/signupForm/TurnstileChallenge'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
@@ -210,7 +211,8 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
         turnstileSiteKey,
         turnstileToken,
     } = useValues(inviteSignupLogic)
-    const { registerPasskey, setTurnstileToken } = useActions(inviteSignupLogic)
+    const { registerPasskey, setTurnstileToken, setSignupValue } = useActions(inviteSignupLogic)
+    const { fieldRef, reconcile } = useAutofillReconcile()
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -265,7 +267,13 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                     {passkeyError}
                 </LemonBanner>
             )}
-            <Form logic={inviteSignupLogic} formKey="signup" className="deprecated-space-y-4" enableFormOnSubmit>
+            <Form
+                logic={inviteSignupLogic}
+                formKey="signup"
+                className="deprecated-space-y-4"
+                enableFormOnSubmit
+                onSubmitCapture={() => reconcile(setSignupValue)}
+            >
                 <LemonField.Pure label="Email">
                     <LemonInput type="email" disabled value={invite?.target_email} />
                 </LemonField.Pure>
@@ -319,6 +327,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                                 }
                             >
                                 <LemonInput
+                                    inputRef={fieldRef('password')}
                                     type="password"
                                     className="ph-ignore-input"
                                     data-attr="password"
@@ -339,7 +348,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                                     : undefined
                             }
                         >
-                            <LemonInput data-attr="first_name" placeholder="Jane" />
+                            <LemonInput inputRef={fieldRef('first_name')} data-attr="first_name" placeholder="Jane" />
                         </LemonField>
 
                         <SignupRoleSelect />

@@ -16,6 +16,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { CardTitle } from 'scenes/authentication/shared/paperDesk/CardTitle'
 import { PaperDeskCard, PaperDeskScene } from 'scenes/authentication/shared/paperDesk/PaperDeskScene'
 import { RegionField } from 'scenes/authentication/shared/paperDesk/RegionField'
+import { useAutofillReconcile } from 'scenes/authentication/shared/useAutofillReconcile'
 import { TurnstileChallenge } from 'scenes/authentication/signup/signupForm/TurnstileChallenge'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -199,7 +200,8 @@ function SignupAuthPanel(): JSX.Element {
         isPasskeyRegistering,
         passkeyError,
     } = useValues(signupLogic)
-    const { registerPasskey, setPanel } = useActions(signupLogic)
+    const { registerPasskey, setPanel, setSignupPanelAuthValue } = useActions(signupLogic)
+    const { fieldRef, reconcile } = useAutofillReconcile()
 
     const footer = (
         <>
@@ -267,7 +269,13 @@ function SignupAuthPanel(): JSX.Element {
                     <span className="flex-1 h-px bg-[#e0e1d9]" />
                 </div>
             )}
-            <Form logic={signupLogic} formKey="signupPanelAuth" enableFormOnSubmit className="flex flex-col gap-4">
+            <Form
+                logic={signupLogic}
+                formKey="signupPanelAuth"
+                enableFormOnSubmit
+                onSubmitCapture={() => reconcile(setSignupPanelAuthValue)}
+                className="flex flex-col gap-4"
+            >
                 {!passkeyRegistered && (
                     <LemonField
                         name="password"
@@ -281,6 +289,7 @@ function SignupAuthPanel(): JSX.Element {
                         {({ value, onChange, error, id }) => (
                             <LemonInput
                                 id={id}
+                                inputRef={fieldRef('password')}
                                 className="ph-ignore-input"
                                 data-attr="password"
                                 type="password"
@@ -325,8 +334,9 @@ function SignupProfilePanel(): JSX.Element {
         signupPanelEmail,
     } = useValues(signupLogic)
     const { preflight } = useValues(preflightLogic)
-    const { setTurnstileToken, setPanel } = useActions(signupLogic)
+    const { setTurnstileToken, setPanel, setSignupPanelOnboardingValue } = useActions(signupLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const { fieldRef, reconcile } = useAutofillReconcile()
 
     const submitLabel = !preflight?.demo
         ? 'Create account'
@@ -402,12 +412,14 @@ function SignupProfilePanel(): JSX.Element {
                 logic={signupLogic}
                 formKey="signupPanelOnboarding"
                 enableFormOnSubmit
+                onSubmitCapture={() => reconcile(setSignupPanelOnboardingValue)}
                 className="flex flex-col gap-4"
             >
                 <LemonField name="name" label="Your name">
                     {({ value, onChange, error, id }) => (
                         <LemonInput
                             id={id}
+                            inputRef={fieldRef('name')}
                             className="ph-ignore-input"
                             data-attr="signup-name"
                             autoFocus
