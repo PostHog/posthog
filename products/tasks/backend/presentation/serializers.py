@@ -1611,6 +1611,22 @@ class TaskRepositoriesResponseSerializer(serializers.Serializer):
     )
 
 
+class PinnedTaskIdsResponseSerializer(serializers.Serializer):
+    task_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="Visible task IDs pinned by the requester, newest pin first.",
+    )
+
+
+class TaskPinRequestSerializer(serializers.Serializer):
+    pinned = serializers.BooleanField(help_text="Whether the task should be pinned for the requester.")
+
+
+class TaskPinResponseSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(help_text="Task whose pin state was updated.")
+    pinned = serializers.BooleanField(help_text="Current pin state for the requester.")
+
+
 class RepositoryReadinessQuerySerializer(serializers.Serializer):
     repository = serializers.CharField(required=True, help_text="Repository in org/repo format")
     window_days = serializers.IntegerField(required=False, default=7, min_value=1, max_value=30)
