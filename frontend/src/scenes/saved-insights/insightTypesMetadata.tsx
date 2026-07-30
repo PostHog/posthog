@@ -281,6 +281,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: true,
     },
+    [NodeKind.WebBotsTableQuery]: {
+        name: 'Bot traffic',
+        description: 'View bot and crawler activity on your site.',
+        icon: IconPieChart,
+        inMenu: true,
+    },
     [NodeKind.WebVitalsQuery]: {
         name: 'Web vitals',
         description: 'View web vitals.',
