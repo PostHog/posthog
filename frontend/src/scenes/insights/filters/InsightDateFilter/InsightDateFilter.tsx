@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconCalendar } from '@posthog/icons'
 
@@ -35,13 +35,16 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
     const smoothingActive = isTrends && (trendsFilter?.smoothingIntervals ?? 1) > 1
     const showDaysOfWeekExclusions = isTrends && !smoothingActive
 
-    // Clear daysOfWeek when the control hides, otherwise it lingers with no UI left to remove it
+    // Enabling smoothing hides the control, so clear daysOfWeek on that transition (never on
+    // mount): the backend rejects the combination and there'd be no UI left to remove it
+    const prevShowDaysOfWeekExclusions = useRef(showDaysOfWeekExclusions)
     useEffect(() => {
-        if (!showDaysOfWeekExclusions && dateRange?.daysOfWeek?.length) {
+        const wasShown = prevShowDaysOfWeekExclusions.current
+        prevShowDaysOfWeekExclusions.current = showDaysOfWeekExclusions
+        if (wasShown && !showDaysOfWeekExclusions && smoothingActive && dateRange?.daysOfWeek?.length) {
             updateQuerySource(computeDaysOfWeekUpdate([], dateRange))
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [showDaysOfWeekExclusions])
+    }, [showDaysOfWeekExclusions, smoothingActive, dateRange, updateQuerySource])
 
     const exclusions: DateFilterExclusions = {
         days: showDaysOfWeekExclusions ? excludedDaysOfWeek.map(String) : [],
