@@ -26,7 +26,7 @@ from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.scoping import team_scope
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.hogql_queries.error_handling import (
@@ -146,7 +146,7 @@ def discover_experiment_metrics(experiment: Experiment) -> list[ExperimentMetric
     return metrics_to_recalculate
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentMetricToRecalculate]:
     close_old_connections()
 
@@ -173,7 +173,7 @@ def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentM
 # ---------------------------------------------------------------------------
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> str | None:
     close_old_connections()
 
@@ -502,7 +502,7 @@ def _capture_experiment_metric_event(
 # ---------------------------------------------------------------------------
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def _calculate_experiment_metric_for_recalculation_sync(
     experiment_id: int,
     metric_uuid: str,
