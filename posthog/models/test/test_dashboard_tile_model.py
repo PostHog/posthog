@@ -5,6 +5,8 @@ from posthog.test.base import APIBaseTest
 from django.core.exceptions import ValidationError
 from django.db.utils import IntegrityError
 
+from parameterized import parameterized
+
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -56,6 +58,21 @@ class TestDashboardTileModel(APIBaseTest):
         # save() copies dashboard.team_id onto the tile so HogQL queries scoped
         # by `WHERE team_id = X` find this row.
         self.assertEqual(tile.team_id, self.dashboard.team_id)
+
+    @parameterized.expand(
+        [
+            ("query_based", {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "select 1"}}),
+            ("filters_only", None),
+        ]
+    )
+    def test_save_handles_insight_with_retired_hogql_filters(self, name: str, query: dict | None) -> None:
+        insight = Insight.objects.create(
+            team=self.team, short_id=f"hogql-{name}", name=name, filters={"insight": "HOGQL"}, query=query
+        )
+
+        tile = DashboardTile.objects.create(dashboard=self.dashboard, insight=insight)
+
+        self.assertIsNotNone(tile.pk)
 
     def test_save_does_not_overwrite_explicit_team_id(self) -> None:
         insight = Insight.objects.create(team=self.team, short_id="explicit", name="explicit")

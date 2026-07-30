@@ -160,7 +160,9 @@ class DashboardTile(models.Model):
 
         if self.insight is not None:
             has_no_filters_hash = self.filters_hash is None
-            if has_no_filters_hash and self.insight.filters != {}:
+            # Query-based insights can still carry a leftover legacy filters blob, and running
+            # that blob through the old Filter layer breaks on retired insight types.
+            if has_no_filters_hash and self.insight.query is None and self.insight.filters != {}:
                 from products.product_analytics.backend.models.insight import generate_insight_filters_hash
 
                 self.filters_hash = generate_insight_filters_hash(self.insight, self.dashboard)

@@ -466,7 +466,7 @@ class InsightViewed(models.Model):
 
 
 @timed("generate_insight_cache_key")
-def generate_insight_filters_hash(insight: Insight, dashboard: Optional["Dashboard"]) -> str:
+def generate_insight_filters_hash(insight: Insight, dashboard: Optional["Dashboard"]) -> Optional[str]:
     # Deferred: the legacy filters layer imports the HogQL/schema universe, and this model
     # loads at django.setup() in every process.
     from posthog.models.filters.utils import get_filter  # noqa: PLC0415
@@ -485,4 +485,6 @@ def generate_insight_filters_hash(insight: Insight, dashboard: Optional["Dashboa
             exception=e,
             exc_info=True,
         )
-        raise
+        # filters_hash is nullable — a missing hash only costs a cache miss, so don't
+        # take down the write that asked for it.
+        return None
