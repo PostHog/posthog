@@ -154,7 +154,10 @@ def validate_filters_and_compute_realtime_support(
             logger.warning(error_msg)
             return filters_dict, current_cohort_type, [error_msg]
 
-        validated_filters = CohortFilters.model_validate({"properties": properties}, context={"team": team})
+        validated_filters = CohortFilters.model_validate(
+            {"properties": properties, "filterTestAccounts": filters_dict.get("filterTestAccounts")},
+            context={"team": team},
+        )
 
         clean_filters = validated_filters.model_dump(exclude_none=True)
 
@@ -168,6 +171,11 @@ def validate_filters_and_compute_realtime_support(
         if cohort_type == CohortType.REALTIME and cohort_count is not None:
             if cohort_count > REALTIME_COHORT_MAX_PERSON_COUNT:
                 cohort_type = None
+
+        # Realtime evaluation compiles bytecode from the cohort's own leaf filters and can't see the
+        # test account filters injected at calculation time, so force the batch path for these cohorts.
+        if clean_filters.get("filterTestAccounts"):
+            cohort_type = None
 
         return clean_filters, cohort_type, None
 
@@ -413,6 +421,9 @@ def _calculate_realtime_support(group: CohortFilterGroup) -> bool:
 
 class CohortFilters(BaseModel, extra="forbid"):
     properties: CohortFilterGroup
+    # When true, the team's person-scoped "internal and test account" filters are ANDed
+    # into the cohort criteria at calculation time (see hogql_cohort_query.py).
+    filterTestAccounts: Optional[bool] = None
 
 
 API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
