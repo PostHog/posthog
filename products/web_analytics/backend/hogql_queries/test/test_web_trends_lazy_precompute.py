@@ -251,14 +251,26 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
     def test_dispatch_routes_wa_tagged_trends_queries(self) -> None:
-        # The WA dashboard opts in purely via tags.productKey; anything else
-        # must keep getting the vanilla runner.
+        # Dispatch requires BOTH the WA product tag and the rollout flag; with
+        # the flag off even tagged queries must take the untouched vanilla path
+        # (the flag is the zero-exposure kill switch for the whole runner).
         tagged = self._build_query().model_dump()
         tagged["tags"] = {"productKey": "web_analytics"}
-        assert isinstance(get_query_runner(tagged, self.team), WebTrendsQueryRunner)
+        with self._enable_trends_flag():
+            assert isinstance(get_query_runner(tagged, self.team), WebTrendsQueryRunner)
+
+        flag_off = patch(
+            "products.web_analytics.backend.hogql_queries.web_trends_lazy_precompute.posthoganalytics.feature_enabled",
+            return_value=False,
+        )
+        with flag_off:
+            runner = get_query_runner(tagged, self.team)
+            assert isinstance(runner, TrendsQueryRunner)
+            assert not isinstance(runner, WebTrendsQueryRunner)
 
         untagged = self._build_query()
-        runner = get_query_runner(untagged, self.team)
+        with self._enable_trends_flag():
+            runner = get_query_runner(untagged, self.team)
         assert isinstance(runner, TrendsQueryRunner)
         assert not isinstance(runner, WebTrendsQueryRunner)
 
