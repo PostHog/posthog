@@ -30,7 +30,7 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            pip install llama-index llama-index-llms-openai opentelemetry-sdk "posthog[otel]" opentelemetry-instrumentation-llamaindex
+                            pip install llama-index llama-index-llms-openai opentelemetry-sdk "posthog[otel]" opentelemetry-instrumentation-openai-v2
                         `}
                     />
                 </>
@@ -53,7 +53,7 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
                             from opentelemetry.sdk.trace import TracerProvider
                             from opentelemetry.sdk.resources import Resource, SERVICE_NAME
                             from posthog.ai.otel import PostHogSpanProcessor
-                            from opentelemetry.instrumentation.llamaindex import LlamaIndexInstrumentor
+                            from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
 
                             resource = Resource(attributes={
                                 SERVICE_NAME: "my-app",
@@ -70,9 +70,18 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
                             )
                             trace.set_tracer_provider(provider)
 
-                            LlamaIndexInstrumentor().instrument()
+                            OpenAIInstrumentor().instrument()
                         `}
                     />
+
+                    <CalloutBox type="fyi" icon="IconInfo" title="What gets captured">
+                        <Markdown>
+                            This instruments the OpenAI calls LlamaIndex makes underneath, so you get one
+                            `$ai_generation` per LLM call. Retrieval and query-engine steps are not captured as spans.
+                            To record those, capture `$ai_span` events yourself with a shared `$ai_trace_id` — see
+                            [manual capture](/docs/ai-observability/installation/manual-capture).
+                        </Markdown>
+                    </CalloutBox>
                 </>
             ),
         },
