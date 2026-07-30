@@ -14,10 +14,10 @@ production data actually support, which differs from both RFCs in a few places t
 Two separate things carry flag data, and they are worth very different amounts. Sizing for both was
 measured separately; the figures live in the internal analysis rather than in this repo.
 
-| Component | Relative weight |
-| --- | --- |
-| Whole `$feature_flag_called` events | the smaller share of flag-attributable property bytes |
-| `$feature/<key>`, `$active_feature_flags`, `$feature_flag_payloads` on all other events | roughly three times the above |
+| Component                                                                               | Relative weight                                       |
+| --------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Whole `$feature_flag_called` events                                                     | the smaller share of flag-attributable property bytes |
+| `$feature/<key>`, `$active_feature_flags`, `$feature_flag_payloads` on all other events | roughly three times the above                         |
 
 Both are also heavily concentrated rather than evenly spread: a small number of projects that attach
 very large numbers of flags to every event dominate the totals, so an instance-wide average
@@ -63,7 +63,7 @@ flag-called events, so the map key has to be the flag key, which is always prese
 response as an experiment captures the minority of flag-called events that could plausibly be
 exposures. But RFC 1097 decouples a flag's return type from its release type specifically so an experiment can
 run on a boolean flag, and it also requires that a targeted-release rule returning a variant-shaped
-value must *not* be counted as an exposure. Once that lands, the value's type stops correlating with
+value must _not_ be counted as an exposure. Once that lands, the value's type stops correlating with
 experiment membership in both directions.
 
 The classifier therefore prefers `$feature_flag_has_experiment` when present and falls back to the
