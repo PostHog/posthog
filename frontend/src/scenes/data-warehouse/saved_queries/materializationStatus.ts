@@ -6,15 +6,15 @@ import { DataModelingJob, DataModelingSyncInterval, OrNever } from '~/types'
 export type MaterializationPanelState = 'suspended' | 'running' | 'failing' | 'healthy' | 'scheduled'
 
 export const SYNC_FREQUENCY_OPTIONS: { value: DataModelingSyncInterval | OrNever; label: string }[] = [
-    { value: 'never', label: 'manually only' },
-    { value: '15min', label: 'every 15 minutes' },
-    { value: '30min', label: 'every 30 minutes' },
-    { value: '1hour', label: 'hourly' },
-    { value: '6hour', label: 'every 6 hours' },
-    { value: '12hour', label: 'every 12 hours' },
-    { value: '24hour', label: 'daily' },
-    { value: '7day', label: 'weekly' },
-    { value: '30day', label: 'monthly' },
+    { value: 'never', label: 'Manually only' },
+    { value: '15min', label: 'Every 15 minutes' },
+    { value: '30min', label: 'Every 30 minutes' },
+    { value: '1hour', label: 'Hourly' },
+    { value: '6hour', label: 'Every 6 hours' },
+    { value: '12hour', label: 'Every 12 hours' },
+    { value: '24hour', label: 'Daily' },
+    { value: '7day', label: 'Weekly' },
+    { value: '30day', label: 'Monthly' },
 ]
 
 const SYNC_FREQUENCY_TO_MINUTES: Record<string, number> = {
@@ -29,11 +29,13 @@ const SYNC_FREQUENCY_TO_MINUTES: Record<string, number> = {
     '30day': 43200,
 }
 
+/** Lowercase phrasing for sentence contexts ("refreshes every 15 minutes"). */
 export function syncFrequencyPhrase(syncFrequency: string | undefined | null): string | null {
     if (!syncFrequency || syncFrequency === 'never') {
         return null
     }
-    return SYNC_FREQUENCY_OPTIONS.find((option) => option.value === syncFrequency)?.label ?? null
+    const label = SYNC_FREQUENCY_OPTIONS.find((option) => option.value === syncFrequency)?.label
+    return label ? label.charAt(0).toLowerCase() + label.slice(1) : null
 }
 
 /** Best-effort next scheduled run: last run plus the interval. Null when unknown or unscheduled. */

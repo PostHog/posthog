@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
@@ -78,21 +79,31 @@ export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
     const tagSettings = node ? NODE_TYPE_TAG_SETTINGS[node.type] : null
 
     return (
-        <SceneTitleSection
-            name={node?.name}
-            nameSuffix={tagSettings ? <LemonTag type={tagSettings.type}>{tagSettings.label}</LemonTag> : undefined}
-            description={node?.description}
-            resourceType={{ type: 'sql_editor' }}
-            canEdit={canEdit}
-            onDescriptionChange={canEdit ? (description) => updateNodeDescription(description) : undefined}
-            isLoading={nodeLoading && !node}
-            renameDebounceMs={500}
-            saveOnBlur
-            actions={
-                savedQuery && node?.type !== 'table' ? (
-                    <SaveDiscardActions id={id} savedQuery={savedQuery} />
-                ) : undefined
-            }
-        />
+        <>
+            <SceneTitleSection
+                name={node?.name}
+                nameSuffix={tagSettings ? <LemonTag type={tagSettings.type}>{tagSettings.label}</LemonTag> : undefined}
+                description={node?.description}
+                resourceType={{ type: 'sql_editor' }}
+                canEdit={canEdit}
+                onDescriptionChange={canEdit ? (description) => updateNodeDescription(description) : undefined}
+                isLoading={nodeLoading && !node}
+                renameDebounceMs={500}
+                saveOnBlur
+                actions={
+                    savedQuery && node?.type !== 'table' ? (
+                        <SaveDiscardActions id={id} savedQuery={savedQuery} />
+                    ) : undefined
+                }
+            />
+            {node && (
+                <UserActivityIndicator
+                    prefix="Created"
+                    at={savedQuery?.created_at ?? node.created_at}
+                    by={savedQuery?.created_by}
+                    className="text-secondary"
+                />
+            )}
+        </>
     )
 }

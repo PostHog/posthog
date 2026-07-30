@@ -4,8 +4,10 @@ import { IconEllipsis, IconWarning } from '@posthog/icons'
 import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@posthog/quill'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
@@ -22,12 +24,7 @@ import { AccessControlLevel, AccessControlResourceType, DataModelingJob, LogEntr
 
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { materializationJobsLogic } from './materializationJobsLogic'
-import {
-    SYNC_FREQUENCY_OPTIONS,
-    jobDurationSeconds,
-    jobProgressPercent,
-    syncFrequencyPhrase,
-} from './materializationStatus'
+import { SYNC_FREQUENCY_OPTIONS, jobDurationSeconds, jobProgressPercent } from './materializationStatus'
 
 const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
 
@@ -154,7 +151,9 @@ export function MaterializationStatusCard({
             ? 'border-danger bg-danger-highlight'
             : panelState === 'failing'
               ? 'border-warning bg-warning-highlight'
-              : 'border-primary'
+              : panelState === 'healthy'
+                ? 'border-success bg-success-highlight'
+                : 'border-primary'
 
     const statusIcon =
         panelState === 'running' ? (
@@ -169,33 +168,66 @@ export function MaterializationStatusCard({
             />
         )
 
-    const failingTitle = `${streakCount > 1 ? `Last ${streakCount} runs failed` : 'Last run failed'}${
-        suspensionEnabled ? ` · pauses after ${failuresLeft} more` : ''
-    }`
     const title =
         panelState === 'suspended'
             ? 'Scheduled refreshes are paused'
             : panelState === 'failing'
-              ? failingTitle
+              ? streakCount > 1
+                  ? `Last ${streakCount} runs failed`
+                  : 'Last run failed'
               : panelState === 'running'
                 ? 'Materializing'
                 : panelState === 'healthy'
                   ? 'Healthy'
                   : 'Waiting for the first refresh'
 
+    const titleBadge =
+        panelState === 'failing' && suspensionEnabled ? (
+            <LemonTag type={failuresLeft <= 2 ? 'danger' : 'warning'}>
+                Pauses after {failuresLeft} more {failuresLeft === 1 ? 'failure' : 'failures'}
+            </LemonTag>
+        ) : null
+
     const latestError = currentJob?.status === 'Failed' ? currentJob.error : savedQuery.latest_error
 
     // In a broken state the most urgent fact is how stale the data is, not just that runs fail.
     const lastGoodRunAt = latestCompletedJob?.last_run_at ?? lastRunAt
-    const freshnessLine = lastGoodRunAt ? (
-        <div className="text-sm text-secondary">
-            {latestCompletedJob ? `${humanFriendlyNumber(latestCompletedJob.rows_materialized)} rows · ` : ''}
-            {`refreshed ${humanFriendlyDetailedTime(lastGoodRunAt, 'MMMM DD, YYYY', 'h:mm A')}`}
-            {latestCompletedJob && jobDurationSeconds(latestCompletedJob) !== null
-                ? ` (took ${humanFriendlyDuration(jobDurationSeconds(latestCompletedJob) as number)})`
-                : ''}
-        </div>
-    ) : null
+    const lastGoodDuration = latestCompletedJob ? jobDurationSeconds(latestCompletedJob) : null
+    const isScheduled = !!savedQuery.sync_frequency && savedQuery.sync_frequency !== 'never'
+    const facts: JSX.Element[] = []
+    if (latestCompletedJob) {
+        facts.push(<span key="rows">{humanFriendlyNumber(latestCompletedJob.rows_materialized)} rows</span>)
+    }
+    if (lastGoodRunAt) {
+        facts.push(
+            <span key="refreshed" className="flex items-center gap-1">
+                Refreshed <TZLabel time={lastGoodRunAt} />
+                {lastGoodDuration !== null ? <> in {humanFriendlyDuration(lastGoodDuration)}</> : null}
+            </span>
+        )
+    }
+    if (panelState !== 'suspended' && panelState !== 'running' && nextRunAt && isScheduled) {
+        facts.push(
+            nextRunAt.isBefore(dayjs()) ? (
+                <span key="next">Next run soon</span>
+            ) : (
+                <span key="next" className="flex items-center gap-1">
+                    Next run <TZLabel time={nextRunAt} />
+                </span>
+            )
+        )
+    }
+    const factsLine =
+        facts.length > 0 ? (
+            <div className="flex items-center gap-1.5 flex-wrap text-sm text-secondary">
+                {facts.map((fact, index) => (
+                    <span key={index} className="flex items-center gap-1.5">
+                        {index > 0 ? <span aria-hidden>·</span> : null}
+                        {fact}
+                    </span>
+                ))}
+            </div>
+        ) : null
 
     const showSyncNowButton = panelState !== 'running'
     const menuItems: JSX.Element[] = []
@@ -236,6 +268,7 @@ export function MaterializationStatusCard({
                 <div className="flex items-center gap-2 min-h-8">
                     {statusIcon}
                     <span className="text-sm font-semibold">{title}</span>
+                    {titleBadge}
                 </div>
                 <div className="flex items-center gap-2">
                     {panelState === 'suspended' && (
@@ -262,7 +295,7 @@ export function MaterializationStatusCard({
                     )}
                     {showSyncNowButton && (
                         <LemonButton
-                            type="secondary"
+                            type={panelState === 'suspended' ? 'secondary' : 'primary'}
                             size="small"
                             loading={startingMaterialization}
                             disabledReason={accessReason || undefined}
@@ -308,17 +341,21 @@ export function MaterializationStatusCard({
                             strokeColor="var(--warning)"
                         />
                     )}
-                    <div className="text-secondary text-sm">
-                        {currentJob.rows_expected
-                            ? `${humanFriendlyNumber(currentJob.rows_materialized)} of ~${humanFriendlyNumber(
-                                  currentJob.rows_expected
-                              )} rows`
-                            : `Started ${humanFriendlyDetailedTime(currentJob.created_at, 'MMMM DD, YYYY', 'h:mm A')}`}
+                    <div className="text-secondary text-sm flex items-center gap-1">
+                        {currentJob.rows_expected ? (
+                            `${humanFriendlyNumber(currentJob.rows_materialized)} of ~${humanFriendlyNumber(
+                                currentJob.rows_expected
+                            )} rows`
+                        ) : (
+                            <>
+                                Started <TZLabel time={currentJob.created_at} />
+                            </>
+                        )}
                     </div>
-                    {freshnessLine}
+                    {factsLine}
                 </div>
             ) : (
-                freshnessLine
+                factsLine
             )}
 
             {panelState === 'failing' && (
@@ -333,9 +370,9 @@ export function MaterializationStatusCard({
 
             {panelState === 'suspended' && suspension && (
                 <div className="flex flex-col gap-1 text-sm text-secondary">
-                    <div>
-                        Paused {humanFriendlyDetailedTime(suspension.at, 'MMMM DD, YYYY', 'h:mm A')} after {threshold}{' '}
-                        failed runs in a row. Fix the query, then resume.
+                    <div className="flex items-center gap-1 flex-wrap">
+                        Paused <TZLabel time={suspension.at} /> after {threshold} failed runs in a row. Fix the query,
+                        then resume.
                     </div>
                     {suspension.reason && (
                         <Tooltip title={suspension.reason} interactive>
@@ -346,12 +383,11 @@ export function MaterializationStatusCard({
             )}
 
             {panelState !== 'suspended' && (
-                <div className="text-secondary text-sm flex items-center gap-1 flex-wrap">
-                    <span>Refreshes</span>
+                <div className="flex items-center gap-2">
+                    <LemonLabel>Refresh frequency</LemonLabel>
                     {canEditSyncFrequency ? (
                         <LemonSelect
-                            type="tertiary"
-                            size="xsmall"
+                            size="small"
                             disabledReason={accessReason || undefined}
                             value={savedQuery.sync_frequency || 'never'}
                             onChange={(newValue) => {
@@ -368,14 +404,10 @@ export function MaterializationStatusCard({
                             options={SYNC_FREQUENCY_OPTIONS}
                         />
                     ) : (
-                        <span>{syncFrequencyPhrase(savedQuery.sync_frequency) ?? 'manually only'}</span>
-                    )}
-                    {nextRunAt && savedQuery.sync_frequency && savedQuery.sync_frequency !== 'never' && (
-                        <span>
-                            · next run{' '}
-                            {nextRunAt.isBefore(dayjs())
-                                ? 'soon'
-                                : humanFriendlyDetailedTime(nextRunAt, 'MMMM DD, YYYY', 'h:mm A')}
+                        <span className="text-sm text-secondary">
+                            {SYNC_FREQUENCY_OPTIONS.find(
+                                (option) => option.value === (savedQuery.sync_frequency || 'never')
+                            )?.label ?? 'Manually only'}
                         </span>
                     )}
                 </div>

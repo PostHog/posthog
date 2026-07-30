@@ -6161,6 +6161,7 @@ export interface DataWarehouseSavedQuery {
     upstream_dependency_count?: number
     downstream_dependency_count?: number
     created_at?: string
+    created_by?: UserBasicType | null
     run_history?: DataWarehouseSavedQueryRunHistory[]
     origin?: DataWarehouseSavedQueryOrigin
     is_test?: boolean

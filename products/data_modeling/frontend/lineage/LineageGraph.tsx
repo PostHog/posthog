@@ -1,12 +1,22 @@
 import '@xyflow/react/dist/style.css'
 
-import { Background, BackgroundVariant, Controls, MiniMap, Panel, ReactFlow, ReactFlowProvider } from '@xyflow/react'
+import {
+    Background,
+    BackgroundVariant,
+    ControlButton,
+    Controls,
+    MiniMap,
+    Panel,
+    ReactFlow,
+    ReactFlowProvider,
+} from '@xyflow/react'
 import { useValues } from 'kea'
 import { ReactNode } from 'react'
 
 import { IconArchive } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
+import { IconFullScreen } from 'lib/lemon-ui/icons'
 import { ElkDirection } from 'scenes/data-warehouse/scene/modeling/types'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -39,6 +49,8 @@ export interface LineageGraphProps {
     onNodeClick?: (node: DataModelingNode) => void
     /** Caller-specific chrome (search, legend, layout toggle) rendered over the canvas */
     panels?: ReactNode
+    /** Adds a fullscreen button to the built-in controls stack; the caller owns what fullscreen means */
+    onToggleFullscreen?: () => void
 }
 
 function LineageGraphContent(props: LineageGraphProps): JSX.Element {
@@ -94,7 +106,16 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             proOptions={{ hideAttribution: true }}
         >
             <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
-            {props.showControls && <Controls showInteractive={false} position="bottom-right" />}
+            {props.showControls && (
+                // Fit-view's icon reads as "fullscreen", so show only one of the two to avoid twin buttons
+                <Controls showInteractive={false} showFitView={!props.onToggleFullscreen} position="bottom-right">
+                    {props.onToggleFullscreen && (
+                        <ControlButton onClick={props.onToggleFullscreen} title="Fullscreen" aria-label="Fullscreen">
+                            <IconFullScreen />
+                        </ControlButton>
+                    )}
+                </Controls>
+            )}
             {props.showMinimap && (
                 <MiniMap zoomable pannable position="bottom-left" nodeStrokeWidth={2} className="hidden lg:block" />
             )}
