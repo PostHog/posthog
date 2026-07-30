@@ -518,6 +518,9 @@ class Integration(models.Model):
                 fields=["team", "kind", "integration_id"], name="posthog_integration_kind_id_unique"
             )
         ]
+        # The unique constraint leads with team_id, so lookups with no team scope — webhook
+        # deliveries resolving a team from a provider-side id — can't use it and scan the table.
+        indexes = [models.Index(fields=["kind", "integration_id"], name="integration_kind_extid")]
 
     @property
     def display_name(self) -> str:
