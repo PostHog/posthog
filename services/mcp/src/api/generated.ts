@@ -4553,6 +4553,8 @@ export namespace Schemas {
     }
 
     export interface ActorsQuery {
+      /** Exclude persons matching the team's "internal and test account" filters. Only person-scoped filters (person properties, cohorts) are applied. Event-scoped test account filters have no meaning in a persons query and are ignored. */
+      filterTestAccounts?: boolean | null;
       /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
       fixedProperties?: (PersonPropertyFilter | PersonMetadataPropertyFilter | CohortPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter)[] | null;
       kind?: 'ActorsQuery';
@@ -8795,6 +8797,27 @@ export namespace Schemas {
       sub_detector_scores?: AlertSimulateResponseSubDetectorScoresItem[];
       /** Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to 25 values). */
       breakdown_results?: BreakdownSimulationResult[];
+    }
+
+    /**
+     * * `email` - email
+     * * `destination` - destination
+     */
+    export type FailedDeliveryChannelsEnum = typeof FailedDeliveryChannelsEnum[keyof typeof FailedDeliveryChannelsEnum];
+
+
+    export const FailedDeliveryChannelsEnum = {
+      Email: 'email',
+      Destination: 'destination',
+    } as const;
+
+    export interface AlertTestDeliveryResponse {
+      /** Number of active destinations queued for test delivery. */
+      destination_count: number;
+      /** Number of subscribed users sent a test email. */
+      email_recipient_count: number;
+      /** Configured delivery channels that failed to schedule or send. */
+      failed_delivery_channels: FailedDeliveryChannelsEnum[];
     }
 
     /**
@@ -13928,6 +13951,7 @@ export namespace Schemas {
 
     export interface CohortFilters {
       properties: CohortFilterGroup;
+      filterTestAccounts?: boolean | null;
     }
 
     /**
@@ -14548,13 +14572,31 @@ export namespace Schemas {
       images?: ConversationsTicketImage[] | null;
     }
 
+    /**
+     * * `EventsNode` - EventsNode
+     * * `ActionsNode` - ActionsNode
+     * * `DataWarehouseNode` - DataWarehouseNode
+     */
+    export type ConversionGoalKindEnum = typeof ConversionGoalKindEnum[keyof typeof ConversionGoalKindEnum];
+
+
+    export const ConversionGoalKindEnum = {
+      EventsNode: 'EventsNode',
+      ActionsNode: 'ActionsNode',
+      DataWarehouseNode: 'DataWarehouseNode',
+    } as const;
+
     export interface ConversionGoalSummary {
       /** Unique id of the goal (event name, action id, or DW goal id) */
       id: string;
       /** Display name of the conversion goal */
       name: string;
-      /** Goal type — one of: EventsNode (PostHog event), ActionsNode (PostHog action), DataWarehouseNode (external table) */
-      kind: string;
+      /** Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)
+       *
+       * * `EventsNode` - EventsNode
+       * * `ActionsNode` - ActionsNode
+       * * `DataWarehouseNode` - DataWarehouseNode */
+      kind: ConversionGoalKindEnum;
       /** Human-readable target the goal matches (event/action name or table) */
       target_label: string;
       /** Count of matching conversion events in the last 30 days */
@@ -18381,6 +18423,14 @@ export namespace Schemas {
      * * `DuckLake` - DuckLake
      * * `Starburst` - Starburst
      * * `Easybill` - Easybill
+     * * `Bexio` - Bexio
+     * * `Umami` - Umami
+     * * `Manychat` - Manychat
+     * * `Kickstarter` - Kickstarter
+     * * `Typesense` - Typesense
+     * * `FirstPromoter` - FirstPromoter
+     * * `Zero` - Zero
+     * * `Inth` - Inth
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -19640,6 +19690,14 @@ export namespace Schemas {
       DuckLake: 'DuckLake',
       Starburst: 'Starburst',
       Easybill: 'Easybill',
+      Bexio: 'Bexio',
+      Umami: 'Umami',
+      Manychat: 'Manychat',
+      Kickstarter: 'Kickstarter',
+      Typesense: 'Typesense',
+      FirstPromoter: 'FirstPromoter',
+      Zero: 'Zero',
+      Inth: 'Inth',
     } as const;
 
     /**
@@ -20912,7 +20970,15 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
-       * * `Easybill` - Easybill */
+       * * `Easybill` - Easybill
+       * * `Bexio` - Bexio
+       * * `Umami` - Umami
+       * * `Manychat` - Manychat
+       * * `Kickstarter` - Kickstarter
+       * * `Typesense` - Typesense
+       * * `FirstPromoter` - FirstPromoter
+       * * `Zero` - Zero
+       * * `Inth` - Inth */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -22619,7 +22685,15 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
-       * * `Easybill` - Easybill */
+       * * `Easybill` - Easybill
+       * * `Bexio` - Bexio
+       * * `Umami` - Umami
+       * * `Manychat` - Manychat
+       * * `Kickstarter` - Kickstarter
+       * * `Typesense` - Typesense
+       * * `FirstPromoter` - FirstPromoter
+       * * `Zero` - Zero
+       * * `Inth` - Inth */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -23554,7 +23628,7 @@ export namespace Schemas {
        * * `requires_human_input` - requires_human_input
        * * `not_actionable` - not_actionable */
       actionability: ActionabilityEnum;
-      /** Whether the issue already appears fixed in recent changes (tracked separately). */
+      /** Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Gates autostart, so a wrong `false` opens a duplicate PR. Tracked separately. */
       already_addressed?: boolean;
       /**
          * Optional repo for autostart (opening a draft PR): `owner/repo` targets that repo, the `NO_REPO` sentinel opts out (report lands without a PR), and omitting it triggers free-form selection across the team's repos — the slow path on a many-repo team, so pass `owner/repo` when you know it.
@@ -26319,6 +26393,20 @@ export namespace Schemas {
       na_patterns: EvaluationPattern[];
       recommendations: string[];
       statistics: EvaluationSummaryStatistics;
+    }
+
+    export interface EvaluationSummaryThrottleResponse {
+      /** Error category */
+      type: string;
+      /** Machine-readable error code */
+      code: string;
+      /** Why the request was throttled */
+      detail: string;
+      /**
+         * Related request field, when applicable
+         * @nullable
+         */
+      attr: string | null;
     }
 
     export interface EventDefinitionBasic {
@@ -29840,7 +29928,15 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
-       * * `Easybill` - Easybill */
+       * * `Easybill` - Easybill
+       * * `Bexio` - Bexio
+       * * `Umami` - Umami
+       * * `Manychat` - Manychat
+       * * `Kickstarter` - Kickstarter
+       * * `Typesense` - Typesense
+       * * `FirstPromoter` - FirstPromoter
+       * * `Zero` - Zero
+       * * `Inth` - Inth */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -31131,7 +31227,15 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
-       * * `Easybill` - Easybill */
+       * * `Easybill` - Easybill
+       * * `Bexio` - Bexio
+       * * `Umami` - Umami
+       * * `Manychat` - Manychat
+       * * `Kickstarter` - Kickstarter
+       * * `Typesense` - Typesense
+       * * `FirstPromoter` - FirstPromoter
+       * * `Zero` - Zero
+       * * `Inth` - Inth */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -31314,6 +31418,13 @@ export namespace Schemas {
       Success: 'success',
       Error: 'error',
     } as const;
+
+    export interface FacetCount {
+      /** The facet value as emitted by the summarizer (lowercased). */
+      term: string;
+      /** Number of succeeded observations that emitted this value. */
+      count: number;
+    }
 
     /**
      * * `severity_text` - severity_text
@@ -32545,8 +32656,12 @@ export namespace Schemas {
       goal_id: string;
       /** Display name of the conversion goal */
       goal_name: string;
-      /** EventsNode/ActionsNode/DataWarehouseNode */
-      kind: string;
+      /** Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)
+       *
+       * * `EventsNode` - EventsNode
+       * * `ActionsNode` - ActionsNode
+       * * `DataWarehouseNode` - DataWarehouseNode */
+      kind: ConversionGoalKindEnum;
       /** The period the breakdown was computed over */
       period: GoalExplanationPeriod;
       /** Total matching conversion events in the period */
@@ -33719,6 +33834,7 @@ export namespace Schemas {
      * * `warehouse_source_webhook` - Warehouse Source Webhook
      * * `site_app` - Site App
      * * `transformation` - Transformation
+     * * `transformation_log` - Transformation Log
      */
     export type HogFunctionTypeEnum = typeof HogFunctionTypeEnum[keyof typeof HogFunctionTypeEnum];
 
@@ -33731,6 +33847,7 @@ export namespace Schemas {
       WarehouseSourceWebhook: 'warehouse_source_webhook',
       SiteApp: 'site_app',
       Transformation: 'transformation',
+      TransformationLog: 'transformation_log',
     } as const;
 
     /**
@@ -33923,7 +34040,7 @@ export namespace Schemas {
 
     export interface HogFunction {
       readonly id: string;
-      /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
+      /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.
        *
        * * `destination` - Destination
        * * `site_destination` - Site Destination
@@ -33931,7 +34048,8 @@ export namespace Schemas {
        * * `source_webhook` - Source Webhook
        * * `warehouse_source_webhook` - Warehouse Source Webhook
        * * `site_app` - Site App
-       * * `transformation` - Transformation */
+       * * `transformation` - Transformation
+       * * `transformation_log` - Transformation Log */
       type?: HogFunctionTypeEnum | null;
       /**
          * Display name for the function.
@@ -37055,6 +37173,12 @@ export namespace Schemas {
       models: LLMModelInfo[];
     }
 
+    /**
+     * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
+     * @nullable
+     */
+    export type LLMPromptConfig = { [key: string]: unknown } | null;
+
     export interface LLMPromptOutlineEntry {
       /**
          * Markdown heading level (1-6).
@@ -37075,6 +37199,11 @@ export namespace Schemas {
       name: string;
       /** Prompt payload as JSON or string data. */
       prompt: unknown;
+      /**
+         * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
+         * @nullable
+         */
+      config?: LLMPromptConfig;
       readonly version: number;
       /**
          * Optional note describing what changed in this version. Set when the version is published.
@@ -37131,12 +37260,23 @@ export namespace Schemas {
       version: number;
     }
 
+    /**
+     * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
+     * @nullable
+     */
+    export type LLMPromptListConfig = { [key: string]: unknown } | null;
+
     export interface LLMPromptList {
       readonly id: string;
       /** Unique prompt name using letters, numbers, hyphens, and underscores only. */
       readonly name: string;
       /** Prompt payload as JSON or string data. */
       readonly prompt: unknown;
+      /**
+         * Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.
+         * @nullable
+         */
+      config?: LLMPromptListConfig;
       readonly version: number;
       /**
          * Optional note describing what changed in this version. Set when the version is published.
@@ -37161,11 +37301,22 @@ export namespace Schemas {
       readonly all_labels: readonly LLMPromptLabelSummary[];
     }
 
+    /**
+     * JSON object with model parameters or any agent configuration stored with this version, or null when the version has none. Omitted when 'content=preview' or 'content=none'.
+     * @nullable
+     */
+    export type LLMPromptPublicConfig = { [key: string]: unknown } | null;
+
     export interface LLMPromptPublic {
       id: string;
       name: string;
       /** Full prompt content. Omitted when 'content=preview' or 'content=none'. */
       prompt?: unknown;
+      /**
+         * JSON object with model parameters or any agent configuration stored with this version, or null when the version has none. Omitted when 'content=preview' or 'content=none'.
+         * @nullable
+         */
+      config?: LLMPromptPublicConfig;
       /** First 160 characters of the prompt. Only present when 'content=preview'. */
       prompt_preview?: string;
       /** Flat list of markdown headings parsed from the prompt. Useful as a lightweight table of contents. */
@@ -40954,6 +41105,17 @@ export namespace Schemas {
       histogram: ScorerHistogram | null;
     }
 
+    export interface SummarizerStats {
+      /** Top friction points by emission count. */
+      friction_ranked: FacetCount[];
+      /** Top keywords by emission count. */
+      keyword_ranked: FacetCount[];
+      /** Succeeded observations that emitted at least one friction point or keyword. */
+      total_with_facets: number;
+      /** Succeeded observations that reported at least one friction point. */
+      total_with_friction: number;
+    }
+
     export interface ObservationStats {
       /** Counts of observations by terminal status. */
       status_counts: ObservationStatusCounts;
@@ -40969,6 +41131,8 @@ export namespace Schemas {
       classifier: ClassifierStats | null;
       /** Scorer-type aggregates; null when the scanner is not a scorer. */
       scorer: ScorerStats | null;
+      /** Summarizer-type facet aggregates; null when the scanner is not a summarizer. */
+      summarizer: SummarizerStats | null;
     }
 
     /**
@@ -44577,7 +44741,7 @@ export namespace Schemas {
          */
       readonly actionability: string | null;
       /**
-         * Whether the issue appears already fixed, from the actionability judgment artefact.
+         * Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task) — from the actionability judgment artefact.
          * @nullable
          */
       readonly already_addressed: boolean | null;
@@ -46784,6 +46948,8 @@ export namespace Schemas {
       passkeys_enabled_for_2fa?: boolean | null;
       /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
       hide_mcp_hints?: boolean;
+      /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+      ui_configuration?: unknown;
       /** @nullable */
       readonly onboarding_skipped_at: string | null;
       readonly onboarding_skipped_reason: OnboardingSkippedReasonEnum | null;
@@ -50075,7 +50241,7 @@ export namespace Schemas {
 
     export interface PatchedHogFunction {
       readonly id?: string;
-      /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.
+      /** Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.
        *
        * * `destination` - Destination
        * * `site_destination` - Site Destination
@@ -50083,7 +50249,8 @@ export namespace Schemas {
        * * `source_webhook` - Source Webhook
        * * `warehouse_source_webhook` - Warehouse Source Webhook
        * * `site_app` - Site App
-       * * `transformation` - Transformation */
+       * * `transformation` - Transformation
+       * * `transformation_log` - Transformation Log */
       type?: HogFunctionTypeEnum | null;
       /**
          * Display name for the function.
@@ -50404,11 +50571,22 @@ export namespace Schemas {
       js_snippet_version?: string | null;
     }
 
+    /**
+     * JSON object with model parameters or any agent configuration to store with this version. If omitted, the current version's config is carried forward; pass null to clear it. Can be combined with either prompt or edits. Don't store secrets here: config is returned to anyone who can read the prompt.
+     * @nullable
+     */
+    export type PatchedLLMPromptPublishConfig = { [key: string]: unknown } | null;
+
     export interface PatchedLLMPromptPublish {
       /** Full prompt payload to publish as a new version. Mutually exclusive with edits. */
       prompt?: unknown;
       /** List of find/replace operations to apply to the current prompt version. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with prompt. */
       edits?: LLMPromptEditOperation[];
+      /**
+         * JSON object with model parameters or any agent configuration to store with this version. If omitted, the current version's config is carried forward; pass null to clear it. Can be combined with either prompt or edits. Don't store secrets here: config is returned to anyone who can read the prompt.
+         * @nullable
+         */
+      config?: PatchedLLMPromptPublishConfig;
       /**
          * Latest version you are editing from. Used for optimistic concurrency checks.
          * @minimum 1
@@ -54577,6 +54755,8 @@ export namespace Schemas {
       passkeys_enabled_for_2fa?: boolean | null;
       /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
       hide_mcp_hints?: boolean;
+      /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+      ui_configuration?: unknown;
       /** @nullable */
       readonly onboarding_skipped_at?: string | null;
       readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnum | null;
@@ -64229,7 +64409,15 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
-       * * `Easybill` - Easybill */
+       * * `Easybill` - Easybill
+       * * `Bexio` - Bexio
+       * * `Umami` - Umami
+       * * `Manychat` - Manychat
+       * * `Kickstarter` - Kickstarter
+       * * `Typesense` - Typesense
+       * * `FirstPromoter` - FirstPromoter
+       * * `Zero` - Zero
+       * * `Inth` - Inth */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -65528,7 +65716,15 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
-       * * `Easybill` - Easybill */
+       * * `Easybill` - Easybill
+       * * `Bexio` - Bexio
+       * * `Umami` - Umami
+       * * `Manychat` - Manychat
+       * * `Kickstarter` - Kickstarter
+       * * `Typesense` - Typesense
+       * * `FirstPromoter` - FirstPromoter
+       * * `Zero` - Zero
+       * * `Inth` - Inth */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -66819,7 +67015,15 @@ export namespace Schemas {
        * * `SideShift` - SideShift
        * * `DuckLake` - DuckLake
        * * `Starburst` - Starburst
-       * * `Easybill` - Easybill */
+       * * `Easybill` - Easybill
+       * * `Bexio` - Bexio
+       * * `Umami` - Umami
+       * * `Manychat` - Manychat
+       * * `Kickstarter` - Kickstarter
+       * * `Typesense` - Typesense
+       * * `FirstPromoter` - FirstPromoter
+       * * `Zero` - Zero
+       * * `Inth` - Inth */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -78569,7 +78773,7 @@ export namespace Schemas {
 
     export type LlmPromptsListParams = {
     /**
-     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
+     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The config field is only included with 'full'. The outline field is always included.
      *
      * * `full` - full
      * * `preview` - preview
@@ -78628,7 +78832,7 @@ export namespace Schemas {
 
     export type LlmPromptsNameRetrieveParams = {
     /**
-     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
+     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The config field is only included with 'full'. The outline field is always included.
      *
      * * `full` - full
      * * `preview` - preview
