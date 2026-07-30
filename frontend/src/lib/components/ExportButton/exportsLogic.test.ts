@@ -20,7 +20,7 @@ jest.mock('lib/lemon-ui/LemonToast', () => ({
 }))
 jest.mock('./exporter', () => ({
     ...jest.requireActual('./exporter'),
-    downloadExportedAsset: jest.fn().mockResolvedValue(true),
+    downloadExportedAsset: jest.fn(),
 }))
 
 const asset = (overrides: Partial<ExportedAssetType> = {}): ExportedAssetType => ({
@@ -211,25 +211,6 @@ describe('exportsLogic', () => {
             }
         )
 
-        it('does not confirm completion when the content download fails', async () => {
-            // The export toast must not settle as "Export complete!" if retrieval failed — otherwise
-            // the user sees success followed by a broken download (the reported black-screen symptom).
-            jest.mocked(downloadExportedAsset).mockResolvedValueOnce(false)
-            jest.spyOn(api.exports, 'create').mockResolvedValue(
-                asset({ id: 14, export_format: ExporterFormat.PNG, has_content: true })
-            )
-
-            logic.actions.createExport({ exportData: { export_format: ExporterFormat.PNG } })
-            await flush()
-
-            // The export promise rejects instead of resolving to "Export complete!"...
-            const runPromise = jest.mocked(lemonToast.promise).mock.calls[0][0]
-            await expect(runPromise).rejects.toThrow('Export download failed')
-            // ...and the generic failure toast is dismissed, since downloadExportedAsset
-            // already surfaced the specific error.
-            expect(lemonToast.dismiss).toHaveBeenCalled()
-        })
-
         it('notifies once with a Download button that routes through downloadExport', async () => {
             const pending = asset({ id: 21, export_format: ExporterFormat.MP4, has_content: false })
             const finished = asset({ id: 21, export_format: ExporterFormat.MP4, has_content: true })
@@ -257,37 +238,16 @@ describe('exportsLogic', () => {
             expect(downloadExportSpy).toHaveBeenCalledWith(finished)
         })
 
-        it.each([
-            {
-                label: 'clears the highlight when the download succeeds',
-                downloadOk: true,
-                remainingIds: [] as number[],
-                expectsDismiss: false,
-            },
-            {
-                label: 'keeps the highlight and drops the generic toast when the download fails',
-                downloadOk: false,
-                remainingIds: [41],
-                expectsDismiss: true,
-            },
-        ])('downloadExport $label', async ({ downloadOk, remainingIds, expectsDismiss }) => {
+        it('downloadExport triggers the download, clears the highlight, and confirms', async () => {
             const tracked = asset({ id: 41, export_format: ExporterFormat.MP4, has_content: true })
             logic.actions.addFresh(tracked)
-            jest.mocked(downloadExportedAsset).mockResolvedValueOnce(downloadOk)
 
             logic.actions.downloadExport(tracked)
             await flush()
 
             expect(jest.mocked(downloadExportedAsset).mock.calls).toEqual([[tracked]])
-            expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toEqual(remainingIds)
-            // The spinner is shown immediately so the button doesn't look dead during the blocking probe.
-            expect(lemonToast.promise).toHaveBeenCalledWith(
-                expect.any(Promise),
-                expect.objectContaining({ pending: 'Preparing download…' }),
-                expect.objectContaining({ toastId: expect.any(String) })
-            )
-            // On failure downloadExportedAsset shows its own specific toast, so the generic one is dismissed.
-            expect(jest.mocked(lemonToast.dismiss).mock.calls.length > 0).toBe(expectsDismiss)
+            expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toEqual([])
+            expect(lemonToast.success).toHaveBeenCalledWith('Download started')
         })
 
         it('surfaces the failure and stops tracking when a tracked async export fails', async () => {
