@@ -307,6 +307,20 @@ export function WithCymbalErrors(): JSX.Element {
     )
 }
 
+export function WithMalformedExceptionIngestionError(): JSX.Element {
+    return (
+        <ErrorDisplay
+            eventProperties={errorProperties({
+                $exception_list: [],
+                $cymbal_errors: [
+                    'Invalid properties on event 0195e5e2-1234-7000-8000-abcdefabcdef, serde error: missing field `type` at line 5 column 13',
+                ],
+            })}
+            eventId="error"
+        />
+    )
+}
+
 export function SentryStackTrace(): JSX.Element {
     return <ErrorDisplay eventProperties={errorProperties({ $exception_list: [] })} eventId="error" />
 }

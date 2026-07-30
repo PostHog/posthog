@@ -4,13 +4,14 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::fingerprinting::{FingerprintRecordPart, FingerprintVersion};
 use crate::frames::releases::{ReleaseInfo, ReleaseRecord};
 use crate::frames::{Frame, RawFrame};
 use crate::langs::native::DebugImage;
-use crate::metric_consts::POSTHOG_SDK_EXCEPTION_RESOLVED;
+use crate::metric_consts::{EXCEPTION_LIST_ENTRY_DROPPED, POSTHOG_SDK_EXCEPTION_RESOLVED};
 
 pub mod batch;
 pub mod event;
@@ -22,9 +23,28 @@ pub mod stage;
 // processing event model can keep referring to `crate::types::*`.
 pub use crate::core::types::{Exception, Mechanism, Stacktrace};
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize)]
 #[serde(transparent)]
 pub struct ExceptionList(pub Vec<Exception>);
+
+/// Deserialized entry by entry so one malformed exception doesn't discard the
+/// frames of every other exception on the event.
+impl<'de> Deserialize<'de> for ExceptionList {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let entries = Vec::<Value>::deserialize(deserializer)?;
+        let mut exceptions = Vec::with_capacity(entries.len());
+        for entry in entries {
+            match serde_json::from_value::<Exception>(entry) {
+                Ok(exception) => exceptions.push(exception),
+                Err(error) => {
+                    metrics::counter!(EXCEPTION_LIST_ENTRY_DROPPED).increment(1);
+                    warn!("Dropping malformed $exception_list entry: {error}");
+                }
+            }
+        }
+        Ok(ExceptionList(exceptions))
+    }
+}
 
 impl From<Vec<Exception>> for ExceptionList {
     fn from(exceptions: Vec<Exception>) -> Self {
@@ -106,7 +126,7 @@ impl ExceptionList {
 /// happen at the event conversion boundary.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct RawExceptionProperties {
-    #[serde(rename = "$exception_list")]
+    #[serde(rename = "$exception_list", default)]
     pub exception_list: ExceptionList,
     #[serde(
         rename = "$exception_fingerprint",
@@ -381,12 +401,39 @@ mod test {
             }]
         }"#;
 
-        let props: Result<RawExceptionProperties, Error> = serde_json::from_str(raw);
-        assert!(props.is_err());
-        assert_eq!(
-            props.unwrap_err().to_string(),
-            "missing field `type` at line 5 column 13"
-        );
+        // A missing `type` defaults rather than discarding the exception
+        let props: RawExceptionProperties =
+            serde_json::from_str(raw).expect("Can deserialize with missing type");
+        assert_eq!(props.exception_list[0].exception_type, "Error");
+        assert_eq!(props.exception_list[0].exception_message, "x");
+    }
+
+    #[test]
+    fn it_tolerates_null_and_malformed_exception_list_entries() {
+        let raw: &'static str = r#"{
+            "$exception_list": [
+                {"type": null, "value": null},
+                "not an object",
+                {"type": "TypeError", "value": "boom", "stacktrace": {"type": "raw", "frames": []}}
+            ]
+        }"#;
+
+        let props: RawExceptionProperties =
+            serde_json::from_str(raw).expect("One bad entry does not discard the list");
+        assert_eq!(props.exception_list.len(), 2);
+        assert_eq!(props.exception_list[0].exception_type, "Error");
+        assert_eq!(props.exception_list[0].exception_message, "");
+        assert_eq!(props.exception_list[1].exception_type, "TypeError");
+        assert!(props.exception_list[1].stack.is_some());
+    }
+
+    #[test]
+    fn a_missing_exception_list_deserializes_to_an_empty_list() {
+        let raw: &'static str = r#"{"$lib": "posthog-python"}"#;
+        let props: RawExceptionProperties =
+            serde_json::from_str(raw).expect("Missing list is not fatal");
+        assert!(props.exception_list.is_empty());
+        assert_eq!(props.other.get("$lib").unwrap(), "posthog-python");
     }
 
     fn processed_properties_json(exception_list: Value) -> Value {

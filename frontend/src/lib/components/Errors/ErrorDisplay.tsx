@@ -11,6 +11,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { addExceptionStepsMalformedWarning } from './errorDisplayWarnings'
 import { errorPropertiesLogic } from './errorPropertiesLogic'
 import { CollapsibleExceptionList } from './ExceptionList/CollapsibleExceptionList'
+import { humanizeIngestionError } from './humanizeIngestionError'
 import { ErrorEventId, ErrorEventProperties, ErrorEventType } from './types'
 import { concatValues } from './utils'
 
@@ -100,9 +101,22 @@ export function ErrorDisplayContent(): JSX.Element {
                 <>
                     <LemonBanner type="error">
                         <ul>
-                            {ingestionErrors.map((e, i) => (
-                                <li key={i}>{e}</li>
-                            ))}
+                            {ingestionErrors.map((e, i) => {
+                                const { message, docsLink } = humanizeIngestionError(e)
+                                return (
+                                    <li key={i}>
+                                        {message}
+                                        {docsLink && (
+                                            <>
+                                                {' '}
+                                                <Link to={docsLink} target="_blank">
+                                                    Read the docs
+                                                </Link>
+                                            </>
+                                        )}
+                                    </li>
+                                )
+                            })}
                         </ul>
                     </LemonBanner>
                 </>
