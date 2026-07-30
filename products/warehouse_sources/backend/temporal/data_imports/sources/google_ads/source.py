@@ -480,4 +480,15 @@ class GoogleAdsSource(
                     "Google Ads returned a temporary error while validating your credentials. This is "
                     "usually a transient issue on Google's side — please try again in a moment.",
                 )
+            # A gRPC INVALID_ARGUMENT ("Request contains an invalid argument") means Google rejected the
+            # request as malformed — most often a customer ID (or MCC manager ID) that isn't a valid
+            # account. Its str() is the same raw protobuf dump (with a per-request peer IP) the user
+            # can't act on, so surface an actionable prompt instead of leaking it.
+            if "INVALID_ARGUMENT" in error_message:
+                return (
+                    False,
+                    "Google Ads rejected the request as invalid while validating your credentials. Check "
+                    "that your customer ID (and your manager account ID, if using an MCC) is correct, then "
+                    "try again.",
+                )
             return False, f"Error validating credentials: {error_message}"

@@ -1092,9 +1092,9 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
                     )
             )
             .max(signalsScoutEditReportBodyChartsMax)
-            .optional()
+            .nullish()
             .describe(
-                "The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field to leave the report's existing charts untouched."
+                "The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field (or send null) to leave the report's existing charts untouched, and send an empty list to take them all down."
             ),
     })
     .describe(
@@ -1210,7 +1210,9 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
         already_addressed: zod
             .boolean()
             .default(signalsScoutEmitReportBodyAlreadyAddressedDefault)
-            .describe('Whether the issue already appears fixed in recent changes (tracked separately).'),
+            .describe(
+                'Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned \/ in-progress issue or agent task). Gates autostart, so a wrong `false` opens a duplicate PR. Tracked separately.'
+            ),
         repository: zod
             .string()
             .nullish()

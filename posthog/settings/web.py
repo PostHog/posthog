@@ -589,6 +589,8 @@ SPECTACULAR_SETTINGS = {
         "EmailReputationScopeEnum": "products.workflows.backend.models.email_reputation.EmailReputationSnapshot.Scope",
         "EmailReputationStateEnum": "products.workflows.backend.models.email_reputation.EmailReputationSnapshot.State",
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
+        # Shared by ConversionGoalSummary.kind and GoalExplanation.kind (same choice set).
+        "ConversionGoalKindEnum": "products.marketing_analytics.backend.hogql_queries.constants.CONVERSION_GOAL_KIND_CHOICES",
         "MCPInstallationScopeEnum": ["personal", "shared"],
         # Disambiguates from data_modeling's node_type (table/view/matview/endpoint).
         "NotebookSQLV2NodeTypeEnum": ["hogql", "python"],
