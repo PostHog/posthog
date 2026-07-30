@@ -1,7 +1,9 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -12,7 +14,9 @@ import {
     signalsScoutMetadataGet,
 } from 'products/signals/frontend/generated/api'
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
+import { RunSourceEnumApi, TaskExecutionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
+import { SCOUT_AUTHOR_PROMPT } from '../utils/scoutRunsWindow'
 import { scoutFleetLogic } from './scoutFleetLogic'
 
 jest.mock('products/signals/frontend/generated/api', () => ({
@@ -165,5 +169,31 @@ describe('scoutFleetLogic', () => {
         })
         expect(logic.values.scoutConfigs?.[0]).toEqual(finalConfig)
         expect(logic.values.updatingScoutIds).toEqual([])
+    })
+
+    it('runs the task it creates, rather than leaving the user on an unstarted one', async () => {
+        jest.spyOn(api.tasks, 'repositories').mockResolvedValue({ repositories: ['PostHog/posthog'] })
+        jest.spyOn(api.tasks, 'create').mockResolvedValue({ id: 'task-1' } as any)
+        const run = jest.spyOn(api.tasks, 'run').mockResolvedValue({ id: 'task-1' } as any)
+
+        logic.actions.startScoutChatTask(SCOUT_AUTHOR_PROMPT, 'scout authoring task', 'Suggest a scout')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(run).toHaveBeenCalledWith('task-1', {
+            run_source: RunSourceEnumApi.Manual,
+            mode: TaskExecutionModeEnumApi.Interactive,
+        })
+        expect(router.values.location.pathname).toContain('task-1')
+    })
+
+    it('still opens the task when kicking off its run fails', async () => {
+        jest.spyOn(api.tasks, 'repositories').mockResolvedValue({ repositories: [] })
+        jest.spyOn(api.tasks, 'create').mockResolvedValue({ id: 'task-2' } as any)
+        jest.spyOn(api.tasks, 'run').mockRejectedValue(new Error('over the usage limit'))
+
+        logic.actions.startScoutChatTask(SCOUT_AUTHOR_PROMPT, 'scout authoring task', 'Suggest a scout')
+        await expectLogic(logic).toDispatchActions(['startScoutChatTaskSuccess'])
+
+        expect(router.values.location.pathname).toContain('task-2')
     })
 })

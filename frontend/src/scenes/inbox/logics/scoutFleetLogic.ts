@@ -25,6 +25,7 @@ import type {
     SignalScoutConfigApi,
 } from 'products/signals/frontend/generated/api.schemas'
 import { llmSkillsNameArchiveCreate } from 'products/skills/frontend/generated/api'
+import { RunSourceEnumApi, TaskExecutionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { SignalScoutRunSummary } from '../types'
 import {
@@ -662,7 +663,12 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 try {
                     const { repositories } = await api.tasks.repositories()
                     repository = repositories[0]
-                } catch {
+                } catch (error: any) {
+                    // Authoring a scout writes a skill rather than opening a PR, so a missing repo
+                    // is fine — but a failed lookup shouldn't masquerade as "this team has none".
+                    lemonToast.warning(
+                        error?.detail || error?.message || "Couldn't load your repositories — continuing without one."
+                    )
                     repository = undefined
                 }
                 const task = await api.tasks.create({
@@ -671,6 +677,19 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     origin_product: OriginProduct.SIGNAL_REPORT,
                     repository,
                 })
+                // Creating the task alone lands the user on a "This task hasn't been run yet" screen,
+                // so kick off the run too (same as inboxTaskKickoffLogic). Interactive, not background:
+                // the agent-server only relays approval prompts to the client on non-background runs.
+                try {
+                    await api.tasks.run(task.id, {
+                        run_source: RunSourceEnumApi.Manual,
+                        mode: TaskExecutionModeEnumApi.Interactive,
+                    })
+                } catch (error: any) {
+                    // The task exists and its page has a Run button, so strand nobody — say what
+                    // failed and still navigate there.
+                    lemonToast.error(error?.detail || error?.message || `Failed to run ${taskLabel}`)
+                }
                 actions.startScoutChatTaskSuccess()
                 router.actions.push(urls.taskDetail(task.id))
             } catch (error: any) {

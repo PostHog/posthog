@@ -25,6 +25,7 @@ import { FleetMemoryCallout } from './FleetMemoryCallout'
 import { ScoutCreateButton } from './ScoutCreateButton'
 import { ScoutHelperSkillLinks } from './ScoutHelperSkillLinks'
 import { ScoutRowCard } from './ScoutRowCard'
+import { ScoutSuggestButton } from './ScoutSuggestButton'
 
 /**
  * Scout troop manager, hosted in the Scout troop setup modal (and the Agents settings tab). Both
@@ -180,6 +181,7 @@ function ScoutsFleetList(): JSX.Element {
         <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2 flex-wrap">
                 <ScoutCreateButton type="secondary" size="xsmall" onCreated={() => loadScoutConfigs()} />
+                <ScoutSuggestButton type="secondary" size="xsmall" />
                 <ScoutChatCta label="How is my scout troop performing?" prompt={SCOUT_FLEET_OVERVIEW_PROMPT} />
                 <ScoutChatCta label="What signals were emitted recently?" prompt={SCOUT_RECENT_SIGNALS_PROMPT} />
                 <span className="flex-1" />
@@ -252,7 +254,10 @@ function ScoutsEmptyState(): JSX.Element {
             <p className="max-w-2xl text-xs text-secondary leading-snug mb-0">
                 Create a scout to investigate a recurring signal or behavior on a schedule.
             </p>
-            <ScoutCreateButton onCreated={() => loadScoutConfigs()} />
+            <div className="flex items-center gap-2 flex-wrap">
+                <ScoutCreateButton onCreated={() => loadScoutConfigs()} />
+                <ScoutSuggestButton />
+            </div>
             <ScoutHelperSkillLinks />
         </div>
     )
