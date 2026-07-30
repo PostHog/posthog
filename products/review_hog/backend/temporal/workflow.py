@@ -53,6 +53,7 @@ from products.review_hog.backend.temporal.activities import (
     SelectPerspectivesInput,
     StatusCommentInput,
     SyncReviewSkillsInput,
+    TrackReviewCompletedInput,
     ValidateChunkInput,
     ValidateChunkResult,
     ValidateIntegrationInput,
@@ -73,6 +74,7 @@ from products.review_hog.backend.temporal.activities import (
     select_perspectives_activity,
     split_chunks_activity,
     sync_review_skills_activity,
+    track_review_completed_activity,
     validate_chunk_activity,
     validate_github_integration_activity,
 )
@@ -595,6 +597,24 @@ class ReviewPRWorkflow:
             raise
 
         posted = publish_result is not None and publish_result.posted
+        # One analytics event per finalized turn (the review-level count dashboards aggregate);
+        # best-effort — a review must never fail over its own telemetry.
+        try:
+            await workflow.execute_activity(
+                track_review_completed_activity,
+                TrackReviewCompletedInput(
+                    team_id=inputs.team_id,
+                    report_id=report_id,
+                    head_sha=head_sha,
+                    run_index=meta.run_index,
+                    published=posted,
+                    workflow_started_at=workflow.info().start_time.isoformat(),
+                ),
+                start_to_close_timeout=_QUICK_TIMEOUT,
+                retry_policy=_RETRY,
+            )
+        except ActivityError:
+            workflow.logger.warning("Could not capture the review-completed analytics event")
         # The outcome edit: the full found-vs-published counts land on the status comment, so a PR
         # with two inline comments never reads as "the review only found two things" — and a
         # zero-publishable run gets explicit closure instead of silence. Best-effort like the receipt.

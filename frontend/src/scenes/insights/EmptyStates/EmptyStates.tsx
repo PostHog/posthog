@@ -425,7 +425,13 @@ export function SlowQuerySuggestions({
 }): JSX.Element | null {
     const { slowQueryPossibilities } = useValues(insightVizDataLogic(insightProps))
 
-    if (loadingTimeSeconds < SLOW_LOADING_TIME) {
+    // `loadingTimeSeconds` only advances on dataNodeLogic's wall-clock timer, which Storybook has no
+    // way to fast-forward, so a story covering these suggestions would have to sit through
+    // SLOW_LOADING_TIME of real loading before they render. Dropping the threshold in Storybook makes
+    // them a consequence of the insight loading instead of a race against the clock.
+    const slowLoadingTime = inStorybook() || inStorybookTestRunner() ? 0 : SLOW_LOADING_TIME
+
+    if (loadingTimeSeconds < slowLoadingTime) {
         return null
     }
 
