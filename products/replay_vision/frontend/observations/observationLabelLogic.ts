@@ -127,7 +127,7 @@ export const observationLabelLogic = kea<observationLabelLogicType>([
         },
 
         rate: async ({ isCorrect, feedback }) => {
-            cache.labelEpoch = (cache.labelEpoch ?? 0) + 1
+            const epoch = (cache.labelEpoch = (cache.labelEpoch ?? 0) + 1)
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 return
@@ -138,6 +138,10 @@ export const observationLabelLogic = kea<observationLabelLogicType>([
                     is_correct: isCorrect,
                     feedback,
                 })
+                // Thumbs-up then thumbs-down can settle out of order and leave the older rating on screen.
+                if ((cache.labelEpoch ?? 0) !== epoch) {
+                    return
+                }
                 actions.labelUpdated(label)
                 props.onChange?.(label)
             } catch (error: any) {
@@ -148,7 +152,7 @@ export const observationLabelLogic = kea<observationLabelLogicType>([
         },
 
         clearRating: async () => {
-            cache.labelEpoch = (cache.labelEpoch ?? 0) + 1
+            const epoch = (cache.labelEpoch = (cache.labelEpoch ?? 0) + 1)
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 return
@@ -156,6 +160,9 @@ export const observationLabelLogic = kea<observationLabelLogicType>([
             actions.setSaving(true)
             try {
                 await visionObservationsLabelDestroy(String(teamId), props.observationId)
+                if ((cache.labelEpoch ?? 0) !== epoch) {
+                    return
+                }
                 actions.labelUpdated(null)
                 props.onChange?.(null)
             } catch (error: any) {

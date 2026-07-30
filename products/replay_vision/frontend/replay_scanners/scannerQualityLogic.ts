@@ -525,6 +525,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
         loadObservations: async (_, breakpoint) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
+                actions.loadObservationsFailure() // Clear the loading flag; a bare return spins forever.
                 return
             }
             let response: Awaited<ReturnType<typeof visionScannersObservationsList>>
@@ -580,6 +581,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
         loadLabelStats: async (_, breakpoint) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
+                actions.loadLabelStatsFailure() // Clear the loading flag; a bare return spins forever.
                 return
             }
             let response
@@ -598,6 +600,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
         loadCurrentSuggestion: async (_, breakpoint) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
+                actions.loadCurrentSuggestionFailure() // Clear the loading flag; a bare return spins forever.
                 return
             }
             const epoch = cache.suggestionEpoch ?? 0
