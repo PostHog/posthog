@@ -39,16 +39,21 @@ import { buildChartDayFormatter, fillLabelDays, versionAccuracyStrip } from '../
 import { readConfidence } from '../../utils/observation'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from '../replayScannerSceneLogic'
-import { LABEL_CHART_DAYS, QUALITY_PAGE_SIZE, RatedFilterValue, scannerQualityLogic } from '../scannerQualityLogic'
+import {
+    LABEL_CHART_DAYS,
+    CALIBRATION_PAGE_SIZE,
+    RatedFilterValue,
+    scannerCalibrationLogic,
+} from '../scannerCalibrationLogic'
 import { OBSERVATION_CREDITS_BY_MODEL } from '../types'
 import { ConfigChangeCards } from './ConfigChangeCards'
 import { versionTag } from './ScannerObservationsTable'
 
 // data-attr must live on each option: LemonSegmentedButton renders no element of its own that takes one.
 const RATED_FILTER_OPTIONS: { value: RatedFilterValue; label: string; 'data-attr': string }[] = [
-    { value: 'unrated', label: 'Unrated', 'data-attr': 'vision-quality-rated-filter-unrated' },
-    { value: 'rated', label: 'Rated', 'data-attr': 'vision-quality-rated-filter-rated' },
-    { value: 'all', label: 'All', 'data-attr': 'vision-quality-rated-filter-all' },
+    { value: 'unrated', label: 'Unrated', 'data-attr': 'vision-calibration-rated-filter-unrated' },
+    { value: 'rated', label: 'Rated', 'data-attr': 'vision-calibration-rated-filter-rated' },
+    { value: 'all', label: 'All', 'data-attr': 'vision-calibration-rated-filter-all' },
 ]
 
 const SUGGESTION_STATUS_TAGS: Record<string, { type: LemonTagType; label: string; tooltip: string }> = {
@@ -69,8 +74,8 @@ const SUGGESTION_STATUS_TAGS: Record<string, { type: LemonTagType; label: string
     },
     no_change: {
         type: 'success',
-        label: 'Looks good',
-        tooltip: 'The prompt already handles the rated sessions well; nothing to change',
+        label: 'No changes needed',
+        tooltip: 'The prompt already handles the rated results well, so there is nothing to change',
     },
 }
 
@@ -109,7 +114,7 @@ function SuggestionDetails({
             />
             {suggestion.rationale && (
                 <div>
-                    <h4 className="text-sm font-semibold m-0 mb-1">Why</h4>
+                    <h4 className="text-sm font-semibold m-0 mb-1">Why this change</h4>
                     <p className="text-sm text-muted m-0">{suggestion.rationale}</p>
                 </div>
             )}
@@ -158,8 +163,8 @@ function SuggestionEvaluationPanel({
                 <Spinner />
                 {/* The endpoint stamps the planned total upfront; the select activity replaces it with the real count. */}
                 {evaluation.total
-                    ? `Testing against rated sessions… ${evaluation.results.length} of ${evaluation.total} done`
-                    : 'Starting the test against your rated sessions…'}
+                    ? `Testing against rated results… ${evaluation.results.length} of ${evaluation.total} done`
+                    : 'Starting the test against your rated results…'}
             </div>
         )
     }
@@ -167,7 +172,7 @@ function SuggestionEvaluationPanel({
     if (evaluation.status === 'failed' && !evaluation.results.length) {
         return (
             <div className="border rounded p-3 text-sm text-muted">
-                The test didn't finish. Run it again to check this prompt against your rated sessions.
+                The test didn't finish. Run it again to check this prompt against your rated results.
             </div>
         )
     }
@@ -181,38 +186,38 @@ function SuggestionEvaluationPanel({
         <div className="border rounded p-3 space-y-2">
             {editedSinceTest && (
                 <p className="text-xs text-warning m-0">
-                    You have edited fields since this test ran. Test again to see the updated result.
+                    You've edited fields since this test ran. Test again to see the updated result.
                 </p>
             )}
             <div className="flex flex-wrap items-center gap-2 text-sm">
                 {isPreview ? (
                     <span className="font-medium">
-                        Tested {evaluation.results.length} rated session
+                        Tested {evaluation.results.length} rated result
                         {evaluation.results.length === 1 ? '' : 's'}. Compare before and after below.
                     </span>
                 ) : (
                     <>
-                        <span className="font-medium">Tested against {evaluation.results.length} rated sessions:</span>
+                        <span className="font-medium">Tested against {evaluation.results.length} rated results:</span>
                         {downTotal > 0 && (
-                            <Tooltip title="Rated-wrong sessions whose result changed under the suggested prompt">
+                            <Tooltip title="Results you rated wrong that changed under the suggested prompt">
                                 <LemonTag type={summary.fixed > 0 ? 'success' : 'muted'}>
-                                    {summary.fixed}/{downTotal} wrong now different
+                                    {summary.fixed} of {downTotal} wrong results changed
                                 </LemonTag>
                             </Tooltip>
                         )}
                         {upTotal > 0 && (
-                            <Tooltip title="Rated-right sessions whose result is unchanged under the suggested prompt">
+                            <Tooltip title="Results you rated right that are unchanged under the suggested prompt">
                                 <LemonTag type={summary.regressed > 0 ? 'danger' : 'success'}>
-                                    {summary.kept}/{upTotal} right unchanged
+                                    {summary.kept} of {upTotal} right results kept
                                 </LemonTag>
                             </Tooltip>
                         )}
                         {summary.errors > 0 && <LemonTag type="muted">{summary.errors} failed to run</LemonTag>}
                     </>
                 )}
-                <Tooltip title="Only sessions that ran successfully count against the monthly Replay Vision quota">
+                <Tooltip title="Only results that ran successfully count against the monthly Replay Vision quota">
                     <span className="text-muted text-xs">
-                        Used {chargedCount} observation{chargedCount === 1 ? '' : 's'} of quota
+                        {chargedCount} observation{chargedCount === 1 ? '' : 's'} charged to your quota
                     </span>
                 </Tooltip>
             </div>
@@ -221,7 +226,7 @@ function SuggestionEvaluationPanel({
                 type="tertiary"
                 icon={detailsOpen ? <IconChevronDown /> : <IconChevronRight />}
                 onClick={() => setDetailsOpen(!detailsOpen)}
-                data-attr="vision-quality-evaluation-details-toggle"
+                data-attr="vision-calibration-evaluation-details-toggle"
             >
                 Per-session results
             </LemonButton>
@@ -254,14 +259,14 @@ function SuggestionEvaluationPanel({
                                 ),
                             },
                             {
-                                title: 'Team rating',
+                                title: 'Verdict',
                                 key: 'rated',
                                 render: (_, result) => (result.rated_correct ? 'Right' : 'Wrong'),
                             },
                             {
                                 title: 'Current prompt',
                                 key: 'before',
-                                render: (_, result) => result.before ?? 'n/a',
+                                render: (_, result) => result.before ?? '—',
                             },
                             {
                                 title: 'Suggested prompt',
@@ -271,7 +276,7 @@ function SuggestionEvaluationPanel({
                                     (result.error ? (
                                         <span className="text-muted">Failed: {result.error.slice(0, 80)}</span>
                                     ) : (
-                                        'n/a'
+                                        '—'
                                     )),
                             },
                         ] as LemonTableColumns<PromptEvaluationResultApi>
@@ -286,7 +291,7 @@ function SuggestionEvaluationPanel({
 }
 
 function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.Element {
-    const logic = scannerQualityLogic({ scannerId })
+    const logic = scannerCalibrationLogic({ scannerId })
     const {
         currentSuggestion,
         suggestionStale,
@@ -346,7 +351,7 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                 <span className="text-muted text-sm">
                     {ratedCount === 0
                         ? 'Rate results below to get PostHog AI recommendations here.'
-                        : 'No recommendation yet for the current ratings.'}
+                        : 'No recommendation for the current ratings yet.'}
                 </span>
                 <LemonButton
                     size="small"
@@ -357,7 +362,7 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                         editDisabledReason ?? (ratedCount === 0 ? 'Rate at least one result first' : undefined)
                     }
                     onClick={() => generateSuggestion()}
-                    data-attr="vision-quality-generate-suggestion"
+                    data-attr="vision-calibration-generate-suggestion"
                 >
                     Generate recommendation
                 </LemonButton>
@@ -367,8 +372,7 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
         body = (
             <div className="space-y-3">
                 <p className="text-sm m-0">
-                    Your scanner configuration looks good! PostHog AI reviewed the rated sessions and has no prompt
-                    changes to recommend.
+                    PostHog AI reviewed your rated results and found no prompt changes to recommend.
                 </p>
                 {currentSuggestion.rationale && <p className="text-sm text-muted m-0">{currentSuggestion.rationale}</p>}
                 <SuggestionMeta suggestion={currentSuggestion} />
@@ -405,14 +409,14 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                         : quota?.exhausted && quota.credit_limit !== null
                                           ? `Monthly Replay Vision budget of ${formatCreditCount(quota.credit_limit)} reached. Resets ${dayjs(quota.period_end).format('MMM D')}.`
                                           : quota && quota.remaining !== null && plannedTestCredits > quota.remaining
-                                            ? `Only ${formatCreditCount(quota.remaining)} of budget left this period. Lower the test session count.`
+                                            ? `Only ${formatCreditCount(quota.remaining)} of budget left this period. Lower the number of results to test.`
                                             : undefined)
                                 }
-                                tooltip="Re-runs the scanner with the suggested prompt against your rated sessions, so you can see what would change before applying. Each tested session is charged like a normal observation. Pick how many below."
+                                tooltip="Re-runs the scanner with the suggested prompt against your rated results, so you can see what would change. Each tested result is charged like a normal observation."
                                 onClick={() => evaluateSuggestion(currentSuggestion.id, assembledConfig)}
-                                data-attr="vision-quality-evaluate-suggestion"
+                                data-attr="vision-calibration-evaluate-suggestion"
                             >
-                                {currentSuggestion.evaluation ? 'Re-test' : 'Test against rated sessions'}
+                                {currentSuggestion.evaluation ? 'Test again' : 'Test against rated results'}
                             </LemonButton>
                         )}
                         {currentSuggestion.status === 'pending' && (
@@ -422,7 +426,7 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                 loading={dismissing}
                                 disabledReason={editDisabledReason ?? undefined}
                                 onClick={() => dismissSuggestion(currentSuggestion.id)}
-                                data-attr="vision-quality-dismiss-suggestion"
+                                data-attr="vision-calibration-dismiss-suggestion"
                             >
                                 Dismiss
                             </LemonButton>
@@ -438,7 +442,7 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                 }
                                 tooltip="Writes this config to the scanner as a new version"
                                 onClick={() => applySuggestion(currentSuggestion.id)}
-                                data-attr="vision-quality-apply-suggestion"
+                                data-attr="vision-calibration-apply-suggestion"
                             >
                                 Apply to scanner
                             </LemonButton>
@@ -447,7 +451,7 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                 </div>
                 {currentSuggestion.status === 'pending' && evaluationSupported && plannedTestSessions > 0 && (
                     <div className="flex items-center justify-end gap-1.5 text-xs text-muted">
-                        <span>Testing re-runs</span>
+                        <span>Test</span>
                         <LemonInput
                             type="number"
                             size="xsmall"
@@ -456,11 +460,11 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                             value={plannedTestSessions}
                             onChange={(value) => setTestSessionLimit(value ?? null)}
                             className="w-14"
-                            data-attr="vision-quality-test-session-limit"
+                            data-attr="vision-calibration-test-session-limit"
                         />
                         <span>
-                            of your {Math.min(evaluationSessionCap, ratedCount)} most useful rated session
-                            {Math.min(evaluationSessionCap, ratedCount) === 1 ? '' : 's'}, charging{' '}
+                            of your {Math.min(evaluationSessionCap, ratedCount)} rated result
+                            {Math.min(evaluationSessionCap, ratedCount) === 1 ? '' : 's'}, thumbs down first. Costs{' '}
                             {formatCreditCount(plannedTestCredits)}
                             {quota && quota.remaining !== null && quota.credit_limit !== null
                                 ? `, ${formatCreditsRange(quota.remaining, quota.credit_limit)} left this period`
@@ -494,7 +498,7 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                 editDisabledReason ?? (ratedCount === 0 ? 'Rate at least one result first' : undefined)
                             }
                             onClick={() => generateSuggestion()}
-                            data-attr="vision-quality-regenerate-suggestion"
+                            data-attr="vision-calibration-regenerate-suggestion"
                         >
                             Regenerate
                         </LemonButton>
@@ -515,7 +519,7 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                             loadSuggestionHistory()
                         }
                     }}
-                    data-attr="vision-quality-suggestion-history-toggle"
+                    data-attr="vision-calibration-suggestion-history-toggle"
                 >
                     Past recommendations
                 </LemonButton>
@@ -585,19 +589,19 @@ const CHART_MODE_OPTIONS: { value: ChartMode; label: string; tooltip: string; 'd
     {
         value: 'session',
         label: 'By session day',
-        tooltip: 'Ratings placed on the day the session was scanned: how scanner quality trends over time',
-        'data-attr': 'vision-quality-chart-mode-session',
+        tooltip: 'Ratings placed on the day the session was scanned: how scanner accuracy trends over time',
+        'data-attr': 'vision-calibration-chart-mode-session',
     },
     {
         value: 'rating',
         label: 'By rating day',
         tooltip: "Ratings placed on the day they were given or changed: the team's rating activity",
-        'data-attr': 'vision-quality-chart-mode-rating',
+        'data-attr': 'vision-calibration-chart-mode-rating',
     },
 ]
 
 function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element {
-    const { labelStats, labelStatsLoading } = useValues(scannerQualityLogic({ scannerId }))
+    const { labelStats, labelStatsLoading } = useValues(scannerCalibrationLogic({ scannerId }))
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const { setActiveTab } = useActions(replayScannerSceneLogic)
     const { isDarkModeOn } = useValues(themeLogic)
@@ -662,7 +666,7 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
                             key={entry.version}
                             title={
                                 entry.pct !== null
-                                    ? `${entry.rated} rated of ${entry.scanned} scanned on v${entry.version}. Unrated sessions don't count toward the percentage.`
+                                    ? `${entry.rated} rated of ${entry.scanned} scanned on v${entry.version}. Unrated results don't count toward the percentage.`
                                     : entry.scanned > 0
                                       ? `v${entry.version} has scanned ${entry.scanned} sessions but none are rated yet. Rate results below to compare it with earlier versions.`
                                       : "This prompt version was applied but hasn't scanned any sessions yet, so it has no ratings or chart marker"
@@ -685,8 +689,7 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
                 </div>
             ) : totalRated === 0 || !chart ? (
                 <div className="text-muted text-sm">
-                    No rated sessions yet. Rate results below to start tracking scanner quality. As the prompt improves,
-                    thumbs down should trend down.
+                    No rated results yet. Rate results below to start tracking scanner accuracy.
                 </div>
             ) : (
                 <>
@@ -728,7 +731,7 @@ function RatingsOverTimePanel({ scannerId }: { scannerId: string }): JSX.Element
                                         className="absolute top-0 -translate-x-1/2 inline-flex cursor-pointer items-center justify-center rounded border bg-surface-secondary px-1.5 py-0.5 text-[10px] font-mono leading-none text-muted hover:text-default"
                                         style={{ left: badge.x }}
                                         onClick={() => setActiveTab(ReplayScannerTab.Configuration)}
-                                        data-attr="vision-quality-version-badge"
+                                        data-attr="vision-calibration-version-badge"
                                     >
                                         v{badge.version}
                                     </div>
@@ -751,14 +754,14 @@ function FeedbackThemeChips({
     scannerId: string
     feedbackThemes: FeedbackThemesApi
 }): JSX.Element | null {
-    const { themeFilter } = useValues(scannerQualityLogic({ scannerId }))
-    const { setThemeFilter } = useActions(scannerQualityLogic({ scannerId }))
+    const { themeFilter } = useValues(scannerCalibrationLogic({ scannerId }))
+    const { setThemeFilter } = useActions(scannerCalibrationLogic({ scannerId }))
     if (feedbackThemes.themes.length === 0) {
         return null
     }
     return (
         <div className="flex flex-wrap items-center gap-1.5">
-            <Tooltip title="Recurring failure modes summarized from your team's written feedback. They update with the prompt recommendation and also steer it.">
+            <Tooltip title="Recurring failure modes summarized from your team's written feedback. They update with each recommendation and feed into the next one.">
                 <span className="text-xs text-muted">Feedback themes:</span>
             </Tooltip>
             {feedbackThemes.themes.map((theme) => {
@@ -790,7 +793,7 @@ function FeedbackThemeChips({
                             type={isActive ? 'highlight' : 'muted'}
                             onClick={clickable ? () => setThemeFilter(isActive ? null : theme) : undefined}
                             forceClickable={clickable}
-                            data-attr="vision-quality-feedback-theme"
+                            data-attr="vision-calibration-feedback-theme"
                         >
                             {theme.theme} · {theme.count}
                         </LemonTag>
@@ -802,11 +805,11 @@ function FeedbackThemeChips({
 }
 
 /**
- * The scanner's Quality tab: the current config recommendation (with history), quality over time,
+ * The scanner's Calibration tab: the current config recommendation (with history), quality over time,
  * and the results still awaiting a rating.
  */
-export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Element {
-    const logic = scannerQualityLogic({ scannerId })
+export function ScannerCalibrationTab({ scannerId }: { scannerId: string }): JSX.Element {
+    const logic = scannerCalibrationLogic({ scannerId })
     const { observations, observationsLoading, total, page, ratedFilter, sort } = useValues(logic)
     const { setPage, setRatedFilter, setSort, labelChanged } = useActions(logic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
@@ -857,7 +860,7 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
             sorter: true,
         },
         {
-            title: 'Scanner got it right?',
+            title: 'Verdict',
             key: 'rating',
             width: 160,
             render: (_, obs) => (
@@ -919,7 +922,7 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                     to={urls.replaySingle(obs.session_id)}
                     targetBlank
                     className="whitespace-nowrap"
-                    data-attr="vision-quality-view-recording"
+                    data-attr="vision-calibration-view-recording"
                 >
                     View recording
                 </LemonButton>
@@ -929,9 +932,8 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
 
     return (
         <div className="flex flex-col gap-6">
-            <p className="text-muted m-0 max-w-2xl">
-                Rate scanner results with a thumbs up or down, and optionally add feedback explaining why. Your team's
-                ratings power the PostHog AI recommendation below.
+            <p className="text-muted m-0">
+                Rate scanner results with a thumbs up or down, and add feedback explaining why.
             </p>
 
             <ConfigRecommendationPanel scannerId={scannerId} />
@@ -966,25 +968,25 @@ export function ScannerQualityTab({ scannerId }: { scannerId: string }): JSX.Ele
                     rowKey="id"
                     pagination={{
                         controlled: true,
-                        pageSize: QUALITY_PAGE_SIZE,
+                        pageSize: CALIBRATION_PAGE_SIZE,
                         currentPage: page,
                         entryCount: total,
                         onForward: () => setPage(page + 1),
                         onBackward: () => setPage(page - 1),
-                        // Page state lives in scannerQualityLogic; without this the control also pushes a
+                        // Page state lives in scannerCalibrationLogic; without this the control also pushes a
                         // `page` URL param that nothing reads and that goes stale on filter or tab changes.
                         useUrl: false,
                     }}
                     sorting={sort}
                     onSort={(next) => setSort(next)}
                     useURLForSorting={false}
-                    nouns={['observation', 'observations']}
+                    nouns={['result', 'results']}
                     emptyState={
                         <div className="p-6 text-center text-muted">
                             {ratedFilter === 'rated'
-                                ? 'No rated observations yet. Rate some under "All" or "Unrated".'
+                                ? 'No rated results yet. Rate some under "All" or "Unrated".'
                                 : ratedFilter === 'unrated'
-                                  ? 'No unrated observations. Everything has been rated.'
+                                  ? 'No unrated results. Everything has been rated.'
                                   : "No successful observations to rate yet. They'll appear here once the scanner produces results."}
                         </div>
                     }
