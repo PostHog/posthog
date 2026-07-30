@@ -698,6 +698,7 @@ depends_on = [
     "products.access_control",
     "products.actions",
     "products.analytics_platform", "products.warehouse_sources",
+    "products.feature_flags",
 ]
 layer = "modules"
 

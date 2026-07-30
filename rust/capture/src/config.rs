@@ -430,9 +430,9 @@ pub struct Config {
 
     // --- Ingestion warnings emitter (fire-and-forget, best-effort) ---
     // Warnings are emitted as `$$client_ingestion_warning` events onto the
-    // existing `client_ingestion_warning` topic on the main event cluster
-    // (see `KAFKA_CLIENT_INGESTION_WARNING_TOPIC`), so the producer reuses the
-    // main cluster's hosts/TLS — but it gets its OWN dedicated
+    // existing `client_ingestion_warning` topic, by default on the main event
+    // cluster: absent the warnings-cluster overrides below, the producer
+    // reuses the main cluster's hosts/TLS — but it gets its OWN dedicated
     // `common_kafka::config::KafkaConfig` (below) with fire-and-forget
     // acks/retries and a small queue, so a saturated or slow warnings topic
     // can never behave like — or contend with — the main event producer.
@@ -455,6 +455,25 @@ pub struct Config {
     // the main event producer allows.
     #[envconfig(default = "1048576")]
     pub capture_ingestion_warnings_kafka_message_max_bytes: u32,
+
+    // The warnings emitter's own destination. It runs in the v1 analytics
+    // handler but is independent of the v0 `KAFKA_*` block: it reads only these
+    // three vars, never `kafka_hosts` / `kafka_tls` /
+    // `kafka_client_ingestion_warning_topic`. charts sets all three per env,
+    // pointed at the MSK cluster the clientwarnings consumer reads from.
+    //
+    // Defaults are inert on purpose: empty hosts or topic makes
+    // `create_ingestion_warning_emitter` report the emitter disabled and return
+    // (fail open) rather than produce to a wrong or empty destination. TLS is a
+    // separate knob from hosts because the warnings cluster's TLS requirement
+    // need not match the main one — capture-ai is the live example, with a
+    // PLAINTEXT WarpStream event sink and a TLS MSK warnings destination.
+    #[envconfig(default = "")]
+    pub capture_ingestion_warnings_kafka_topic: String,
+    #[envconfig(default = "")]
+    pub capture_ingestion_warnings_kafka_hosts: String,
+    #[envconfig(default = "false")]
+    pub capture_ingestion_warnings_kafka_tls: bool,
 }
 
 #[derive(Envconfig, Clone)]

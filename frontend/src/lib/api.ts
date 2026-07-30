@@ -2552,7 +2552,10 @@ const api = {
             if (Object.keys(query).length) {
                 request.withQueryString(query)
             }
-            return await request.get({ signal })
+            const response = await request.get({ signal })
+            // Guard the declared array contract: an edge/error response (or a stale bundle) may
+            // return a non-array, which would break callers that iterate over the result.
+            return Array.isArray(response) ? response : []
         },
         async create(data: { ref?: string; type?: string }): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemLogView().create({ data })
@@ -6253,8 +6256,8 @@ const api = {
         async get(id: IntegrationType['id']): Promise<IntegrationType> {
             return await new ApiRequest().integration(id).get()
         },
-        async create(data: Partial<IntegrationType> | FormData): Promise<IntegrationType> {
-            return await new ApiRequest().integrations().create({ data })
+        async create(data: Partial<IntegrationType> | FormData, teamId?: TeamType['id']): Promise<IntegrationType> {
+            return await new ApiRequest().integrations(teamId).create({ data })
         },
         async delete(integrationId: IntegrationType['id']): Promise<IntegrationType> {
             return await new ApiRequest().integration(integrationId).delete()

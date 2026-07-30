@@ -53,6 +53,7 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     missing_event_uuid: 'Rejected a batch containing an event with no UUID',
     invalid_event_uuid: 'Rejected a batch containing an event with an invalid UUID',
     duplicate_event_uuid: 'Rejected a batch containing duplicate event UUIDs',
+    high_volume_distinct_id: 'Skipped person profile processing for a high-volume distinct ID',
 }
 
 // Explicit anchor on https://posthog.com/docs/data/ingestion-warnings for each warning type.
@@ -72,6 +73,7 @@ export const WARNING_TYPE_TO_DOCS_ANCHOR: Record<string, string> = {
     replay_timestamp_too_far: 'replay-event-timestamp-was-too-far-in-the-future',
     set_on_exception: 'invalid-set-operations-on-exception-events',
     invalid_heatmap_data: 'invalid-heatmap-data',
+    high_volume_distinct_id: 'skipped-person-profile-processing-for-a-high-volume-distinct-id',
 }
 
 export const WARNING_TYPE_RENDERER = {

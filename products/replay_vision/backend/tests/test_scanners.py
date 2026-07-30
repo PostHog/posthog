@@ -587,6 +587,12 @@ class TestSummarizerScannerSteps:
         # Facets are best-effort: a failed facet turn must not lose the summary it follows.
         assert steps[1].required is False
 
+    def test_summary_step_makes_title_follow_operator_naming_convention(self) -> None:
+        scanner = scanner_from_db(
+            _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
+        )
+        assert "naming convention" in scanner.core_steps()[0].instruction
+
     def test_summary_step_opts_into_citations_facets_step_forbids_them(self) -> None:
         scanner = scanner_from_db(
             _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})

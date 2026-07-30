@@ -1,1 +1,1 @@
-1266_comment_convo_content_trgm
+1276_untrack_legacy_provisioning_columns
