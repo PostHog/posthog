@@ -1,7 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonInput } from '@posthog/lemon-ui'
-
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
@@ -16,6 +14,7 @@ import {
     zendeskPersonTicketsQuery,
 } from 'products/customer_analytics/frontend/queries/ZendeskTicketsQuery'
 
+import { NotebookNodeAttributeInput } from '../Notebook/NotebookNodeAttributeInput'
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { getCustomerProfileRemoveMenuItem } from './customerProfileNotebookNodeMenu'
 import { createPostHogWidgetNode } from './NodeWrapper'
@@ -63,26 +62,18 @@ const Settings = ({
     return (
         <BindLogic logic={zendeskTicketsFiltersLogic} props={{ logicKey: nodeId }}>
             <div className="m-2 flex flex-col gap-2">
-                <label className="flex flex-col gap-1">
-                    <span className="text-xs font-semibold text-secondary">Person UUID</span>
-                    <LemonInput
-                        value={personId ?? ''}
-                        onChange={(value) =>
-                            updateAttributes({ personId: value, groupKey: value.trim() ? '' : groupKey })
-                        }
-                        placeholder="Person UUID"
-                    />
-                </label>
-                <label className="flex flex-col gap-1">
-                    <span className="text-xs font-semibold text-secondary">Group key</span>
-                    <LemonInput
-                        value={groupKey ?? ''}
-                        onChange={(value) =>
-                            updateAttributes({ groupKey: value, personId: value.trim() ? '' : personId })
-                        }
-                        placeholder="Group key"
-                    />
-                </label>
+                <NotebookNodeAttributeInput
+                    label="Person UUID"
+                    value={personId ?? ''}
+                    expectsUUID
+                    onCommit={(value) => updateAttributes({ personId: value, groupKey: value.trim() ? '' : groupKey })}
+                />
+                <NotebookNodeAttributeInput
+                    label="Group key"
+                    value={groupKey ?? ''}
+                    expectsUUID={false}
+                    onCommit={(value) => updateAttributes({ groupKey: value, personId: value.trim() ? '' : personId })}
+                />
                 <ZendeskTicketsFilters.Root>
                     <ZendeskTicketsFilters.Status />
                     <ZendeskTicketsFilters.Priority />

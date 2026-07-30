@@ -69,6 +69,7 @@ import { CreatePostHogWidgetNodeOptions, NotebookNodeAttributes, NotebookNodeTyp
 import { KNOWN_NODES } from '../utils'
 import { NotebookDiscussionComment, getNotebookDiscussionCommentTitle } from './MarkdownNotebookDiscussionComment'
 import { notebookLogic } from './notebookLogic'
+import { NotebookNodeAttributeInput } from './NotebookNodeAttributeInput'
 
 const INTERNAL_MARKDOWN_NODE_ATTRIBUTE_KEYS = new Set(['height', 'nodeId', '__init', 'children', 'tabId', 'placement'])
 
@@ -76,6 +77,12 @@ const NUMERIC_MARKDOWN_NODE_ATTRIBUTE_KEYS: Partial<Record<NotebookNodeType, str
     [NotebookNodeType.Cohort]: ['id'],
     [NotebookNodeType.Experiment]: ['id'],
     [NotebookNodeType.Group]: ['groupTypeIndex'],
+}
+
+// Attributes the backend compares against a UUID column, so a partial value is guaranteed to 400
+const UUID_MARKDOWN_NODE_ATTRIBUTE_KEYS: Partial<Record<NotebookNodeType, string[]>> = {
+    [NotebookNodeType.Person]: ['id'],
+    [NotebookNodeType.ZendeskTickets]: ['personId'],
 }
 
 const MARKDOWN_NODE_ATTRIBUTE_LABELS: Partial<Record<NotebookNodeType, Record<string, string>>> = {
@@ -462,20 +469,18 @@ export function RealNotebookNodeAttributeEdit({
             {attributeKeys.map((key, index) => {
                 const label = getMarkdownNodeAttributeLabel(notebookNodeType, key)
                 return (
-                    <label key={key} className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold text-secondary">{label}</span>
-                        <LemonInput
-                            aria-label={label}
-                            value={getPrimitiveNotebookPropInputValue(attributes[key])}
-                            onChange={(value) =>
-                                updateProps({
-                                    [key]: getSerializableAttributeInputValue(notebookNodeType, key, value),
-                                })
-                            }
-                            placeholder={label}
-                            autoFocus={index === 0 && wasNotebookNodeJustInserted(node.id)}
-                        />
-                    </label>
+                    <NotebookNodeAttributeInput
+                        key={key}
+                        label={label}
+                        value={getPrimitiveNotebookPropInputValue(attributes[key])}
+                        expectsUUID={isUUIDNodeAttribute(notebookNodeType, key)}
+                        onCommit={(value) =>
+                            updateProps({
+                                [key]: getSerializableAttributeInputValue(notebookNodeType, key, value),
+                            })
+                        }
+                        autoFocus={index === 0 && wasNotebookNodeJustInserted(node.id)}
+                    />
                 )
             })}
         </div>
@@ -809,6 +814,10 @@ export function getEditableNodeAttributeKeys(
         const value = attributes[key]
         return value === undefined || value === null || ['boolean', 'number', 'string'].includes(typeof value)
     })
+}
+
+export function isUUIDNodeAttribute(notebookNodeType: NotebookNodeType, key: string): boolean {
+    return UUID_MARKDOWN_NODE_ATTRIBUTE_KEYS[notebookNodeType]?.includes(key) ?? false
 }
 
 export function getMarkdownNodeAttributeLabel(notebookNodeType: NotebookNodeType, key: string): string {

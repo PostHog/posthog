@@ -9,6 +9,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { Link } from 'lib/lemon-ui/Link'
 import { isMobile } from 'lib/utils/dom'
+import { isUUIDLike } from 'lib/utils/guards'
 import {
     allOperatorsMapping,
     chooseOperatorMap,
@@ -157,10 +158,23 @@ function getRegexValidationError(operator: PropertyOperator, value: any): string
     return null
 }
 
+// Properties backed by a UUID column — the query fails outright on anything that isn't a UUID,
+// so warn in the filter rather than letting the user submit it
+const UUID_PROPERTY_KEYS = new Set(['person_id', 'uuid'])
+
 function getValidationError(operator: PropertyOperator, value: any, property?: string): string | null {
     const regexErrorMessage = getRegexValidationError(operator, value)
     if (regexErrorMessage != null) {
         return regexErrorMessage
+    }
+    if (
+        property &&
+        UUID_PROPERTY_KEYS.has(property) &&
+        (operator === PropertyOperator.Exact || operator === PropertyOperator.IsNot) &&
+        typeof value === 'string' &&
+        !isUUIDLike(value.trim())
+    ) {
+        return `${property} holds UUIDs, so this value can never match. Enter a full UUID, like 0198a4c2-8b3d-7e50-b4a1-2f9c6d8e0a1b`
     }
     if (isOperatorRange(operator) && isNaN(value)) {
         let message = `Range operators only work with numeric values`
