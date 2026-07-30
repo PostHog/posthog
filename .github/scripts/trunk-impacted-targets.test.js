@@ -342,17 +342,51 @@ test('cross-domain tools are tripwires rather than backend-only', () => {
     assert.equal(computeTargets(['tools/owners/owners/__init__.py'], CONTEXT), ALL)
 })
 
-test('markdown is classified as docs regardless of which tree it sits in', () => {
-    assert.deepEqual(computeTargets(['posthog/README.md', 'docs/guide.mdx'], CONTEXT), ['docs'])
+// Prose claims no lane, so a docs-only PR overlaps nothing and merges beside
+// anything. The empty array has to survive the size-0 guard rather than being
+// widened to ALL with the unclassified paths.
+test('markdown yields an empty target set regardless of which tree it sits in', () => {
+    assert.deepEqual(computeTargets(['posthog/README.md', 'docs/guide.mdx', 'CHANGELOG.md'], CONTEXT), [])
+})
+
+// The old shared docs lane serialized two PRs whose only overlap was having
+// touched a markdown file, even with their code in unrelated trees.
+test('markdown alongside code contributes no lane of its own', () => {
+    assert.deepEqual(computeTargets(['rust/unrelated/src/main.rs', 'README.md'], CONTEXT), ['rust:crate:unrelated'])
+})
+
+// hogli build:skills zips products/*/skills/*, and ci-agent-skills.yml gates on
+// those paths and on .agents/, so this markdown is a build input, not prose.
+test('skill markdown keeps the lane of the tree that builds it', () => {
+    assert.deepEqual(computeTargets(['.agents/skills/merging-prs/SKILL.md'], CONTEXT), ['agents'])
+    const productSkill = computeTargets(['products/beta/skills/creating-experiments/SKILL.md'], CONTEXT)
+    assert.equal(productSkill.includes('py:product:beta'), true)
+    assert.equal(productSkill.includes('fe:product:beta'), true)
+})
+
+// docs/onboarding is the @posthog/docs-onboarding workspace package that
+// frontend/package.json depends on, so its sources compile into the app. On the
+// old docs lane it was disjoint from fe:core and could merge in parallel with
+// the frontend PR that consumes it.
+test('docs/onboarding sources claim the frontend domain', () => {
+    const onboarding = computeTargets(['docs/onboarding/experiments/nextjs.tsx'], CONTEXT)
+    const frontend = computeTargets(['frontend/src/lib/components/Foo.tsx'], CONTEXT)
+    assert.deepEqual(onboarding, frontend)
+})
+
+// Everything under docs/ is prose today apart from that package, so a new
+// non-prose tree there must widen rather than inherit the inert classification.
+test('an unrecognized non-prose file under docs forces ALL', () => {
+    assert.equal(computeTargets(['docs/tooling/generate.py'], CONTEXT), ALL)
 })
 
 test('independent trees stay disjoint so they can share no lane', () => {
     const rust = computeTargets(['rust/unrelated/src/main.rs'], CONTEXT)
     const node = computeTargets(['nodejs/src/worker.ts'], CONTEXT)
     const service = computeTargets(['services/mcp/src/index.ts'], CONTEXT)
-    const docs = computeTargets(['docs/guide.md'], CONTEXT)
+    const agents = computeTargets(['.agents/skills/merging-prs/SKILL.md'], CONTEXT)
 
-    const sets = [rust, node, service, docs]
+    const sets = [rust, node, service, agents]
     for (let i = 0; i < sets.length; i++) {
         for (let j = i + 1; j < sets.length; j++) {
             const overlap = sets[i].filter((target) => sets[j].includes(target))

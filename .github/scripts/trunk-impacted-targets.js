@@ -61,7 +61,9 @@
 // paths in ci-e2e-playwright.yml, which puts all such PRs back in one lane.
 //
 // Input:  changed file paths, one per line, on stdin
-// Output: JSON on stdout, either the string "ALL" or an array of target names
+// Output: JSON on stdout, either the string "ALL" or an array of target names.
+//         The array is empty when every changed file is inert (prose), which
+//         tells Trunk the PR overlaps nothing and can merge beside anything.
 //         Diagnostics on stderr
 
 const fs = require('fs')
@@ -526,22 +528,30 @@ function computeTargets(changedFiles, context) {
     }
 
     const changedIsolatedProducts = new Set()
+    let inertFiles = 0
 
     for (const file of changedFiles) {
         if (isTripwire(file)) {
             return ALL
         }
 
-        // Markdown never compiles into any tree, so it is classified before the
-        // directory rules that would otherwise pull a README under posthog/
-        // into the backend lane.
-        if (/\.mdx?$/.test(file)) {
-            targets.add('docs')
-            continue
-        }
-
         const segments = file.split('/')
         const top = segments[0]
+
+        // Prose compiles into nothing and no PR can disagree with another about
+        // it, so it claims no lane at all rather than the shared one it used to
+        // get, which serialized any two PRs that happened to touch a markdown
+        // file. Classified before the directory rules that would otherwise pull
+        // a README under posthog/ into the backend lane.
+        //
+        // The exception is markdown that is a build input: `hogli build:skills`
+        // zips products/*/skills/*, and ci-agent-skills.yml gates on those paths
+        // and on .agents/. Both fall through to their directory rules below.
+        const isSkillSource = top === '.agents' || (top === 'products' && segments[2] === 'skills')
+        if (/\.mdx?$/.test(file) && !isSkillSource) {
+            inertFiles++
+            continue
+        }
 
         if (top === 'posthog' || (top === 'ee' && segments[1] !== 'frontend')) {
             allPyProducts()
@@ -565,8 +575,13 @@ function computeTargets(changedFiles, context) {
             targets.add(`svc:${segments[1]}`)
             continue
         }
-        if (top === 'docs') {
-            targets.add('docs')
+        // docs/ is prose, which the markdown rule above has already taken, with
+        // one exception: docs/onboarding is the @posthog/docs-onboarding
+        // workspace package that frontend/package.json depends on, so its
+        // sources compile into the app. Anything else non-prose under docs/ is
+        // unclassified and falls through to ALL at the end of the loop.
+        if (top === 'docs' && segments[1] === 'onboarding') {
+            allFeProducts()
             continue
         }
         if (top === '.agents') {
@@ -685,7 +700,12 @@ function computeTargets(changedFiles, context) {
     }
 
     if (targets.size === 0) {
-        return ALL
+        // An empty target set tells Trunk this PR overlaps nothing, so it
+        // merges in parallel with everything. That is correct only when every
+        // file was recognized as inert. A change set that got here any other
+        // way contains something no rule claimed, which is the failure mode
+        // that silently breaks master, so it still widens to ALL.
+        return inertFiles === changedFiles.length ? [] : ALL
     }
     return [...targets].sort()
 }
