@@ -33,7 +33,7 @@ class NoExportableInsightsReason:
     SELECTED_INSIGHTS_UNAVAILABLE = "selected_insights_unavailable"
 
 
-class NoExportableInsightsContext(typing.TypedDict, total=False):
+class NoExportableInsightsContext(typing.TypedDict):
     reason: str
     resource_type: str
     available_insight_count: int
@@ -125,7 +125,7 @@ class CreateExportAssetsResult:
     distinct_id: str = ""
     target_type: str = ""
     status: str = ExportAssetPreparationStatus.READY
-    failure_context: NoExportableInsightsContext = dataclasses.field(default_factory=dict)
+    failure_context: NoExportableInsightsContext | None = None
 
 
 @dataclasses.dataclass

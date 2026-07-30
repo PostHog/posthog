@@ -272,11 +272,19 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
 
             if not prepare_result.exported_asset_ids:
                 if prepare_result.status == ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS:
-                    delivery_error = {
-                        "message": NO_EXPORTABLE_INSIGHTS_MESSAGE,
-                        "type": ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS,
-                        **prepare_result.failure_context,
-                    }
+                    failure_context = prepare_result.failure_context
+                    if failure_context is None:
+                        raise ApplicationError(
+                            "No-exportable-insights result missing failure context", non_retryable=True
+                        )
+                    delivery_error = NoExportableInsightsErrorDetails(
+                        message=NO_EXPORTABLE_INSIGHTS_MESSAGE,
+                        type=ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS,
+                        reason=failure_context["reason"],
+                        resource_type=failure_context["resource_type"],
+                        available_insight_count=failure_context["available_insight_count"],
+                        selected_insight_count=failure_context["selected_insight_count"],
+                    )
                     final_status = DeliveryStatus.FAILED
                     temporalio.workflow.logger.warning(
                         "process_subscription.no_exportable_insights",
@@ -284,7 +292,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                             "subscription_id": inputs.subscription_id,
                             "trigger_type": inputs.trigger_type,
                             "error_type": ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS,
-                            **prepare_result.failure_context,
+                            **failure_context,
                         },
                     )
                     if inputs.slo:
@@ -293,7 +301,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                                 "error_type": ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS,
                                 "error_message": delivery_error["message"],
                                 "failure_type": "configuration",
-                                **prepare_result.failure_context,
+                                **failure_context,
                             }
                         )
                 return
