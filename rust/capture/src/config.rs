@@ -6,6 +6,8 @@ use envconfig::Envconfig;
 use sha2::{Digest, Sha256};
 use tracing::Level;
 
+use crate::token_validation::TokenValidationMode;
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub enum CaptureMode {
     Events,
@@ -323,6 +325,41 @@ pub struct Config {
 
     #[envconfig(default = "info")]
     pub log_level: Level,
+
+    // --- Project API key validation at the edge ---
+    /// `off` accepts any shape-valid token (pre-validation behavior), `dry_run`
+    /// resolves tokens and reports the would-be reject rate, `enforce` answers
+    /// 401 for tokens no team owns — matching what `/flags` already does.
+    /// Lookups always fail open: only a definitive "no such team" rejects.
+    #[envconfig(default = "off")]
+    pub token_validation_mode: TokenValidationMode,
+
+    /// Postgres read replica used to resolve tokens the team_metadata
+    /// HyperCache doesn't hold. Without it no token is ever rejected, since a
+    /// cache miss alone isn't proof a token is bogus.
+    pub token_validation_database_url: Option<String>,
+
+    #[envconfig(default = "100000")]
+    pub token_validation_cache_capacity: u64,
+
+    #[envconfig(default = "300")]
+    pub token_validation_cache_ttl_secs: u64,
+
+    /// Shorter than the positive TTL so a freshly created project stops being
+    /// rejected quickly.
+    #[envconfig(default = "30")]
+    pub token_validation_negative_cache_ttl_secs: u64,
+
+    /// Object storage holding the team_metadata HyperCache entries Django
+    /// writes (the S3 tier behind Redis). Same defaults as feature-flags.
+    #[envconfig(default = "posthog")]
+    pub object_storage_bucket: String,
+
+    #[envconfig(default = "us-east-1")]
+    pub object_storage_region: String,
+
+    #[envconfig(default = "")]
+    pub object_storage_endpoint: String,
 
     // deploy var [0.0..100.0] to sample behavior of interest for verbose logging
     #[envconfig(default = "0.0")]

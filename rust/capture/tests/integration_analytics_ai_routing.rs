@@ -18,6 +18,7 @@ use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
 use capture::sinks::Event;
 use capture::time::TimeSource;
+use capture::token_validation::TokenValidator;
 use capture::v0_request::{DataType, OverflowReason, ProcessedEvent};
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
@@ -122,6 +123,7 @@ fn setup_router_for_mode(
         None, // global_rate_limiter_token_distinctid
         quota_limiter,
         TokenDropper::default(),
+        Arc::new(TokenValidator::disabled()), // token_validator
         None, // event_restriction_service
         false,
         capture_mode,

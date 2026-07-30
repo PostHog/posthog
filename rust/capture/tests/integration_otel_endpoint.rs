@@ -14,6 +14,7 @@ use capture::quota_limiters::{is_llm_event, CaptureQuotaLimiter, EventInfo};
 use capture::router::router;
 use capture::sinks::Event;
 use capture::time::TimeSource;
+use capture::token_validation::TokenValidator;
 use capture::v0_request::{DataType, OverflowReason, ProcessedEvent};
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
@@ -163,6 +164,7 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         None, // global_rate_limiter_token_distinctid
         quota_limiter,
         TokenDropper::default(),
+        Arc::new(TokenValidator::disabled()), // token_validator
         options.event_restriction_service,
         false, // metrics
         CaptureMode::Events,

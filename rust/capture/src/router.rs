@@ -31,6 +31,7 @@ use crate::config::{AiRouting, CaptureMode};
 use crate::metrics_middleware::track_metrics;
 use crate::prometheus::setup_metrics_recorder;
 use crate::quota_limiters::CaptureQuotaLimiter;
+use crate::token_validation::TokenValidator;
 
 const EVENT_BODY_SIZE: usize = 2 * 1024 * 1024; // 2MB
 pub const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB, up from the default 2MB used for normal event payloads
@@ -44,6 +45,10 @@ pub struct State {
     pub global_rate_limiter_token_distinctid: Option<Arc<GlobalRateLimiter>>,
     pub quota_limiter: Arc<CaptureQuotaLimiter>,
     pub token_dropper: Arc<TokenDropper>,
+    /// Resolves project API keys to real teams so a mistyped key gets a 401
+    /// here instead of a 200 and a silent `team_not_found` drop in ingestion.
+    /// Off by default and always fail-open — see `token_validation`.
+    pub token_validator: Arc<TokenValidator>,
     /// Restriction service scoped to all pipelines this capture deployment
     /// produces to (e.g. `[Analytics, ErrorTracking]` for the events
     /// deployment). Callers select the pipeline per event when looking up
@@ -163,6 +168,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     global_rate_limiter_token_distinctid: Option<Arc<GlobalRateLimiter>>,
     quota_limiter: CaptureQuotaLimiter,
     token_dropper: TokenDropper,
+    token_validator: Arc<TokenValidator>,
     event_restriction_service: Option<EventRestrictionService>,
     metrics: bool,
     capture_mode: CaptureMode,
@@ -197,6 +203,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         quota_limiter: Arc::new(quota_limiter),
         event_payload_size_limit,
         token_dropper: Arc::new(token_dropper),
+        token_validator,
         event_restriction_service,
         historical_cfg: HistoricalConfig::new(
             enable_historical_rerouting,

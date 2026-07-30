@@ -29,6 +29,7 @@ use tracing::{info, warn, Level};
 use capture::config::{CaptureMode, Config, EnvelopeCompression, KafkaConfig};
 use capture::server::serve;
 use capture::setup;
+use capture::token_validation::TokenValidationMode;
 use common_continuous_profiling::ContinuousProfilingConfig;
 use limiters::redis::{QuotaResource, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY};
 
@@ -70,6 +71,14 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     historical_rerouting_threshold_days: 1_i64,
     is_mirror_deploy: false,
     log_level: Level::INFO,
+    token_validation_mode: TokenValidationMode::Off,
+    token_validation_database_url: None,
+    token_validation_cache_capacity: 100_000,
+    token_validation_cache_ttl_secs: 300,
+    token_validation_negative_cache_ttl_secs: 30,
+    object_storage_bucket: "posthog".to_string(),
+    object_storage_region: "us-east-1".to_string(),
+    object_storage_endpoint: String::new(),
     verbose_sample_percent: 0.0_f32,
     kafka: KafkaConfig {
         kafka_producer_linger_ms: 0, // Send messages as soon as possible

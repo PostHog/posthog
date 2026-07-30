@@ -114,6 +114,12 @@ pub async fn otel_handler(
         err.into_response()
     })?;
 
+    if state.token_validator.should_reject(token).await {
+        let err = CaptureError::UnknownToken;
+        report_internal_error_metrics(err.to_metric_tag(), "otel_auth");
+        return Err(err.into_response());
+    }
+
     if state.token_dropper.should_drop(token, "") {
         report_dropped_events("token_dropper", 1);
         return Ok(Json(json!({})));

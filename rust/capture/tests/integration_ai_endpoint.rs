@@ -176,6 +176,7 @@ fn setup_ai_test_router() -> Router {
         None,
         quota_limiter,
         TokenDropper::default(),
+        Arc::new(TokenValidator::disabled()), // token_validator
         None, // event_restriction_service
         false,
         CaptureMode::Events,
@@ -1643,6 +1644,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         None,
         quota_limiter,
         TokenDropper::default(),
+        Arc::new(TokenValidator::disabled()), // token_validator
         None, // event_restriction_service
         false,
         CaptureMode::Events,
@@ -2562,6 +2564,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         None,
         quota_limiter,
         token_dropper,
+        Arc::new(TokenValidator::disabled()), // token_validator
         None,  // event_restriction_service
         false, // metrics
         CaptureMode::Events,
@@ -2738,6 +2741,7 @@ async fn test_ai_endpoint_token_dropper_returns_success_with_empty_accepted_part
 // ----------------------------------------------------------------------------
 
 use capture::quota_limiters::is_llm_event;
+use capture::token_validation::TokenValidator;
 use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
 
 // Helper to setup test router with quota limiter configured to limit AI events
@@ -2776,6 +2780,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         None,
         quota_limiter,
         TokenDropper::default(),
+        Arc::new(TokenValidator::disabled()), // token_validator
         None, // event_restriction_service
         false,
         CaptureMode::Events,
@@ -2935,6 +2940,7 @@ fn setup_ai_test_router_with_overflow_limiter(
         None,
         quota_limiter,
         TokenDropper::default(),
+        Arc::new(TokenValidator::disabled()), // token_validator
         None, // event_restriction_service
         false,
         CaptureMode::Events,
@@ -3078,6 +3084,7 @@ fn ai_router(
         None,
         quota_limiter,
         TokenDropper::default(),
+        Arc::new(TokenValidator::disabled()), // token_validator
         None,
         false,
         CaptureMode::Events,

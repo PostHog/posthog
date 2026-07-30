@@ -30,11 +30,14 @@ common-alloc = { path = "../common/alloc" }
 common-compression = { path = "../common/compression" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
 common-ingestion-warnings = { path = "../common/ingestion_warnings" }
+common-database = { path = "../common/database" }
+common-hypercache = { path = "../common/hypercache" }
 common-kafka = { path = "../common/kafka" }
 common-redis = { path = "../common/redis" }
 common-types = { path = "../common/types" }
 limiters = { path = "../common/limiters" }
 metrics = { workspace = true }
+moka = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
@@ -47,6 +50,7 @@ redis = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_urlencoded = { workspace = true }
+sqlx = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }
 tokio = { workspace = true }

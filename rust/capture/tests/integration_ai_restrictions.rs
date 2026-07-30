@@ -16,6 +16,7 @@ use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
 use capture::sinks::Event;
 use capture::time::TimeSource;
+use capture::token_validation::TokenValidator;
 use capture::v0_request::{DataType, OverflowReason, ProcessedEvent};
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
@@ -174,6 +175,7 @@ async fn setup_ai_router_with_restriction(
         None, // global_rate_limiter_token_distinctid
         quota_limiter,
         TokenDropper::default(),
+        Arc::new(TokenValidator::disabled()), // token_validator
         Some(service),
         false,
         CaptureMode::Events,
@@ -497,6 +499,7 @@ async fn setup_ai_router_with_redirect_to_topic(
         None, // global_rate_limiter_token_distinctid
         quota_limiter,
         TokenDropper::default(),
+        Arc::new(TokenValidator::disabled()), // token_validator
         Some(service),
         false,
         CaptureMode::Events,
@@ -579,6 +582,7 @@ async fn setup_ai_router_with_force_overflow_and_limiter(
         None,
         quota_limiter,
         TokenDropper::default(),
+        Arc::new(TokenValidator::disabled()), // token_validator
         Some(service),
         false,
         CaptureMode::Events,

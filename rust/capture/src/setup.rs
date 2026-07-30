@@ -7,6 +7,8 @@ use axum::Router;
 use common_ingestion_warnings::{
     observe_delivery, KafkaWarningEmitter, WarningEmitter, INGESTION_WARNINGS_EMITTER_ENABLED,
 };
+use common_database::{get_pool_with_config, PoolConfig, PostgresReader};
+use common_hypercache::{HyperCacheConfig, HyperCacheReader};
 use common_kafka::config::KafkaConfig as WarningsKafkaConfig;
 use common_kafka::kafka_producer::create_threaded_kafka_producer_no_ping;
 use common_redis::RedisClient;
@@ -30,6 +32,7 @@ use crate::sinks::print::PrintSink;
 use crate::sinks::s3::S3Sink;
 use crate::sinks::split::SplitKafkaSink;
 use crate::sinks::Event;
+use crate::token_validation::{CachedTeamTokenStore, TokenValidationMode, TokenValidator};
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
@@ -470,6 +473,8 @@ pub async fn build_components(
     let ingestion_warning_emitter =
         create_ingestion_warning_emitter(&config, ingestion_warnings_handle).await;
 
+    let token_validator = Arc::new(create_token_validator(&config, redis_client.clone()).await);
+
     let app = router::router(
         crate::time::SystemTime {},
         readiness,
@@ -479,6 +484,7 @@ pub async fn build_components(
         global_rate_limiter_token_distinctid,
         quota_limiter,
         token_dropper,
+        token_validator,
         event_restriction_service,
         config.export_prometheus,
         config.capture_mode,
@@ -691,6 +697,76 @@ const WARNINGS_KAFKA_LINGER_MS: u32 = 100;
 const WARNINGS_KAFKA_QUEUE_MESSAGES: u32 = 10_000;
 // Drop a message not delivered within this many ms.
 const WARNINGS_KAFKA_MESSAGE_TIMEOUT_MS: u32 = 5_000;
+
+/// Builds the edge token validator. Every failure to stand up a tier degrades
+/// rather than blocks: capture must serve events even when the team_metadata
+/// cache or the read replica is unreachable, so a broken tier only means typo'd
+/// tokens stop being caught.
+async fn create_token_validator(config: &Config, redis_client: Arc<RedisClient>) -> TokenValidator {
+    if config.token_validation_mode == TokenValidationMode::Off {
+        return TokenValidator::disabled();
+    }
+
+    let mut hypercache_config = HyperCacheConfig::new(
+        "team_metadata".to_string(),
+        "full_metadata.json".to_string(),
+        config.object_storage_region.clone(),
+        config.object_storage_bucket.clone(),
+    );
+    hypercache_config.token_based = true;
+    if !config.object_storage_endpoint.is_empty() {
+        hypercache_config.s3_endpoint = Some(config.object_storage_endpoint.clone());
+    }
+
+    let hypercache = match HyperCacheReader::new(redis_client, hypercache_config).await {
+        Ok(reader) => Some(Arc::new(reader)),
+        Err(e) => {
+            warn!("token validation: team_metadata hypercache unavailable, falling back to postgres only: {e:?}");
+            None
+        }
+    };
+
+    // The pool is lazy, so only an unparseable URL fails here — a database that
+    // is down at boot must not disable validation for the process lifetime.
+    let pg: Option<PostgresReader> = match &config.token_validation_database_url {
+        Some(url) => match get_pool_with_config(
+            url,
+            PoolConfig {
+                max_connections: 4,
+                acquire_timeout: Duration::from_secs(1),
+                statement_timeout_ms: Some(1000),
+                pool_name: Some("token_validation".to_string()),
+                ..Default::default()
+            },
+        ) {
+            Ok(pool) => Some(Arc::new(pool)),
+            Err(e) => {
+                warn!("token validation: invalid TOKEN_VALIDATION_DATABASE_URL, no token will be rejected: {e}");
+                None
+            }
+        },
+        None => None,
+    };
+
+    if pg.is_none() {
+        warn!("token validation: no postgres configured, so unknown tokens cannot be proven and none will be rejected");
+    }
+
+    info!(
+        "token validation mode: {:?} (hypercache: {}, postgres: {})",
+        config.token_validation_mode,
+        hypercache.is_some(),
+        pg.is_some(),
+    );
+
+    TokenValidator::new(
+        config.token_validation_mode,
+        Some(Arc::new(CachedTeamTokenStore::new(hypercache, pg))),
+        config.token_validation_cache_capacity,
+        Duration::from_secs(config.token_validation_cache_ttl_secs),
+        Duration::from_secs(config.token_validation_negative_cache_ttl_secs),
+    )
+}
 
 /// Build the dedicated, warnings-only Kafka config. Reuses only the
 /// destination cluster (`hosts`/`tls`) from capture's main Kafka config;

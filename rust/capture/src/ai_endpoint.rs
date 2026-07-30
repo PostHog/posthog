@@ -173,6 +173,10 @@ async fn ai_handler_inner(
     let token = &auth_header[7..]; // Remove "Bearer " prefix
     validate_token(token)?;
 
+    if state.token_validator.should_reject(token).await {
+        return Err(CaptureError::UnknownToken);
+    }
+
     // Check for Content-Encoding header and decompress if needed
     let content_encoding = headers
         .get("content-encoding")

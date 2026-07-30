@@ -40,6 +40,16 @@ pub async fn handle_request(
         log_and_return_header_error(err, &headers, &ip, raw_query.as_deref(), &method, &path)
     })?;
 
+    if state
+        .token_validator
+        .should_reject(&context.api_token)
+        .await
+    {
+        let err = v1::Error::UnknownApiToken;
+        log_stat_error!(err, &context);
+        return Err(err);
+    }
+
     // TODO: purposely chatty, for now
     ctx_log!(Level::INFO, context, "handle_request called");
 

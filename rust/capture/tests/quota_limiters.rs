@@ -22,6 +22,7 @@ use capture::quota_limiters::{
 use capture::router::router;
 use capture::sinks::Event;
 use capture::time::TimeSource;
+use capture::token_validation::TokenValidator;
 use capture::v0_request::ProcessedEvent;
 use chrono::{DateTime, Utc};
 
@@ -132,6 +133,7 @@ async fn setup_router_with_limits(
         None,
         quota_limiter,
         TokenDropper::default(),
+        Arc::new(TokenValidator::disabled()), // token_validator
         None,  // event_restriction_service
         false, // metrics
         CaptureMode::Events,
@@ -1188,6 +1190,7 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         None,
         quota_limiter,
         TokenDropper::default(),
+        Arc::new(TokenValidator::disabled()), // token_validator
         None, // event_restriction_service
         false,
         CaptureMode::Events,
@@ -1282,6 +1285,7 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         None,
         quota_limiter,
         TokenDropper::default(),
+        Arc::new(TokenValidator::disabled()), // token_validator
         None, // event_restriction_service
         false,
         CaptureMode::Events,
@@ -1380,6 +1384,7 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         None,
         quota_limiter,
         TokenDropper::default(),
+        Arc::new(TokenValidator::disabled()), // token_validator
         None, // event_restriction_service
         false,
         CaptureMode::Events,
@@ -1815,6 +1820,7 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         None,
         quota_limiter,
         TokenDropper::default(),
+        Arc::new(TokenValidator::disabled()), // token_validator
         None, // event_restriction_service
         false,
         CaptureMode::Events,

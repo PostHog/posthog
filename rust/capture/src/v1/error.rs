@@ -74,6 +74,8 @@ pub enum Error {
     MissingAuthorization,
     #[error("API token is not valid: {0}")]
     InvalidApiToken(String),
+    #[error("no project owns this API token")]
+    UnknownApiToken,
 
     // 413 - payload_error
     #[error("payload too large: {0}")]
@@ -134,6 +136,7 @@ impl Error {
             Self::BodyReadTimeout(_) => "body_read_timeout",
             Self::MissingAuthorization => "missing_authorization",
             Self::InvalidApiToken(_) => "invalid_api_token",
+            Self::UnknownApiToken => "unknown_api_token",
             Self::PayloadTooLarge(_) => "payload_too_large",
             Self::UnsupportedContentType(_) => "unsupported_content_type",
             Self::UnsupportedEncoding(_) => "unsupported_encoding",
@@ -149,6 +152,9 @@ impl Error {
             Self::RequestDecodingError(_) => "Failed to decode request body.".to_string(),
             Self::RequestParsingError(_) => "Failed to parse request body.".to_string(),
             Self::InvalidApiToken(_) => "The provided API token is not valid.".to_string(),
+            Self::UnknownApiToken => {
+                "The provided API key is invalid or has expired.".to_string()
+            }
             Self::BillingLimitExceeded => "Billing quota exceeded. Events are being dropped. Upgrade your plan to resume ingestion.".to_string(),
             Self::InternalError(_) | Self::ServiceUnavailable(_) | Self::GatewayTimeout => self
                 .status_code()
@@ -192,6 +198,7 @@ impl Error {
             | Self::RequestTimeout
             | Self::MissingAuthorization
             | Self::InvalidApiToken(_)
+            | Self::UnknownApiToken
             | Self::PayloadTooLarge(_)
             | Self::UnsupportedContentType(_)
             | Self::UnsupportedEncoding(_)
@@ -251,7 +258,9 @@ impl Error {
 
             Self::RequestTimeout | Self::BodyReadTimeout(_) => StatusCode::REQUEST_TIMEOUT,
 
-            Self::MissingAuthorization | Self::InvalidApiToken(_) => StatusCode::UNAUTHORIZED,
+            Self::MissingAuthorization | Self::InvalidApiToken(_) | Self::UnknownApiToken => {
+                StatusCode::UNAUTHORIZED
+            }
 
             Self::PayloadTooLarge(_) => StatusCode::PAYLOAD_TOO_LARGE,
 

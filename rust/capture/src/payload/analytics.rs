@@ -105,6 +105,10 @@ pub async fn handle_event_payload(
     };
     Span::current().record("token", &token);
 
+    if state.token_validator.should_reject(&token).await {
+        return Err(CaptureError::UnknownToken);
+    }
+
     counter!("capture_events_received_total").increment(events.len() as u64);
 
     let now = state.timesource.current_time();

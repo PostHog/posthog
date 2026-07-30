@@ -12,6 +12,7 @@ use capture::{
     router::router,
     sinks::Event,
     time::TimeSource,
+    token_validation::TokenValidator,
     v0_request::{DataType, ProcessedEvent},
 };
 use chrono::{DateTime, Utc};
@@ -1100,6 +1101,7 @@ fn build_router_for_mode_at(mode: CaptureMode, fixed_time: &str) -> (Router, Mem
             None, // global_rate_limiter_token_distinctid
             quota_limiter,
             TokenDropper::default(),
+            Arc::new(TokenValidator::disabled()), // token_validator
             None, // event_restriction_service
             false,
             mode,

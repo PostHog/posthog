@@ -40,8 +40,9 @@ impl Error for InvalidTokenReason {
     }
 }
 
-/// Check if a token is the right shape. It may not actually be a valid token! We don't validate
-/// these at the edge yet.
+/// Check if a token is the right shape. A shape-valid token may still belong to
+/// no team — resolving it to a real project is `token_validation`'s job, and
+/// happens right after this check in each handler.
 pub fn validate_token(token: &str) -> Result<(), InvalidTokenReason> {
     if token.is_empty() {
         return Err(InvalidTokenReason::Empty);
