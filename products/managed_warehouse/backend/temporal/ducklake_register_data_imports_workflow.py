@@ -2,6 +2,7 @@ import re
 import json
 import uuid
 import typing
+import hashlib
 import datetime as dt
 import contextlib
 import dataclasses
@@ -205,6 +206,43 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
 
 def _is_valid_queryable_folder(queryable_folder: str) -> bool:
     return bool(queryable_folder) and "/" not in queryable_folder and queryable_folder not in {".", ".."}
+
+
+# `<table>__query_<epoch_seconds>[_<8 hex>]`, produced by prepare_s3_files_for_querying.
+_GENERATION_SUFFIX_PATTERN = re.compile(r"__query_(\d+(?:_[0-9a-f]{8})?)$")
+
+
+def _generation_token(prepared_queryable_folder: str) -> str:
+    match = _GENERATION_SUFFIX_PATTERN.search(prepared_queryable_folder)
+    if match:
+        return match.group(1)
+    # Folders predating the timestamped naming carry no generation, so derive a stable
+    # token from the whole name to keep the workflow id unique per generation.
+    return hashlib.sha256(prepared_queryable_folder.encode()).hexdigest()[:12]
+
+
+def build_register_data_imports_workflow_id(
+    *,
+    team_id: int,
+    schema_id: str,
+    job_id: str,
+    prepared_queryable_folder: str,
+) -> str:
+    """Workflow id for one registration attempt, scoped to a single prepared generation.
+
+    The generation belongs in the id because one job can publish several prepared
+    generations: the v3 load consumer re-runs post-load on a redelivered final batch, and
+    each run mints a new timestamped queryable folder. A job-scoped id makes every
+    generation after the first collide with the in-flight run, and the caller treats
+    WorkflowAlreadyStartedError as "already handled" and drops the trigger. The in-flight
+    run is pinned to the older generation and correctly refuses to publish it, so the
+    newest generation reaches DuckLake only on the next sync. Including the generation
+    gives each one its own run, and a same-generation duplicate still coalesces, which is
+    what that error should mean.
+    """
+    return (
+        f"ducklake-register-data-imports-{team_id}-{schema_id}-{job_id}-{_generation_token(prepared_queryable_folder)}"
+    )
 
 
 def _resolve_data_imports_landing_uri(

@@ -22,6 +22,7 @@ import posthoganalytics
 from posthog.exceptions_capture import capture_exception
 
 from products.managed_warehouse.backend.facade.api import get_org_id_for_team, is_dev_mode
+from products.managed_warehouse.backend.facade.contracts import CPUnavailableError
 from products.managed_warehouse.backend.facade.cp_teams import cp_teams
 
 logger = structlog.get_logger(__name__)
@@ -80,7 +81,7 @@ def duckgres_sink_enablement() -> SinkEnablement | None:
 
     rows = cp_teams.list_member_teams()
     if rows is None:
-        raise RuntimeError("duckgres control plane unreachable; keeping the previous sink enablement")
+        raise CPUnavailableError("duckgres control plane unreachable; keeping the previous sink enablement")
 
     team_info = {
         team_id: (str(team_uuid), str(org_id))

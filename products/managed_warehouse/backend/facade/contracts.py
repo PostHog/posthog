@@ -15,7 +15,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-__all__ = ["DuckLakeQueryResult", "DuckLakeTableResult"]
+__all__ = ["CPUnavailableError", "DuckLakeQueryResult", "DuckLakeTableResult"]
+
+
+class CPUnavailableError(RuntimeError):
+    pass
 
 
 @dataclass

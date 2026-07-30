@@ -1193,6 +1193,22 @@ export interface ScorerStatsApi {
     histogram: ScorerHistogramApi | null
 }
 
+export interface FacetCountApi {
+    /** The facet value as emitted by the summarizer (lowercased). */
+    term: string
+    /** Number of succeeded observations that emitted this value. */
+    count: number
+}
+
+export interface SummarizerStatsApi {
+    /** Top friction points by emission count. */
+    friction_ranked: FacetCountApi[]
+    /** Top keywords by emission count. */
+    keyword_ranked: FacetCountApi[]
+    /** Succeeded observations that emitted at least one friction point or keyword. */
+    total_with_facets: number
+}
+
 export interface ObservationStatsApi {
     /** Counts of observations by terminal status. */
     status_counts: ObservationStatusCountsApi
@@ -1208,6 +1224,8 @@ export interface ObservationStatsApi {
     classifier: ClassifierStatsApi | null
     /** Scorer-type aggregates; null when the scanner is not a scorer. */
     scorer: ScorerStatsApi | null
+    /** Summarizer-type facet aggregates; null when the scanner is not a summarizer. */
+    summarizer: SummarizerStatsApi | null
 }
 
 /**

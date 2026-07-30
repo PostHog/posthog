@@ -18,12 +18,9 @@ import structlog
 
 from products.managed_warehouse.backend import cp_teams
 from products.managed_warehouse.backend.common import _get_org_id_for_team, validate_duckgres_identifier
+from products.managed_warehouse.backend.facade.contracts import CPUnavailableError
 
 logger = structlog.get_logger(__name__)
-
-
-class CPUnavailableError(RuntimeError):
-    """The duckgres control plane could not answer a team-state read."""
 
 
 def _get_cp_row(team_id: int) -> cp_teams.CPTeam | None:

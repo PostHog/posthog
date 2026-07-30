@@ -326,6 +326,20 @@ describe('installationProgressLogic merge', () => {
             // flag alone would keep the completed panel pinned until the next remount.
             expect(localProgress(session({ run_phase: 'completed' }), 'open', true, true).isCurrent).toBe(false)
         })
+
+        it('names the initiator, preferring first name and falling back to email', () => {
+            // The card reads "On <name>'s machine"; a blank first_name must fall back to email so it
+            // never renders "On 's machine".
+            expect(
+                localProgress(session({ created_by: { id: 1, first_name: 'Edwin', email: 'e@ph.com' } }), 'open', true)
+                    .startedBy
+            ).toEqual({ name: 'Edwin', email: 'e@ph.com' })
+            expect(
+                localProgress(session({ created_by: { id: 1, first_name: '', email: 'e@ph.com' } }), 'open', true)
+                    .startedBy
+            ).toEqual({ name: 'e@ph.com', email: 'e@ph.com' })
+            expect(localProgress(session(), 'open', true).startedBy).toBeNull()
+        })
     })
 
     describe('pendingInput', () => {
@@ -402,7 +416,17 @@ describe('installationProgressLogic merge', () => {
                 prMerged: false,
                 isCurrent: true,
                 pendingInput: null,
+                startedBy: null,
             })
+        })
+
+        it('carries the snapshotted initiator so the finished-run handoff can still name them', () => {
+            // The handle outlives the session stream; without this the card would drop the
+            // attribution the moment it switched from the live stream to the snapshot.
+            const result = progressFromFinishedLocalRun(
+                handle({ startedBy: { name: 'Edwin', email: 'edwin@posthog.com' } })
+            )
+            expect(result.startedBy).toEqual({ name: 'Edwin', email: 'edwin@posthog.com' })
         })
 
         it('surfaces the persisted error on failed runs', () => {
