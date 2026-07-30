@@ -17,7 +17,7 @@ from posthog.temporal.common.open_telemetry import initialize_otel
 
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings
-    from django.core.management.base import BaseCommand
+    from django.core.management.base import BaseCommand, CommandError
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS, POSTHOG_CODE_SLACK_ACTIVITIES, POSTHOG_CODE_SLACK_WORKFLOWS
@@ -42,7 +42,8 @@ from posthog.temporal.cleanup_property_definitions import (
     WORKFLOWS as CLEANUP_PROPDEFS_WORKFLOWS,
 )
 from posthog.temporal.common.health_server import HealthCheckServer
-from posthog.temporal.common.liveness_tracker import get_liveness_tracker
+from posthog.temporal.common.interceptor import is_task_queue_supported
+from posthog.temporal.common.liveness_tracker import LivenessInterceptor, get_liveness_tracker
 from posthog.temporal.common.logger import configure_logger, get_logger
 from posthog.temporal.common.worker import ManagedWorker, create_worker
 from posthog.temporal.data_modeling import (
@@ -785,6 +786,20 @@ class Command(BaseCommand):
 
             # Create and start health check server
             if health_port and health_max_idle_seconds:
+                # Without the liveness interceptor nothing ever feeds the tracker, so `idle_seconds`
+                # is just process uptime and the probe 503s at `max_idle_seconds` on a perfectly
+                # healthy worker — k8s then reaps every replica on a fixed cycle. Refuse to serve a
+                # probe that can only ever fail; a worker that won't start is far louder than one
+                # that restarts forever.
+                if not is_task_queue_supported(task_queue, LivenessInterceptor):
+                    raise CommandError(
+                        f"Refusing to start the health server: task queue '{task_queue}' is not covered by "
+                        f"LivenessInterceptor, so /healthz would report process uptime as idle time and fail "
+                        f"after {health_max_idle_seconds}s regardless of worker health. Add the queue to "
+                        f"LivenessInterceptor.task_queue, or unset TEMPORAL_HEALTH_PORT / "
+                        f"TEMPORAL_HEALTH_MAX_IDLE_SECONDS for this deployment."
+                    )
+
                 health_server = HealthCheckServer(
                     port=health_port,
                     liveness_tracker=get_liveness_tracker(),

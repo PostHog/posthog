@@ -16617,6 +16617,20 @@ export namespace Schemas {
 
     export type DataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
 
+    export interface SavedQuerySuspension {
+      /** When materialization was suspended. */
+      at: string;
+      /** Error from the materialization run that tripped suspension. */
+      reason: string;
+      /** Materialization job that tripped suspension. */
+      job_id: string;
+    }
+
+    /**
+     * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+     */
+    export type DataWarehouseSavedQuerySuspended = {[key: string]: SavedQuerySuspension};
+
     /**
      * * `never` - never
      * * `15min` - 15min
@@ -16774,6 +16788,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+      readonly suspended: DataWarehouseSavedQuerySuspended;
     }
 
     /**
@@ -18472,6 +18488,9 @@ export namespace Schemas {
      * * `FirstPromoter` - FirstPromoter
      * * `Zero` - Zero
      * * `Inth` - Inth
+     * * `BCMS` - BCMS
+     * * `Convonite` - Convonite
+     * * `Hookdeck` - Hookdeck
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -19739,6 +19758,9 @@ export namespace Schemas {
       FirstPromoter: 'FirstPromoter',
       Zero: 'Zero',
       Inth: 'Inth',
+      Bcms: 'BCMS',
+      Convonite: 'Convonite',
+      Hookdeck: 'Hookdeck',
     } as const;
 
     /**
@@ -21019,7 +21041,10 @@ export namespace Schemas {
        * * `Typesense` - Typesense
        * * `FirstPromoter` - FirstPromoter
        * * `Zero` - Zero
-       * * `Inth` - Inth */
+       * * `Inth` - Inth
+       * * `BCMS` - BCMS
+       * * `Convonite` - Convonite
+       * * `Hookdeck` - Hookdeck */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -22734,7 +22759,10 @@ export namespace Schemas {
        * * `Typesense` - Typesense
        * * `FirstPromoter` - FirstPromoter
        * * `Zero` - Zero
-       * * `Inth` - Inth */
+       * * `Inth` - Inth
+       * * `BCMS` - BCMS
+       * * `Convonite` - Convonite
+       * * `Hookdeck` - Hookdeck */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -23378,57 +23406,15 @@ export namespace Schemas {
     }
 
     /**
-     * * `workflow` - Workflow
-     * * `team` - Team
+     * Bounce/complaint rates over the last 30 days of workflow email, computed on the fly from app metrics.
      */
-    export type EmailReputationScopeEnum = typeof EmailReputationScopeEnum[keyof typeof EmailReputationScopeEnum];
-
-
-    export const EmailReputationScopeEnum = {
-      Workflow: 'workflow',
-      Team: 'team',
-    } as const;
-
-    /**
-     * * `insufficient_data` - Insufficient Data
-     * * `healthy` - Healthy
-     * * `warning` - Warning
-     * * `critical` - Critical
-     */
-    export type EmailReputationStateEnum = typeof EmailReputationStateEnum[keyof typeof EmailReputationStateEnum];
-
-
-    export const EmailReputationStateEnum = {
-      InsufficientData: 'insufficient_data',
-      Healthy: 'healthy',
-      Warning: 'warning',
-      Critical: 'critical',
-    } as const;
-
-    /**
-     * One email deliverability reputation snapshot (per workflow or per team, per daily evaluation run).
-     */
-    export interface EmailReputationSnapshot {
-      /** 'workflow' for a single workflow's reputation, 'team' for the project-wide aggregate.
-       *
-       * * `workflow` - Workflow
-       * * `team` - Team */
-      readonly scope: EmailReputationScopeEnum;
-      /** 'insufficient_data' (too few sends in the window to judge), 'healthy', 'warning' (over a warning threshold), or 'critical' (over a critical threshold).
-       *
-       * * `insufficient_data` - Insufficient Data
-       * * `healthy` - Healthy
-       * * `warning` - Warning
-       * * `critical` - Critical */
-      readonly state: EmailReputationStateEnum;
-      /** Hard (permanent) bounces / emails sent over the evaluated volume (0-1), matching AWS's account bounce rate — transient bounces are excluded. */
+    export interface EmailSendingRates {
+      /** Hard (permanent) bounces / emails sent over the last 30 days (0-1), matching how AWS counts its bounce rate — transient bounces (greylisting, mailbox full) are excluded. Bounces are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
       readonly bounce_rate: number;
-      /** Spam complaints / emails sent over the evaluated volume (0-1). */
+      /** Spam complaints / emails sent over the last 30 days (0-1). Complaints are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
       readonly complaint_rate: number;
-      /** Emails in the evaluated window: at least the target's last day of sends and at least the configured representative volume (SES-style), whichever covers more. 0 means no recent sending. */
+      /** Emails sent in the last 30 days. */
       readonly emails_sent: number;
-      /** When this snapshot was computed; one snapshot exists per target per run. */
-      readonly evaluated_at: string;
     }
 
     /**
@@ -25685,7 +25671,7 @@ export namespace Schemas {
 
     /**
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
-     * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
      * * `gemini-3.6-flash` - Gemini 3.6 Flash
      */
     export type ScannerModelEnum = typeof ScannerModelEnum[keyof typeof ScannerModelEnum];
@@ -25723,7 +25709,7 @@ export namespace Schemas {
       /** Proposed model; determines `credits_per_observation` in the response.
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
-       * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
+       * * `gemini-3-flash-preview` - Gemini 3 Flash
        * * `gemini-3.6-flash` - Gemini 3.6 Flash */
       model?: ScannerModelEnum;
     }
@@ -28491,7 +28477,6 @@ export namespace Schemas {
 
     /**
      * * `never` - never
-     * * `1min` - 1min
      * * `5min` - 5min
      * * `15min` - 15min
      * * `30min` - 30min
@@ -28502,12 +28487,11 @@ export namespace Schemas {
      * * `7day` - 7day
      * * `30day` - 30day
      */
-    export type SyncFrequencyEnum = typeof SyncFrequencyEnum[keyof typeof SyncFrequencyEnum];
+    export type ExternalDataSchemaSyncFrequencyEnum = typeof ExternalDataSchemaSyncFrequencyEnum[keyof typeof ExternalDataSchemaSyncFrequencyEnum];
 
 
-    export const SyncFrequencyEnum = {
+    export const ExternalDataSchemaSyncFrequencyEnum = {
       Never: 'never',
-      '1min': '1min',
       '5min': '5min',
       '15min': '15min',
       '30min': '30min',
@@ -28580,10 +28564,9 @@ export namespace Schemas {
          * @nullable
          */
       incremental_field_lookback_seconds?: number | null;
-      /** How often to sync.
+      /** How often to sync. The fastest sync frequency is 5 minutes.
        *
        * * `never` - never
-       * * `1min` - 1min
        * * `5min` - 5min
        * * `15min` - 15min
        * * `30min` - 30min
@@ -28593,7 +28576,7 @@ export namespace Schemas {
        * * `24hour` - 24hour
        * * `7day` - 7day
        * * `30day` - 30day */
-      sync_frequency?: SyncFrequencyEnum | null;
+      sync_frequency?: ExternalDataSchemaSyncFrequencyEnum | null;
       /**
          * UTC time of day to run the sync (HH:MM:SS).
          * @nullable
@@ -29977,7 +29960,10 @@ export namespace Schemas {
        * * `Typesense` - Typesense
        * * `FirstPromoter` - FirstPromoter
        * * `Zero` - Zero
-       * * `Inth` - Inth */
+       * * `Inth` - Inth
+       * * `BCMS` - BCMS
+       * * `Convonite` - Convonite
+       * * `Hookdeck` - Hookdeck */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -31276,7 +31262,10 @@ export namespace Schemas {
        * * `Typesense` - Typesense
        * * `FirstPromoter` - FirstPromoter
        * * `Zero` - Zero
-       * * `Inth` - Inth */
+       * * `Inth` - Inth
+       * * `BCMS` - BCMS
+       * * `Convonite` - Convonite
+       * * `Hookdeck` - Hookdeck */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -39498,14 +39487,29 @@ export namespace Schemas {
       readonly computed_with: MCPIntentClusterSnapshotMeta | null;
     }
 
+    export interface MCPIntentTheme {
+      /** Short sentence-case name for this group of intents. */
+      readonly name: string;
+      /** One concrete sentence describing what agents in this theme are doing. */
+      readonly description: string;
+      /** How many of the analysed intents the LLM assigned to this theme, counted from the corpus rather than reported by the LLM. Each intent belongs to at most one theme, so these never sum to more than the digest's intent_count. */
+      readonly intent_count: number;
+      /** One of this theme's intents, verbatim from the corpus. */
+      readonly example_intent: string;
+      /** The MCP tool names recorded alongside this theme's intents, sorted, taken from the corpus. */
+      readonly tools: readonly string[];
+    }
+
     export interface MCPIntentDigest {
       /**
-         * LLM-generated digest (at most three sentences) of what agents are trying to do with this MCP server, derived from the most recent recorded $mcp_intents across all sessions. Null when the project has no recorded intents yet.
+         * LLM-generated one-sentence summary of what agents are trying to do with this MCP server, derived from the most recent recorded $mcp_intents across all sessions. Null when the project has no recorded intents yet.
          * @nullable
          */
       readonly digest: string | null;
       /** How many recorded intents (the most recent, capped at 100) the digest was derived from. */
       readonly intent_count: number;
+      /** Up to 5 semantic groupings of the analysed intents, largest first. May be empty when the digest is null, or when none of the LLM's groupings resolved to recorded intents. */
+      readonly themes: readonly MCPIntentTheme[];
     }
 
     export interface MCPMissingCapabilityCreate {
@@ -43881,7 +43885,7 @@ export namespace Schemas {
       /** Concrete model to use for this scanner.
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
-       * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
+       * * `gemini-3-flash-preview` - Gemini 3 Flash
        * * `gemini-3.6-flash` - Gemini 3.6 Flash */
       model: ScannerModelEnum;
       /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
@@ -48495,6 +48499,11 @@ export namespace Schemas {
     export type PatchedDataWarehouseSavedQueryColumnsItem = { [key: string]: unknown };
 
     /**
+     * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+     */
+    export type PatchedDataWarehouseSavedQuerySuspended = {[key: string]: SavedQuerySuspension};
+
+    /**
      * Shared methods for DataWarehouseSavedQuery serializers.
      *
      * This mixin is intended to be used with serializers.ModelSerializer subclasses.
@@ -48593,6 +48602,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level?: string | null;
+      /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+      readonly suspended?: PatchedDataWarehouseSavedQuerySuspended;
     }
 
     /**
@@ -49690,10 +49701,9 @@ export namespace Schemas {
          * @nullable
          */
       incremental_field_lookback_seconds?: number | null;
-      /** How often to sync.
+      /** How often to sync. The fastest sync frequency is 5 minutes.
        *
        * * `never` - never
-       * * `1min` - 1min
        * * `5min` - 5min
        * * `15min` - 15min
        * * `30min` - 30min
@@ -49703,7 +49713,7 @@ export namespace Schemas {
        * * `24hour` - 24hour
        * * `7day` - 7day
        * * `30day` - 30day */
-      sync_frequency?: SyncFrequencyEnum | null;
+      sync_frequency?: ExternalDataSchemaSyncFrequencyEnum | null;
       /**
          * UTC time of day to run the sync (HH:MM:SS).
          * @nullable
@@ -52630,7 +52640,7 @@ export namespace Schemas {
       /** Concrete model to use for this scanner.
        *
        * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
-       * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
+       * * `gemini-3-flash-preview` - Gemini 3 Flash
        * * `gemini-3.6-flash` - Gemini 3.6 Flash */
       model?: ScannerModelEnum;
       /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
@@ -61936,7 +61946,7 @@ export namespace Schemas {
          * @nullable
          */
       created_by_name: string | null;
-      /** Where the note came from: `human` for one left directly through this API, or `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports. A `report_dismissal` note is one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. */
+      /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. */
       origin: string;
     }
 
@@ -64481,7 +64491,10 @@ export namespace Schemas {
        * * `Typesense` - Typesense
        * * `FirstPromoter` - FirstPromoter
        * * `Zero` - Zero
-       * * `Inth` - Inth */
+       * * `Inth` - Inth
+       * * `BCMS` - BCMS
+       * * `Convonite` - Convonite
+       * * `Hookdeck` - Hookdeck */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -65788,7 +65801,10 @@ export namespace Schemas {
        * * `Typesense` - Typesense
        * * `FirstPromoter` - FirstPromoter
        * * `Zero` - Zero
-       * * `Inth` - Inth */
+       * * `Inth` - Inth
+       * * `BCMS` - BCMS
+       * * `Convonite` - Convonite
+       * * `Hookdeck` - Hookdeck */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -67087,7 +67103,10 @@ export namespace Schemas {
        * * `Typesense` - Typesense
        * * `FirstPromoter` - FirstPromoter
        * * `Zero` - Zero
-       * * `Inth` - Inth */
+       * * `Inth` - Inth
+       * * `BCMS` - BCMS
+       * * `Convonite` - Convonite
+       * * `Hookdeck` - Hookdeck */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -69908,45 +69927,26 @@ export namespace Schemas {
     }
 
     /**
-     * A workflow-scoped reputation snapshot, annotated with the workflow it belongs to.
+     * Bounce/complaint rates over the last 30 days of workflow email, computed on the fly from app metrics.
      */
-    export interface WorkflowEmailReputationSnapshot {
-      /** 'workflow' for a single workflow's reputation, 'team' for the project-wide aggregate.
-       *
-       * * `workflow` - Workflow
-       * * `team` - Team */
-      readonly scope: EmailReputationScopeEnum;
-      /** 'insufficient_data' (too few sends in the window to judge), 'healthy', 'warning' (over a warning threshold), or 'critical' (over a critical threshold).
-       *
-       * * `insufficient_data` - Insufficient Data
-       * * `healthy` - Healthy
-       * * `warning` - Warning
-       * * `critical` - Critical */
-      readonly state: EmailReputationStateEnum;
-      /** Hard (permanent) bounces / emails sent over the evaluated volume (0-1), matching AWS's account bounce rate — transient bounces are excluded. */
+    export interface WorkflowEmailSendingRates {
+      /** Hard (permanent) bounces / emails sent over the last 30 days (0-1), matching how AWS counts its bounce rate — transient bounces (greylisting, mailbox full) are excluded. Bounces are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
       readonly bounce_rate: number;
-      /** Spam complaints / emails sent over the evaluated volume (0-1). */
+      /** Spam complaints / emails sent over the last 30 days (0-1). Complaints are counted when the feedback arrives, so the ratio is approximate at the window boundary and capped at 1. */
       readonly complaint_rate: number;
-      /** Emails in the evaluated window: at least the target's last day of sends and at least the configured representative volume (SES-style), whichever covers more. 0 means no recent sending. */
+      /** Emails sent in the last 30 days. */
       readonly emails_sent: number;
-      /** When this snapshot was computed; one snapshot exists per target per run. */
-      readonly evaluated_at: string;
-      /** The workflow this snapshot is for. */
+      /** The workflow these rates are for. */
       readonly hog_flow_id: string;
-      /**
-         * Display name of the workflow.
-         * @nullable
-         */
-      readonly hog_flow_name: string | null;
-      /** This workflow's snapshots from the last 7 days (oldest first, one per daily evaluation run), including the latest. */
-      readonly history: readonly EmailReputationSnapshot[];
+      /** Display name of the workflow; empty for unnamed workflows. */
+      readonly hog_flow_name: string;
     }
 
     export interface TeamEmailReputationResponse {
-      /** Latest project-wide email reputation snapshot across all workflows; null until first evaluated. */
-      readonly reputation: EmailReputationSnapshot | null;
-      /** Latest snapshot per workflow, worst state and highest rates first, capped at the worst 50 workflows. */
-      readonly workflows: readonly WorkflowEmailReputationSnapshot[];
+      /** Project-wide rates across all workflow email in the last 30 days (including sends from since-deleted workflows); null when nothing was sent. */
+      readonly reputation: EmailSendingRates | null;
+      /** Rates per workflow, worst first (complaint rate, then bounce rate), capped at the worst 50. */
+      readonly workflows: readonly WorkflowEmailSendingRates[];
       /** True while workflow email sending is suspended for this project to protect deliverability. */
       readonly email_sending_suspended: boolean;
       /**
@@ -71229,8 +71229,13 @@ export namespace Schemas {
       duration_seconds: number | null;
       /** Re-run attempt number; 1 for the first attempt. */
       run_attempt: number;
-      /** Attributed pull request number, or 0 when unattributed. */
+      /** Pull request this run ran for, from the run's own-repo PR association; 0 when unattributed (a default-branch push, or a fork PR). */
       pr_number: number;
+      /**
+         * Pull request whose merge produced this run's head commit, resolved through the merged pull request's merge commit and falling back to the commit subject's '(#NNNN)' suffix. Null when neither resolves. The only PR attribution a default-branch push has: read pr_number first and fall back to this.
+         * @nullable
+         */
+      commit_pr_number: number | null;
     }
 
     export interface WorkflowRunnerCost {

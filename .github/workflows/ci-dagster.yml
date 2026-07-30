@@ -110,6 +110,7 @@ jobs:
                         - 'posthog/schema_enums.py' # enum-only schema changes touch only this file
                         - 'posthog/utils.py'
                         - 'posthog/errors.py'
+                        - 'posthog/exceptions.py'
                         - 'posthog/exceptions_capture.py'
                         - 'posthog/metrics.py'
                         - 'posthog/git.py'
