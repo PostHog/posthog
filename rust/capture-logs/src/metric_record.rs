@@ -7,6 +7,7 @@ use chrono::serde::ts_microseconds;
 use chrono::DateTime;
 use chrono::TimeDelta;
 use chrono::Utc;
+use metrics::counter;
 use opentelemetry_proto::tonic::{
     common::v1::{
         any_value::{self, Value},
@@ -264,16 +265,23 @@ fn build_number_row(
     flags: u32,
 ) -> Result<(KafkaMetricRow, bool)> {
     // OTel exemplars attach trace context (and per-bucket trace context on histograms) to
-    // data points. V1 picks the first exemplar with a spec-conformant 16-byte trace_id and
-    // runs it through the shared extract_trace_id / extract_span_id helpers (same encoding
-    // path as log_record / trace_record). Filtering by length up front avoids the case
-    // where a malformed exemplar earlier in the vec would shadow a valid one — exemplar
-    // selection is a metrics-specific concern with no precedent in logs/traces, which
-    // each carry a single trace_id field. Per-bucket attribution on histograms is lossy
-    // in this representation; revisit when we add a multi-row or array exemplar column.
-    let (exemplar_trace_id, exemplar_span_id) = exemplars
+    // data points. The row stores one exemplar, so among those with a spec-conformant
+    // 16-byte trace_id the NEWEST wins: vec order varies with SDK batching and collector
+    // reordering, while recency is deterministic and biases toward the trace most likely
+    // still retained by trace sampling. Ties keep the later entry (max_by_key semantics).
+    // The rest flow through the shared extract_trace_id / extract_span_id helpers (same
+    // encoding path as log_record / trace_record). Per-bucket attribution on histograms
+    // is lossy in this representation; dropped counts are observable via
+    // capture_metrics_exemplars_dropped_total until a multi-row or array exemplar column.
+    let picked = exemplars
         .iter()
-        .find(|e| e.trace_id.len() == 16)
+        .filter(|e| e.trace_id.len() == 16)
+        .max_by_key(|e| e.time_unix_nano);
+    let dropped = exemplars.len() - usize::from(picked.is_some());
+    if dropped > 0 {
+        counter!("capture_metrics_exemplars_dropped_total").increment(dropped as u64);
+    }
+    let (exemplar_trace_id, exemplar_span_id) = picked
         .map(|e| {
             (
                 BASE64_STANDARD.encode(extract_trace_id(&e.trace_id)),
@@ -639,7 +647,7 @@ mod tests {
     }
 
     #[test]
-    fn test_first_well_formed_exemplar_is_picked() {
+    fn test_well_formed_exemplar_is_picked_over_contextless() {
         // First exemplar has an empty trace_id (no context attached) and is skipped;
         // second carries spec-conformant 16-byte bytes and wins.
         let other_trace = [9u8; 16];
@@ -652,6 +660,54 @@ mod tests {
 
         assert_eq!(row.trace_id, BASE64_STANDARD.encode(other_trace));
         assert_eq!(row.span_id, BASE64_STANDARD.encode(other_span));
+    }
+
+    fn make_timed_exemplar(trace_id: Vec<u8>, span_id: Vec<u8>, time_unix_nano: u64) -> Exemplar {
+        Exemplar {
+            time_unix_nano,
+            ..make_exemplar(trace_id, span_id)
+        }
+    }
+
+    #[test]
+    fn test_latest_valid_exemplar_wins_regardless_of_vec_order() {
+        // The schema stores one exemplar per data point, so selection must be
+        // deterministic under collector batching/reordering: the newest valid
+        // exemplar wins, not whichever happens to appear first in the vec.
+        let older_trace = [1u8; 16];
+        let newer_trace = [2u8; 16];
+        let newer_span = [2u8; 8];
+
+        let newest_first = vec![
+            make_timed_exemplar(newer_trace.to_vec(), newer_span.to_vec(), 200),
+            make_timed_exemplar(older_trace.to_vec(), [1u8; 8].to_vec(), 100),
+        ];
+        let newest_last = vec![
+            make_timed_exemplar(older_trace.to_vec(), [1u8; 8].to_vec(), 100),
+            make_timed_exemplar(newer_trace.to_vec(), newer_span.to_vec(), 200),
+        ];
+
+        for exemplars in [newest_first, newest_last] {
+            let row = build_test_row(&exemplars);
+            assert_eq!(row.trace_id, BASE64_STANDARD.encode(newer_trace));
+            assert_eq!(row.span_id, BASE64_STANDARD.encode(newer_span));
+        }
+    }
+
+    #[test]
+    fn test_latest_wins_ignores_malformed_newer_exemplar() {
+        // A malformed exemplar with the newest timestamp must not beat an older
+        // valid one: recency only ranks exemplars that carry usable context.
+        let valid_trace = [3u8; 16];
+        let valid_span = [3u8; 8];
+        let exemplars = vec![
+            make_timed_exemplar(valid_trace.to_vec(), valid_span.to_vec(), 100),
+            make_timed_exemplar(vec![1, 2, 3], vec![], 999),
+        ];
+        let row = build_test_row(&exemplars);
+
+        assert_eq!(row.trace_id, BASE64_STANDARD.encode(valid_trace));
+        assert_eq!(row.span_id, BASE64_STANDARD.encode(valid_span));
     }
 
     #[test]
