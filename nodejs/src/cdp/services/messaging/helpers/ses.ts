@@ -222,6 +222,12 @@ const MAX_LINK_URL_LENGTH = 200
 export const normalizeClickUrl = (link: string): string => {
     try {
         const url = new URL(link)
+        // `new URL` also parses hostless schemes (mailto:, tel:, sms:), where `host` is empty and
+        // rebuilding as `scheme://host+path` would invent an authority — `mailto:x` becoming
+        // `mailto://x`. Only http(s)-shaped links have a host to normalize; the rest pass through.
+        if (!url.host) {
+            return link.slice(0, MAX_LINK_URL_LENGTH)
+        }
         return `${url.protocol}//${url.host}${url.pathname}`.replace(/\/$/, '').slice(0, MAX_LINK_URL_LENGTH)
     } catch {
         return link.slice(0, MAX_LINK_URL_LENGTH)
