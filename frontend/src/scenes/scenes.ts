@@ -710,6 +710,8 @@ export const redirects: Record<
     '/organization/settings': urls.settings('organization'),
     '/pipeline': urls.sources(),
     '/pipelines': urls.sources(),
+    // Backstop for links and history entries pointing at an id-less project root
+    '/project': urls.projectHomepage(),
     '/pipeline/new/site-app': urls.webScriptsNew(),
     '/pipeline/site_apps': urls.webScripts(),
     '/pipeline/site-apps': urls.webScripts(),

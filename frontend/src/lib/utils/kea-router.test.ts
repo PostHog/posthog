@@ -34,6 +34,17 @@ describe('router-utils', () => {
         expect(altered).toEqual('/feature_flags/staff/cohorts')
     })
 
+    describe('id-less project root', () => {
+        it.each([
+            ['/project', '/project/123'],
+            ['/project/', '/project/123'],
+            ['/project/?foo=1', '/project/123?foo=1'],
+            ['/project#tab', '/project/123#tab'],
+        ])('treats %s as the project root rather than nesting it', (path, expected) => {
+            expect(addProjectIdIfMissing(path, 123)).toEqual(expected)
+        })
+    })
+
     describe('relative path normalization', () => {
         it('normalizes ../ prefix to absolute path with project id', () => {
             expect(addProjectIdIfMissing('../dashboard/1663553', 112509)).toEqual('/project/112509/dashboard/1663553')

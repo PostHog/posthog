@@ -40,6 +40,11 @@ function isPathWithoutProjectId(path: string): boolean {
     return pathsWithoutProjectId.includes(firstPart)
 }
 
+function splitPathname(path: string): [string, string] {
+    const separatorIndex = path.search(/[?#]/)
+    return separatorIndex === -1 ? [path, ''] : [path.slice(0, separatorIndex), path.slice(separatorIndex)]
+}
+
 function normalizeRelativePath(path: string): string {
     const normalized = path.replace(/^(\.\.\/|\.\/)+/, '')
     return normalized.startsWith('/') ? normalized : `/${normalized}`
@@ -57,8 +62,11 @@ function addProjectIdUnlessPresent(path: string, teamId?: TeamType['id']): strin
     let prefix = ''
     try {
         prefix = `/project/${teamId ?? getCurrentTeamId()}`
-        if (path == '/') {
-            return prefix
+        // `/`, `/project` and `/project/` all mean the project root, so prefixing them would
+        // nest the id-less path under itself (`/project/<id>/project`), which has no route
+        const [pathname, rest] = splitPathname(path)
+        if (pathname === '/' || pathname === '/project' || pathname === '/project/') {
+            return prefix + rest
         }
     } catch {
         // Not logged in
@@ -121,6 +129,11 @@ export function getProjectSwitchTargetUrl(
     currentProjectId?: number | null,
     newProjectId?: number | null
 ): string {
+    // Without a target id every branch below would emit an id-less `/project/...`, which 404s
+    if (!newTeamId) {
+        return currentPath
+    }
+
     // Remove project ID and flag ID from the path
     let route = removeProjectIdIfPresent(currentPath)
     route = removeFlagIdIfPresent(route)
