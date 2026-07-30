@@ -6,7 +6,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
-import { OriginProduct } from 'products/posthog_ai/frontend/types/taskTypes'
 import {
     ClaudeRuntimeAdapterEnumApi,
     ClaudeTaskRunCreateSchemaApi,
@@ -96,15 +95,13 @@ async function createReportTask(
         throw new Error('No repository has been selected for this report yet — try again once analysis finishes.')
     }
 
-    const task = await api.tasks.create({
+    const task = await api.tasks.createSignalReport({
         title: report.title?.trim() || fallbackTitle,
         description: prompt,
-        origin_product: OriginProduct.SIGNAL_REPORT,
         repository,
-        // Linkage fields accepted by the tasks backend for the signal_report origin.
         signal_report: report.id,
         signal_report_task_relationship: relationship,
-    } as Parameters<typeof api.tasks.create>[0])
+    })
 
     // Kick off a cloud run so the task actually executes — creating it alone lands the user on a
     // "This task hasn't been run yet" screen. `run_source` ties the run to the report and makes any

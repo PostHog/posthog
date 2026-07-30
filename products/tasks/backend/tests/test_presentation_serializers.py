@@ -18,6 +18,10 @@ class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
         [
             ("image_builder", True),
             ("signals_scout", True),
+            ("signal_report", True),
+            ("posthog_ai", True),
+            ("slack", True),
+            ("support_reply", True),
             ("user_created", False),
         ]
     )
@@ -25,6 +29,11 @@ class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
         serializer = TaskWriteSerializer(data={"origin_product": origin_product})
         serializer.is_valid()
         assert ("origin_product" in serializer.errors) is expected_rejected
+
+    def test_internal_tasks_are_rejected(self) -> None:
+        serializer = TaskWriteSerializer(data={"internal": True})
+        assert not serializer.is_valid()
+        assert "internal" in serializer.errors
 
 
 class TestTaskRunLivingArtifactCreateRequestSerializer(SimpleTestCase):

@@ -5363,6 +5363,14 @@ const api = {
         async create(data: TaskUpsertProps): Promise<Task> {
             return await new ApiRequest().tasks().create({ data })
         },
+        async createSignalReport(
+            data: Omit<TaskUpsertProps, 'origin_product'> & {
+                signal_report: string
+                signal_report_task_relationship: 'implementation' | 'discussion'
+            }
+        ): Promise<Task> {
+            return await new ApiRequest().tasks().withAction('signal_report').create({ data })
+        },
         async update(id: string, data: Partial<TaskUpsertProps>): Promise<Task> {
             return await new ApiRequest().task(id).update({ data })
         },

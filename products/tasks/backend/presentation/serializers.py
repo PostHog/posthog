@@ -596,6 +596,14 @@ class TaskWriteSerializer(serializers.Serializer):
 
     def validate_origin_product(self, value):
         """Reject internal-only origins that are set by server-side flows, never by API callers."""
+        reserved_billing_origins = {
+            tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+            tasks_facade.TaskOriginProduct.POSTHOG_AI,
+            tasks_facade.TaskOriginProduct.SLACK,
+            tasks_facade.TaskOriginProduct.SUPPORT_REPLY,
+        }
+        if value in reserved_billing_origins:
+            raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")
         if value == tasks_facade.TaskOriginProduct.IMAGE_BUILDER:
             raise serializers.ValidationError("origin_product 'image_builder' is reserved for image-builder sessions")
         if value == tasks_facade.TaskOriginProduct.EXPERIMENTS:
@@ -644,6 +652,16 @@ class TaskWriteSerializer(serializers.Serializer):
         if "runtime" in self.initial_data and "runtime" not in self.fields:
             raise serializers.ValidationError({"runtime": "Runtime cannot be changed after task creation."})
 
+        trusted_signal_report = self.context.get("trusted_signal_report", False)
+        if attrs.get("internal"):
+            raise serializers.ValidationError({"internal": "Internal tasks must be created by server-side flows."})
+        if trusted_signal_report:
+            attrs["origin_product"] = tasks_facade.TaskOriginProduct.SIGNAL_REPORT
+        elif "signal_report" in attrs or "signal_report_task_relationship" in attrs:
+            raise serializers.ValidationError(
+                {"signal_report": "Signal report attribution must use the signal report task endpoint."}
+            )
+
         rel = attrs.get("signal_report_task_relationship")
         if rel is not None:
             if not attrs.get("signal_report"):
@@ -683,6 +701,20 @@ class TaskCreateSerializer(TaskWriteSerializer):
         choices=tasks_facade.TaskRuntime.choices,
         required=False,
         help_text="Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.",
+    )
+
+
+class SignalReportTaskCreateSerializer(TaskCreateSerializer):
+    signal_report = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
+        queryset=Integration.objects.none(),
+        required=True,
+        allow_null=False,
+        help_text="Signal report that owns this task.",
+    )
+    signal_report_task_relationship = serializers.ChoiceField(
+        choices=("implementation", "discussion"),
+        required=True,
+        help_text="Whether the task implements or discusses the report.",
     )
 
 

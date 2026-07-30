@@ -1360,11 +1360,10 @@ class TestTaskAPI(BaseTaskAPITest):
 
         report = SignalReport.objects.create(team=self.team)
         response = self.client.post(
-            "/api/projects/@current/tasks/",
+            "/api/projects/@current/tasks/signal_report/",
             {
                 "title": "Signal Task",
                 "description": "From a signal report",
-                "origin_product": "signal_report",
                 "signal_report": str(report.id),
                 "signal_report_task_relationship": "implementation",
             },
@@ -1393,11 +1392,10 @@ class TestTaskAPI(BaseTaskAPITest):
 
         report = SignalReport.objects.create(team=self.team)
         response = self.client.post(
-            "/api/projects/@current/tasks/",
+            "/api/projects/@current/tasks/signal_report/",
             {
                 "title": "Discuss report",
                 "description": "Let's discuss this report",
-                "origin_product": "signal_report",
                 "signal_report": str(report.id),
                 "signal_report_task_relationship": "discussion",
             },
@@ -1412,28 +1410,21 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION), [])
         self.assertFalse(SignalReportTask.objects.filter(report=report, task_id=data["id"]).exists())
 
-    def test_create_task_with_signal_report_accepts_free_form_relationship(self):
-        from products.signals.backend.models import SignalReport, SignalReportTask
-        from products.signals.backend.task_run_artefacts import signals_task_ids
+    def test_create_signal_report_task_rejects_unknown_relationship(self):
+        from products.signals.backend.models import SignalReport
 
-        # The relationship is a free-form task_run label — no value is reserved. A non-implementation
-        # relationship records only the work-log artefact (no SignalReportTask gate row).
         report = SignalReport.objects.create(team=self.team)
         response = self.client.post(
-            "/api/projects/@current/tasks/",
+            "/api/projects/@current/tasks/signal_report/",
             {
                 "title": "Research",
                 "description": "From a signal report",
-                "origin_product": "signal_report",
                 "signal_report": str(report.id),
                 "signal_report_task_relationship": "research",
             },
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        data = response.json()
-        self.assertEqual(signals_task_ids(report_id=str(report.id), type="research"), [data["id"]])
-        self.assertFalse(SignalReportTask.objects.filter(report=report, task_id=data["id"]).exists())
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_create_task_with_signal_report_different_team_rejected(self):
         from products.signals.backend.models import SignalReport
@@ -1441,12 +1432,28 @@ class TestTaskAPI(BaseTaskAPITest):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
         report = SignalReport.objects.create(team=other_team)
         response = self.client.post(
-            "/api/projects/@current/tasks/",
+            "/api/projects/@current/tasks/signal_report/",
             {
                 "title": "Cross-team Task",
                 "description": "Should be rejected",
+                "signal_report": str(report.id),
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_generic_create_rejects_signal_report_attribution(self):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Forged Signal Task",
+                "description": "Should be rejected",
                 "origin_product": "signal_report",
                 "signal_report": str(report.id),
+                "signal_report_task_relationship": "implementation",
             },
             format="json",
         )
@@ -1460,7 +1467,7 @@ class TestTaskAPI(BaseTaskAPITest):
             {"origin_product": "signal_report"},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         task.refresh_from_db()
         self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
 
@@ -1474,7 +1481,7 @@ class TestTaskAPI(BaseTaskAPITest):
             {"signal_report": str(report.id)},
             format="json",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         task.refresh_from_db()
         self.assertIsNone(task.signal_report_id)
 
