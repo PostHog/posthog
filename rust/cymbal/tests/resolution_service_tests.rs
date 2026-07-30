@@ -537,7 +537,6 @@ fn sample_resolved_frame(raw_frame: &RawFrame) -> Frame {
         junk_drawer: None,
         code_variables: None,
         context: None,
-        release: None,
     }
 }
 

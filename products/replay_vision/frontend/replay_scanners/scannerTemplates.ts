@@ -144,6 +144,7 @@ export function newScanner(templateKey?: string | null): ReplayScanner {
         // create-time gating falls back to the resource-level default instead (see getReplayVisionEditDisabledReason).
         user_access_level: null,
         credits_this_month: 0,
+        observations_this_month: 0,
     } as const
 
     const template = findScannerTemplate(templateKey ?? undefined)

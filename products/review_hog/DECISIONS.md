@@ -198,6 +198,29 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-07-27 — reviews surface exposed as MCP tools (grantable `review_hog` scope)
+
+Agents needed to drive ReviewHog over MCP — kick off a review, poll progress, pull the finished findings
+([PR #72917](https://github.com/PostHog/posthog/pull/72917)). The capabilities already existed as the reviews
+viewset behind the Code review UI; the blocker was auth: the viewset was `scope_object = "INTERNAL"`
+(session-only), unreachable with the personal API key / OAuth token MCP authenticates with. Decisions:
+
+- **A grantable `review_hog` scope, not a widened INTERNAL.** The viewset moves to `scope_object = "review_hog"`
+  with `trigger` behind `review_hog:write` and `perspective_stats` behind `review_hog:read` (`list` / `retrieve`
+  map to `review_hog:read` by default). Session UI access is unchanged — this only adds token access. The scope
+  is mirrored across the standard lists (`posthog/scopes.py`, the frontend `API_SCOPE_OBJECTS` array + the PAK
+  modal in `scopes.tsx`, the generated agent / OAuth scope lists, the MCP guard lists).
+- **Three thin tools over the existing surface** (`products/review_hog/mcp/tools.yaml`):
+  `review-hog-reviews-trigger` (write), `review-hog-reviews-list` (status polling — running turns first with the
+  `progress` stage / counters), `review-hog-reviews-get` (validated + dismissed findings, published body). All
+  three are gated on the `review-hog` feature flag — the same flag that gates the Code review menu entry —
+  evaluated fail-closed at MCP init. The other scaffolded operations (settings, perspectives, validators, blind
+  spots, perspective stats) stay `enabled: false` until an agent job needs them.
+- **Identity + gates inherited, not widened:** an MCP-triggered review runs under the token's user — the same
+  "requester is both run user and acting user" rule as the UI trigger — and the trigger action keeps the
+  `REVIEWHOG_TEAM_ID` dogfood gate and its synchronous URL / App-access / fork / open-state checks regardless of
+  caller.
+
 ### ✅ BUILT 2026-07-21 — held-back reviews reach PR authors (deep links, authored-PRs scope, truthful drawer + comment)
 
 Dogfooding surfaced a dead-end: a review triggered from the Code review scene runs under the **requester's**

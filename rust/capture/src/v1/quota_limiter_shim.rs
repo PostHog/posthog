@@ -246,6 +246,7 @@ mod tests {
             ai_secondary_kafka_client_id: String::new(),
             capture_analytics_ai_events_mode: crate::config::AiSinkMode::Primary,
             capture_analytics_ai_events_allowlist_tokens: None,
+            capture_analytics_ai_events_percentage: None,
             http1_header_read_timeout_ms: Some(5000),
             body_chunk_read_timeout_ms: None,
             body_read_chunk_size_kb: 256,
@@ -262,6 +263,9 @@ mod tests {
             capture_ingestion_warnings_enabled: false,
             capture_ingestion_warnings_kafka_queue_mib: 16,
             capture_ingestion_warnings_kafka_message_max_bytes: 1048576,
+            capture_ingestion_warnings_kafka_topic: String::new(),
+            capture_ingestion_warnings_kafka_hosts: String::new(),
+            capture_ingestion_warnings_kafka_tls: false,
         }
     }
 

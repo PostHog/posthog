@@ -7,6 +7,8 @@ from unittest.mock import Mock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.schema import DateRange, MarketingAnalyticsDrillDownLevel, MarketingAnalyticsTableQuery
 
 from posthog.hogql import ast
@@ -148,7 +150,15 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
         # cost_date is a real per-day date (not the sentinel empty), enabling daily-window caching.
         assert all(r[self._col(cols, "cost_date")] is not None for r in rows)
 
-    def test_native_read_takes_latest_job_per_cell_not_sum(self):
+    @parameterized.expand(
+        [
+            ("stale_and_matured_job", "c1", "c1"),
+            # match_key is re-derived per job from the team's campaign_field_preferences, so a preference
+            # flip writes the same real cell under two match_key values; the view must still collapse them.
+            ("campaign_field_preference_flip", "Camp 1", "c1"),
+        ]
+    )
+    def test_native_read_takes_latest_job_per_cell_not_sum(self, _name, match_key_old, match_key_new):
         # The same (campaign, day) cell materialized under two job_ids — a stale value and a matured one.
         # job_id is in the raw ReplacingMergeTree sort key, so both rows survive. The read filters by
         # source (not job_id) and goes through the `marketing_costs_precomputed` view, which must collapse the cell to
@@ -157,7 +167,6 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
             "source_id": "google_test",
             "source_name": "google",
             "grain": "campaign",
-            "match_key": "c1",
             "campaign_id": "c1",
             "campaign_name": "Camp 1",
             "cost_date": date(2023, 1, 15),
@@ -170,7 +179,7 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
                 cell["source_id"],
                 cell["source_name"],
                 cell["grain"],
-                cell["match_key"],
+                match_key,
                 cell["campaign_id"],
                 cell["campaign_name"],
                 "",
@@ -186,9 +195,9 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
                 computed_at,
                 date(2099, 1, 1),
             )
-            for job, cost, computed_at in (
-                (job_old, 100.0, datetime(2023, 1, 15, 10, 0)),
-                (job_new, 150.0, datetime(2023, 1, 16, 10, 0)),
+            for job, match_key, cost, computed_at in (
+                (job_old, match_key_old, 100.0, datetime(2023, 1, 15, 10, 0)),
+                (job_new, match_key_new, 150.0, datetime(2023, 1, 16, 10, 0)),
             )
         ]
         sync_execute(

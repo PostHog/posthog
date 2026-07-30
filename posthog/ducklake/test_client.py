@@ -5,7 +5,19 @@ from psycopg import sql as psql
 
 from posthog.schema import HogQLQuery, HogQLVariable
 
+from posthog.ducklake import cp_teams
 from posthog.ducklake.client import _SEARCH_PATH_SCHEMAS, compile_hogql_to_ducklake_sql, execute_ducklake_query
+
+
+@pytest.fixture(autouse=True)
+def _cp_no_rows():
+    # Compilation binds source tables via the team's control-plane row; serve the
+    # no-row (legacy team-id schema) shape so these tests stay CP-independent.
+    cp_teams.clear_cache()
+    with mock.patch("posthog.ducklake.cp_teams._fetch_org_rows", return_value=[]):
+        yield
+    cp_teams.clear_cache()
+
 
 pytestmark = [pytest.mark.django_db]
 
@@ -37,6 +49,7 @@ class TestCompileHogQLToDuckLakeSQL:
 
 class TestDuckLakeModelRedirect:
     def test_materialized_model_resolves_to_ducklake_table_not_s3(self):
+        from posthog.ducklake.common import duckgres_data_modeling_schema, duckgres_data_modeling_table_name
         from posthog.models import Organization, Team
 
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -69,12 +82,14 @@ class TestDuckLakeModelRedirect:
         # The duckgres path must read the DuckLake-materialized model, not the
         # ClickHouse s3() table function, which DuckDB cannot execute.
         assert "s3(" not in postgres_sql.lower()
-        assert f"shadow_{team.pk}_models" in postgres_sql
+        assert duckgres_data_modeling_schema(team.pk) in postgres_sql
+        assert duckgres_data_modeling_table_name("vitally_org") in postgres_sql
 
-    def test_source_table_resolves_to_ducklake_table_not_s3(self):
+    def test_non_materialized_view_resolves_its_source_to_cluster_table(self):
         from posthog.ducklake.common import duckgres_data_imports_schema, duckgres_data_imports_table_name
         from posthog.models import Organization, Team
 
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
         from products.warehouse_sources.backend.facade.models import (
             DataWarehouseCredential,
             DataWarehouseTable,
@@ -90,36 +105,63 @@ class TestDuckLakeModelRedirect:
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.STRIPE,
-            prefix="myprefix_",
+            source_type=ExternalDataSourceType.GOOGLEADS,
         )
         credential = DataWarehouseCredential.objects.create(team=team, access_key="key", access_secret="secret")
         warehouse_table = DataWarehouseTable.objects.create(
-            name="myprefix_stripe_customers",
+            name="googleads_video",
             format="Parquet",
             team=team,
             external_data_source=source,
             external_data_source_id=source.id,
             credential=credential,
-            url_pattern="https://bucket.s3.amazonaws.com/stripe/customers/*.parquet",
+            url_pattern="https://bucket.s3.amazonaws.com/googleads/video/*.parquet",
             columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
         )
         schema = ExternalDataSchema.objects.create(
             team=team,
-            name="customers",
+            name="video",
             source=source,
             table=warehouse_table,
             should_sync=True,
         )
+        DataWarehouseSavedQuery.objects.create(
+            team=team,
+            name="google_ads_video_view",
+            query={"query": "SELECT id FROM googleads.video"},
+            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
+            is_materialized=False,
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+        )
 
-        query = HogQLQuery(query="SELECT id FROM myprefix_stripe_customers")
+        query = HogQLQuery(query="SELECT id FROM google_ads_video_view")
         postgres_sql, _values, _hogql = compile_hogql_to_ducklake_sql(team.pk, query)
 
         # The duckgres path must read the DuckLake-copied source table, not the
         # ClickHouse s3() table function, which DuckDB cannot execute.
         assert "s3(" not in postgres_sql.lower()
-        assert duckgres_data_imports_schema(team.pk) in postgres_sql
-        assert duckgres_data_imports_table_name(schema) in postgres_sql
+        assert duckgres_data_imports_table_name(schema) == "google_ads_video"
+        assert f"{duckgres_data_imports_schema(team.pk)}.google_ads_video" in postgres_sql
+
+    def test_events_and_persons_resolve_to_cluster_tables(self):
+        from posthog.models import Organization, Team
+
+        org = Organization.objects.create(name="ducklake-posthog-table-redirect")
+        team = Team.objects.create(organization=org)
+
+        with mock.patch(
+            "posthog.ducklake.team_state.resolve_events_persons_tables",
+            return_value=("events_prod", "persons_prod"),
+        ):
+            events_sql, _values, _hogql = compile_hogql_to_ducklake_sql(
+                team.pk, HogQLQuery(query="SELECT uuid FROM events LIMIT 1")
+            )
+            persons_sql, _values, _hogql = compile_hogql_to_ducklake_sql(
+                team.pk, HogQLQuery(query="SELECT id FROM persons LIMIT 1")
+            )
+
+        assert "posthog.events_prod" in events_sql
+        assert "posthog.persons_prod" in persons_sql
 
 
 class TestDuckgresShadowCompilation:

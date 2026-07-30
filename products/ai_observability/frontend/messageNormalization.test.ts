@@ -1,5 +1,6 @@
 import posthog from 'posthog-js'
 
+import { resolveAiBlobUrl } from './aiBlob'
 import { captureNormalizationFailure, normalizeMessage, normalizeMessages } from './messageNormalization'
 
 jest.mock('posthog-js', () => ({ __esModule: true, default: { capture: jest.fn() } }))
@@ -44,6 +45,39 @@ describe('messageNormalization', () => {
         it("never captures — reporting a failure is the caller's decision", () => {
             normalizeMessages({ file_path: 'src/index.ts' }, 'user')
             expect(capture).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('offloaded media', () => {
+        const HASH = 'a'.repeat(64)
+        const POINTER = `phaiblob://v1/sha256/${HASH}?mime=image%2Fpng&size=332378`
+
+        it('keeps an offloaded anthropic tool_result image resolvable through the blob endpoint', () => {
+            const { messages } = normalizeMessages(
+                {
+                    role: 'user',
+                    content: [
+                        {
+                            type: 'tool_result',
+                            tool_use_id: 'toolu_01Rg4FtbD8eH1fx2yMkQGVSz',
+                            content: [
+                                {
+                                    type: 'image',
+                                    source: { type: 'base64', media_type: 'image/png', data: POINTER },
+                                },
+                            ],
+                        },
+                    ],
+                },
+                'user'
+            )
+
+            const images = messages
+                .flatMap((message) => (Array.isArray(message.content) ? message.content : []))
+                .flatMap((part) => (typeof part === 'object' && 'image' in part ? [part.image] : []))
+
+            expect(images).toHaveLength(1)
+            expect(resolveAiBlobUrl(images[0], 1)).toBe(`/api/projects/1/ai_blob/v1/sha256/${HASH}`)
         })
     })
 

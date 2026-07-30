@@ -104,12 +104,19 @@ class TestUbidotsSource:
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is UbidotsResumeConfig
 
+    def test_version_declarations(self) -> None:
+        # v2.0 is the default new sources are stamped with; v1 stays supported so existing pins keep
+        # syncing through the legacy v1.6 Data API.
+        assert self.source.supported_versions == ("v1", "v2.0")
+        assert self.source.default_version == "v2.0"
+
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.source.ubidots_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = VALUES_ENDPOINT
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = 1700000000000
+        inputs.api_version = None
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -122,6 +129,25 @@ class TestUbidotsSource:
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == 1700000000000
+
+    @parameterized.expand(
+        [
+            ("no_pin_resolves_to_default", None, "v2.0"),
+            ("legacy_pin_honored", "v1", "v1"),
+            ("v2_pin_honored", "v2.0", "v2.0"),
+        ]
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.ubidots.source.ubidots_source")
+    def test_source_for_pipeline_threads_resolved_api_version(
+        self, _name: str, pin: str | None, expected: str, mock_source: mock.MagicMock
+    ) -> None:
+        inputs = mock.MagicMock()
+        inputs.schema_name = VALUES_ENDPOINT
+        inputs.api_version = pin
+
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
+
+        assert mock_source.call_args.kwargs["api_version"] == expected
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
         inputs = mock.MagicMock()
