@@ -47,6 +47,15 @@ STALE_BLAME_MULTIPLIER = 0.15
 # Caps activity-only fallbacks below blame candidates: they only win when every blame author is stale.
 ACTIVITY_ONLY_SCORE_CAP = 0.25
 ACTIVITY_BONUS_SATURATION_COMMITS = 10
+# Above this many recent contributors, an area is a crowd rather than an ownership signal:
+# being one of them says nothing about who should review a file inside it. Sized to sit above
+# a product-sized area and below a repo-sized one (on posthog/posthog, per-product areas run
+# 15-30 contributors, while `products`, `frontend/src` and repo-wide run 100+). A whole
+# repository below the threshold stays usable as a fallback area, which is intended: on a
+# 20-person team, "active in this repository lately" really does imply ownership. Must stay
+# under `MAX_CONTRIBUTORS_PER_AREA`, since the count comes from the truncated stored list and
+# a threshold at or above the storage cap can never be exceeded.
+MAX_CONTRIBUTORS_FOR_OWNERSHIP = 30
 GitHubLoginFieldLookup = Literal[
     "extra_data__login",
     "config__github_user__login",
@@ -288,6 +297,9 @@ class _AreaContributor:
     last_commit_sha: str
     last_commit_url: str
     area: str  # the area of the evidence (freshest) commit, for evidence wording
+    # Whether that evidence area is focused enough to imply ownership. Recency still counts
+    # everywhere; only nominating someone on area activity alone needs this.
+    implies_ownership: bool
 
 
 def _relevant_area_activity(
@@ -300,8 +312,9 @@ def _relevant_area_activity(
     Cache-only; a missing or stale map schedules an async rebuild and this report falls
     back to whatever is cached (possibly nothing). An area with no active contributors
     falls back up its chain (parent directory, then repo-wide) — someone active nearby
-    beats nobody. Returns an empty dict when nothing is known — callers must treat that
-    as "no signal", not "nobody is active".
+    beats nobody. Levels with more than ``MAX_CONTRIBUTORS_FOR_OWNERSHIP`` contributors
+    still supply recency, but are marked as not implying ownership. Returns an empty dict
+    when nothing is known — callers must treat that as "no signal", not "nobody is active".
     """
     areas = areas_for_paths(touched_paths)
     if not areas:
@@ -320,9 +333,10 @@ def _relevant_area_activity(
         if level is None or level in used_levels:
             continue
         used_levels.add(level)
+        implies_ownership = len(activity_by_area[level]) <= MAX_CONTRIBUTORS_FOR_OWNERSHIP
         for contributor in activity_by_area[level]:
             existing = merged.get(contributor.login)
-            merged[contributor.login] = _merge_contributor(existing, contributor, level, now)
+            merged[contributor.login] = _merge_contributor(existing, contributor, level, now, implies_ownership)
     return merged
 
 
@@ -341,6 +355,7 @@ def _merge_contributor(
     incoming: ContributorActivity,
     area: str,
     now: datetime,
+    implies_ownership: bool,
 ) -> _AreaContributor:
     days_since = max(0.0, (now - incoming.last_commit_at).total_seconds() / 86400)
     if existing is None:
@@ -351,6 +366,7 @@ def _merge_contributor(
             last_commit_sha=incoming.last_commit_sha,
             last_commit_url=incoming.last_commit_url,
             area=area,
+            implies_ownership=implies_ownership,
         )
     # Evidence follows the freshest commit, so sha/url/area always agree with
     # days_since_last_commit.
@@ -362,6 +378,7 @@ def _merge_contributor(
         last_commit_sha=incoming.last_commit_sha if keep_incoming_evidence else existing.last_commit_sha,
         last_commit_url=incoming.last_commit_url if keep_incoming_evidence else existing.last_commit_url,
         area=area if keep_incoming_evidence else existing.area,
+        implies_ownership=implies_ownership if keep_incoming_evidence else existing.implies_ownership,
     )
 
 
@@ -389,7 +406,9 @@ def _score_candidates(
     *top-weighted* blame author while that author is active in the window (the cap sits
     below the decay floor). Lower-weighted active blame authors can still be outranked by
     a very active area owner — deliberate: weight-1 blame is one marginal commit, not a
-    stronger claim than sustained area ownership. With no activity data at all, blame
+    stronger claim than sustained area ownership. Only contributors whose evidence area is
+    focused enough to imply ownership are nominated this way; activity in a crowded area
+    still decays blame weights but proposes nobody. With no activity data at all, blame
     weights pass through unchanged (legacy behavior).
     """
     if not activity_by_login:
@@ -403,7 +422,7 @@ def _score_candidates(
         scores[login] = float(weight) * multiplier
 
     for login, activity in activity_by_login.items():
-        if login in scores:
+        if login in scores or not activity.implies_ownership:
             continue
         saturation = min(activity.commit_count, ACTIVITY_BONUS_SATURATION_COMMITS) / ACTIVITY_BONUS_SATURATION_COMMITS
         base = STALE_BLAME_MULTIPLIER + (ACTIVITY_ONLY_SCORE_CAP - STALE_BLAME_MULTIPLIER) * saturation
