@@ -54,7 +54,10 @@ class RunHogEvalTestArgs(BaseModel):
     )
     target: Literal["generation", "trace"] = Field(
         default="generation",
-        description="What to sample: 'generation' (individual generations) or 'trace' (whole traces)",
+        description=(
+            "What to sample: 'generation' (individual generations) or 'trace' (whole traces). "
+            "Previewing a 'session' target is not supported."
+        ),
     )
     window_seconds: int = Field(
         default=TRACE_EVAL_DEFAULT_WINDOW_SECONDS,

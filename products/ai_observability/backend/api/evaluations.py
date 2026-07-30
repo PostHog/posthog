@@ -37,6 +37,12 @@ from ..llm import DEFAULT_MODEL_BY_PROVIDER
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
+    SESSION_EVAL_MAX_MAX_AGE_SECONDS,
+    SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS,
+    SESSION_EVAL_MAX_WINDOW_SECONDS,
+    SESSION_EVAL_MIN_MAX_AGE_SECONDS,
+    SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS,
+    SESSION_EVAL_MIN_WINDOW_SECONDS,
     TRACE_EVAL_DEFAULT_MAX_AGE_SECONDS,
     TRACE_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
     TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
@@ -145,11 +151,13 @@ class _OutputConfigField(serializers.JSONField):
                         "type": "integer",
                         "description": (
                             "Seconds to wait after the first matching generation before evaluating the whole "
-                            "trace. Captured when the run is scheduled — editing it does not change runs "
-                            "already in flight."
+                            "unit. Captured when the run is scheduled — editing it does not change runs "
+                            "already in flight. The accepted range depends on `target`: "
+                            f"{TRACE_EVAL_MIN_WINDOW_SECONDS}–{TRACE_EVAL_MAX_WINDOW_SECONDS} for 'trace', "
+                            f"{SESSION_EVAL_MIN_WINDOW_SECONDS}–{SESSION_EVAL_MAX_WINDOW_SECONDS} for 'session'."
                         ),
-                        "minimum": TRACE_EVAL_MIN_WINDOW_SECONDS,
-                        "maximum": TRACE_EVAL_MAX_WINDOW_SECONDS,
+                        "minimum": min(TRACE_EVAL_MIN_WINDOW_SECONDS, SESSION_EVAL_MIN_WINDOW_SECONDS),
+                        "maximum": max(TRACE_EVAL_MAX_WINDOW_SECONDS, SESSION_EVAL_MAX_WINDOW_SECONDS),
                         "default": TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
                     },
                 },
@@ -167,19 +175,28 @@ class _OutputConfigField(serializers.JSONField):
                     },
                     "quiet_period_seconds": {
                         "type": "integer",
-                        "description": "Seconds without new trace activity before the trace counts as settled.",
-                        "minimum": TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS,
-                        "maximum": TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS,
+                        "description": (
+                            "Seconds without new activity before the unit counts as settled. The accepted "
+                            f"range depends on `target`: {TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS}–"
+                            f"{TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS} for 'trace', "
+                            f"{SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS}–{SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS} "
+                            "for 'session'."
+                        ),
+                        "minimum": min(TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS, SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS),
+                        "maximum": max(TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS, SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS),
                         "default": TRACE_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
                     },
                     "max_age_seconds": {
                         "type": "integer",
                         "description": (
                             "Hard cap in seconds on the total wait from the first matching generation, even "
-                            "if the trace stays active. Must be at least quiet_period_seconds."
+                            "if the unit stays active. Must be at least quiet_period_seconds. The accepted "
+                            f"range depends on `target`: {TRACE_EVAL_MIN_MAX_AGE_SECONDS}–"
+                            f"{TRACE_EVAL_MAX_MAX_AGE_SECONDS} for 'trace', "
+                            f"{SESSION_EVAL_MIN_MAX_AGE_SECONDS}–{SESSION_EVAL_MAX_MAX_AGE_SECONDS} for 'session'."
                         ),
-                        "minimum": TRACE_EVAL_MIN_MAX_AGE_SECONDS,
-                        "maximum": TRACE_EVAL_MAX_MAX_AGE_SECONDS,
+                        "minimum": min(TRACE_EVAL_MIN_MAX_AGE_SECONDS, SESSION_EVAL_MIN_MAX_AGE_SECONDS),
+                        "maximum": max(TRACE_EVAL_MAX_MAX_AGE_SECONDS, SESSION_EVAL_MAX_MAX_AGE_SECONDS),
                         "default": TRACE_EVAL_DEFAULT_MAX_AGE_SECONDS,
                     },
                 },
@@ -280,9 +297,10 @@ class EvaluationSerializer(serializers.ModelSerializer):
     target_config = _TargetConfigField(
         required=False,
         help_text=(
-            "Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — "
-            "'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. "
-            "Missing strategy means fixed_window. Empty for 'generation'."
+            "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on "
+            "`strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, "
+            "max_age_seconds}. Bounds differ per target. A missing strategy means fixed_window for 'trace' "
+            "and inactivity for 'session'. Empty for 'generation'."
         ),
     )
     conditions = EvaluationConditionSerializer(
@@ -347,11 +365,13 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "target": {
                 "help_text": (
                     "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event "
-                    "individually. 'trace' evaluates the whole trace once: the first matching generation schedules "
-                    "a run that waits for the trace to settle, then evaluates all of its events together. "
-                    "Condition filters still match individual generations — a trace is evaluated when any of its "
-                    "generations matches, and sampling applies per trace. When and how the trace run fires is "
-                    "controlled by target_config's settle strategy."
+                    "individually. 'trace' evaluates the whole trace once and 'session' the whole "
+                    "$ai_session_id session once: the first matching generation schedules a run that waits "
+                    "for the unit to settle, then evaluates all of its events together. Condition filters "
+                    "still match individual generations — a unit is evaluated when any of its generations "
+                    "matches, and sampling applies per unit. A 'session' evaluation only fires for "
+                    "generations that carry $ai_session_id. When and how the run fires is controlled by "
+                    "target_config's settle strategy."
                 )
             },
             "deleted": {"help_text": "Set to true to soft-delete the evaluation."},
@@ -407,13 +427,14 @@ class EvaluationSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"config": str(e)})
 
         # Sentiment is addressed per-message within one generation event ($ai_target_event_id +
-        # message index). A trace target emits a single evaluation event for the whole trace, where
-        # the message index is ambiguous and that per-generation linkage is absent. Trace-level
-        # sentiment is already produced by aggregating generation-target sentiment evals at read time.
+        # message index). An aggregate target emits a single evaluation event for the whole unit,
+        # where the message index is ambiguous and that per-generation linkage is absent.
+        # Aggregate-level sentiment is already produced by aggregating generation-target sentiment
+        # evals at read time.
         effective_target = data.get("target") or getattr(self.instance, "target", None) or EvaluationTarget.GENERATION
-        if evaluation_type == EvaluationType.SENTIMENT.value and effective_target == EvaluationTarget.TRACE.value:
+        if evaluation_type == EvaluationType.SENTIMENT.value and effective_target != EvaluationTarget.GENERATION.value:
             raise serializers.ValidationError(
-                {"target": "Sentiment evaluations can't target a whole trace. Use the 'generation' target."}
+                {"target": "Sentiment evaluations can only target each generation. Choose the 'generation' target."}
             )
 
         # Validate target_config against the effective target (request value, else the stored one).
@@ -702,13 +723,16 @@ class TestHogRequestSerializer(serializers.Serializer):
         help_text="Optional trigger conditions to filter which events are sampled.",
     )
     target = serializers.ChoiceField(
-        choices=EvaluationTarget.choices,
+        choices=[
+            (EvaluationTarget.GENERATION.value, EvaluationTarget.GENERATION.label),
+            (EvaluationTarget.TRACE.value, EvaluationTarget.TRACE.label),
+        ],
         required=False,
         default=EvaluationTarget.GENERATION,
         help_text=(
             "What the evaluation runs against: 'generation' samples individual generations, "
             "'trace' samples whole traces and runs against trace-level globals — matching how the "
-            "evaluation runs online."
+            "evaluation runs online. Previewing a 'session' target is not supported."
         ),
     )
     target_config = TestHogTargetConfigSerializer(

@@ -24,6 +24,7 @@ from posthog.temporal.ai_observability.eval_reports.activities import (
     store_report_run_activity,
 )
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import EvalReportContent, EvalReportMetrics
+from posthog.temporal.ai_observability.eval_reports.targets import target_event_predicate
 from posthog.temporal.ai_observability.eval_reports.types import (
     RunEvalReportAgentInput,
     StoreReportRunInput,
@@ -117,6 +118,17 @@ class TestEvaluationTargetLoading(BaseTest):
         target = _load_evaluation_target(self.team.id, str(evaluation.id))
 
         self.assertEqual(target, "trace")
+
+
+@pytest.mark.parametrize(
+    "target,expected",
+    [
+        ("session", "properties.$ai_target_type = 'session_id'"),
+        ("trace", "properties.$ai_target_type = 'trace_id'"),
+    ],
+)
+def test_target_event_predicate_per_target(target, expected):
+    assert target_event_predicate(target) == expected
 
 
 @pytest.mark.parametrize(

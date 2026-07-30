@@ -452,12 +452,14 @@ export interface EvaluationConditionApi {
 /**
  * * `generation` - Generation
  * * `trace` - Trace
+ * * `session` - Session
  */
 export type EvaluationTargetEnumApi = (typeof EvaluationTargetEnumApi)[keyof typeof EvaluationTargetEnumApi]
 
 export const EvaluationTargetEnumApi = {
     Generation: 'generation',
     Trace: 'trace',
+    Session: 'session',
 } as const
 
 /**
@@ -533,16 +535,16 @@ export type EvaluationApiOutputConfig = {
 }
 
 /**
- * Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'.
+ * Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Bounds differ per target. A missing strategy means fixed_window for 'trace' and inactivity for 'session'. Empty for 'generation'.
  */
 export type EvaluationApiTargetConfig =
     | {
           /** Wait a fixed window after the first matching generation, then evaluate. */
           strategy?: 'fixed_window'
           /**
-           * Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.
+           * Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'.
            * @minimum 10
-           * @maximum 7200
+           * @maximum 604800
            */
           window_seconds?: number
       }
@@ -550,15 +552,15 @@ export type EvaluationApiTargetConfig =
           /** Evaluate once the trace has had no new activity for the quiet period. */
           strategy: 'inactivity'
           /**
-           * Seconds without new trace activity before the trace counts as settled.
+           * Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'.
            * @minimum 10
-           * @maximum 1800
+           * @maximum 86400
            */
           quiet_period_seconds?: number
           /**
-           * Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.
+           * Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'.
            * @minimum 60
-           * @maximum 7200
+           * @maximum 604800
            */
           max_age_seconds?: number
       }
@@ -598,12 +600,13 @@ export interface EvaluationApi {
     output_config?: EvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
-    /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace. When and how the trace run fires is controlled by target_config's settle strategy.
+    /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once and 'session' the whole $ai_session_id session once: the first matching generation schedules a run that waits for the unit to settle, then evaluates all of its events together. Condition filters still match individual generations — a unit is evaluated when any of its generations matches, and sampling applies per unit. A 'session' evaluation only fires for generations that carry $ai_session_id. When and how the run fires is controlled by target_config's settle strategy.
      *
      * * `generation` - Generation
-     * * `trace` - Trace */
+     * * `trace` - Trace
+     * * `session` - Session */
     target?: EvaluationTargetEnumApi
-    /** Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'. */
+    /** Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Bounds differ per target. A missing strategy means fixed_window for 'trace' and inactivity for 'session'. Empty for 'generation'. */
     target_config?: EvaluationApiTargetConfig
     /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
     model_configuration?: ModelConfigurationApi | null
@@ -655,16 +658,16 @@ export type PatchedEvaluationApiOutputConfig = {
 }
 
 /**
- * Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'.
+ * Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Bounds differ per target. A missing strategy means fixed_window for 'trace' and inactivity for 'session'. Empty for 'generation'.
  */
 export type PatchedEvaluationApiTargetConfig =
     | {
           /** Wait a fixed window after the first matching generation, then evaluate. */
           strategy?: 'fixed_window'
           /**
-           * Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.
+           * Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'.
            * @minimum 10
-           * @maximum 7200
+           * @maximum 604800
            */
           window_seconds?: number
       }
@@ -672,15 +675,15 @@ export type PatchedEvaluationApiTargetConfig =
           /** Evaluate once the trace has had no new activity for the quiet period. */
           strategy: 'inactivity'
           /**
-           * Seconds without new trace activity before the trace counts as settled.
+           * Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'.
            * @minimum 10
-           * @maximum 1800
+           * @maximum 86400
            */
           quiet_period_seconds?: number
           /**
-           * Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.
+           * Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'.
            * @minimum 60
-           * @maximum 7200
+           * @maximum 604800
            */
           max_age_seconds?: number
       }
@@ -720,12 +723,13 @@ export interface PatchedEvaluationApi {
     output_config?: PatchedEvaluationApiOutputConfig
     /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
     conditions?: EvaluationConditionApi[]
-    /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace. When and how the trace run fires is controlled by target_config's settle strategy.
+    /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once and 'session' the whole $ai_session_id session once: the first matching generation schedules a run that waits for the unit to settle, then evaluates all of its events together. Condition filters still match individual generations — a unit is evaluated when any of its generations matches, and sampling applies per unit. A 'session' evaluation only fires for generations that carry $ai_session_id. When and how the run fires is controlled by target_config's settle strategy.
      *
      * * `generation` - Generation
-     * * `trace` - Trace */
+     * * `trace` - Trace
+     * * `session` - Session */
     target?: EvaluationTargetEnumApi
-    /** Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'. */
+    /** Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Bounds differ per target. A missing strategy means fixed_window for 'trace' and inactivity for 'session'. Empty for 'generation'. */
     target_config?: PatchedEvaluationApiTargetConfig
     /** Provider and model for an llm_judge evaluation. Required when creating or switching to llm_judge. To add or replace a model, provide both provider and model. On an existing configured llm_judge, omit this field to keep the current model; null is rejected. When switching an llm_judge to hog or sentiment, set this field to null. Legacy llm_judge evaluations without a model remain editable without adding one. The nested provider_key_id may be null. */
     model_configuration?: ModelConfigurationApi | null
@@ -737,6 +741,17 @@ export interface PatchedEvaluationApi {
 }
 
 export type TestHogRequestApiConditionsItem = { [key: string]: unknown }
+
+/**
+ * * `generation` - Generation
+ * * `trace` - Trace
+ */
+export type TestHogRequestTargetEnumApi = (typeof TestHogRequestTargetEnumApi)[keyof typeof TestHogRequestTargetEnumApi]
+
+export const TestHogRequestTargetEnumApi = {
+    Generation: 'generation',
+    Trace: 'trace',
+} as const
 
 export interface TestHogTargetConfigApi {
     /**
@@ -763,11 +778,11 @@ export interface TestHogRequestApi {
     allows_na?: boolean
     /** Optional trigger conditions to filter which events are sampled. */
     conditions?: TestHogRequestApiConditionsItem[]
-    /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces and runs against trace-level globals — matching how the evaluation runs online.
+    /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces and runs against trace-level globals — matching how the evaluation runs online. Previewing a 'session' target is not supported.
      *
      * * `generation` - Generation
      * * `trace` - Trace */
-    target?: EvaluationTargetEnumApi
+    target?: TestHogRequestTargetEnumApi
     /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
     target_config?: TestHogTargetConfigApi
 }
@@ -778,7 +793,8 @@ export interface TestHogResultItemApi {
     /** Type of sampled unit: generation or trace.
      *
      * * `generation` - Generation
-     * * `trace` - Trace */
+     * * `trace` - Trace
+     * * `session` - Session */
     sample_type: EvaluationTargetEnumApi
     /**
      * UUID of the sampled $ai_generation event, or null for a trace sample.
@@ -1368,7 +1384,8 @@ export interface EvaluationReportRunContentApi {
     /** Evaluation target analyzed by this report run. Legacy runs without this field targeted generations.
      *
      * * `generation` - Generation
-     * * `trace` - Trace */
+     * * `trace` - Trace
+     * * `session` - Session */
     evaluation_target?: EvaluationTargetEnumApi
     /** Agent-generated report headline. */
     title?: string

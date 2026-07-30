@@ -324,7 +324,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
                 "output_type": "boolean",
                 "output_config": {},
                 "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
-                "target": "session",
+                "target": "bogus",
             },
         )
 
@@ -395,6 +395,65 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "target")
         self.assertEqual(Evaluation.objects.count(), 0)
+
+    def test_rejects_sentiment_evaluation_with_session_target(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Session sentiment",
+                "evaluation_type": "sentiment",
+                "output_type": "sentiment",
+                "evaluation_config": {"source": "user_messages"},
+                "target": "session",
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.json())
+        self.assertEqual(response.json()["attr"], "target")
+
+    def test_accepts_session_target_with_session_sized_settle_config(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Session goal",
+                "evaluation_type": "hog",
+                "output_type": "boolean",
+                "evaluation_config": {"source": "return true"},
+                "target": "session",
+                "target_config": {
+                    "strategy": "inactivity",
+                    "quiet_period_seconds": 86400,
+                    "max_age_seconds": 604800,
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.json())
+        self.assertEqual(
+            response.json()["target_config"],
+            {"strategy": "inactivity", "quiet_period_seconds": 86400, "max_age_seconds": 604800},
+        )
+
+    def test_rejects_session_sized_settle_config_on_trace_target(self):
+        """The documented OpenAPI range is the union of both targets, so the server is the gate."""
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Trace goal",
+                "evaluation_type": "hog",
+                "output_type": "boolean",
+                "evaluation_config": {"source": "return true"},
+                "target": "trace",
+                "target_config": {"strategy": "inactivity", "quiet_period_seconds": 86400},
+            },
+        )
+        self.assertEqual(response.status_code, 400, response.json())
+        self.assertEqual(response.json()["attr"], "target_config")
+
+    def test_test_hog_rejects_session_target(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/test_hog/",
+            {"source": "return true", "target": "session"},
+        )
+        self.assertEqual(response.status_code, 400, response.json())
 
     def test_sentiment_evaluation_rejects_model_configuration(self):
         response = self.client.post(
