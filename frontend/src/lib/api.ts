@@ -6316,7 +6316,11 @@ const api = {
             return await new ApiRequest().integrations(teamId).withAction('github/link_existing').create({ data })
         },
         async githubAvailableInstallations(teamId?: TeamType['id']): Promise<GitHubAvailableInstallationApi[]> {
-            return await new ApiRequest().integrations(teamId).withAction('github/available_installations').get()
+            const response = await new ApiRequest()
+                .integrations(teamId)
+                .withAction('github/available_installations')
+                .get()
+            return response.installations
         },
         async githubOAuthAuthorize(
             data: {

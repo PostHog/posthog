@@ -919,6 +919,13 @@ class GitHubAvailableInstallationSerializer(serializers.Serializer):
     )
 
 
+class GitHubAvailableInstallationsResponseSerializer(serializers.Serializer):
+    installations = GitHubAvailableInstallationSerializer(
+        many=True,
+        help_text="Distinct GitHub installations in the organization available to link to this project.",
+    )
+
+
 class GitHubOAuthAuthorizeRequestSerializer(serializers.Serializer):
     installation_id = serializers.CharField(
         required=False,
@@ -1570,7 +1577,7 @@ class IntegrationViewSet(
         )
         return Response(status=204)
 
-    @extend_schema(responses={200: GitHubAvailableInstallationSerializer(many=True)})
+    @extend_schema(responses={200: GitHubAvailableInstallationsResponseSerializer})
     @action(methods=["GET"], detail=False, url_path="github/available_installations")
     def github_available_installations(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """List the org's existing GitHub installations this project can reuse.
@@ -1583,7 +1590,7 @@ class IntegrationViewSet(
             organization=self.organization,
             exclude_team_id=self.team_id,
         )
-        return Response(GitHubAvailableInstallationSerializer(installations, many=True).data)
+        return Response({"installations": GitHubAvailableInstallationSerializer(installations, many=True).data})
 
     @extend_schema(
         request=GitHubLinkExistingRequestSerializer,
