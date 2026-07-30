@@ -158,8 +158,20 @@ def _reject_clock_based_wait(config: dict, team: Team) -> None:
 
     try:
         expr = compile_filters_expr(filters, team)
-    except Exception:
-        return  # A condition that won't compile is reported by the filter serializer, not here.
+    except Exception as e:
+        # Fail closed. Nothing else inspects a wait's condition at save time, so swallowing this would
+        # let an unwakeable wait through whenever compilation trips on something the shape serializer
+        # doesn't check - a condition referencing a deleted action raises Action.DoesNotExist here, for
+        # instance. If we can't read the condition we can't claim a stream will wake it.
+        logger.warning("workflows.wait_condition_uncompilable", error=str(e))
+        raise serializers.ValidationError(
+            {
+                "config": (
+                    "This wait's condition could not be read, so we can't tell how it would be woken. "
+                    "Check the events, actions and properties it refers to still exist."
+                )
+            }
+        )
 
     clock_function = find_clock_function(expr)
     if not clock_function:
