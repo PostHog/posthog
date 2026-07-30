@@ -12,6 +12,7 @@ from django.test import override_settings
 import pyarrow as pa
 import deltalake
 import pyarrow.compute as pc
+import botocore.exceptions
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -24,8 +25,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     DeltaTableHelper,
     _delta_merge_spill_kwargs,
     _first_per_pk_table,
+    _merge_predicate_ops,
     _realign_decimal_buffers,
     is_transient_delta_maintenance_error,
+    is_transient_object_store_error,
 )
 
 
@@ -1267,3 +1270,104 @@ class TestIsTransientDeltaMaintenanceError:
     )
     def test_matches_only_the_racy_optimize_scan_signature(self, _name: str, error: Exception, expected: bool):
         assert is_transient_delta_maintenance_error(error) is expected
+
+
+class TestIsTransientObjectStoreError:
+    @parameterized.expand(
+        [
+            (
+                "credential_provider_not_enabled_os_error",
+                OSError(
+                    "Operation not supported: the credential provider was not enabled: "
+                    "no providers in chain provided credentials"
+                ),
+                True,
+            ),
+            ("unrelated_os_error", OSError("Permission denied: bucket policy forbids this operation"), False),
+            (
+                # s3fs/aiobotocore's own credential resolution (distinct from delta-rs's Rust
+                # object_store crate) can raise this bare, unwrapped — same IMDS/STS blip
+                # hitting our own instance-role-authenticated bucket, different client library.
+                "bare_no_credentials_error",
+                botocore.exceptions.NoCredentialsError(),
+                True,
+            ),
+            ("unrelated_exception_type", ValueError("some other unrelated failure"), False),
+        ]
+    )
+    def test_classifies_transient_errors(self, _name: str, error: Exception, expected: bool):
+        assert is_transient_object_store_error(error) is expected
+
+
+class TestNullSafeMergePredicate:
+    """The incremental-merge match must be NULL-safe.
+
+    Regression for the duplicate-accumulation bug found by the deltalite shadow canary: composite
+    keys with nullable columns (e.g. GoogleAds report resources keyed on `segments.*`) matched with
+    bare `source.c = target.c` never match on NULL (`NULL = NULL` is NULL), so the row is re-inserted
+    on every incremental sync and the table silently grows.
+    """
+
+    def test_predicate_ops_are_null_safe(self):
+        assert _merge_predicate_ops(["id", "seg"]) == [
+            "(source.id IS NOT DISTINCT FROM target.id)",
+            "(source.seg IS NOT DISTINCT FROM target.seg)",
+        ]
+
+    @staticmethod
+    def _seed_then_merge(path: Path, predicate_ops: list[str]) -> pa.Table:
+        # Seed one row whose composite key has a NULL component, then merge the same key with a new value.
+        seed = pa.table(
+            {
+                "id": pa.array([1], pa.int64()),
+                "seg": pa.array([None], pa.string()),
+                "val": pa.array(["a"], pa.string()),
+            }
+        )
+        deltalake.write_deltalake(str(path), seed, mode="overwrite")
+        source = pa.table(
+            {
+                "id": pa.array([1], pa.int64()),
+                "seg": pa.array([None], pa.string()),
+                "val": pa.array(["b"], pa.string()),
+            }
+        )
+        (
+            deltalake.DeltaTable(str(path))
+            .merge(source=source, source_alias="source", target_alias="target", predicate=" AND ".join(predicate_ops))
+            .when_matched_update_all()
+            .when_not_matched_insert_all()
+            .execute()
+        )
+        return deltalake.DeltaTable(str(path)).to_pyarrow_table()
+
+    def test_null_composite_key_row_matches_instead_of_duplicating(self, tmp_path):
+        result = self._seed_then_merge(tmp_path / "safe", _merge_predicate_ops(["id", "seg"]))
+        assert result.num_rows == 1
+        assert result.column("val").to_pylist() == ["b"]
+
+    def test_non_null_key_still_matches(self, tmp_path):
+        # The null-safe form must not change behaviour for ordinary (non-NULL) keys.
+        seed = pa.table({"id": pa.array([1], pa.int64()), "seg": pa.array(["MOBILE"]), "val": pa.array(["a"])})
+        deltalake.write_deltalake(str(tmp_path / "nn"), seed, mode="overwrite")
+        source = pa.table({"id": pa.array([1], pa.int64()), "seg": pa.array(["MOBILE"]), "val": pa.array(["b"])})
+        (
+            deltalake.DeltaTable(str(tmp_path / "nn"))
+            .merge(
+                source=source,
+                source_alias="source",
+                target_alias="target",
+                predicate=" AND ".join(_merge_predicate_ops(["id", "seg"])),
+            )
+            .when_matched_update_all()
+            .when_not_matched_insert_all()
+            .execute()
+        )
+        result = deltalake.DeltaTable(str(tmp_path / "nn")).to_pyarrow_table()
+        assert result.num_rows == 1
+        assert result.column("val").to_pylist() == ["b"]
+
+    def test_bare_equality_duplicates_null_key_row(self, tmp_path):
+        # Documents the pre-fix behaviour the null-safe predicate corrects.
+        result = self._seed_then_merge(tmp_path / "unsafe", ["source.id = target.id", "source.seg = target.seg"])
+        assert result.num_rows == 2
