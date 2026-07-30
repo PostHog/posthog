@@ -1,5 +1,5 @@
 import uuid
-import datetime as dt
+import asyncio
 
 import pytest
 
@@ -26,7 +26,10 @@ from products.batch_exports.backend.tests.temporal.destinations.s3.utils import 
     assert_clickhouse_records_in_s3,
     has_valid_credentials,
 )
-from products.batch_exports.backend.tests.temporal.utils.workflow import fail_on_application_error
+from products.batch_exports.backend.tests.temporal.utils.workflow import (
+    WORKFLOW_REAL_TIME_LIMIT_SECONDS,
+    fail_on_application_error,
+)
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -138,13 +141,15 @@ async def test_file_download_workflow_exports_data(
                     BATCH_EXPORTS_FILE_DOWNLOAD_REGION=region,
                 ),
             ):
-                await activity_environment.client.execute_workflow(
-                    FileDownloadBatchExportWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=30),
+                await asyncio.wait_for(
+                    activity_environment.client.execute_workflow(
+                        FileDownloadBatchExportWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    ),
+                    timeout=WORKFLOW_REAL_TIME_LIMIT_SECONDS,
                 )
 
     runs = await afetch_batch_export_runs(batch_export_id=batch_export_id)

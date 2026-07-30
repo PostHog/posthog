@@ -1,4 +1,5 @@
 import uuid
+import asyncio
 import datetime as dt
 
 import pytest
@@ -33,6 +34,7 @@ from products.batch_exports.backend.tests.temporal.utils.clickhouse import (
     create_clickhouse_tables_and_views,
     truncate_events,
 )
+from products.batch_exports.backend.tests.temporal.utils.workflow import WORKFLOW_REAL_TIME_LIMIT_SECONDS
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -146,13 +148,15 @@ async def _run_workflow(batch_export):
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            batch_export_runs_updated = await activity_environment.client.execute_workflow(
-                BatchExportMonitoringWorkflow.run,
-                inputs,
-                id=workflow_id,
-                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                retry_policy=RetryPolicy(maximum_attempts=1),
-                execution_timeout=dt.timedelta(seconds=30),
+            batch_export_runs_updated = await asyncio.wait_for(
+                activity_environment.client.execute_workflow(
+                    BatchExportMonitoringWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                ),
+                timeout=WORKFLOW_REAL_TIME_LIMIT_SECONDS,
             )
             return batch_export_runs_updated
 
