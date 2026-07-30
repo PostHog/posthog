@@ -8,7 +8,7 @@ use common_ingestion_warnings::{
     observe_delivery, KafkaWarningEmitter, WarningEmitter, INGESTION_WARNINGS_EMITTER_ENABLED,
 };
 use common_kafka::config::KafkaConfig as WarningsKafkaConfig;
-use common_kafka::kafka_producer::create_threaded_kafka_producer;
+use common_kafka::kafka_producer::create_threaded_kafka_producer_no_ping;
 use common_redis::RedisClient;
 use metrics::gauge;
 use tracing::{info, warn};
@@ -725,20 +725,22 @@ fn build_warnings_kafka_config(
 /// any misconfiguration or producer-creation failure logs and returns `None`
 /// (capture runs without warnings) instead of failing startup. The producer
 /// is a `common_kafka` `ThreadedProducer`, built via
-/// `common_kafka::kafka_producer::create_threaded_kafka_producer` from a
+/// `common_kafka::kafka_producer::create_threaded_kafka_producer_no_ping` from a
 /// dedicated, warnings-only `common_kafka::config::KafkaConfig` (fire-and-forget
 /// acks/retries, a small queue) with `observe_delivery` as its delivery
-/// callback — by default it shares only the destination cluster (hosts/TLS) and
-/// the `client_ingestion_warning` topic with capture's main event producer,
-/// never its tuning or connection. All three are overridable via
-/// `CAPTURE_INGESTION_WARNINGS_KAFKA_{HOSTS,TLS,TOPIC}`. When built, a background
-/// task heartbeats the advisory lifecycle handle, sweeps the throttle's per-key
-/// state, and flushes the producer once at shutdown.
+/// callback. Its destination (hosts/TLS/topic) comes entirely from
+/// `CAPTURE_INGESTION_WARNINGS_KAFKA_{HOSTS,TLS,TOPIC}`; it no longer borrows
+/// anything from capture's main event config (the v0 `KAFKA_*` block), so
+/// retiring that block cannot silently misroute or mute it. When built, a
+/// background task heartbeats the advisory lifecycle handle, sweeps the
+/// throttle's per-key state, and flushes the producer once at shutdown.
 ///
-/// Fail-open note: unlike the previous bespoke producer (which never pinged
-/// brokers at startup), `create_threaded_kafka_producer` does a one-time
-/// metadata fetch. If brokers are unreachable at boot, the emitter stays
-/// disabled for the pod's life rather than retrying.
+/// Uses the no-ping constructor so an unreachable warnings cluster costs
+/// capture nothing at boot: no 15s metadata fetch on the startup path, and no
+/// pod that serves events for hours with warnings permanently off because the
+/// cluster happened to be down the moment it started. librdkafka reconnects on
+/// its own, so read `delivered`/`delivery_failed` to judge whether warnings are
+/// landing — the enabled gauge only reports that the emitter exists.
 async fn create_ingestion_warning_emitter(
     config: &Config,
     handle: Option<lifecycle::Handle>,
@@ -752,22 +754,14 @@ async fn create_ingestion_warning_emitter(
     // "enabled but broken".
     let report_disabled = || gauge!(INGESTION_WARNINGS_EMITTER_ENABLED).set(0.0);
 
-    let hosts = config
-        .capture_ingestion_warnings_kafka_hosts
-        .clone()
-        .unwrap_or_else(|| config.kafka.kafka_hosts.clone());
-    let topic = config
-        .capture_ingestion_warnings_kafka_topic
-        .clone()
-        .unwrap_or_else(|| config.kafka.kafka_client_ingestion_warning_topic.clone());
-    let tls = config
-        .capture_ingestion_warnings_kafka_tls
-        .unwrap_or(config.kafka.kafka_tls);
+    let hosts = config.capture_ingestion_warnings_kafka_hosts.clone();
+    let topic = config.capture_ingestion_warnings_kafka_topic.clone();
+    let tls = config.capture_ingestion_warnings_kafka_tls;
 
     if hosts.is_empty() {
         warn!(
-            "ingestion warnings enabled but no Kafka hosts \
-             (CAPTURE_INGESTION_WARNINGS_KAFKA_HOSTS, KAFKA_HOSTS); emitter disabled"
+            "ingestion warnings enabled but CAPTURE_INGESTION_WARNINGS_KAFKA_HOSTS is unset; \
+             emitter disabled"
         );
         report_disabled();
         return None;
@@ -775,8 +769,7 @@ async fn create_ingestion_warning_emitter(
 
     if topic.is_empty() {
         warn!(
-            "ingestion warnings enabled but no Kafka topic \
-             (CAPTURE_INGESTION_WARNINGS_KAFKA_TOPIC, KAFKA_CLIENT_INGESTION_WARNING_TOPIC); \
+            "ingestion warnings enabled but CAPTURE_INGESTION_WARNINGS_KAFKA_TOPIC is unset; \
              emitter disabled"
         );
         report_disabled();
@@ -798,13 +791,11 @@ async fn create_ingestion_warning_emitter(
         config.capture_ingestion_warnings_kafka_message_max_bytes,
     );
 
-    let producer = match create_threaded_kafka_producer(
+    let producer = match create_threaded_kafka_producer_no_ping(
         &warnings_kafka_config,
         handle.clone(),
         observe_delivery,
-    )
-    .await
-    {
+    ) {
         Ok(producer) => producer,
         Err(e) => {
             tracing::error!(
@@ -1000,6 +991,88 @@ mod tests {
         assert_eq!(cfg.kafka_producer_topic_metadata_refresh_interval_ms, None);
         assert_eq!(cfg.kafka_producer_sticky_partitioning_linger_ms, None);
         assert_eq!(cfg.kafka_producer_partitioner, None);
+    }
+
+    #[tokio::test]
+    async fn ingestion_warnings_emitter_does_not_consult_v0_kafka_block() {
+        // Regression guard for the v0 fallback removal: with warnings enabled but
+        // no dedicated hosts, the emitter must stay disabled rather than reuse the
+        // v0 KAFKA_HOSTS / KAFKA_CLIENT_INGESTION_WARNING_TOPIC block. If the
+        // fallback were still live, it would build a producer against v0-broker.
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", "events"),
+            ("KAFKA_HOSTS", "v0-broker:9092"),
+            ("KAFKA_TOPIC", "events_plugin_ingestion"),
+            ("KAFKA_CLIENT_INGESTION_WARNING_TOPIC", "v0-warnings-topic"),
+            ("CAPTURE_INGESTION_WARNINGS_ENABLED", "true"),
+            // CAPTURE_INGESTION_WARNINGS_KAFKA_HOSTS deliberately left unset.
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+
+        // The v0 block is populated, so a live fallback would have hosts to use;
+        // the dedicated hosts are empty, which is the only thing that should count.
+        assert_eq!(config.kafka.kafka_hosts, "v0-broker:9092");
+        assert!(config.capture_ingestion_warnings_kafka_hosts.is_empty());
+
+        let emitter = create_ingestion_warning_emitter(&config, None).await;
+        assert!(
+            emitter.is_none(),
+            "emitter must stay disabled on empty dedicated hosts, not fall back to KAFKA_HOSTS"
+        );
+    }
+
+    #[tokio::test]
+    async fn disabled_emitter_with_live_handle_does_not_shut_capture_down() {
+        // `register_components` moves the warnings handle in here and keeps no
+        // clone, so bailing out early drops the last reference and fires
+        // `ComponentEvent::Died`. Removing the v0 fallback is what makes that
+        // reachable in production: a pod told to emit warnings but given no
+        // dedicated hosts now takes this path on every start. Warnings are
+        // best-effort, so it has to cost capture nothing.
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", "events"),
+            ("KAFKA_HOSTS", "v0-broker:9092"),
+            ("KAFKA_TOPIC", "events_plugin_ingestion"),
+            ("CAPTURE_INGESTION_WARNINGS_ENABLED", "true"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+
+        let shutdown = tokio_util::sync::CancellationToken::new();
+        let mut manager = lifecycle::Manager::builder("test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .with_shutdown_token(shutdown.clone())
+            .build();
+        // Mirrors the registration in `register_components`.
+        let handle = manager.register(
+            "ingestion-warnings",
+            lifecycle::ComponentOptions::new()
+                .with_liveness_deadline(Duration::from_secs(30))
+                .is_advisory(true),
+        );
+        let server = manager.register("server", lifecycle::ComponentOptions::new());
+        let _guard = manager.monitor_background();
+
+        let emitter = create_ingestion_warning_emitter(&config, Some(handle)).await;
+        assert!(emitter.is_none(), "emitter must stay disabled");
+
+        // Long enough for a Died-driven cancel to have landed.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(
+            !shutdown.is_cancelled(),
+            "a disabled warnings emitter must not initiate capture shutdown"
+        );
+        assert!(!server.is_shutting_down(), "capture must still be serving");
     }
 
     #[test]
