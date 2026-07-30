@@ -15629,6 +15629,8 @@ export namespace Schemas {
       group_type_index?: number | null;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
+      /** True when PostHog writes this property itself. Its name and display type are fixed — an update changing either is rejected. */
+      readonly is_canonical: boolean;
       /**
          * For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types.
          * @nullable
@@ -48200,6 +48202,8 @@ export namespace Schemas {
       group_type_index?: number | null;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
+      /** True when PostHog writes this property itself. Its name and display type are fixed — an update changing either is rejected. */
+      readonly is_canonical?: boolean;
       /**
          * For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types.
          * @nullable

@@ -965,6 +965,7 @@ def _to_custom_property_definition_view(
         target_type=definition.target_type,
         group_type_index=definition.group_type_index,
         is_big_number=definition.is_big_number,
+        is_canonical=definition.name in CANONICAL_DISPLAY_TYPE_BY_NAME,
         created_at=definition.created_at,
         created_by=definition.created_by_id,
         updated_at=definition.updated_at,

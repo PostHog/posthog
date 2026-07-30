@@ -501,6 +501,23 @@ class TestCanonicalCustomPropertyDefinition(BaseTest):
         self.definition.refresh_from_db()
         assert self.definition.description == "When the customer last posted in Slack"
 
+    @parameterized.expand([(CANONICAL_LAST_SLACK_MESSAGE_AT, True), ("Plan", False)])
+    def test_the_view_marks_canonical_definitions(self, name, expected):
+        definition = self.definition if expected else create_custom_property_definition(team_id=self.team.id, name=name)
+
+        with team_scope(self.team.id):
+            view = facade.get_custom_property_definition(
+                self.team.id, str(definition.id), user_access_control=self._uac()
+            )
+
+        assert view is not None
+        assert view.is_canonical is expected
+
+    def _uac(self):
+        uac = MagicMock()
+        uac.check_access_level_for_resource.return_value = True
+        return uac
+
     def test_a_non_canonical_definition_can_be_renamed(self):
         plan = create_custom_property_definition(team_id=self.team.id, name="Plan")
         with team_scope(self.team.id):
