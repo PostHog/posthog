@@ -381,28 +381,40 @@ def validate_ticket_groups(groups: Any) -> list[dict[str, Any]] | None:
     return cleaned_groups
 
 
+# (key, operator) -> a Q builder with the ORM lookup written literally, so no
+# config value is ever interpolated into a lookup path (defense in depth on
+# top of the write validator and _is_structurally_usable_filter, and it keeps
+# static analysis honest about ORM field injection).
+_PROPERTY_CONDITIONS: dict[tuple[str, str], Callable[[Any], Q]] = {
+    ("channel_source", "in"): lambda value: Q(channel_source__in=value),
+    ("status", "in"): lambda value: Q(status__in=value),
+    ("priority", "in"): lambda value: Q(priority__in=value),
+    ("email_from", "icontains"): lambda value: Q(email_from__icontains=value),
+    ("sla_due_at", "is_set"): lambda _value: Q(sla_due_at__isnull=False),
+    ("sla_due_at", "is_not_set"): lambda _value: Q(sla_due_at__isnull=True),
+    ("created_at", "date_before"): lambda resolved: Q(created_at__lt=resolved),
+    ("created_at", "date_after"): lambda resolved: Q(created_at__gt=resolved),
+}
+
+
 def _filter_condition(filter_config: dict[str, Any], timezone_info: ZoneInfo) -> Q:
     """One filter's SQL condition, for ANDing into the group's WHEN."""
     if filter_config["type"] == "ticket_tags":
         return Q(Exists(TaggedItem.objects.filter(ticket=OuterRef("pk"), tag__name__in=filter_config["value"])))
     key = filter_config["key"]
     operator = filter_config["operator"]
-    if operator == "in":
-        return Q(**{f"{key}__in": filter_config["value"]})
-    if operator == "icontains":
-        return Q(**{f"{key}__icontains": filter_config["value"]})
-    if operator == "is_set":
-        return Q(**{f"{key}__isnull": False})
-    if operator == "is_not_set":
-        return Q(**{f"{key}__isnull": True})
-    # date_before / date_after — relative values resolve once per query build
-    resolved = _resolve_date_value(filter_config["value"], timezone_info)
-    if resolved is None:
-        # Outside the shared grammar (a config written past the validator) —
-        # the filter matches nothing, same as the frontend.
+    condition = _PROPERTY_CONDITIONS.get((key, operator))
+    if condition is None:
+        # Unknown combo written past the validator — match nothing, like the frontend.
         return Q(pk__in=[])
-    lookup = "lt" if operator == "date_before" else "gt"
-    return Q(**{f"{key}__{lookup}": resolved})
+    if operator in ("date_before", "date_after"):
+        # Relative values resolve once per query build.
+        resolved = _resolve_date_value(filter_config["value"], timezone_info)
+        if resolved is None:
+            # Outside the shared grammar — the filter matches nothing, same as the frontend.
+            return Q(pk__in=[])
+        return condition(resolved)
+    return condition(filter_config.get("value"))
 
 
 def ticket_group_rank_annotation(groups: list[dict[str, Any]], timezone_info: ZoneInfo | None = None) -> Case | Value:
