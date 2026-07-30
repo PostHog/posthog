@@ -636,13 +636,11 @@ def create_posthog_code_task_for_repo_activity(
 
     ai_prefs = resolve_ai_preferences(integration, slack_user_id)
 
-    # File into the creator's personal "#me" channel so the task surfaces in PostHog
-    # Desktop's Spaces feed, which is strictly channel-scoped — a NULL-channel task
-    # shows up in no space. Best-effort: channel resolution must never block creating
-    # the task from a Slack mention.
+    # File into the creator's personal "#me" channel so the task surfaces in PostHog Desktop's
+    # Spaces feed, which is strictly channel-scoped — a NULL-channel task shows up in no space.
     personal_channel_id: uuid.UUID | None = None
     try:
-        personal_channel_id = tasks_facade.ensure_personal_channel(integration.team_id, user_id).id
+        personal_channel_id = tasks_facade.ensure_personal_channel_id(integration.team_id, user_id)
     except Exception:
         logger.warning(
             "posthog_code_personal_channel_resolution_failed",

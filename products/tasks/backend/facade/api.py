@@ -135,7 +135,7 @@ __all__ = [
     "claim_and_fail_stale_run",
     "delete_sandbox_custom_image",
     "delete_sandbox_environment",
-    "ensure_personal_channel",
+    "ensure_personal_channel_id",
     "ensure_sandbox_custom_image_builder_task",
     "delete_task_automation",
     "edit_task_run_living_artifact",
@@ -864,10 +864,9 @@ def create_and_run_task(
     instead of leaking the ORM ``Task``. ``team`` is a core ``posthog.Team`` (not a tasks
     model). Less-common keyword arguments are forwarded verbatim via ``**extra``.
 
-    ``channel_id`` files the task into a channel's feed (the channel it was kicked off in);
-    left NULL for non-channel surfaces. A channel the creator can't file into — unknown,
-    deleted, or someone else's personal channel — is ignored rather than raising: feed
-    placement must never break task creation.
+    ``channel_id`` files the task into a channel's feed; left NULL for non-channel surfaces.
+    An id the creator can't file into (see ``_visible_channel``) is ignored rather than
+    raising — feed placement must never break task creation.
     """
     channel = _visible_channel(channel_id, team.id, user_id) if channel_id is not None else None
     task = Task.create_and_run(
@@ -5010,11 +5009,15 @@ def _channel_to_dto(channel: Channel) -> contracts.ChannelDTO:
     )
 
 
+def _team_channels(team_id: int) -> QuerySet[Channel]:
+    # for_team rather than a bare team_id filter so these reads also resolve outside request
+    # scope (Temporal activities), where the fail-closed manager raises on an unscoped read.
+    return Channel.objects.for_team(team_id)
+
+
 def _ensure_personal_channel(team_id: int, user_id: int) -> Channel:
-    # for_team so this works outside request scope too (Temporal activities filing a
-    # Slack task into #me) — the fail-closed manager raises on a bare read without it.
     # select_related so _channel_to_dto doesn't lazy-load created_by per call.
-    channels = Channel.objects.for_team(team_id).select_related("created_by")
+    channels = _team_channels(team_id).select_related("created_by")
     lookup = {
         "team_id": team_id,
         "created_by_id": user_id,
@@ -5028,13 +5031,12 @@ def _ensure_personal_channel(team_id: int, user_id: int) -> Channel:
     return channel
 
 
-def ensure_personal_channel(team_id: int, user_id: int) -> contracts.ChannelDTO:
-    """Get-or-create the user's personal "#me" channel and return it as a DTO.
+def ensure_personal_channel_id(team_id: int, user_id: int) -> UUID:
+    """Get-or-create the user's personal "#me" channel and return its id.
 
-    Public counterpart of ``_ensure_personal_channel`` for callers outside a request
-    (Temporal activities) that need the channel id without touching the ORM.
+    For callers outside a request (Temporal activities) that need somewhere to file a task.
     """
-    return _channel_to_dto(_ensure_personal_channel(team_id, user_id))
+    return _ensure_personal_channel(team_id, user_id).id
 
 
 def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDTO]:
@@ -5147,15 +5149,8 @@ def _channel_feed_message_to_dto(message: ChannelFeedMessage) -> contracts.Chann
 
 def _visible_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> Channel | None:
     """A channel the requester may read: any live public channel on the team, or their
-    own personal channel. ``None`` when it's missing or someone else's personal channel.
-
-    Scoped via ``for_team`` rather than a bare ``team_id`` filter so it also resolves outside
-    request scope (Temporal activities), where the fail-closed manager raises on an
-    unscoped read.
-    """
-    channel = (
-        Channel.objects.for_team(team_id).select_related("created_by").filter(id=channel_id, deleted=False).first()
-    )
+    own personal channel. ``None`` when it's missing or someone else's personal channel."""
+    channel = _team_channels(team_id).filter(id=channel_id, deleted=False).first()
     if channel is None:
         return None
     if channel.channel_type == Channel.ChannelType.PERSONAL and channel.created_by_id != user_id:

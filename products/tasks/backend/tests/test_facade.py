@@ -1,7 +1,7 @@
 import importlib
 from datetime import timedelta
 from typing import ClassVar
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from unittest.mock import patch
 
@@ -572,26 +572,27 @@ class TestFacadeReadsAndMappers(TestCase):
         }
         return Channel.objects.unscoped().create(**{**defaults, **kwargs})
 
-    @parameterized.expand(["public", "unknown", "other_users_personal"])
-    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_and_run_task_files_into_channel(self, channel_kind, _mock_workflow):
-        Integration.objects.create(team=self.team, kind="github", config={})
-        expected: UUID | None
-        if channel_kind == "public":
-            channel_id = self._make_channel().id
-            expected = channel_id
-        elif channel_kind == "unknown":
-            channel_id, expected = uuid4(), None
-        else:
+    def _make_teammates_personal_channel(self) -> Channel:
+        teammate = User.objects.create(email="teammate@test.com", distinct_id="teammate")
+        return self._make_channel(
+            name=Channel.PERSONAL_CHANNEL_NAME,
+            channel_type=Channel.ChannelType.PERSONAL,
+            created_by=teammate,
+        )
+
+    @parameterized.expand(
+        [
+            ("public", lambda self: self._make_channel().id, True),
+            ("unknown", lambda _self: uuid4(), False),
             # Someone else's "#me" is private: filing into it would leak the task into
             # their personal feed, so it must be dropped like an unknown id.
-            teammate = User.objects.create(email="teammate@test.com", distinct_id="teammate")
-            channel_id = self._make_channel(
-                name=Channel.PERSONAL_CHANNEL_NAME,
-                channel_type=Channel.ChannelType.PERSONAL,
-                created_by=teammate,
-            ).id
-            expected = None
+            ("other_users_personal", lambda self: self._make_teammates_personal_channel().id, False),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_task_files_into_channel(self, _name, make_channel_id, expect_filed, _mock_workflow):
+        Integration.objects.create(team=self.team, kind="github", config={})
+        channel_id = make_channel_id(self)
 
         created = facade.create_and_run_task(
             team=self.team,
@@ -602,22 +603,20 @@ class TestFacadeReadsAndMappers(TestCase):
             repository="posthog/posthog",
             channel_id=channel_id,
         )
-        # A channel the creator can file into lands on the task; anything else is dropped
-        # rather than raising, so feed placement never breaks task creation.
-        self.assertEqual(Task.objects.get(id=created.task_id).channel_id, expected)
+        self.assertEqual(Task.objects.get(id=created.task_id).channel_id, channel_id if expect_filed else None)
 
-    def test_ensure_personal_channel_idempotent_outside_request_scope(self):
-        # No ambient team_scope here, like a Temporal activity — the fail-closed manager
-        # would raise on a bare read, so this also guards the for_team scoping.
-        first = facade.ensure_personal_channel(self.team.id, self.user.id)
-        second = facade.ensure_personal_channel(self.team.id, self.user.id)
-        self.assertEqual(first.id, second.id)
-        self.assertEqual(first.channel_type, Channel.ChannelType.PERSONAL)
+    def test_ensure_personal_channel_id_idempotent_outside_request_scope(self):
+        # No ambient team_scope here, like a Temporal activity — guards the for_team scoping.
+        first = facade.ensure_personal_channel_id(self.team.id, self.user.id)
+        second = facade.ensure_personal_channel_id(self.team.id, self.user.id)
+        self.assertEqual(first, second)
         self.assertEqual(
-            Channel.objects.unscoped()
-            .filter(team=self.team, channel_type=Channel.ChannelType.PERSONAL, deleted=False)
-            .count(),
-            1,
+            list(
+                Channel.objects.unscoped()
+                .filter(team=self.team, channel_type=Channel.ChannelType.PERSONAL, deleted=False)
+                .values_list("id", flat=True)
+            ),
+            [first],
         )
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
