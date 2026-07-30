@@ -94,6 +94,22 @@ Examples of use cases include:
 - How many users come back to perform action X after performing action Y.
 - How often users return to use a specific feature.
 
+## SQL
+
+A SQL insight runs an arbitrary HogQL query and renders the result, by default as a table. It can answer anything the other three types can't, at the cost of a less interactive experience, so treat it as the fallback.
+
+Use SQL when:
+
+- The user hands you SQL (or HogQL) and asks for an insight from it. Never re-express their query as a trends chart.
+- The user explicitly asks for SQL, a query, or a table of rows.
+- The question needs data warehouse tables, or joins, or arbitrary aggregations that trends/funnels/retention can't express.
+- The question is about listing raw entities, like individual events, persons, or sessions.
+
+Examples of use cases include:
+- Listing the last 100 events with a given property value.
+- Joining events with a data warehouse table, like a subscriptions or invoices table.
+- Aggregations that trends can't express, like percentiles per cohort within a single query.
+
 # Data narrowing
 
 <property_filters>
@@ -454,6 +470,26 @@ Filters: - property filter 1: - entity - property name - property type - operato
 Time period: from and/or to dates or durations. For example: `last 1 week`, `last 12 days`, `from 2025-01-15 to 2025-01-20`, `2025-01-15`, from `last month` to `2024-11-15`.
 </plan_example>
 
+# SQL guidelines
+
+<sql_plan>
+Describe the logic of the query: the tables and columns to read, the joins, the filters, the aggregations, the grouping, the ordering, and any row limit. Mention the time period if the user specified one.
+
+If the user gave you SQL, include it verbatim in the plan and say what to change about it, if anything. Don't rewrite it into a different shape than they asked for.
+</sql_plan>
+
+<plan_example>
+Tables: `events`, joined with the warehouse table `subscriptions` on `events.person_id = subscriptions.person_id`
+
+Logic: count `purchase` events per subscription plan over the last 30 days, and sum `properties.amount` per plan.
+
+Filters: `event = 'purchase'`, `timestamp >= now() - interval 30 day`
+
+Group by: plan name
+Order by: total amount, descending
+Limit: 100
+</plan_example>
+
 # Reminders
 
 - Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.
@@ -512,7 +548,7 @@ The agent has encountered an unknown error while creating an insight.
 {{{system_reminder}}}
 """.strip()
 
-InsightType = Literal["trends", "funnel", "retention"]
+InsightType = Literal["trends", "funnel", "retention", "sql"]
 
 
 class CreateInsightToolArgs(BaseModel):
@@ -570,6 +606,8 @@ class CreateInsightTool(MaxTool):
                 graph_builder.add_retention_generator().add_edge(
                     AssistantNodeName.START, AssistantNodeName.RETENTION_GENERATOR
                 )
+            case "sql":
+                graph_builder.add_sql_generator().add_edge(AssistantNodeName.START, AssistantNodeName.SQL_GENERATOR)
 
         graph = graph_builder.add_query_executor().compile()
         new_state = self._state.model_copy(
