@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from typing import TypedDict, TypeVar
 
-from django.conf import settings
 from django.db import transaction
 
 import structlog
@@ -36,6 +35,7 @@ from products.signals.backend.report_generation.research import (
 )
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_links import report_inbox_url
 from products.signals.backend.signal_metadata import fetch_source_products_for_reports
 from products.signals.backend.task_run_artefacts import (
     SIGNALS_PRODUCT,
@@ -122,7 +122,7 @@ def _build_autostart_task_description(
     *, report_id: str, team_id: int, summary: str, repository: str, priority: PriorityAssessment | None
 ) -> str:
     priority_line = f"Priority: {priority.priority.value}\nReason: {priority.explanation}\n\n" if priority else ""
-    report_link = f"{settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id}"
+    report_link = report_inbox_url(team_id, report_id)
     return (
         f"{summary}\n\n"
         f"{priority_line}"

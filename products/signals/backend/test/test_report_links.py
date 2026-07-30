@@ -2,7 +2,7 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from products.signals.backend.utils import report_inbox_url
+from products.signals.backend.report_links import report_inbox_url
 
 
 class TestReportInboxUrl(SimpleTestCase):

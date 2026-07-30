@@ -26,7 +26,6 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from django.conf import settings
 from django.db import transaction
 
 import posthoganalytics
@@ -50,6 +49,7 @@ from products.signals.backend.models import ArtefactAttribution, SignalReport, S
 from products.signals.backend.report_charts import ChartSize, ReportChart, chart_batch_error
 from products.signals.backend.report_generation.resolve_reviewers import get_org_member_github_logins_by_user_uuid
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_links import report_inbox_url
 from products.signals.backend.scout_harness.prompt import SELF_IMPROVEMENT_REPORT_TITLE_PREFIX
 from products.signals.backend.scout_harness.skill_loader import resolve_skill_owner_user_uuids
 from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
@@ -660,11 +660,11 @@ class _ReportForward:
 
 
 def _report_url(team_id: int, report_id: str | None) -> str | None:
-    """Inbox deep link for an authored report, or None when no report exists yet (gate-skipped emit). The
-    canonical form used by the Slack inbox notifications (`slack_inbox_notifications.py`)."""
+    """Inbox deep link for an authored report, or None when no report exists yet (gate-skipped emit).
+    Builds from the shared `report_inbox_url` helper (`products/signals/backend/report_links.py`)."""
     if not report_id:
         return None
-    return f"{settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id}"
+    return report_inbox_url(team_id, report_id)
 
 
 def _chart_event_key(chart: ReportChartInput) -> str:

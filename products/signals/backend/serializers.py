@@ -18,7 +18,7 @@ from posthog.temporal.common.client import sync_connect
 from products.signals.backend import contracts
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
-from products.signals.backend.utils import report_inbox_url
+from products.signals.backend.report_links import report_inbox_url
 
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
 from .models import (

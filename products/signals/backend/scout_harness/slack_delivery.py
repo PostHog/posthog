@@ -11,6 +11,7 @@ from slack_sdk.errors import SlackApiError
 from posthog.models.integration import Integration, SlackIntegration
 
 from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
+from products.signals.backend.report_links import report_inbox_url
 from products.signals.backend.slack_formatting import (
     escape_slack_mrkdwn,
     markdown_to_slack_mrkdwn,
@@ -195,7 +196,7 @@ def build_scout_report_slack_message(report: SignalReport, run: SignalScoutRun) 
     if rendered_summary:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": rendered_summary}})
 
-    report_url = f"{settings.SITE_URL.rstrip('/')}/project/{report.team_id}/inbox/reports/{report.id}"
+    report_url = report_inbox_url(report.team_id, str(report.id))
     blocks.append(
         {
             "type": "actions",

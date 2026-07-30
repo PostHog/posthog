@@ -38,6 +38,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     normalized_github_logins_from_suggested_reviewer_artefacts,
     resolve_org_github_login_to_users,
 )
+from products.signals.backend.report_links import report_inbox_url
 from products.signals.backend.slack_formatting import (
     escape_slack_mrkdwn as _escape_mrkdwn,
     is_safe_slack_http_url as _is_safe_http_url,
@@ -366,7 +367,7 @@ def _build_message_blocks(
         {
             "type": "button",
             "text": {"type": "plain_text", "text": "Review in PostHog", "emoji": True},
-            "url": f"{settings.SITE_URL}/project/{report.team_id}/inbox/reports/{report.id}",
+            "url": report_inbox_url(report.team_id, str(report.id)),
         }
     ]
     blocks.append({"type": "actions", "elements": action_elements})
