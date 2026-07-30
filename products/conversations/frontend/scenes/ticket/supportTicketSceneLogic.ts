@@ -62,9 +62,7 @@ import { conversationsDraftModeLogic } from '../settings/conversationsDraftModeL
 import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
-// Collapse rapid successive field edits (and the send-and-set-status path) into a single PATCH.
 const AUTOSAVE_DEBOUNCE_MS = 500
-// Stable id so a later successful save can clear a failure toast that is still on screen.
 const TICKET_UPDATE_ERROR_TOAST_ID = 'conversations-ticket-update-error'
 
 function regionFromUrl(url?: string): Region | undefined {
@@ -825,8 +823,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 }
             },
         ],
-        // Human-readable list of unsaved edits other than status, feeding hasUnsavedChanges and the
-        // beforeUnload guard. Status is excluded because the send-and-set-status action overrides it anyway.
         unsavedTicketChanges: [
             (s) => [s.priority, s.assignee, s.tags, s.snoozedUntil, s.ticket, s.resolveAssignee],
             (
@@ -1047,8 +1043,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setSnoozedUntil: () => actions.autosaveTicket(),
         autosaveTicket: async (_, breakpoint) => {
             await breakpoint(AUTOSAVE_DEBOUNCE_MS)
-            // Skip when there is nothing to persist yet, or when an explicit save (e.g. send-and-set
-            // status) already flushed these edits — hasUnsavedChanges settles to false once it lands.
             if (props.id === 'new' || !values.ticket || !values.hasUnsavedChanges) {
                 return
             }
@@ -1102,8 +1096,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     throw error
                 }
                 actions.setTicketUpdating(false)
-                // The edit stays in local state (hasUnsavedChanges), so offer an explicit retry —
-                // without the removed Save button a failed autosave would otherwise have no way back.
                 lemonToast.error('Failed to update ticket', {
                     toastId: TICKET_UPDATE_ERROR_TOAST_ID,
                     autoClose: false,
@@ -1264,7 +1256,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         },
         message: 'You have unsaved changes. Are you sure you want to leave?',
         onConfirm: () => {
-            // The pinned failure toast must not outlive the edits it offers to retry.
             lemonToast.dismiss(TICKET_UPDATE_ERROR_TOAST_ID)
             // Re-sync local form reducers to the last-known server ticket so hasUnsavedChanges
             // recomputes to false and the prompt does not re-fire on the next navigation.
