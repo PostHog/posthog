@@ -4,7 +4,7 @@ import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import { STATUS_INTENT_LABEL } from './Indicators'
+import { ISSUE_STATUS_CONFIG } from './Indicators'
 
 export const IssueStatusButton = ({
     status,
@@ -30,7 +30,11 @@ export const IssueStatusButton = ({
             <LemonButton
                 type="primary"
                 onClick={handleResolve}
-                tooltip={status === 'active' ? STATUS_INTENT_LABEL['resolved'] : STATUS_INTENT_LABEL['active']}
+                tooltip={
+                    status === 'active'
+                        ? ISSUE_STATUS_CONFIG.resolved.intentLabel
+                        : ISSUE_STATUS_CONFIG.active.intentLabel
+                }
                 data-attr="error-tracking-resolve"
                 sideAction={
                     status === 'active'
@@ -43,7 +47,7 @@ export const IssueStatusButton = ({
                                               {
                                                   label: 'Suppress',
                                                   onClick: () => onChange('suppressed'),
-                                                  tooltip: STATUS_INTENT_LABEL['suppressed'],
+                                                  tooltip: ISSUE_STATUS_CONFIG.suppressed.intentLabel,
                                               },
                                           ]}
                                       />

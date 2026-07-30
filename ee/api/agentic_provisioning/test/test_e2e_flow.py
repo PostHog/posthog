@@ -6,7 +6,7 @@ from django.utils import timezone
 from posthog.models.oauth import OAuthApplication
 from posthog.models.user import User
 
-from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import ProvisioningTestBase, provisioning_config
 
 TOKEN_URL = "/api/agentic/oauth/token"
 
@@ -132,10 +132,9 @@ class TestE2EProvisioningFlow(ProvisioningTestBase):
             is_first_party=True,
             scopes=["query:read"],
             is_provisioning_partner=True,
-            provisioning_partner_type="test_partner",
-            provisioning_active=True,
-            provisioning_can_create_accounts=True,
-            provisioning_can_provision_resources=True,
+            _provisioning_config=provisioning_config(
+                active=True, can_create_accounts=True, can_provision_resources=True
+            ),
         )
 
         existing_user = User.objects.create_and_join(
