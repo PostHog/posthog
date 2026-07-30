@@ -5,7 +5,7 @@ import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifi
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 
 import { IconPencil, IconX } from '@posthog/icons'
 import {
@@ -29,11 +29,12 @@ import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/fr
 import { isNumericDisplayType } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
 import {
     ACCOUNTS_NAME_COLUMN,
+    ALL_COLUMNS_KEY,
     AccountColumnDisplayMode,
     AccountColumnGroup,
-    AccountColumnGroupKey,
     COLUMN_DISPLAY_WINDOW_OPTIONS,
     DEFAULT_COLUMN_DISPLAY_WINDOW_DAYS,
+    PickerGroupKey,
     accountsColumnConfigLogic,
 } from './accountsColumnConfigLogic'
 import { accountsViewsLogic } from './accountsViewsLogic'
@@ -361,87 +362,58 @@ function SelectedAccountColumn({
 }
 
 function AvailableColumnsPicker({ groups, loading }: { groups: AccountColumnGroup[]; loading: boolean }): JSX.Element {
-    const { selectColumns } = useValues(accountsColumnConfigLogic)
-    const { selectColumn } = useActions(accountsColumnConfigLogic)
-    const [activeGroupKey, setActiveGroupKey] = useState<AccountColumnGroupKey>('account_properties')
-    const [search, setSearch] = useState('')
-    const [sqlInput, setSqlInput] = useState('')
-
-    const activeGroup = useMemo(
-        () => groups.find((g) => g.key === activeGroupKey) ?? groups[0],
-        [groups, activeGroupKey]
-    )
-
-    const filteredOptions = useMemo(() => {
-        if (!activeGroup || activeGroup.isFreeform) {
-            return []
-        }
-        const query = search.trim().toLowerCase()
-        if (!query) {
-            return activeGroup.options
-        }
-        return activeGroup.options.filter((option) => option.name.toLowerCase().includes(query))
-    }, [activeGroup, search])
-
-    const isSelected = (expression: string): boolean => selectColumns.includes(expression)
-
-    const addSqlExpression = (): void => {
-        const expr = sqlInput.trim()
-        if (expr) {
-            selectColumn(expr)
-            setSqlInput('')
-        }
-    }
-
-    const searchPlaceholder = activeGroup?.isFreeform
-        ? 'Use the SQL expression panel below'
-        : `Search ${activeGroup?.label.toLowerCase() ?? 'columns'}`
+    const {
+        pickerGroupKey,
+        pickerSearch,
+        pickerSqlInput,
+        pickerSearchPlaceholder,
+        activePickerGroup,
+        filteredColumnOptions,
+    } = useValues(accountsColumnConfigLogic)
+    const { selectColumn, setPickerGroupKey, setPickerSearch, setPickerSqlInput, addSqlExpression } =
+        useActions(accountsColumnConfigLogic)
 
     return (
         <div className="flex flex-col gap-2">
             <LemonInput
                 type="search"
-                placeholder={searchPlaceholder}
-                value={search}
-                onChange={setSearch}
-                disabled={activeGroup?.isFreeform}
+                placeholder={pickerSearchPlaceholder}
+                value={pickerSearch}
+                onChange={setPickerSearch}
+                disabled={activePickerGroup?.isFreeform}
                 fullWidth
                 data-attr="accounts-columns-search"
-                suffix={
-                    <CategoryPicker
-                        groups={groups}
-                        activeKey={activeGroupKey}
-                        onChange={(key) => {
-                            setActiveGroupKey(key)
-                            setSearch('')
-                        }}
-                    />
-                }
+                suffix={<CategoryPicker groups={groups} activeKey={pickerGroupKey} onChange={setPickerGroupKey} />}
             />
-            {activeGroup?.isFreeform ? (
-                <SqlExpressionPanel value={sqlInput} onChange={setSqlInput} onAdd={addSqlExpression} />
+            {activePickerGroup?.isFreeform ? (
+                <SqlExpressionPanel value={pickerSqlInput} onChange={setPickerSqlInput} onAdd={addSqlExpression} />
             ) : (
                 <div className="AvailableColumnsList border border-border rounded">
-                    {loading && filteredOptions.length === 0 ? (
+                    {loading && filteredColumnOptions.length === 0 ? (
                         <div className="p-3 text-secondary">Loading schema…</div>
-                    ) : filteredOptions.length === 0 ? (
+                    ) : filteredColumnOptions.length === 0 ? (
                         <div className="p-3 text-secondary">
-                            {search.trim() ? 'No matching columns' : 'No columns available'}
+                            {pickerSearch.trim() ? 'No matching columns' : 'No columns available'}
                         </div>
                     ) : (
                         <ul className="m-0 p-0 list-none">
-                            {filteredOptions.map((option) => {
-                                const already = isSelected(option.expression)
+                            {filteredColumnOptions.map((option) => {
                                 return (
-                                    <li key={option.expression} className="border-b border-border last:border-b-0">
+                                    <li
+                                        key={`${option.groupLabel}::${option.expression}`}
+                                        className="border-b border-border last:border-b-0"
+                                    >
                                         <LemonButton
                                             fullWidth
                                             size="small"
-                                            onClick={() => !already && selectColumn(option.expression)}
-                                            disabledReason={already ? 'Already added' : undefined}
+                                            onClick={() => !option.isSelected && selectColumn(option.expression)}
+                                            disabledReason={option.isSelected ? 'Already added' : undefined}
                                             data-attr={`accounts-column-option-${option.name}`}
                                         >
                                             <span className="flex-1 font-mono">{option.name}</span>
+                                            {!activePickerGroup ? (
+                                                <span className="ml-2 text-xs text-secondary">{option.groupLabel}</span>
+                                            ) : null}
                                             {option.type ? (
                                                 <span className="ml-2 text-xs text-secondary">{option.type}</span>
                                             ) : null}
@@ -463,19 +435,26 @@ function CategoryPicker({
     onChange,
 }: {
     groups: AccountColumnGroup[]
-    activeKey: AccountColumnGroupKey
-    onChange: (key: AccountColumnGroupKey) => void
+    activeKey: PickerGroupKey
+    onChange: (key: PickerGroupKey) => void
 }): JSX.Element {
     return (
         <LemonSearchableSelect
             size="xsmall"
             value={activeKey}
-            options={groups.map((group) => ({
-                value: group.key,
-                label: group.label,
-                'data-attr': `accounts-columns-group-item-${group.key}`,
-            }))}
-            onChange={(key) => key && onChange(key as AccountColumnGroupKey)}
+            options={[
+                {
+                    value: ALL_COLUMNS_KEY,
+                    label: 'All columns',
+                    'data-attr': `accounts-columns-group-item-${ALL_COLUMNS_KEY}`,
+                },
+                ...groups.map((group) => ({
+                    value: group.key,
+                    label: group.label,
+                    'data-attr': `accounts-columns-group-item-${group.key}`,
+                })),
+            ]}
+            onChange={(key) => key && onChange(key as PickerGroupKey)}
             searchPlaceholder="Search categories"
             dropdownPlacement="bottom-end"
             data-attr="accounts-columns-group"

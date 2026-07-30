@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
-use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::create_kafka_producer;
 use common_metrics::setup_metrics_routes;
 use dashmap::DashMap;
@@ -31,7 +30,7 @@ use personhog_leader::pg::{validate_table_name, PgFallback};
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
 use personhog_leader::service::{sweep_idle_locks, PersonHogLeaderService, PropertySizeLimits};
 use personhog_leader::warming::{
-    fetch_writer_committed_offsets, WarmingConfig, WarmingRetryPolicy,
+    fetch_writer_committed_offsets, WarmClientPools, WarmingConfig, WarmingRetryPolicy,
 };
 use personhog_leader::warnings::WarningsProducer;
 
@@ -219,6 +218,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         warnings.clone(),
     );
 
+    let warm_pools = Arc::new(WarmClientPools::new(
+        &config.kafka,
+        &config.pod_name,
+        &config.writer_consumer_group,
+    ));
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),
         Arc::clone(&inflight),
@@ -242,24 +246,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 max_backoff: Duration::from_millis(config.warm_retry_max_backoff_ms),
             },
         },
+        Arc::clone(&warm_pools),
     );
     let advertise_address =
         personhog_leader::config::derive_advertise_address(&config.grpc_address, &config.pod_ip)
             .expect("Invalid advertise address configuration");
     tracing::info!(%advertise_address, "advertising gRPC address for routing");
 
-    let pod = PodHandle::new(
-        store,
-        PodConfig {
-            pod_name: config.pod_name.clone(),
-            lease_ttl: config.lease_ttl,
-            heartbeat_interval: config.heartbeat_interval(),
-            advertise_address: Some(advertise_address),
-            ..Default::default()
-        },
-        Arc::new(handler),
-        None,
-    );
+    let pod_config = PodConfig {
+        pod_name: config.pod_name.clone(),
+        lease_ttl: config.lease_ttl,
+        heartbeat_interval: config.heartbeat_interval(),
+        advertise_address: Some(advertise_address),
+        ..Default::default()
+    };
+
+    // Open connections up front: warms cluster in deploy bursts, and a
+    // cold pool would make every burst's first operations pay the client
+    // setup the pool exists to amortize. Sized from the pod's actual
+    // configured warm concurrency — the bound the semaphore enforces —
+    // so the pool and the concurrency limit cannot drift apart; the
+    // offsets pool also serves the dirty-index prune tick. Best-effort:
+    // a failure only defers the cost.
+    {
+        let pools = Arc::clone(&warm_pools);
+        let warm_slots = pod_config.warm_concurrency;
+        tokio::spawn(async move {
+            pools.offsets.warm_up(2).await;
+            pools.warming.warm_up(warm_slots).await;
+        });
+    }
+
+    let pod = PodHandle::new(store, pod_config, Arc::new(handler), None);
 
     tokio::spawn(async move {
         let _guard = coordination_handle.process_scope();
@@ -282,9 +300,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tokio::spawn(run_dirty_index_prune_loop(
         Arc::clone(&dirty_index),
-        config.kafka.clone(),
+        Arc::clone(&warm_pools),
         config.kafka_person_state_topic.clone(),
-        config.writer_consumer_group.clone(),
         Duration::from_secs(config.warm_committed_offsets_timeout_secs),
         Duration::from_secs(config.dirty_index_prune_interval_secs.max(1)),
     ));
@@ -372,13 +389,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Periodically drop dirty-index marks the writer has applied to PG, and
 /// export the dirty-count and writer-lag gauges as a side effect. One
-/// batched OffsetFetch covers every partition with marks, so each tick
-/// costs a single short-lived consumer.
+/// batched OffsetFetch covers every partition with marks, on a pooled
+/// client — each tick reuses the connection instead of rebuilding one.
 async fn run_dirty_index_prune_loop(
     dirty_index: Arc<DirtyIndex>,
-    kafka: KafkaConfig,
+    pools: Arc<WarmClientPools>,
     topic: String,
-    writer_group: String,
     offsets_timeout: Duration,
     prune_interval: Duration,
 ) {
@@ -396,8 +412,7 @@ async fn run_dirty_index_prune_loop(
             continue;
         }
         let committed_offsets = match fetch_writer_committed_offsets(
-            &kafka,
-            &writer_group,
+            &pools.offsets,
             &topic,
             &partitions,
             offsets_timeout,
