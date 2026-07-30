@@ -53,7 +53,7 @@ const NoMetricsPrompt = ({ className }: { className?: string }): JSX.Element | n
     const { addProductIntent } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { hasMetrics } = useValues(metricsIngestionLogic)
-    const { loadTeamHasMetrics } = useActions(metricsIngestionLogic)
+    const { loadTeamHasMetrics, reportScrapeSnippetCopied } = useActions(metricsIngestionLogic)
     const [agentTab, setAgentTab] = useState<'docker' | 'kubernetes'>('docker')
 
     useEffect(() => {
@@ -138,12 +138,26 @@ const NoMetricsPrompt = ({ className }: { className?: string }): JSX.Element | n
                                 {
                                     key: 'docker' as const,
                                     label: 'Docker',
-                                    content: <CodeSnippet language={Language.Bash}>{dockerSnippet}</CodeSnippet>,
+                                    content: (
+                                        <CodeSnippet
+                                            language={Language.Bash}
+                                            onCopy={() => reportScrapeSnippetCopied('docker')}
+                                        >
+                                            {dockerSnippet}
+                                        </CodeSnippet>
+                                    ),
                                 },
                                 {
                                     key: 'kubernetes' as const,
                                     label: 'Kubernetes',
-                                    content: <CodeSnippet language={Language.Bash}>{helmSnippet}</CodeSnippet>,
+                                    content: (
+                                        <CodeSnippet
+                                            language={Language.Bash}
+                                            onCopy={() => reportScrapeSnippetCopied('kubernetes')}
+                                        >
+                                            {helmSnippet}
+                                        </CodeSnippet>
+                                    ),
                                 },
                             ]}
                         />
