@@ -69,7 +69,7 @@ class SubscriptionTriggerType:
     """
 
     SCHEDULED = "scheduled"  # Regular cron-based delivery
-    SUBSCRIPTION_UPDATE = "target_change"  # Serialized value retained for Temporal compatibility.
+    SUBSCRIPTION_CHANGE = "target_change"  # An API create or edit triggered an immediate delivery.
     MANUAL = "manual"  # User clicked "Test delivery"
 
 
@@ -152,7 +152,7 @@ class ProcessSubscriptionWorkflowInputs:
     # TODO(2026-07-30): Remove in a follow-up after this PR is fully deployed and pre-deployment workflow payloads expire.
     previous_value: typing.Optional[str] = None
     invite_message: typing.Optional[str] = None
-    trigger_type: str = SubscriptionTriggerType.SUBSCRIPTION_UPDATE
+    trigger_type: str = SubscriptionTriggerType.SUBSCRIPTION_CHANGE
     scheduled_at: typing.Optional[str] = None
     # Lets HandleSubscriptionValueChangeWorkflow route AI-prompt subs to
     # ProcessAISubscriptionWorkflow. Passed by the API from the loaded instance.
@@ -177,7 +177,7 @@ class TrackedSubscriptionInputs:
     previous_value: typing.Optional[str] = None
     invite_message: typing.Optional[str] = None
     slo: SloConfig | None = None
-    trigger_type: str = SubscriptionTriggerType.SUBSCRIPTION_UPDATE
+    trigger_type: str = SubscriptionTriggerType.SUBSCRIPTION_CHANGE
     scheduled_at: typing.Optional[str] = None
     resource_type: str = ""
 

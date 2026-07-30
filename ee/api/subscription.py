@@ -711,7 +711,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         )
 
         invite_message = validated_data.pop("invite_message", "")
-        # The immediate confirmation delivery (SUBSCRIPTION_UPDATE below) is separate from the
+        # The immediate confirmation delivery (SUBSCRIPTION_CHANGE below) is separate from the
         # recurring schedule, which the scheduler drives off next_delivery_date. Creators
         # can opt out of that first send via send_test_now; the schedule is unaffected.
         send_test_now = validated_data.pop("send_test_now", True)
@@ -768,7 +768,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                         previous_target_value="",
                         previous_value="",
                         invite_message=invite_message,
-                        trigger_type=SubscriptionTriggerType.SUBSCRIPTION_UPDATE,
+                        trigger_type=SubscriptionTriggerType.SUBSCRIPTION_CHANGE,
                         resource_type=instance.resource_type,
                     ),
                     id=workflow_id,
@@ -836,7 +836,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # Re-enabling clears the stale next_delivery_date that was frozen while
         # disabled. Without this, the scheduler picks the sub up on its next tick
         # (the past date matches `next_delivery_date__lte=now`) and fires a second
-        # SCHEDULED delivery right after the immediate SUBSCRIPTION_UPDATE confirmation.
+        # SCHEDULED delivery right after the immediate SUBSCRIPTION_CHANGE confirmation.
         if is_re_enabling:
             instance.set_next_delivery_date()
             instance.save(update_fields=["next_delivery_date"])
@@ -896,7 +896,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                         previous_target_value=previous_target_value,
                         previous_value=previous_target_value,
                         invite_message=invite_message,
-                        trigger_type=SubscriptionTriggerType.SUBSCRIPTION_UPDATE,
+                        trigger_type=SubscriptionTriggerType.SUBSCRIPTION_CHANGE,
                         resource_type=instance.resource_type,
                     ),
                     id=workflow_id,

@@ -1666,7 +1666,7 @@ class TestSubscriptionTemporal(APILicensedTest):
     def test_re_enable_resets_stale_next_delivery_date(self):
         # Without this reset the scheduler's `next_delivery_date__lte=now` filter
         # picks the sub up on its next tick and fires a second delivery right
-        # after the immediate SUBSCRIPTION_UPDATE confirmation.
+        # after the immediate SUBSCRIPTION_CHANGE confirmation.
         subscription = Subscription.objects.create(
             team=self.team,
             target_type="email",
