@@ -20,9 +20,7 @@ import { sqlEditorLogic } from './sqlEditorLogic'
 
 // The query as of this edit — what "Restore" loads back into the editor.
 function restorableQueryFromLog(logItem: HumanizedActivityLogItem): string | null {
-    const change = logItem.unprocessed?.detail.changes?.find(
-        (c) => c.field === 'query' && extractQuery(c.after) !== ''
-    )
+    const change = logItem.unprocessed?.detail.changes?.find((c) => c.field === 'query' && extractQuery(c.after) !== '')
     return change ? extractQuery(change.after) : null
 }
 
