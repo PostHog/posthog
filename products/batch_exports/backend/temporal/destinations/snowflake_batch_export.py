@@ -995,7 +995,7 @@ class SnowflakeClient:
         self,
         file: BatchExportTemporaryFile | NamedBytesIO,
         table: SnowflakeTable,
-    ):
+    ) -> None:
         """Executes a PUT query using the provided cursor to the provided table_name.
 
         Sadly, Snowflake's execute_async does not work with PUT statements. So, we pass the execute
