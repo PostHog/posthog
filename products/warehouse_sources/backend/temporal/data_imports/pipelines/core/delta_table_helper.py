@@ -56,9 +56,9 @@ DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
 # - the first three come from delta-rs's Rust `object_store` crate inside `DeltaTable.is_deltatable()`
 #   (IMDS/STS blips, dispatch timeouts)
 # - "Please reduce your request rate" is S3's SlowDown throttling response, surfaced by s3fs/aiobotocore
-#   when a bulk delete (e.g. `_purge_s3_prefix`) outruns the bucket's request-rate limit
-# A retry (next maintenance pass, or next sync attempt) redoes the same idempotent operation from
-# scratch, so these shouldn't be treated the same as a bug in our logic.
+#   when a bulk operation (e.g. `_purge_s3_prefix`'s list-then-delete) outruns the bucket's request-rate limit
+# A retry (of the same idempotent operation) clears these, so they shouldn't be treated the same as a
+# bug in our logic.
 TRANSIENT_OBJECT_STORE_ERRORS = (
     "an error occurred while loading credentials",
     "the credential provider was not enabled",
@@ -95,6 +95,11 @@ def is_transient_delta_maintenance_error(error: BaseException) -> bool:
     )
 
 
+# _purge_s3_prefix is idempotent (every step is existence-gated), so retrying it whole after a brief
+# backoff is as safe as retrying a single failed call, and simpler.
+_PURGE_S3_PREFIX_MAX_ATTEMPTS = 4
+
+
 def _delta_merge_spill_kwargs() -> dict[str, int]:
     """delta-rs `merge` kwargs that let DataFusion spill to disk instead of OOMing on large merges.
 
@@ -114,6 +119,24 @@ def _delta_merge_spill_kwargs() -> dict[str, int]:
 
 
 async def _purge_s3_prefix(s3: Any, uri: str) -> None:
+    """Delete every object under `uri`, retrying on transient S3 SlowDown throttling.
+
+    Bulk-listing and bulk-deleting a table's worth of objects can trip S3's `SlowDown` response
+    under enough request volume; retry the whole (idempotent) purge with backoff before giving up.
+    """
+    attempt = 0
+    while True:
+        try:
+            await _purge_s3_prefix_once(s3, uri)
+            return
+        except OSError as e:
+            attempt += 1
+            if attempt >= _PURGE_S3_PREFIX_MAX_ATTEMPTS or not is_transient_object_store_error(e):
+                raise
+            await asyncio.sleep(2**attempt)
+
+
+async def _purge_s3_prefix_once(s3: Any, uri: str) -> None:
     """Delete every object under `uri`, resilient to S3 recursive-delete gaps.
 
     A lone `_rm(uri, recursive=True)` can leave objects behind on S3-compatible stores (directory
