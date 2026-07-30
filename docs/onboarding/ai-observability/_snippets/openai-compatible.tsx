@@ -19,7 +19,9 @@ export const getOpenAICompatibleSteps = (
     ctx: OnboardingComponentsContext,
     config: OpenAICompatibleConfig
 ): StepDefinition[] => {
-    const { CodeBlock, Markdown, dedent } = ctx
+    const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
+
+    const NotableGenerationProperties = snippets?.NotableGenerationProperties
 
     return [
         {
@@ -27,6 +29,17 @@ export const getOpenAICompatibleSteps = (
             badge: 'required',
             content: (
                 <>
+                    <CalloutBox type="info" icon="IconInfo" title="Full working examples">
+                        <Markdown>
+                            {dedent`
+                                See the complete
+                                [Node.js](https://github.com/PostHog/posthog-js/tree/main/examples/example-ai-${config.slug}) and
+                                [Python](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-${config.slug})
+                                examples on GitHub.
+                            `}
+                        </Markdown>
+                    </CalloutBox>
+
                     <Markdown>Install the PostHog SDK and the OpenAI SDK.</Markdown>
 
                     <CodeBlock
@@ -123,7 +136,7 @@ export const getOpenAICompatibleSteps = (
                                         model="${config.defaultModel}",
                                         messages=[{"role": "user", "content": "Tell me a fun fact about hedgehogs"}],
                                         posthog_distinct_id="user_123",
-                                        posthog_properties={"$ai_session_id": "conversation-abc"},
+                                        posthog_properties={"$ai_session_id": "conversation-abc", "$ai_provider": "${config.slug}"},
                                     )
 
                                     print(response.choices[0].message.content)
@@ -137,7 +150,7 @@ export const getOpenAICompatibleSteps = (
                                       model: '${config.defaultModel}',
                                       messages: [{ role: 'user', content: 'Tell me a fun fact about hedgehogs' }],
                                       posthogDistinctId: 'user_123',
-                                      posthogProperties: { $ai_session_id: 'conversation-abc' },
+                                      posthogProperties: { $ai_session_id: 'conversation-abc', $ai_provider: '${config.slug}' },
                                     })
 
                                     console.log(response.choices[0].message.content)
@@ -146,9 +159,29 @@ export const getOpenAICompatibleSteps = (
                         ]}
                     />
 
+                    <Blockquote>
+                        <Markdown>
+                            **Note:** If you want to capture LLM events anonymously, omit `posthog_distinct_id` from the
+                            call. See our docs on [anonymous vs identified
+                            events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
+                        </Markdown>
+                    </Blockquote>
+
                     <Markdown>
-                        Pass the same `$ai_session_id` across every call in a conversation to group them into one
-                        session. Pass `posthog_trace_id` to group several calls into one trace.
+                        {dedent`
+                            You can expect captured \`$ai_generation\` events to have the following properties:
+                        `}
+                    </Markdown>
+
+                    {NotableGenerationProperties && <NotableGenerationProperties />}
+
+                    <Markdown>
+                        {dedent`
+                            Pass the same \`$ai_session_id\` across every call in a conversation to group them into one
+                            session. Pass \`posthog_trace_id\` to group several calls into one trace. The wrapper
+                            reports \`$ai_provider\` as \`openai\` by default, so pass it explicitly, as shown above, to
+                            attribute cost and usage to ${config.label} instead of OpenAI.
+                        `}
                     </Markdown>
                 </>
             ),
