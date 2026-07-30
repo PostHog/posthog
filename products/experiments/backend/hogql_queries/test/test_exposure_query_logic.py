@@ -60,12 +60,18 @@ class TestDualReadExposureContract:
         conditions = build_exposure_event_conditions(None, MagicMock(), "checkout-cta")
 
         assert isinstance(conditions[0], ast.Or)
-        assert [expr.right.value for expr in conditions[0].exprs if isinstance(expr, ast.CompareOperation)] == [
+        assert [
+            expr.right.value
+            for expr in conditions[0].exprs
+            if isinstance(expr, ast.CompareOperation) and isinstance(expr.right, ast.Constant)
+        ] == [
             "$feature_flag_called",
             "$experiment_exposure",
         ]
-        assert isinstance(build_exposure_variant_expr("checkout-cta"), ast.Call)
-        assert build_exposure_variant_expr("checkout-cta").name == "if"
+
+        variant_expr = build_exposure_variant_expr("checkout-cta")
+        assert isinstance(variant_expr, ast.Call)
+        assert variant_expr.name == "if"
 
     def test_custom_exposure_prefers_mapping_and_falls_back_to_legacy_property(self):
         criteria = {
