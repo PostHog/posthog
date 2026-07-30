@@ -1,9 +1,11 @@
 import { useActions, useAsyncActions, useValues } from 'kea'
-import { useCallback } from 'react'
+import posthog from 'posthog-js'
+import { useCallback, useState } from 'react'
 
 import { IconArrowRight, IconCheck, IconLock } from '@posthog/icons'
 import { LemonButton, Popover, PopoverProps, Tooltip } from '@posthog/lemon-ui'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { getExternalAIProvidersTooltipTitle, openAIConsentLegalDialog } from './aiConsentCopy'
@@ -106,12 +108,36 @@ export function AIConsentPopoverWrapper({
         useValues(aiConsentLogic)
     const { dismissDataProcessing } = useActions(aiConsentLogic)
     const { isAdminOrOwner } = useValues(organizationLogic)
+    // Hide the popover the moment consent is confirmed, without waiting for the organization PATCH to
+    // land — otherwise the prompt is still up when the approved action re-runs, and the user is asked
+    // to accept the same terms twice.
+    const [approvalInFlight, setApprovalInFlight] = useState(false)
 
     const handleDismiss = (): void => {
         if (!ignoreDismissal) {
             dismissDataProcessing()
         }
         onDismiss?.()
+    }
+
+    const handleApprove = (): void => {
+        setApprovalInFlight(true)
+        void acceptDataProcessing()
+            .then(() => {
+                // The organization loader swallows request failures, so this resolving doesn't mean
+                // the consent saved — check the value it would have set.
+                if (!aiConsentLogic.values.dataProcessingAccepted) {
+                    throw new Error('Organization AI data processing consent was not saved')
+                }
+                onApprove?.()
+            })
+            .catch((error) => {
+                // Consent didn't actually save, so put the prompt back rather than leaving the user
+                // believing they approved.
+                setApprovalInFlight(false)
+                posthog.captureException(error)
+                lemonToast.error("Couldn't save your approval. Please try again.")
+            })
     }
 
     return (
@@ -121,11 +147,7 @@ export function AIConsentPopoverWrapper({
                     <AIConsentPopoverContent
                         approvalDisabledReason={dataProcessingApprovalDisabledReason}
                         hideTrainingDisclaimer={hideTrainingDisclaimer}
-                        onApprove={() =>
-                            void acceptDataProcessing()
-                                .then(() => onApprove?.())
-                                .catch(console.error)
-                        }
+                        onApprove={handleApprove}
                         onDismiss={handleDismiss}
                     />
                 ) : (
@@ -133,7 +155,9 @@ export function AIConsentPopoverWrapper({
                 )
             }
             style={{ zIndex: 'var(--z-modal)' }} // Don't show above the re-authentication modal
-            visible={!hidden && !dataProcessingAccepted && (ignoreDismissal || !dataProcessingDismissed)}
+            visible={
+                !hidden && !dataProcessingAccepted && !approvalInFlight && (ignoreDismissal || !dataProcessingDismissed)
+            }
             onClickOutside={handleDismiss}
             {...popoverProps}
         >

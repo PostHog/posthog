@@ -230,7 +230,9 @@ export function PlayerSummaryDock(): JSX.Element | null {
             </div>
             {isOpen && (
                 <div className="flex-1 overflow-y-auto px-3 pb-3">
-                    <AllowTrainingCallout featureName="session summaries" />
+                    {/* Held back while a summary is generating so an optional opt-in doesn't land
+                        inside the live progress panel. */}
+                    {!sessionSummaryLoading && <AllowTrainingCallout featureName="session summaries" />}
                     {sessionSummaryLoading ? (
                         <>
                             {sessionSummaryHasRetried && (

@@ -126,6 +126,32 @@ describe('sessionSummaryProgressLogic', () => {
         })
     })
 
+    describe('progressBySessionId', () => {
+        const makeProgress = (phase: string, step: number): any => ({
+            phase,
+            step,
+            total_steps: 5,
+            rasterizer_workflow_id: null,
+            segments_total: 0,
+            segments_completed: 0,
+            rasterizer: null,
+        })
+
+        it('holds the step at the furthest point reached when a retry reports an earlier phase', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setProgress(SESSION_ID, makeProgress('analyzing_segments', 3))
+                logic.actions.setProgress(SESSION_ID, makeProgress('preparing_video', 1))
+            }).toMatchValues({
+                progressBySessionId: expect.objectContaining({
+                    [SESSION_ID]: expect.objectContaining({ phase: 'preparing_video', step: 3 }),
+                }),
+                retryStateBySessionId: expect.objectContaining({
+                    [SESSION_ID]: { maxStep: 3, hasRetried: true },
+                }),
+            })
+        })
+    })
+
     describe('cancelSummarization', () => {
         it('clears loading and progress state synchronously', async () => {
             await expectLogic(logic, () => {

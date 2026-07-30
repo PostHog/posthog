@@ -1908,6 +1908,26 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             ) {
                 return
             }
+            // Gate on consent before any async context gathering below: the consent popover re-fires
+            // this listener on approval, and anything awaited before this check means the re-fired
+            // call reads state from before the approval landed.
+            if (!values.dataProcessingAccepted) {
+                // Persist prompt to sessionStorage in case of OAuth redirect during consent flow
+                if (prompt) {
+                    try {
+                        sessionStorage.setItem(
+                            PENDING_AI_PROMPT_KEY,
+                            JSON.stringify({
+                                prompt,
+                                timestamp: Date.now(),
+                            })
+                        )
+                    } catch {
+                        // sessionStorage might be unavailable
+                    }
+                }
+                return // Skip - this will be re-fired by the `onApprove` on `AIConsentPopoverWrapper`
+            }
 
             // A sent message consumes any sandbox pre-warm: the warm Run is the in-progress run the
             // sandbox routing follows up on, so cancel pending timers and clear the flag WITHOUT
@@ -2004,24 +2024,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 }
                 return
             }
-            if (!values.dataProcessingAccepted) {
-                // Persist prompt to sessionStorage in case of OAuth redirect during consent flow
-                if (prompt) {
-                    try {
-                        sessionStorage.setItem(
-                            PENDING_AI_PROMPT_KEY,
-                            JSON.stringify({
-                                prompt,
-                                timestamp: Date.now(),
-                            })
-                        )
-                    } catch {
-                        // sessionStorage might be unavailable
-                    }
-                }
-                return // Skip - this will be re-fired by the `onApprove` on `AIConsentPopoverWrapper`
-            }
-
             // Clear any stored prompt since we're proceeding with submission
             try {
                 sessionStorage.removeItem(PENDING_AI_PROMPT_KEY)

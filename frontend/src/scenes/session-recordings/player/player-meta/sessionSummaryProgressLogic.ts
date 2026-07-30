@@ -143,7 +143,17 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
             {} as Record<string, SummarizationProgress | null>,
             {
                 startSummarization: (state, { sessionId }) => ({ ...state, [sessionId]: null }),
-                setProgress: (state, { sessionId, progress }) => ({ ...state, [sessionId]: progress }),
+                setProgress: (state, { sessionId, progress }) => {
+                    // An activity retry re-enters an earlier phase and reports a lower step, which
+                    // would make the progress bar visibly walk backwards. Hold the step at the
+                    // furthest point reached, while still taking the fresh sub-progress fields.
+                    const previousStep = state[sessionId]?.step
+                    const clamped =
+                        progress && previousStep !== undefined && progress.step < previousStep
+                            ? { ...progress, step: previousStep }
+                            : progress
+                    return { ...state, [sessionId]: clamped }
+                },
                 setSummary: (state, { sessionId }) => ({ ...state, [sessionId]: null }),
                 cancelSummarization: (state, { sessionId }) => ({ ...state, [sessionId]: null }),
             },
