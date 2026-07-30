@@ -3,6 +3,7 @@ import React from 'react'
 import {
     IconBadge,
     IconBolt,
+    IconCopy,
     IconCursor,
     IconEye,
     IconLeave,
@@ -13,13 +14,14 @@ import {
     IconServer,
 } from '@posthog/icons'
 
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconEyeHidden, IconSelectAll } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LinkProps } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
@@ -233,14 +235,19 @@ export function DefinitionSentAs({ definition }: { definition: EventDefinition |
     if (!definition.name || ('virtual' in definition && definition.virtual)) {
         return <span className="text-secondary">—</span>
     }
+    const name = definition.name
     return (
-        <CopyToClipboardInline
-            explicitValue={definition.name}
-            description="name"
-            iconSize="xsmall"
-            className="font-mono text-xs"
-        >
-            {definition.name}
-        </CopyToClipboardInline>
+        <span className="group inline-flex items-center gap-1">
+            <span className="font-mono text-xs">{name}</span>
+            <LemonButton
+                size="xsmall"
+                noPadding
+                icon={<IconCopy />}
+                tooltip="Copy"
+                className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                onClick={() => void copyToClipboard(name, 'name')}
+                data-attr="definition-sent-as-copy"
+            />
+        </span>
     )
 }
