@@ -456,6 +456,10 @@
         "ActorsQuery": {
             "additionalProperties": false,
             "properties": {
+                "filterTestAccounts": {
+                    "description": "Exclude persons matching the team's \"internal and test account\" filters. Only person-scoped filters (person properties, cohorts) are applied. Event-scoped test account filters have no meaning in a persons query and are ignored.",
+                    "type": "boolean"
+                },
                 "fixedProperties": {
                     "description": "Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py.",
                     "items": {
@@ -45251,6 +45255,77 @@
             },
             "type": "object"
         },
+        "SidebarConfiguration": {
+            "additionalProperties": false,
+            "description": "Customization of the main navigation sidebar.",
+            "properties": {
+                "items": {
+                    "$ref": "#/definitions/SidebarItemsConfiguration"
+                },
+                "sections": {
+                    "$ref": "#/definitions/SidebarSectionsConfiguration"
+                }
+            },
+            "type": "object"
+        },
+        "SidebarItemsConfiguration": {
+            "additionalProperties": false,
+            "description": "Individual items of the main navigation sidebar. Items inside a hidden section are hidden regardless of their own config. Activity and Settings are deliberately absent: they always stay visible.",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/UIVisibilityConfig",
+                    "description": "\"Data\" panel trigger in the Project section."
+                },
+                "files": {
+                    "$ref": "#/definitions/UIVisibilityConfig",
+                    "description": "\"Files\" panel trigger in the Project section."
+                },
+                "help": {
+                    "$ref": "#/definitions/UIVisibilityConfig",
+                    "description": "\"Help\" entry in the sidebar footer."
+                },
+                "home": {
+                    "$ref": "#/definitions/UIVisibilityConfig",
+                    "description": "\"Home\" link in the Project section."
+                },
+                "inbox": {
+                    "$ref": "#/definitions/UIVisibilityConfig",
+                    "description": "\"Inbox\" link in the Project section. Only rendered when the inbox feature is available."
+                },
+                "notifications": {
+                    "$ref": "#/definitions/UIVisibilityConfig",
+                    "description": "\"Notifications\" entry in the sidebar footer. Only rendered when real-time notifications are available."
+                },
+                "starred": {
+                    "$ref": "#/definitions/UIVisibilityConfig",
+                    "description": "\"Starred\" panel trigger in the Project section."
+                },
+                "tools": {
+                    "$ref": "#/definitions/UIVisibilityConfig",
+                    "description": "\"Tools\" panel trigger in the Project section."
+                }
+            },
+            "type": "object"
+        },
+        "SidebarSectionsConfiguration": {
+            "additionalProperties": false,
+            "description": "Collapsible sections of the main navigation sidebar. Hiding a section hides everything inside it, except always-visible items like Activity.",
+            "properties": {
+                "my_tools": {
+                    "$ref": "#/definitions/UIVisibilityConfig",
+                    "description": "The \"My tools\" section, listing the user's selected tools."
+                },
+                "project": {
+                    "$ref": "#/definitions/UIVisibilityConfig",
+                    "description": "The \"Project\" section (Home and the Data/Files/Tools/Starred panel triggers). Activity stays visible even when this section is hidden."
+                },
+                "recents": {
+                    "$ref": "#/definitions/UIVisibilityConfig",
+                    "description": "The \"Recents\" section, listing recently viewed items."
+                }
+            },
+            "type": "object"
+        },
         "SimilarIssue": {
             "additionalProperties": false,
             "properties": {
@@ -48965,6 +49040,16 @@
             "required": ["kind"],
             "type": "object"
         },
+        "UIVisibilityConfig": {
+            "additionalProperties": false,
+            "description": "Visibility of a single customizable UI element. An absent config or an absent `visible` means the element is shown.",
+            "properties": {
+                "visible": {
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
         "UsageMetric": {
             "additionalProperties": false,
             "properties": {
@@ -49202,6 +49287,21 @@
                 "onboarding_delegated"
             ],
             "type": "string"
+        },
+        "UserUIConfiguration": {
+            "additionalProperties": false,
+            "description": "Per-user UI customization, persisted on the User model as a single JSONB blob. A null configuration and any absent key mean \"default\", which for visibility is \"shown\", so newly added UI surfaces appear for everyone until explicitly hidden. Writers must send the complete object; the server validates and replaces it wholesale.",
+            "properties": {
+                "sidebar": {
+                    "$ref": "#/definitions/SidebarConfiguration"
+                },
+                "version": {
+                    "description": "Schema version of this configuration blob, for future format migrations.",
+                    "type": "integer"
+                }
+            },
+            "required": ["version"],
+            "type": "object"
         },
         "VectorSearchQuery": {
             "additionalProperties": false,

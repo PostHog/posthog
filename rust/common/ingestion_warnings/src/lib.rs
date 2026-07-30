@@ -17,11 +17,14 @@
 //! counted and dropped — the caller's hot path is never blocked or failed.
 //!
 //! The producer is a `common_kafka` `ThreadedProducer` (built by
-//! [`common_kafka::kafka_producer::create_threaded_kafka_producer`]) rather
-//! than a bespoke client: callers supply their own dedicated, warnings-tuned
-//! [`common_kafka::config::KafkaConfig`] (fire-and-forget acks/retries, a
-//! small queue) so warnings never share tuning or a connection with a
-//! caller's main event producer. Delivery reports are observed on the
+//! [`common_kafka::kafka_producer::create_threaded_kafka_producer_no_ping`])
+//! rather than a bespoke client: callers supply their own dedicated,
+//! warnings-tuned [`common_kafka::config::KafkaConfig`] (fire-and-forget
+//! acks/retries, a small queue) so warnings never share tuning or a connection
+//! with a caller's main event producer. The no-ping constructor is the one that
+//! matches this crate's contract — an unreachable cluster at boot must not
+//! disable warnings for the process's life, let alone block the caller's
+//! startup on a metadata fetch. Delivery reports are observed on the
 //! producer's own poll thread via [`observe_delivery`] (no per-message task);
 //! `emit` attaches the warning type/source as the delivery opaque so the
 //! async `delivered`/`delivery_failed` metric is attributed correctly.
@@ -33,6 +36,7 @@
 //! `nodejs/src/ingestion/common/steps/event-processing/handle-client-ingestion-warning-step.ts`.
 
 pub mod registry;
+pub mod request;
 pub mod serializer;
 pub mod test_support;
 pub mod throttle;
@@ -49,6 +53,7 @@ use serde_json::{Map, Value};
 use tracing::warn;
 
 pub use registry::WarningType;
+pub use request::{emit_request_warning, WarningRequestContext, UNKNOWN_ATTRIBUTION};
 pub use throttle::{ThrottleDecision, WarningThrottle};
 
 /// Counter of emission attempts: labels `type` (warning type), `source`
@@ -70,10 +75,16 @@ pub const INGESTION_WARNINGS_THROTTLE_KEYS: &str = "ingestion_warnings_throttle_
 /// indistinguishable from an intentionally quiet one. Absence means "off",
 /// `0` means "broken".
 ///
-/// Emitter construction is one-shot (`create_threaded_kafka_producer` fetches
-/// metadata once, with no retry), so a broker blip at boot mutes that process
-/// for its entire life. The only other symptom is lower-than-expected warning
-/// volume, which is unobservable without a baseline. Alert on `min() == 0`.
+/// `1` means the emitter was built, not that its cluster is reachable:
+/// construction deliberately skips the broker ping, so a producer pointed at a
+/// dead cluster still reports `1` and recovers on its own once the cluster
+/// comes back. Only a genuinely unusable configuration reports `0`.
+///
+/// Whether warnings are actually landing is therefore a delivery question, not
+/// a construction one — read the `delivered` and `delivery_failed` outcomes of
+/// [`INGESTION_WARNINGS_TOTAL`] for that. Alert on `min() == 0` here to catch
+/// misconfiguration, and on a sustained `delivery_failed` rate to catch a
+/// broken destination.
 pub const INGESTION_WARNINGS_EMITTER_ENABLED: &str = "ingestion_warnings_emitter_enabled";
 
 /// Identifies which service — and which code path within it — produced a
@@ -99,6 +110,24 @@ pub const CAPTURE_V1_ANALYTICS: WarningSource = WarningSource {
     service: serializer::SOURCE_CAPTURE,
     path: "v1_analytics",
     pipeline_step: "capture_validation",
+};
+
+/// Capture's v1 analytics per-`(token, distinct_id)` rate limiter.
+pub const CAPTURE_V1_RATE_LIMIT: WarningSource = WarningSource {
+    service: serializer::SOURCE_CAPTURE,
+    path: "v1_analytics",
+    pipeline_step: "capture_rate_limit",
+};
+
+/// Capture's legacy analytics pipeline (`rust/capture/src/events/analytics.rs`),
+/// per-`(token, distinct_id)` rate limiter. Split from the v1 source by `path`
+/// because the two pipelines rate-limit at different points in their passes and
+/// serve different deployments — the distinction is invisible in the message
+/// (both are `capture`) but decides which pipeline's volume a spike belongs to.
+pub const CAPTURE_LEGACY_RATE_LIMIT: WarningSource = WarningSource {
+    service: serializer::SOURCE_CAPTURE,
+    path: "legacy_analytics",
+    pipeline_step: "capture_rate_limit",
 };
 
 /// Sink-agnostic emitter seam. The Kafka implementation is
@@ -130,10 +159,10 @@ pub trait WarningEmitter: Send + Sync {
 
 /// Production emitter: per-(token, type) throttle in front of a
 /// `common_kafka` `ThreadedProducer`. Callers build the producer themselves
-/// (via `common_kafka::kafka_producer::create_threaded_kafka_producer` with a
-/// dedicated, fire-and-forget-tuned `KafkaConfig` and [`observe_delivery`] as
-/// the delivery callback) and hand it in — this type never constructs its own
-/// client. The producer's opaque is [`WarningDelivery`], so each message's
+/// (via `common_kafka::kafka_producer::create_threaded_kafka_producer_no_ping`
+/// with a dedicated, fire-and-forget-tuned `KafkaConfig` and
+/// [`observe_delivery`] as the delivery callback) and hand it in — this type
+/// never constructs its own client. The producer's opaque is [`WarningDelivery`], so each message's
 /// delivery report carries the type/source needed to label the async outcome
 /// metric.
 pub struct KafkaWarningEmitter {
@@ -312,14 +341,14 @@ pub fn observe_delivery(result: &DeliveryResult, delivery: WarningDelivery) {
 
 #[cfg(test)]
 mod tests {
+    use common_kafka::config::KafkaConfig;
+    use common_kafka::kafka_producer::create_threaded_kafka_producer_no_ping;
     use common_liveness::SyncLivenessReporter;
-    use rdkafka::ClientConfig;
 
     use super::*;
 
-    /// No-op liveness sink: these tests build a producer directly (not via
-    /// `create_kafka_producer`) specifically to skip its 15s broker-metadata
-    /// ping, so there is no real health signal to report.
+    /// No-op liveness sink: nothing in these tests polls a broker, so there is
+    /// no real health signal to report.
     #[derive(Clone, Copy)]
     struct AlwaysHealthy;
 
@@ -329,22 +358,22 @@ mod tests {
     }
 
     /// Build a threaded producer against an unreachable broker (TEST-NET-1)
-    /// without `create_threaded_kafka_producer`'s startup metadata fetch, so
-    /// tests stay fast and offline while still exercising the exact
-    /// `ThreadedProducer<ThreadedKafkaContext<WarningDelivery>>` type
-    /// `KafkaWarningEmitter` holds in production. `observe_delivery` is wired
-    /// as the callback, matching the production path.
+    /// through the same constructor production uses, so these tests exercise
+    /// the real construction path and not just the right type. It returns
+    /// without a broker round-trip, which is what keeps them fast and offline.
     fn unreachable_producer(
         message_timeout_ms: u32,
         linger_ms: u32,
     ) -> ThreadedProducer<ThreadedKafkaContext<WarningDelivery>> {
-        ClientConfig::new()
-            .set("bootstrap.servers", "192.0.2.1:9092")
-            .set("message.timeout.ms", message_timeout_ms.to_string())
-            .set("linger.ms", linger_ms.to_string())
-            .set("queue.buffering.max.messages", "10")
-            .set("retries", "0")
-            .create_with_context(ThreadedKafkaContext::new(AlwaysHealthy, observe_delivery))
+        let config = KafkaConfig {
+            kafka_hosts: "192.0.2.1:9092".to_string(),
+            kafka_message_timeout_ms: message_timeout_ms,
+            kafka_producer_linger_ms: linger_ms,
+            kafka_producer_queue_messages: 10,
+            kafka_producer_retries: Some(0),
+            ..Default::default()
+        };
+        create_threaded_kafka_producer_no_ping(&config, AlwaysHealthy, observe_delivery)
             .expect("client config is valid, so creation cannot fail without a broker round-trip")
     }
 

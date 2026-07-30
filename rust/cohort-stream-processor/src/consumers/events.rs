@@ -1909,6 +1909,7 @@ mod tests {
             // The dispatch tests exercise cross-partition register transfer end to end.
             register_transfer_enabled: true,
             reconcile,
+            person_seed: crate::workers::PersonSeedDeps::default(),
         });
         let dispatcher = EventDispatcher::new(
             PartitionRouter::new(64),
@@ -2618,6 +2619,7 @@ mod tests {
             live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
             register_transfer_enabled: false,
             reconcile,
+            person_seed: crate::workers::PersonSeedDeps::default(),
         });
         let dispatcher = Arc::new(EventDispatcher::new(
             PartitionRouter::new(64),

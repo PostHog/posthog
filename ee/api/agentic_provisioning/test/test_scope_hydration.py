@@ -69,7 +69,6 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://localhost",
             algorithm="RS256",
-            provisioning_partner_type="other_partner",
         )
         other_partner_team = self._provision_team(other_partner, "Other partner team", "proj_other")
 
