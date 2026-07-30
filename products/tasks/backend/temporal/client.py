@@ -18,8 +18,10 @@ from posthog.temporal.oauth import PosthogMcpScopes
 from products.tasks.backend.constants import AGENT_OTEL_TELEMETRY_STATE_KEY, SANDBOX_EVENT_INGEST_FEATURE_FLAG
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled, is_native_steering_signals_enabled
+from products.tasks.backend.logic.services.dev_stack_image import DEV_STACK_IMAGE_NAME
 from products.tasks.backend.metrics import AGENT_OTEL_TELEMETRY_STAMPED_TOTAL, observe_task_run_workflow_start
 from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.temporal.bake_dev_stack_image.workflow import BakeDevStackImageInput
 from products.tasks.backend.temporal.build_image.workflow import BuildSandboxImageInput
 from products.tasks.backend.temporal.constants import (
     SEND_STEER_SIGNAL,
@@ -27,7 +29,7 @@ from products.tasks.backend.temporal.constants import (
     STEERING_PROTOCOL_QUERY_TIMEOUT,
     STEERING_PROTOCOL_VERSION,
 )
-from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
+from products.tasks.backend.temporal.process_task.workflow import PendingFollowup, ProcessTaskInput
 from products.tasks.backend.temporal.slack_relay.activities import RelaySlackMessageInput
 
 if TYPE_CHECKING:
@@ -198,6 +200,7 @@ async def execute_task_processing_workflow_async(
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
     prewarmed: bool = False,
     workflow_id_prefix: Optional[str] = None,
+    initial_message: PendingFollowup | None = None,
 ) -> None:
     """
     Start the task processing workflow asynchronously. Fire-and-forget.
@@ -229,6 +232,7 @@ async def execute_task_processing_workflow_async(
             slack_thread_context=slack_context_dict,
             posthog_mcp_scopes=posthog_mcp_scopes,
             prewarmed=prewarmed,
+            initial_message=initial_message,
         )
 
         logger.info(
@@ -282,6 +286,7 @@ def execute_task_processing_workflow(
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
     prewarmed: bool = False,
     workflow_id_prefix: Optional[str] = None,
+    initial_message: PendingFollowup | None = None,
 ) -> None:
     """
     Start the task processing workflow synchronously. Fire-and-forget.
@@ -312,6 +317,7 @@ def execute_task_processing_workflow(
             slack_thread_context=slack_context_dict,
             posthog_mcp_scopes=posthog_mcp_scopes,
             prewarmed=prewarmed,
+            initial_message=initial_message,
         )
 
         logger.info(
@@ -450,6 +456,18 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
         posthog_mcp_scopes=dispatch_params.get("posthog_mcp_scopes") or _resolve_mcp_scopes(task_run),
     )
 
+    # A loop run's skill bundles are seeded by the same on_commit callback whose loss
+    # this sweep recovers from, so dispatching without re-seeding would silently start
+    # the run with its skills missing. Idempotent for already-seeded runs. A failed seed
+    # is treated like any other transient recovery error: retried next sweep, with the
+    # 24h killer as the terminal backstop.
+    from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 — breaks the loop_runs -> temporal.client import cycle
+        ensure_loop_skill_bundles_seeded,
+    )
+
+    if not ensure_loop_skill_bundles_seeded(task_run):
+        return "error"
+
     observe_task_run_workflow_start(task_run, outcome="attempted", reason="reconcile")
     _capture_run_feature_flags(run_id)
     try:
@@ -494,6 +512,29 @@ def resume_task_in_cloud_workflow(run_id: str, workflow_id: str) -> None:
             id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
             task_queue=settings.TASKS_TASK_QUEUE,
             retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+    )
+
+
+def execute_bake_dev_stack_image_workflow(publish_name: str = DEV_STACK_IMAGE_NAME) -> None:
+    """Start (or restart) the bake of the prebaked PostHog dev-stack VM image.
+
+    TERMINATE_IF_RUNNING: a bake stuck from the previous night gets replaced by the
+    fresh one instead of blocking it.
+    """
+    client = sync_connect()
+    asyncio.run(
+        client.start_workflow(
+            "bake-dev-stack-image",
+            BakeDevStackImageInput(publish_name=publish_name),
+            id=f"bake-dev-stack-image-{publish_name}",
+            id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
+            task_queue=settings.TASKS_TASK_QUEUE,
+            # A single workflow attempt: each bake is a full 15-25 minute stack build, the
+            # activity inside already retries once, and the nightly schedule plus the
+            # base-digest sweep are the outer retry loop. Workflow-level retries would
+            # multiply with the activity's into up to four consecutive bakes.
+            retry_policy=RetryPolicy(maximum_attempts=1),
         )
     )
 

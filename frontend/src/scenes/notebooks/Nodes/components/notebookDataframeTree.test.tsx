@@ -73,8 +73,8 @@ describe('buildDataframeTreeSection', () => {
     })
 
     it('collapses duplicate names, keeping the last', () => {
-        // Python names are deliberately not disambiguated and default to `df`, so two un-run
-        // Python cells is enough to emit `df` twice — duplicate ids in a virtualized tree.
+        // Python names are deliberately not disambiguated (they are the kernel variables), so
+        // two cells sharing a name emit it twice — duplicate ids in a virtualized tree.
         const section = buildDataframeTreeSection([pythonNode('df'), pythonNode('df')], [])
         expect(children(section)).toHaveLength(1)
         const ids = (section[0].children ?? []).map((c) => c.id)

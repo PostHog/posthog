@@ -20,12 +20,14 @@ from uuid import UUID
 
 # Source-agnostic storage contract for user-uploaded files — shared with the upload endpoint.
 from products.warehouse_sources.backend.file_uploads import (
+    FILE_FORMAT_READ_HINTS,
     FILE_FORMAT_TO_TABLE_FORMAT,
     MAX_UPLOAD_SIZE_BYTES as MAX_FILE_UPLOAD_SIZE_BYTES,
     SUPPORTED_FILE_FORMATS,
     build_file_upload_s3_key,
     build_file_upload_s3_path,
     build_file_upload_url_pattern,
+    hosted_upload_s3_path,
 )
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob as _ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema as _ExternalDataSchema
@@ -34,6 +36,7 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable a
 
 # Framework-free helper transforms — re-exported as the public helper surface.
 from products.warehouse_sources.backend.models.util import (
+    clickhouse_columns_to_dwh_columns,
     mysql_column_to_dwh_column,
     mysql_columns_to_dwh_columns,
     postgres_column_to_dwh_column,
@@ -55,6 +58,7 @@ __all__ = [
     "list_tables_for_source",
     "list_jobs_for_source",
     # framework-free helper transforms
+    "clickhouse_columns_to_dwh_columns",
     "mysql_column_to_dwh_column",
     "mysql_columns_to_dwh_columns",
     "postgres_column_to_dwh_column",
@@ -63,12 +67,14 @@ __all__ = [
     "validate_source_prefix",
     "validate_warehouse_table_url_pattern",
     # file-upload storage contract
+    "FILE_FORMAT_READ_HINTS",
     "FILE_FORMAT_TO_TABLE_FORMAT",
     "MAX_FILE_UPLOAD_SIZE_BYTES",
     "SUPPORTED_FILE_FORMATS",
     "build_file_upload_s3_key",
     "build_file_upload_s3_path",
     "build_file_upload_url_pattern",
+    "hosted_upload_s3_path",
 ]
 
 # GitHub multi-repo source helpers live in ``github_warehouse_repos`` and pull the source

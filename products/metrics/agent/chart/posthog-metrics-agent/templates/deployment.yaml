@@ -1,0 +1,131 @@
+{{- $sharded := gt (int .Values.shards) 1 }}
+apiVersion: apps/v1
+{{- if $sharded }}
+kind: StatefulSet
+{{- else }}
+kind: Deployment
+{{- end }}
+metadata:
+    name: {{ include "posthog-metrics-agent.fullname" . }}
+    labels:
+        {{- include "posthog-metrics-agent.labels" . | nindent 8 }}
+spec:
+    {{- if $sharded }}
+    # Shards partition the target set by address hash (each pod's ordinal is
+    # its SHARD_INDEX), so every target is scraped by exactly one pod.
+    replicas: {{ int .Values.shards }}
+    serviceName: {{ include "posthog-metrics-agent.fullname" . }}-headless
+    podManagementPolicy: Parallel
+    {{- else }}
+    # A single replica by design: multiple replicas would scrape every target
+    # multiple times and double-count all metrics. Scale with shards instead.
+    replicas: 1
+    {{- end }}
+    selector:
+        matchLabels:
+            {{- include "posthog-metrics-agent.selectorLabels" . | nindent 12 }}
+    template:
+        metadata:
+            labels:
+                {{- include "posthog-metrics-agent.selectorLabels" . | nindent 16 }}
+            annotations:
+                checksum/config: {{ include "posthog-metrics-agent.collectorConfig" . | sha256sum }}
+                # Covers the chart-managed Secret so an API key rotation rolls the pod.
+                checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        spec:
+            serviceAccountName: {{ include "posthog-metrics-agent.serviceAccountName" . }}
+            securityContext:
+                runAsNonRoot: true
+                seccompProfile:
+                    type: RuntimeDefault
+                {{- if .Values.persistence.enabled }}
+                # The agent runs as uid 10001; the queue volume must be writable.
+                fsGroup: 10001
+                {{- end }}
+            containers:
+                - name: agent
+                  image: '{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}'
+                  imagePullPolicy: {{ .Values.image.pullPolicy }}
+                  securityContext:
+                      allowPrivilegeEscalation: false
+                      capabilities:
+                          drop:
+                              - ALL
+                  env:
+                      - name: POSTHOG_API_KEY
+                        valueFrom:
+                            secretKeyRef:
+                                name: {{ include "posthog-metrics-agent.secretName" . }}
+                                key: posthog-api-key
+                      {{- if $sharded }}
+                      # The entrypoint derives SHARD_INDEX from the pod ordinal
+                      # and exports it for the ${env:SHARD_INDEX} keep regex.
+                      - name: SHARD_COUNT
+                        value: {{ int .Values.shards | quote }}
+                      {{- end }}
+                      {{- if .Values.persistence.enabled }}
+                      - name: PERSIST_QUEUE
+                        value: '1'
+                      {{- end }}
+                      {{- range $k, $v := .Values.podEnv }}
+                      - name: {{ $k }}
+                        value: {{ $v | quote }}
+                      {{- end }}
+                  volumeMounts:
+                      - name: config
+                        mountPath: /etc/posthog/config.yaml
+                        subPath: config.yaml
+                        readOnly: true
+                      {{- if .Values.persistence.enabled }}
+                      - name: queue
+                        mountPath: /var/lib/posthog-agent
+                      {{- end }}
+                  ports:
+                      - name: health
+                        containerPort: 13133
+                      - name: telemetry
+                        containerPort: 8888
+                  livenessProbe:
+                      httpGet:
+                          path: /
+                          port: health
+                  readinessProbe:
+                      httpGet:
+                          path: /
+                          port: health
+                  resources:
+                      {{- toYaml .Values.resources | nindent 22 }}
+            volumes:
+                - name: config
+                  configMap:
+                      name: {{ include "posthog-metrics-agent.fullname" . }}
+                {{- if and .Values.persistence.enabled (not $sharded) }}
+                - name: queue
+                  persistentVolumeClaim:
+                      claimName: {{ include "posthog-metrics-agent.fullname" . }}-queue
+                {{- end }}
+            {{- with .Values.nodeSelector }}
+            nodeSelector:
+                {{- toYaml . | nindent 16 }}
+            {{- end }}
+            {{- with .Values.tolerations }}
+            tolerations:
+                {{- toYaml . | nindent 16 }}
+            {{- end }}
+            {{- with .Values.affinity }}
+            affinity:
+                {{- toYaml . | nindent 16 }}
+            {{- end }}
+    {{- if and .Values.persistence.enabled $sharded }}
+    volumeClaimTemplates:
+        - metadata:
+              name: queue
+          spec:
+              accessModes: [ReadWriteOnce]
+              resources:
+                  requests:
+                      storage: {{ .Values.persistence.size }}
+              {{- with .Values.persistence.storageClass }}
+              storageClassName: {{ . }}
+              {{- end }}
+    {{- end }}

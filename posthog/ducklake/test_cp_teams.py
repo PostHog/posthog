@@ -14,7 +14,6 @@ def _row(**overrides) -> dict:
         "team_id": 1,
         "schema_name": "prod",
         "enabled": True,
-        "is_billing_team": False,
         "backfill_enabled": True,
         "events_table_name": None,
         "persons_table_name": None,
@@ -114,6 +113,53 @@ class TestTTLCache:
             cp_teams.clear_cache()
             cp_teams.list_org_teams("org-1")
         assert mock_fetch.call_count == 2
+
+    def test_fresh_read_bypasses_and_replaces_cached_rows(self) -> None:
+        with patch(
+            "posthog.ducklake.cp_teams._fetch_org_rows",
+            side_effect=[[_row(team_id=1)], [_row(team_id=2, schema_name="two")]],
+        ) as mock_fetch:
+            first = cp_teams.list_org_teams("org-1")
+            fresh = cp_teams.list_org_teams("org-1", use_cache=False)
+            cached = cp_teams.list_org_teams("org-1")
+
+        assert mock_fetch.call_count == 2
+        assert first is not None and [team.team_id for team in first] == [1]
+        assert fresh is not None and [team.team_id for team in fresh] == [2]
+        assert cached == fresh
+
+    def test_org_invalidation_clears_org_and_global_rows_only(self) -> None:
+        with (
+            patch("posthog.ducklake.cp_teams._fetch_org_rows", return_value=[_row()]) as fetch_org,
+            patch("posthog.ducklake.cp_teams._fetch_all_rows", return_value=[_row()]) as fetch_all,
+        ):
+            cp_teams.list_org_teams("org-1")
+            cp_teams.list_org_teams("org-2")
+            cp_teams.list_member_teams()
+            cp_teams.invalidate_org_cache("org-1")
+            cp_teams.list_org_teams("org-1")
+            cp_teams.list_org_teams("org-2")
+            cp_teams.list_member_teams()
+
+        assert fetch_org.call_count == 3
+        assert fetch_all.call_count == 2
+
+    def test_invalidation_during_fetch_prevents_stale_repopulation(self) -> None:
+        responses = iter([[_row(team_id=1)], [_row(team_id=2, schema_name="two")]])
+
+        def fetch_rows(_organization_id: str) -> list[dict]:
+            rows = next(responses)
+            if rows[0]["team_id"] == 1:
+                cp_teams.invalidate_org_cache("org-1")
+            return rows
+
+        with patch("posthog.ducklake.cp_teams._fetch_org_rows", side_effect=fetch_rows) as fetch_org:
+            stale = cp_teams.list_org_teams("org-1")
+            fresh = cp_teams.list_org_teams("org-1")
+
+        assert fetch_org.call_count == 2
+        assert stale is not None and [team.team_id for team in stale] == [1]
+        assert fresh is not None and [team.team_id for team in fresh] == [2]
 
     def test_cache_is_keyed_per_org(self) -> None:
         with patch("posthog.ducklake.cp_teams._fetch_org_rows", return_value=[_row()]) as mock_fetch:

@@ -456,6 +456,18 @@ def test_error_string_matches_a_non_retryable_key(error):
     assert any(key in str(error) for key in non_retryable_errors)
 
 
+@pytest.mark.parametrize("status_code", [429, 500, 502, 503, 504])
+def test_error_string_matches_a_retryable_key(status_code):
+    """`_retry_on_transient_api_error` already retries these status codes in-process before
+    re-raising; the framework then logs at `warning` instead of `exception` only if the re-raised
+    error matches one of `get_retryable_errors()`'s keys. If a code drops out of this set, the
+    transient error starts polluting error tracking again even though Temporal still retries it."""
+    error = _api_error(status_code, "The service is currently unavailable.")
+    retryable_errors = GoogleSheetsSource().get_retryable_errors()
+
+    assert any(key in str(error) for key in retryable_errors)
+
+
 @pytest.mark.parametrize(
     "call_site",
     [

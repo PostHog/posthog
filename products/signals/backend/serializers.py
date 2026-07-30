@@ -6,6 +6,7 @@ from typing import cast
 from django.db.models import Q
 
 from asgiref.sync import async_to_sync
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
@@ -28,6 +29,7 @@ from .models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members
 
 logger = logging.getLogger(__name__)
@@ -336,8 +338,79 @@ class SignalReportRefundSerializer(serializers.ModelSerializer):
         return obj.billing_synced_at is not None
 
 
+# The chart `query` is free-form JSON by design, and the generated schema has to keep it that way.
+#
+# This is load-bearing, not a style call. The MCP executor dispatches Zod's *parsed* output
+# (`services/mcp/src/tools/exec.ts` — "Dispatch the parsed output so coerced values and defaults
+# apply"), and a generated `zod.object({...})` strips keys it doesn't name. Declaring the node's
+# shape — even just `kind` — would therefore drop `source` / `display` / `shortId` on the way through
+# the tool and hand the backend a bare `{"kind": ...}`: valid per `ReportChart`, and a chart that
+# renders nothing. `additionalProperties` doesn't save it either; it reaches the TypeScript type but
+# not the Zod schema.
+#
+# So the field stays untyped in the schema (the `spec: zod.unknown()` precedent), and the contract
+# lives in `help_text` where the scout reads it, enforced by `ReportChart` server-side.
+@extend_schema_field(OpenApiTypes.ANY)
+class ChartQueryField(serializers.JSONField):
+    """The query node on a report chart. Typed for the schema pipeline so the generated MCP tool and
+    frontend types describe a query node instead of an opaque `unknown`, while still carrying the
+    node's per-kind fields through untouched."""
+
+
+class ReportChartSerializer(serializers.Serializer):
+    """One chart attached to a report — rendered in the inbox and referenceable from the summary."""
+
+    chart_id = serializers.CharField(
+        max_length=MAX_CHART_ID_LENGTH,
+        help_text=(
+            "Stable slug for this chart within the report (lowercase letters, numbers, underscores, "
+            "hyphens; must start with a letter or number). Reference it from `summary` as a markdown "
+            "link with a `chart:` target — `[Daily signups](chart:signups-drop)` — to place the chart "
+            "at that point in the body. A chart you don't reference still renders, below the summary."
+        ),
+    )
+    title = serializers.CharField(
+        max_length=MAX_CHART_TITLE_LENGTH,
+        help_text="Short heading shown above the chart.",
+    )
+    query = ChartQueryField(
+        help_text=(
+            "The query node to render. `kind` must be `InsightVizNode` (an ad-hoc product analytics "
+            "chart), `DataVisualizationNode` (a SQL series — a `HogQLQuery` source plus a `display`), "
+            "or `SavedInsightNode` (an existing insight by `shortId`). Pin the window to absolute "
+            "dates where the node supports it, so the reader sees the data you wrote about rather "
+            "than whatever a relative range resolves to when they open the report."
+        ),
+    )
+    caption = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=MAX_CHART_CAPTION_LENGTH,
+        help_text="Optional one-line note on what to look at in the chart.",
+    )
+    size = serializers.ChoiceField(
+        choices=CHART_SIZES,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "How much height the chart gets: `small` for a single number or a short series, `medium` "
+            "for an ordinary graph, `large` when there are rows or a grid to read (retention, paths, "
+            "a wide breakdown). Leave it out unless the default looks wrong — the inbox sizes a chart "
+            "from its query, and two charts referenced from the same paragraph sit side by side."
+        ),
+    )
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
+    charts = ReportChartSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Charts the report shows, in the order they were written. The summary places one with a "
+            "`[label](chart:<chart_id>)` link; the rest render below it."
+        ),
+    )
     refund_ineligibility_reason = serializers.SerializerMethodField(
         help_text=(
             "Why refunding this report's PR would be rejected right now, or null when a refund "
@@ -351,7 +424,11 @@ class SignalReportSerializer(serializers.ModelSerializer):
         help_text="Actionability choice from the latest actionability judgment artefact (when present).",
     )
     already_addressed = serializers.SerializerMethodField(
-        help_text="Whether the issue appears already fixed, from the actionability judgment artefact.",
+        help_text=(
+            "Whether the issue is already being handled — fixed in recent changes, or with a fix in "
+            "flight (an open PR, a recently active branch, an assigned / in-progress issue or agent "
+            "task) — from the actionability judgment artefact."
+        ),
     )
     dismissal_reason = serializers.SerializerMethodField(
         help_text="Reason code from the latest dismissal artefact, set when the report was suppressed (when present).",
@@ -393,6 +470,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "artefact_count",
+            "charts",
             "priority",
             "actionability",
             "already_addressed",
@@ -855,3 +933,88 @@ class CommitDiffResponseSerializer(serializers.Serializer):
         read_only=True,
         help_text="True when the diff was too large to return in full and has been truncated.",
     )
+
+
+class PullRequestCheckSerializer(serializers.Serializer):
+    """One CI check on a pull request's head commit — a GitHub Actions check run or a legacy commit
+    status, normalized to a common shape."""
+
+    name = serializers.CharField(read_only=True, help_text="Check run name or status context.")
+    status = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Lifecycle state: 'queued', 'in_progress', or 'completed'.",
+    )
+    conclusion = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Outcome once completed: 'success', 'failure', 'neutral', 'cancelled', 'skipped', "
+        "'timed_out', or 'action_required'. Null while still running.",
+    )
+    url = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Link to the check run / status detail on GitHub."
+    )
+
+
+class PullRequestChecksResponseSerializer(serializers.Serializer):
+    """Response for the PR checks endpoint — the CI status of a report's implementation PR."""
+
+    checks = PullRequestCheckSerializer(many=True, read_only=True)
+
+
+class PullRequestCommentSerializer(serializers.Serializer):
+    """One comment on a pull request — a conversation comment or an inline review comment."""
+
+    id = serializers.CharField(read_only=True, help_text="GitHub comment id.")
+    author = serializers.CharField(read_only=True, allow_null=True, help_text="Comment author's GitHub login.")
+    author_avatar_url = serializers.CharField(read_only=True, allow_null=True, help_text="Author's GitHub avatar URL.")
+    body = serializers.CharField(read_only=True, allow_blank=True, help_text="Comment body (GitHub-flavored markdown).")
+    created_at = serializers.CharField(read_only=True, allow_null=True, help_text="ISO 8601 creation timestamp.")
+    url = serializers.CharField(read_only=True, allow_null=True, help_text="Link to the comment on GitHub.")
+    comment_type = serializers.ChoiceField(
+        read_only=True,
+        choices=["conversation", "review"],
+        help_text="'conversation' for a PR discussion comment, 'review' for an inline code-review comment.",
+    )
+    path = serializers.CharField(
+        read_only=True, allow_null=True, help_text="File path the review comment is anchored to (review comments only)."
+    )
+    line = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="Line in the diff the review comment is anchored to — the end line for multi-line comments "
+        "(review comments only; null when the comment is outdated relative to the PR head).",
+    )
+    start_line = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="First line of a multi-line review comment's range (review comments only).",
+    )
+    side = serializers.ChoiceField(
+        read_only=True,
+        allow_null=True,
+        choices=["LEFT", "RIGHT"],
+        help_text="Diff side the review comment is anchored to: 'LEFT' = deletions, 'RIGHT' = additions "
+        "(review comments only).",
+    )
+    diff_hunk = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Diff hunk excerpt the review comment applies to (review comments only).",
+    )
+    in_reply_to_id = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Id of the thread root comment this one replies to; null for thread roots and conversation comments.",
+    )
+    commit_id = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="SHA of the commit the review comment was made against (review comments only).",
+    )
+
+
+class PullRequestCommentsResponseSerializer(serializers.Serializer):
+    """Response for the PR comments endpoint — conversation and review comments merged chronologically."""
+
+    comments = PullRequestCommentSerializer(many=True, read_only=True)

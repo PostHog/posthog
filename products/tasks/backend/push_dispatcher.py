@@ -47,17 +47,19 @@ FEATURE_FLAG_KEY = "posthog-code-mobile-push"
 # they should only fire once per run lifetime — anything more is a retry.
 # Interactive turn-end can legitimately fire again after the user replies,
 # so a short cooldown is enough to absorb rapid duplicate triggers.
-PushKind = Literal["completed", "failed", "cancelled", "awaiting"]
+PushKind = Literal["completed", "failed", "cancelled", "awaiting", "turn_completed"]
 _COOLDOWN_SECONDS: dict[PushKind, int] = {
     "completed": 600,
     "failed": 600,
     "cancelled": 600,
     "awaiting": 30,
+    "turn_completed": 30,
 }
 
 
 def notify_task_run_completed(task_run: TaskRun) -> None:
     """Fire a push notification when ``task_run`` finishes successfully."""
+    _project_completed_activity(task_run)
     _enqueue(task_run, kind="completed", body=f'"{_task_title(task_run)}" finished')
 
 
@@ -73,7 +75,42 @@ def notify_task_run_cancelled(task_run: TaskRun) -> None:
 
 def notify_task_run_awaiting_input(task_run: TaskRun) -> None:
     """Fire a push notification when an interactive run is waiting for user input."""
+    _project_awaiting_input_activity(task_run)
     _enqueue(task_run, kind="awaiting", body=f'"{_task_title(task_run)}" needs your input')
+
+
+def notify_task_run_turn_completed(task_run: TaskRun) -> None:
+    _project_completed_activity(task_run)
+    _enqueue(task_run, kind="turn_completed", body=f'"{_task_title(task_run)}" finished')
+
+
+def _project_awaiting_input_activity(task_run: TaskRun) -> None:
+    """Surface the wait in the in-app Activity feed.
+
+    Runs ahead of, and independently of, the push guards above: the feed should update even
+    for users without the mobile push flag, and it has no cooldown to observe. Best-effort
+    for the same reason ``_enqueue`` is — this sits on the agent's turn-end path and must
+    never fail it.
+    """
+    try:
+        from products.tasks.backend.facade.api import (  # noqa: PLC0415 - keeps the facade off the push import path
+            project_awaiting_input_activity,
+        )
+
+        project_awaiting_input_activity(task_run)
+    except Exception:
+        logger.warning("push_dispatcher.activity_projection_failed", run_id=str(task_run.id), exc_info=True)
+
+
+def _project_completed_activity(task_run: TaskRun) -> None:
+    try:
+        from products.tasks.backend.facade.api import (  # noqa: PLC0415 - keeps the facade off the push import path
+            project_completed_activity,
+        )
+
+        project_completed_activity(task_run)
+    except Exception:
+        logger.warning("push_dispatcher.activity_projection_failed", run_id=str(task_run.id), exc_info=True)
 
 
 def _task_title(task_run: TaskRun) -> str:

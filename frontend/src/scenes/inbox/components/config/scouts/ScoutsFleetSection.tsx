@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconCompass, IconPlus, IconSparkles } from '@posthog/icons'
+import { IconCompass, IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -14,7 +14,6 @@ import { inboxSceneLogic } from '../../../inboxSceneLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import {
     FleetSummary,
-    SCOUT_AUTHOR_PROMPT,
     SCOUT_FLEET_OVERVIEW_PROMPT,
     SCOUT_RECENT_SIGNALS_PROMPT,
     SCOUT_RUNS_WINDOW_SPAN,
@@ -23,8 +22,10 @@ import {
 import { agentSetupModalLogic } from '../../shell/agentSetupModalLogic'
 import { FleetFindingsCallout } from './FleetFindingsCallout'
 import { FleetMemoryCallout } from './FleetMemoryCallout'
+import { ScoutCreateButton } from './ScoutCreateButton'
 import { ScoutHelperSkillLinks } from './ScoutHelperSkillLinks'
 import { ScoutRowCard } from './ScoutRowCard'
+import { ScoutSuggestButton } from './ScoutSuggestButton'
 
 /**
  * Scout troop manager, hosted in the Scout troop setup modal (and the Agents settings tab). Both
@@ -174,14 +175,15 @@ function FleetStatsHeader(): JSX.Element {
 
 function ScoutsFleetList(): JSX.Element {
     const { visibleConfigs, rollups, hideDisabled, deletingScoutIds, updatingScoutIds } = useValues(scoutFleetLogic)
-    const { setHideDisabled, updateScoutConfig, deleteScout } = useActions(scoutFleetLogic)
+    const { setHideDisabled, updateScoutConfig, deleteScout, loadScoutConfigs } = useActions(scoutFleetLogic)
 
     return (
         <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2 flex-wrap">
+                <ScoutCreateButton type="secondary" size="xsmall" onCreated={() => loadScoutConfigs()} />
+                <ScoutSuggestButton type="secondary" size="xsmall" />
                 <ScoutChatCta label="How is my scout troop performing?" prompt={SCOUT_FLEET_OVERVIEW_PROMPT} />
                 <ScoutChatCta label="What signals were emitted recently?" prompt={SCOUT_RECENT_SIGNALS_PROMPT} />
-                <ScoutChatCta label="Make a scout" prompt={SCOUT_AUTHOR_PROMPT} icon={<IconPlus />} />
                 <span className="flex-1" />
                 <LemonButton size="xsmall" type="tertiary" onClick={() => setHideDisabled(!hideDisabled)}>
                     {hideDisabled ? 'Show disabled' : 'Hide disabled'}
@@ -223,16 +225,16 @@ function ScoutsFleetList(): JSX.Element {
  */
 function ScoutChatCta({ label, prompt, icon }: { label: string; prompt: string; icon?: JSX.Element }): JSX.Element {
     const { startScoutChatTask } = useActions(scoutFleetLogic)
-    const { runningChatPrompt } = useValues(scoutFleetLogic)
+    const { runningChatPrompt, aiConsentDisabledReason } = useValues(scoutFleetLogic)
     const isRunning = runningChatPrompt === prompt
     const anyRunning = runningChatPrompt !== null
     return (
         <LemonButton
             type="secondary"
-            size="small"
+            size="xsmall"
             icon={icon ?? <IconSparkles />}
             loading={isRunning}
-            disabledReason={anyRunning ? 'Starting a task…' : undefined}
+            disabledReason={anyRunning ? 'Starting a task…' : (aiConsentDisabledReason ?? undefined)}
             onClick={() => startScoutChatTask(prompt, label, label)}
         >
             {label}
@@ -241,6 +243,8 @@ function ScoutChatCta({ label, prompt, icon }: { label: string; prompt: string; 
 }
 
 function ScoutsEmptyState(): JSX.Element {
+    const { loadScoutConfigs } = useActions(scoutFleetLogic)
+
     return (
         <div className="flex flex-col items-start gap-2 rounded border border-primary bg-bg-light px-5 py-5">
             <div className="flex items-center gap-2">
@@ -248,10 +252,12 @@ function ScoutsEmptyState(): JSX.Element {
                 <span className="font-medium text-sm text-default">No scouts on this project yet</span>
             </div>
             <p className="max-w-2xl text-xs text-secondary leading-snug mb-0">
-                Scouts are rolling out gradually. Once your project is enrolled, the canonical troop appears here
-                automatically and you can add custom scouts by creating{' '}
-                <span className="font-mono text-[11px]">signals-scout-*</span> skills in PostHog.
+                Create a scout to investigate a recurring signal or behavior on a schedule.
             </p>
+            <div className="flex items-center gap-2 flex-wrap">
+                <ScoutCreateButton onCreated={() => loadScoutConfigs()} />
+                <ScoutSuggestButton />
+            </div>
             <ScoutHelperSkillLinks />
         </div>
     )
