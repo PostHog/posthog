@@ -112,8 +112,14 @@ def build_dependent_resource(
     }
     if page_size_param is not None:
         child_params[page_size_param] = child_config.page_size
-    # The resolve param binds child requests to their parent row — config must not clobber it.
-    child_params.update({k: v for k, v in fanout.child_params.items() if k != fanout.resolve_param})
+    # The resolve param binds child requests to their parent row. A config that reuses that key
+    # would clobber the binding, so reject it loudly rather than silently dropping the value.
+    if fanout.resolve_param in fanout.child_params:
+        raise ValueError(
+            f"child_params must not include the resolve param '{fanout.resolve_param}'; "
+            "it is managed by build_dependent_resource."
+        )
+    child_params.update(fanout.child_params)
     if child_params_extra:
         child_params.update(child_params_extra)
     child_endpoint_config: Endpoint = {

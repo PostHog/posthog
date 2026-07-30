@@ -160,7 +160,7 @@ def test_build_dependent_resource_merges_fanout_child_params(mock_rest_api_resou
                 resolve_param="parent_id",
                 resolve_field="id",
                 include_from_parent=["id"],
-                child_params={"full": "true", "parent_id": "must-not-clobber-resolve"},
+                child_params={"full": "true"},
             ),
             client_config={"base_url": "https://example.com"},
             path_format_values={},
@@ -180,6 +180,29 @@ def test_build_dependent_resource_merges_fanout_child_params(mock_rest_api_resou
         "full": "true",
     }
     assert parent_params == {"limit": 3}
+
+
+@patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
+def test_build_dependent_resource_rejects_child_params_clobbering_resolve(mock_rest_api_resources) -> None:
+    mock_rest_api_resources.return_value = []
+
+    with pytest.raises(ValueError, match="must not include the resolve param 'parent_id'"):
+        build_dependent_resource(
+            endpoint_configs=_build_endpoint_configs(),
+            child_endpoint="children",
+            fanout=DependentEndpointConfig(
+                parent_name="parents",
+                resolve_param="parent_id",
+                resolve_field="id",
+                include_from_parent=["id"],
+                child_params={"parent_id": "would-clobber-resolve"},
+            ),
+            client_config={"base_url": "https://example.com"},
+            path_format_values={},
+            team_id=1,
+            job_id="job-1",
+            db_incremental_field_last_value=None,
+        )
 
 
 @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
