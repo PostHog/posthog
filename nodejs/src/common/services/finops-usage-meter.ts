@@ -58,6 +58,7 @@ export interface FinopsUsageMeterInput {
 
 export interface FinopsEventOutputMeterInput {
     output: 'events' | 'ai_events'
+    eventName: string
     teamId: number
     orgId: string
     byteLength: number
@@ -65,6 +66,7 @@ export interface FinopsEventOutputMeterInput {
 }
 
 export interface FinopsCapturedEventMeterInput {
+    eventName: string
     teamId: number
     orgId: string
     byteLength: number
@@ -158,10 +160,7 @@ export class FinopsUsageMeter {
     }
 
     queueEventOutput(event: FinopsEventOutputMeterInput): void {
-        const dimensions =
-            event.output === 'ai_events'
-                ? { product: 'ai_observability', billableUnit: 'llm_events', team: 'ai-observability' }
-                : { product: 'shared', billableUnit: 'events', team: 'ingestion' }
+        const dimensions = finopsEventDimensions(event.eventName, event.output)
 
         this.queue({
             ...dimensions,
@@ -178,10 +177,9 @@ export class FinopsUsageMeter {
     }
 
     queueCapturedEvent(event: FinopsCapturedEventMeterInput): void {
+        const dimensions = finopsEventDimensions(event.eventName, 'events')
         this.queue({
-            product: 'shared',
-            billableUnit: 'events',
-            team: 'ingestion',
+            ...dimensions,
             teamId: event.teamId,
             orgId: event.orgId,
             quantity: 1,
@@ -247,6 +245,19 @@ export class FinopsUsageMeter {
             captureException(error)
         }
     }
+}
+
+function finopsEventDimensions(
+    eventName: string,
+    output: FinopsEventOutputMeterInput['output']
+): { product: string; billableUnit: string; team: string } {
+    if (eventName === '$feature_flag_called') {
+        return { product: 'feature_flags', billableUnit: 'flag_requests', team: 'feature-flags' }
+    }
+    if (output === 'ai_events') {
+        return { product: 'ai_observability', billableUnit: 'llm_events', team: 'ai-observability' }
+    }
+    return { product: 'shared', billableUnit: 'events', team: 'ingestion' }
 }
 
 function finopsEnvironment(): string {

@@ -90,6 +90,7 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
                     if (output === 'events' || output === 'ai_events') {
                         finopsUsageMeter?.queueEventOutput({
                             output: output as 'events' | 'ai_events',
+                            eventName: event.event,
                             teamId: serialized.team_id,
                             orgId: input.orgId ?? '',
                             byteLength: serializedValue.byteLength,

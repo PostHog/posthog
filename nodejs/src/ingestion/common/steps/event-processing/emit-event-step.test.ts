@@ -117,6 +117,7 @@ describe('emit-event-step', () => {
                 expect(mockEventProcessedAndIngestedCounter.inc).toHaveBeenCalledTimes(1)
                 expect(queueEventOutput).toHaveBeenCalledWith({
                     output: 'events',
+                    eventName: 'test-event',
                     teamId: 1,
                     orgId: 'org-1',
                     byteLength: Buffer.byteLength(JSON.stringify(serializeEvent(mockProcessedEvent))),
