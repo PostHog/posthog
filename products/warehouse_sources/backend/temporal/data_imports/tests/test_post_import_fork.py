@@ -276,3 +276,90 @@ async def test_post_import_workflow_runs_moved_steps(gates_on: bool):
     # Table size and the DuckLake copy run for every completed V3 import.
     assert executed == ["calculate_table_size_activity"]
     assert any(c.startswith("ducklake-copy-data-imports-") for c in child_ids)
+
+
+@pytest.fixture
+def _no_close_old_connections():
+    # The activity reconnects stale worker connections; under pytest-django that would
+    # close the test transaction's connection mid-test.
+    with mock.patch("products.warehouse_sources.backend.temporal.data_imports.post_import_job.close_old_connections"):
+        yield
+
+
+def _create_job(team, *, status, schema_snapshot, schema_last_synced_at):
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+
+    source = ExternalDataSource.objects.create(team=team, source_type="Stripe")
+    schema = ExternalDataSchema.objects.create(
+        team=team, name="Customer", source=source, last_synced_at=schema_last_synced_at
+    )
+    job = ExternalDataJob.objects.create(
+        team=team,
+        pipeline=source,
+        schema=schema,
+        status=status,
+        schema_snapshot=schema_snapshot,
+        rows_synced=0,
+    )
+    return source, schema, job
+
+
+@pytest.mark.django_db
+def test_resolve_context_uses_pre_sync_watermark_from_snapshot(team, _no_close_old_connections):
+    # By the time the post-import workflow runs, post-load bookkeeping has already advanced
+    # schema.last_synced_at to this sync. Reading the live value instead of the job's
+    # creation-time snapshot would filter the entire sync window out of signal emission.
+    from datetime import UTC, datetime
+
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+    from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
+        PostImportWorkflowInputs,
+        resolve_post_import_context_activity,
+    )
+
+    pre_sync = "2026-07-01T00:00:00+00:00"
+    source, schema, job = _create_job(
+        team,
+        status=ExternalDataJob.Status.COMPLETED,
+        schema_snapshot={"last_synced_at": pre_sync},
+        schema_last_synced_at=datetime(2026, 7, 30, tzinfo=UTC),
+    )
+
+    ctx = resolve_post_import_context_activity(
+        PostImportWorkflowInputs(
+            team_id=team.pk, job_id=str(job.id), schema_id=str(schema.id), source_id=str(source.id)
+        )
+    )
+
+    assert ctx.source_type == "Stripe"
+    assert ctx.schema_name == "Customer"
+    assert ctx.last_synced_at == pre_sync
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("case", ["job_deleted", "job_not_completed"])
+def test_resolve_context_skips_all_steps_when_job_is_gone_or_not_completed(team, case, _no_close_old_connections):
+    # A cancelled job (Completed write suppressed after the final batch) or a deleted job
+    # must not fan out signals/enrichment — the resolve activity returns the skip-all context.
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+    from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
+        PostImportContext,
+        PostImportWorkflowInputs,
+        resolve_post_import_context_activity,
+    )
+
+    source, schema, job = _create_job(
+        team,
+        status=ExternalDataJob.Status.FAILED if case == "job_not_completed" else ExternalDataJob.Status.COMPLETED,
+        schema_snapshot={"last_synced_at": "2026-07-01T00:00:00+00:00"},
+        schema_last_synced_at=None,
+    )
+    job_id = str(uuid.uuid4()) if case == "job_deleted" else str(job.id)
+
+    ctx = resolve_post_import_context_activity(
+        PostImportWorkflowInputs(team_id=team.pk, job_id=job_id, schema_id=str(schema.id), source_id=str(source.id))
+    )
+
+    assert ctx == PostImportContext()

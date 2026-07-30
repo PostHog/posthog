@@ -117,6 +117,17 @@ def resolve_post_import_context_activity(inputs: PostImportWorkflowInputs) -> Po
         )
         return PostImportContext()
 
+    # The consumer triggers after _mark_job_completed, but the Completed write is suppressed
+    # when the job was cancelled after the final batch passed the gate — don't emit signals
+    # or run the fan-out for a job that didn't actually complete.
+    if job.status != ExternalDataJob.Status.COMPLETED:
+        logger.info(
+            "Post-import skipped: job is not completed",
+            job_id=inputs.job_id,
+            job_status=job.status,
+        )
+        return PostImportContext()
+
     source_type = schema.source.source_type
     snapshot = job.schema_snapshot or {}
     last_synced_at = snapshot.get("last_synced_at")
