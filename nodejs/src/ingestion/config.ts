@@ -21,8 +21,8 @@ import { isDevEnv, isProdEnv } from '~/common/utils/env-utils'
 import {
     INGESTION_DOWNSTREAM_PRODUCER,
     INGESTION_UPSTREAM_PRODUCER,
-    WARPSTREAM_SHARED_PRODUCER,
     type ProducerName,
+    WARPSTREAM_SHARED_PRODUCER,
 } from '~/ingestion/common/outputs/producers'
 
 /** Default for FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '' disables the personless default so it is opt-in per team via config. */

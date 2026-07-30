@@ -5,6 +5,7 @@ import { KafkaProducerRegistryComponent } from '~/ingestion/common/outputs/produ
 import {
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
+    getDefaultKafkaWarpstreamSharedProducerEnvConfig,
 } from '~/ingestion/common/outputs/producers'
 import { Component, newScope } from '~/ingestion/common/scopes'
 import { getDefaultIngestionOutputsConfig } from '~/ingestion/config'
@@ -100,6 +101,7 @@ describe('Heatmaps consumer E2E', () => {
         const registryConfig = {
             ...getDefaultKafkaUpstreamProducerEnvConfig(),
             ...getDefaultKafkaDownstreamProducerEnvConfig(),
+            ...getDefaultKafkaWarpstreamSharedProducerEnvConfig(),
         }
         const sharedScope: HeatmapsSharedScope = newScope('heatmaps-e2e-shared', (b) =>
             b

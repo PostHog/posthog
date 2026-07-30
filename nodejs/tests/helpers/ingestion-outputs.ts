@@ -1,6 +1,7 @@
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
+    KAFKA_CLICKHOUSE_FINOPS_USAGE_METERS,
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
     KAFKA_CLICKHOUSE_TOPHOG,
     KAFKA_EVENTS_JSON,
@@ -18,6 +19,7 @@ import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import {
     APP_METRICS_OUTPUT,
     DLQ_OUTPUT,
+    FINOPS_USAGE_OUTPUT,
     GROUPS_OUTPUT,
     INGESTION_WARNINGS_OUTPUT,
     LOG_ENTRIES_OUTPUT,
@@ -63,5 +65,6 @@ export function createTestIngestionOutputs(kafkaProducer: KafkaProducerWrapper) 
         [APP_METRICS_OUTPUT]: testOutput(APP_METRICS_OUTPUT, KAFKA_APP_METRICS_2, kafkaProducer),
         [LOG_ENTRIES_OUTPUT]: testOutput(LOG_ENTRIES_OUTPUT, KAFKA_LOG_ENTRIES, kafkaProducer),
         [TOPHOG_OUTPUT]: testOutput(TOPHOG_OUTPUT, KAFKA_CLICKHOUSE_TOPHOG, kafkaProducer),
+        [FINOPS_USAGE_OUTPUT]: testOutput(FINOPS_USAGE_OUTPUT, KAFKA_CLICKHOUSE_FINOPS_USAGE_METERS, kafkaProducer),
     })
 }

@@ -178,7 +178,14 @@ export class IngestionGeneralServer implements NodeServer {
                         poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
                     })
                 )
-                .add('producerRegistry', new KafkaProducerRegistryComponent(this.config.KAFKA_CLIENT_RACK, this.config))
+                .add(
+                    'producerRegistry',
+                    new KafkaProducerRegistryComponent(
+                        this.config.KAFKA_CLIENT_RACK,
+                        this.config,
+                        this.config.INGESTION_FINOPS_USAGE_METERS_ENABLED
+                    )
+                )
         )
 
         // Services are built off the started infra scope (postgres, redis pools, kafka). They're
@@ -252,7 +259,10 @@ export class IngestionGeneralServer implements NodeServer {
         // a typed view over it — built once here for analytics, and
         // separately by each consumer factory as needed.
         const ingestionProducerRegistry = sharedServices.container.producerRegistry
-        const ingestionOutputs = createOutputsRegistry().build(ingestionProducerRegistry, this.config)
+        const ingestionOutputs = createOutputsRegistry(this.config.INGESTION_FINOPS_USAGE_METERS_ENABLED).build(
+            ingestionProducerRegistry,
+            this.config
+        )
         const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
 
         const hogTransformerDeps: HogTransformerServiceDeps = {

@@ -43,14 +43,23 @@ export class KafkaProducerRegistryBuilder<P extends string = never, CK extends s
      *
      * The config key names are accumulated in the `CK` type parameter and checked
      * against the config object when `build()` is called.
+     *
+     * `options.enabled` (default true) is the runtime gate: when false the slot is kept in
+     * the `P`/`CK` type parameters — so config typing is unchanged — but no producer is
+     * created or connected at `build()`. Use it for an optional slot whose broker may be
+     * unwired, so a missing wire cannot fail server startup. `getProducer()` for a skipped
+     * slot returns undefined, so only wire an output to it under the same gate.
      */
     register<Name extends string, ConfigKeys extends string>(
         name: Name,
-        configMap: Partial<Record<AllowedConfigKey, ConfigKeys>>
+        configMap: Partial<Record<AllowedConfigKey, ConfigKeys>>,
+        options: { enabled?: boolean } = {}
     ): KafkaProducerRegistryBuilder<P | Name, CK | ConfigKeys> {
         const next = new KafkaProducerRegistryBuilder<P | Name, CK | ConfigKeys>(this.kafkaClientRack)
         next.registrations = new Map(this.registrations)
-        next.registrations.set(name, configMap)
+        if (options.enabled ?? true) {
+            next.registrations.set(name, configMap)
+        }
         return next
     }
 

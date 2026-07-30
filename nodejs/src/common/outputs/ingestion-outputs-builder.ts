@@ -93,13 +93,22 @@ export class IngestionOutputsBuilder<
      *
      * The topic and producer config keys are accumulated in the builder's type parameters
      * and checked against the config object when `build()` is called.
+     *
+     * `options.enabled` (default true) is the runtime gate: when false the output name stays
+     * in the `O` type parameter — so downstream types are unchanged — but the output is not
+     * resolved at `build()`, so `checkTopics()` skips it and its producer is never dereferenced.
+     * Use it for an optional output whose topic/producer may not exist yet, so registering it
+     * cannot fail server startup. Gate the matching producer slot the same way.
      */
     register<Name extends string, NewTK extends string, NewPK extends string>(
         name: Name & (Name extends O ? never : Name),
-        definition: PrimaryDef<NewTK, NewPK>
+        definition: PrimaryDef<NewTK, NewPK>,
+        options: { enabled?: boolean } = {}
     ): IngestionOutputsBuilder<O | Name, StringKey | NewTK, ProducerKey | NewPK, NumberKey> {
         const primaries = new Map<string, PrimaryDef<StringKey | NewTK, ProducerKey | NewPK>>(this.primaryDefs)
-        primaries.set(name, definition)
+        if (options.enabled ?? true) {
+            primaries.set(name, definition)
+        }
         return new IngestionOutputsBuilder(primaries, this.dualWriteDefs)
     }
 

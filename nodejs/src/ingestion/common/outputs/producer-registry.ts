@@ -22,11 +22,17 @@ import {
  * names/maps — which config files do at module-eval time — does not transitively pull in
  * the Kafka producer machinery (and the logger → defaultConfig cycle behind it).
  */
-export function createIngestionProducerRegistry(kafkaClientRack: string | undefined) {
-    return new KafkaProducerRegistryBuilder(kafkaClientRack)
-        .register(INGESTION_UPSTREAM_PRODUCER, INGESTION_UPSTREAM_PRODUCER_CONFIG_MAP)
-        .register(INGESTION_DOWNSTREAM_PRODUCER, INGESTION_DOWNSTREAM_PRODUCER_CONFIG_MAP)
-        .register(WARPSTREAM_SHARED_PRODUCER, WARPSTREAM_SHARED_PRODUCER_CONFIG_MAP)
+export function createIngestionProducerRegistry(kafkaClientRack: string | undefined, finopsUsageMetersEnabled = false) {
+    return (
+        new KafkaProducerRegistryBuilder(kafkaClientRack)
+            .register(INGESTION_UPSTREAM_PRODUCER, INGESTION_UPSTREAM_PRODUCER_CONFIG_MAP)
+            .register(INGESTION_DOWNSTREAM_PRODUCER, INGESTION_DOWNSTREAM_PRODUCER_CONFIG_MAP)
+            // The shared-Warpstream slot is connected only when FinOps usage metering is enabled;
+            // otherwise it stays a type-level slot so an unwired broker cannot fail server startup.
+            .register(WARPSTREAM_SHARED_PRODUCER, WARPSTREAM_SHARED_PRODUCER_CONFIG_MAP, {
+                enabled: finopsUsageMetersEnabled,
+            })
+    )
 }
 
 type ProducerRegistryConfig = Parameters<ReturnType<typeof createIngestionProducerRegistry>['build']>[0]
@@ -42,11 +48,15 @@ type ProducerRegistryConfig = Parameters<ReturnType<typeof createIngestionProduc
 export class KafkaProducerRegistryComponent {
     constructor(
         private readonly kafkaClientRack: string | undefined,
-        private readonly config: ProducerRegistryConfig
+        private readonly config: ProducerRegistryConfig,
+        private readonly finopsUsageMetersEnabled = false
     ) {}
 
     async start(): Promise<{ value: KafkaProducerRegistry<ProducerName>; stop: () => Promise<void> }> {
-        const registry = await createIngestionProducerRegistry(this.kafkaClientRack).build(this.config)
+        const registry = await createIngestionProducerRegistry(
+            this.kafkaClientRack,
+            this.finopsUsageMetersEnabled
+        ).build(this.config)
         return {
             value: registry,
             stop: () => registry.disconnectAll(),

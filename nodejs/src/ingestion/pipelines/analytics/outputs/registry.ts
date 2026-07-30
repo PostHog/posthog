@@ -19,8 +19,15 @@ import {
 } from '~/common/outputs'
 import { IngestionOutputsBuilder } from '~/common/outputs/ingestion-outputs-builder'
 
-/** Register all analytics ingestion outputs on the builder. Call `.build(registry, config)` to resolve. */
-export function createOutputsRegistry() {
+/**
+ * Register all analytics ingestion outputs on the builder. Call `.build(registry, config)` to resolve.
+ *
+ * `finopsUsageMetersEnabled` gates the optional FinOps usage-meters output: when false (the
+ * default) the output stays a type-level slot but is not resolved, so servers that don't emit
+ * meters — and whose producer registry has no shared-Warpstream slot — never fail their startup
+ * topic check on a topic that only exists once the FinOps infra is wired.
+ */
+export function createOutputsRegistry(finopsUsageMetersEnabled = false) {
     return (
         new IngestionOutputsBuilder()
             .register(EVENTS_OUTPUT, {
@@ -76,9 +83,13 @@ export function createOutputsRegistry() {
                 topicKey: 'INGESTION_OUTPUT_TOPHOG_TOPIC',
                 producerKey: 'INGESTION_OUTPUT_TOPHOG_PRODUCER',
             })
-            .register(FINOPS_USAGE_OUTPUT, {
-                topicKey: 'INGESTION_OUTPUT_FINOPS_USAGE_TOPIC',
-                producerKey: 'INGESTION_OUTPUT_FINOPS_USAGE_PRODUCER',
-            })
+            .register(
+                FINOPS_USAGE_OUTPUT,
+                {
+                    topicKey: 'INGESTION_OUTPUT_FINOPS_USAGE_TOPIC',
+                    producerKey: 'INGESTION_OUTPUT_FINOPS_USAGE_PRODUCER',
+                },
+                { enabled: finopsUsageMetersEnabled }
+            )
     )
 }
