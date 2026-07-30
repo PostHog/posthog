@@ -219,9 +219,12 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
             )
             incoming_column = incoming_table.column(column_name)
 
-        # Normalize timestamps to microseconds and no timezone.
+        # Normalize timestamps to microseconds and no timezone. Delta only supports
+        # microsecond precision, so any other unit (not just "ns") must be caught here —
+        # e.g. the Snowflake connector's zero-row `_create_empty_table` path ignores
+        # `force_microsecond_precision` and yields second-precision columns.
         if pa.types.is_timestamp(incoming_field.type) and (
-            incoming_field.type.unit == "ns" or incoming_field.type.tz is not None
+            incoming_field.type.unit != "us" or incoming_field.type.tz is not None
         ):
             microsecond_timestamps = pc.cast(incoming_column, pa.timestamp("us"), safe=False).combine_chunks()
             incoming_table = incoming_table.set_column(
@@ -1206,8 +1209,22 @@ def conditional_lru_cache_async(
             key = _make_key(args, kwargs, typed)
             cache.pop(key, None)
 
+        def cache_pop(*args, **kwargs) -> Any:
+            """Remove and return a cached value without ever invoking `func` — unlike calling
+            `wrapper` itself, a cache miss returns `None` instead of computing and storing a
+            fresh result. For callers that only want to release an already-cached resource.
+
+            Checks membership before popping: CircularDict.pop(key, None) treats a `None`
+            default as "no default" and raises KeyError on a miss instead of returning it.
+            """
+            key = _make_key(args, kwargs, typed)
+            if key not in cache:
+                return None
+            return cache.pop(key)
+
         cast(Any, wrapper).cache_remove = cache_remove
         cast(Any, wrapper).cache_clear = lambda: cache.clear()
+        cast(Any, wrapper).cache_pop = cache_pop
 
         return wrapper
 

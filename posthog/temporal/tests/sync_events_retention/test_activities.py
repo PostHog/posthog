@@ -48,6 +48,19 @@ async def test_syncs_event_retention_months_from_billing(features: list[dict], e
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
+async def test_syncs_all_teams_across_batches():
+    features = [{"key": "product_analytics_data_retention", "limit": 1, "unit": "year"}]
+    teams = [await _team_with_features(features, current_months=999) for _ in range(3)]
+
+    await ActivityEnvironment().run(sync_events_retention, SyncEventsRetentionInput(dry_run=False, batch_size=1))
+
+    for team in teams:
+        await sync_to_async(team.refresh_from_db)()
+        assert team.event_retention_months == 12
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
 async def test_dry_run_computes_but_does_not_persist():
     team = await _team_with_features(
         [{"key": "product_analytics_data_retention", "limit": 1, "unit": "year"}], current_months=84

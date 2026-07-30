@@ -252,6 +252,47 @@ class TestCrossReferenceIssueKinds:
         assert len(issue.alternative_sources) == 1
         assert issue.alternative_sources[0].utm_source == "partner_xyz"
 
+    def test_missing_source_when_events_have_no_utm_source(self):
+        # Pageviews match the campaign name but carry no utm_source (e.g. auto-tagged Performance Max).
+        # Must not be classified as UNKNOWN_SOURCE, and must not suggest mapping an empty source.
+        campaigns = [Campaign("Performance Max - Generic", "1", "google", 500.0, 100, 5000)]
+        utm_events = {("performance max - generic", ""): 222}
+
+        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
+
+        issue = results[0].issues[0]
+        assert issue.kind == UtmIssueKind.MISSING_SOURCE
+        assert issue.severity == UtmIssueSeverity.WARNING
+        assert issue.alternative_sources == []
+        assert issue.missing_source_count == 222
+        assert issue.suggested_actions == [SuggestedAction.FIX_PLATFORM_URLS]
+
+    def test_partly_tagged_campaign_keeps_both_the_wrong_source_and_the_untagged_count(self):
+        # The shape that motivated MISSING_SOURCE, but only half the pageviews are untagged. The wrong
+        # source is the actionable classification, so it wins the kind — the untagged ones must still
+        # be reported rather than dropped, since fixing the URLs has to cover both.
+        campaigns = [Campaign("Performance Max - Generic", "1", "google", 500.0, 100, 5000)]
+        utm_events = {
+            ("performance max - generic", ""): 222,
+            ("performance max - generic", "partner_xyz"): 30,
+        }
+
+        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
+
+        issue = results[0].issues[0]
+        assert issue.kind == UtmIssueKind.UNKNOWN_SOURCE
+        assert [alt.utm_source for alt in issue.alternative_sources] == ["partner_xyz"]
+        assert issue.missing_source_count == 222
+
+    def test_untagged_count_is_zero_when_every_pageview_carries_a_source(self):
+        # Guards the other direction: the count must not leak in from unrelated events.
+        campaigns = [Campaign("Brand", "1", "google", 500.0, 100, 5000)]
+        utm_events = {("brand", "facebook"): 40}
+
+        results = _cross_reference(campaigns, utm_events, NO_MAPPINGS, DEFAULT_KNOWN_SOURCES)
+
+        assert results[0].issues[0].missing_source_count == 0
+
     def test_name_collision_when_another_platform_matches_same_name(self):
         # Both Bing and Google have "Survey". Events only tag google.
         # Google's row passes; Bing's row should be NAME_COLLISION with SWITCH_TO_ID_MATCH as primary fix.

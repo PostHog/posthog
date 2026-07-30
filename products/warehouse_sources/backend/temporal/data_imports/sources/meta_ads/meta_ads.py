@@ -402,6 +402,13 @@ def _get_initial_request(url: str, params: dict) -> Response:
 META_AUTH_ERROR_CODES = {102, 190}
 META_PERMISSION_ERROR_CODES = {10, *range(200, 300)}
 
+# Meta also raises generic code 100 ("Invalid parameter") with this exact message when the
+# token's own account can no longer be resolved, e.g. the connected Facebook account was
+# deactivated or lost the app's granted access. Matched on message text rather than on code
+# 100 alone, since that code also covers genuine malformed-request bugs on our side, which
+# must keep surfacing as real errors rather than being reclassified as auth failures.
+META_UNSUPPORTED_GET_REQUEST_MESSAGE = "unsupported get request"
+
 # Meta throttling codes. The request was rejected for its volume, not for being malformed, so the
 # call is fine and the only fix is waiting — never a bug on our side.
 #   4 — application request limit reached (our app, across all users).
@@ -447,7 +454,10 @@ def _is_permanent_auth_error(response: Response) -> bool:
     until the user reconnects the integration.
     """
     code = _meta_error_code(response)
-    return code in META_AUTH_ERROR_CODES or code in META_PERMISSION_ERROR_CODES
+    if code in META_AUTH_ERROR_CODES or code in META_PERMISSION_ERROR_CODES:
+        return True
+    message = str(_meta_error_body(response).get("message") or "").lower()
+    return code == 100 and META_UNSUPPORTED_GET_REQUEST_MESSAGE in message
 
 
 def _is_rate_limit_error(response: Response) -> bool:

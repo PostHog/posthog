@@ -271,6 +271,7 @@ def provision(
         require_enabled=require_enabled,
     )
     if status.is_success(resp.status_code) and isinstance(resp.data, dict):
+        _invalidate_team_state_cache(organization_id)
         _persist_duckgres_server(organization_id, database_name, resp.data)
         # Complete the row BEFORE registering the team: registration kicks off the
         # SQL-editor query-source setup and discovery against this row's warehouse.
@@ -456,7 +457,10 @@ def create_team(
         "schema_data_imports_name": schema_data_imports_name,
     }
     body.update({key: value for key, value in optional_fields.items() if value is not None})
-    return _request("POST", organization_id, "/teams", json_body=body, require_enabled=require_enabled)
+    resp = _request("POST", organization_id, "/teams", json_body=body, require_enabled=require_enabled)
+    if status.is_success(resp.status_code):
+        _invalidate_team_state_cache(organization_id)
+    return resp
 
 
 def update_team(
@@ -471,9 +475,12 @@ def update_team(
     Presence-aware on the duckgres side: only the fields present in the body change, so
     callers pass exactly what they want written (e.g. just ``earliest_event_date``).
     """
-    return _request(
+    resp = _request(
         "PUT", organization_id, f"/teams/{team_id}", json_body=dict(fields), require_enabled=require_enabled
     )
+    if status.is_success(resp.status_code) or resp.status_code == status.HTTP_404_NOT_FOUND:
+        _invalidate_team_state_cache(organization_id)
+    return resp
 
 
 def push_team_earliest_event_date(organization_id: UUID | str, team_id: int, earliest: date | None) -> bool:
@@ -528,7 +535,16 @@ def delete_team(organization_id: UUID | str, team_id: int, require_enabled: bool
     duckgres answers 409 for the org's last team (the org must be deprovisioned or deleted
     instead).
     """
-    return _request("DELETE", organization_id, f"/teams/{team_id}", require_enabled=require_enabled)
+    resp = _request("DELETE", organization_id, f"/teams/{team_id}", require_enabled=require_enabled)
+    if status.is_success(resp.status_code) or resp.status_code == status.HTTP_404_NOT_FOUND:
+        _invalidate_team_state_cache(organization_id)
+    return resp
+
+
+def _invalidate_team_state_cache(organization_id: UUID | str) -> None:
+    from posthog.ducklake import cp_teams  # noqa: PLC0415
+
+    cp_teams.invalidate_org_cache(str(organization_id))
 
 
 def onboard_team(
@@ -728,6 +744,7 @@ def block_team_deletion(team_id: int, organization_id: UUID | str) -> str | None
 def deprovision(organization_id: UUID | str, require_enabled: bool = True) -> Response:
     resp = _request("POST", organization_id, "/deprovision", require_enabled=require_enabled)
     if status.is_success(resp.status_code):
+        _invalidate_team_state_cache(organization_id)
         # Deprovision is not re-POSTable (Duckgres 409s once the org leaves a deprovisionable
         # state), so a failed local cleanup must converge via the retrying task, not the operator.
         try:
