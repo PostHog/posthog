@@ -264,18 +264,22 @@ export const cohortsModel = kea<cohortsModelType>([
         allCohorts: {
             __default: { count: 0, results: [] } as CountedPaginatedResponse<CohortType>,
             loadAllCohorts: async () => {
-                // `allCohorts` only feeds `cohortsById` (id + name lookups for breadcrumbs,
-                // filter labels, etc.), so request the basic payload that omits the heavy
-                // `filters`/`query`/`groups` JSON. Pulling those for up to 2,000 cohorts on
-                // this hot path was slow enough to hit the gateway timeout on cohort-heavy
-                // teams. No `processCohort` here — the columns it normalizes aren't returned.
+                // `allCohorts` feeds `cohortsById`, mostly id + name lookups, so request the
+                // basic payload that drops the legacy `groups`/`query` JSON. Fetching the full
+                // payload for up to 2,000 cohorts on this hot path was slow enough to hit the
+                // gateway timeout on cohort-heavy teams. `filters` stays in the basic payload:
+                // the feature-flag intent warning reads it off `cohortsById` (see
+                // featureFlagIntentWarningLogic.hasBehavioralCriteria), and its raw shape is
+                // what that check expects, so no `processCohort` normalization is needed here.
                 const response = await api.cohorts.listPaginated({
                     limit: MAX_COHORTS_FOR_FULL_LIST,
                     basic: true,
                 })
                 return {
                     count: response.count,
-                    results: response.results,
+                    // `groups` is required on CohortType but the basic payload omits it; default
+                    // it so entries genuinely match the type rather than lying to the compiler.
+                    results: response.results.map((cohort) => ({ groups: [], ...cohort })),
                 }
             },
         },

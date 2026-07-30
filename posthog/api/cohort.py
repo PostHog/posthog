@@ -671,11 +671,13 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # response small for teams with thousands of cohorts. Default output is
         # unchanged; only callers that explicitly ask get the trimmed shape.
         if self.context.get("basic_cohort_list"):
-            # `last_error_message` is computed from a per-row correlated subquery over
-            # CohortCalculationHistory (see safely_get_queryset). Basic-list callers never
-            # read it, so drop the field here and skip the subquery there to keep the
-            # hot-path list cheap for teams with thousands of cohorts.
-            for field_name in ("filters", "query", "groups", "last_error_message"):
+            # Keep `filters`: the feature-flag intent warning reads it off `cohortsById`
+            # (see featureFlagIntentWarningLogic.hasBehavioralCriteria) to flag behavioral
+            # cohorts that can't be evaluated locally. `last_error_message` is computed from
+            # a per-row correlated subquery over CohortCalculationHistory (see
+            # safely_get_queryset), and `experiment_set` costs a prefetch — basic-list callers
+            # read neither, so drop them and skip the extra queries there.
+            for field_name in ("query", "groups", "last_error_message", "experiment_set"):
                 self.fields.pop(field_name, None)
 
     def get_last_error_message(self, cohort: Cohort) -> Optional[str]:
@@ -1583,8 +1585,9 @@ def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description=(
-                    "Return a basic payload that omits the heavy `filters`, `query`, and "
-                    "`groups` fields. Useful for pickers that only need id/name/count."
+                    "Return a basic payload that omits the `query`, `groups`, "
+                    "`last_error_message`, and `experiment_set` fields (`filters` is kept). "
+                    "Useful for pickers that only need id/name/count."
                 ),
             ),
         ]
@@ -1666,13 +1669,18 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
             # `?basic=true` callers never read these columns, so skip reading them
             # off disk (the serializer drops them too; see CohortSerializer.__init__).
+            # `filters` is kept — the flag intent warning reads it off `cohortsById`.
             if self._is_basic_list_request():
-                queryset = queryset.defer("filters", "query", "groups")
+                queryset = queryset.defer("query", "groups")
 
         # `created_by` and `team` are forward FKs, so `select_related` JOINs them in
         # one query instead of the two extra round-trips `prefetch_related` costs.
-        # `experiment_set` is a reverse relation, so it stays prefetched.
-        queryset = queryset.select_related("created_by", "team").prefetch_related("experiment_set")
+        queryset = queryset.select_related("created_by", "team")
+
+        # `experiment_set` is a reverse relation, prefetched only when the serializer keeps
+        # it. The basic list payload drops the field, so skip the prefetch there.
+        if not self._is_basic_list_request():
+            queryset = queryset.prefetch_related("experiment_set")
 
         # The per-row correlated subquery over CohortCalculationHistory only feeds
         # `last_error_message`, which the basic list payload drops. Skip it there so the

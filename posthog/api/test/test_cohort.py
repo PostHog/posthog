@@ -1893,12 +1893,14 @@ email@example.org,
         self.assertIn("filters", full)
 
         basic = self.client.get(f"/api/projects/{self.team.id}/cohorts?basic=true").json()["results"][0]
-        # `last_error_message` is dropped too — basic callers don't read it, and keeping it
-        # would force the per-row CohortCalculationHistory subquery back onto the hot path.
-        for dropped in ("filters", "query", "groups", "last_error_message"):
+        # `last_error_message` and `experiment_set` are dropped too — basic callers don't read
+        # them, and keeping `last_error_message` would force the per-row CohortCalculationHistory
+        # subquery back onto the hot path.
+        for dropped in ("query", "groups", "last_error_message", "experiment_set"):
             self.assertNotIn(dropped, basic)
-        # The fields pickers actually read are still present.
-        for kept in ("id", "name", "count"):
+        # `filters` stays: the feature-flag intent warning reads it off the basic list to flag
+        # behavioral cohorts. Dropping it silently disabled that warning, so guard it here.
+        for kept in ("id", "name", "count", "filters"):
             self.assertIn(kept, basic)
 
     @patch("posthog.api.cohort.report_user_action")
