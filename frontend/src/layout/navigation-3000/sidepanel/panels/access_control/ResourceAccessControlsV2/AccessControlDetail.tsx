@@ -1,41 +1,26 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
-import { ReactNode, useState } from 'react'
+import { useState } from 'react'
 
-import { IconHome, IconInfo, IconOpenSidebar, IconPeople, IconPlus, IconTrash } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonDropdown,
-    LemonLabel,
-    LemonModal,
-    LemonSelect,
-    LemonTable,
-    LemonTag,
-    LemonTagType,
-    Link,
-    ProfilePicture,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { IconHome, IconInfo, IconPeople } from '@posthog/icons'
+import { Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
-import { fullName, toSentenceCase } from 'lib/utils/strings'
+import { fullName } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
-import { APIScopeObject, AccessControlLevel, SidePanelTab } from '~/types'
+import { APIScopeObject, AccessControlLevel, EffectiveAccessControlEntry, InheritedAccessLevelReason } from '~/types'
 
-import { AccessLevelEnumApi } from 'products/access_control/frontend/generated/api.schemas'
-
+import type { InheritedAccess } from '../accessControlLogic'
+import { AccessLevelSelect } from '../AccessLevelSelect'
 import { roleAccessControlLogic } from '../roleAccessControlLogic'
 import { accessControlsLogic } from './accessControlsLogic'
-import { AccessObjectOverride, AccessPropertyRestriction, AccessScope, accessDetailLogic } from './accessDetailLogic'
-import { ADD_RULE_RESOURCES, addObjectOverrideModalLogic } from './addObjectOverrideModalLogic'
-import { addPropertyRestrictionModalLogic } from './addPropertyRestrictionModalLogic'
-import { groupedAccessControlRuleModalLogic } from './groupedAccessControlRuleModalLogic'
-import { getEntryId, isMemberEntry } from './helpers'
+import { AccessScope } from './accessDetailLogic'
+import { AccessDetailSection } from './AccessDetailSection'
+import { getEntryId, humanizeAccessControlLevel, isMemberEntry } from './helpers'
+import { ObjectAccessRules } from './ObjectAccessRules'
+import { PropertyAccessRules } from './PropertyAccessRules'
 import { ScopeIcon } from './ScopeIcon'
 import { AccessControlMemberEntry, AccessControlRoleEntry, AccessControlSettingsEntry } from './types'
 
@@ -50,44 +35,30 @@ export function AccessControlDetailContent({
 }): JSX.Element {
     const subjectId = getEntryId(entry)
     const subjectNoun = scopeType === 'role' ? 'role' : 'member'
-
-    // Remount the editable form whenever the saved access changes (e.g. after a save reloads the data),
-    // so the form state re-initialises from the fresh effective levels instead of holding stale defaults.
-    const formKey = `${subjectId}:${entry.project.effective_access_level}:${Object.entries(entry.resources)
-        .map(([k, v]) => `${k}=${v.effective_access_level}`)
-        .join(',')}`
+    const { canEdit } = useValues(accessControlsLogic({ projectId }))
 
     return (
         <>
             {isMemberEntry(entry) ? <MemberHeader member={entry} /> : <RoleHeader role={entry} />}
 
-            <ProjectAccessSection
-                key={`project-${formKey}`}
-                projectId={projectId}
-                scopeType={scopeType}
-                entry={entry}
-            />
+            <ProjectAccessSection projectId={projectId} scopeType={scopeType} entry={entry} />
 
-            <ToolsSection
-                key={formKey}
-                projectId={projectId}
-                scopeType={scopeType}
-                entry={entry}
-                subjectNoun={subjectNoun}
-            />
+            <ToolsSection projectId={projectId} scopeType={scopeType} entry={entry} subjectNoun={subjectNoun} />
 
-            <ObjectOverridesSection
+            <ObjectAccessRules
                 projectId={projectId}
                 scopeType={scopeType}
                 subjectId={subjectId}
                 subjectNoun={subjectNoun}
+                canEdit={canEdit}
             />
 
-            <RestrictedPropertiesSection
+            <PropertyAccessRules
                 projectId={projectId}
                 scopeType={scopeType}
                 subjectId={subjectId}
                 subjectNoun={subjectNoun}
+                canEdit={canEdit}
             />
         </>
     )
@@ -121,6 +92,49 @@ function RoleHeader({ role }: { role: AccessControlRoleEntry }): JSX.Element {
     )
 }
 
+function inheritedReason(reason: InheritedAccessLevelReason | null, fallbackTo: string): string {
+    switch (reason) {
+        case 'role_override':
+            return 'Based on role permissions'
+        case 'organization_admin':
+            return 'Organization admins always have full access'
+        default:
+            return `Based on the default for ${fallbackTo}`
+    }
+}
+
+/**
+ * What applies to a resource when the subject has no rule of their own. The entry resolves explicit
+ * defaults and role grants server-side; `builtIn` covers resources with no rule anywhere.
+ */
+function inheritedFor(
+    res: EffectiveAccessControlEntry | undefined,
+    builtIn: AccessControlLevel | undefined,
+    fallbackTo: string
+): InheritedAccess | null {
+    const level = res?.inherited_access_level ?? builtIn
+    if (!level) {
+        return null
+    }
+    return {
+        label: humanizeAccessControlLevel(level),
+        reason: inheritedReason(
+            res?.inherited_access_level ? (res.inherited_access_level_reason ?? null) : null,
+            fallbackTo
+        ),
+    }
+}
+
+function subjectDisabledReason(entry: AccessControlSettingsEntry, canEdit: boolean): string | undefined {
+    if (!canEdit) {
+        return 'You cannot edit this'
+    }
+    if (entry.project.inherited_access_level_reason === 'organization_admin') {
+        return 'Organization admins always have full access'
+    }
+    return undefined
+}
+
 function ProjectAccessSection({
     projectId,
     scopeType,
@@ -130,15 +144,18 @@ function ProjectAccessSection({
     scopeType: AccessScope
     entry: AccessControlSettingsEntry
 }): JSX.Element {
-    const { formProjectLevel, projectDisabledReason, projectInheritedReasonTooltip, projectLevelOptions } = useValues(
-        groupedAccessControlRuleModalLogic({ entry, scopeType, projectId })
-    )
-    const { setProjectLevel, save } = useActions(groupedAccessControlRuleModalLogic({ entry, scopeType, projectId }))
+    const { availableProjectLevels, canEdit } = useValues(accessControlsLogic({ projectId }))
+    const { updateAccessControlMembers, updateAccessControlRoles } = useActions(accessControlsLogic({ projectId }))
     const { currentTeam } = useValues(teamLogic)
 
-    const onProjectChange = (level: AccessControlLevel | null): void => {
-        setProjectLevel(level)
-        save()
+    const subjectId = getEntryId(entry)
+
+    const onChange = (level: AccessControlLevel | null): void => {
+        if (scopeType === 'role') {
+            updateAccessControlRoles([{ role: subjectId, level }], 'v2')
+        } else {
+            updateAccessControlMembers([{ member: subjectId, level }], 'v2')
+        }
     }
 
     return (
@@ -149,15 +166,13 @@ function ProjectAccessSection({
                 </span>
                 Project access{currentTeam?.name ? ` · ${currentTeam.name}` : ''}
             </div>
-            <LemonSelect
-                dropdownPlacement="bottom-end"
-                value={formProjectLevel}
-                disabledReason={projectDisabledReason}
-                tooltip={projectInheritedReasonTooltip}
+            <AccessLevelSelect
                 size="small"
-                className="w-36"
-                onChange={onProjectChange}
-                options={projectLevelOptions}
+                level={entry.project.access_level}
+                levels={availableProjectLevels}
+                onChange={onChange}
+                disabledReason={subjectDisabledReason(entry, canEdit)}
+                inherited={inheritedFor(entry.project, undefined, 'the project')}
             />
         </div>
     )
@@ -211,55 +226,11 @@ function MemberRoles({ userUuid }: { userUuid: string }): JSX.Element {
             addLabel="Add roles"
             editLabel="Edit roles"
             inputPlaceholder="Add role…"
+            // Match the role tags themselves, which render at the default medium size
+            actionButtonSize="medium"
             data-attr="member-access-roles"
         />
     )
-}
-
-function Section({
-    title,
-    description,
-    children,
-}: {
-    title: string
-    description?: string
-    children: ReactNode
-}): JSX.Element {
-    return (
-        <div className="space-y-2">
-            <div>
-                <h3 className="mb-0">{title}</h3>
-                {description && <p className="text-secondary text-sm mb-0">{description}</p>}
-            </div>
-            {children}
-        </div>
-    )
-}
-
-/** A link to open the object, for resource types we can address from the stored resource_id. */
-function objectUrl(o: AccessObjectOverride): string | null {
-    switch (o.resource) {
-        case 'dashboard':
-            return urls.dashboard(o.resource_id)
-        case 'feature_flag':
-            return urls.featureFlag(o.resource_id)
-        case 'experiment':
-            return urls.experiment(o.resource_id)
-        case 'survey':
-            return urls.survey(o.resource_id)
-        case 'action':
-            return urls.action(o.resource_id)
-        case 'warehouse_view':
-            return urls.sqlEditor({ view_id: o.resource_id })
-        case 'external_data_source':
-            return urls.dataWarehouseSource(`managed-${o.resource_id}`)
-        case 'warehouse_table':
-            // Tables have no page of their own, so open them the way the warehouse UI does — querying them
-            return urls.sqlEditor({ query: `SELECT * FROM ${o.name} LIMIT 100` })
-        default:
-            // insight / notebook pages need a short_id we don't have here — show as plain text
-            return null
-    }
 }
 
 function ToolsSection({
@@ -273,26 +244,18 @@ function ToolsSection({
     entry: AccessControlSettingsEntry
     subjectNoun: string
 }): JSX.Element {
-    const {
-        formResourceLevels,
-        featuresDisabledReason,
-        isResourceLevelShowingInherited,
-        resourceInheritedReasonTooltip,
-        resourceLevelOptions,
-        showResourceAddOverrideButton,
-    } = useValues(groupedAccessControlRuleModalLogic({ entry, scopeType, projectId }))
-    const { setResourceLevel, save } = useActions(groupedAccessControlRuleModalLogic({ entry, scopeType, projectId }))
+    const { resourceKeys, availableResourceLevels, defaults, canEdit } = useValues(accessControlsLogic({ projectId }))
+    const { updateResourceAccessControls } = useActions(accessControlsLogic({ projectId }))
 
-    const { resourceKeys } = useValues(accessControlsLogic({ projectId }))
-
+    const subjectId = getEntryId(entry)
     const [showAllTools, setShowAllTools] = useState(false)
 
-    // A resource with a set level is an "override"; the rest fall back to the project default (shown as "Add override").
-    // Show only the overridden tools; if there are none, show the first 3. Collapse the rest behind a toggle.
-    const hasOverride = (key: APIScopeObject): boolean => !showResourceAddOverrideButton(key)
-    const overriddenResources = resourceKeys.filter((r) => hasOverride(r.key))
+    // Show only tools where the subject has a rule of their own; if there are none, show the first 3.
+    // Collapse the rest behind a toggle.
+    const hasRule = (key: APIScopeObject): boolean => entry.resources[key]?.access_level != null
+    const ruledResources = resourceKeys.filter((r) => hasRule(r.key))
     const baseVisibleKeys = new Set(
-        (overriddenResources.length > 0 ? overriddenResources : resourceKeys.slice(0, 3)).map((r) => r.key)
+        (ruledResources.length > 0 ? ruledResources : resourceKeys.slice(0, 3)).map((r) => r.key)
     )
     const collapsedCount = resourceKeys.length - baseVisibleKeys.size
     const canCollapse = collapsedCount > 3
@@ -301,12 +264,21 @@ function ToolsSection({
 
     // Persist immediately on every change — no explicit save button
     const onResourceChange = (resource: APIScopeObject, level: AccessControlLevel | null): void => {
-        setResourceLevel(resource, level)
-        save()
+        updateResourceAccessControls(
+            [
+                {
+                    resource,
+                    access_level: level,
+                    role: scopeType === 'role' ? subjectId : null,
+                    organization_member: scopeType === 'member' ? subjectId : null,
+                },
+            ],
+            scopeType
+        )
     }
 
     return (
-        <Section title="Tools" description={`The access this ${subjectNoun} has to each tool.`}>
+        <AccessDetailSection title="Tools" description={`The access this ${subjectNoun} has to each tool.`}>
             <LemonTable
                 showHeader={false}
                 dataSource={visibleResources}
@@ -336,59 +308,30 @@ function ToolsSection({
                         title: 'Access',
                         key: 'access',
                         align: 'right',
-                        render: (_, resource: { key: APIScopeObject; label: string }) => (
-                            <div className="flex justify-end py-1.5">
-                                {showResourceAddOverrideButton(resource.key) ? (
-                                    <LemonDropdown
-                                        placement="bottom-end"
-                                        overlay={
-                                            <div className="flex flex-col">
-                                                {resourceLevelOptions(resource.key, resource.label).map((option) => (
-                                                    <LemonButton
-                                                        key={option.value}
-                                                        size="small"
-                                                        className="w-32"
-                                                        fullWidth
-                                                        disabledReason={option.disabledReason}
-                                                        onClick={() => onResourceChange(resource.key, option.value)}
-                                                    >
-                                                        {option.label}
-                                                    </LemonButton>
-                                                ))}
-                                            </div>
-                                        }
-                                    >
-                                        <LemonButton
-                                            size="small"
-                                            type="tertiary"
-                                            icon={<IconPlus />}
-                                            sideIcon={null}
-                                            disabledReason={featuresDisabledReason}
-                                            className="whitespace-nowrap"
-                                        >
-                                            Add override
-                                        </LemonButton>
-                                    </LemonDropdown>
-                                ) : (
-                                    <LemonSelect
-                                        className="w-32"
+                        render: (_, resource: { key: APIScopeObject; label: string }) => {
+                            const res = entry.resources[resource.key]
+                            const maximum = res?.maximum
+                            const levels = maximum
+                                ? availableResourceLevels.slice(0, availableResourceLevels.indexOf(maximum) + 1)
+                                : availableResourceLevels
+                            return (
+                                <div className="flex justify-end py-1.5">
+                                    <AccessLevelSelect
                                         size="small"
-                                        value={formResourceLevels[resource.key]}
-                                        disabledReason={featuresDisabledReason}
-                                        tooltip={resourceInheritedReasonTooltip(resource.key)}
-                                        renderButtonContent={(leaf) => {
-                                            const level = formResourceLevels[resource.key]
-                                            if (isResourceLevelShowingInherited(resource.key) && level) {
-                                                return toSentenceCase(level)
-                                            }
-                                            return leaf?.label ?? ''
-                                        }}
-                                        onChange={(value) => onResourceChange(resource.key, value)}
-                                        options={resourceLevelOptions(resource.key, resource.label)}
+                                        level={res?.access_level ?? null}
+                                        levels={levels}
+                                        minimumLevel={res?.minimum}
+                                        onChange={(level) => onResourceChange(resource.key, level)}
+                                        disabledReason={subjectDisabledReason(entry, canEdit)}
+                                        inherited={inheritedFor(
+                                            res,
+                                            defaults?.resource_access_levels[resource.key]?.built_in_access_level,
+                                            resource.label.toLowerCase()
+                                        )}
                                     />
-                                )}
-                            </div>
-                        ),
+                                </div>
+                            )
+                        },
                     },
                 ]}
             />
@@ -397,344 +340,6 @@ function ToolsSection({
                     {showAllTools ? 'Show fewer' : `Show ${collapsedCount} more tools with no overrides`}
                 </Link>
             )}
-        </Section>
-    )
-}
-
-const ACCESS_TAGS: Record<string, { label: string; type: LemonTagType }> = {
-    none: { label: 'No access', type: 'danger' },
-    viewer: { label: 'Viewer', type: 'primary' },
-    editor: { label: 'Editor', type: 'success' },
-    manager: { label: 'Manager', type: 'completion' },
-    read: { label: 'Read only', type: 'primary' },
-    read_write: { label: 'Read & write', type: 'success' },
-}
-
-function AccessLevelTag({ level }: { level: string }): JSX.Element {
-    const tag = ACCESS_TAGS[level] ?? { label: toSentenceCase(level), type: 'default' as LemonTagType }
-    return <LemonTag type={tag.type}>{tag.label}</LemonTag>
-}
-
-function sourceLabel(row: { source: string; role_name: string | null }): string {
-    if (row.source === 'member') {
-        return 'Member override'
-    }
-    if (row.source === 'role') {
-        return row.role_name ? `From role: ${row.role_name}` : 'Role override'
-    }
-    return 'Default'
-}
-
-interface SubjectProps {
-    projectId: string
-    scopeType: AccessScope
-    subjectId: string
-}
-
-interface SubjectSectionProps extends SubjectProps {
-    subjectNoun: string
-}
-
-function ObjectOverridesSection({ projectId, scopeType, subjectId, subjectNoun }: SubjectSectionProps): JSX.Element {
-    const { objects, objectsLoading } = useValues(accessDetailLogic({ projectId, scopeType, subjectId }))
-    const { openModal, deleteObjectOverride } = useActions(
-        addObjectOverrideModalLogic({ projectId, scopeType, subjectId })
-    )
-
-    return (
-        <Section
-            title="One-off access overrides"
-            description={`Specific dashboards, insights, notebooks and warehouse tables this ${subjectNoun} is given access to, or blocked from, regardless of the tools above.`}
-        >
-            <AddObjectOverrideModal projectId={projectId} scopeType={scopeType} subjectId={subjectId} />
-            <LemonTable
-                loading={objectsLoading}
-                columns={[
-                    {
-                        title: 'Object',
-                        key: 'object',
-                        render: (_, o: AccessObjectOverride) => {
-                            const href = objectUrl(o)
-                            const label = href ? <Link to={href}>{o.name}</Link> : o.name
-                            return (
-                                <div className="flex items-center gap-2">
-                                    <span className="text-muted-alt flex items-center">
-                                        <ScopeIcon scope={o.resource as APIScopeObject} />
-                                    </span>
-                                    <span className="font-medium">{label}</span>
-                                </div>
-                            )
-                        },
-                    },
-                    {
-                        title: 'Type',
-                        key: 'type',
-                        render: (_, o: AccessObjectOverride) => (
-                            <span className="text-secondary">{toSentenceCase(o.resource.replace(/_/g, ' '))}</span>
-                        ),
-                    },
-                    {
-                        title: 'Source',
-                        key: 'source',
-                        render: (_, o: AccessObjectOverride) => (
-                            <span className="text-secondary text-xs">{sourceLabel(o)}</span>
-                        ),
-                    },
-                    {
-                        title: 'Access',
-                        key: 'access',
-                        render: (_, o: AccessObjectOverride) => <AccessLevelTag level={o.access_level} />,
-                    },
-                    {
-                        title: '',
-                        key: 'actions',
-                        width: 0,
-                        render: (_, o: AccessObjectOverride) => {
-                            const href = objectUrl(o)
-                            const canDelete = scopeType === 'role' ? o.source === 'role' : o.source === 'member'
-                            if (!href && !canDelete) {
-                                return null
-                            }
-                            return (
-                                <More
-                                    overlay={
-                                        <>
-                                            {href && (
-                                                <LemonButton
-                                                    fullWidth
-                                                    icon={<IconOpenSidebar />}
-                                                    // Deep-link the object's access-control side panel via the
-                                                    // `#panel=` hash so it opens on the destination page.
-                                                    onClick={() =>
-                                                        router.actions.push(href, undefined, {
-                                                            panel: SidePanelTab.AccessControl,
-                                                        })
-                                                    }
-                                                >
-                                                    Manage access
-                                                </LemonButton>
-                                            )}
-                                            {canDelete && (
-                                                <LemonButton
-                                                    fullWidth
-                                                    status="danger"
-                                                    icon={<IconTrash />}
-                                                    onClick={() => deleteObjectOverride(o.resource, o.resource_id)}
-                                                >
-                                                    Remove rule
-                                                </LemonButton>
-                                            )}
-                                        </>
-                                    }
-                                />
-                            )
-                        },
-                    },
-                ]}
-                dataSource={objects}
-                pagination={{ pageSize: 20, hideOnSinglePage: true }}
-                emptyState={`No one-off access overrides for this ${subjectNoun}.`}
-            />
-            <div>
-                <LemonButton type="secondary" size="small" icon={<IconPlus />} onClick={openModal}>
-                    Add rule
-                </LemonButton>
-            </div>
-        </Section>
-    )
-}
-
-function AddObjectOverrideModal({ projectId, scopeType, subjectId }: SubjectProps): JSX.Element {
-    const logic = addObjectOverrideModalLogic({ projectId, scopeType, subjectId })
-    const { isOpen, resource, objectId, level, objectOptions, objectOptionsLoading } = useValues(logic)
-    const { closeModal, setResource, setSearch, setObjectId, setLevel, submitRule } = useActions(logic)
-
-    return (
-        <LemonModal
-            isOpen={isOpen}
-            onClose={closeModal}
-            title="Add access rule"
-            description={`Grant or restrict this ${
-                scopeType === 'role' ? 'role' : 'member'
-            }'s access to a specific object.`}
-            footer={
-                <>
-                    <LemonButton type="secondary" onClick={closeModal}>
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        disabledReason={!objectId ? 'Select an object' : undefined}
-                        onClick={submitRule}
-                    >
-                        Add rule
-                    </LemonButton>
-                </>
-            }
-        >
-            <div className="space-y-3 min-w-[24rem]">
-                <div>
-                    <LemonLabel>Type</LemonLabel>
-                    <LemonSelect
-                        value={resource}
-                        onChange={setResource}
-                        options={ADD_RULE_RESOURCES.map((r) => ({ value: r.value, label: r.label }))}
-                        fullWidth
-                    />
-                </div>
-                <div>
-                    <LemonLabel>Object</LemonLabel>
-                    <LemonInputSelect
-                        mode="single"
-                        value={objectId ? [objectId] : []}
-                        onChange={(values) => setObjectId(values[0] ?? null)}
-                        onInputChange={setSearch}
-                        loading={objectOptionsLoading}
-                        options={objectOptions.map((o) => ({ key: o.id, label: o.name }))}
-                        placeholder="Search by name…"
-                    />
-                </div>
-                <div>
-                    <LemonLabel>Access</LemonLabel>
-                    <LemonSelect
-                        value={level}
-                        onChange={setLevel}
-                        options={[
-                            { value: AccessControlLevel.None, label: 'No access' },
-                            { value: AccessControlLevel.Viewer, label: 'Viewer' },
-                            { value: AccessControlLevel.Editor, label: 'Editor' },
-                            { value: AccessControlLevel.Manager, label: 'Manager' },
-                        ]}
-                        fullWidth
-                    />
-                </div>
-            </div>
-        </LemonModal>
-    )
-}
-
-function RestrictedPropertiesSection({
-    projectId,
-    scopeType,
-    subjectId,
-    subjectNoun,
-}: SubjectSectionProps): JSX.Element {
-    const { properties, propertiesLoading } = useValues(accessDetailLogic({ projectId, scopeType, subjectId }))
-    const { openModal } = useActions(addPropertyRestrictionModalLogic({ projectId, scopeType, subjectId }))
-
-    return (
-        <Section
-            title="Restricted properties"
-            description={`Properties this ${subjectNoun} cannot read & write freely. Default for every property is read & write.`}
-        >
-            <AddPropertyRestrictionModal projectId={projectId} scopeType={scopeType} subjectId={subjectId} />
-            <LemonTable
-                loading={propertiesLoading}
-                columns={[
-                    {
-                        title: 'Property',
-                        key: 'property',
-                        render: (_, p: AccessPropertyRestriction) => <span className="font-medium">{p.property}</span>,
-                    },
-                    {
-                        title: 'Scope',
-                        key: 'scope',
-                        render: (_, p: AccessPropertyRestriction) => (
-                            <span className="text-secondary">
-                                {p.property_type === 'person' ? 'Person property' : 'Event property'}
-                            </span>
-                        ),
-                    },
-                    {
-                        title: 'Source',
-                        key: 'source',
-                        render: (_, p: AccessPropertyRestriction) => (
-                            <span className="text-secondary text-xs">{sourceLabel(p)}</span>
-                        ),
-                    },
-                    {
-                        title: 'Access',
-                        key: 'access',
-                        render: (_, p: AccessPropertyRestriction) => <AccessLevelTag level={p.access_level} />,
-                    },
-                ]}
-                dataSource={properties}
-                pagination={{ pageSize: 20, hideOnSinglePage: true }}
-                emptyState={`No restricted properties for this ${subjectNoun}.`}
-            />
-            <div>
-                <LemonButton type="secondary" size="small" icon={<IconPlus />} onClick={openModal}>
-                    Add rule
-                </LemonButton>
-            </div>
-        </Section>
-    )
-}
-
-function AddPropertyRestrictionModal({ projectId, scopeType, subjectId }: SubjectProps): JSX.Element {
-    const logic = addPropertyRestrictionModalLogic({ projectId, scopeType, subjectId })
-    const { isOpen, propertyType, propertyId, level, propertyOptions, propertyOptionsLoading } = useValues(logic)
-    const { closeModal, setPropertyType, setSearch, setPropertyId, setLevel, submitRule } = useActions(logic)
-
-    return (
-        <LemonModal
-            isOpen={isOpen}
-            onClose={closeModal}
-            title="Restrict a property"
-            description={`Limit this ${scopeType === 'role' ? 'role' : 'member'}'s access to a specific property.`}
-            footer={
-                <>
-                    <LemonButton type="secondary" onClick={closeModal}>
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        disabledReason={!propertyId ? 'Select a property' : undefined}
-                        onClick={submitRule}
-                    >
-                        Add rule
-                    </LemonButton>
-                </>
-            }
-        >
-            <div className="space-y-3 min-w-[24rem]">
-                <div>
-                    <LemonLabel>Scope</LemonLabel>
-                    <LemonSelect
-                        value={propertyType}
-                        onChange={setPropertyType}
-                        options={[
-                            { value: 'person', label: 'Person property' },
-                            { value: 'event', label: 'Event property' },
-                        ]}
-                        fullWidth
-                    />
-                </div>
-                <div>
-                    <LemonLabel>Property</LemonLabel>
-                    <LemonInputSelect
-                        mode="single"
-                        value={propertyId ? [propertyId] : []}
-                        onChange={(values) => setPropertyId(values[0] ?? null)}
-                        onInputChange={setSearch}
-                        loading={propertyOptionsLoading}
-                        options={propertyOptions.map((o) => ({ key: o.id, label: o.name }))}
-                        placeholder="Search by name…"
-                    />
-                </div>
-                <div>
-                    <LemonLabel>Access</LemonLabel>
-                    <LemonSelect
-                        value={level}
-                        onChange={setLevel}
-                        options={[
-                            { value: AccessLevelEnumApi.Read, label: 'Read only' },
-                            { value: AccessLevelEnumApi.None, label: 'Hidden' },
-                        ]}
-                        fullWidth
-                    />
-                </div>
-            </div>
-        </LemonModal>
+        </AccessDetailSection>
     )
 }

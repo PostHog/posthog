@@ -9,7 +9,6 @@ import {
     LemonInputSelect,
     LemonModal,
     LemonSelect,
-    LemonSelectOption,
     LemonSelectProps,
     LemonTable,
     Tooltip,
@@ -38,7 +37,7 @@ import {
 } from '~/types'
 
 import { AccessControlLogicProps, InheritedAccess, accessControlLogic } from './accessControlLogic'
-import { humanizeAccessControlLevel } from './ResourceAccessControlsV2/helpers'
+import { AccessLevelSelect } from './AccessLevelSelect'
 
 export function AccessControlObject(props: AccessControlLogicProps): JSX.Element | null {
     const { canEditAccessControls, humanReadableResource, resource } = useValues(accessControlLogic(props))
@@ -392,70 +391,18 @@ function SimplLevelComponent(props: {
     inherited?: InheritedAccess | null
 }): JSX.Element | null {
     const { canEditAccessControls, minimumAccessLevel } = useValues(accessControlLogic)
-    const { inherited } = props
-
-    // The trigger and the menu entry read identically, so what you pick is what you end up looking at.
-    // The inherited half drops to the button's normal weight so it reads as a consequence, not a second value.
-    const noOverrideLabel = inherited ? (
-        <span className="whitespace-nowrap">
-            No override <span className="font-normal text-tertiary">· {inherited.label}</span>
-        </span>
-    ) : null
-
-    const levelOptions: LemonSelectOption<AccessControlLevel | null>[] = props.levels.map((level) => {
-        const isDisabled = minimumAccessLevel
-            ? props.levels.indexOf(level) < props.levels.indexOf(minimumAccessLevel)
-            : false
-        return {
-            value: level,
-            label: humanizeAccessControlLevel(level),
-            disabledReason: isDisabled ? 'Not available for this resource type' : undefined,
-        }
-    })
 
     return (
-        <LemonSelect<AccessControlLevel | null>
+        <AccessLevelSelect
             size={props.size}
-            placeholder="Select level..."
-            value={props.level}
+            level={props.level}
+            levels={props.levels}
             onChange={props.onChange}
             // The permission gate wins over any caller-supplied reason, so a reason passed for
             // some other purpose can never re-enable the control for someone who cannot edit
             disabledReason={!canEditAccessControls || props.disabled ? 'You cannot edit this' : props.disabledReason}
-            dropdownMatchSelectWidth={false}
-            tooltip={
-                inherited
-                    ? props.level === null
-                        ? inherited.reason
-                        : `Overrides ${inherited.label}. ${inherited.reason}.`
-                    : undefined
-            }
-            renderButtonContent={
-                noOverrideLabel ? (leaf) => (props.level === null ? noOverrideLabel : (leaf?.label ?? '')) : undefined
-            }
-            options={
-                inherited
-                    ? [
-                          {
-                              options: [
-                                  {
-                                      value: null,
-                                      label: 'No override',
-                                      labelInMenu: (
-                                          <div className="flex flex-col items-start gap-1 py-1">
-                                              {noOverrideLabel}
-                                              <span className="text-xs font-normal text-tertiary whitespace-nowrap">
-                                                  {inherited.reason}
-                                              </span>
-                                          </div>
-                                      ),
-                                  },
-                              ],
-                          },
-                          { options: levelOptions },
-                      ]
-                    : levelOptions
-            }
+            minimumLevel={minimumAccessLevel}
+            inherited={props.inherited}
         />
     )
 }
