@@ -94,8 +94,8 @@ cd nodejs && pnpm run generate:personhog-proto
 
 Then update:
 
-- `nodejs/src/ingestion/personhog/client.ts` — add a wrapper method matching the pattern of existing methods
-- `nodejs/src/ingestion/personhog/client.test.ts` — add a default stub to `SERVICE_DEFAULTS` for the new RPC
+- `nodejs/src/common/personhog/client.ts` — add a wrapper method matching the pattern of existing methods
+- `nodejs/src/common/personhog/client.test.ts` — add a default stub to `SERVICE_DEFAULTS` for the new RPC
 
 ### Rust
 
