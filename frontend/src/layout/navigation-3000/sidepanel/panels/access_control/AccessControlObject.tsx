@@ -12,7 +12,6 @@ import {
     LemonSelectOption,
     LemonSelectProps,
     LemonTable,
-    LemonTag,
     Tooltip,
 } from '@posthog/lemon-ui'
 
@@ -22,7 +21,7 @@ import { UserSelectItem } from 'lib/components/UserSelectItem'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfileBubbles, ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { getAccessControlTooltip, pluralizeResource } from 'lib/utils/accessControlUtils'
+import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
 import { capitalizeFirstLetter, fullName } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -38,9 +37,7 @@ import {
     RoleType,
 } from '~/types'
 
-import { AccessControlLogicProps, accessControlLogic } from './accessControlLogic'
-import { humanizeAccessControlLevel } from './ResourceAccessControlsV2/helpers'
-import { ScopeIcon } from './ResourceAccessControlsV2/ScopeIcon'
+import { AccessControlLogicProps, InheritedAccess, accessControlLogic } from './accessControlLogic'
 
 export function AccessControlObject(props: AccessControlLogicProps): JSX.Element | null {
     const { canEditAccessControls, humanReadableResource, resource } = useValues(accessControlLogic(props))
@@ -75,7 +72,6 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
                         <div className="deprecated-space-y-2">
                             <h3>Default access to {suffix}</h3>
                             <AccessControlObjectDefaults />
-                            <AccessControlObjectInheritedAccess />
                         </div>
 
                         <AccessControlObjectUsers />
@@ -92,98 +88,28 @@ export function AccessControlObject(props: AccessControlLogicProps): JSX.Element
 }
 
 function AccessControlObjectDefaults(): JSX.Element | null {
-    const {
-        accessControlDefault,
-        accessControlDefaultOptions,
-        accessControls,
-        accessControlsLoading,
-        canEditAccessControls,
-    } = useValues(accessControlLogic)
+    const { accessControlDefault, accessControls, accessControlsLoading, availableLevelsWithNone, inheritedAccess } =
+        useValues(accessControlLogic)
     const { updateAccessControlDefault } = useActions(accessControlLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
+    if (!accessControls) {
+        // Until the controls land, a null value would render as a misleading "No override"
+        return <LemonSelect placeholder="Loading..." disabledReason="Loading…" options={[]} />
+    }
+
     return (
-        <LemonSelect<AccessControlLevel | null>
-            placeholder="Loading..."
-            value={(accessControlDefault?.access_level as AccessControlLevel | null) ?? null}
+        <SimplLevelComponent
+            level={(accessControlDefault?.access_level as AccessControlLevel | null) ?? null}
+            levels={availableLevelsWithNone}
+            inherited={inheritedAccess}
+            disabledReason={accessControlsLoading ? 'Loading…' : undefined}
             onChange={(newValue) => {
                 guardAvailableFeature(AvailableFeature.ACCESS_CONTROL, () => {
                     updateAccessControlDefault(newValue)
                 })
             }}
-            disabledReason={
-                accessControlsLoading ? 'Loading…' : !canEditAccessControls ? 'You cannot edit this' : undefined
-            }
-            dropdownMatchSelectWidth={false}
-            // Before the controls land nothing matches the null value, so the placeholder shows
-            // instead of a misleading "No override"
-            options={
-                accessControls
-                    ? [
-                          { value: null, label: 'No override' },
-                          ...(accessControlDefaultOptions as LemonSelectOption<AccessControlLevel | null>[]),
-                      ]
-                    : []
-            }
         />
-    )
-}
-
-function AccessControlObjectInheritedAccess(): JSX.Element | null {
-    const {
-        accessControlDefault,
-        accessControlDefaultLevel,
-        accessControls,
-        humanReadableResource,
-        inheritedAccessRules,
-        inheritedResource,
-    } = useValues(accessControlLogic)
-
-    if (!accessControls || !inheritedResource) {
-        return null
-    }
-
-    const hasOverride = !!accessControlDefault
-    const resourceLabel = pluralizeResource(inheritedResource)
-
-    return (
-        <div className="p-3 rounded border border-border bg-surface-primary deprecated-space-y-2">
-            <div className="flex items-center gap-2">
-                <span className="text-lg flex items-center text-muted-alt">
-                    <ScopeIcon scope={inheritedResource} />
-                </span>
-                <h4 className="mb-0 font-semibold">Project access to {resourceLabel}</h4>
-                <LemonTag type={hasOverride ? 'muted' : 'success'}>{hasOverride ? 'Overridden' : 'In effect'}</LemonTag>
-            </div>
-            <p className="text-xs text-muted-alt mb-0">
-                {hasOverride
-                    ? `Select "No override" above to use these project-wide rules instead.`
-                    : `This ${humanReadableResource} has no override, so the project-wide rules apply.`}
-            </p>
-
-            {inheritedAccessRules.length ? (
-                <div className="flex flex-col gap-1">
-                    {inheritedAccessRules.map((rule) => (
-                        <div key={rule.key} className="flex items-center justify-between gap-2">
-                            <span className="text-sm">{rule.label}</span>
-                            <LemonTag type="default">{humanizeAccessControlLevel(rule.access_level)}</LemonTag>
-                        </div>
-                    ))}
-                </div>
-            ) : (
-                <p className="text-xs mb-0">
-                    No project-wide rules are set for {resourceLabel}, so access falls back to{' '}
-                    {humanizeAccessControlLevel(
-                        (accessControlDefaultLevel as AccessControlLevel | null) ?? AccessControlLevel.Editor
-                    )}
-                    .
-                </p>
-            )}
-
-            <LemonButton type="secondary" size="xsmall" to={urls.settings('environment-access-control')} targetBlank>
-                Manage project access
-            </LemonButton>
-        </div>
     )
 }
 
@@ -451,28 +377,80 @@ function SimplLevelComponent(props: {
     size?: LemonSelectProps<any>['size']
     level: AccessControlLevel | null
     levels: AccessControlLevel[]
-    onChange: (newValue: AccessControlLevel) => void
+    onChange: (newValue: AccessControlLevel | null) => void
     disabled?: boolean
+    disabledReason?: string
+    /**
+     * What applies once the rule is removed. Passing it offers "No override" as a way back, so
+     * only the object default sets it — member and role rows are removed with their own button.
+     */
+    inherited?: InheritedAccess | null
 }): JSX.Element | null {
     const { canEditAccessControls, minimumAccessLevel } = useValues(accessControlLogic)
+    const { inherited } = props
+
+    // The trigger and the menu entry read identically, so what you pick is what you end up looking at.
+    // The inherited half drops to the button's normal weight so it reads as a consequence, not a second value.
+    const noOverrideLabel = inherited ? (
+        <span className="whitespace-nowrap">
+            No override <span className="font-normal text-tertiary">· {inherited.label}</span>
+        </span>
+    ) : null
+
+    const levelOptions: LemonSelectOption<AccessControlLevel | null>[] = props.levels.map((level) => {
+        const isDisabled = minimumAccessLevel
+            ? props.levels.indexOf(level) < props.levels.indexOf(minimumAccessLevel)
+            : false
+        return {
+            value: level,
+            label: level === AccessControlLevel.None ? 'No access' : capitalizeFirstLetter(level ?? ''),
+            disabledReason: isDisabled ? 'Not available for this resource type' : undefined,
+        }
+    })
 
     return (
-        <LemonSelect
+        <LemonSelect<AccessControlLevel | null>
             size={props.size}
             placeholder="Select level..."
             value={props.level}
-            onChange={(newValue) => props.onChange(newValue as AccessControlLevel)}
-            disabledReason={!canEditAccessControls || props.disabled ? 'You cannot edit this' : undefined}
-            options={props.levels.map((level) => {
-                const isDisabled = minimumAccessLevel
-                    ? props.levels.indexOf(level) < props.levels.indexOf(minimumAccessLevel)
-                    : false
-                return {
-                    value: level,
-                    label: capitalizeFirstLetter(level ?? ''),
-                    disabledReason: isDisabled ? 'Not available for this resource type' : undefined,
-                }
-            })}
+            onChange={(newValue) => props.onChange(newValue)}
+            disabledReason={
+                props.disabledReason ?? (!canEditAccessControls || props.disabled ? 'You cannot edit this' : undefined)
+            }
+            dropdownMatchSelectWidth={false}
+            tooltip={
+                inherited
+                    ? props.level === null
+                        ? inherited.reason
+                        : `Overrides ${inherited.label}. ${inherited.reason}.`
+                    : undefined
+            }
+            renderButtonContent={(leaf) =>
+                noOverrideLabel && props.level === null ? noOverrideLabel : (leaf?.label ?? '')
+            }
+            options={
+                inherited
+                    ? [
+                          {
+                              options: [
+                                  {
+                                      value: null,
+                                      label: 'No override',
+                                      labelInMenu: (
+                                          <div className="flex flex-col items-start gap-1 py-1">
+                                              {noOverrideLabel}
+                                              <span className="text-xs font-normal text-tertiary whitespace-nowrap">
+                                                  {inherited.reason}
+                                              </span>
+                                          </div>
+                                      ),
+                                  },
+                              ],
+                          },
+                          { options: levelOptions },
+                      ]
+                    : levelOptions
+            }
         />
     )
 }
@@ -519,7 +497,7 @@ function AddItemsControlsModal(props: {
     const { availableLevels, canEditAccessControls } = useValues(accessControlLogic)
     // TODO: Move this into a form logic
     const [items, setItems] = useState<string[]>([])
-    const [level, setLevel] = useState<AccessControlLevel>(availableLevels[0] ?? null)
+    const [level, setLevel] = useState<AccessControlLevel | null>(availableLevels[0] ?? null)
 
     useEffect(() => {
         setLevel(availableLevels[0] ?? null)
