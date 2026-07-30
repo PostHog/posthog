@@ -18,7 +18,7 @@ import { SignalReport } from '../../types'
  * including resolved and archived ones.
  */
 export function DiscussReportButton({ report, reportUrl }: { report: SignalReport; reportUrl: string }): JSX.Element {
-    const { isDiscussing } = useValues(inboxTaskKickoffLogic)
+    const { isDiscussing, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)
     const { discussReport } = useActions(inboxTaskKickoffLogic)
     const [isOpen, setIsOpen] = useState(false)
     const [question, setQuestion] = useState('')
@@ -56,7 +56,9 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
                             size="small"
                             onClick={submit}
                             loading={isDiscussing}
-                            disabledReason={question.trim() ? undefined : 'Enter a question first'}
+                            disabledReason={
+                                aiConsentDisabledReason ?? (question.trim() ? undefined : 'Enter a question first')
+                            }
                         >
                             Discuss
                         </LemonButton>

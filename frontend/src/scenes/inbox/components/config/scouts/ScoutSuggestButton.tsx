@@ -27,7 +27,7 @@ export function ScoutSuggestButton({
     'data-attr': dataAttr,
 }: ScoutSuggestButtonProps): JSX.Element {
     const { startScoutChatTask } = useActions(scoutFleetLogic)
-    const { runningChatPrompt } = useValues(scoutFleetLogic)
+    const { runningChatPrompt, aiConsentDisabledReason } = useValues(scoutFleetLogic)
     const isStarting = runningChatPrompt === SCOUT_AUTHOR_PROMPT
     const anotherTaskIsStarting = runningChatPrompt !== null && !isStarting
     const creationDisabledReason = getAccessControlDisabledReason(
@@ -41,7 +41,11 @@ export function ScoutSuggestButton({
             size={size}
             icon={<IconSparkles />}
             loading={isStarting}
-            disabledReason={anotherTaskIsStarting ? 'Starting another task…' : (creationDisabledReason ?? undefined)}
+            disabledReason={
+                anotherTaskIsStarting
+                    ? 'Starting another task…'
+                    : (creationDisabledReason ?? aiConsentDisabledReason ?? undefined)
+            }
             onClick={() => startScoutChatTask(SCOUT_AUTHOR_PROMPT, 'scout authoring task', 'Suggest a scout')}
             className={className}
             data-attr={dataAttr}

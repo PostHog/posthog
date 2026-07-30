@@ -225,7 +225,7 @@ function ScoutsFleetList(): JSX.Element {
  */
 function ScoutChatCta({ label, prompt, icon }: { label: string; prompt: string; icon?: JSX.Element }): JSX.Element {
     const { startScoutChatTask } = useActions(scoutFleetLogic)
-    const { runningChatPrompt } = useValues(scoutFleetLogic)
+    const { runningChatPrompt, aiConsentDisabledReason } = useValues(scoutFleetLogic)
     const isRunning = runningChatPrompt === prompt
     const anyRunning = runningChatPrompt !== null
     return (
@@ -234,7 +234,7 @@ function ScoutChatCta({ label, prompt, icon }: { label: string; prompt: string; 
             size="xsmall"
             icon={icon ?? <IconSparkles />}
             loading={isRunning}
-            disabledReason={anyRunning ? 'Starting a task…' : undefined}
+            disabledReason={anyRunning ? 'Starting a task…' : (aiConsentDisabledReason ?? undefined)}
             onClick={() => startScoutChatTask(prompt, label, label)}
         >
             {label}

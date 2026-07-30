@@ -1,9 +1,10 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -189,6 +190,23 @@ describe('scoutFleetLogic', () => {
         // Pinning a repo would make the run clone it in full, and these prompts never touch code.
         expect(repositories).not.toHaveBeenCalled()
         expect(create).toHaveBeenCalledWith(expect.not.objectContaining({ repository: expect.anything() }))
+    })
+
+    it('starts nothing when the organization has not approved AI data processing', async () => {
+        organizationLogic.actions.loadCurrentOrganizationSuccess({
+            ...MOCK_DEFAULT_ORGANIZATION,
+            is_ai_data_processing_approved: false,
+        })
+        const create = jest.spyOn(api.tasks, 'create').mockResolvedValue({ id: 'task-3' } as any)
+        const run = jest.spyOn(api.tasks, 'run').mockResolvedValue({ id: 'task-3' } as any)
+
+        logic.actions.startScoutChatTask(SCOUT_AUTHOR_PROMPT, 'scout authoring task', 'Suggest a scout')
+        await expectLogic(logic).toDispatchActions(['startScoutChatTaskFailure'])
+
+        // The tasks run endpoint has no consent check of its own, so dropping the guard here would
+        // start an agent sandbox for an organization that declined AI data processing.
+        expect(create).not.toHaveBeenCalled()
+        expect(run).not.toHaveBeenCalled()
     })
 
     it('still opens the task when kicking off its run fails', async () => {
