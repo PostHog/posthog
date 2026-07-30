@@ -39,6 +39,7 @@ export function HealthCheckSection({
     const passedCount = checks.filter((c) => c.status === 'success').length
     const totalCount = checks.length
     const hasIssues = checks.some((c) => c.status === 'warning' || c.status === 'error')
+    const isLoading = checks.some((c) => c.status === 'loading')
 
     const handleChange = (activeKey: HealthCheckCategory | null): void => {
         onToggle?.(category, activeKey === category)
@@ -61,8 +62,8 @@ export function HealthCheckSection({
                                 </div>
                             </div>
                             <div className="flex items-center gap-2">
-                                <LemonTag type={hasIssues ? 'warning' : 'success'} size="small">
-                                    {passedCount}/{totalCount} passed
+                                <LemonTag type={isLoading ? 'muted' : hasIssues ? 'warning' : 'success'} size="small">
+                                    {isLoading ? 'Checking...' : `${passedCount}/${totalCount} passed`}
                                 </LemonTag>
                                 <IconChevronDown className="w-4 h-4 text-muted transition-transform ui-open:rotate-180" />
                             </div>

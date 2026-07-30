@@ -55,6 +55,11 @@ const COMPLETE_INSTALL_ACTION: HealthCheckAction = {
     to: 'https://posthog.com/docs/libraries/js',
 }
 
+// The install check runs on a daily backend schedule, so a project that finished installing since
+// the last run keeps a stale "no events" failure until the next one. Re-running just this check on
+// mount lets it clear itself in seconds instead of hours.
+const INSTALL_CHECK_KIND = 'no_live_events'
+
 const WEB_HEALTH_CHECKS: WebHealthCheckConfig[] = [
     {
         id: HealthCheckId.PAGEVIEW_EVENTS,
@@ -137,7 +142,9 @@ export interface webAnalyticsHealthLogicValues {
     checksByCategory: Record<HealthCheckCategory, HealthCheck[]>
     hasIssues: boolean
     hasUrgentIssues: boolean
+    checksUnavailable: boolean
     healthIssues: HealthIssuesResponse | null
+    healthIssuesLoadFailed: boolean
     healthIssuesLoading: boolean
     nextRefreshAvailableAt: number | null
     now: number
@@ -220,8 +227,12 @@ export interface webAnalyticsHealthLogicActions {
         healthIssues: HealthIssuesResponse
         payload?: any
     }
-    refreshHealthChecks: (isManual?: boolean) => {
+    refreshHealthChecks: (
+        isManual?: boolean,
+        kinds?: string[]
+    ) => {
         isManual: boolean
+        kinds: string[] | undefined
     }
     setNextRefreshAvailableAt: (timestamp: number | null) => {
         timestamp: number | null
@@ -267,6 +278,7 @@ export interface webAnalyticsHealthLogicMeta {
         checksByCategory: (allChecks: HealthCheck[]) => Record<HealthCheckCategory, HealthCheck[]>
         overallHealthStatus: (allChecks: HealthCheck[]) => OverallHealthStatus
         hasIssues: (overallHealthStatus: OverallHealthStatus) => boolean
+        checksUnavailable: (healthIssuesLoadFailed: boolean, healthIssues: HealthIssuesResponse | null) => boolean
         urgentFailedChecks: (allChecks: HealthCheck[]) => HealthCheck[]
         hasUrgentIssues: (urgentFailedChecks: HealthCheck[]) => boolean
         refreshDisabledReason: (nextRefreshAvailableAt: number | null, now: number) => string | null
@@ -298,7 +310,7 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
     })),
 
     actions({
-        refreshHealthChecks: (isManual: boolean = true) => ({ isManual }),
+        refreshHealthChecks: (isManual: boolean = true, kinds?: string[]) => ({ isManual, kinds }),
         trackTabViewed: true,
         trackSectionToggled: (category: HealthCheckCategory, isExpanded: boolean) => ({ category, isExpanded }),
         trackActionClicked: (
@@ -329,6 +341,16 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
             Date.now(),
             {
                 setNow: (_, { now }) => now,
+            },
+        ],
+        // Without this the page can't tell "no active issues" from "we never got the issues", and a
+        // failed request reads as every check passing.
+        healthIssuesLoadFailed: [
+            false,
+            {
+                loadHealthIssues: () => false,
+                loadHealthIssuesSuccess: () => false,
+                loadHealthIssuesFailure: () => true,
             },
         ],
     }),
@@ -449,6 +471,12 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
             },
         ],
 
+        checksUnavailable: [
+            (s) => [s.healthIssuesLoadFailed, s.healthIssues],
+            (healthIssuesLoadFailed: boolean, healthIssues: HealthIssuesResponse | null): boolean =>
+                healthIssuesLoadFailed && !healthIssues,
+        ],
+
         hasIssues: [
             (s) => [s.overallHealthStatus],
             (overallHealthStatus: OverallHealthStatus): boolean => {
@@ -505,7 +533,7 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                 return () => clearInterval(intervalId)
             }, 'cooldownTicker')
         },
-        refreshHealthChecks: async ({ isManual }, breakpoint) => {
+        refreshHealthChecks: async ({ isManual, kinds }, breakpoint) => {
             const { overallHealthStatus } = values
             actions.reportWebAnalyticsHealthRefreshed({
                 overall_status: overallHealthStatus.status,
@@ -517,10 +545,14 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                     scheduled_kinds: string[]
                     kinds_failed: string[]
                     team_id: number
-                }>(`api/projects/${values.currentTeamIdStrict}/health_issues/refresh/`)
+                }>(`api/projects/${values.currentTeamIdStrict}/health_issues/refresh/`, kinds ? { kinds } : undefined)
                 breakpoint()
 
-                actions.setNextRefreshAvailableAt(Date.now() + REFRESH_COOLDOWN_MS)
+                // A scoped re-run has its own budget on the backend, so it must not put the full
+                // refresh button on cooldown.
+                if (!kinds) {
+                    actions.setNextRefreshAvailableAt(Date.now() + REFRESH_COOLDOWN_MS)
+                }
 
                 if ((response?.scheduled_kinds ?? []).length === 0) {
                     if (isManual) {
@@ -534,6 +566,11 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                 }
                 for (let i = 0; i < REFRESH_POLL_COUNT; i++) {
                     await breakpoint(REFRESH_POLL_INTERVAL_MS)
+                    // A scoped re-run only has to see its own kinds settle, so stop polling as soon
+                    // as they've all cleared rather than running the full window every mount.
+                    if (kinds?.every((kind) => !values.activeIssuesByKind[kind])) {
+                        break
+                    }
                     actions.loadHealthIssues()
                 }
             } catch (error: unknown) {
@@ -541,7 +578,7 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                     if (error.status === 429) {
                         // A refresh ran recently; honour the cooldown the backend reports.
                         const retryAfterSeconds = Number(error.headers?.get('Retry-After'))
-                        if (!isNaN(retryAfterSeconds) && retryAfterSeconds > 0) {
+                        if (!kinds && !isNaN(retryAfterSeconds) && retryAfterSeconds > 0) {
                             actions.setNextRefreshAvailableAt(Date.now() + retryAfterSeconds * 1000)
                         }
                         if (isManual) {
@@ -562,6 +599,17 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
         },
         loadHealthIssuesSuccess: () => {
             const { activeIssuesByKind, overallHealthStatus } = values
+
+            // The install check is the one failure users act on immediately, and it's also the one
+            // most likely to be stale — its backend schedule is daily, so a project that started
+            // sending events after the last run still reads as "not installed". Re-run it once per
+            // mount, and only when it's actually failing, so passing projects never hit the
+            // refresh endpoint.
+            if (activeIssuesByKind[INSTALL_CHECK_KIND] && !cache.installCheckReverified) {
+                cache.installCheckReverified = true
+                actions.refreshHealthChecks(false, [INSTALL_CHECK_KIND])
+            }
+
             if (overallHealthStatus.status !== 'loading') {
                 actions.reportWebAnalyticsHealthStatus({
                     has_pageviews: !activeIssuesByKind['no_live_events'],

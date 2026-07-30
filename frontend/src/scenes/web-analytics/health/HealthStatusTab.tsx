@@ -8,9 +8,35 @@ import { HealthCheck } from './healthCheckTypes'
 import { webAnalyticsHealthLogic } from './webAnalyticsHealthLogic'
 
 export function HealthStatusTab(): JSX.Element {
-    const { overallHealthStatus, checksByCategory, healthIssuesLoading, refreshDisabledReason } =
+    const { overallHealthStatus, checksByCategory, healthIssuesLoading, refreshDisabledReason, checksUnavailable } =
         useValues(webAnalyticsHealthLogic)
-    const { refreshHealthChecks, trackSectionToggled } = useActions(webAnalyticsHealthLogic)
+    const { refreshHealthChecks, trackSectionToggled, loadHealthIssues } = useActions(webAnalyticsHealthLogic)
+
+    // Never fall through to the check list here: with no results loaded every check would render as
+    // passing, which is the opposite of what we know.
+    if (checksUnavailable) {
+        return (
+            <div className="mt-4 max-w-4xl">
+                <LemonBanner type="error">
+                    <div className="flex items-center justify-between w-full">
+                        <div>
+                            <div className="font-semibold">Couldn't load your setup checks</div>
+                            <div className="text-sm mt-0.5">Try again, and if it keeps happening contact support.</div>
+                        </div>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconRefresh />}
+                            onClick={() => loadHealthIssues()}
+                            loading={healthIssuesLoading}
+                        >
+                            Try again
+                        </LemonButton>
+                    </div>
+                </LemonBanner>
+            </div>
+        )
+    }
 
     return (
         <div className="mt-4 space-y-4 max-w-4xl">

@@ -181,6 +181,31 @@ class HealthIssueDetailSerializer(HealthIssueSerializer):
         return {"human": remediation.human, "agent": remediation.agent}
 
 
+class HealthIssueRefreshRequestSerializer(serializers.Serializer):
+    kinds = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_empty=False,
+        help_text=(
+            "Only re-run these check kinds (e.g. ['no_live_events']). Omit to re-run every check "
+            "registered for the project. Each distinct set of kinds gets its own rate-limit budget, "
+            "so a narrow re-run of one check isn't blocked by a recent full refresh."
+        ),
+    )
+
+
+class HealthIssueRefreshResponseSerializer(serializers.Serializer):
+    scheduled_kinds = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Check kinds whose re-evaluation was successfully scheduled.",
+    )
+    kinds_failed = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Check kinds that could not be scheduled. Their existing issues are left untouched.",
+    )
+    team_id = serializers.IntegerField(help_text="Project the checks were scheduled for.")
+
+
 class HealthIssuePagination(LimitOffsetPagination):
     default_limit = 50
     max_limit = 250
@@ -334,9 +359,17 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
         )
 
     @extend_schema(
-        request=None,
+        summary="Re-run health checks",
+        description=(
+            "Schedules a re-evaluation of this project's health checks so their issues reflect the "
+            "project's current state. Pass `kinds` to re-run only some checks."
+        ),
+        request=HealthIssueRefreshRequestSerializer,
         responses={
-            202: OpenApiResponse(description="Health check refresh jobs scheduled for the team."),
+            202: OpenApiResponse(
+                response=HealthIssueRefreshResponseSerializer,
+                description="Health check refresh jobs scheduled for the team.",
+            ),
             429: OpenApiResponse(description="Refresh was triggered recently; try again later."),
         },
     )
@@ -348,11 +381,20 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
         required_scopes=["health_issue:write"],
     )
     def refresh(self, request: Request, **kwargs) -> Response:
-        from posthog.tasks.health_checks import evaluate_health_check_for_team
-        from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded
+        from posthog.tasks.health_checks import evaluate_health_check_for_team  # noqa: PLC0415
+        from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded  # noqa: PLC0415
 
         ensure_registry_loaded()
-        kinds = list(HEALTH_CHECKS.keys())
+
+        request_serializer = HealthIssueRefreshRequestSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+        requested_kinds = request_serializer.validated_data.get("kinds")
+        if requested_kinds is None:
+            kinds = list(HEALTH_CHECKS.keys())
+        else:
+            # Silently drop kinds this deployment doesn't register, so an older client asking for a
+            # check that has since been renamed still gets the checks it can have.
+            kinds = [kind for kind in HEALTH_CHECKS if kind in set(requested_kinds)]
 
         scheduled: list[str] = []
         failed: list[str] = []

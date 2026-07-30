@@ -1286,8 +1286,19 @@ class HealthIssueRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
     def get_cache_key(self, request, view):
         team_id = self.safely_get_team_id_from_view(view)
         if team_id:
-            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}{self._kinds_ident(request)}"}
         return super().get_cache_key(request, view)
+
+    def _kinds_ident(self, request) -> str:
+        """Budget each requested set of check kinds separately.
+
+        A page that re-runs one urgent check on load must not be starved by an unrelated
+        full refresh someone else on the team just ran, and vice versa.
+        """
+        kinds = request.data.get("kinds") if isinstance(getattr(request, "data", None), dict) else None
+        if not isinstance(kinds, list) or not kinds:
+            return ""
+        return "_" + ",".join(sorted(str(kind) for kind in kinds))
 
 
 class ToolbarOAuthRefreshThrottle(IPThrottle):

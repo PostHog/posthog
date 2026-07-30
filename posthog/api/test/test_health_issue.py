@@ -20,8 +20,9 @@ class TestHealthIssueAPI(APIBaseTest):
     def _url(self, path: str = "", team_id: int | None = None) -> str:
         return f"/api/environments/{team_id or self.team.id}/health_issues{path}"
 
-    def _reset_refresh_throttle(self, team_id: int | None = None) -> None:
-        key = f"throttle_health_issue_refresh_team_{team_id or self.team.id}"
+    def _reset_refresh_throttle(self, team_id: int | None = None, kinds: list[str] | None = None) -> None:
+        suffix = "_" + ",".join(sorted(kinds)) if kinds else ""
+        key = f"throttle_health_issue_refresh_team_{team_id or self.team.id}{suffix}"
         cache.delete(key)
         self.addCleanup(cache.delete, key)
 
@@ -340,6 +341,33 @@ class TestHealthIssueAPI(APIBaseTest):
 
         response_b = self.client.post(self._url("/refresh", team_id=other.id))
         self.assertEqual(response_b.status_code, status.HTTP_202_ACCEPTED)
+
+    @patch("posthog.tasks.health_checks.evaluate_health_check_for_team.delay")
+    def test_refresh_with_kinds_only_schedules_those_kinds(self, mock_delay):
+        self._reset_refresh_throttle(kinds=["no_live_events"])
+
+        response = self.client.post(
+            self._url("/refresh"), {"kinds": ["no_live_events", "not_a_real_kind"]}, content_type="application/json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(response.json()["scheduled_kinds"], ["no_live_events"])
+        self.assertEqual([call.kwargs["kind"] for call in mock_delay.call_args_list], ["no_live_events"])
+
+    @patch("posthog.tasks.health_checks.evaluate_health_check_for_team.delay")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_refresh_throttle_budget_is_per_kind_set(self, _enabled, _delay):
+        self._reset_refresh_throttle()
+        self._reset_refresh_throttle(kinds=["no_live_events"])
+
+        full = self.client.post(self._url("/refresh"))
+        self.assertEqual(full.status_code, status.HTTP_202_ACCEPTED)
+
+        # A recent full refresh must not stop the health page re-verifying the urgent install check.
+        scoped = self.client.post(self._url("/refresh"), {"kinds": ["no_live_events"]}, content_type="application/json")
+        self.assertEqual(scoped.status_code, status.HTTP_202_ACCEPTED)
+
+        repeat = self.client.post(self._url("/refresh"), {"kinds": ["no_live_events"]}, content_type="application/json")
+        self.assertEqual(repeat.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
     @patch("posthog.tasks.health_checks.evaluate_health_check_for_team.delay", side_effect=Exception("broker down"))
     def test_refresh_handles_partial_broker_failure(self, _delay):
