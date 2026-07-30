@@ -193,6 +193,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.GOOGLE_SHEETS,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
+            keywords=["gsheet", "gsheets", "spreadsheet", "google sheet"],
             label="Google Sheets",
             caption="Ensure you have granted PostHog access to your Google Sheet as instructed in the [documentation](https://posthog.com/docs/cdp/sources/google-sheets). The first row of each sheet must contain unique column headers, since PostHog reads it as the column names when syncing.",
             releaseStatus=ReleaseStatus.GA,
