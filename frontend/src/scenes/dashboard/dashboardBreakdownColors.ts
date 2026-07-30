@@ -88,11 +88,19 @@ export function getBreakdownPropertyKey(breakdownFilter: BreakdownFilter | null 
     )
 }
 
-/** Property names of a key's parts, for display. Not meaningful for the cohort key. */
-export function breakdownPropertyKeyParts(key: string): string[] {
+export type BreakdownPropertyKeyPart = {
+    type: BreakdownFilter['breakdown_type']
+    property: string
+}
+
+/** Type and property name of a key's parts, for display. Not meaningful for the cohort key. */
+export function parseBreakdownPropertyKey(key: string): BreakdownPropertyKeyPart[] {
     // The first two colon-separated fields are type and group index; the property itself may
     // contain colons, so everything past the second one belongs to it.
-    return key.split(MULTI_BREAKDOWN_SEPARATOR).map((part) => part.split(':').slice(2).join(':'))
+    return key.split(MULTI_BREAKDOWN_SEPARATOR).map((part) => {
+        const fields = part.split(':')
+        return { type: fields[0] as BreakdownFilter['breakdown_type'], property: fields.slice(2).join(':') }
+    })
 }
 
 export function breakdownConfigMatches(
