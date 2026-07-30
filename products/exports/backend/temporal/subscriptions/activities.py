@@ -173,7 +173,10 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
 
     max_asset_count = inputs.max_asset_count if inputs.max_asset_count is not None else MAX_DASHBOARD_INSIGHTS
     if max_asset_count <= 0:
-        raise ApplicationError("max_asset_count must be greater than zero", non_retryable=True)
+        raise ApplicationError(
+            f"Dashboard insight export limit must be at least 1, received {max_asset_count} for subscription {inputs.subscription_id}",
+            non_retryable=True,
+        )
 
     subscription = await database_sync_to_async(
         Subscription.objects.select_related("created_by", "insight", "dashboard", "team").get,
