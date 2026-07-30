@@ -46,7 +46,7 @@ export function FeedbackViewDisplay(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-3">
-            {hasSurveyEvents && !currentTeam?.surveys_opt_in && (
+            {hasSurveyEvents && currentTeam?.surveys_opt_in === false && (
                 <LemonBanner type="warning">
                     <div className="flex items-center justify-between gap-2">
                         <span>Surveys are disabled for this project. Your feedback surveys won't work.</span>

@@ -342,7 +342,7 @@ export const feedbackSurveyWizardLogic = kea<feedbackSurveyWizardLogicType>([
         surveysNeedEnabling: [
             (s) => [s.currentTeam],
             (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
-                !currentTeam?.surveys_opt_in,
+                currentTeam?.surveys_opt_in === false,
         ],
     }),
     listeners(({ actions, values }) => ({
