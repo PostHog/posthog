@@ -74,7 +74,7 @@ def reverse_content_types(apps: Any, schema_editor: Any) -> None:
 class Migration(migrations.Migration):
     dependencies = [
         ("managed_warehouse", "0001_migrate_managed_warehouse_models"),
-        ("posthog", "1277_drop_duckgresserverteam_hot_table_fks"),
+        ("posthog", "1278_identityproviderconfig_config_scope_and_more"),
     ]
 
     # State-only move: the duckgres models now live in the `managed_warehouse` app

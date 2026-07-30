@@ -10,7 +10,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 
-migration = importlib.import_module("posthog.migrations.1278_migrate_managed_warehouse_models")
+migration = importlib.import_module("posthog.migrations.1279_migrate_managed_warehouse_models")
 
 
 def _assert_assignments(
@@ -28,7 +28,7 @@ def _assert_assignments(
 @pytest.mark.parametrize("model_name", migration.MODELS_TO_COPY)
 def test_content_type_copy_preserves_grants_across_forward_reverse_and_reapply(model_name: str) -> None:
     migration_apps = (
-        MigrationExecutor(connection).loader.project_state([("posthog", "1278_migrate_managed_warehouse_models")]).apps
+        MigrationExecutor(connection).loader.project_state([("posthog", "1279_migrate_managed_warehouse_models")]).apps
     )
     source_content_type, _ = ContentType.objects.get_or_create(app_label="posthog", model=model_name)
     target_content_type, _ = ContentType.objects.get_or_create(app_label="managed_warehouse", model=model_name)
