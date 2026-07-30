@@ -919,6 +919,36 @@ continued line
         )
     })
 
+    it('rejoins the block below an inserted one once the insert is undone', () => {
+        // Opening the boundary pushes the block below onto its own card so the inserted node
+        // does not absorb it. That card boundary is invisible to the node fingerprint, so undo
+        // used to leave it standing: the block below stayed in a card of its own, with the
+        // extra blank line saved into the markdown.
+        const markdown = withNotebookTitle('Intro paragraph\n\nTail paragraph')
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: markdown, onChange }))
+
+        fireEvent.click(container.querySelector('[aria-label="Add block"][data-boundary-index="2"]') as HTMLElement)
+        const textCommand = Array.from(container.querySelectorAll('.MarkdownNotebook__insert-item')).find(
+            (button) => button.textContent === 'Text'
+        )
+        fireEvent.click(textCommand as HTMLButtonElement)
+
+        const insertedTextBlock = getBodyTextBlock(container, 1)
+        insertedTextBlock.textContent = 'Inserted block'
+        fireEvent.input(insertedTextBlock)
+        expect(onChange).toHaveBeenLastCalledWith(
+            `${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nIntro paragraph\n\n\nInserted block\n\n\nTail paragraph`
+        )
+
+        for (let undoCount = 0; undoCount < 4; undoCount++) {
+            fireUndoShortcut(getEditableTextBlocks(container)[0])
+        }
+
+        expect(onChange).toHaveBeenLastCalledWith(markdown)
+        expect(container.querySelectorAll('.MarkdownNotebook__text-group')).toHaveLength(1)
+    })
+
     it('serializes hidden component panel props as bare JSX props', () => {
         const markdown = `<Query query={{"kind":"DataTableNode"}} hideFilters={true} hideResults={false} disabled={false} />`
         const document = parseMarkdownNotebook(markdown)
