@@ -504,8 +504,9 @@ export interface ChartDrawArgs {
     /** Restart the hover-fade at progress 0; returns the new value to use this frame.
      *  Call when the chart type detects a visible-state change at the same hoverIndex. */
     resetHoverFade: () => number
-    /** Live pixel range of an in-progress drag-to-zoom selection, x-axis only. Null when
-     *  no drag is active. Only the hover overlay reads this — the static layer ignores it. */
+    /** Live pixel range of an in-progress selection: x-axis drag-to-zoom, plus the vertical
+     *  range on a 2D (`onAreaSelect`) brush. Null when no drag is active. Only the hover
+     *  overlay reads this — the static layer ignores it. */
     dragRect?: DragRect | null
 }
 
@@ -513,13 +514,31 @@ export interface ChartDrawArgs {
 export interface DragRect {
     x0: number
     x1: number
+    /** Present only during a 2D (`onAreaSelect`) drag — the vertical pixel range, unordered.
+     *  When absent the selection spans the full plot height. */
+    y0?: number
+    y1?: number
 }
 
-export interface DateRangeZoomData {
+/** An x-axis range resolved to labels — the shared shape of the drag-selection payloads. */
+export interface LabelRange {
     startLabel: string
     endLabel: string
     startIndex: number
     endIndex: number
+}
+
+export type DateRangeZoomData = LabelRange
+
+/** Payload of a completed 2D brush ({@link ChartProps.onAreaSelect}). The x axis resolves to
+ *  labels like `onDateRangeZoom`; the y axis stays in canvas pixels — the core is label-generic
+ *  and has no y-band concept, so chart-type adapters map the pixel range onto their own scales
+ *  (e.g. the Heatmap converts it to row indices). */
+export interface AreaSelectData extends LabelRange {
+    /** Top of the dragged range in canvas pixels (always <= yPixel1). */
+    yPixel0: number
+    /** Bottom of the dragged range in canvas pixels. */
+    yPixel1: number
 }
 
 /** `true` = drew a visible highlight; `false` = nothing visible (freeze the fade timer). */

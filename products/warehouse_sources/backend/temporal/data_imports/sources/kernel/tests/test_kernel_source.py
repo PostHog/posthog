@@ -3,7 +3,7 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import KernelSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kernel import KernelSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.source import KernelSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType

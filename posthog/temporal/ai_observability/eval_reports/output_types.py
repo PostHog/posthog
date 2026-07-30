@@ -14,6 +14,11 @@ class EvaluationReportOutcomeDefinition:
     score_expression: str
 
 
+# String comparison is deliberate: an unregistered JSON bool property extracts as the
+# string 'true', which the bool literal cannot compare against, while a registered
+# Boolean property coerces correctly against the string form.
+_NOT_SKIPPED_PREDICATE = "(isNull(properties.$ai_evaluation_skipped) OR properties.$ai_evaluation_skipped != 'true')"
+
 _OUTCOME_DEFINITIONS: Mapping[str, EvaluationReportOutcomeDefinition] = {
     "boolean": EvaluationReportOutcomeDefinition(
         outcomes=("pass", "fail", "na"),
@@ -22,7 +27,7 @@ _OUTCOME_DEFINITIONS: Mapping[str, EvaluationReportOutcomeDefinition] = {
             "fail": "properties.$ai_evaluation_result = false AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != false)",
             "na": "properties.$ai_evaluation_applicable = false",
         },
-        event_predicate="(properties.$ai_evaluation_result_type = 'boolean' OR isNull(properties.$ai_evaluation_result_type))",
+        event_predicate=f"(properties.$ai_evaluation_result_type = 'boolean' OR isNull(properties.$ai_evaluation_result_type)) AND {_NOT_SKIPPED_PREDICATE}",
         result_expression="properties.$ai_evaluation_result",
         applicable_expression="properties.$ai_evaluation_applicable",
         score_expression="NULL",
@@ -34,7 +39,7 @@ _OUTCOME_DEFINITIONS: Mapping[str, EvaluationReportOutcomeDefinition] = {
             "neutral": "properties.$ai_sentiment_label = 'neutral'",
             "negative": "properties.$ai_sentiment_label = 'negative'",
         },
-        event_predicate="properties.$ai_evaluation_result_type = 'sentiment'",
+        event_predicate=f"properties.$ai_evaluation_result_type = 'sentiment' AND {_NOT_SKIPPED_PREDICATE}",
         result_expression="properties.$ai_sentiment_label",
         applicable_expression="NULL",
         score_expression="properties.$ai_sentiment_score",

@@ -14,6 +14,7 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (compatible; GoogleOther; +https://developers.google.com/search/docs/crawling-indexing/googleother)",
         "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ClaudeBot/1.0; +https://anthropic.com",
         "Claude-Web/1.0 (https://anthropic.com)",
+        "AIWebIndex/2.0 (+https://lyrenth.com/bot; AI-readable web index)",
         "anthropic-ai (https://anthropic.com)",
         "CCBot/2.0 (https://commoncrawl.org/faq/)",
         "meta-externalagent/1.1",
@@ -73,6 +74,10 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "posthog/mobile.hog.dev; version: 1.0.0",
         "posthog/agent.hog.dev; version: 1.0.0",
         "posthog/cloud.hog.dev; version: 1.0.0",
+        # Agent desktop app embedded browsers (prod $pageview, Jul 2026)
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Claude/1.21459.0 Chrome/148.0.7778.271 Electron/42.5.1 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Claude/1.20186.1 Chrome/148.0.7778.271 Electron/42.5.1 Safari/537.36 MSIX",
+        "ChatGPT/1.2026.190 (Windows_NT 10.0.26200; x86_64; build ) Electron/39.2.7 Chrome/142.0.7444.235",
     ],
     "search_crawler": [
         "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",

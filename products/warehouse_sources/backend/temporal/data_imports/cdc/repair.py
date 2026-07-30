@@ -133,7 +133,7 @@ def _repair_locked(source: ExternalDataSource) -> int:
         update_sync_type_config_keys(
             schema.id,
             source.team_id,
-            removes=["cdc_broken"],
+            removes=["cdc_broken", "cdc_extraction_paused"],
             extra_model_fields={"latest_error": None},
         )
 

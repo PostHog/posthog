@@ -110,6 +110,7 @@ async def summarize_eval_for_signal(inputs: EmitEvalSignalInputs) -> EvalSignalS
         validate=validate,
         thinking=True,
         stage="eval_signal_summary",
+        ai_product="signals_eval",
     )
 
 

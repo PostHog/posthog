@@ -1,16 +1,18 @@
 import re
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.asknicely.settings import RESPONSES_PAGE_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 SUBDOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]*$")
@@ -18,8 +20,6 @@ SUBDOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]*$")
 # Unix-timestamp fields AskNicely returns as strings; coerced to ints so the incremental
 # watermark comparison and datetime partitioning work numerically.
 TIMESTAMP_FIELDS = ("sent", "opened", "responded", "lastemailed", "created", "case_closed_time")
-
-REQUEST_TIMEOUT_SECONDS = 60
 
 
 @dataclasses.dataclass
@@ -89,100 +89,152 @@ def _normalize_row(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-@retry(
-    # Transient connection breaks only — 429/5xx status retries are already handled with
-    # backoff by the tracked session's urllib3 Retry policy.
-    retry=retry_if_exception_type(
-        (requests.ReadTimeout, requests.ConnectionError, requests.exceptions.ChunkedEncodingError)
-    ),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger
-) -> dict[str, Any]:
-    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-
-    if not response.ok:
-        logger.error(f"AskNicely API error: status={response.status_code}, body={response.text[:500]}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
-
-
-def get_rows(
-    subdomain: str,
-    api_key: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[AskNicelyResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Optional[Any] = None,
-) -> Iterator[list[dict[str, Any]]]:
-    # One session reused across every page so urllib3 keeps the connection alive.
-    # `capture=False`: response rows carry free-text survey comments and internal notes the
-    # name-based sample scrubbers can't recognise, so keep bodies out of HTTP sample storage
-    # entirely. Requests are still metered and logged (status + url).
-    # `allow_redirects=False`: never replay the `X-apikey` header to a redirect target, so an
-    # upstream 3xx (including an open redirect) can't leak the credential off the validated host.
-    session = make_tracked_session(redact_values=(api_key,), capture=False, allow_redirects=False)
-    headers = _get_headers(api_key)
-
-    since_time = 0
+def _since_time_for_run(should_use_incremental_field: bool, db_incremental_field_last_value: Optional[Any]) -> int:
     if should_use_incremental_field and db_incremental_field_last_value is not None:
         # The docs don't state whether since_time is inclusive; step back one second so a
         # boundary-second response is never skipped — merge dedupes re-pulled rows on response_id.
-        since_time = max(_to_unix_timestamp(db_incremental_field_last_value) - 1, 0)
+        return max(_to_unix_timestamp(db_incremental_field_last_value) - 1, 0)
+    return 0
 
-    page_number = 1
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume is not None:
-        # Page numbering is only stable against the cutoff the interrupted run used, so resume
-        # with the saved since_time rather than a freshly derived one.
-        page_number = resume.page_number
-        since_time = resume.since_time
-        logger.debug(f"AskNicely: resuming responses from page {page_number} (since_time={since_time})")
 
-    while True:
-        url = build_responses_url(subdomain, page_number, since_time)
-        data = _fetch_page(session, url, headers, logger)
-        items = data.get("data") or []
-        if not items:
-            break
+class AskNicelyResponsesPaginator(BasePaginator):
+    """Path-segment paginator for AskNicely's /responses endpoint.
 
-        yield [_normalize_row(item) for item in items]
+    AskNicely encodes page size, page number and the since_time cutoff as URL path
+    segments (not query params), so the full request URL is rebuilt each page. Pages are
+    1-based and ascending; termination follows the API's `totalpages` field when present,
+    otherwise a short (< page_size) or empty page ends the run.
+    """
 
-        total_pages = _parse_int(data.get("totalpages"))
-        if total_pages is not None and page_number >= total_pages:
-            break
-        if total_pages is None and len(items) < RESPONSES_PAGE_SIZE:
-            break
+    def __init__(
+        self,
+        subdomain: str,
+        since_time: int,
+        page_number: int = 1,
+        page_size: int = RESPONSES_PAGE_SIZE,
+    ) -> None:
+        super().__init__()
+        self.subdomain = subdomain
+        self.since_time = since_time
+        self.page_number = page_number
+        self.page_size = page_size
 
-        page_number += 1
-        # Save AFTER yielding (and only when more pages remain) so a crash re-yields the last
-        # page rather than skipping it — merge dedupes on the primary key.
-        resumable_source_manager.save_state(AskNicelyResumeConfig(page_number=page_number, since_time=since_time))
+    def _url(self) -> str:
+        return build_responses_url(self.subdomain, self.page_number, self.since_time, self.page_size)
+
+    def init_request(self, request: Request) -> None:
+        request.url = self._url()
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        # An empty page ends pagination — the original stops on the first page with no rows.
+        if not data:
+            self._has_next_page = False
+            return
+
+        total_pages = _parse_int(response.json().get("totalpages"))
+        if total_pages is not None:
+            if self.page_number >= total_pages:
+                self._has_next_page = False
+                return
+        elif len(data) < self.page_size:
+            # No totalpages hint and a short page means we've reached the tail.
+            self._has_next_page = False
+            return
+
+        self.page_number += 1
+        self._has_next_page = True
+
+    def update_request(self, request: Request) -> None:
+        request.url = self._url()
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        # self.page_number already points at the next page to fetch (update_state incremented it).
+        if self._has_next_page:
+            return {"page_number": self.page_number, "since_time": self.since_time}
+        return None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        # The saved since_time must win over a freshly derived one: page numbering is only
+        # stable against the cutoff the interrupted run used.
+        page_number = state.get("page_number")
+        since_time = state.get("since_time")
+        if page_number is not None:
+            self.page_number = int(page_number)
+        if since_time is not None:
+            self.since_time = int(since_time)
+        self._has_next_page = True
 
 
 def asknicely_source(
     subdomain: str,
     api_key: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[AskNicelyResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
+    since_time = _since_time_for_run(should_use_incremental_field, db_incremental_field_last_value)
+
+    paginator = AskNicelyResponsesPaginator(subdomain=subdomain, since_time=since_time)
+
+    # `capture=False`: response rows carry free-text survey comments and internal notes the
+    # name-based sample scrubbers can't recognise, so keep bodies out of HTTP sample storage
+    # entirely. Requests are still metered and logged (status + url).
+    # `allow_redirects=False` (client config below) never replays the `X-apikey` header to a
+    # redirect target, so an upstream 3xx can't leak the credential off the validated host.
+    session = make_tracked_session(redact_values=(api_key,), capture=False, allow_redirects=False)
+
+    config: RESTAPIConfig = {
+        "client": {
+            "base_url": _base_url(subdomain),
+            "headers": _get_headers(api_key),
+            "session": session,
+            "allow_redirects": False,
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    # The paginator rewrites the full request URL each page, so the path here is a
+                    # placeholder for the first request before init_request runs.
+                    "path": build_responses_url(subdomain, page_number=1, since_time=since_time),
+                    "data_selector": "data",
+                    "paginator": paginator,
+                },
+                "data_map": _normalize_row,
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"page_number": resume.page_number, "since_time": resume.since_time}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Save AFTER a page is yielded and only when more pages remain, so a crash re-yields the
+        # last page rather than skipping it — merge dedupes on the primary key.
+        if state and state.get("page_number") is not None:
+            resumable_source_manager.save_state(
+                AskNicelyResumeConfig(page_number=int(state["page_number"]), since_time=int(state["since_time"]))
+            )
+
+    resource = rest_api_resource(
+        config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            subdomain=subdomain,
-            api_key=api_key,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-        ),
+        items=lambda: resource,
         primary_keys=["response_id"],
         sort_mode="asc",
         partition_count=1,
@@ -191,6 +243,7 @@ def asknicely_source(
         partition_format="month",
         # `responded` is set once when the customer answers, so partitions never rewrite.
         partition_keys=["responded"],
+        column_hints=resource.column_hints,
     )
 
 

@@ -1,15 +1,21 @@
 import dataclasses
-from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Request, Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    SinglePagePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.copper.settings import (
     COPPER_DEFAULT_PAGE_SIZE,
     COPPER_ENDPOINTS,
@@ -29,18 +35,57 @@ INCREMENTAL_FIELD_TO_PARAMS: dict[str, tuple[str, str]] = {
 }
 
 
-class CopperRetryableError(Exception):
-    pass
-
-
 @dataclasses.dataclass
 class CopperResumeConfig:
     page_number: int
 
 
-def _get_headers(api_key: str, user_email: str) -> dict[str, str]:
+class CopperPageNumberPaginator(BasePaginator):
+    """Page-number pagination carried inside the POST search body.
+
+    Copper's `/search` endpoints page via a `page_number` field in the JSON body and return a bare
+    array. A page shorter than `page_size` (or an empty page) is the last one, so we stop without
+    paying for one extra empty-page request. Resume persists the next page to fetch.
+    """
+
+    def __init__(self, page_size: int, page: int = 1) -> None:
+        super().__init__()
+        self.page_size = page_size
+        self.page = page
+
+    def _inject(self, request: Request) -> None:
+        if request.json is None:
+            request.json = {}
+        request.json["page_number"] = self.page
+
+    def init_request(self, request: Request) -> None:
+        self._inject(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        # A short or empty page is the last one — Copper has no total count to consult.
+        if not data or len(data) < self.page_size:
+            self._has_next_page = False
+            return
+        self.page += 1
+        self._has_next_page = True
+
+    def update_request(self, request: Request) -> None:
+        self._inject(request)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"page": self.page} if self._has_next_page else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        page = state.get("page")
+        if page is not None:
+            self.page = int(page)
+            self._has_next_page = True
+
+
+def _headers(user_email: str) -> dict[str, str]:
+    # The secret access token travels via framework `auth` (APIKeyAuth) so its value is redacted from
+    # logs; only these non-secret headers are set on the client.
     return {
-        "X-PW-AccessToken": api_key,
         "X-PW-Application": COPPER_APPLICATION,
         "X-PW-UserEmail": user_email,
         "Content-Type": "application/json",
@@ -70,21 +115,6 @@ def _to_unix_seconds(value: Any) -> int | None:
         return None
 
 
-def validate_credentials(api_key: str, user_email: str) -> tuple[bool, str | None]:
-    session = make_tracked_session(headers=_get_headers(api_key, user_email), redact_values=(api_key,))
-    try:
-        response = session.get(f"{COPPER_BASE_URL}/account", timeout=10)
-        if response.status_code == 200:
-            return True, None
-        if response.status_code in (401, 403):
-            return False, "Invalid Copper credentials. Check your API key and the email it belongs to."
-        return False, f"Copper credential check failed with status {response.status_code}"
-    except Exception as e:
-        return False, str(e)
-    finally:
-        session.close()
-
-
 def _build_search_body(
     config: CopperEndpointConfig,
     should_use_incremental_field: bool,
@@ -109,79 +139,27 @@ def _build_search_body(
     return body
 
 
-def get_rows(
-    api_key: str,
-    user_email: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[CopperResumeConfig],
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
-) -> Iterator[Any]:
-    config = COPPER_ENDPOINTS[endpoint]
-    session = make_tracked_session(headers=_get_headers(api_key, user_email), redact_values=(api_key,))
-
-    @retry(
-        retry=retry_if_exception_type((CopperRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(5),
-        wait=wait_exponential_jitter(initial=1, max=30),
-        reraise=True,
+def validate_credentials(api_key: str, user_email: str) -> tuple[bool, str | None]:
+    ok, status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(api_key,)),
+        f"{COPPER_BASE_URL}/account",
+        headers={"X-PW-AccessToken": api_key, **_headers(user_email)},
     )
-    def fetch(method: str, url: str, body: dict[str, Any] | None) -> Any:
-        response = session.request(method, url, json=body, timeout=60)
-
-        if response.status_code == 429 or response.status_code >= 500:
-            raise CopperRetryableError(f"Copper API error (retryable): status={response.status_code}, url={url}")
-
-        if not response.ok:
-            logger.error(f"Copper API error: status={response.status_code}, body={response.text}, url={url}")
-            response.raise_for_status()
-
-        return response.json()
-
-    url = f"{COPPER_BASE_URL}{config.path}"
-
-    try:
-        if not config.paginated:
-            data = fetch(config.method, url, None)
-            if isinstance(data, list) and data:
-                yield data
-            return
-
-        page_size = COPPER_DEFAULT_PAGE_SIZE
-        body = _build_search_body(
-            config, should_use_incremental_field, db_incremental_field_last_value, incremental_field, page_size
-        )
-
-        resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-        page_number = resume_config.page_number if resume_config is not None else 1
-        if resume_config is not None:
-            logger.debug(f"Copper: resuming {endpoint} from page {page_number}")
-
-        while True:
-            body["page_number"] = page_number
-            data = fetch(config.method, url, body)
-
-            if not isinstance(data, list) or not data:
-                break
-
-            yield data
-
-            if len(data) < page_size:
-                break
-
-            page_number += 1
-            resumable_source_manager.save_state(CopperResumeConfig(page_number=page_number))
-    finally:
-        session.close()
+    if ok:
+        return True, None
+    if status in (401, 403):
+        return False, "Invalid Copper credentials. Check your API key and the email it belongs to."
+    if status is None:
+        return False, "Could not reach Copper to validate credentials. Please try again."
+    return False, f"Copper credential check failed with status {status}"
 
 
 def copper_source(
     api_key: str,
     user_email: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[CopperResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
@@ -189,18 +167,66 @@ def copper_source(
 ) -> SourceResponse:
     config = COPPER_ENDPOINTS[endpoint]
 
+    body: dict[str, Any] | None
+    paginator: BasePaginator
+    if config.paginated:
+        body = _build_search_body(
+            config,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+            incremental_field,
+            COPPER_DEFAULT_PAGE_SIZE,
+        )
+        paginator = CopperPageNumberPaginator(page_size=COPPER_DEFAULT_PAGE_SIZE)
+    else:
+        # Reference endpoints are plain unpaginated GET collections returned as one array.
+        body = None
+        paginator = SinglePagePaginator()
+
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": COPPER_BASE_URL,
+            "headers": _headers(user_email),
+            "auth": {"type": "api_key", "api_key": api_key, "name": "X-PW-AccessToken", "location": "header"},
+        },
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "method": config.method,
+                    # Copper responses are bare JSON arrays, so there's no data_selector.
+                    "json": body,
+                    "paginator": paginator,
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if config.paginated and resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            initial_paginator_state = {"page": resume.page_number}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields the
+        # last page (merge dedupes on primary key) rather than skipping it.
+        if state and state.get("page") is not None:
+            resumable_source_manager.save_state(CopperResumeConfig(page_number=int(state["page"])))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+        resume_hook=save_checkpoint if config.paginated else None,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            api_key=api_key,
-            user_email=user_email,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        ),
+        items=lambda: resource,
         primary_keys=[config.primary_key],
         partition_count=1,
         partition_size=1,

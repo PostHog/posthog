@@ -23,6 +23,7 @@ use crate::leaf_state::variant::StateVariant;
 use crate::metrics::{
     COHORT_ELIGIBILITY_TOTAL, COHORT_IN_CYCLE_TOTAL, FILTER_CATALOG_SKIPPED_LEAVES,
 };
+use crate::seed::BehavioralShapeHash;
 
 #[derive(Debug, Clone, Copy)]
 pub struct LeafStateMeta {
@@ -70,6 +71,8 @@ pub struct TeamFilters {
     pub eligibility: HashMap<CohortId, CohortEligibility>,
     /// Parsed trees by cohort, retained for the Stage 2 re-walk.
     pub cohorts: HashMap<CohortId, CohortTree>,
+    /// Persisted behavioral leaf-shape hashes used to fence reconcile work from cohort edits.
+    pub behavioral_shape_hashes: HashMap<CohortId, BehavioralShapeHash>,
     /// The team's resolved IANA timezone, used by bucket variants for calendar-day computation.
     pub timezone: Tz,
 }
@@ -94,6 +97,7 @@ impl Default for TeamFilters {
             by_referenced_cohort: HashMap::new(),
             eligibility: HashMap::new(),
             cohorts: HashMap::new(),
+            behavioral_shape_hashes: HashMap::new(),
             timezone: UTC,
         }
     }
@@ -118,6 +122,7 @@ pub struct TeamFiltersBuilder {
     cohorts: HashMap<CohortId, CohortTree>,
     /// Per-cohort eligibility signals captured during parse.
     flags: HashMap<CohortId, CohortParseFlags>,
+    behavioral_shape_hashes: HashMap<CohortId, BehavioralShapeHash>,
 }
 
 impl LeafSink for TeamFiltersBuilder {
@@ -156,6 +161,12 @@ impl LeafSink for TeamFiltersBuilder {
 }
 
 impl TeamFiltersBuilder {
+    /// Attach the persisted behavioral shape guard for `cohort_id`. Freeze discards the value when
+    /// no cohort with that id parsed successfully.
+    pub fn set_behavioral_shape_hash(&mut self, cohort_id: CohortId, hash: BehavioralShapeHash) {
+        self.behavioral_shape_hashes.insert(cohort_id, hash);
+    }
+
     pub fn add_cohort(
         &mut self,
         cohort_id: CohortId,
@@ -277,6 +288,8 @@ impl TeamFiltersBuilder {
                 (name, hashes)
             })
             .collect();
+        let mut behavioral_shape_hashes = self.behavioral_shape_hashes;
+        behavioral_shape_hashes.retain(|cohort_id, _| self.cohorts.contains_key(cohort_id));
 
         TeamFilters {
             by_condition_to_lsk: sorted_vec_map(self.by_condition_to_lsk),
@@ -294,6 +307,7 @@ impl TeamFiltersBuilder {
             by_referenced_cohort,
             eligibility,
             cohorts: self.cohorts,
+            behavioral_shape_hashes,
             timezone,
         }
     }
@@ -503,6 +517,31 @@ mod tests {
             UTC,
             "an empty filter set defaults to UTC",
         );
+    }
+
+    #[test]
+    fn freeze_retains_behavioral_shape_hashes_only_for_parsed_cohorts() {
+        let mut builder = TeamFiltersBuilder::default();
+        builder.set_behavioral_shape_hash(
+            CohortId(1),
+            BehavioralShapeHash::parse("persisted").unwrap(),
+        );
+        builder
+            .set_behavioral_shape_hash(CohortId(99), BehavioralShapeHash::parse("orphan").unwrap());
+        builder
+            .add_cohort(
+                CohortId(1),
+                TeamId(7),
+                &wrap(vec![behavioral_performed_event(7)]),
+            )
+            .unwrap();
+
+        let frozen = builder.freeze(UTC);
+        assert_eq!(
+            frozen.behavioral_shape_hashes[&CohortId(1)].as_str(),
+            "persisted",
+        );
+        assert!(!frozen.behavioral_shape_hashes.contains_key(&CohortId(99)));
     }
 
     #[test]

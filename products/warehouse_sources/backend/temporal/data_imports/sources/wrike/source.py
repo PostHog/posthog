@@ -20,7 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import WrikeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wrike import WrikeSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.wrike.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.wrike.wrike import (
     WrikeResumeConfig,
@@ -99,6 +99,7 @@ Set **Host** to the domain shown in your browser when you're logged into Wrike (
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Wrike's API has no reliably-verifiable server-side timestamp filter, so every endpoint
         # ships as full refresh (see settings.py for the rationale).
@@ -117,7 +118,7 @@ Set **Host** to the domain shown in your browser when you're logged into Wrike (
         return schemas
 
     def validate_credentials(
-        self, config: WrikeSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: WrikeSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_wrike_credentials(config.access_token, config.host)
 
@@ -134,6 +135,8 @@ Set **Host** to the domain shown in your browser when you're logged into Wrike (
             access_token=config.access_token,
             host=config.host,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Wrike endpoint is full refresh
         )

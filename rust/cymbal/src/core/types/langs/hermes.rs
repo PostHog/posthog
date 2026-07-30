@@ -244,28 +244,84 @@ impl From<&RawHermesFrame> for Frame {
 #[cfg(test)]
 mod test {
     use crate::core::symbolication::resolve::Resolve;
+    use async_trait::async_trait;
     use std::sync::Arc;
 
     use chrono::Utc;
     use mockall::predicate;
-    use posthog_symbol_data::write_symbol_data;
+    use posthog_symbol_data::{write_symbol_data, HermesMap};
     use regex::Regex;
     use sqlx::PgPool;
     use uuid::Uuid;
 
     use crate::{
         core::config::ResolverConfig,
+        error::ResolveError,
         frames::RawFrame,
-        langs::{hermes::RawHermesFrame, CommonFrameMetadata},
+        langs::{
+            hermes::{HermesRef, RawHermesFrame},
+            CommonFrameMetadata,
+        },
         symbolication::symbol_store::{
-            apple::AppleProvider, chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider,
-            native::NativeProvider, proguard::ProguardProvider, saving::SymbolSetRecord,
-            sourcemap::SourcemapProvider, Catalog, MockS3Client,
+            apple::AppleProvider,
+            chunk_id::{ChunkIdFetcher, OrChunkId},
+            hermesmap::{HermesMapProvider, ParsedHermesMap},
+            native::NativeProvider,
+            proguard::ProguardProvider,
+            saving::SymbolSetRecord,
+            sourcemap::SourcemapProvider,
+            Catalog, MockS3Client, SymbolCatalog,
         },
     };
 
     const HERMES_MAP: &str = include_str!("../../../../tests/static/hermes/composed_example.map");
+    const OFFSETS_ONLY_MAP: &str =
+        include_str!("../../../../tests/static/hermes/hermes_example.map");
     const RAW_STACK: &str = include_str!("../../../../tests/static/hermes/raw_stack.txt");
+
+    struct StaticHermesCatalog(Arc<ParsedHermesMap>);
+
+    #[async_trait]
+    impl SymbolCatalog<OrChunkId<HermesRef>, ParsedHermesMap> for StaticHermesCatalog {
+        async fn lookup(
+            &self,
+            _team_id: i32,
+            _r: OrChunkId<HermesRef>,
+        ) -> Result<Arc<ParsedHermesMap>, ResolveError> {
+            Ok(self.0.clone())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_offsets_only_hermes_resolution() {
+        let map = ParsedHermesMap::parse(
+            HermesMap {
+                sourcemap: OFFSETS_ONLY_MAP.to_string(),
+            },
+            OFFSETS_ONLY_MAP.len(),
+        )
+        .unwrap();
+        let catalog = StaticHermesCatalog(Arc::new(map));
+        let frame = RawHermesFrame {
+            column: Some(1000),
+            source: "index.android.bundle".to_string(),
+            fn_name: "anonymous".to_string(),
+            chunk_id: Some("test-chunk".to_string()),
+            meta: CommonFrameMetadata::default(),
+        };
+
+        let resolved = frame.resolve_frame(1, &catalog, 15).await.unwrap();
+
+        assert!(resolved.resolved);
+        assert_eq!(
+            resolved.source.as_deref(),
+            Some("./build/android/index.android.bundle")
+        );
+        assert_eq!(resolved.line, Some(49));
+        assert_eq!(resolved.column, Some(26));
+        assert_eq!(resolved.resolved_name, None);
+        assert_eq!(resolved.resolve_failure, None);
+    }
 
     #[sqlx::test(migrations = "./tests/test_migrations")]
     async fn test_hermes_resolution(db: PgPool) {

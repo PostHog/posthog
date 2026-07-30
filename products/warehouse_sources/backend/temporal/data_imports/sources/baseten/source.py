@@ -28,8 +28,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BasetenSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.baseten import (
+    BasetenSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -93,26 +98,23 @@ Create an API key in your [Baseten workspace settings](https://app.baseten.co/se
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Baseten exposes no server-side "updated since" filter on any entity list endpoint, so every
-        # table syncs as a full refresh.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-                should_sync_default=BASETEN_ENDPOINTS[endpoint].should_sync_default,
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # table syncs as a full refresh (no incremental fields).
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            {},
+            names,
+            should_sync_default={endpoint: BASETEN_ENDPOINTS[endpoint].should_sync_default for endpoint in ENDPOINTS},
+        )
 
     def validate_credentials(
-        self, config: BasetenSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: BasetenSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         if validate_baseten_credentials(config.api_key):
             return True, None
@@ -131,6 +133,7 @@ Create an API key in your [Baseten workspace settings](https://app.baseten.co/se
         return baseten_source(
             api_key=config.api_key,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )

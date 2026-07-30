@@ -10,7 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SendGridSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sendgrid import (
+    SendGridSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.sendgrid import SendGridResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sendgrid.source import SendGridSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType

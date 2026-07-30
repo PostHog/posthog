@@ -78,6 +78,45 @@ Cutover checklist — when done, the sync and this section are deleted:
   in the payload and can be mapped by hand. Follow `next` pages in
   `getOutputMappingSuggestions` (workflows frontend registry) if teams that large show up.
 
+## Event stream
+
+- **Cascade deletions don't archive the Slack destination.** The managed HogFunction is archived
+  in `delete_event_stream` (the facade, the only deliberate deletion path) and in
+  `delete_event_streams_for_user` (called from core's `OrganizationMembership` post_delete, so a
+  member leaving or being removed from the org stops their stream delivering) rather than a
+  `pre_delete` signal on the stream itself, so plain ORM cascades still bypass it. Team deletion
+  is harmless — the HogFunction is team-scoped and dies in the same cascade. Hard-deleting an
+  owner (`created_by` CASCADE) usually archives via the membership post_delete firing in the same
+  collector run, but the ordering isn't guaranteed. Accepted because user hard-deletion is rare
+  (members are deactivated or removed from the org, not deleted); if it bites, archive the
+  destinations explicitly in the user-deletion flow rather than reintroducing a signal.
+
+## Account custom property changed workflow trigger
+
+- **Volatile synced columns can flood workflows.** A view column that genuinely changes for many
+  accounts each sync emits one `$account_custom_property_changed` event — and starts one workflow
+  run — per account per sync run. No cap and no emission-volume observability. Acceptable while the
+  product is internal-only; before external exposure add emission counts to `SyncResult` and
+  guidance to trigger on stable columns.
+- **Multi-property triggers fan out.** One event per changed property, so one run per property,
+  never one per batch write. The trigger UI warns; routing logic is the workflow author's job.
+- **Cross-workflow loops are damped, not prevented.** Same-value writes never emit and frequency
+  masking caps rate, but value-flapping loops (workflow A sets X→1, triggering B which sets X→2, …)
+  depend on runtime values and cannot be detected statically. The save-time cycle advisory is
+  best-effort — static tag/property references only, never a save blocker.
+- **Frequency options are account-keyed because account events carry no person.** The generic event
+  trigger's frequency options hash on `{person.id}`, which resolves empty on person-less events and
+  would mask globally across accounts. CA triggers ship account-keyed options; the generic event
+  trigger keeps its person-keyed options and retains this gap for person-less events.
+- **current/previous are event properties, not workflow variables.** Same `{event.properties.*}`
+  templating access everywhere; auto-populated variables would need executor and trigger-schema
+  changes. Revisit only if variable semantics (mutation, Variables taxonomic category) are needed.
+  The values land as analytics events in the team's own project (the established pattern —
+  conversation events carry old/new status and truncated message content the same way), so they
+  are visible to anyone with project access, like the rest of the account's data.
+- **No unset/delete emission.** No value-delete path exists; if one is added, its author decides
+  whether removal counts as a change.
+
 ## Tech debt
 
 - **Account property writes have no single choke point.** `Account._properties` is mutated from four

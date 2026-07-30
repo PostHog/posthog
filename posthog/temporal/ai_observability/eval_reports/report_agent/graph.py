@@ -18,6 +18,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
     MIN_REPORT_SECTIONS,
     EvalReportContent,
+    EvalReportGenerationStatus,
     EvalReportMetrics,
     ReportSection,
 )
@@ -25,6 +26,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.state import Ev
 from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     _ch_ts,
     _fetch_period_summary,
+    _is_retriable_ch_error,
     get_eval_report_tools,
 )
 from posthog.temporal.ai_observability.eval_reports.targets import GENERATION_TARGET
@@ -41,15 +43,13 @@ def _compute_metrics(
     previous_period_start: str,
     output_type: str = "boolean",
     evaluation_target: str = GENERATION_TARGET,
-) -> EvalReportMetrics:
+) -> EvalReportMetrics | None:
     """Compute report metrics directly via HogQL (independent of agent state).
 
-    Always returns a valid EvalReportMetrics — on query failure, returns one
-    with zero counts and logs the exception. The agent cannot fabricate numbers
-    because this function is the sole source of truth for `content.metrics`.
+    Returns None when a transient ClickHouse failure exhausts the query helper's
+    retries. Other exceptions propagate so deterministic application errors do
+    not become successful fallback reports.
     """
-    empty = EvalReportMetrics(output_type=output_type, period_start=period_start, period_end=period_end)
-
     try:
         ts_start = _ch_ts(period_start)
         ts_end = _ch_ts(period_end)
@@ -72,9 +72,24 @@ def _compute_metrics(
             previous_total_runs=previous_total,
             previous_result_counts=previous_result_counts,
         )
-    except Exception:
+    except Exception as error:
+        if not _is_retriable_ch_error(error):
+            raise
         logger.exception("llma_eval_reports_metrics_computation_failed")
-        return empty
+        return None
+
+
+def _metrics_unavailable_content(
+    evaluation_target: str = "generation",
+) -> EvalReportContent:
+    return EvalReportContent(
+        evaluation_target=evaluation_target,
+        title="Metrics unavailable for this period",
+        sections=[],
+        citations=[],
+        metrics=None,
+        generation_status=EvalReportGenerationStatus.METRICS_UNAVAILABLE,
+    )
 
 
 def _fallback_content(
@@ -224,6 +239,20 @@ def run_eval_report_agent(
         evaluation_target=evaluation_target,
     )
 
+    from posthog.temporal.ai_observability.eval_reports.metrics import increment_errors, increment_report_generated
+
+    # The agent's query tools would fail under the same sustained ClickHouse load,
+    # which could produce a narrative built on missing data.
+    if metrics is None:
+        increment_report_generated("fallback_metrics_unavailable")
+        increment_errors("metrics_unavailable")
+        logger.warning(
+            "llma_eval_reports_metrics_unavailable",
+            team_id=team_id,
+            evaluation_id=evaluation_id,
+        )
+        return _metrics_unavailable_content(evaluation_target)
+
     llm = build_langchain_chat_client(EVAL_REPORT_AGENT_MODEL, EVAL_REPORT_AGENT_TIMEOUT, ai_product="aio_eval_reports")
 
     system_prompt = build_eval_report_system_prompt(
@@ -265,8 +294,6 @@ def run_eval_report_agent(
         "report": EvalReportContent(evaluation_target=evaluation_target, metrics=metrics),
         "trace_id_allowlist": [],
     }
-
-    from posthog.temporal.ai_observability.eval_reports.metrics import increment_errors, increment_report_generated
 
     # Skip in gateway mode: the Go gateway captures $ai_generation itself, so the
     # SDK callback would double-count. Same gate the model routing above reads.

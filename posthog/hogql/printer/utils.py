@@ -29,7 +29,6 @@ from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.printer.redshift import RedshiftPrinter
 from posthog.hogql.printer.snowflake import SnowflakePrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
-from posthog.hogql.transforms.clickhouse_property_resolution import clickhouse_property_resolution
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.json_property_pushdown import (
@@ -44,13 +43,11 @@ from posthog.hogql.transforms.type_aware_simplification import (
     simplify_argmax_over_non_nullable,
     simplify_redundant_type_operations,
 )
+from posthog.hogql.transforms.uuid_timestamp_bounds import apply_uuid_v7_timestamp_bounds
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.workload import WorkloadCollector
 
 from posthog.clickhouse.workload import Workload
-from posthog.models.team.event_retention import events_retention_months_for_team
-
-from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 
 PRINTER_CLASSES: dict[HogQLDialect, type[BasePrinter]] = {
     "clickhouse": ClickHousePrinter,
@@ -157,6 +154,13 @@ def prepare_ast_for_printing(
     # restricted property as NULL). The warehouse (Postgres / DuckDB) dialects only compile external data-warehouse
     # sources, which carry no restrictable event/person properties, so they need no enforcement here.
     if context.team_id is not None and context.restricted_properties is None:
+        # Deferred: a Django-side load at the prepare boundary (same seam as Database.create_for and
+        # load_property_metadata) — keeping it behind the call is what lets the printer package import
+        # without django.setup().
+        from products.access_control.backend.property_access_control import (  # noqa: PLC0415
+            get_restricted_properties_for_team,
+        )
+
         with context.timings.measure("load_restricted_properties"):
             if context.team is not None and context.team.pk == context.team_id:
                 context.restricted_properties = get_restricted_properties_for_team(user=context.user, team=context.team)
@@ -197,6 +201,12 @@ def prepare_ast_for_printing(
     if context.enable_type_aware_cast_simplification:
         with context.timings.measure("type_aware_cast_simplification"):
             node = simplify_redundant_type_operations(node, context, dialect)
+
+    # ClickHouse only: must run before predicate pushdown so the bound lands in its
+    # pre-filtering subquery, and the HogQL dialect must echo the user's query unchanged.
+    if dialect == "clickhouse":
+        with context.timings.measure("uuid_v7_timestamp_bounds"):
+            node = apply_uuid_v7_timestamp_bounds(node)
 
     # Detect workload from resolved table types and store on context
     with context.timings.measure("workload_detection"):
@@ -280,6 +290,9 @@ def prepare_ast_for_printing(
         # enforcement floor still can't be circumvented by a query-supplied modifier.
         with context.timings.measure("events_retention_floor"):
             if context.apply_events_retention_floor:
+                # Deferred: Django-side load at the prepare boundary; see the restricted-properties load above.
+                from posthog.models.team.event_retention import events_retention_months_for_team  # noqa: PLC0415
+
                 context.events_retention_months = events_retention_months_for_team(context.team, context.team_id)
 
         # Events predicate pushdown runs on the lowered AST (between lowering and property resolution), so it matches the
@@ -292,6 +305,13 @@ def prepare_ast_for_printing(
                 node = apply_events_predicate_pushdown(node, context)
 
         with context.timings.measure("clickhouse_property_resolution"):
+            # Deferred to break the module-level cycle cpr → printer.base → printer package init →
+            # utils → cpr, so clickhouse_property_resolution imports standalone in a bare
+            # interpreter (guarded by test_no_django_imports).
+            from posthog.hogql.transforms.clickhouse_property_resolution import (  # noqa: PLC0415
+                clickhouse_property_resolution,
+            )
+
             node = clickhouse_property_resolution(node, context)
 
         # We support global query settings, and local subquery settings.

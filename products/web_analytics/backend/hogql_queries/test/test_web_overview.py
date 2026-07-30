@@ -180,6 +180,31 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "conversion rate",
         ]
 
+    @parameterized.expand([("without_conversion_goal", False), ("with_conversion_goal", True)])
+    @patch("products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query")
+    def test_empty_hogql_results_do_not_crash(self, _name: str, with_conversion_goal: bool, mock_execute: MagicMock):
+        # The live events query can legitimately return zero rows; that used to hit a bare
+        # `assert response.results` and surface as a 5xx. It should return an empty overview instead.
+        mock_execute.return_value = MagicMock(results=[])
+
+        action = None
+        if with_conversion_goal:
+            action = Action.objects.create(
+                team=self.team,
+                name="Visited Foo",
+                steps_json=[{"event": "$pageview"}],
+            )
+
+        response = self._run_web_overview_query("2023-12-08", "2023-12-15", action=action)
+
+        assert all(item.value is None and item.previous is None for item in response.results)
+        expected_keys = (
+            ["visitors", "total conversions", "unique conversions", "conversion rate"]
+            if with_conversion_goal
+            else ["visitors", "views", "sessions", "session duration", "bounce rate"]
+        )
+        assert [item.key for item in response.results] == expected_keys
+
     def test_increase_in_users(self):
         s1a = str(uuid7("2023-12-02"))
         s1b = str(uuid7("2023-12-12"))
@@ -1250,6 +1275,33 @@ class TestWebOverviewSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
     def test_session_id_set_eligibility(self, _name: str, query_kwargs: dict, expected: bool):
         with override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk]):
             runner = self._make_runner(**query_kwargs)
+            assert runner.should_use_session_id_set == expected
+
+    @parameterized.expand(
+        [
+            ("flag_expands_beyond_allowlist", False, True, True),
+            ("flag_off_fails_closed", False, False, False),
+            ("allowlist_independent_of_flag", True, False, True),
+            ("flag_evaluation_error_fails_closed", False, RuntimeError("flag service down"), False),
+        ]
+    )
+    def test_session_id_set_feature_flag_gating(
+        self, _name: str, in_allowlist: bool, flag_behavior: bool | Exception, expected: bool
+    ):
+        allowlist = [self.team.pk] if in_allowlist else []
+        flag_mock_kwargs = (
+            {"side_effect": flag_behavior} if isinstance(flag_behavior, Exception) else {"return_value": flag_behavior}
+        )
+        with (
+            override_settings(WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=allowlist),
+            patch(
+                "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.posthoganalytics.feature_enabled",
+                **flag_mock_kwargs,
+            ),
+        ):
+            runner = self._make_runner(
+                properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/pricing")]
+            )
             assert runner.should_use_session_id_set == expected
 
     @parameterized.expand(

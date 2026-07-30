@@ -280,8 +280,9 @@ class TestRunAPI:
 
         assert {r.commit_sha for r in runs} == expected_commits
 
+    @patch("products.visual_review.backend.tasks.tasks.emit_run_processing_metrics.delay")
     @patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
-    def test_complete_run_no_changes_skips_task(self, mock_delay, repo):
+    def test_complete_run_no_changes_skips_task(self, mock_diff_delay, mock_metrics_delay, repo):
         """Runs with no changes complete immediately without triggering diff task."""
         create_result = api.create_run(
             CreateRunInput(
@@ -297,7 +298,35 @@ class TestRunAPI:
         result = api.complete_run(create_result.run_id)
 
         assert result.status == "completed"
-        mock_delay.assert_not_called()
+        mock_diff_delay.assert_not_called()
+        mock_metrics_delay.assert_called_once_with(repo.team_id, str(create_result.run_id), "completed", 0)
+
+    @patch("products.visual_review.backend.tasks.tasks.emit_run_processing_metrics.delay")
+    @patch(
+        "products.visual_review.backend.logic.verify_uploads_and_create_artifacts",
+        side_effect=logic.HashIntegrityError("hash mismatch"),
+    )
+    @patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+    def test_complete_run_hash_integrity_failure_emits_terminal_metrics(
+        self, mock_diff_delay, _mock_verify, mock_metrics_delay, repo
+    ):
+        create_result = api.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                snapshots=[],
+            ),
+            team_id=repo.team_id,
+        )
+
+        result = api.complete_run(create_result.run_id)
+
+        assert result.status == "failed"
+        assert result.error_message == "hash mismatch"
+        mock_diff_delay.assert_not_called()
+        mock_metrics_delay.assert_called_once_with(repo.team_id, str(create_result.run_id), "hash_integrity_failed", 0)
 
     @patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
     def test_complete_run_with_changes_triggers_task(self, mock_delay, repo):

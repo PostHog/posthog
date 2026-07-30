@@ -9,7 +9,7 @@ from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFie
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import KoyebSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.koyeb import KoyebSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.koyeb import source as koyeb_source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.koyeb.koyeb import KoyebResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.koyeb.settings import ENDPOINTS

@@ -69,6 +69,9 @@ function createJanitor(overrides?: Record<string, unknown>, results?: HogInvocat
             cleanupGraceMs: 0,
             stallTimeoutMs: 0,
             maxTouchCount: 2,
+            // Off by default so existing reset tests keep immediate-retry semantics;
+            // the backoff tests opt in explicitly.
+            stallBackoffBaseMs: 0,
             ...overrides,
         },
         results
@@ -285,19 +288,25 @@ describe('Cyclotron V2', () => {
             }
         )
 
-        it('countInFlightJobs counts available and running jobs for one team and function', async () => {
+        it('countInFlightJobs counts available and running jobs grouped by action', async () => {
             const functionId = uuidv7()
             const otherFunctionId = uuidv7()
-            await manager.createJob({ teamId: 1, queueName: QUEUE, functionId })
-            const runningId = await manager.createJob({ teamId: 1, queueName: QUEUE, functionId })
+            await manager.createJob({ teamId: 1, queueName: QUEUE, functionId, actionId: 'delay_1' })
+            const runningId = await manager.createJob({ teamId: 1, queueName: QUEUE, functionId, actionId: 'delay_1' })
             await assertPool.query(`UPDATE cyclotron_jobs SET status = 'running' WHERE id = $1`, [runningId])
+            // No actionId: a job written before the lookup column existed → position unknown
+            await manager.createJob({ teamId: 1, queueName: QUEUE, functionId })
             // Not counted: terminal status, other function, other team
             const completedId = await manager.createJob({ teamId: 1, queueName: QUEUE, functionId })
             await assertPool.query(`UPDATE cyclotron_jobs SET status = 'completed' WHERE id = $1`, [completedId])
-            await manager.createJob({ teamId: 1, queueName: QUEUE, functionId: otherFunctionId })
-            await manager.createJob({ teamId: 2, queueName: QUEUE, functionId })
+            await manager.createJob({ teamId: 1, queueName: QUEUE, functionId: otherFunctionId, actionId: 'delay_1' })
+            await manager.createJob({ teamId: 2, queueName: QUEUE, functionId, actionId: 'delay_1' })
 
-            expect(await manager.countInFlightJobs(1, functionId)).toBe(2)
+            expect(await manager.countInFlightJobs(1, functionId)).toEqual({
+                count: 3,
+                byAction: { delay_1: 2 },
+                positionUnknown: 1,
+            })
         })
 
         describe('rescheduleParkedJobs', () => {
@@ -1760,7 +1769,10 @@ describe('Cyclotron V2', () => {
             const defaults = {
                 team_id: 1,
                 function_id: null,
-                queue_name: QUEUE,
+                // Default to a real invocation queue so a poisoned genuine invocation is recorded.
+                // The janitor only records give-ups on invocation queues; anything else is a
+                // wrapper/meta job that's dropped without a record (see WRAPPER drop tests below).
+                queue_name: 'hogflow',
                 status: 'available',
                 priority: 0,
                 scheduled: new Date(),
@@ -1852,6 +1864,101 @@ describe('Cyclotron V2', () => {
             expect(row.janitor_touch_count).toBe(1)
         })
 
+        // Backoff on the reset job's next scheduled time, keyed on
+        // janitor_touch_count. The FIRST stall retries within the small jittered
+        // spread (~5s), not the full base — the exponential term is shifted
+        // (2^touch - 1 = 0 on the first strike) so a transient stall recovers fast.
+        // Repeat stalls then pay a growing, capped backoff. Bounds are loose to
+        // absorb jitter + db clock skew. maxTouchCount is high so these aren't given
+        // up as poison before reset.
+        it('resetStalledJobs retries the first stall fast (spread only, not the full base)', async () => {
+            const jobId = uuidv7()
+            await insertRawJob({
+                id: jobId,
+                status: 'running',
+                lock_id: uuidv7(),
+                last_heartbeat: new Date(Date.now() - 60_000),
+                scheduled: new Date(Date.now() - 60_000),
+                janitor_touch_count: 0,
+            })
+
+            const before = Date.now()
+            const janitor = createJanitor({
+                stallTimeoutMs: 1_000,
+                stallBackoffBaseMs: 10_000,
+                stallBackoffMaxMs: 600_000,
+            })
+            const result = await janitor.runOnce()
+            await janitor.stop()
+
+            expect(result.stalled).toBe(1)
+            const row = await queryJob(jobId)
+            expect(row.status).toBe('available')
+            const deferMs = new Date(row.scheduled).getTime() - before
+            // Rescheduled to ~now (not left 60s in the past → backoff ran) but only
+            // by the ~5s spread — well under the 10s base, so a first stall is fast.
+            expect(deferMs).toBeGreaterThanOrEqual(-500)
+            expect(deferMs).toBeLessThanOrEqual(6_000)
+        })
+
+        it.each([
+            { touchCount: 1, baseMs: 10_000, maxMs: 600_000, minDeferMs: 4_000, maxDeferMs: 18_000 },
+            { touchCount: 2, baseMs: 10_000, maxMs: 600_000, minDeferMs: 13_000, maxDeferMs: 38_000 },
+            { touchCount: 2, baseMs: 10_000, maxMs: 5_000, minDeferMs: 2_000, maxDeferMs: 12_000 },
+        ])(
+            'resetStalledJobs backs off repeat stalls exponentially, capped (touch=$touchCount, cap=$maxMs)',
+            async ({ touchCount, baseMs, maxMs, minDeferMs, maxDeferMs }) => {
+                const jobId = uuidv7()
+                await insertRawJob({
+                    id: jobId,
+                    status: 'running',
+                    lock_id: uuidv7(),
+                    last_heartbeat: new Date(Date.now() - 60_000),
+                    janitor_touch_count: touchCount,
+                })
+
+                const before = Date.now()
+                const janitor = createJanitor({
+                    stallTimeoutMs: 1_000,
+                    maxTouchCount: 100,
+                    stallBackoffBaseMs: baseMs,
+                    stallBackoffMaxMs: maxMs,
+                })
+                const result = await janitor.runOnce()
+                await janitor.stop()
+
+                expect(result.stalled).toBe(1)
+                const row = await queryJob(jobId)
+                expect(row.status).toBe('available')
+                const deferMs = new Date(row.scheduled).getTime() - before
+                expect(deferMs).toBeGreaterThan(minDeferMs)
+                expect(deferMs).toBeLessThanOrEqual(maxDeferMs)
+            }
+        )
+
+        it('resetStalledJobs leaves scheduled immediate when backoff is disabled (base 0)', async () => {
+            const jobId = uuidv7()
+            const pastScheduled = new Date(Date.now() - 5_000)
+            await insertRawJob({
+                id: jobId,
+                status: 'running',
+                lock_id: uuidv7(),
+                last_heartbeat: new Date(Date.now() - 60_000),
+                scheduled: pastScheduled,
+                janitor_touch_count: 0,
+            })
+
+            const before = Date.now()
+            const janitor = createJanitor({ stallTimeoutMs: 1_000, stallBackoffBaseMs: 0 })
+            await janitor.runOnce()
+            await janitor.stop()
+
+            const row = await queryJob(jobId)
+            expect(row.status).toBe('available')
+            // scheduled untouched → still in the past → immediately re-dequeuable.
+            expect(new Date(row.scheduled).getTime()).toBeLessThanOrEqual(before)
+        })
+
         it('records a poison pill as a failed result and deletes it once recorded', async () => {
             const staleHeartbeat = new Date(Date.now() - 60_000)
             const jobId = uuidv7()
@@ -1880,6 +1987,57 @@ describe('Cyclotron V2', () => {
             // ...then the cyclotron row is gone (no silent delete, no leftover).
             expect(await totalJobCount()).toBe(0)
         })
+
+        // Both meta/wrapper queues share cyclotron_jobs with real invocations and
+        // stamp function_id to a target function, so both must be dropped without a
+        // record — else the autodrain replays a real flow with fabricated globals.
+        // 'some_future_meta_queue' is an unknown, non-invocation queue: it guards the allow-list's
+        // fail-safe. Under the old deny-list a queue nobody listed would be RECORDED as a replayable
+        // hog_flow (the autodrain would then replay a phantom flow) — with the allow-list any queue
+        // not in CYCLOTRON_INVOCATION_JOB_QUEUES is dropped without a record by default.
+        it.each(['rerun', 'hogflow_batch_resolve', 'some_future_meta_queue'])(
+            'drops a poisoned %s wrapper without recording it, still records real invocations',
+            async (wrapperQueue) => {
+                const staleHeartbeat = new Date(Date.now() - 60_000)
+                const wrapperId = uuidv7()
+                const invocationId = uuidv7()
+                // A poisoned WRAPPER job and a genuine poisoned invocation, same sweep.
+                await insertRawJob({
+                    id: wrapperId,
+                    function_id: uuidv7(),
+                    queue_name: wrapperQueue,
+                    status: 'running',
+                    lock_id: uuidv7(),
+                    last_heartbeat: staleHeartbeat,
+                    janitor_touch_count: 3,
+                })
+                await insertRawJob({
+                    id: invocationId,
+                    function_id: uuidv7(),
+                    status: 'running',
+                    lock_id: uuidv7(),
+                    last_heartbeat: staleHeartbeat,
+                    janitor_touch_count: 3,
+                })
+
+                const { service, recordTerminalFailureDurably } = createMockResults(true)
+                const janitor = createJanitor({ stallTimeoutMs: 1_000, maxTouchCount: 2 }, service)
+                const result = await janitor.runOnce()
+                await janitor.stop()
+
+                // The wrapper is dropped with NO replay record — recording it would let
+                // the autodrain rediscover it as a hog_flow and replay a real flow with
+                // fabricated globals. Only the genuine invocation is recorded.
+                expect(recordTerminalFailureDurably).toHaveBeenCalledTimes(1)
+                expect(recordTerminalFailureDurably).toHaveBeenCalledWith(
+                    expect.objectContaining({ id: invocationId }),
+                    expect.anything()
+                )
+                expect(result.poisonedIds).toEqual([invocationId])
+                // Both cyclotron rows are gone — the wrapper is given up on, just untraced.
+                expect(await totalJobCount()).toBe(0)
+            }
+        )
 
         it('keeps a poison pill (does not delete) when the recovery record cannot be produced', async () => {
             const staleHeartbeat = new Date(Date.now() - 60_000)

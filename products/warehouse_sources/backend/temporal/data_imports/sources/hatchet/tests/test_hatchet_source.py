@@ -3,7 +3,9 @@ from unittest import mock
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HatchetSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hatchet import (
+    HatchetSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.hatchet.hatchet import (
     HatchetConnection,
     HatchetResumeConfig,

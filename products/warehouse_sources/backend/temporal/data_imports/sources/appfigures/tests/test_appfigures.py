@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appfigures
     AppfiguresResumeConfig,
     _flatten_report,
     _headers,
+    _is_page_limit_response,
     _to_date_str,
     appfigures_source,
     check_credentials,
@@ -17,6 +18,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appfigures
 )
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.appfigures.appfigures"
+
+_PAGE_LIMIT_REASON = (
+    "page * count must be less than or equal to 10000. Please request fewer products or a smaller date range."
+)
+
+
+def _response(status_code: int, reason: str = "", text: str = "") -> mock.MagicMock:
+    response = mock.MagicMock()
+    response.status_code = status_code
+    response.reason = reason
+    response.text = text
+    response.ok = status_code < 400
+    return response
 
 
 def _manager(resume: AppfiguresResumeConfig | None = None) -> mock.MagicMock:
@@ -86,6 +100,24 @@ class TestIterObject:
         assert {row["id"] for row in batches[0]} == {42, 7}
 
 
+class TestIsPageLimitResponse:
+    @pytest.mark.parametrize(
+        "status_code,reason,text,expected",
+        [
+            (400, _PAGE_LIMIT_REASON, "", True),
+            (400, "Bad Request", _PAGE_LIMIT_REASON, True),
+            # A different 400 (e.g. a malformed param) must stay fatal, not be swallowed as the cap.
+            (400, "Bad Request", "", False),
+            # Same wording on another status isn't the page-depth cap.
+            (403, _PAGE_LIMIT_REASON, "", False),
+            (200, _PAGE_LIMIT_REASON, "", False),
+        ],
+    )
+    def test_detects_page_limit(self, status_code: int, reason: str, text: str, expected: bool):
+        response = _response(status_code, reason=reason, text=text)
+        assert _is_page_limit_response(response) is expected
+
+
 class TestIterPaged:
     def test_walks_all_pages_using_pages_and_this_page(self):
         pages = [
@@ -145,6 +177,30 @@ class TestIterPaged:
                 )
             )
         assert fetch.call_args_list[0].args[2]["page"] == 3
+
+    def test_page_limit_stops_and_keeps_rows_gathered_so_far(self):
+        # A backlog deep enough that offset pagination would cross Appfigures' page*count<=10000
+        # cap. Page 1 succeeds; page 2 hits the cap. get_rows must yield page 1's rows and NOT raise
+        # (the reported bug turned this benign boundary into a fatal HTTPError).
+        page1 = _response(200)
+        page1.json.return_value = {"total": 50000, "pages": 100, "this_page": 1, "reviews": [{"id": "a"}]}
+        page_limit = _response(400, reason=_PAGE_LIMIT_REASON)
+
+        session = mock.MagicMock()
+        session.get.side_effect = [page1, page_limit]
+
+        with mock.patch(f"{_MODULE}.make_tracked_session", return_value=session):
+            batches = list(
+                get_rows(
+                    token="pat",
+                    endpoint="reviews",
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=_manager(),
+                )
+            )
+
+        assert [row["id"] for batch in batches for row in batch] == ["a"]
+        assert session.get.call_count == 2
 
 
 class TestIterReport:

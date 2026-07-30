@@ -15,17 +15,22 @@ full refresh and leave incremental off until that can be verified against a live
 """
 
 import dataclasses
-from collections.abc import Iterator
-from typing import Any
+from typing import Any, Optional
 from urllib.parse import urlencode, urlsplit
 
-import requests
-from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    RESTAPIConfig,
+    rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponsePaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sell.settings import (
     ZENDESK_SELL_ENDPOINTS,
 )
@@ -34,11 +39,6 @@ ZENDESK_SELL_BASE_URL = "https://api.getbase.com"
 ZENDESK_SELL_HOST = "api.getbase.com"
 ZENDESK_SELL_PATH_PREFIX = "/v2/"
 PER_PAGE = 100
-REQUEST_TIMEOUT_SECONDS = 60
-
-
-class ZendeskSellRetryableError(Exception):
-    pass
 
 
 class ZendeskSellUntrustedURLError(Exception):
@@ -72,121 +72,119 @@ class ZendeskSellResumeConfig:
     next_url: str | None = None
 
 
-def _get_headers(access_token: str) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {access_token}",
-        "Accept": "application/json",
-    }
+class ZendeskSellNextPagePaginator(JSONResponsePaginator):
+    """Follows `meta.links.next_page`, but pins every next/resume URL to the Zendesk Sell API origin.
+
+    The framework's client-level host-pinning only compares hostnames; the hand-rolled source also
+    rejected a same-host URL on the wrong scheme or outside the `/v2/` path prefix, so validate the
+    extracted next link and any seeded resume URL here to preserve that stronger SSRF boundary. A
+    poisoned or hostile URL raises before the bearer token is ever sent to it, and the failing page is
+    neither yielded nor checkpointed.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(next_url_path="meta.links.next_page")
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if self._has_next_page and self._next_url is not None:
+            _validate_pagination_url(self._next_url)
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        next_url = state.get("next_url")
+        if next_url is not None:
+            _validate_pagination_url(next_url)
+        super().set_resume_state(state)
 
 
-def _build_initial_url(path: str) -> str:
-    return f"{ZENDESK_SELL_BASE_URL}{path}?{urlencode({'per_page': PER_PAGE})}"
-
-
-@retry(
-    retry=retry_if_exception_type((ZendeskSellRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch_page(
-    session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger
-) -> dict[str, Any]:
-    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-
-    # 429 (rate limit: 10 req/s, 36k/hour) and transient 5xx are safe to retry.
-    if response.status_code == 429 or response.status_code >= 500:
-        raise ZendeskSellRetryableError(f"Zendesk Sell API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error("Zendesk Sell API error", status=response.status_code, body=response.text, url=url)
-        response.raise_for_status()
-
-    return response.json()
-
-
-def _extract_records(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """Unwrap each item's `data` object from the collection envelope.
+def _extract_item_data(item: dict[str, Any]) -> dict[str, Any]:
+    """Unwrap an envelope item's `data` object.
 
     Every item in the Zendesk Sell envelope carries a `data` object — direct access fails fast on a
     malformed response rather than silently dropping records.
     """
-    return [item["data"] for item in payload.get("items", [])]
-
-
-def get_rows(
-    access_token: str,
-    endpoint: str,
-    logger: FilteringBoundLogger,
-    resumable_source_manager: ResumableSourceManager[ZendeskSellResumeConfig],
-) -> Iterator[list[dict[str, Any]]]:
-    config = ZENDESK_SELL_ENDPOINTS[endpoint]
-    headers = _get_headers(access_token)
-    # One session reused across every page so urllib3 keeps the connection alive. `redact_values`
-    # masks the bearer token in logged URLs and captured request samples. `allow_redirects=False`
-    # stops a redirect response from sending the bearer token to another host.
-    session = make_tracked_session(redact_values=(access_token,), allow_redirects=False)
-
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume is not None and resume.next_url:
-        # Resume state comes from Redis — validate before sending the token to it.
-        url: str | None = _validate_pagination_url(resume.next_url)
-        logger.debug(f"Zendesk Sell: resuming {endpoint} from URL: {url}")
-    else:
-        url = _build_initial_url(config.path)
-
-    while url:
-        payload = _fetch_page(session, url, headers, logger)
-
-        records = _extract_records(payload)
-        next_url = payload.get("meta", {}).get("links", {}).get("next_page")
-        # The upstream-supplied next-page URL is followed verbatim with the bearer token — pin it to
-        # the Zendesk Sell API so a hostile response can't retarget the authenticated request.
-        if next_url:
-            next_url = _validate_pagination_url(next_url)
-
-        if records:
-            yield records
-
-        # Save AFTER yielding so a crash re-yields the last page rather than skipping it; merge dedupes
-        # on the primary key. Only persist when there's another page to resume to.
-        if next_url:
-            resumable_source_manager.save_state(ZendeskSellResumeConfig(next_url=next_url))
-
-        url = next_url
+    return item["data"]
 
 
 def zendesk_sell_source(
     access_token: str,
     endpoint: str,
-    logger: FilteringBoundLogger,
+    team_id: int,
+    job_id: str,
     resumable_source_manager: ResumableSourceManager[ZendeskSellResumeConfig],
 ) -> SourceResponse:
     config = ZENDESK_SELL_ENDPOINTS[endpoint]
 
+    rest_config: RESTAPIConfig = {
+        "client": {
+            "base_url": ZENDESK_SELL_BASE_URL,
+            # Auth (Bearer) goes through the framework auth config so the token is redacted from logged
+            # URLs, captured samples, and raised error messages; only the non-secret Accept header here.
+            "headers": {"Accept": "application/json"},
+            "auth": {"type": "bearer", "token": access_token},
+            "paginator": ZendeskSellNextPagePaginator(),
+            # `allow_redirects=False` stops a redirect response from sending the bearer token to another
+            # host; the paginator already pins every next/resume URL to the API origin.
+            "allow_redirects": False,
+        },
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {"per_page": PER_PAGE},
+                    # The envelope wraps every row under `items[*].data`; select the item list, then
+                    # unwrap `data` per item (via `data_map` below) so a missing `data` key fails loud
+                    # (KeyError) instead of silently dropping the record. Missing/empty `items` is a
+                    # legit zero-row page.
+                    "data_selector": "items",
+                },
+                "data_map": _extract_item_data,
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.next_url:
+            initial_paginator_state = {"next_url": resume.next_url}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields the
+        # last page (merge dedupes) rather than skipping it.
+        if state and state.get("next_url"):
+            resumable_source_manager.save_state(ZendeskSellResumeConfig(next_url=state["next_url"]))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,  # every Zendesk Sell endpoint is full refresh
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(
-            access_token=access_token,
-            endpoint=endpoint,
-            logger=logger,
-            resumable_source_manager=resumable_source_manager,
-        ),
+        items=lambda: resource,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
     )
 
 
 def validate_credentials(access_token: str) -> bool:
     """Cheap probe that the access token is genuine: list a single contact."""
     url = f"{ZENDESK_SELL_BASE_URL}/v2/contacts?{urlencode({'per_page': 1})}"
-    try:
-        session = make_tracked_session(redact_values=(access_token,), allow_redirects=False)
-        response = session.get(url, headers=_get_headers(access_token), timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(access_token,), allow_redirects=False),
+        url,
+        headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+    )
+    return ok

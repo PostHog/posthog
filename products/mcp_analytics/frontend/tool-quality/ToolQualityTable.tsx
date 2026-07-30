@@ -38,7 +38,7 @@ import {
 
 const DESTRUCTIVE_ERROR_PCT = 5
 
-// LIMIT in tool_quality.sql — when the fetched set hits this, more tools may exist.
+// LIMIT in MCPToolQualityRowsQueryRunner — when the fetched set hits this, more tools may exist.
 const TOOL_ROW_LIMIT = 200
 
 function formatToolCount(filtered: number, total: number): string {

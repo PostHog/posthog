@@ -21,6 +21,10 @@ MAX_METRIC_ATTEMPTS = 8
 # exponential schedule.
 CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS = 60
 
+RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS = 5
+RECALCULATION_RETRY_BACKOFF_COEFFICIENT = 2.0
+RECALCULATION_RETRY_MAX_INTERVAL_SECONDS = 60
+
 # classify_experiment_query_error classes that are deterministic for a fixed query and data window: retrying
 # burns a full ClickHouse query per attempt without changing the outcome, so the activity fails non-retryable
 # and persists immediately. timeout is deliberately absent — the class conflates TIMEOUT_EXCEEDED with

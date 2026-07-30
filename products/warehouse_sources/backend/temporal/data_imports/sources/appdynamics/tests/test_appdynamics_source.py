@@ -14,7 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamic
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamics.source import AppdynamicsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.appdynamics import (
     AppdynamicsAuthMethodConfig,
     AppdynamicsSourceConfig,
 )

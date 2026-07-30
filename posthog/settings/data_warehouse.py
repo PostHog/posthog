@@ -50,6 +50,26 @@ DATA_WAREHOUSE_REPARTITION_OOM_WINDOW_DAYS = get_from_env(
 # path never runs for them). Vacuum only deletes dead files, so it's memory-safe even on oversized tables.
 DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD = get_from_env("DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD", 100, type_cast=int)
 
+# delta-rs merge spill-to-disk. A merge decompresses the target partition into an Arrow working set that
+# can exceed the 29 GB pod limit and OOM — killing every co-tenant activity on the pod. When set, delta-rs
+# hands DataFusion a bounded memory pool: once the merge's in-memory bytes cross MAX_SPILL_SIZE it spills
+# the overflow to its temp directory (the process TMPDIR) instead of allocating unbounded. Left as None,
+# DataFusion runs with its unbounded default (today's behavior) — so this is a no-op until BOTH the byte
+# budget and a scratch disk are provisioned (the temporal-worker-data-warehouse / warehouse-sources-load
+# pods mount an ephemeral volume at /tmp and set these env vars).
+#
+# Sizing interacts with concurrency: each merge gets its own DataFusion pool, so N concurrent merges on a
+# pod can hold up to N * MAX_SPILL_SIZE in memory and N * MAX_TEMP_DIRECTORY_SIZE on the shared disk. Keep
+# MAX_SPILL_SIZE below the designed per-partition working set (~10 GB) so genuinely-large merges spill
+# before the multi-tenant OOM, while typical small merges stay in memory (spilling is slow). Keep
+# MAX_TEMP_DIRECTORY_SIZE small enough that a few concurrent spills fit the mounted disk.
+DATA_WAREHOUSE_DELTA_MERGE_MAX_SPILL_SIZE_BYTES: int | None = get_from_env(
+    "DATA_WAREHOUSE_DELTA_MERGE_MAX_SPILL_SIZE_BYTES", None, optional=True, type_cast=int
+)
+DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES: int | None = get_from_env(
+    "DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES", None, optional=True, type_cast=int
+)
+
 GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL")
 GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY")
 GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID")

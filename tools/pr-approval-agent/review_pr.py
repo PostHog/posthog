@@ -53,7 +53,16 @@ from gates import (
     test_only,
 )
 from gateway import analytics_extra_properties
-from github import TRUSTED_REACTOR_BOTS, PRData, check_team_membership, fetch_pr, write_pr_diff
+from github import (
+    TRUSTED_REACTOR_BOTS,
+    CommitProvenance,
+    PRData,
+    check_team_membership,
+    fetch_pr,
+    pr_provenance,
+    provenance_evidence,
+    write_pr_diff,
+)
 from manifest_risk import manifest_script_changes
 from migration_risk import migration_check_pending, safe_migration_files
 from policy import EffectivePolicy, ScopeBudget, _sanitize_untrusted, repo_root, resolve
@@ -190,6 +199,8 @@ class Pipeline:
         self.verbose = verbose
         self._wait_refetched_pr = False
         self.pr: PRData | None = None
+        self.provenance: CommitProvenance | None = None
+        self.familiarity: AuthorFamiliarity | None = None
         self.classification: dict = {}
         self.effective_policy: EffectivePolicy | None = None
         self._diff_path: Path | None = None
@@ -361,6 +372,7 @@ class Pipeline:
     def _fetch(self) -> None:
         print(_dim("Fetching PR data..."))
         self.pr = fetch_pr(self.pr_number, self.repo, repo_root=REPO_ROOT)
+        self.provenance = pr_provenance(self.pr.base_sha, self.pr.head_sha, REPO_ROOT)
         print(_dim(f"  {self.pr.title}"))
         print(
             _dim(
@@ -446,9 +458,9 @@ class Pipeline:
             "ownership": ownership,
             "folder_policy_prose": self.effective_policy.folder_prose,
             "assurance": self._summarize_assurance(),
-            # Judgment-layer signal, filled in later only for the T1-agent path
-            # (see _maybe_compute_familiarity). None here keeps every other path
-            # - and the reviewer prompt - byte-identical to before.
+            # Judgment-layer signal for the reviewer prompt, attached later on
+            # the T1-agent path only (see _maybe_compute_familiarity). None here
+            # keeps the other paths' prompts byte-identical to before.
             "familiarity": None,
         }
 
@@ -496,15 +508,17 @@ class Pipeline:
         }
 
     def _maybe_compute_familiarity(self) -> None:
-        """Attach the author-familiarity signal for the T1-agent path only.
+        """Compute the author-familiarity signal on every LLM-reviewed run.
 
         Judgment layer only - never touches gates, and any failure leaves the
-        signal absent (None) so behavior stays exactly as before. T0 skips the
-        LLM and T2 is a deny, so neither benefits from the signal.
+        signal absent (None). The reviewer prompt receives it on the T1-agent
+        path only (T0 auto-approves and T2 is a deny, so their prompts stay
+        unchanged); telemetry captures it from every run so familiarity can be
+        trended per subsystem, not just where the reviewer consumes it.
         """
-        if self.classification.get("tier") != "T1-agent":
-            return
-        self.classification["familiarity"] = self._compute_familiarity()
+        self.familiarity = self._compute_familiarity()
+        if self.classification.get("tier") == "T1-agent":
+            self.classification["familiarity"] = self.familiarity
 
     def _compute_familiarity(self) -> AuthorFamiliarity | None:
         pr = self.pr
@@ -780,6 +794,8 @@ class Pipeline:
 
         cl = self.classification
         pr = self.pr
+        fam = self.familiarity
+        prov = self.provenance
         posthoganalytics.capture(
             distinct_id=pr.author,
             event="stamphog_review_completed",
@@ -803,6 +819,16 @@ class Pipeline:
                 "stamphog_lines_total": pr.lines_total,
                 "stamphog_pr_reactions_count": len(pr.pr_reactions),
                 "stamphog_title_scrutiny_flags": cl.get("title_scrutiny_flags", []),
+                "stamphog_owner_teams": (cl.get("ownership") or {}).get("teams", []),
+                "stamphog_familiarity_band": fam.band if fam else "",
+                "stamphog_familiarity_blame_overlap_pct": round(fam.blame_overlap_pct, 1) if fam else None,
+                "stamphog_familiarity_prior_prs_in_paths": fam.prior_prs_in_paths if fam else None,
+                "stamphog_familiarity_days_since_last_touch": fam.days_since_last_touch if fam else None,
+                "stamphog_agent_authored": prov.agent_authored if prov else None,
+                "stamphog_agent_commit_count": prov.agent_commit_count if prov else None,
+                "stamphog_commit_count": prov.commit_count if prov else None,
+                "stamphog_generated_by": list(prov.generated_by) if prov else [],
+                "stamphog_task_ids": list(prov.task_ids) if prov else [],
                 "stamphog_gate_verdict": gate_verdict,
                 "stamphog_llm_verdict": llm_verdict,
                 "stamphog_final_verdict": self.final_verdict,
@@ -891,8 +917,9 @@ class Pipeline:
                 "title_scrutiny_flags": self.classification.get("title_scrutiny_flags", []),
                 "safe_migration_files": self.classification.get("safe_migration_files", []),
                 "ownership": self.classification.get("ownership", {}),
-                "familiarity": familiarity_evidence(self.classification.get("familiarity")),
+                "familiarity": familiarity_evidence(self.familiarity),
             },
+            "provenance": provenance_evidence(self.provenance),
             "gates": [
                 {"gate": g.gate, "passed": g.passed, "message": g.message} for g in self.gate_results if g is not None
             ],

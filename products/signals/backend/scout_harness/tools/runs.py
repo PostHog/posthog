@@ -81,6 +81,10 @@ class RunSummary:
     # one-liner. Both are surfaced only for failed/cancelled runs — null otherwise (incl. success).
     error: str | None = None
     failure_reason: str | None = None
+    # Scout-owned per-run context stamped at run creation (today: the routed model triple —
+    # `model` / `runtime_adapter` / `reasoning_effort`). Empty for default-model runs and rows
+    # predating the column.
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -120,6 +124,10 @@ class RunDetail:
     # one-liner. Both are surfaced only for failed/cancelled runs — null otherwise (incl. success).
     error: str | None = None
     failure_reason: str | None = None
+    # Scout-owned per-run context stamped at run creation (today: the routed model triple —
+    # `model` / `runtime_adapter` / `reasoning_effort`). Empty for default-model runs and rows
+    # predating the column.
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -303,6 +311,7 @@ def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:
         task_url=_build_task_url(team_id=team_id, task_id=task_id, task_run_id=task_run_id),
         error=error,
         failure_reason=failure_reason,
+        metadata=dict(row.metadata or {}),
     )
 
 

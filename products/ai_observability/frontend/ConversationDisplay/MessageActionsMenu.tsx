@@ -30,7 +30,7 @@ export const MessageActionsMenu = ({ content, traceId }: MessageActionsMenuProps
         item_id: traceId || '',
     }
     const commentsLogicInstance = commentsLogic(commentsLogicProps)
-    const { maybeLoadComments } = useActions(commentsLogicInstance)
+    const { maybeLoadComments, startNewComment } = useActions(commentsLogicInstance)
 
     const logic = messageActionsMenuLogic({ content })
     const { showConsentPopover, dataProcessingAccepted } = useValues(logic)
@@ -41,6 +41,11 @@ export const MessageActionsMenu = ({ content, traceId }: MessageActionsMenuProps
     }
 
     const insertQuoteIntoEditor = (quotedContent: string, retries = 0): void => {
+        // The logic can be unmounted before this deferred callback runs (e.g. the user navigates
+        // away or switches traces), so bail out rather than reading `.values` off a torn-down store.
+        if (!commentsLogicInstance.isMounted()) {
+            return
+        }
         // Access editor via .values to get the latest value at retry time, not render time
         const editor = commentsLogicInstance.values.richContentEditor
         if (editor) {
@@ -54,6 +59,9 @@ export const MessageActionsMenu = ({ content, traceId }: MessageActionsMenuProps
 
     const handleStartDiscussion = (): void => {
         maybeLoadComments()
+        // Exit any in-progress reply and deregister its editor, so the retry loop below
+        // waits for the footer composer instead of pasting into a thread's reply composer
+        startNewComment()
         openSidePanel(SidePanelTab.Discussion)
 
         const truncatedContent =

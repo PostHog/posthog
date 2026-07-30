@@ -1,6 +1,14 @@
+import posthog from 'posthog-js'
+
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import { FeatureFlagType } from '~/types'
+
+export type FeatureFlagArchivedSource = 'archive-dialog' | 'disable-confirmation'
+
+export function reportFeatureFlagArchived(via: FeatureFlagArchivedSource): void {
+    posthog.capture('feature flag archived', { via })
+}
 
 /**
  * Opens the archive confirmation dialog for a feature flag. The warning copy lives here so the

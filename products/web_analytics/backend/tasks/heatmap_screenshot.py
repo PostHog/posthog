@@ -4,6 +4,7 @@ from datetime import timedelta
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 
 import requests
@@ -19,7 +20,7 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.security.url_validation import is_url_allowed
 from posthog.tasks.utils import CeleryQueue
 
-from products.web_analytics.backend.api.heatmaps_utils import DEFAULT_TARGET_WIDTHS, MAX_TARGET_WIDTHS
+from products.web_analytics.backend.api.heatmaps_utils import DEFAULT_TARGET_WIDTHS, MAX_TARGET_WIDTHS, PREWARM_TTL
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 
 logger = structlog.get_logger(__name__)
@@ -222,8 +223,24 @@ def generate_heatmap_screenshot(self: Task, screenshot_id: str) -> None:
             width_count = _generate_screenshots(screenshot)
             duration_seconds = round(time.monotonic() - started_at, 2)
 
-            screenshot.status = SavedHeatmap.Status.COMPLETED
-            screenshot.save()
+            # If a create expanded target_widths mid-render, finish the new widths in a follow-up run
+            # rather than marking complete. The row lock keeps this in step with the create's enqueue check.
+            with transaction.atomic():
+                locked = SavedHeatmap.objects.select_for_update().get(id=screenshot.id)
+                remaining = _unrendered_widths(locked)
+                if not remaining:
+                    locked.status = SavedHeatmap.Status.COMPLETED
+                    locked.save(update_fields=["status", "updated_at"])
+
+            if remaining:
+                logger.info(
+                    "heatmap_screenshot.followup_enqueued",
+                    screenshot_id=screenshot.id,
+                    team_id=screenshot.team_id,
+                    remaining=remaining,
+                )
+                generate_heatmap_screenshot.delay(screenshot.id)
+                return
 
             HEATMAP_SCREENSHOT_SUCCEEDED.inc()
             HEATMAP_SCREENSHOT_TIMER.labels(outcome="succeeded").observe(duration_seconds)
@@ -481,6 +498,20 @@ def _persist_snapshot(screenshot: SavedHeatmap, width: int, image_data: bytes) -
     snapshot.save()
 
 
+def _rendered_widths(screenshot: SavedHeatmap, widths: list[int]) -> set[int]:
+    return set(
+        HeatmapSnapshot.objects.filter(heatmap=screenshot, width__in=widths, content__isnull=False).values_list(
+            "width", flat=True
+        )
+    )
+
+
+def _unrendered_widths(screenshot: SavedHeatmap) -> list[int]:
+    widths = _resolve_widths(screenshot)
+    rendered = _rendered_widths(screenshot, widths)
+    return [w for w in widths if w not in rendered]
+
+
 def _generate_screenshots(screenshot: SavedHeatmap) -> int:
     widths = _resolve_widths(screenshot)
     return _generate_browserless_screenshots(screenshot, widths)
@@ -492,15 +523,19 @@ def _generate_browserless_screenshots(screenshot: SavedHeatmap, widths: list[int
     endpoint_url = _build_browserless_screenshot_url()
     if not endpoint_url:
         raise BrowserlessPermanentError("Browserless screenshot URL is not configured", cause="not_configured")
+    # Skip widths already rendered, so promoting a prewarm only renders the still-missing widths.
+    already_rendered = _rendered_widths(screenshot, widths)
+    pending = [w for w in widths if w not in already_rendered]
     logger.info(
         "heatmap_screenshot.rendering_widths",
         screenshot_id=screenshot.id,
         team_id=screenshot.team_id,
-        width_count=len(widths),
-        widths=widths,
+        width_count=len(pending),
+        widths=pending,
+        reused_widths=sorted(already_rendered),
     )
     count = 0
-    for w in widths:
+    for w in pending:
         image_data = _browserless_screenshot(endpoint_url, screenshot.url, w, screenshot.block_consent_modals)
         _persist_snapshot(screenshot, w, image_data)
         count += 1
@@ -535,3 +570,44 @@ def report_stuck_heatmap_screenshots() -> int:
             ],
         )
     return count
+
+
+def _capture_prewarm_wasted(rows: list[SavedHeatmap]) -> None:
+    # A prewarm reaped without being promoted is a cache miss — a speculative render the user never
+    # turned into a heatmap. `rendered` marks the ones that actually paid the Browserless cost.
+    rendered_ids = set(
+        HeatmapSnapshot.objects.filter(heatmap__in=rows, content__isnull=False).values_list("heatmap_id", flat=True)
+    )
+    now = timezone.now()
+    try:
+        with ph_scoped_capture() as capture:
+            for row in rows:
+                team = row.team
+                capture(
+                    distinct_id=str(team.uuid),
+                    event="heatmap prewarm wasted",
+                    properties={
+                        "team_id": team.id,
+                        "url": row.url,
+                        "rendered": row.id in rendered_ids,
+                        "status": row.status,
+                        "age_seconds": round((now - row.created_at).total_seconds()),
+                        "screenshot_id": str(row.id),
+                    },
+                    groups={"organization": str(team.organization_id), "project": str(team.id)},
+                )
+    except Exception:
+        logger.warning("heatmap_screenshot.prewarm_wasted_capture_failed", exc_info=True)
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.EXPORTS.value)
+@skip_team_scope_audit
+def reap_stale_prewarm_heatmaps() -> int:
+    cutoff = timezone.now() - PREWARM_TTL
+    stale = list(SavedHeatmap.objects.filter(is_prewarm=True, created_at__lt=cutoff).select_related("team"))
+    if not stale:
+        return 0
+    _capture_prewarm_wasted(stale)
+    SavedHeatmap.objects.filter(id__in=[row.id for row in stale], is_prewarm=True, created_at__lt=cutoff).delete()
+    logger.info("heatmap_screenshot.reaped_prewarm", reaped_count=len(stale))
+    return len(stale)

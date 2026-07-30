@@ -19,7 +19,7 @@ from prometheus_client import REGISTRY
 
 from posthog.hogql.errors import QueryError
 
-from posthog.caching.fetch_from_cache import InsightResult
+from posthog.caching.insight_result import InsightResult
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,

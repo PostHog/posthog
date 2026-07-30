@@ -3,12 +3,17 @@ import uuid
 import pytest
 
 from asgiref.sync import async_to_sync
+from temporalio.exceptions import ApplicationError
 
 from products.tasks.backend.temporal.task_management.activities.pending_followups import (
+    PENDING_FOLLOWUPS_GENERATION_STATE_KEY,
     PENDING_FOLLOWUPS_STATE_KEY,
+    TASK_RUN_NOT_FOUND_ERROR_TYPE,
     PersistPendingFollowupsInput,
+    PersistPendingFollowupsV2Input,
     ReadPendingFollowupsInput,
     persist_pending_followups,
+    persist_pending_followups_v2,
     read_pending_followups,
 )
 
@@ -61,6 +66,46 @@ class TestPersistPendingFollowups:
         assert test_task_run.state[PENDING_FOLLOWUPS_STATE_KEY] == [
             {"message": "m", "artifact_ids": [], "source": "user"}
         ]
+
+    def test_older_generation_cannot_overwrite_newer_queue(self, activity_environment, test_task_run):
+        run_id = str(test_task_run.id)
+        first = [{"message": "first", "artifact_ids": [], "source": "user", "sequence": 1}]
+        complete = [
+            *first,
+            {"message": "second", "artifact_ids": [], "source": "user", "sequence": 2},
+        ]
+
+        for generation, followups in [(1, first), (2, complete), (1, first)]:
+            async_to_sync(activity_environment.run)(
+                persist_pending_followups_v2,
+                PersistPendingFollowupsV2Input(
+                    run_id=run_id,
+                    followups=followups,
+                    generation=generation,
+                ),
+            )
+        async_to_sync(activity_environment.run)(
+            persist_pending_followups,
+            PersistPendingFollowupsInput(run_id=run_id, followups=first),
+        )
+
+        test_task_run.refresh_from_db()
+        assert test_task_run.state[PENDING_FOLLOWUPS_STATE_KEY] == complete
+        assert test_task_run.state[PENDING_FOLLOWUPS_GENERATION_STATE_KEY] == 2
+
+    def test_missing_task_run_is_non_retryable(self, activity_environment):
+        with pytest.raises(ApplicationError) as exc_info:
+            async_to_sync(activity_environment.run)(
+                persist_pending_followups_v2,
+                PersistPendingFollowupsV2Input(
+                    run_id=str(uuid.uuid4()),
+                    followups=[],
+                    generation=1,
+                ),
+            )
+
+        assert exc_info.value.type == TASK_RUN_NOT_FOUND_ERROR_TYPE
+        assert exc_info.value.non_retryable is True
 
 
 @pytest.mark.requires_secrets

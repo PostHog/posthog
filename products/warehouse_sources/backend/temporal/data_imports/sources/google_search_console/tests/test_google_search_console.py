@@ -8,7 +8,7 @@ from django.db import OperationalError
 import requests
 from google.auth.exceptions import RefreshError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesearchconsole import (
     GoogleSearchConsoleSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console import (

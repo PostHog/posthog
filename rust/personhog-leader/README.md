@@ -51,6 +51,46 @@ TBD:
 - below the offset: state is durably in Postgres
 - at or above the offset: state is PG + the changes in our distributed log (the kafka topic)
 
+#### Admission
+
+Every record the leader produces to the changelog must be applyable by the
+writer's upsert verbatim: the changelog is the source of truth, Postgres is a
+downstream consumer of it, and a record the writer cannot apply would leave
+acked state that never lands (the writer halts rather than skip, since every
+later snapshot for a person builds on the same state). Admission enforces
+this before the ack, under the per-person lock, on the merged result of each
+update:
+
+1. **Sanitize** (`personhog_common::properties::sanitize_for_jsonb`): NUL
+   (`\u0000`) becomes `\u{FFFD}` in every string, matching the Node
+   pipeline's `sanitizeJsonbValue` — Postgres jsonb refuses NUL. Floats
+   beyond ±1e307 are clamped: Postgres renders jsonb numerics in expanded
+   decimal, and serde_json cannot parse expansions of ~1e308+, so larger
+   values would apply but never load back.
+2. **Measure** (`jsonb_column_size`): an exact reimplementation of
+   `pg_column_size` for JSONB, welded byte-equal to a live Postgres by
+   `personhog-common/tests/jsonb_size_pg.rs`. A merged result above the
+   threshold (the `check_properties_size` ceiling) follows the Node
+   pipeline's policy (`handleOversizedPersonProperties`): if the stored
+   row was already over the threshold, it is remediated — non-protected
+   properties trimmed alphabetically to the target, the triggering
+   update's property changes discarded; if the row was within limits, the
+   update is rejected with `INVALID_ARGUMENT`. Errors carry sizes, never
+   values, and remediation that cannot fit (protected properties alone
+   exceed the target) also rejects. `PropertySizeLimits::new` refuses
+   inverted configuration at startup.
+3. **Assert** (`assert_writeable`): identity fields that originate from
+   earlier state (uuid parses, team_id fits the column's integer,
+   created_at within sane bounds) — corrupt state must never reach the
+   changelog.
+
+Trims and rejections emit `person_properties_size_violation` ingestion
+warnings (`src/warnings.rs`), throttled per (team, type) to match the Node
+pipeline's limiter. The writer-side weld
+(`personhog-writer/tests/admission_weld.rs`) runs hostile property fixtures
+through these exact functions and the writer's real statement against live
+Postgres, asserting byte-exact round-trips.
+
 #### Cache warming on partition handoff
 
 When a partition moves between leader pods, the new owner repopulates
@@ -155,7 +195,8 @@ graph TB
     subgraph POD[PersonHog Leader BE]
         direction TB
         VALIDATE[Validate ownership] --> COMPUTE[Compute write]
-        COMPUTE --> CACHE[Update in-memory cache]
+        COMPUTE --> ADMIT[Admission: sanitize, measure, reject/remediate]
+        ADMIT --> CACHE[Update in-memory cache]
         CACHE --> KAFKA[Durably store to Kafka]
     end
 

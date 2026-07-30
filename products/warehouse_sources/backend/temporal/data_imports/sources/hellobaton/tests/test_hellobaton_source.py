@@ -3,7 +3,9 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HellobatonSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hellobaton import (
+    HellobatonSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.hellobaton.hellobaton import (
     HellobatonResumeConfig,
 )

@@ -14,7 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.float_app.
     FLOAT_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.float_app.source import FloatAppSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FloatAppSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.floatapp import (
+    FloatAppSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _CURSOR_ENDPOINTS = {"deleted_tasks", "deleted_timeoffs", "deleted_logged_time"}

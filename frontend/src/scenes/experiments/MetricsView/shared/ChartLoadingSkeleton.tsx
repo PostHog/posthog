@@ -9,11 +9,15 @@ export function SkeletonResultCells({
     variantKey,
     className,
     detailsCell,
+    chartCell,
 }: {
     variantKey: string
     className: string
     // Rendered between P-value and Chart, with rowSpan, on the baseline row only; matches the real layout
     detailsCell?: JSX.Element
+    // Replaces the chart-column skeleton: pass a custom cell (e.g. the retry state, with rowSpan, on the
+    // baseline row) or null to omit the cell entirely (subsequent rows covered by that rowSpan)
+    chartCell?: JSX.Element | null
 }): JSX.Element {
     return (
         <>
@@ -52,14 +56,18 @@ export function SkeletonResultCells({
             {detailsCell}
 
             {/* Chart: mirrors ChartCell's wrapper so the bar lands where the real chart will */}
-            <td
-                className={clsx('p-0 align-middle text-center relative overflow-hidden', className)}
-                style={FIXED_HEIGHT_STYLE}
-            >
-                <div className="px-3">
-                    <LemonSkeleton className="h-3 w-full" />
-                </div>
-            </td>
+            {chartCell !== undefined ? (
+                chartCell
+            ) : (
+                <td
+                    className={clsx('p-0 align-middle text-center relative overflow-hidden', className)}
+                    style={FIXED_HEIGHT_STYLE}
+                >
+                    <div className="px-3">
+                        <LemonSkeleton className="h-3 w-full" />
+                    </div>
+                </td>
+            )}
         </>
     )
 }

@@ -14,7 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     DEFAULT_RETRY,
     make_tracked_session,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DoItSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.doit import DoItSourceConfig
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # DoIt's API sits behind Cloudflare, which returns 52x origin errors (e.g. 524 when the origin

@@ -9,7 +9,9 @@ from posthog.schema import SourceFieldInputConfig, SourceFieldSelectConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.concord import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.concord.concord import ConcordResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.concord.source import ConcordSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import ConcordSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.concord import (
+    ConcordSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

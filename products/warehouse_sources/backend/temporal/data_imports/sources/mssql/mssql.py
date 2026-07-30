@@ -59,7 +59,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     normalize_namespace,
     resolve_source_location,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MSSQLSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mssql import MSSQLSourceConfig
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 __all__ = [
@@ -823,6 +823,46 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
             logger.debug(f"fetch_average_row_size: Error: {e}.", exc_info=e)
             capture_exception(e)
             return None
+
+    def get_rows_to_sync(
+        self,
+        cursor: pymssql.Cursor,
+        inner_query: str,
+        inner_query_args: Any,
+        logger: FilteringBoundLogger,
+    ) -> int:
+        """Count the rows the given `inner_query` will produce. Returns 0 on error.
+
+        Runs before any rows are streamed, so a 1205 deadlock victim here is exactly as
+        safe to rerun as the main read query — wrap it in the same `retry_on_deadlock`
+        rather than falling straight through to the base class's catch-all, which would
+        give up on the first lock conflict instead of recovering an accurate count.
+        """
+        try:
+            query = f"SELECT COUNT(*) FROM ({inner_query}) as t"
+
+            def _run() -> Any:
+                cursor.execute(query, inner_query_args)
+                return cursor.fetchone()
+
+            row = retry_on_deadlock(_run, logger=logger)
+
+            if row is None:
+                logger.debug("get_rows_to_sync: No results returned. Using 0 as rows to sync")
+                return 0
+
+            rows_to_sync_int = int(row[0] or 0)
+            logger.debug(f"get_rows_to_sync: rows_to_sync_int={rows_to_sync_int}")
+            return rows_to_sync_int
+        except Exception as e:
+            # This COUNT(*) is a best-effort estimate for progress reporting and partition
+            # sizing. It shares its FROM/WHERE with the real streaming query, so any genuine
+            # problem (missing column, bad incremental field, permissions) resurfaces there
+            # and is classified through the normal retryable/non-retryable path. Capturing it
+            # here too would only flood error tracking with handled duplicates, so log at
+            # debug and fall back to 0.
+            logger.debug(f"get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
+            return 0
 
     # ------------------------------------------------------------------
     # Pipeline build — the dlt `SourceResponse` for a single table

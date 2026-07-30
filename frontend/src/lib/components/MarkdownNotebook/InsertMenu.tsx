@@ -399,7 +399,10 @@ export function buildInsertCommands(
                 insertComponent(targetNodeId, 'Query', {
                     query: {
                         kind: 'DataTableNode',
-                        source: { kind: 'HogQLQuery', query: 'select event, count() from events group by event' },
+                        source: {
+                            kind: 'HogQLQuery',
+                            query: 'select event, count() from events where timestamp >= now() - interval 7 day group by event',
+                        },
                     },
                 }),
         },

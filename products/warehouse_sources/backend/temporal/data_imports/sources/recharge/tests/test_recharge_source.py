@@ -2,7 +2,9 @@ from unittest.mock import MagicMock, patch
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RechargeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.recharge import (
+    RechargeSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.recharge.recharge import RechargeResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.recharge.settings import (
     ENDPOINTS,

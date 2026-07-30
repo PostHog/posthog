@@ -40,8 +40,10 @@ use cohort_stream_processor::store::durability::{
     S3Uploader, TrackedTopic, CHECKPOINT_LOOP_NAME,
 };
 use cohort_stream_processor::store::{CohortStore, StoreHandle};
-use cohort_stream_processor::sweep::{run_sweep_loop, run_sweep_loop_delayed, DispatchSweeper};
-use cohort_stream_processor::workers::MergeWorkerDeps;
+use cohort_stream_processor::sweep::{
+    run_sweep_loop, run_sweep_loop_delayed, DispatchSweeper, ReconcileDrainSweeper,
+};
+use cohort_stream_processor::workers::{MergeWorkerDeps, ReconcileBacklog, ReconcileDeps};
 
 common_alloc::used!();
 
@@ -216,6 +218,7 @@ async fn async_main(config: Config) -> Result<()> {
     } else {
         Arc::new(NoopSeedTileSink)
     };
+    let reconcile_backlog = Arc::new(ReconcileBacklog::default());
     let merge_deps = Arc::new(MergeWorkerDeps {
         transfer_sink,
         stream_event_sink,
@@ -232,6 +235,12 @@ async fn async_main(config: Config) -> Result<()> {
         seed_tracker: Arc::new(OffsetTracker::new()),
         // Unconditional (cheap): the event path observes regardless of the seed gate.
         live_watermarks: Arc::new(LiveWatermarks::new()),
+        register_transfer_enabled: config.cohort_register_transfer_enabled,
+        reconcile: ReconcileDeps {
+            enabled: config.cohort_seed_reconcile_enabled,
+            scan_page: config.cohort_seed_reconcile_scan_page,
+            backlog: reconcile_backlog.clone(),
+        },
     });
 
     // Cheap `Arc` clones taken before the originals move into the dispatcher: the checkpoint sweeper
@@ -479,6 +488,15 @@ async fn async_main(config: Config) -> Result<()> {
         "merge_gc",
         consumer_handle.shutdown_token(),
     ));
+
+    if config.cohort_seed_reconcile_enabled {
+        tokio::spawn(run_sweep_loop(
+            ReconcileDrainSweeper::new(dispatcher.clone(), reconcile_backlog),
+            config.reconcile_tick_interval(),
+            "reconcile",
+            consumer_handle.shutdown_token(),
+        ));
+    }
 
     // Publish store cache/size metrics via the sweep machinery, and Tokio runtime metrics via a
     // separate monitor.
@@ -772,6 +790,9 @@ fn log_startup(config: &Config) {
         seed_topic = %config.cohort_stream_seed_events_topic,
         seed_consumer_group = %config.kafka_seed_consumer_group,
         seed_fence_margin_ms = config.cohort_seed_fence_margin_ms,
+        cohort_seed_reconcile_enabled = config.cohort_seed_reconcile_enabled,
+        cohort_seed_reconcile_scan_page = config.cohort_seed_reconcile_scan_page,
+        cohort_seed_reconcile_tick_interval_ms = config.cohort_seed_reconcile_tick_interval_ms,
         "starting cohort-stream-processor",
     );
 }

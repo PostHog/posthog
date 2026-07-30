@@ -31,6 +31,9 @@ class IntercomEndpointConfig:
     incremental_query_param: str | None = None
     # Substream wiring — when set, this endpoint is fetched per-row of `parent_endpoint`.
     parent_endpoint: str | None = None
+    # Fields whose Intercom JSON type is inconsistent across records (int vs string);
+    # coerced to string at the source so every Arrow batch infers one stable type.
+    coerce_string_fields: list[str] = field(default_factory=list)
 
 
 # Endpoint contracts validated against the live Intercom REST API (version 2.13).
@@ -99,6 +102,7 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
         paginator_kind="search",
         method="POST",
         partition_key="created_at",
+        coerce_string_fields=["owner_id"],
     ),
     "conversations": IntercomEndpointConfig(
         name="conversations",
@@ -175,6 +179,7 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
         paginator_kind="substream",
         parent_endpoint="conversations",
         partition_key="created_at",
+        coerce_string_fields=["waiting_since"],
     ),
     "company_segments": IntercomEndpointConfig(
         # Substream of `companies`. Intercom doesn't expose a server-side

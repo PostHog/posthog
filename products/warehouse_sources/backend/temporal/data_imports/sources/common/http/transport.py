@@ -25,7 +25,25 @@ from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer import record_request
 
-DEFAULT_RETRY = Retry(
+
+class BoundedRetry(Retry):
+    """`Retry` that caps the honoured `Retry-After` sleep.
+
+    A server can send a `Retry-After` far larger than any sane wait — an absurd
+    integer or a date decades out. urllib3 passes it straight to `time.sleep`,
+    which raises `OverflowError` once it exceeds what a C `PyTime_t` can hold,
+    killing the sync. Bounding it to the backoff ceiling keeps a hostile value
+    from overflowing (and from parking a worker for hours).
+    """
+
+    def get_retry_after(self, response: Any) -> float | None:
+        retry_after = super().get_retry_after(response)
+        if retry_after is None:
+            return None
+        return min(retry_after, self.DEFAULT_BACKOFF_MAX)
+
+
+DEFAULT_RETRY = BoundedRetry(
     total=3,
     backoff_factor=0.5,
     status_forcelist=(429, 500, 502, 503, 504),
