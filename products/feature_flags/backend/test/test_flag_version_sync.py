@@ -262,7 +262,11 @@ class TestFlagDependencyVersionSync(BaseTest):
         assert unrelated.version == 1
         assert deleted_dependent.version == 1
 
-        assert _updated_entries(base) == []
+        # base's own save logs the ordinary field diff via ModelActivityMixin, never a
+        # dependency-driven bump on top of it.
+        (base_entry,) = _updated_entries(base)
+        assert base_entry.detail is not None
+        assert base_entry.detail.get("trigger") is None
         assert _updated_entries(unrelated) == []
         assert _updated_entries(deleted_dependent) == []
         for flag, before, after in ((dependent, 1, 2), (transitive, None, 1), (cycling, 1, 2)):
