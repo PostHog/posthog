@@ -67,6 +67,12 @@ export interface ProductEmptyStateConfig {
     wizard?: ProductEmptyStateWizard
     /** Primary CTA for products set up in the UI rather than via the wizard, e.g. "Create your first flag" */
     primaryAction?: ProductEmptyStatePrimaryAction
+    /**
+     * Rendered in the primary-action slot instead of the `primaryAction` button, for
+     * actions that need hooks - e.g. a create flow that opens PostHog AI via `useMaxTool`.
+     * Takes precedence over `primaryAction`.
+     */
+    PrimaryAction?: ComponentType
     docsUrl?: string
     /** Target of the small "Or configure manually" link; falls back to `docsUrl` */
     manualSetupUrl?: string
@@ -76,6 +82,12 @@ export interface ProductEmptyStateConfig {
     Preview: ComponentType<{ mode: ProductEmptyStateMode }>
     /** Product-specific live status line (e.g. a "listening for events" indicator), rendered under the command block */
     statusIndicator?: ReactNode
+    /**
+     * Whether the "Skip for now" escape hatch shows. Defaults to true. Set false for
+     * creation-first products where the gated scene is just an empty list, so skipping
+     * has nothing to reveal and the primary action is the only next step.
+     */
+    skippable?: boolean
 }
 
 /**

@@ -30,6 +30,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { LLMSkillListApi } from 'products/skills/frontend/generated/api.schemas'
 
+import { llmSkillsEmptyState } from './emptyState/llmSkillsEmptyState'
 import {
     DEFAULT_SKILLS_TAB_KEY,
     SKILLS_GROUP_LIMIT,
@@ -46,6 +47,7 @@ export const scene: SceneExport = {
     component: LLMSkillsScene,
     logic: llmSkillsLogic,
     productKey: ProductKey.AI_OBSERVABILITY,
+    emptyState: llmSkillsEmptyState,
 }
 
 // Mirrors `metadata.seeded_by` stamped by the Signals scout harness (kept local so the skills
