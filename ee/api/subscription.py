@@ -5,6 +5,7 @@ from typing import Any, ClassVar, Optional
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import transaction
 from django.db.models import QuerySet
 from django.http import HttpRequest, JsonResponse
 
@@ -657,6 +658,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # For PATCH requests, dashboard_export_insights might not be in attrs - only validate if provided or on create
         dashboard_export_insights_provided = "dashboard_export_insights" in attrs
         dashboard_export_insights = attrs.get("dashboard_export_insights", [])
+        is_re_enabling = self.instance is not None and not self.instance.enabled and attrs.get("enabled") is True
+        if is_re_enabling and not dashboard_export_insights_provided:
+            dashboard_export_insights = list(self.instance.dashboard_export_insights.values_list("id", flat=True))
 
         is_create = self.instance is None
         if (
@@ -822,13 +826,32 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             _invalidate_summary_quota_cache(instance.team.organization_id)
             return instance
 
-        with attribute_subscription_saves(analytics_props):
-            instance = super().update(instance, validated_data)
-        _invalidate_summary_quota_cache(instance.team.organization_id)
+        with transaction.atomic():
+            instance = Subscription.objects.select_for_update().get(pk=instance.pk)
+            if export_insights_in_payload:
+                self._validate_dashboard_export_subscription(
+                    {
+                        "dashboard": instance.dashboard,
+                        "dashboard_export_insights": dashboard_export_insight_ids,
+                    }
+                )
+            elif was_disabled and validated_data.get("enabled") is True:
+                retained_insight_ids = list(instance.dashboard_export_insights.values_list("id", flat=True))
+                if retained_insight_ids:
+                    self._validate_dashboard_export_subscription(
+                        {
+                            "dashboard": instance.dashboard,
+                            "dashboard_export_insights": retained_insight_ids,
+                        }
+                    )
+            with attribute_subscription_saves(analytics_props):
+                instance = super().update(instance, validated_data)
 
-        # Apply the M2M whenever the field is in the payload — including an empty list, which clears it.
-        if export_insights_in_payload:
-            instance.dashboard_export_insights.set(dashboard_export_insight_ids)
+            # Apply the M2M whenever the field is in the payload — including an empty list, which clears it.
+            if export_insights_in_payload:
+                instance.dashboard_export_insights.set(dashboard_export_insight_ids)
+
+        _invalidate_summary_quota_cache(instance.team.organization_id)
 
         is_re_enabling = was_disabled and instance.enabled
 

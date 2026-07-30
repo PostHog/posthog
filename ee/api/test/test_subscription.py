@@ -340,6 +340,41 @@ class TestSubscriptionTemporal(APILicensedTest):
             },
         ).json()["id"]
 
+    def test_re_enable_dashboard_subscription_rejects_stale_retained_selection(self) -> None:
+        subscription_id = self._dashboard_sub([self.insight], [self.insight])
+        subscription = Subscription.objects.get(id=subscription_id)
+        subscription.enabled = False
+        subscription.save(update_fields=["enabled"])
+        self.dashboard.tiles.filter(insight=self.insight).update(deleted=True)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            {"enabled": True},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "dashboard_export_insights"
+        subscription.refresh_from_db()
+        assert not subscription.enabled
+
+    def test_re_enable_dashboard_subscription_accepts_replacement_selection(self) -> None:
+        replacement = Insight.objects.create(team=self.team, name="Replacement")
+        subscription_id = self._dashboard_sub([self.insight, replacement], [self.insight])
+        subscription = Subscription.objects.get(id=subscription_id)
+        subscription.enabled = False
+        subscription.save(update_fields=["enabled"])
+        self.dashboard.tiles.filter(insight=self.insight).update(deleted=True)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            {"enabled": True, "dashboard_export_insights": [replacement.id], "send_test_now": False},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        subscription.refresh_from_db()
+        assert subscription.enabled
+        assert list(subscription.dashboard_export_insights.values_list("id", flat=True)) == [replacement.id]
+
     # Each case is (name, build, should_fire); build(test) -> (sub_id, patch_payload). Explicit
     # send_test_now always wins; when omitted, the send is inferred from whether the edit changed
     # what gets delivered (or re-enabled the subscription) — schedule/meta-only edits stay quiet.

@@ -32,17 +32,16 @@ def reconcile_dashboard_subscriptions(
     paused: list[Subscription] = []
 
     with transaction.atomic():
-        subscriptions = (
-            Subscription.objects.select_for_update()
-            .filter(
-                dashboard_id=dashboard_id,
-                enabled=True,
-                deleted=False,
-                dashboard_export_insights__isnull=False,
-            )
-            .distinct()
-            .prefetch_related("dashboard_export_insights")
+        subscriptions = Subscription.objects.select_for_update().filter(
+            dashboard_id=dashboard_id,
+            enabled=True,
+            deleted=False,
+            prompt__isnull=True,
+            dashboard_export_insights__isnull=False,
         )
+        if not dashboard_deleted:
+            subscriptions = subscriptions.filter(dashboard_export_insights__id__in=removed_insight_ids)
+        subscriptions = subscriptions.distinct().prefetch_related("dashboard_export_insights")
 
         for subscription in subscriptions:
             selected_ids = {insight.id for insight in subscription.dashboard_export_insights.all()}
@@ -59,9 +58,9 @@ def reconcile_dashboard_subscriptions(
                 paused.append(subscription)
 
     for subscription in updated:
-        _notify_subscription_owner(subscription, paused=False)
+        transaction.on_commit(lambda subscription=subscription: _notify_subscription_owner(subscription, paused=False))
     for subscription in paused:
-        _notify_subscription_owner(subscription, paused=True)
+        transaction.on_commit(lambda subscription=subscription: _notify_subscription_owner(subscription, paused=True))
 
     return SubscriptionReconciliationResult(updated=tuple(updated), paused=tuple(paused))
 

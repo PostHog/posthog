@@ -1590,20 +1590,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         initial_data = dict(self.initial_data)
 
-        if validated_data.get("deleted", False):
-            self._delete_related_tiles(instance, self.validated_data.get("delete_insights", False))
-            from posthog.models.team import Team
-
-            Team.objects.filter(
-                primary_dashboard=instance,
-                id=instance.team_id,
-            ).update(primary_dashboard=None)
-            from posthog.models.group_type_mapping import clear_dashboard_from_group_type_mapping
-
-            clear_dashboard_from_group_type_mapping(
-                team_id=instance.team_id, dashboard_id=instance.id, project_id=instance.team.project_id
-            )
-
         request_filters = initial_data.get("filters")
         if request_filters:
             instance.filters = self._validated_filters(request_filters)
@@ -1614,14 +1600,27 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 raise serializers.ValidationError("Filters must be a dictionary")
             instance.variables = request_variables
 
-        instance = super().update(instance, validated_data)
+        with transaction.atomic():
+            instance = super().update(instance, validated_data)
 
-        if being_deleted:
-            reconcile_dashboard_subscriptions(
-                dashboard_id=instance.id,
-                removed_insight_ids=set(),
-                dashboard_deleted=True,
-            )
+            if being_deleted:
+                self._delete_related_tiles(instance, self.validated_data.get("delete_insights", False))
+                from posthog.models.team import Team
+
+                Team.objects.filter(
+                    primary_dashboard=instance,
+                    id=instance.team_id,
+                ).update(primary_dashboard=None)
+                from posthog.models.group_type_mapping import clear_dashboard_from_group_type_mapping
+
+                clear_dashboard_from_group_type_mapping(
+                    team_id=instance.team_id, dashboard_id=instance.id, project_id=instance.team.project_id
+                )
+                reconcile_dashboard_subscriptions(
+                    dashboard_id=instance.id,
+                    removed_insight_ids=set(),
+                    dashboard_deleted=True,
+                )
 
         user = cast(User, self.context["request"].user)
         tiles = initial_data.pop("tiles", [])
@@ -1984,17 +1983,18 @@ class DashboardSerializer(DashboardMetadataSerializer):
             or "transparent_background" in tile_data
         ):
             tile_data.pop("insight", None)  # don't ever update insight tiles here
-            updated_tile, became_deleted = DashboardSerializer._update_existing_tile_display_fields(
-                instance, tile_data, user
-            )
-            # The dashboard UI soft-deletes tiles through this PATCH path rather than the
-            # delete_tile endpoint, so removal analytics must fire here too.
-            if became_deleted and updated_tile is not None:
-                if updated_tile.insight_id is not None:
+            with transaction.atomic():
+                updated_tile, became_deleted = DashboardSerializer._update_existing_tile_display_fields(
+                    instance, tile_data, user
+                )
+                if became_deleted and updated_tile is not None and updated_tile.insight_id is not None:
                     reconcile_dashboard_subscriptions(
                         dashboard_id=instance.id,
                         removed_insight_ids={updated_tile.insight_id},
                     )
+            # The dashboard UI soft-deletes tiles through this PATCH path rather than the
+            # delete_tile endpoint, so removal analytics must fire here too.
+            if became_deleted and updated_tile is not None:
                 _report_dashboard_tile_removed(
                     user=user,
                     dashboard=instance,
@@ -2627,15 +2627,14 @@ class DashboardsViewSet(
                 # Destination is scoped to the current project; align team_id when moving within it.
                 tile.team_id = to_dashboard_obj.team_id
                 tile.save(update_fields=["dashboard_id", "team_id"])
+                if tile.insight_id is not None:
+                    reconcile_dashboard_subscriptions(
+                        dashboard_id=from_dashboard.id,
+                        removed_insight_ids={tile.insight_id},
+                    )
         except DjangoValidationError:
             logger.exception("validation_error_while_moving_dashboard_tile")
             raise exceptions.ValidationError("Invalid request data for moving tile.")
-
-        if tile.insight_id is not None:
-            reconcile_dashboard_subscriptions(
-                dashboard_id=from_dashboard.id,
-                removed_insight_ids={tile.insight_id},
-            )
 
         serializer = DashboardSerializer(
             from_dashboard,
@@ -2892,12 +2891,11 @@ class DashboardsViewSet(
                     [remaining_tile for remaining_tile in remaining if remaining_tile.id in changed_ids],
                     ["layouts"],
                 )
-
-        if tile.insight_id is not None:
-            reconcile_dashboard_subscriptions(
-                dashboard_id=dashboard.id,
-                removed_insight_ids={tile.insight_id},
-            )
+            if tile.insight_id is not None:
+                reconcile_dashboard_subscriptions(
+                    dashboard_id=dashboard.id,
+                    removed_insight_ids={tile.insight_id},
+                )
 
         _report_dashboard_tile_removed(
             user=cast(User, request.user),

@@ -34,10 +34,11 @@ class TestSubscriptionReconciliation(BaseTest):
     def test_removes_one_of_multiple_selected_insights(self, create_notification) -> None:
         subscription = self._subscription(self.first_insight, self.second_insight)
 
-        result = reconcile_dashboard_subscriptions(
-            dashboard_id=self.dashboard.id,
-            removed_insight_ids={self.first_insight.id},
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            result = reconcile_dashboard_subscriptions(
+                dashboard_id=self.dashboard.id,
+                removed_insight_ids={self.first_insight.id},
+            )
 
         subscription.refresh_from_db()
         assert subscription.enabled
@@ -50,10 +51,11 @@ class TestSubscriptionReconciliation(BaseTest):
     def test_pauses_subscription_without_clearing_final_selection(self, create_notification) -> None:
         subscription = self._subscription(self.first_insight)
 
-        result = reconcile_dashboard_subscriptions(
-            dashboard_id=self.dashboard.id,
-            removed_insight_ids={self.first_insight.id},
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            result = reconcile_dashboard_subscriptions(
+                dashboard_id=self.dashboard.id,
+                removed_insight_ids={self.first_insight.id},
+            )
 
         subscription.refresh_from_db()
         assert not subscription.enabled
@@ -66,11 +68,12 @@ class TestSubscriptionReconciliation(BaseTest):
     def test_dashboard_deletion_pauses_all_explicit_subscriptions(self, create_notification) -> None:
         subscription = self._subscription(self.first_insight, self.second_insight)
 
-        reconcile_dashboard_subscriptions(
-            dashboard_id=self.dashboard.id,
-            removed_insight_ids=set(),
-            dashboard_deleted=True,
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            reconcile_dashboard_subscriptions(
+                dashboard_id=self.dashboard.id,
+                removed_insight_ids=set(),
+                dashboard_deleted=True,
+            )
 
         subscription.refresh_from_db()
         assert not subscription.enabled
