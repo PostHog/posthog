@@ -214,7 +214,7 @@ export interface SignalReportApi {
      */
     readonly actionability: string | null
     /**
-     * Whether the issue appears already fixed, from the actionability judgment artefact.
+     * Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task) — from the actionability judgment artefact.
      * @nullable
      */
     readonly already_addressed: boolean | null
@@ -516,6 +516,7 @@ export interface SignalReportRefundResponseApi {
  * * `intercom` - intercom
  * * `hubspot` - hubspot
  * * `engineering_analytics` - engineering_analytics
+ * * `google_search_console` - google_search_console
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -568,6 +569,7 @@ export const SignalSourceProductApi = {
     Intercom: 'intercom',
     Hubspot: 'hubspot',
     EngineeringAnalytics: 'engineering_analytics',
+    GoogleSearchConsole: 'google_search_console',
 } as const
 
 /**
@@ -592,6 +594,7 @@ export const SignalSourceProductApi = {
  * * `ci_flaky_check` - ci_flaky_check
  * * `ci_broken_default_branch` - ci_broken_default_branch
  * * `ci_duration_regression` - ci_duration_regression
+ * * `search_opportunity` - search_opportunity
  */
 export type SignalSourceTypeApi = (typeof SignalSourceTypeApi)[keyof typeof SignalSourceTypeApi]
 
@@ -617,6 +620,7 @@ export const SignalSourceTypeApi = {
     CiFlakyCheck: 'ci_flaky_check',
     CiBrokenDefaultBranch: 'ci_broken_default_branch',
     CiDurationRegression: 'ci_duration_regression',
+    SearchOpportunity: 'search_opportunity',
 } as const
 
 export type ProblemTypeEnumApi = (typeof ProblemTypeEnumApi)[keyof typeof ProblemTypeEnumApi]
@@ -1184,6 +1188,16 @@ export interface HubspotTicketSignalExtraApi {
     createdate: string | null
 }
 
+export interface GoogleSearchConsoleSearchOpportunitySignalExtraApi {
+    page: string
+    query: string
+    date: string
+    clicks: number
+    impressions: number
+    ctr: number
+    position: number
+}
+
 export type SignalExtraApi =
     | SessionProblemSignalExtraApi
     | LlmEvalSignalExtraApi
@@ -1237,6 +1251,7 @@ export type SignalExtraApi =
     | JudgemeReviewsReviewSignalExtraApi
     | IntercomTicketSignalExtraApi
     | HubspotTicketSignalExtraApi
+    | GoogleSearchConsoleSearchOpportunitySignalExtraApi
 
 export interface SpecificityMetadataApi {
     /** Title of the PR the specificity gate evaluated. */
@@ -1323,7 +1338,8 @@ export interface SignalNodeApi {
      * * `judgeme_reviews` - judgeme_reviews
      * * `intercom` - intercom
      * * `hubspot` - hubspot
-     * * `engineering_analytics` - engineering_analytics */
+     * * `engineering_analytics` - engineering_analytics
+     * * `google_search_console` - google_search_console */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *
@@ -1347,7 +1363,8 @@ export interface SignalNodeApi {
      * * `review` - review
      * * `ci_flaky_check` - ci_flaky_check
      * * `ci_broken_default_branch` - ci_broken_default_branch
-     * * `ci_duration_regression` - ci_duration_regression */
+     * * `ci_duration_regression` - ci_duration_regression
+     * * `search_opportunity` - search_opportunity */
     source_type: SignalSourceTypeApi
     /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
     source_id: string
@@ -3046,7 +3063,7 @@ export interface EmitReportRequestApi {
      * * `requires_human_input` - requires_human_input
      * * `not_actionable` - not_actionable */
     actionability: ActionabilityEnumApi
-    /** Whether the issue already appears fixed in recent changes (tracked separately). */
+    /** Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Gates autostart, so a wrong `false` opens a duplicate PR. Tracked separately. */
     already_addressed?: boolean
     /**
      * Optional repo for autostart (opening a draft PR): `owner/repo` targets that repo, the `NO_REPO` sentinel opts out (report lands without a PR), and omitting it triggers free-form selection across the team's repos — the slow path on a many-repo team, so pass `owner/repo` when you know it.
@@ -3358,6 +3375,7 @@ export interface ForgetResponseApi {
  * * `intercom` - Intercom
  * * `hubspot` - HubSpot
  * * `engineering_analytics` - Engineering analytics
+ * * `google_search_console` - Google Search Console
  */
 export type SignalSourceConfigSourceProductEnumApi =
     (typeof SignalSourceConfigSourceProductEnumApi)[keyof typeof SignalSourceConfigSourceProductEnumApi]
@@ -3411,6 +3429,7 @@ export const SignalSourceConfigSourceProductEnumApi = {
     Intercom: 'intercom',
     Hubspot: 'hubspot',
     EngineeringAnalytics: 'engineering_analytics',
+    GoogleSearchConsole: 'google_search_console',
 } as const
 
 /**

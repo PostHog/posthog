@@ -31,6 +31,7 @@ use personhog_leader::inflight::InflightTracker;
 use personhog_leader::pg::PgFallback;
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
 use personhog_leader::service::{PersonHogLeaderService, PropertySizeLimits};
+use personhog_leader::warming::WarmClientPools;
 use personhog_leader::warnings::WarningsProducer;
 use personhog_proto::personhog::leader::v1::person_hog_leader_client::PersonHogLeaderClient;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
@@ -343,11 +344,18 @@ pub async fn start_leader_pod(
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
     // Recovery must read the broker the service produces to.
     let recovery = test_recovery(&mock_cluster.bootstrap_servers());
+    let warming = test_warming_config(name, &mock_cluster.bootstrap_servers());
+    let pools = Arc::new(WarmClientPools::new(
+        &warming.kafka,
+        name,
+        &warming.writer_consumer_group,
+    ));
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),
         Arc::clone(&inflight),
         Arc::clone(&dirty_index),
-        test_warming_config(name, &mock_cluster.bootstrap_servers()),
+        warming,
+        pools,
     );
     let pod = PodHandle::new(
         store,
@@ -416,11 +424,18 @@ pub async fn start_leader_pod_with_lease_ttl(
     let inflight = Arc::new(InflightTracker::new());
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
     let recovery = test_recovery(&mock_cluster.bootstrap_servers());
+    let warming = test_warming_config(name, &mock_cluster.bootstrap_servers());
+    let pools = Arc::new(WarmClientPools::new(
+        &warming.kafka,
+        name,
+        &warming.writer_consumer_group,
+    ));
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),
         Arc::clone(&inflight),
         Arc::clone(&dirty_index),
-        test_warming_config(name, &mock_cluster.bootstrap_servers()),
+        warming,
+        pools,
     );
     let pod = PodHandle::new(
         store,

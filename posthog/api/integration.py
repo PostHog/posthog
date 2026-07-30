@@ -416,6 +416,24 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         team_id = self.context["team_id"]
         kind = validated_data["kind"]
 
+        # Setting push identity verification is a security policy change, not a credential upload, so it
+        # needs the same admin bar as editing an integration. Without this a plain member could add a
+        # *new* APNs integration carrying someone else's bundle_id under a different Apple team id —
+        # which sidesteps the overwrite check below, since it creates rather than overwrites — and set
+        # `required` on it. The push endpoint resolves the strictest mode across every integration
+        # matching a bundle_id, so that would start rejecting the real app's device registrations.
+        #
+        # `disabled` is gated too, not just the enabling modes. The overwrite check below reads the
+        # existing ids before the write, so a member racing the first setup of an integration would
+        # still be classified as a create and could land `disabled` over the policy an admin had just
+        # written. Omitting the key entirely stays open to members and is what connecting a channel
+        # without touching the policy does — that path preserves whatever is already stored.
+        requested_verification = (validated_data.get("config") or {}).get("push_identity_verification")
+        if requested_verification and not github_callback_state.has_team_management_access(
+            self.context["request"].user, self.context["get_team"]()
+        ):
+            raise PermissionDenied("Changing push identity verification requires project admin access.")
+
         # `create` is a POST with upsert semantics: each kind's helper does an `update_or_create`
         # keyed on (team, kind, integration_id), so re-submitting the same resource overwrites the
         # existing integration instead of adding a new one. Adding is allowed for any project
@@ -471,7 +489,12 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 key_info = config.get("key_info")
                 if not key_info:
                     raise ValidationError("Firebase service account key must be provided")
-            instance = FirebaseIntegration.integration_from_key(key_info, team_id, request.user)
+            instance = FirebaseIntegration.integration_from_key(
+                key_info,
+                team_id,
+                request.user,
+                push_identity_verification=(validated_data.get("config") or {}).get("push_identity_verification"),
+            )
             return instance
 
         elif validated_data["kind"] == "email":
@@ -683,6 +706,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 team_id=team_id,
                 created_by=request.user,
                 environment=environment,
+                push_identity_verification=config.get("push_identity_verification"),
             )
             return instance
 
@@ -1072,7 +1096,7 @@ class IntegrationViewSet(
 
         if kind in OauthIntegration.supported_kinds:
             try:
-                auth_url = OauthIntegration.authorize_url(kind, next=next, token=token)
+                auth_url = OauthIntegration.authorize_url(kind, next=next, token=token, team_id=self.team_id)
                 response = redirect(auth_url)
                 # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
                 response.set_cookie("ph_oauth_state", token, max_age=60 * 5)
