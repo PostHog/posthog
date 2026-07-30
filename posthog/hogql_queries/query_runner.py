@@ -446,6 +446,24 @@ def get_query_runner(
                 user=user,
             )
 
+        # Queries originating from the web analytics product take a WA-owned
+        # subclass that can serve eligible shapes from precompute buckets and
+        # falls back to the standard trends path internally. Tags-only check:
+        # all real gating (rollout flag, shape, team enrollment) lives in the
+        # runner so dispatch stays free of I/O.
+        query_tags = get_from_dict_or_attr(query_obj, "tags")
+        if query_tags and get_from_dict_or_attr(query_tags, "productKey") == "web_analytics":
+            from products.web_analytics.backend.hogql_queries.web_trends import WebTrendsQueryRunner
+
+            return WebTrendsQueryRunner(
+                query=query_obj,
+                team=team,
+                timings=timings,
+                limit_context=limit_context,
+                modifiers=modifiers,
+                user=user,
+            )
+
         from .insights.trends.trends_query_runner import TrendsQueryRunner
 
         return TrendsQueryRunner(
