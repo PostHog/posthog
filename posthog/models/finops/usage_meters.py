@@ -98,12 +98,21 @@ ENGINE = {
 
 
 def KAFKA_FINOPS_USAGE_METERS_TABLE_SQL() -> str:
+    # Consumes from the shared WarpStream virtual cluster. This is a brand-new topic with no
+    # MSK counterpart, so — unlike the MSK→WS cutover tables (migration 0247) — there is only
+    # ever this one Kafka table, and no cloud-guard against double-consumption is needed.
     return f"""
 CREATE TABLE IF NOT EXISTS {KAFKA_FINOPS_USAGE_METERS_TABLE}
 (
     {FINOPS_USAGE_METERS_COLUMNS}
 )
-ENGINE = {kafka_engine(topic=KAFKA_CLICKHOUSE_FINOPS_USAGE_METERS, group=CONSUMER_GROUP_FINOPS_USAGE_METERS)}
+ENGINE = {
+        kafka_engine(
+            topic=KAFKA_CLICKHOUSE_FINOPS_USAGE_METERS,
+            group=CONSUMER_GROUP_FINOPS_USAGE_METERS,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_SHARED_NAMED_COLLECTION,
+        )
+    }
 SETTINGS kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_num_consumers = 1
 """
 
