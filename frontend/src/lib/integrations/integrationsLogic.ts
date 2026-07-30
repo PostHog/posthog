@@ -86,6 +86,7 @@ export interface integrationsLogicValues {
             | 'vercel'
         )[]
     ) => IntegrationType[]
+    githubIntegrations: IntegrationType[]
     githubRepositories: Record<number, GitHubRepoApi[]>
     githubRepositoriesLoading: boolean
     integrations: IntegrationType[] | null
@@ -593,6 +594,7 @@ export interface integrationsLogicActions {
 export interface integrationsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         slackIntegrations: (integrations: IntegrationType[] | null) => IntegrationType[] | undefined
+        githubIntegrations: (integrations: IntegrationType[] | null) => IntegrationType[]
         getIntegrationsByKind: (
             integrations: IntegrationType[] | null
         ) => (
@@ -993,6 +995,12 @@ export const integrationsLogic = kea<integrationsLogicType>([
             (s) => [s.integrations],
             (integrations: IntegrationType[] | null) => {
                 return integrations?.filter((x) => x.kind == 'slack')
+            },
+        ],
+        githubIntegrations: [
+            (s) => [s.integrations],
+            (integrations: IntegrationType[] | null): IntegrationType[] => {
+                return integrations?.filter((x) => x.kind === 'github') ?? []
             },
         ],
         getIntegrationsByKind: [

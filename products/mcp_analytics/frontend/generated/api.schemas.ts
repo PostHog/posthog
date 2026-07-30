@@ -445,14 +445,29 @@ export interface MCPActivityOverviewApi {
     readonly recent_calls: readonly MCPActivityRecentCallApi[]
 }
 
+export interface MCPIntentThemeApi {
+    /** Short sentence-case name for this group of intents. */
+    readonly name: string
+    /** One concrete sentence describing what agents in this theme are doing. */
+    readonly description: string
+    /** How many of the analysed intents the LLM assigned to this theme, counted from the corpus rather than reported by the LLM. Each intent belongs to at most one theme, so these never sum to more than the digest's intent_count. */
+    readonly intent_count: number
+    /** One of this theme's intents, verbatim from the corpus. */
+    readonly example_intent: string
+    /** The MCP tool names recorded alongside this theme's intents, sorted, taken from the corpus. */
+    readonly tools: readonly string[]
+}
+
 export interface MCPIntentDigestApi {
     /**
-     * LLM-generated digest (at most three sentences) of what agents are trying to do with this MCP server, derived from the most recent recorded $mcp_intents across all sessions. Null when the project has no recorded intents yet.
+     * LLM-generated one-sentence summary of what agents are trying to do with this MCP server, derived from the most recent recorded $mcp_intents across all sessions. Null when the project has no recorded intents yet.
      * @nullable
      */
     readonly digest: string | null
     /** How many recorded intents (the most recent, capped at 100) the digest was derived from. */
     readonly intent_count: number
+    /** Up to 5 semantic groupings of the analysed intents, largest first. May be empty when the digest is null, or when none of the LLM's groupings resolved to recorded intents. */
+    readonly themes: readonly MCPIntentThemeApi[]
 }
 
 export type McpAnalyticsFeedbackListParams = {
