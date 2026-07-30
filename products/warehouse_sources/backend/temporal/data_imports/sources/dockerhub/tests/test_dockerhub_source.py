@@ -9,7 +9,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.dockerhub import DockerhubResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.source import DockerhubSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DockerhubSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dockerhub import (
+    DockerhubSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 

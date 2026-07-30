@@ -444,8 +444,9 @@ describe('batchExportConfigFormLogic', () => {
                 fields: ['user', 'password', 'host', 'port', 'database', 'schema', 'table_name'],
             },
             {
+                // New Snowflake exports authenticate via an integration, not inline credentials.
                 service: 'Snowflake' as const,
-                fields: ['account', 'database', 'warehouse', 'user', 'password', 'schema', 'table_name'],
+                fields: ['integration_id', 'database', 'warehouse', 'schema', 'table_name'],
             },
             { service: 'BigQuery' as const, fields: ['integration_id', 'dataset_id', 'table_id'] },
             { service: 'HTTP' as const, fields: ['url', 'token'] },
@@ -745,7 +746,7 @@ describe('batchExportConfigFormLogic', () => {
             },
             {
                 service: 'Snowflake',
-                expected: { destination: 'Snowflake', authentication_type: 'password', paused: true, model: 'events' },
+                expected: { destination: 'Snowflake', paused: true, model: 'events' },
             },
             {
                 service: 'Redshift',
@@ -885,26 +886,23 @@ describe('batchExportConfigFormLogic', () => {
                 },
             },
             {
-                name: 'Snowflake (password)',
+                // New Snowflake exports authenticate via an integration; account/user/credentials live
+                // on it and must not leak into the payload.
+                name: 'Snowflake',
                 service: 'Snowflake' as const,
                 requiredValues: {
-                    account: 'sf-account',
+                    integration_id: 31,
                     database: 'sf-db',
                     warehouse: 'sf-wh',
-                    user: 'sf-user',
-                    password: 'sf-pass',
                     schema: 'public',
                     table_name: 'events',
                 },
                 expectedDestination: {
                     type: 'Snowflake',
+                    integration: 31,
                     config: {
-                        account: 'sf-account',
                         database: 'sf-db',
                         warehouse: 'sf-wh',
-                        user: 'sf-user',
-                        password: 'sf-pass',
-                        authentication_type: 'password',
                         schema: 'public',
                         table_name: 'events',
                     },

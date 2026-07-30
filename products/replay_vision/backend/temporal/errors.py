@@ -7,6 +7,7 @@ from products.replay_vision.backend.error_kinds import FailureKind, IneligibleSe
 __all__ = [
     "INELIGIBLE_SESSION_ERROR_TYPE",
     "SCANNER_FAILURE_ERROR_TYPE",
+    "ConsentWithdrawnError",
     "FailureKind",
     "IneligibleSessionError",
     "IneligibleSessionKind",
@@ -43,3 +44,16 @@ class ScannerFailureError(_KindedApplicationError):
 
     def __init__(self, message: str, *, kind: FailureKind) -> None:
         super().__init__(message, kind=kind, type=SCANNER_FAILURE_ERROR_TYPE, non_retryable=not kind.is_retryable)
+
+
+class _ConsentKind(StrEnum):
+    # Kept out of IneligibleSessionKind on purpose: this is a policy abort, not a session-eligibility reason,
+    # so it stays off the DB `error_reason` help text / OpenAPI taxonomy. Surfaced as INELIGIBLE all the same.
+    NO_AI_CONSENT = "no_ai_consent"
+
+
+class ConsentWithdrawnError(_KindedApplicationError):
+    """Org AI data-processing consent was withdrawn before an egress step. Surfaced as INELIGIBLE, never retried."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, kind=_ConsentKind.NO_AI_CONSENT, type=INELIGIBLE_SESSION_ERROR_TYPE)

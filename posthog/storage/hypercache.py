@@ -8,7 +8,9 @@ from django.conf import settings
 from django.core.cache import cache, caches
 
 import structlog
+import redis.exceptions
 from botocore.exceptions import BotoCoreError, ClientError
+from django_redis.exceptions import ConnectionInterrupted
 from posthoganalytics import capture_exception
 from prometheus_client import Counter, Histogram
 
@@ -18,6 +20,17 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 
 logger = structlog.get_logger(__name__)
+
+# Redis/transport failures the primary cache read degrades on, mirroring the S3/load_fn tiers below.
+# django-redis wraps the underlying redis error in ConnectionInterrupted; we also catch the raw redis
+# errors (and the builtin socket errors under OSError) in case a backend surfaces them directly.
+_REDIS_READ_ERRORS = (
+    ConnectionInterrupted,
+    redis.exceptions.RedisError,
+    ConnectionError,
+    TimeoutError,
+    OSError,
+)
 
 
 DEFAULT_CACHE_MISS_TTL = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
@@ -166,6 +179,7 @@ class HyperCache:
         batch_load_fn: Optional[Callable[[list[Team]], dict[int, dict]]] = None,
         enable_etag: bool = False,
         expiry_sorted_set_key: Optional[str] = None,
+        s3_enabled: bool = True,
     ):
         if token_based and hashed_credential_based:
             raise ValueError("token_based and hashed_credential_based are mutually exclusive")
@@ -183,6 +197,10 @@ class HyperCache:
         self.batch_load_fn = batch_load_fn
         self.enable_etag = enable_etag
         self.expiry_sorted_set_key = expiry_sorted_set_key
+        # Redis-only mode: skips the S3 tier on reads, writes, and deletes. For short-TTL
+        # entries whose staleness bound depends on expiry — an S3 copy never expires, so
+        # it would restore a stale value past every redis expiry.
+        self.s3_enabled = s3_enabled
 
         # Derive cache_client and redis_url from cache_alias (single source of truth)
         if cache_alias:
@@ -242,7 +260,14 @@ class HyperCache:
 
     def get_from_cache_with_source(self, key: KeyType) -> tuple[dict | None, str]:
         cache_key = self.get_cache_key(key)
-        data = self.cache_client.get(cache_key)
+        try:
+            data = self.cache_client.get(cache_key)
+        except _REDIS_READ_ERRORS as e:
+            # A Redis outage on the primary read must degrade to the S3/DB tiers below, never
+            # bubble a 500 up to the request handler. Capture it for visibility, the way the S3
+            # branch does, then fall through as a cache miss.
+            capture_exception(e)
+            data = None
 
         if data:
             HYPERCACHE_CACHE_COUNTER.labels(result="hit_redis", namespace=self.namespace, value=self.value).inc()
@@ -253,12 +278,13 @@ class HyperCache:
                 return json.loads(data), "redis"
 
         try:
-            data = object_storage.read(cache_key, missing_ok=True)
-            if data:
-                response = json.loads(data)
-                HYPERCACHE_CACHE_COUNTER.labels(result="hit_s3", namespace=self.namespace, value=self.value).inc()
-                self._set_cache_value_redis(key, response)
-                return response, "s3"
+            if self.s3_enabled:
+                data = object_storage.read(cache_key, missing_ok=True)
+                if data:
+                    response = json.loads(data)
+                    HYPERCACHE_CACHE_COUNTER.labels(result="hit_s3", namespace=self.namespace, value=self.value).inc()
+                    self._set_cache_value_redis(key, response)
+                    return response, "s3"
         except (ObjectStorageError, BotoCoreError, ClientError, ValueError) as e:
             # Any storage-layer failure here (including a misconfigured S3 endpoint that
             # makes boto3 raise on client construction) must degrade to a cache miss and
@@ -319,7 +345,13 @@ class HyperCache:
         cache_keys = [self.get_cache_key(team) for team in teams]
         etag_keys = [self.get_etag_key(team) for team in teams] if self.enable_etag else []
 
-        cached_values = self.cache_client.get_many(cache_keys + etag_keys)
+        try:
+            cached_values = self.cache_client.get_many(cache_keys + etag_keys)
+        except _REDIS_READ_ERRORS as e:
+            # Degrade a Redis outage to an all-miss result rather than raising; there is no
+            # S3/DB fallback in batch mode, so every team resolves to a clean "miss" below.
+            capture_exception(e)
+            cached_values = {}
 
         # Map results back to team IDs, counting hits and misses for batch metrics
         results: dict[int, tuple[dict | None, str, str | None]] = {}
@@ -356,7 +388,13 @@ class HyperCache:
         """Get just the ETag for a cached value without loading the full response."""
         if not self.enable_etag:
             return None
-        return self.cache_client.get(self.get_etag_key(key))
+        try:
+            return self.cache_client.get(self.get_etag_key(key))
+        except _REDIS_READ_ERRORS as e:
+            # Degrade a Redis outage to a missing ETag rather than raising; callers treat a
+            # None ETag as a miss/mismatch and fall back to the full response.
+            capture_exception(e)
+            return None
 
     def get_if_none_match(self, key: KeyType, client_etag: str | None) -> tuple[dict | None, str | None, bool]:
         """
@@ -491,7 +529,8 @@ class HyperCache:
                 HYPERCACHE_WRITE_SKIPPED_UNCHANGED_COUNTER.labels(namespace=self.namespace, value=self.value).inc()
                 return len(json_data)
         size = self._set_cache_value_redis(key, data, ttl=ttl, json_data=json_data)
-        self._set_cache_value_s3(key, data, ttl=ttl)
+        if self.s3_enabled:
+            self._set_cache_value_s3(key, data, ttl=ttl)
         # Only track expiry when we have a Team object (avoids DB lookup)
         if isinstance(key, Team):
             self._track_expiry(key, data, ttl=ttl)
@@ -542,7 +581,7 @@ class HyperCache:
                 self.cache_client.delete(self.get_cache_key(key))
                 # Always delete ETag key to clean up stale ETags from when enable_etag was True
                 self.cache_client.delete(self.get_etag_key(key))
-            if "s3" in kinds:
+            if "s3" in kinds and self.s3_enabled:
                 object_storage.delete(self.get_cache_key(key))
         finally:
             self._remove_expiry_tracking(key)

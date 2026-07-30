@@ -14,6 +14,21 @@
   LIMIT 50000
   '''
 # ---
+# name: TestDatabase.test_database_warehouse_joins_persons_poe_v2[new_events_schema]
+  '''
+  
+  SELECT events__some_field.key AS key 
+  FROM events_json AS events LEFT JOIN (
+    SELECT groups.key AS key, key AS events__some_field___key 
+    FROM (
+      SELECT groups.group_type_index AS index, groups.group_key AS key 
+      FROM groups 
+      WHERE equals(groups.team_id, 420) 
+      GROUP BY groups.group_type_index, groups.group_key) AS groups) AS events__some_field ON equals(if(notEquals(toJSONString(events.person_properties.^email), '{}'), toJSONString(events.person_properties.^email), if(isNull(events.person_properties.email), NULL, if(startsWith(dynamicType(events.person_properties.email), 'DateTime'), replaceOne(toString(events.person_properties.email), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.email), 'Array'), startsWith(dynamicType(events.person_properties.email), 'Map'), startsWith(dynamicType(events.person_properties.email), 'Tuple')), toJSONString(events.person_properties.email), toString(events.person_properties.email))))), events__some_field.events__some_field___key) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 50000
+  '''
+# ---
 # name: TestDatabase.test_database_warehouse_joins_persons_poe_v2_source_key_ast_call
   '''
   
@@ -25,6 +40,21 @@
       FROM groups 
       WHERE equals(groups.team_id, 420) 
       GROUP BY groups.group_type_index, groups.group_key) AS groups) AS events__some_field ON equals(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')), events__some_field.events__some_field___key) 
+  WHERE equals(events.team_id, 420) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestDatabase.test_database_warehouse_joins_persons_poe_v2_source_key_ast_call[new_events_schema]
+  '''
+  
+  SELECT events__some_field.key AS key 
+  FROM events_json AS events LEFT JOIN (
+    SELECT groups.key AS key, key AS events__some_field___key 
+    FROM (
+      SELECT groups.group_type_index AS index, groups.group_key AS key 
+      FROM groups 
+      WHERE equals(groups.team_id, 420) 
+      GROUP BY groups.group_type_index, groups.group_key) AS groups) AS events__some_field ON equals(toString(if(notEquals(toJSONString(events.person_properties.^email), '{}'), toJSONString(events.person_properties.^email), if(isNull(events.person_properties.email), NULL, if(startsWith(dynamicType(events.person_properties.email), 'DateTime'), replaceOne(toString(events.person_properties.email), ' ', 'T'), if(or(startsWith(dynamicType(events.person_properties.email), 'Array'), startsWith(dynamicType(events.person_properties.email), 'Map'), startsWith(dynamicType(events.person_properties.email), 'Tuple')), toJSONString(events.person_properties.email), toString(events.person_properties.email)))))), events__some_field.events__some_field___key) 
   WHERE equals(events.team_id, 420) 
   LIMIT 50000
   '''
@@ -41,6 +71,7 @@
          "posthog_datawarehousesavedquery"."team_id",
          "posthog_datawarehousesavedquery"."latest_error",
          "posthog_datawarehousesavedquery"."columns",
+         "posthog_datawarehousesavedquery"."column_order",
          "posthog_datawarehousesavedquery"."external_tables",
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
@@ -86,6 +117,7 @@
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."hide_mcp_hints",
+         "posthog_user"."ui_configuration",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -108,6 +140,7 @@
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
+         "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
@@ -140,6 +173,7 @@
          "posthog_datawarehousesavedquery"."team_id",
          "posthog_datawarehousesavedquery"."latest_error",
          "posthog_datawarehousesavedquery"."columns",
+         "posthog_datawarehousesavedquery"."column_order",
          "posthog_datawarehousesavedquery"."external_tables",
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
@@ -185,6 +219,7 @@
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."hide_mcp_hints",
+         "posthog_user"."ui_configuration",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -207,6 +242,7 @@
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
+         "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib"
@@ -272,6 +308,7 @@
          "posthog_externaldatasource"."sync_frequency",
          "posthog_externaldatasource"."status",
          "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."api_version",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."connection_metadata",
          "posthog_externaldatasource"."are_tables_created",
@@ -280,6 +317,8 @@
          "posthog_externaldatasource"."created_via",
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."direct_query_enabled",
+         "posthog_externaldatasource"."auto_sync_new_schemas",
+         "posthog_externaldatasource"."auto_sync_schema_patterns",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -308,6 +347,7 @@
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
+         "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
@@ -342,6 +382,7 @@
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."hide_mcp_hints",
+         "posthog_user"."ui_configuration",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -413,6 +454,7 @@
          "posthog_datawarehousesavedquery"."team_id",
          "posthog_datawarehousesavedquery"."latest_error",
          "posthog_datawarehousesavedquery"."columns",
+         "posthog_datawarehousesavedquery"."column_order",
          "posthog_datawarehousesavedquery"."external_tables",
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
@@ -458,6 +500,7 @@
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."hide_mcp_hints",
+         "posthog_user"."ui_configuration",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -480,6 +523,7 @@
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
+         "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
@@ -512,6 +556,7 @@
          "posthog_datawarehousesavedquery"."team_id",
          "posthog_datawarehousesavedquery"."latest_error",
          "posthog_datawarehousesavedquery"."columns",
+         "posthog_datawarehousesavedquery"."column_order",
          "posthog_datawarehousesavedquery"."external_tables",
          "posthog_datawarehousesavedquery"."query",
          "posthog_datawarehousesavedquery"."status",
@@ -557,6 +602,7 @@
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."hide_mcp_hints",
+         "posthog_user"."ui_configuration",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -579,6 +625,7 @@
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
+         "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib"
@@ -606,6 +653,7 @@
          "posthog_externaldatasource"."sync_frequency",
          "posthog_externaldatasource"."status",
          "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."api_version",
          "posthog_externaldatasource"."job_inputs",
          "posthog_externaldatasource"."connection_metadata",
          "posthog_externaldatasource"."are_tables_created",
@@ -614,6 +662,8 @@
          "posthog_externaldatasource"."created_via",
          "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."direct_query_enabled",
+         "posthog_externaldatasource"."auto_sync_new_schemas",
+         "posthog_externaldatasource"."auto_sync_schema_patterns",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -642,6 +692,7 @@
          "posthog_datawarehousetable"."credential_id",
          "posthog_datawarehousetable"."external_data_source_id",
          "posthog_datawarehousetable"."columns",
+         "posthog_datawarehousetable"."column_order",
          "posthog_datawarehousetable"."options",
          "posthog_datawarehousetable"."row_count",
          "posthog_datawarehousetable"."size_in_s3_mib",
@@ -676,6 +727,7 @@
          "posthog_user"."shortcut_position",
          "posthog_user"."passkeys_enabled_for_2fa",
          "posthog_user"."hide_mcp_hints",
+         "posthog_user"."ui_configuration",
          "posthog_user"."onboarding_skipped_at",
          "posthog_user"."onboarding_skipped_reason",
          "posthog_user"."onboarding_skipped_organization_id",
@@ -701,6 +753,7 @@
   '''
   {
       "events": {
+          "certification": null,
           "fields": {
               "uuid": {
                   "chain": null,
@@ -1386,6 +1439,7 @@
           "type": "posthog"
       },
       "groups": {
+          "certification": null,
           "fields": {
               "index": {
                   "chain": null,
@@ -1485,6 +1539,7 @@
           "type": "posthog"
       },
       "persons": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -1618,6 +1673,7 @@
           "type": "posthog"
       },
       "sessions": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -2096,6 +2152,7 @@
           "type": "posthog"
       },
       "logs": {
+          "certification": null,
           "fields": {
               "uuid": {
                   "chain": null,
@@ -2274,6 +2331,7 @@
           "type": "posthog"
       },
       "query_log": {
+          "certification": null,
           "fields": {
               "event_date": {
                   "chain": null,
@@ -2364,6 +2422,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
+              },
+              "product": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "product",
+                  "id": null,
+                  "name": "product",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "read_rows": {
                   "chain": null,
@@ -2552,6 +2620,7 @@
           "type": "system"
       },
       "system.accounts": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -2712,6 +2781,19 @@
                   "table": "account_custom_properties",
                   "type": "lazy_table"
               },
+              "custom_properties_history": {
+                  "chain": null,
+                  "fields": [
+                      "account_id",
+                      "values"
+                  ],
+                  "hogql_value": "custom_properties_history",
+                  "id": "custom_properties_history",
+                  "name": "custom_properties_history",
+                  "schema_valid": true,
+                  "table": "account_custom_properties_history",
+                  "type": "lazy_table"
+              },
               "relationships": {
                   "chain": null,
                   "fields": [
@@ -2732,6 +2814,7 @@
           "type": "system"
       },
       "system.account_relationship_definitions": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -2810,6 +2893,7 @@
           "type": "system"
       },
       "system.account_relationships": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -2898,6 +2982,7 @@
           "type": "system"
       },
       "system.activity_logs": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -2966,6 +3051,7 @@
           "type": "system"
       },
       "system.actions": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -3044,6 +3130,7 @@
           "type": "system"
       },
       "system.alerts": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -3202,6 +3289,7 @@
           "type": "system"
       },
       "system.annotations": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -3320,6 +3408,7 @@
           "type": "system"
       },
       "system.batch_export_backfills": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -3418,6 +3507,7 @@
           "type": "system"
       },
       "system.batch_exports": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -3566,6 +3656,7 @@
           "type": "system"
       },
       "system.business_knowledge_chunks": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -3654,6 +3745,7 @@
           "type": "system"
       },
       "system.business_knowledge_documents": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -3752,6 +3844,7 @@
           "type": "system"
       },
       "system.business_knowledge_sources": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -3870,6 +3963,7 @@
           "type": "system"
       },
       "system.cohort_calculation_history": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -3938,6 +4032,7 @@
           "type": "system"
       },
       "system.cohorts": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -4066,6 +4161,7 @@
           "type": "system"
       },
       "system.custom_property_definitions": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -4154,6 +4250,7 @@
           "type": "system"
       },
       "system.dashboards": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -4232,6 +4329,7 @@
           "type": "system"
       },
       "system.dashboard_tiles": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -4350,6 +4448,7 @@
           "type": "system"
       },
       "system.data_modeling_jobs": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -4458,6 +4557,7 @@
           "type": "system"
       },
       "system.data_modeling_views": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -4576,6 +4676,7 @@
           "type": "system"
       },
       "system.data_modeling_endpoint_versions": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -4674,6 +4775,7 @@
           "type": "system"
       },
       "system.data_modeling_endpoints": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -4772,6 +4874,7 @@
           "type": "system"
       },
       "system.data_warehouse_sources": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -4789,6 +4892,16 @@
                   "hogql_value": "source_type",
                   "id": null,
                   "name": "source_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "api_version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "api_version",
+                  "id": null,
+                  "name": "api_version",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -4850,6 +4963,7 @@
           "type": "system"
       },
       "system.data_warehouse_tables": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -4948,6 +5062,7 @@
           "type": "system"
       },
       "system.error_tracking_assignment_rules": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -5046,6 +5161,7 @@
           "type": "system"
       },
       "system.error_tracking_bypass_rules": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -5124,6 +5240,7 @@
           "type": "system"
       },
       "system.error_tracking_issue_assignments": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -5172,6 +5289,7 @@
           "type": "system"
       },
       "system.error_tracking_issue_fingerprints": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -5220,6 +5338,7 @@
           "type": "system"
       },
       "system.error_tracking_issues": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -5278,6 +5397,7 @@
           "type": "system"
       },
       "system.error_tracking_releases": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -5346,6 +5466,7 @@
           "type": "system"
       },
       "system.error_tracking_symbol_sets": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -5414,6 +5535,7 @@
           "type": "system"
       },
       "system.error_tracking_suppression_rules": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -5502,6 +5624,7 @@
           "type": "system"
       },
       "system.early_access_features": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -5580,6 +5703,7 @@
           "type": "system"
       },
       "system.experiments": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -5698,6 +5822,7 @@
           "type": "system"
       },
       "system.exports": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -5746,6 +5871,7 @@
           "type": "system"
       },
       "system.feature_flags": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -5824,6 +5950,7 @@
           "type": "system"
       },
       "system.file_system": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -5942,6 +6069,7 @@
           "type": "system"
       },
       "system.groups": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -6000,6 +6128,7 @@
           "type": "system"
       },
       "system.group_type_mappings": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -6048,6 +6177,7 @@
           "type": "system"
       },
       "system.information_schema.tables": {
+          "certification": null,
           "fields": {
               "table_catalog": {
                   "chain": null,
@@ -6116,6 +6246,7 @@
           "type": "system"
       },
       "system.information_schema.columns": {
+          "certification": null,
           "fields": {
               "table_schema": {
                   "chain": null,
@@ -6244,6 +6375,7 @@
           "type": "system"
       },
       "system.information_schema.relationships": {
+          "certification": null,
           "fields": {
               "source_table": {
                   "chain": null,
@@ -6312,6 +6444,7 @@
           "type": "system"
       },
       "system.information_schema.data_types": {
+          "certification": null,
           "fields": {
               "type_name": {
                   "chain": null,
@@ -6340,6 +6473,7 @@
           "type": "system"
       },
       "system.hog_flows": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -6458,6 +6592,7 @@
           "type": "system"
       },
       "system.hog_functions": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -6596,6 +6731,7 @@
           "type": "system"
       },
       "system.ingestion_warnings": {
+          "certification": null,
           "fields": {
               "source": {
                   "chain": null,
@@ -6644,6 +6780,7 @@
           "type": "system"
       },
       "system.integrations": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -6722,6 +6859,7 @@
           "type": "system"
       },
       "system.integration_repository_cache": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -6880,6 +7018,7 @@
           "type": "system"
       },
       "system.insight_variables": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -6948,6 +7087,7 @@
           "type": "system"
       },
       "system.logs_alerts": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -7146,6 +7286,7 @@
           "type": "system"
       },
       "system.logs_views": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -7224,6 +7365,7 @@
           "type": "system"
       },
       "system.insights": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -7382,6 +7524,7 @@
           "type": "system"
       },
       "system.notebooks": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -7500,6 +7643,7 @@
           "type": "system"
       },
       "system.sandbox_environments": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -7618,6 +7762,7 @@
           "type": "system"
       },
       "system.review_queue_items": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -7706,6 +7851,7 @@
           "type": "system"
       },
       "system.review_queues": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -7784,6 +7930,7 @@
           "type": "system"
       },
       "system.score_definitions": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -7882,6 +8029,7 @@
           "type": "system"
       },
       "system.session_recording_playlists": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -8020,6 +8168,7 @@
           "type": "system"
       },
       "system.session_recordings": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -8218,6 +8367,7 @@
           "type": "system"
       },
       "system.source_schemas": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -8356,6 +8506,7 @@
           "type": "system"
       },
       "system.source_sync_jobs": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -8464,6 +8615,7 @@
           "type": "system"
       },
       "system.support_tickets": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -8684,6 +8836,19 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
+              },
+              "tags": {
+                  "chain": null,
+                  "fields": [
+                      "ticket_id",
+                      "names"
+                  ],
+                  "hogql_value": "tags",
+                  "id": "tags",
+                  "name": "tags",
+                  "schema_valid": true,
+                  "table": "ticket_tags",
+                  "type": "lazy_table"
               }
           },
           "id": "system.support_tickets",
@@ -8692,6 +8857,7 @@
           "type": "system"
       },
       "system.surveys": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -8780,6 +8946,7 @@
           "type": "system"
       },
       "system.task_runs": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -8908,6 +9075,7 @@
           "type": "system"
       },
       "system.tags": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -8936,6 +9104,7 @@
           "type": "system"
       },
       "system.tasks": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -9094,6 +9263,7 @@
           "type": "system"
       },
       "system.teams": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -9162,6 +9332,7 @@
           "type": "system"
       },
       "system.trace_review_scores": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -9290,6 +9461,7 @@
           "type": "system"
       },
       "system.trace_reviews": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -9388,6 +9560,7 @@
           "type": "system"
       },
       "system.usage_metrics": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -9492,6 +9665,7 @@
   '''
   {
       "events": {
+          "certification": null,
           "fields": {
               "uuid": {
                   "chain": null,
@@ -10141,6 +10315,7 @@
           "type": "posthog"
       },
       "groups": {
+          "certification": null,
           "fields": {
               "index": {
                   "chain": null,
@@ -10240,6 +10415,7 @@
           "type": "posthog"
       },
       "persons": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -10373,6 +10549,7 @@
           "type": "posthog"
       },
       "sessions": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -10851,6 +11028,7 @@
           "type": "posthog"
       },
       "logs": {
+          "certification": null,
           "fields": {
               "uuid": {
                   "chain": null,
@@ -11029,6 +11207,7 @@
           "type": "posthog"
       },
       "query_log": {
+          "certification": null,
           "fields": {
               "event_date": {
                   "chain": null,
@@ -11119,6 +11298,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
+              },
+              "product": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "product",
+                  "id": null,
+                  "name": "product",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "read_rows": {
                   "chain": null,
@@ -11307,6 +11496,7 @@
           "type": "system"
       },
       "system.accounts": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -11467,6 +11657,19 @@
                   "table": "account_custom_properties",
                   "type": "lazy_table"
               },
+              "custom_properties_history": {
+                  "chain": null,
+                  "fields": [
+                      "account_id",
+                      "values"
+                  ],
+                  "hogql_value": "custom_properties_history",
+                  "id": "custom_properties_history",
+                  "name": "custom_properties_history",
+                  "schema_valid": true,
+                  "table": "account_custom_properties_history",
+                  "type": "lazy_table"
+              },
               "relationships": {
                   "chain": null,
                   "fields": [
@@ -11487,6 +11690,7 @@
           "type": "system"
       },
       "system.account_relationship_definitions": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -11565,6 +11769,7 @@
           "type": "system"
       },
       "system.account_relationships": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -11653,6 +11858,7 @@
           "type": "system"
       },
       "system.activity_logs": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -11721,6 +11927,7 @@
           "type": "system"
       },
       "system.actions": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -11799,6 +12006,7 @@
           "type": "system"
       },
       "system.alerts": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -11957,6 +12165,7 @@
           "type": "system"
       },
       "system.annotations": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -12075,6 +12284,7 @@
           "type": "system"
       },
       "system.batch_export_backfills": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -12173,6 +12383,7 @@
           "type": "system"
       },
       "system.batch_exports": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -12321,6 +12532,7 @@
           "type": "system"
       },
       "system.business_knowledge_chunks": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -12409,6 +12621,7 @@
           "type": "system"
       },
       "system.business_knowledge_documents": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -12507,6 +12720,7 @@
           "type": "system"
       },
       "system.business_knowledge_sources": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -12625,6 +12839,7 @@
           "type": "system"
       },
       "system.cohort_calculation_history": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -12693,6 +12908,7 @@
           "type": "system"
       },
       "system.cohorts": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -12821,6 +13037,7 @@
           "type": "system"
       },
       "system.custom_property_definitions": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -12909,6 +13126,7 @@
           "type": "system"
       },
       "system.dashboards": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -12987,6 +13205,7 @@
           "type": "system"
       },
       "system.dashboard_tiles": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -13105,6 +13324,7 @@
           "type": "system"
       },
       "system.data_modeling_jobs": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -13213,6 +13433,7 @@
           "type": "system"
       },
       "system.data_modeling_views": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -13331,6 +13552,7 @@
           "type": "system"
       },
       "system.data_modeling_endpoint_versions": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -13429,6 +13651,7 @@
           "type": "system"
       },
       "system.data_modeling_endpoints": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -13527,6 +13750,7 @@
           "type": "system"
       },
       "system.data_warehouse_sources": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -13544,6 +13768,16 @@
                   "hogql_value": "source_type",
                   "id": null,
                   "name": "source_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "api_version": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "api_version",
+                  "id": null,
+                  "name": "api_version",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
@@ -13605,6 +13839,7 @@
           "type": "system"
       },
       "system.data_warehouse_tables": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -13703,6 +13938,7 @@
           "type": "system"
       },
       "system.error_tracking_assignment_rules": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -13801,6 +14037,7 @@
           "type": "system"
       },
       "system.error_tracking_bypass_rules": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -13879,6 +14116,7 @@
           "type": "system"
       },
       "system.error_tracking_issue_assignments": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -13927,6 +14165,7 @@
           "type": "system"
       },
       "system.error_tracking_issue_fingerprints": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -13975,6 +14214,7 @@
           "type": "system"
       },
       "system.error_tracking_issues": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -14033,6 +14273,7 @@
           "type": "system"
       },
       "system.error_tracking_releases": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -14101,6 +14342,7 @@
           "type": "system"
       },
       "system.error_tracking_symbol_sets": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -14169,6 +14411,7 @@
           "type": "system"
       },
       "system.error_tracking_suppression_rules": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -14257,6 +14500,7 @@
           "type": "system"
       },
       "system.early_access_features": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -14335,6 +14579,7 @@
           "type": "system"
       },
       "system.experiments": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -14453,6 +14698,7 @@
           "type": "system"
       },
       "system.exports": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -14501,6 +14747,7 @@
           "type": "system"
       },
       "system.feature_flags": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -14579,6 +14826,7 @@
           "type": "system"
       },
       "system.file_system": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -14697,6 +14945,7 @@
           "type": "system"
       },
       "system.groups": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -14755,6 +15004,7 @@
           "type": "system"
       },
       "system.group_type_mappings": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -14803,6 +15053,7 @@
           "type": "system"
       },
       "system.information_schema.tables": {
+          "certification": null,
           "fields": {
               "table_catalog": {
                   "chain": null,
@@ -14871,6 +15122,7 @@
           "type": "system"
       },
       "system.information_schema.columns": {
+          "certification": null,
           "fields": {
               "table_schema": {
                   "chain": null,
@@ -14999,6 +15251,7 @@
           "type": "system"
       },
       "system.information_schema.relationships": {
+          "certification": null,
           "fields": {
               "source_table": {
                   "chain": null,
@@ -15067,6 +15320,7 @@
           "type": "system"
       },
       "system.information_schema.data_types": {
+          "certification": null,
           "fields": {
               "type_name": {
                   "chain": null,
@@ -15095,6 +15349,7 @@
           "type": "system"
       },
       "system.hog_flows": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -15213,6 +15468,7 @@
           "type": "system"
       },
       "system.hog_functions": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -15351,6 +15607,7 @@
           "type": "system"
       },
       "system.ingestion_warnings": {
+          "certification": null,
           "fields": {
               "source": {
                   "chain": null,
@@ -15399,6 +15656,7 @@
           "type": "system"
       },
       "system.integrations": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -15477,6 +15735,7 @@
           "type": "system"
       },
       "system.integration_repository_cache": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -15635,6 +15894,7 @@
           "type": "system"
       },
       "system.insight_variables": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -15703,6 +15963,7 @@
           "type": "system"
       },
       "system.logs_alerts": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -15901,6 +16162,7 @@
           "type": "system"
       },
       "system.logs_views": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -15979,6 +16241,7 @@
           "type": "system"
       },
       "system.insights": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -16137,6 +16400,7 @@
           "type": "system"
       },
       "system.notebooks": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -16255,6 +16519,7 @@
           "type": "system"
       },
       "system.sandbox_environments": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -16373,6 +16638,7 @@
           "type": "system"
       },
       "system.review_queue_items": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -16461,6 +16727,7 @@
           "type": "system"
       },
       "system.review_queues": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -16539,6 +16806,7 @@
           "type": "system"
       },
       "system.score_definitions": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -16637,6 +16905,7 @@
           "type": "system"
       },
       "system.session_recording_playlists": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -16775,6 +17044,7 @@
           "type": "system"
       },
       "system.session_recordings": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -16973,6 +17243,7 @@
           "type": "system"
       },
       "system.source_schemas": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -17111,6 +17382,7 @@
           "type": "system"
       },
       "system.source_sync_jobs": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -17219,6 +17491,7 @@
           "type": "system"
       },
       "system.support_tickets": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -17439,6 +17712,19 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
+              },
+              "tags": {
+                  "chain": null,
+                  "fields": [
+                      "ticket_id",
+                      "names"
+                  ],
+                  "hogql_value": "tags",
+                  "id": "tags",
+                  "name": "tags",
+                  "schema_valid": true,
+                  "table": "ticket_tags",
+                  "type": "lazy_table"
               }
           },
           "id": "system.support_tickets",
@@ -17447,6 +17733,7 @@
           "type": "system"
       },
       "system.surveys": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -17535,6 +17822,7 @@
           "type": "system"
       },
       "system.task_runs": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -17663,6 +17951,7 @@
           "type": "system"
       },
       "system.tags": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -17691,6 +17980,7 @@
           "type": "system"
       },
       "system.tasks": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -17849,6 +18139,7 @@
           "type": "system"
       },
       "system.teams": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -17917,6 +18208,7 @@
           "type": "system"
       },
       "system.trace_review_scores": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -18045,6 +18337,7 @@
           "type": "system"
       },
       "system.trace_reviews": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,
@@ -18143,6 +18436,7 @@
           "type": "system"
       },
       "system.usage_metrics": {
+          "certification": null,
           "fields": {
               "id": {
                   "chain": null,

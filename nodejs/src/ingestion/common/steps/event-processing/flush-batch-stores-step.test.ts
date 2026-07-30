@@ -1,9 +1,9 @@
-import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
+import { GROUPS_OUTPUT, INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
 import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
 import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
+import { GroupFlushResult } from '~/ingestion/common/groups/group-store.interface'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
-import { PersonOutputs } from '~/ingestion/common/persons/person-context'
 import { FlushResult, PersonsStore } from '~/ingestion/common/persons/persons-store'
 import {
     batchStoreFlushCacheEntriesHistogram,
@@ -19,7 +19,11 @@ import { AfterBatchInput } from '~/ingestion/framework/batching-pipeline'
 import { isOkResult, ok } from '~/ingestion/framework/results'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 
-import { FlushBatchStoresStepConfig, createFlushBatchStoresStep } from './flush-batch-stores-step'
+import {
+    FlushBatchStoresOutputs,
+    FlushBatchStoresStepConfig,
+    createFlushBatchStoresStep,
+} from './flush-batch-stores-step'
 
 jest.mock('~/ingestion/common/ingestion-warnings', () => ({
     emitIngestionWarning: jest.fn(),
@@ -39,7 +43,7 @@ jest.mock('~/ingestion/common/stores/metrics', () => ({
 describe('flush-batch-stores-step', () => {
     let mockPersonsStore: jest.Mocked<PersonsStore>
     let mockGroupStore: jest.Mocked<BatchWritingGroupStore>
-    let mockOutputs: PersonOutputs
+    let mockOutputs: FlushBatchStoresOutputs
     let storesConfig: FlushBatchStoresStepConfig
 
     beforeEach(() => {
@@ -70,6 +74,7 @@ describe('flush-batch-stores-step', () => {
             | typeof PERSON_DISTINCT_IDS_OUTPUT
             | typeof INGESTION_WARNINGS_OUTPUT
             | typeof PERSON_MERGE_EVENTS_OUTPUT
+            | typeof GROUPS_OUTPUT
         >()
 
         storesConfig = {
@@ -298,6 +303,67 @@ describe('flush-batch-stores-step', () => {
                     personId: 'uuid1',
                     distinctId: 'user1',
                     step: 'flushBatchStoresStep',
+                },
+                pipelineStep: 'flush',
+            })
+        })
+
+        it('should produce group store flush results as side effects', async () => {
+            const groupResults: GroupFlushResult[] = [
+                {
+                    messages: [{ output: GROUPS_OUTPUT, value: Buffer.from('group1') }],
+                    teamId: 1,
+                    groupTypeIndex: 0,
+                    groupKey: 'org-1',
+                },
+            ]
+
+            mockPersonsStore.flush.mockResolvedValue([])
+            mockGroupStore.flush.mockResolvedValue(groupResults)
+            const produceSpy = jest.spyOn(mockOutputs, 'produce')
+
+            const result = await step(makeInput())
+
+            expect(isOkResult(result)).toBe(true)
+            if (isOkResult(result)) {
+                expect(result.sideEffects).toHaveLength(1)
+            }
+            expect(produceSpy).toHaveBeenCalledWith(GROUPS_OUTPUT, {
+                key: null,
+                value: Buffer.from('group1'),
+                teamId: 1,
+            })
+        })
+
+        it('should emit a group-specific warning when a group message is too large', async () => {
+            const groupResults: GroupFlushResult[] = [
+                {
+                    messages: [{ output: GROUPS_OUTPUT, value: Buffer.from('group1') }],
+                    teamId: 1,
+                    groupTypeIndex: 0,
+                    groupKey: 'org-1',
+                },
+            ]
+
+            mockPersonsStore.flush.mockResolvedValue([])
+            mockGroupStore.flush.mockResolvedValue(groupResults)
+            jest.spyOn(mockOutputs, 'produce').mockRejectedValue(
+                new MessageSizeTooLarge('test', new Error('too large'))
+            )
+
+            const result = await step(makeInput())
+
+            expect(isOkResult(result)).toBe(true)
+            if (isOkResult(result)) {
+                expect(result.sideEffects).toHaveLength(1)
+                await result.sideEffects[0]
+            }
+
+            expect(emitIngestionWarning).toHaveBeenCalledWith(mockOutputs, 1, {
+                type: 'group_upsert_message_size_too_large',
+                details: {
+                    groupTypeIndex: 0,
+                    groupKey: 'org-1',
                 },
                 pipelineStep: 'flush',
             })

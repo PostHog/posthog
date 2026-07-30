@@ -140,7 +140,7 @@ describe('RerunPaginatorService queue routing', () => {
         expect(next.progress.last_error).toBeUndefined()
     })
 
-    const rehydrate = (type: string, headers: Record<string, string>) => {
+    const rehydrate = (type: string) => {
         const hogFunctionManager = {
             getHogFunction: jest.fn().mockResolvedValue({ id: 'fn-1', team_id: 1, type }),
         } as unknown as HogFunctionManagerService
@@ -159,29 +159,29 @@ describe('RerunPaginatorService queue routing', () => {
             attempts: 0,
             last_scheduled_at: '2026-01-01 00:00:00',
             first_scheduled_at: '2026-01-01 00:00:00',
+            // Well-formed globals so the rerunnable-type cases pass rehydration's
+            // schema validation — the type gate is what these tests exercise.
             invocation_globals: JSON.stringify({
-                event: { uuid: 'e1' },
-                request: { method: 'POST', headers, query: {}, body: {}, stringBody: '' },
+                project: { id: 1, name: '', url: '' },
+                event: { uuid: 'e1', distinct_id: 'd1', properties: {} },
             }),
         }
         return (webhookPaginator as any).rehydrateInvocation(1, 'hog_function', 'fn-1', row)
     }
 
-    it('strips request.headers from rehydrated globals for source-webhook functions', async () => {
-        const invocation = await rehydrate('source_webhook', {
-            authorization: 'secret',
-            'content-type': 'application/json',
-        })
-        expect(invocation.state.globals.request.headers).toEqual({})
-    })
+    // A cyclotron worker only executes destinations. Re-enqueuing a source webhook (or any
+    // other type) onto the hog queue wedges the partition, since nothing there can run it.
+    // rehydrateInvocation must return null so the row is counted as skipped, not queued.
+    it.each(['source_webhook', 'warehouse_source_webhook', 'transformation', 'site_destination', 'site_app'])(
+        'skips rerun of non-rerunnable type %s',
+        async (type) => {
+            expect(await rehydrate(type)).toBeNull()
+        }
+    )
 
-    it('strips request.headers for warehouse-source-webhook functions too', async () => {
-        const invocation = await rehydrate('warehouse_source_webhook', { 'x-api-key': 'secret' })
-        expect(invocation.state.globals.request.headers).toEqual({})
-    })
-
-    it('leaves request.headers intact for non-webhook functions', async () => {
-        const invocation = await rehydrate('destination', { authorization: 'secret' })
-        expect(invocation.state.globals.request.headers).toEqual({ authorization: 'secret' })
+    it.each(['destination', 'internal_destination'])('rehydrates rerunnable type %s', async (type) => {
+        const invocation = await rehydrate(type)
+        expect(invocation).not.toBeNull()
+        expect(invocation.queue).toBe('hog')
     })
 })

@@ -1,6 +1,6 @@
 import { generateAlertHCL } from 'lib/components/TerraformExporter/alertHclExporter'
 
-import { AlertType } from '~/lib/components/Alerts/types'
+import { AlertType } from 'products/alerts/frontend/types'
 
 const createTestAlert = (props: Record<string, unknown>): Partial<AlertType> => props as Partial<AlertType>
 

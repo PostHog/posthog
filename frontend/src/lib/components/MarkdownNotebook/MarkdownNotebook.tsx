@@ -76,6 +76,7 @@ import {
     setsEqual,
     textBlocksShareContinuationStyle,
     updateNotebookCodeBlockText,
+    withoutLeadingEmptyTitleGroup,
     writeSystemClipboardText,
 } from './documentModel'
 import {
@@ -164,6 +165,7 @@ import {
     getInsertMenuOptionDomId,
     getInsertMenuPosition,
     getNextInsertMenuSelectedIndex,
+    omitInsertCommands,
 } from './InsertMenu'
 import {
     deleteListItemSelectionRange,
@@ -243,6 +245,9 @@ export type MarkdownNotebookProps = {
     /** Caller-supplied insert-menu commands. Receives an API for inserting blocks so the command's
      * behavior (e.g. opening a picker modal) and labeling stay in the caller, not this component. */
     extraInsertCommands?: (api: MarkdownNotebookInsertMenuApi) => InsertCommand[]
+    /** Built-in insert-menu commands to drop, by key (e.g. `QUERY_SQL_INSERT_COMMAND_KEY`). For a
+     * caller whose registry supplies its own block for the same job and must not offer both. */
+    hiddenInsertCommandKeys?: string[]
     remoteValue?: string
     /** Notebook version `remoteValue` corresponds to, for version-aware caret mapping. */
     remoteVersion?: number
@@ -292,6 +297,10 @@ type CommitDocumentOptions = {
     /** Set when the commit applies a remote merge: the notebook version being merged in.
      * Remote caret pings already at this version reflect the change and must not be remapped. */
     remoteMergeVersion?: number
+    /** Structural edits (e.g. a Tab indent) look like text edits to the differ, so they would
+     * otherwise fold into an adjacent typing run and stop being independently undoable. Pass
+     * false to force a discrete undo step. */
+    coalesce?: boolean
 }
 
 type RemoteCaretAnchor = {
@@ -556,6 +565,7 @@ function MarkdownNotebookEditor({
     mode = 'edit',
     registry,
     extraInsertCommands,
+    hiddenInsertCommandKeys,
     remoteValue,
     remoteVersion,
     deferRemoteValue = false,
@@ -1097,7 +1107,8 @@ function MarkdownNotebookEditor({
         (
             previousDocument: NotebookDocument,
             nextDocument: NotebookDocument,
-            historyOperations?: NotebookOperation[]
+            historyOperations?: NotebookOperation[],
+            coalesce: boolean = true
         ): void => {
             const inverseOps = historyOperations ?? diffNotebookDocuments(nextDocument, previousDocument)
             if (!inverseOps.length) {
@@ -1106,8 +1117,10 @@ function MarkdownNotebookEditor({
 
             const now = Date.now()
             const onlyOp = inverseOps.length === 1 ? inverseOps[0] : null
+            // A non-coalescing entry stays its own undo step: it never folds into the previous
+            // entry, and a null coalesceNodeId keeps the next typing run from folding into it.
             const coalesceNodeId =
-                onlyOp && (onlyOp.type === 'text' || onlyOp.type === 'replace_block') ? onlyOp.nodeId : null
+                coalesce && onlyOp && (onlyOp.type === 'text' || onlyOp.type === 'replace_block') ? onlyOp.nodeId : null
             const lastEntry = historyRef.current.undo[historyRef.current.undo.length - 1]
             if (
                 coalesceNodeId &&
@@ -1152,7 +1165,12 @@ function MarkdownNotebookEditor({
             const editableDocument = ensureEditableNotebookDocument(nextDocument)
             const previousDocument = documentRef.current
             if (options.addToHistory ?? true) {
-                pushHistoryEntry(previousDocument, editableDocument, options.historyOperations)
+                pushHistoryEntry(
+                    previousDocument,
+                    editableDocument,
+                    options.historyOperations,
+                    options.coalesce ?? true
+                )
             }
             // Rendered remote carets ride along with the text they sit in.
             mapRemoteCaretAnchors(previousDocument, editableDocument, options.remoteMergeVersion)
@@ -1801,12 +1819,17 @@ function MarkdownNotebookEditor({
                 start: offset,
                 end: offset,
             }
-            commitDocument({
-                ...currentDocument,
-                nodes: nodes.map((currentNode) =>
-                    currentNode.id === node.id ? { ...node, items: nextItems } : currentNode
-                ),
-            })
+            commitDocument(
+                {
+                    ...currentDocument,
+                    nodes: nodes.map((currentNode) =>
+                        currentNode.id === node.id ? { ...node, items: nextItems } : currentNode
+                    ),
+                },
+                // A Tab indent must be its own undo step, not folded into the typing run that
+                // preceded it — otherwise Cmd+Z can't undo just the accidental indent.
+                { coalesce: false }
+            )
             return true
         },
         [commitDocument]
@@ -2827,27 +2850,30 @@ function MarkdownNotebookEditor({
     const placeholderNodeId = hasNotebookContent(renderedNodes) ? null : renderedNodes[0]?.id
     const insertCommands = useMemo(
         () =>
-            buildInsertCommands(
-                mergedRegistry,
-                replaceNodeWithInsertedComponent,
-                replaceNode,
-                (nodeId) => {
-                    restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
-                },
-                (nodeId) => {
-                    restoreSelectionRef.current = {
-                        nodeId,
-                        tableCell: { section: 'header', rowIndex: 0, columnIndex: 0 },
-                        start: 0,
-                        end: 8,
-                    }
-                },
-                (nodeId) => {
-                    restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
-                },
-                onAskAI ? openAIPrompt : undefined,
-                false,
-                extraInsertCommands ? extraInsertCommands(insertMenuApi) : []
+            omitInsertCommands(
+                buildInsertCommands(
+                    mergedRegistry,
+                    replaceNodeWithInsertedComponent,
+                    replaceNode,
+                    (nodeId) => {
+                        restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
+                    },
+                    (nodeId) => {
+                        restoreSelectionRef.current = {
+                            nodeId,
+                            tableCell: { section: 'header', rowIndex: 0, columnIndex: 0 },
+                            start: 0,
+                            end: 8,
+                        }
+                    },
+                    (nodeId) => {
+                        restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
+                    },
+                    onAskAI ? openAIPrompt : undefined,
+                    false,
+                    extraInsertCommands ? extraInsertCommands(insertMenuApi) : []
+                ),
+                hiddenInsertCommandKeys
             ),
         [
             mergedRegistry,
@@ -2856,6 +2882,7 @@ function MarkdownNotebookEditor({
             onAskAI,
             openAIPrompt,
             extraInsertCommands,
+            hiddenInsertCommandKeys,
             insertMenuApi,
         ]
     )
@@ -5598,10 +5625,11 @@ function MarkdownNotebookEditor({
         canvasRef.current?.focus()
     }
 
-    const renderedNodeGroups = getMarkdownNotebookVisualGroups(
+    const allNodeGroups = getMarkdownNotebookVisualGroups(
         renderedNodes,
         insertMenu?.detached ? insertMenu.nodeId : undefined
     )
+    const renderedNodeGroups = mode === 'edit' ? allNodeGroups : withoutLeadingEmptyTitleGroup(allNodeGroups)
 
     // The insert menu never takes focus (typing keeps filtering), so the canvas points at the
     // selected option via aria-activedescendant.

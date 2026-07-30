@@ -1,8 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -284,19 +282,16 @@ Thinking...`)
     it.each([
         ['scratchpad', { shortId: 'scratchpad', mode: 'notebook' as NotebookLogicMode }],
         ['canvas', { shortId: 'canvas-test', mode: 'canvas' as NotebookLogicMode }],
-    ])('starts an empty %s as a markdown notebook when the flag is enabled', (_name, props) => {
+    ])('starts an empty %s as a markdown notebook', (_name, props) => {
         logic.unmount()
         logic = notebookLogic(props)
         logic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MARKDOWN_NOTEBOOKS], {
-            [FEATURE_FLAGS.MARKDOWN_NOTEBOOKS]: true,
-        })
 
         expect(isMarkdownNotebookContent(logic.values.content)).toBe(true)
         expect(getMarkdownNotebookMarkdown(logic.values.content)).toEqual('')
     })
 
-    it('duplicates a legacy template as a markdown notebook when the flag is enabled', async () => {
+    it('duplicates a legacy template as a markdown notebook', async () => {
         logic.unmount()
         const templateNotebook = {
             ...cachedNotebook,
@@ -311,9 +306,6 @@ Thinking...`)
         } as unknown as NotebookType
         logic = notebookLogic({ shortId: 'template-test', mode: 'notebook', cachedNotebook: templateNotebook })
         logic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MARKDOWN_NOTEBOOKS], {
-            [FEATURE_FLAGS.MARKDOWN_NOTEBOOKS]: true,
-        })
         logic.actions.loadNotebook()
         await expectLogic(logic).toDispatchActions(['loadNotebookSuccess'])
 
@@ -355,7 +347,6 @@ Thinking...`)
         logic.actions.setEditingNodeEditing('markdown-node', true)
 
         expect(logic.values.editingNodeLogics).toEqual([nodeLogic])
-        expect(logic.values.editingNodeLogicsForLeft).toEqual([])
         expect(logic.values.isShowingLeftColumn).toBe(false)
 
         logic.actions.setShowHistory(true)

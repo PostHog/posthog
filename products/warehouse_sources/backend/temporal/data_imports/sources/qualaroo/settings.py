@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 
+from products.warehouse_sources.backend.types import IncrementalField
+
 
 @dataclass
 class QualarooEndpointConfig:
@@ -22,4 +24,4 @@ QUALAROO_ENDPOINTS: dict[str, QualarooEndpointConfig] = {
 
 ENDPOINTS = tuple(QUALAROO_ENDPOINTS.keys())
 
-INCREMENTAL_FIELDS: dict[str, list[dict[str, str]]] = {}
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

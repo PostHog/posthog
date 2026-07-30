@@ -42767,18 +42767,6 @@ async function getChangedFiles(token, base, ref, initialFetchDepth) {
             const currentRef = await git.getCurrentRef();
             return await git.getChanges(base || baseSha || defaultBranch, currentRef);
         }
-        // To keep backward compatibility, manual inputs take precedence over
-        // commits in GitHub merge queue event.
-        case 'merge_group': {
-            const mergeGroup = github.context.payload;
-            if (!base) {
-                base = mergeGroup.merge_group.base_sha;
-            }
-            if (!ref) {
-                ref = mergeGroup.merge_group.head_sha;
-            }
-            break;
-        }
     }
     return getChangedFilesFromGit(base, ref, initialFetchDepth);
 }

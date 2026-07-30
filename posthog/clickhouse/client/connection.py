@@ -27,7 +27,6 @@ class NodeRole(StrEnum):
     INGESTION_EVENTS = "events"
     INGESTION_SMALL = "small"
     INGESTION_MEDIUM = "medium"
-    SHUFFLEHOG = "shufflehog"
     ENDPOINTS = "endpoints"
     LOGS = "logs"
 

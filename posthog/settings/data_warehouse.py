@@ -19,6 +19,12 @@ USE_LOCAL_SETUP = TEST or (DEBUG and len(os.getenv("OBJECT_STORAGE_ENDPOINT", "h
 
 PYARROW_DEBUG_LOGGING = get_from_env("PYARROW_DEBUG_LOGGING", False, type_cast=str_to_bool)
 
+# Rollback-only escape hatch: restores the legacy delta-rs unsafe-rename S3 backend,
+# which has no commit-conflict detection. Default (false) keeps conditional-put commits.
+DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME = get_from_env(
+    "DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME", False, type_cast=str_to_bool
+)
+
 # At-rest (compressed) byte budget per Delta partition. The auto-repartition controller rewrites a
 # table into a finer scheme once its largest partition exceeds this. delta-rs merges decompress the
 # whole target partition into an Arrow working set — roughly ~20x the at-rest size, and far more for
@@ -43,6 +49,58 @@ DATA_WAREHOUSE_REPARTITION_OOM_WINDOW_DAYS = get_from_env(
 # merge success so tables that OOM their merge still get their tombstones cleared (the compact-after-merge
 # path never runs for them). Vacuum only deletes dead files, so it's memory-safe even on oversized tables.
 DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD = get_from_env("DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD", 100, type_cast=int)
+
+# delta-rs merge spill-to-disk. A merge decompresses the target partition into an Arrow working set that
+# can exceed the 29 GB pod limit and OOM — killing every co-tenant activity on the pod. When set, delta-rs
+# hands DataFusion a bounded memory pool: once the merge's in-memory bytes cross MAX_SPILL_SIZE it spills
+# the overflow to its temp directory (the process TMPDIR) instead of allocating unbounded. Left as None,
+# DataFusion runs with its unbounded default (today's behavior) — so this is a no-op until BOTH the byte
+# budget and a scratch disk are provisioned (the temporal-worker-data-warehouse / warehouse-sources-load
+# pods mount an ephemeral volume at /tmp and set these env vars).
+#
+# Sizing interacts with concurrency: each merge gets its own DataFusion pool, so N concurrent merges on a
+# pod can hold up to N * MAX_SPILL_SIZE in memory and N * MAX_TEMP_DIRECTORY_SIZE on the shared disk. Keep
+# MAX_SPILL_SIZE below the designed per-partition working set (~10 GB) so genuinely-large merges spill
+# before the multi-tenant OOM, while typical small merges stay in memory (spilling is slow). Keep
+# MAX_TEMP_DIRECTORY_SIZE small enough that a few concurrent spills fit the mounted disk.
+DATA_WAREHOUSE_DELTA_MERGE_MAX_SPILL_SIZE_BYTES: int | None = get_from_env(
+    "DATA_WAREHOUSE_DELTA_MERGE_MAX_SPILL_SIZE_BYTES", None, optional=True, type_cast=int
+)
+DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES: int | None = get_from_env(
+    "DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES", None, optional=True, type_cast=int
+)
+
+# --- deltalite shadow verification (rollout canary, phase 1) -------------------------------------
+# When enabled, the incremental merge path ALSO re-applies the same batch through the deltalite
+# streaming upsert into a throwaway copy of the affected partitions, then compares the result to
+# the real (delta-rs MERGE) output. deltalite NEVER writes the real table — this is pure observation
+# to build confidence that deltalite is byte-for-byte equivalent before it writes production tables.
+#
+# This env var is the cheap master switch, checked first so that when it's off nothing runs at all
+# (no DB query, no feature-flag eval, no extra I/O). Per-schema canary targeting is a PostHog feature
+# flag on top of this (see deltalite_shadow.is_deltalite_shadow_enabled). Off by default.
+DATA_WAREHOUSE_DELTALITE_SHADOW_ENABLED = get_from_env(
+    "DATA_WAREHOUSE_DELTALITE_SHADOW_ENABLED", False, type_cast=str_to_bool
+)
+# Fraction of eligible incremental batches to shadow. The comparison roughly doubles a batch's I/O
+# (seed copy + upsert + compare read), so sample rather than shadow every batch. 1.0 = all, 0.0 = none.
+DATA_WAREHOUSE_DELTALITE_SHADOW_SAMPLE_RATE = get_from_env(
+    "DATA_WAREHOUSE_DELTALITE_SHADOW_SAMPLE_RATE", 1.0, type_cast=float
+)
+# Skip the shadow for any batch whose affected partitions exceed this at-rest (compressed) byte size —
+# seeding and re-reading them would be too expensive. Measured from the Delta add-action stats before
+# any data is read, so an oversized batch is skipped cheaply. 0 disables the cap.
+DATA_WAREHOUSE_DELTALITE_SHADOW_MAX_AFFECTED_BYTES = get_from_env(
+    "DATA_WAREHOUSE_DELTALITE_SHADOW_MAX_AFFECTED_BYTES", 2_000_000_000, type_cast=int
+)
+# Also skip when the affected partitions hold more than this many rows. The byte cap above is measured
+# on the *compressed* at-rest size, which a highly compressible partition understates badly — a small
+# on-S3 slice can explode into a huge Arrow working set once the seed + comparison decompress it. Rows
+# bound that uncompressed set directly. When the row/byte estimate can't be read at all, the shadow
+# fails closed (skips) rather than materializing an unbounded slice. 0 disables the cap.
+DATA_WAREHOUSE_DELTALITE_SHADOW_MAX_AFFECTED_ROWS = get_from_env(
+    "DATA_WAREHOUSE_DELTALITE_SHADOW_MAX_AFFECTED_ROWS", 20_000_000, type_cast=int
+)
 
 GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL")
 GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY")

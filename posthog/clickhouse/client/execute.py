@@ -337,13 +337,17 @@ def sync_execute(
     if workload == Workload.DEFAULT and (is_api_key_auth or tags.kind == "celery"):
         workload = Workload.OFFLINE
 
-    # Make sure we always have process_query_task on the online cluster
+    # Make sure we always have process_query_task on the online cluster.
+    # Workload.LOGS is exempt: it pins queries to the dedicated logs cluster, which is the
+    # only place the logs tables exist, so overriding it would send the query to a cluster
+    # that cannot answer it.
     tags_id: str = tags.id or ""
     if tags_id == "posthog.tasks.tasks.process_query_task":
-        workload = Workload.ONLINE
+        if workload != Workload.LOGS:
+            workload = Workload.ONLINE
         ch_user = ClickHouseUser.API if is_api_key_auth else ClickHouseUser.APP
 
-    if tags.workload == Workload.ENDPOINTS:
+    if tags.workload == Workload.ENDPOINTS and workload != Workload.LOGS:
         workload = Workload.ENDPOINTS
 
     if workload == Workload.DEFAULT:

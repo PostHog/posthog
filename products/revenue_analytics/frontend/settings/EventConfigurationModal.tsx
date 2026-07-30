@@ -147,7 +147,7 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
                                         setEventName(selectedEventName)
                                     }
                                 }}
-                                value={''}
+                                value=""
                                 placeholder="Select or type an event name"
                                 selectingKeyOnly
                             />

@@ -32,6 +32,7 @@ import { TracingFilterBar } from './TracingFilterBar'
 import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from './tracingFiltersLogic'
 import { tracingSceneLogic } from './tracingSceneLogic'
 import { TracingSparkline } from './TracingSparkline'
+import { tracingViewerLogic } from './tracingViewerLogic'
 import type { Span } from './types'
 
 const TRACING_FEEDBACK_SURVEY_ID = '019e6a26-4943-0000-24a0-dc46310f6b7c'
@@ -45,9 +46,10 @@ export const scene: SceneExport = {
 
 export default function TracingScene(): JSX.Element {
     const sceneLogic = tracingSceneLogic()
-    // Keep filters + data logic alive across React unmounts by attaching them to the scene root.
+    // Keep filters + data + viewer logic alive across React unmounts by attaching them to the scene root.
     useAttachedLogic(tracingFiltersLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
     useAttachedLogic(tracingDataLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
+    useAttachedLogic(tracingViewerLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
 
     // Bind the scene's keyed instances so nested components (filter bar, sparkline, ...)
     // resolve them from context — the same components work inside an embedded viewer
@@ -55,7 +57,9 @@ export default function TracingScene(): JSX.Element {
     return (
         <BindLogic logic={tracingFiltersLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
             <BindLogic logic={tracingDataLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
-                <TracingSceneContents />
+                <BindLogic logic={tracingViewerLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
+                    <TracingSceneContents />
+                </BindLogic>
             </BindLogic>
         </BindLogic>
     )
@@ -89,6 +93,9 @@ function TracingSceneContents(): JSX.Element {
         durationHistogramLoading,
         visibleRowDurationRange,
         isDurationMode,
+        latencyHeatmapData,
+        latencyHeatmapLoading,
+        showHeatmap,
         activeTracingTab,
         compareActive,
     } = useValues(tracingSceneLogic())
@@ -105,11 +112,14 @@ function TracingSceneContents(): JSX.Element {
         loadMoreTraceSpans,
         setVisibleRowRange,
         setSort,
+        setChartType,
+        applyHeatmapBrush,
     } = useActions(tracingSceneLogic())
     const { addProductIntent } = useActions(teamLogic)
     const { facetRailCollapsed } = useValues(tracingConfigLogic)
     const operationsViewEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]
     const facetRailEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_FACET_RAIL]
+    const heatmapEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_LATENCY_HEATMAP]
 
     // Resolved aggregation window (ms) — turns span counts into a request rate.
     // Use sparklineWindowMs which correctly resolves relative date strings (e.g. '-1h').
@@ -176,27 +186,35 @@ function TracingSceneContents(): JSX.Element {
             />
             <LemonBanner
                 type="warning"
-                dismissKey="tracing-alpha-notice"
+                dismissKey="tracing-beta-notice"
                 action={{
                     icon: <IconFeedback />,
                     children: 'Share feedback',
                     onClick: onFeedbackClick,
                 }}
             >
-                Tracing is in alpha. Expect bugs, missing features, and breaking changes.
+                Tracing is now in beta. Please share feedback on how to improve the product.
             </LemonBanner>
             <TracingSetupPrompt>
                 <TracingFilterBar />
                 <SceneDivider />
                 <TracingSparkline
                     sparklineData={sparklineData}
-                    sparklineLoading={sparklineLoading || (isDurationMode && durationHistogramLoading)}
+                    sparklineLoading={sparklineLoading || (isDurationMode && !showHeatmap && durationHistogramLoading)}
                     onDateRangeChange={setDateRange}
                     displayTimezone="UTC"
                     compare={compareConfig}
                     visibleRowDateRange={visibleRowDateRange}
-                    durationHistogram={isDurationMode ? durationHistogramData : null}
+                    durationHistogram={isDurationMode && !showHeatmap ? durationHistogramData : null}
                     visibleRowDurationRange={visibleRowDurationRange}
+                    chartType={filters.chartType}
+                    onChartTypeChange={heatmapEnabled ? setChartType : undefined}
+                    latencyHeatmap={showHeatmap ? latencyHeatmapData : null}
+                    latencyHeatmapLoading={latencyHeatmapLoading}
+                    onHeatmapBrush={applyHeatmapBrush}
+                    heatmapDisabledReason={
+                        compareActive ? 'The heatmap is unavailable while comparing time windows' : null
+                    }
                 />
                 <div className="flex flex-row gap-2 flex-1 min-h-0">
                     {facetRailEnabled && !facetRailCollapsed && <FacetRail />}
@@ -211,7 +229,9 @@ function TracingSceneContents(): JSX.Element {
                                 loading={aggregationLoading}
                                 windowMs={operationsWindowMs}
                                 onRowClick={(row) =>
-                                    router.actions.push(urls.tracingOperation(row.service_name, row.name))
+                                    router.actions.push(
+                                        urls.tracingOperation(row.service_name, row.name, filters.dateRange)
+                                    )
                                 }
                             />
                         ) : compareActive ? (

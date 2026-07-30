@@ -14,6 +14,24 @@ from urllib.parse import urlparse
 AI_PRODUCT = "aio_stamphog"
 
 
+def analytics_extra_properties() -> dict[str, object]:
+    """Extra analytics properties the hosted stamphog server injects, or {}.
+
+    The hosted server sets STAMPHOG_EXTRA_PROPERTIES (a JSON object with runtime/team/run-id
+    context) in the sandbox env so hosted events and LLM traces carry its context. The Action
+    never sets it, so Action telemetry is unchanged (no prop = action runtime). Anything
+    unparseable degrades to {} — telemetry must never fail a review.
+    """
+    raw = os.environ.get("STAMPHOG_EXTRA_PROPERTIES", "")
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except ValueError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def _misconfig(url: str, api_key: str) -> str | None:
     if not (url and api_key):
         return "AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be set together"

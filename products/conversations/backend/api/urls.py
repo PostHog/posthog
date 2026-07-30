@@ -7,6 +7,7 @@ from .email_settings import (
     EmailConnectView,
     EmailDisconnectView,
     EmailSendTestView,
+    EmailSetDefaultView,
     EmailStatusView,
     EmailVerifyDomainView,
 )
@@ -57,6 +58,7 @@ urlpatterns = [
     re_path(r"^v1/email/status/?$", EmailStatusView.as_view(), name="email-status"),
     re_path(r"^v1/email/connect/?$", EmailConnectView.as_view(), name="email-connect"),
     re_path(r"^v1/email/disconnect/?$", EmailDisconnectView.as_view(), name="email-disconnect"),
+    re_path(r"^v1/email/set-default/?$", EmailSetDefaultView.as_view(), name="email-set-default"),
     re_path(r"^v1/email/verify-domain/?$", EmailVerifyDomainView.as_view(), name="email-verify-domain"),
     re_path(r"^v1/email/send-test/?$", EmailSendTestView.as_view(), name="email-send-test"),
     # GitHub Issues channel

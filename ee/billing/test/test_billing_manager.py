@@ -74,6 +74,25 @@ class TestBillingManager(BaseTest):
             "https://billing.posthog.com/api/products-v2", params={"plan": "standard"}, headers={}
         )
 
+    @parameterized.expand(
+        [
+            ("with_ip", "203.0.113.7", True),
+            ("without_ip", None, False),
+        ]
+    )
+    def test_get_auth_headers_forwards_actor_ip(self, _name, ip_address, expect_header):
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+        headers = BillingManager(license, self.user, ip_address=ip_address).get_auth_headers(self.organization)
+
+        assert headers["Authorization"].startswith("Bearer ")
+        assert ("X-PostHog-Actor-IP" in headers) is expect_header
+        if expect_header:
+            assert headers["X-PostHog-Actor-IP"] == ip_address
+
     @patch(
         "ee.billing.billing_manager.requests.patch",
         return_value=MagicMock(status_code=200, json=MagicMock(return_value={"text": "ok"})),
@@ -247,7 +266,9 @@ class TestBillingManager(BaseTest):
             "ai_credits": {"usage": 1200, "limit": 20000, "todays_usage": 150},
             "signals_credits": {},
             "replay_vision_credits": {},
+            "posthog_code_credits": {},
             "workflow_emails": {"usage": 100, "limit": 10000, "todays_usage": 10},
+            "workflow_push": {},
             "workflow_destinations_dispatched": {"usage": 50, "limit": 10000, "todays_usage": 5},
             "logs_mb_ingested": {"usage": 5500, "limit": 50000, "todays_usage": 500},
             "period": ["2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z"],
@@ -302,6 +323,106 @@ class TestBillingManager(BaseTest):
         assert organization.never_drop_data is True
         assert organization.usage["events"].get("quota_limited_until") is None
         assert organization.usage["events"].get("quota_limiting_suspended_until") is None
+
+    def test_update_org_details_resets_logs_retention_when_entitlement_revoked(self):
+        organization = self.organization
+        organization.available_product_features = [{"key": "logs_retention_30d", "name": "30-day logs retention"}]
+        organization.save()
+        self.team.logs_settings = {"retention_days": 30, "json_parse_logs": True}
+        self.team.save()
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        billing_status = {"customer": {"available_product_features": [{"key": "surveys", "name": "Surveys"}]}}
+
+        BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
+
+        self.team.refresh_from_db()
+        # Retention drops to the default; unrelated Logs settings survive.
+        assert self.team.logs_settings == {"retention_days": 14, "json_parse_logs": True}
+
+    def test_update_org_details_keeps_logs_retention_while_entitled(self):
+        organization = self.organization
+        organization.available_product_features = [{"key": "logs_retention_30d", "name": "30-day logs retention"}]
+        organization.save()
+        self.team.logs_settings = {"retention_days": 30}
+        self.team.save()
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        billing_status = {
+            "customer": {
+                "available_product_features": [
+                    {"key": "logs_retention_30d", "name": "30-day logs retention"},
+                    {"key": "surveys", "name": "Surveys"},
+                ]
+            }
+        }
+
+        BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
+
+        self.team.refresh_from_db()
+        assert self.team.logs_settings == {"retention_days": 30}
+
+    def test_update_org_details_ignores_empty_feature_list(self):
+        """A partial or error-path billing response must not downgrade the org or reset retention."""
+        organization = self.organization
+        organization.available_product_features = [{"key": "logs_retention_30d", "name": "30-day logs retention"}]
+        organization.save()
+        self.team.logs_settings = {"retention_days": 30}
+        self.team.save()
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        billing_status: dict[str, Any] = {"customer": {"available_product_features": []}}
+
+        BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
+
+        organization.refresh_from_db()
+        self.team.refresh_from_db()
+        assert organization.available_product_features == [
+            {"key": "logs_retention_30d", "name": "30-day logs retention"}
+        ]
+        assert self.team.logs_settings == {"retention_days": 30}
+
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_update_available_product_features_resets_revoked_logs_retention(self, mock_get: MagicMock):
+        organization = self.organization
+        organization.available_product_features = [{"key": "logs_retention_30d", "name": "30-day logs retention"}]
+        organization.save()
+        self.team.logs_settings = {"retention_days": 30}
+        self.team.save()
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        # A cancellation lands the customer on free plans, which still carry (other) features.
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = {
+            "available_product_features": [{"key": "surveys", "name": "Surveys"}]
+        }
+
+        BillingManager(license).update_available_product_features(organization)
+
+        organization.refresh_from_db()
+        self.team.refresh_from_db()
+        assert organization.available_product_features == [{"key": "surveys", "name": "Surveys"}]
+        assert self.team.logs_settings == {"retention_days": 14}
 
     @patch("ee.billing.billing_manager.update_org_billing_quotas", side_effect=Exception("Redis unavailable"))
     def test_update_org_details_saves_org_fields_before_recomputing_existing_quota_limits(
@@ -645,6 +766,18 @@ class TestBuildBillingToken(BaseTest):
         assert "distinct_id" not in decoded
         assert "organization_role" not in decoded
         assert "original_role" not in decoded
+        # Only service-to-service tokens carry service_action; billing uses its absence
+        # to reject user-minted tokens on service-only endpoints.
+        assert "service_action" not in decoded
+
+    def test_build_billing_token_with_service_action(self):
+        token = build_billing_token(self.license, self.organization, service_action="signals_pr_dispute")
+
+        decoded = jwt.decode(token, "license_secret", algorithms=["HS256"], audience="posthog:license-key")
+
+        assert decoded["service_action"] == "signals_pr_dispute"
+        assert "distinct_id" not in decoded
+        assert "organization_role" not in decoded
 
     def test_build_billing_token_with_user_who_is_member(self):
         """Token with user should include distinct_id and organization_role as level display string"""
@@ -1364,3 +1497,50 @@ class TestRequestWithPostFallback(BaseTest):
         assert result == {"results": []}
         mock_get.assert_called_once()
         mock_post.assert_not_called()
+
+
+class TestDisputeSignalsPr(BaseTest):
+    def _license(self) -> License:
+        return super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+    @patch(
+        "ee.billing.billing_manager.requests.post",
+        return_value=MagicMock(
+            status_code=200,
+            json=MagicMock(return_value={"credit_amount_usd": "15.00", "credit_id": "c1", "already_processed": False}),
+        ),
+    )
+    def test_posts_to_dispute_endpoint_and_returns_body(self, billing_post_request_mock: MagicMock):
+        payload = {"refund_id": "r1", "credits": 1500, "metadata": {}}
+
+        result = BillingManager(self._license()).dispute_signals_pr(self.organization, payload)
+
+        assert result == {"credit_amount_usd": "15.00", "credit_id": "c1", "already_processed": False}
+        call_args = billing_post_request_mock.call_args
+        assert call_args[0][0].endswith("/api/signals/dispute-pr")
+        assert call_args[1]["json"] == payload
+        assert "Authorization" in call_args[1]["headers"]
+        # Billing only accepts dispute calls from tokens carrying the service_action
+        # claim; without it the request is rejected as a user-initiated token.
+        token = call_args[1]["headers"]["Authorization"].removeprefix("Bearer ")
+        decoded = jwt.decode(token, options={"verify_signature": False})
+        assert decoded["service_action"] == "signals_pr_dispute"
+        assert "organization_role" not in decoded
+        assert "distinct_id" not in decoded
+
+    @parameterized.expand([("missing_deploy", 404), ("auth_failure", 401)])
+    def test_raises_on_statuses_the_default_valid_codes_would_swallow(self, _name, status_code):
+        # handle_billing_service_error's default valid_codes includes 404/401 — treating a missing
+        # billing deploy or an auth failure as success would record an error body as a synced
+        # credit. Any non-200 must raise so the Celery caller retries.
+        response = MagicMock(status_code=status_code, json=MagicMock(return_value={"detail": "nope"}), ok=False)
+        with patch("ee.billing.billing_manager.requests.post", return_value=response):
+            with self.assertRaises(Exception) as context:
+                BillingManager(self._license()).dispute_signals_pr(
+                    self.organization, {"refund_id": "r1", "credits": 1500, "metadata": {}}
+                )
+        assert str(status_code) in str(context.exception)

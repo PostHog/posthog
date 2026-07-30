@@ -1,4 +1,4 @@
-from .cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
+from .cleanup_sandbox import CleanupSandboxInput, CompleteRunStreamInput, cleanup_sandbox, complete_run_stream
 from .create_resume_snapshot import CreateResumeSnapshotInput, CreateResumeSnapshotOutput, create_resume_snapshot
 from .emit_progress_activity import EmitProgressInput, emit_progress_activity
 from .execute_task_in_sandbox import ExecuteTaskInput, ExecuteTaskOutput, execute_task_in_sandbox
@@ -34,9 +34,13 @@ from .refresh_sandbox_credentials import (
     RefreshSandboxCredentialsOutput,
     refresh_sandbox_credentials,
 )
-from .relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
+from .relay_sandbox_events import (
+    RelaySandboxEventsInput,
+    relay_sandbox_events,
+    relay_sandbox_events_deferred_completion,
+)
 from .run_wizard import RunWizardInput, run_wizard
-from .send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
+from .send_followup_to_sandbox import STEER_DECLINED_OUTCOME, SendFollowupToSandboxInput, send_followup_to_sandbox
 from .send_permission_response_to_sandbox import (
     PostPermissionDeliveryFailureInput,
     SendPermissionDenialGuidanceInput,
@@ -60,6 +64,7 @@ from .update_task_run_status import UpdateTaskRunStatusInput, update_task_run_st
 
 __all__ = [
     "CleanupSandboxInput",
+    "CompleteRunStreamInput",
     "CreateResumeSnapshotInput",
     "CreateResumeSnapshotOutput",
     "EmitProgressInput",
@@ -94,7 +99,9 @@ __all__ = [
     "SendPermissionDenialGuidanceInput",
     "SendPermissionResponseToSandboxInput",
     "SendFollowupToSandboxInput",
+    "STEER_DECLINED_OUTCOME",
     "cleanup_sandbox",
+    "complete_run_stream",
     "create_resume_snapshot",
     "create_sandbox_for_repository",
     "emit_progress_activity",
@@ -102,6 +109,7 @@ __all__ = [
     "forward_pending_user_message",
     "relay_agent_design_signals",
     "relay_sandbox_events",
+    "relay_sandbox_events_deferred_completion",
     "post_permission_delivery_failure_notice",
     "send_permission_denial_guidance",
     "send_permission_response_to_sandbox",

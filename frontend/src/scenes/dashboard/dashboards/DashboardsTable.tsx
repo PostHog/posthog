@@ -90,7 +90,8 @@ export function DashboardsTable({
 
     const columns: LemonTableColumns<DashboardType> = [
         {
-            width: 0,
+            // Fixed-layout table: icon-only columns need an explicit width, otherwise they'd be squeezed to a sliver.
+            width: 40,
             dataIndex: 'pinned',
             render: function Render(pinned, { id }) {
                 return (
@@ -119,32 +120,47 @@ export function DashboardsTable({
                     AccessControlLevel.Editor
                 )
                 return (
-                    <LemonTableLink
-                        to={urls.dashboard(id)}
-                        title={
-                            <>
-                                <span data-attr="dashboard-name">{name || 'Untitled'}</span>
-                                {is_shared && (
-                                    <Tooltip title="This dashboard is shared publicly.">
-                                        <IconShare className="ml-1 text-base text-link" />
-                                    </Tooltip>
-                                )}
-                                {!canEditDashboard && (
-                                    <Tooltip title={DASHBOARD_CANNOT_EDIT_MESSAGE}>
-                                        <IconLock className="ml-1 text-base text-secondary" />
-                                    </Tooltip>
-                                )}
-                                {isPrimary && (
-                                    <Tooltip title="The primary dashboard is shown on the project home page.">
-                                        <span>
-                                            <IconHome className="ml-1 text-base text-warning" />
+                    // Fixed-layout table sizes this cell from the container, so the name truncates within its column
+                    // (full name on hover) instead of growing the cell and scrolling the whole table.
+                    <div className="min-w-0">
+                        <LemonTableLink
+                            to={urls.dashboard(id)}
+                            truncateTitle
+                            title={
+                                <>
+                                    <Tooltip title={name || 'Untitled'}>
+                                        <span data-attr="dashboard-name" className="truncate min-w-0">
+                                            {name || 'Untitled'}
                                         </span>
                                     </Tooltip>
-                                )}
-                            </>
-                        }
-                        description={description}
-                    />
+                                    {is_shared && (
+                                        <Tooltip title="This dashboard is shared publicly.">
+                                            <IconShare className="ml-1 text-base text-link" />
+                                        </Tooltip>
+                                    )}
+                                    {!canEditDashboard && (
+                                        <Tooltip title={DASHBOARD_CANNOT_EDIT_MESSAGE}>
+                                            <IconLock className="ml-1 text-base text-secondary" />
+                                        </Tooltip>
+                                    )}
+                                    {isPrimary && (
+                                        <Tooltip title="The primary dashboard is shown on the project home page.">
+                                            <span>
+                                                <IconHome className="ml-1 text-base text-warning" />
+                                            </span>
+                                        </Tooltip>
+                                    )}
+                                </>
+                            }
+                            description={
+                                description ? (
+                                    <Tooltip title={description}>
+                                        <span className="block truncate max-w-[30rem]">{description}</span>
+                                    </Tooltip>
+                                ) : undefined
+                            }
+                        />
+                    </div>
                 )
             },
             sorter: nameCompareFunction,
@@ -168,7 +184,10 @@ export function DashboardsTable({
                 const label = folder || 'Project root'
                 return (
                     <Tooltip title={`Filter to dashboards in ${label}`}>
-                        <Link className="flex items-center gap-1 text-secondary" onClick={() => setFilters({ folder })}>
+                        <Link
+                            className="flex items-center gap-1 text-secondary max-w-[10rem]"
+                            onClick={() => setFilters({ folder })}
+                        >
                             <IconFolder className="shrink-0" />
                             <span className="truncate">{label}</span>
                         </Link>
@@ -185,7 +204,8 @@ export function DashboardsTable({
         hideActions
             ? {}
             : {
-                  width: 0,
+                  // Fixed-layout table: give the actions menu a fixed width so it isn't squeezed to a sliver.
+                  width: 48,
                   render: function RenderActions(_, dashboard: DashboardType) {
                       const { id, name, user_access_level } = dashboard
                       const moveEntry = fsEntryFor(id)
@@ -301,6 +321,7 @@ export function DashboardsTable({
                 dataSource={dashboards as DashboardType[]}
                 rowKey="id"
                 rowClassName={(record) => (record._highlight ? 'highlighted' : null)}
+                tableLayout="fixed"
                 columns={columns}
                 loading={dashboardsLoading}
                 defaultSorting={effectiveTableSorting}

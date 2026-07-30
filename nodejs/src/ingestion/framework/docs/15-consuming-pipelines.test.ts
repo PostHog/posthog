@@ -2,12 +2,12 @@
  * # Chapter 15: Consuming a Pipeline
  *
  * The earlier chapters build pipelines; this one shows how a built
- * `BatchPipeline` is actually driven in production, and how
- * `BatchPipelineUnwrapper` turns its results into plain values.
+ * `ChunkPipeline` is actually driven in production, and how
+ * `ChunkPipelineUnwrapper` turns its results into plain values.
  *
  * ## The feed() / next() contract
  *
- * A `BatchPipeline` is a pull-based stream:
+ * A `ChunkPipeline` is a pull-based stream:
  *
  * - **`feed(elements)`** hands a batch of `OkResultWithContext` items to the
  *   pipeline. It buffers them; it does not process synchronously.
@@ -28,10 +28,10 @@
  * }
  * ```
  *
- * ## BatchPipelineUnwrapper
+ * ## ChunkPipelineUnwrapper
  *
  * Most consumers do not want result-with-context objects; they want the plain
- * output values. `BatchPipelineUnwrapper` wraps a pipeline and, on `next()`,
+ * output values. `ChunkPipelineUnwrapper` wraps a pipeline and, on `next()`,
  * returns a flat `TOutput[]` of just the OK values - non-OK results (DLQ, DROP,
  * REDIRECT) are filtered out (they are assumed already handled by a
  * `handleResults()` stage upstream). It returns `null` when the underlying
@@ -45,9 +45,9 @@
  * stage is missing from the pipeline.
  */
 import { logger } from '~/common/utils/logger'
-import { BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
-import { BatchPipelineUnwrapper } from '~/ingestion/framework/batch-pipeline-unwrapper'
-import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
+import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
+import { ChunkPipelineUnwrapper } from '~/ingestion/framework/chunk-pipeline-unwrapper'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { drop, isOkResult, ok } from '~/ingestion/framework/results'
 
@@ -63,13 +63,13 @@ describe('Consuming a Pipeline', () => {
      * next() drives processing; null marks the pipeline drained.
      */
     it('feed() then next() drives the pipeline until it returns null', async () => {
-        function createDoubleStep(): BatchProcessingStep<Event, Event> {
+        function createDoubleStep(): ChunkProcessingStep<Event, Event> {
             return function doubleStep(events) {
                 return Promise.resolve(events.map((event) => ok({ id: event.id * 2 })))
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Event, NoCtx>().pipeBatch(createDoubleStep()).build()
+        const pipeline = newChunkPipelineBuilder<Event, NoCtx>().pipeChunk(createDoubleStep()).build()
 
         pipeline.feed([{ id: 1 }, { id: 2 }, { id: 3 }].map((e) => createOkContext(e, {})))
 
@@ -90,27 +90,27 @@ describe('Consuming a Pipeline', () => {
     })
 
     /**
-     * BatchPipelineUnwrapper returns plain output values and filters out non-OK
+     * ChunkPipelineUnwrapper returns plain output values and filters out non-OK
      * results (here, DROP). The consumer never sees result-with-context objects.
      */
-    it('BatchPipelineUnwrapper returns plain values and drops non-OK results', async () => {
-        function createFilterStep(): BatchProcessingStep<Event, Event> {
+    it('ChunkPipelineUnwrapper returns plain values and drops non-OK results', async () => {
+        function createFilterStep(): ChunkProcessingStep<Event, Event> {
             return function filterStep(events) {
                 // Drop even ids, keep odd ones
                 return Promise.resolve(events.map((event) => (event.id % 2 === 0 ? drop('even filtered') : ok(event))))
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Event, NoCtx>().pipeBatch(createFilterStep()).build()
-        const unwrapper = new BatchPipelineUnwrapper(pipeline)
+        const pipeline = newChunkPipelineBuilder<Event, NoCtx>().pipeChunk(createFilterStep()).build()
+        const unwrapper = new ChunkPipelineUnwrapper(pipeline)
 
         unwrapper.feed([{ id: 1 }, { id: 2 }, { id: 3 }].map((e) => createOkContext(e, {})))
 
         const values: Event[] = []
-        let batch = await unwrapper.next()
-        while (batch !== null) {
-            values.push(...batch)
-            batch = await unwrapper.next()
+        let chunk = await unwrapper.next()
+        while (chunk !== null) {
+            values.push(...chunk)
+            chunk = await unwrapper.next()
         }
 
         // Only the OK (odd) values survive, as plain objects
@@ -122,18 +122,18 @@ describe('Consuming a Pipeline', () => {
      * the unwrapper logs a warning: those side effects would otherwise be
      * silently dropped.
      */
-    it('BatchPipelineUnwrapper warns about unhandled side effects', async () => {
+    it('ChunkPipelineUnwrapper warns about unhandled side effects', async () => {
         const warnSpy = jest.spyOn(logger, 'warn').mockImplementation(() => undefined)
 
-        function createStepWithSideEffect(): BatchProcessingStep<Event, Event> {
+        function createStepWithSideEffect(): ChunkProcessingStep<Event, Event> {
             return function stepWithSideEffect(events) {
                 // Attach a side effect that no downstream stage handles
                 return Promise.resolve(events.map((event) => ok(event, [Promise.resolve('unhandled')])))
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Event, NoCtx>().pipeBatch(createStepWithSideEffect()).build()
-        const unwrapper = new BatchPipelineUnwrapper(pipeline)
+        const pipeline = newChunkPipelineBuilder<Event, NoCtx>().pipeChunk(createStepWithSideEffect()).build()
+        const unwrapper = new ChunkPipelineUnwrapper(pipeline)
 
         unwrapper.feed([{ id: 1 }].map((e) => createOkContext(e, {})))
         await unwrapper.next()

@@ -203,8 +203,9 @@ def diagnose(record: ProxyRecord) -> DiagnosticReport:
         # Healthy — the endpoint works. The only remaining concern is renewal, read from the
         # certificate the proxy is actually serving.
         checks.append(_check_cert_expiry(record, is_cloudflare=is_cloudflare))
-    elif is_cloudflare:
-        # Not serving, and provisioned on the Cloudflare path — inspect the custom hostname.
+    elif is_cloudflare and cname_check.status == "passed":
+        # Not serving, DNS resolves, and provisioned on the Cloudflare path — the custom hostname
+        # should exist by now, so inspect it.
         cloudflare_check, hostname_info = _check_cloudflare(record)
         checks.append(cloudflare_check)
         checks.append(_check_caa(record, hostname_info, is_cloudflare=True))
@@ -213,6 +214,28 @@ def diagnose(record: ProxyRecord) -> DiagnosticReport:
         else:
             checks.append(_skip("http_challenge", "HTTP-01 challenge", "Skipped — no challenge URL available."))
         checks.append(_skip("cert_expiry", "Certificate expiry", "Skipped — certificate is not active yet."))
+    elif is_cloudflare:
+        # Cloudflare path, but DNS isn't pointing at us. The custom hostname is validated against
+        # the CNAME, so with DNS broken the hostname lookup can't tell us anything actionable —
+        # whether the proxy was never provisioned (DNS not yet set) or was provisioned and its DNS
+        # later regressed, the fix is the same: repair the CNAME. Skip the Cloudflare checks and
+        # point at the failed CNAME above rather than asserting a provisioning state we don't know
+        # (the old "we don't have a record of this proxy → Hit Retry" was wrong in both cases).
+        # CAA still matters pre-issuance.
+        checks.append(
+            _skip(
+                "cloudflare",
+                "Cloudflare custom hostname",
+                "Skipped — we can't check the certificate until the CNAME resolves. Fix the DNS record above first.",
+            )
+        )
+        checks.append(_check_caa(record, None, is_cloudflare=True))
+        checks.append(
+            _skip("http_challenge", "HTTP-01 challenge", "Skipped — we can't check this until the CNAME resolves.")
+        )
+        checks.append(
+            _skip("cert_expiry", "Certificate expiry", "Skipped — we can't check this until the CNAME resolves.")
+        )
     else:
         # Not serving, and provisioned on the legacy path — there is no Cloudflare custom
         # hostname by design, so the Cloudflare check would only ever produce a false

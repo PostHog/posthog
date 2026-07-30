@@ -156,7 +156,8 @@ def _make_agg_if_handler(snowflake_fn: str) -> Callable[[list[str]], str]:
 
 def _handle_count(args: list[str]) -> str:
     # HogQL's argless count() means "count all rows", but Snowflake rejects a bare COUNT() —
-    # it must be COUNT(*). count(expr) passes through unchanged.
+    # it must be COUNT(*). count(expr) passes through unchanged, as does count(DISTINCT expr)
+    # (visit_call folds the DISTINCT flag into the rendered arg).
     return "count(*)" if not args else f"count({', '.join(args)})"
 
 
@@ -180,6 +181,7 @@ SNOWFLAKE_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
     "toString": _make_cast_handler("VARCHAR"),
     "toInt": _make_cast_handler("BIGINT"),
     "toIntOrZero": _make_cast_handler("BIGINT"),
+    "toIntOrDefault": _make_cast_handler("BIGINT"),
     "toFloat": _make_cast_handler("DOUBLE"),
     "toFloatOrZero": _make_cast_handler("DOUBLE"),
     "toFloatOrDefault": _make_cast_handler("DOUBLE"),

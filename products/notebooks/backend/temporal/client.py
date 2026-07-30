@@ -1,4 +1,4 @@
-"""Fire-and-forget starter for the SQLV2 run workflow, callable from sync DRF views."""
+"""Fire-and-forget starters for notebook Temporal workflows, callable from sync DRF views."""
 
 from django.conf import settings
 
@@ -7,6 +7,7 @@ from temporalio.client import Client
 
 from posthog.temporal.common.client import sync_connect
 
+from products.notebooks.backend.temporal.frame_materialize import FrameMaterializeInputs
 from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
 
 
@@ -25,5 +26,14 @@ def start_sql_v2_run_workflow(inputs: SQLV2RunInput) -> None:
         sync_connect(),
         "notebook-sandbox-cmd-run",
         f"notebook-sandbox-cmd-run-{inputs.run_id}",
+        inputs,
+    )
+
+
+def start_frame_materialize_workflow(inputs: FrameMaterializeInputs) -> None:
+    _start_workflow(
+        sync_connect(),
+        "notebook-frame-materialize",
+        f"notebook-frame-materialize-{inputs.query_id}",
         inputs,
     )

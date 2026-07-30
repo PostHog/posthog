@@ -83,6 +83,10 @@ def review_guidance_path() -> Path:
     return repo_root() / ".stamphog" / "review-guidance.md"
 
 
+def steering_path() -> Path:
+    return repo_root() / ".stamphog" / "steering.md"
+
+
 # ── Policy data structures ───────────────────────────────────────
 
 
@@ -224,6 +228,10 @@ class PolicyError(ValueError):
 # ── Global policy loading + validation ───────────────────────────
 
 _TOP_LEVEL_KEYS = {"version", "deny", "allow", "size_gate", "tiers", "dismiss", "overrides", "familiarity", "ownership"}
+# Keys the hosted server owns and parses itself (products/stamphog/backend/logic/digest_config.py),
+# not the engine. Allowed at the top level so a repo declaring one doesn't hard-fail every review, but
+# never required and never read here — the engine ignores their contents.
+_SERVER_ONLY_TOP_LEVEL_KEYS = {"digest"}
 _DENY_SCOPES = {"any", "titles", "paths"}
 _BREADTH_RULES = {"single-area", "not-cross-cutting"}
 
@@ -488,7 +496,7 @@ def load_policy(
         raise PolicyError(f"could not read/parse {path}: {exc}") from exc
 
     _require(isinstance(raw, dict), "policy root: must be a mapping")
-    unknown = set(raw) - _TOP_LEVEL_KEYS
+    unknown = set(raw) - _TOP_LEVEL_KEYS - _SERVER_ONLY_TOP_LEVEL_KEYS
     _require(not unknown, f"policy root: unknown top-level keys {sorted(unknown)}")
     for required in _TOP_LEVEL_KEYS:
         _require(required in raw, f"policy root: missing required section {required!r}")

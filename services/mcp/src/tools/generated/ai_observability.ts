@@ -61,6 +61,9 @@ import {
     LlmPromptsCreateBody,
     LlmPromptsNameDuplicateCreateBody,
     LlmPromptsNameDuplicateCreateParams,
+    LlmPromptsNameLabelsDestroyParams,
+    LlmPromptsNameLabelsUpdateBody,
+    LlmPromptsNameLabelsUpdateParams,
     LlmPromptsNamePartialUpdateBody,
     LlmPromptsNamePartialUpdateParams,
     LlmPromptsNameRetrieveParams,
@@ -647,6 +650,12 @@ const llmaEvaluationTestHog = (): ToolBase<typeof LlmaEvaluationTestHogSchema, S
         if (params.conditions !== undefined) {
             body['conditions'] = params.conditions
         }
+        if (params.target !== undefined) {
+            body['target'] = params.target
+        }
+        if (params.target_config !== undefined) {
+            body['target_config'] = params.target_config
+        }
         const result = await context.api.request<Schemas.TestHogResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/evaluations/test_hog/`,
@@ -721,6 +730,7 @@ const llmaPersonalSpend = (): ToolBase<typeof LlmaPersonalSpendSchema, Schemas.P
             method: 'GET',
             path: `/api/llm_analytics/@me/spend/`,
             query: {
+                bucket_minutes: params.bucket_minutes,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 limit: params.limit,
@@ -745,6 +755,9 @@ const llmaPromptCreate = (): ToolBase<typeof LlmaPromptCreateSchema, Schemas.LLM
         }
         if (params.prompt !== undefined) {
             body['prompt'] = params.prompt
+        }
+        if (params.config !== undefined) {
+            body['config'] = params.config
         }
         if (params.version_description !== undefined) {
             body['version_description'] = params.version_description
@@ -794,8 +807,46 @@ const llmaPromptGet = (): ToolBase<typeof LlmaPromptGetSchema, Schemas.LLMPrompt
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_prompts/name/${encodeURIComponent(String(params.prompt_name))}/`,
             query: {
                 content: params.content,
+                label: params.label,
                 version: params.version,
             },
+        })
+        return result
+    },
+})
+
+const LlmaPromptLabelDeleteSchema = LlmPromptsNameLabelsDestroyParams.omit({ project_id: true })
+
+const llmaPromptLabelDelete = (): ToolBase<typeof LlmaPromptLabelDeleteSchema, unknown> => ({
+    name: 'llma-prompt-label-delete',
+    schema: LlmaPromptLabelDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaPromptLabelDeleteSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_prompts/name/${encodeURIComponent(String(params.prompt_name))}/labels/${encodeURIComponent(String(params.label_name))}/`,
+        })
+        return result
+    },
+})
+
+const LlmaPromptLabelSetSchema = LlmPromptsNameLabelsUpdateParams.omit({ project_id: true }).extend(
+    LlmPromptsNameLabelsUpdateBody.shape
+)
+
+const llmaPromptLabelSet = (): ToolBase<typeof LlmaPromptLabelSetSchema, Schemas.LLMPromptLabel> => ({
+    name: 'llma-prompt-label-set',
+    schema: LlmaPromptLabelSetSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaPromptLabelSetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.version !== undefined) {
+            body['version'] = params.version
+        }
+        const result = await context.api.request<Schemas.LLMPromptLabel>({
+            method: 'PUT',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_prompts/name/${encodeURIComponent(String(params.prompt_name))}/labels/${encodeURIComponent(String(params.label_name))}/`,
+            body,
         })
         return result
     },
@@ -827,9 +878,9 @@ const llmaPromptList = (): ToolBase<
     },
 })
 
-const LlmaPromptUpdateSchema = LlmPromptsNamePartialUpdateParams.omit({ project_id: true }).extend(
-    LlmPromptsNamePartialUpdateBody.shape
-)
+const LlmaPromptUpdateSchema = LlmPromptsNamePartialUpdateParams.omit({ project_id: true })
+    .extend(LlmPromptsNamePartialUpdateBody.shape)
+    .extend({ base_version: LlmPromptsNamePartialUpdateBody.shape['base_version'].unwrap() })
 
 const llmaPromptUpdate = (): ToolBase<typeof LlmaPromptUpdateSchema, Schemas.LLMPrompt> => ({
     name: 'llma-prompt-update',
@@ -842,6 +893,9 @@ const llmaPromptUpdate = (): ToolBase<typeof LlmaPromptUpdateSchema, Schemas.LLM
         }
         if (params.edits !== undefined) {
             body['edits'] = params.edits
+        }
+        if (params.config !== undefined) {
+            body['config'] = params.config
         }
         if (params.base_version !== undefined) {
             body['base_version'] = params.base_version
@@ -1568,6 +1622,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-prompt-create': llmaPromptCreate,
     'llma-prompt-duplicate': llmaPromptDuplicate,
     'llma-prompt-get': llmaPromptGet,
+    'llma-prompt-label-delete': llmaPromptLabelDelete,
+    'llma-prompt-label-set': llmaPromptLabelSet,
     'llma-prompt-list': llmaPromptList,
     'llma-prompt-update': llmaPromptUpdate,
     'llma-provider-key-get': llmaProviderKeyGet,

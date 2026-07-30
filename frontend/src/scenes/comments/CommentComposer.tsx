@@ -4,59 +4,85 @@ import { useEffect } from 'react'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { LemonRichContentEditor } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
-
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 import { CommentsLogicProps, commentsLogic } from './commentsLogic'
 
-export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
-    const { key, commentsLoading, replyingCommentId, itemContext, isEmpty } = useValues(commentsLogic(props))
-    const {
-        sendComposedContent,
-        setReplyingComment,
-        clearItemContext,
-        setRichContentEditor,
-        onRichContentEditorUpdate,
-    } = useActions(commentsLogic(props))
+export type CommentComposerProps = CommentsLogicProps & {
+    /** The footer variant swaps to a "New comment" button while a reply is in progress; 'inline-reply' renders inside the thread */
+    variant?: 'footer' | 'inline-reply'
+}
+
+export const CommentComposer = ({ variant = 'footer', ...props }: CommentComposerProps): JSX.Element => {
+    const { key, isSendingComment, replyingCommentId, itemContext, isEmpty, currentComposerDraft } = useValues(
+        commentsLogic(props)
+    )
+    const { sendComposedContent, clearItemContext, setRichContentEditor, onRichContentEditorUpdate, startNewComment } =
+        useActions(commentsLogic(props))
 
     const placeholder = replyingCommentId
         ? 'Reply...'
         : `Comment on ${props.item_id ? 'this ' : ''}${humanizeScope(props.scope, !!props.item_id)}`
 
     useEffect(() => {
+        // Only the footer owns the item context - the inline reply composer unmounting must not wipe it
+        if (variant !== 'footer') {
+            return
+        }
         // Whenever the discussion context changes or we fully unmount we clear the item context
         return () => clearItemContext()
         // oxlint-disable-next-line exhaustive-deps
-    }, [key, clearItemContext])
+    }, [key, variant, clearItemContext])
+
+    if (variant === 'footer' && replyingCommentId) {
+        // The composer is rendered inline in the thread being replied to - offer a way back
+        return (
+            <div className="flex justify-end pt-2">
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    onClick={() => startNewComment()}
+                    data-attr="discussions-new-comment"
+                >
+                    New comment
+                </LemonButton>
+            </div>
+        )
+    }
+
+    const buttonSize = variant === 'inline-reply' ? 'small' : undefined
 
     return (
-        <div className="deprecated-space-y-2">
+        <div className="flex flex-col gap-2">
             <LemonRichContentEditor
                 key={key}
                 logicKey="discussions"
                 placeholder={placeholder}
+                initialContent={currentComposerDraft}
                 onCreate={setRichContentEditor}
                 onUpdate={onRichContentEditorUpdate}
-                onPressCmdEnter={() => sendComposedContent(false)}
-                disabled={commentsLoading}
+                onPressCmdEnter={() => {
+                    // The send buttons are disabled when empty - the shortcut must not bypass that
+                    if (!isEmpty) {
+                        sendComposedContent(false)
+                    }
+                }}
+                disabled={isSendingComment}
             />
             <div className="flex justify-between items-center gap-2">
                 <div className="flex-1" />
-                {replyingCommentId ? (
-                    <LemonButton type="secondary" onClick={() => setReplyingComment(null)}>
-                        Cancel reply
-                    </LemonButton>
-                ) : null}
                 {itemContext ? (
-                    <LemonButton type="secondary" onClick={() => clearItemContext()}>
+                    <LemonButton size={buttonSize} type="secondary" onClick={() => clearItemContext()}>
                         Cancel
                     </LemonButton>
                 ) : null}
                 {!replyingCommentId ? (
                     <LemonButton
+                        size={buttonSize}
                         type="secondary"
                         onClick={() => sendComposedContent(true)}
+                        loading={isSendingComment}
                         disabledReason={isEmpty ? 'No message' : null}
                         data-attr="discussions-comment-task"
                     >
@@ -64,8 +90,10 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
                     </LemonButton>
                 ) : null}
                 <LemonButton
+                    size={buttonSize}
                     type="primary"
                     onClick={() => sendComposedContent(false)}
+                    loading={isSendingComment}
                     disabledReason={isEmpty ? 'No message' : null}
                     sideIcon={<KeyboardShortcut command enter />}
                     data-attr="discussions-comment"

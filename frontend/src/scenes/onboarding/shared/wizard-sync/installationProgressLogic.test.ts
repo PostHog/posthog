@@ -5,6 +5,7 @@ import {
     cloudProgress,
     isSessionFresh,
     localProgress,
+    pendingInputFromSession,
     progressFromFinishedLocalRun,
     resetWizardSyncTelemetryForTests,
     runLocalSessionBookkeeping,
@@ -74,6 +75,16 @@ describe('installationProgressLogic merge', () => {
             expect(cloudProgress(state, [], conn, null).phase).toBe(expected)
         })
 
+        it.each([
+            // A deliberate cancel (button or PR close) must not read as a broken installation.
+            ['cancelled', 'Run cancelled'],
+            ['failed', 'Installation failed'],
+        ])('titles a terminal %s run as %s', (status, expectedTitle) => {
+            const result = cloudProgress(taskState({ status, error_message: 'Stopped by user' }), [], 'open', null)
+            expect(result.error?.title).toBe(expectedTitle)
+            expect(result.error?.detail).toBe('Stopped by user')
+        })
+
         it('surfaces a stalled queued run as an error instead of an eternal spinner', () => {
             const result = cloudProgress(taskState({ status: 'queued' }), [], 'open', null, true)
             expect(result.phase).toBe('error')
@@ -82,6 +93,15 @@ describe('installationProgressLogic merge', () => {
 
         it('ignores the stall flag once the run has left the queue', () => {
             expect(cloudProgress(taskState({ status: 'in_progress' }), [], 'open', null, true).phase).toBe('running')
+        })
+
+        it('surfaces a run that never delivered any state as an error, not an eternal idle spinner', () => {
+            // `idle` renders a spinner with no recovery controls, so a stream that stayed silent has
+            // to resolve to the error phase (which carries the retry CTAs and the dismiss control).
+            const result = cloudProgress(null, [], 'open', null, true)
+            expect(result.phase).toBe('error')
+            expect(result.error?.title).toBe('Setup lost contact')
+            expect(result.isCurrent).toBe(true)
         })
 
         it.each([
@@ -306,6 +326,65 @@ describe('installationProgressLogic merge', () => {
             // flag alone would keep the completed panel pinned until the next remount.
             expect(localProgress(session({ run_phase: 'completed' }), 'open', true, true).isCurrent).toBe(false)
         })
+
+        it('names the initiator, preferring first name and falling back to email', () => {
+            // The card reads "On <name>'s machine"; a blank first_name must fall back to email so it
+            // never renders "On 's machine".
+            expect(
+                localProgress(session({ created_by: { id: 1, first_name: 'Edwin', email: 'e@ph.com' } }), 'open', true)
+                    .startedBy
+            ).toEqual({ name: 'Edwin', email: 'e@ph.com' })
+            expect(
+                localProgress(session({ created_by: { id: 1, first_name: '', email: 'e@ph.com' } }), 'open', true)
+                    .startedBy
+            ).toEqual({ name: 'e@ph.com', email: 'e@ph.com' })
+            expect(localProgress(session(), 'open', true).startedBy).toBeNull()
+        })
+    })
+
+    describe('pendingInput', () => {
+        const pending = {
+            id: 'ask-1',
+            asked_at: '2026-01-01T00:00:10Z',
+            question_count: 1,
+            sensitive: false,
+            prompts: ['Which region is your project in?'],
+        }
+
+        it('surfaces an open wizard_ask on a live session', () => {
+            const result = localProgress(session({ run_phase: 'running', pending_input: pending }), 'open', true)
+            expect(result.pendingInput).toEqual({
+                id: 'ask-1',
+                askedAt: '2026-01-01T00:00:10Z',
+                questionCount: 1,
+                sensitive: false,
+                prompts: ['Which region is your project in?'],
+            })
+        })
+
+        it.each([
+            // A dead wizard never sends the clearing push — staleness is the only way out.
+            ['stale session', session({ run_phase: 'running', pending_input: pending, is_stale: true })],
+            ['terminal session', session({ run_phase: 'completed', pending_input: pending })],
+            ['no pending_input on the row', session({ run_phase: 'running', pending_input: null })],
+        ])('gated off for a %s', (_name, s) => {
+            expect(pendingInputFromSession(s)).toBeNull()
+        })
+
+        it('withholds prompts on sensitive asks even if the row carries them', () => {
+            const result = pendingInputFromSession(
+                session({ run_phase: 'running', pending_input: { ...pending, sensitive: true } })
+            )
+            expect(result?.sensitive).toBe(true)
+            expect(result?.prompts).toEqual([])
+        })
+
+        it('the next push without the field reads as dismissed', () => {
+            const withQuestion = localProgress(session({ run_phase: 'running', pending_input: pending }), 'open', true)
+            const cleared = localProgress(session({ run_phase: 'running', pending_input: null }), 'open', true)
+            expect(withQuestion.pendingInput).not.toBeNull()
+            expect(cleared.pendingInput).toBeNull()
+        })
     })
 
     describe('progressFromFinishedLocalRun', () => {
@@ -336,7 +415,18 @@ describe('installationProgressLogic merge', () => {
                 prUrl: null,
                 prMerged: false,
                 isCurrent: true,
+                pendingInput: null,
+                startedBy: null,
             })
+        })
+
+        it('carries the snapshotted initiator so the finished-run handoff can still name them', () => {
+            // The handle outlives the session stream; without this the card would drop the
+            // attribution the moment it switched from the live stream to the snapshot.
+            const result = progressFromFinishedLocalRun(
+                handle({ startedBy: { name: 'Edwin', email: 'edwin@posthog.com' } })
+            )
+            expect(result.startedBy).toEqual({ name: 'Edwin', email: 'edwin@posthog.com' })
         })
 
         it('surfaces the persisted error on failed runs', () => {

@@ -16,9 +16,13 @@ declared once in the manifest — there is no object→roles side-table.
 
 ```text
 hcl/
-  bin/hclexp               # wrapper: $HCLEXP_BIN local binary, or pinned container image
-  nodes                    # composition manifest: (env, role) -> ordered layer list  ← placement
-  clusters                 # cluster_name -> composing roles; rendered into the manifest check.sh feeds `validate -manifest` to resolve cross-cluster proxies
+  bin/hclexp               # wrapper: $HCLEXP_BIN, `hclexp` on $PATH, or the pinned container image
+  bin/image.txt            # the pinned chschema image tag — the one place to bump
+  bin/install-hclexp       # extract the pinned binary onto $PATH (what CI does)
+  manifest.hcl             # composition manifest, consumed by hclexp itself  ← placement
+                           #   role "<role>" { env "<env>" { layers = [...] } }  -> a node's layer stack
+                           #   cluster "<name>" { roles = [...], aliases = [...] } -> cross-cluster proxy resolution
+  lib.sh                   # shared manifest helpers sourced by the scripts below
   roles/shared/            # objects on every role (query_log_archive path + custom_metrics_* sub-views + ops_query_log_archive_mv)
   roles/ops/shared/        # OPS objects on every OPS env
   roles/ops/prod/          # OPS objects on both prod envs only (the metrics suite)
@@ -79,7 +83,7 @@ only in the ops nodes → `[OPS]`; one under `roles/logs/` → `[LOGS]`.
 
 Per-node `{shard}` / `{replica}` stay as ClickHouse macros, so replicas collapse to one definition.
 A cross-cluster Distributed proxy references a table on another cluster's composition; `check.sh`
-renders `nodes` + `clusters` into an HCL manifest and runs `validate -manifest -env <env>`, so those
+runs `validate -manifest manifest.hcl -env <env>`, so those
 remotes resolve against their target cluster (existence + column agreement) rather than being
 skipped. `system.*` remotes are always resolvable. The `posthog` data cluster is `local`-only here
 (prod goldens live in posthog-cloud-infra), so `check.sh` passes it via `-cluster` flags — composed
@@ -97,18 +101,20 @@ HCL=posthog/clickhouse/hcl
 $HCL/bin/hclexp -help
 # it is equivalent to:
 docker run --rm -v "$PWD:/work" -v "${TMPDIR:-/tmp}:${TMPDIR:-/tmp}" -w /work \
-  ghcr.io/posthog/chschema:sha-0409212 -help
+  "$(cat $HCL/bin/image.txt)" -help
 ```
 
-(For faster local iteration you can build the binary — `go build -o hclexp ./cmd/hclexp` in
-`../../../../python-clickhouse-schema` — and `export HCLEXP_BIN=…/hclexp`; the wrapper prefers it.)
+The image tag is pinned in `bin/image.txt` — the one place to bump when upgrading hclexp.
+The wrapper resolves `$HCLEXP_BIN` → `hclexp` on `$PATH` → that image, so a native binary always
+wins: run `bash $HCL/bin/install-hclexp` to extract one from the pinned image (what CI does), or
+build it yourself with `go build -o hclexp ./cmd/hclexp` in `../../../../python-clickhouse-schema`.
 
 1. **Edit the right layer** for what you're changing:
    - all-role object (the `query_log_archive` path, `custom_metrics_*` sub-views, cross-cluster MVs) → `roles/shared/`
    - OPS-only → `roles/ops/shared/` (all OPS envs), `roles/ops/prod/` (both prod envs), or `roles/ops/<env>/` (one env)
    - LOGS → `roles/logs/shared/` (common) or `roles/logs/<env>/` (per-env / differing)
    - a brand-new object → add it to the layer above **and**, if it's on a new role, add that role's
-     line to `nodes` (+ a golden for it).
+     block to `manifest.hcl` (+ a golden for it).
    - a long view/MV `query` → keep it in `<layer>/sql/<object>.sql` and reference it as
      `query = file("sql/<object>.sql")` (resolved relative to the layer file). The loader normalizes
      `file()`, heredoc, and inline forms to one canonical query, so the form is purely cosmetic — edit

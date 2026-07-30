@@ -4,7 +4,7 @@ import { BuiltLogic, useValues } from 'kea'
 import { uuid } from 'lib/utils/dom'
 
 import { NotebookNodeChildRenderer } from '../Nodes/NodeWrapper'
-import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
+import type { notebookNodeLogicType } from '../Nodes/notebookNodeLogic'
 import { isMarkdownNotebookContent } from './markdownNotebookV2'
 import { NotebookKernelInfo } from './NotebookKernelInfo'
 import { notebookLogic } from './notebookLogic'

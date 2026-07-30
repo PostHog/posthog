@@ -177,7 +177,7 @@ impl ConsumerTask {
             self.handle
                 .signal_failure("Writer task channel closed".to_string());
         }
-        histogram!("personhog_writer_channel_send_duration_seconds")
-            .record(start.elapsed().as_secs_f64());
+        histogram!("personhog_writer_channel_send_duration_ms")
+            .record(start.elapsed().as_secs_f64() * 1000.0);
     }
 }

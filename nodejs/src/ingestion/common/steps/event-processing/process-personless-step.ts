@@ -42,7 +42,7 @@ export type ProcessPersonlessOutput = {
  *
  * For personless events, this step:
  * 1. Fetches existing person from cache (populated by prefetchPersonsStep)
- * 2. Checks batch results for is_merged flag (populated by processPersonlessDistinctIdsBatchStep)
+ * 2. Checks batch results for is_merged flag (populated by processPersonlessDistinctIdsChunkStep)
  * 3. Calculates force_upgrade flag
  * 4. Returns person (real or fake) with potential force_upgrade flag
  */
@@ -81,7 +81,7 @@ export function createProcessPersonlessStep<TInput extends ProcessPersonlessInpu
 
         if (!existingPerson) {
             // Check if batch insert found this distinct_id was merged
-            // The batch step (processPersonlessDistinctIdsBatchStep) already did the INSERT
+            // The chunk step (processPersonlessDistinctIdsChunkStep) already did the INSERT
             // and stored is_merged=true results in the personsStore cache
             const personIsMerged = personsStoreForBatch.getPersonlessBatchResult(team.id, distinctId)
 
@@ -142,7 +142,7 @@ async function applyFeatureFlagCalledPersonlessDefault<TInput extends ProcessPer
                 personlessDistinctIdCacheOperationsCounter.inc({ operation: 'hit', source: 'flag_called' })
             } else {
                 personlessDistinctIdCacheOperationsCounter.inc({ operation: 'miss', source: 'flag_called' })
-                // The batch step (processPersonlessDistinctIdsBatchStep) pre-inserts flag_called
+                // The chunk step (processPersonlessDistinctIdsChunkStep) pre-inserts flag_called
                 // rows when enabled, but it may be disabled or this distinct ID may be first-seen,
                 // so record it here when the LRU shows no prior insert. Without the row, a later
                 // identify/merge would never re-point these events at the merged person.

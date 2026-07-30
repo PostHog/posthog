@@ -782,10 +782,10 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-    def _create_query_runner(self, date_from, date_to, interval) -> LifecycleQueryRunner:
+    def _create_query_runner(self, date_from, date_to, interval, days_of_week=None) -> LifecycleQueryRunner:
         series = [EventsNode(event="$pageview")]
         query = LifecycleQuery(
-            dateRange=DateRange(date_from=date_from, date_to=date_to),
+            dateRange=DateRange(date_from=date_from, date_to=date_to, daysOfWeek=days_of_week),
             interval=interval,
             series=series,
         )
@@ -805,8 +805,100 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query_type="LifecycleEventsQuery",
         )
 
-    def _run_lifecycle_query(self, date_from, date_to, interval):
-        return self._create_query_runner(date_from, date_to, interval).calculate()
+    def _run_lifecycle_query(self, date_from, date_to, interval, days_of_week=None):
+        return self._create_query_runner(date_from, date_to, interval, days_of_week).calculate()
+
+    @parameterized.expand(
+        [
+            (
+                "mondays_only",
+                [1],
+                [
+                    # dormant lands the day after last selected-day activity, which can be an
+                    # excluded day (Tue Jan 14) — buckets are deliberately kept so it stays visible
+                    {"status": "dormant", "data": [0, -1, 0, 0, 0, 0, 0]},
+                    {"status": "new", "data": [1, 0, 0, 0, 0, 0, 0]},
+                    {"status": "resurrecting", "data": [0, 0, 0, 0, 0, 0, 0]},
+                    {"status": "returning", "data": [0, 0, 0, 0, 0, 0, 0]},
+                ],
+            ),
+            (
+                "empty_means_unfiltered",
+                [],
+                [
+                    {"status": "dormant", "data": [0, -1, 0, -1, 0, 0, 0]},
+                    {"status": "new", "data": [1, 0, 0, 0, 0, 0, 0]},
+                    {"status": "resurrecting", "data": [0, 0, 1, 0, 0, 0, 0]},
+                    {"status": "returning", "data": [0, 0, 0, 0, 0, 0, 0]},
+                ],
+            ),
+        ]
+    )
+    def test_days_of_week_filters_lifecycle_statuses(self, _name, days_of_week, expected):
+        # 2020-01-13 is a Monday; p1 is active Mon and Wed
+        self._create_events(data=[("p1", ["2020-01-13T12:00:00Z", "2020-01-15T12:00:00Z"])])
+        flush_persons_and_events()
+
+        response = self._run_lifecycle_query("2020-01-13", "2020-01-19", IntervalType.DAY, days_of_week)
+
+        # every day bucket stays in the response, including excluded days
+        assert response.results[0]["days"] == [
+            "2020-01-13",
+            "2020-01-14",
+            "2020-01-15",
+            "2020-01-16",
+            "2020-01-17",
+            "2020-01-18",
+            "2020-01-19",
+        ]
+        assertLifecycleResults(response.results, expected)
+
+    @parameterized.expand(
+        [
+            ("monday_filter_includes_it", [1], 1),
+            ("sunday_filter_excludes_it", [7], 0),
+        ]
+    )
+    def test_days_of_week_uses_project_timezone(self, _name, days_of_week, expected_new_count):
+        self.team.timezone = "Asia/Tokyo"
+        self.team.save()
+        # 20:00 UTC Sunday = 05:00 Monday in Asia/Tokyo
+        self._create_events(data=[("p1", ["2020-01-12T20:00:00Z"])])
+        flush_persons_and_events()
+
+        response = self._run_lifecycle_query("2020-01-13", "2020-01-19", IntervalType.DAY, days_of_week)
+
+        new_series = next(r for r in response.results if r["status"] == "new")
+        assert sum(new_series["data"]) == expected_new_count
+
+    def test_days_of_week_actors_match_chart(self):
+        # The actors query must honor daysOfWeek like the chart does, or the persons modal
+        # would list people whose only events fall on deselected days
+        self._create_events(
+            data=[
+                ("p_mon", ["2020-01-13T12:00:00Z"]),  # Monday
+                ("p_sat", ["2020-01-18T12:00:00Z"]),  # Saturday
+            ]
+        )
+        flush_persons_and_events()
+
+        runner = self._create_query_runner("2020-01-13", "2020-01-19", IntervalType.DAY, days_of_week=[1])
+
+        monday_new_actors = execute_hogql_query(
+            team=self.team,
+            query="SELECT actor_id FROM {actors_query}",
+            placeholders={"actors_query": runner.to_actors_query(day="2020-01-13", status="new")},
+            query_type="LifecycleActorsQuery",
+        )
+        saturday_new_actors = execute_hogql_query(
+            team=self.team,
+            query="SELECT actor_id FROM {actors_query}",
+            placeholders={"actors_query": runner.to_actors_query(day="2020-01-18", status="new")},
+            query_type="LifecycleActorsQuery",
+        )
+
+        assert len(monday_new_actors.results) == 1
+        assert len(saturday_new_actors.results) == 0
 
     def test_lifecycle_query_rejects_empty_series(self):
         query = LifecycleQuery(

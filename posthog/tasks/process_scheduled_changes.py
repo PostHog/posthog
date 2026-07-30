@@ -194,10 +194,15 @@ def process_scheduled_changes() -> None:
                     scheduled_change.save()
                     continue
 
+                orphaned_target = False
                 try:
                     # Execute the change on the model instance
                     model = models[scheduled_change.model_name]
-                    instance = model.objects.get(id=scheduled_change.record_id, team_id=scheduled_change.team_id)
+                    try:
+                        instance = model.objects.get(id=scheduled_change.record_id, team_id=scheduled_change.team_id)
+                    except ObjectDoesNotExist:
+                        orphaned_target = True
+                        raise
 
                     # Approval-aware dispatch: a scheduled change whose payload flips a policy-gated
                     # field carries a bound ChangeRequest created at scheduling time. We only apply
@@ -372,7 +377,27 @@ def process_scheduled_changes() -> None:
                     # For recoverable errors under retry limit, leave executed_at=NULL to allow retries
 
                     scheduled_change.save()
-                    capture_exception(e)
+
+                    # orphaned_target covers any target row missing for this record_id/team_id —
+                    # most commonly deleted after the change was scheduled, but also a record_id
+                    # that never existed for this team. Either way it's expected drift, already
+                    # handled via the row's failure_reason above, so reporting it to error tracking
+                    # is pure noise. Other unrecoverable errors — invalid payload, unsupported
+                    # operation, mismatched variant data, or a missing bound ChangeRequest —
+                    # indicate either a broken payload or a data integrity issue, and should stay
+                    # visible in error tracking.
+                    if orphaned_target:
+                        logger.info(
+                            "Scheduled change skipped: target record not found",
+                            scheduled_change_id=scheduled_change.id,
+                            model_name=scheduled_change.model_name,
+                            record_id=scheduled_change.record_id,
+                            team_id=scheduled_change.team_id,
+                            error=str(e),
+                            error_type=e.__class__.__name__,
+                        )
+                    else:
+                        capture_exception(e)
     except OperationalError:
         # Failed to obtain the lock
         pass

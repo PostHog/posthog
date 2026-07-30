@@ -42,6 +42,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import { Noun } from '~/models/groupsModel'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
+import { extractValidationErrorCode } from '~/queries/nodes/InsightViz/utils'
 import { FunnelsActorsQuery, NodeKind } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
@@ -306,7 +307,11 @@ export function PersonsModal({
                     <div className="relative min-h-20 p-2 deprecated-space-y-2 rounded bg-border-light overflow-y-auto mb-2">
                         {errorObject ? (
                             validationError ? (
-                                <InsightValidationError query={query} detail={validationError} />
+                                <InsightValidationError
+                                    query={query}
+                                    detail={validationError}
+                                    validationErrorCode={extractValidationErrorCode(errorObject)}
+                                />
                             ) : (
                                 <InsightErrorState query={query} />
                             )

@@ -16,7 +16,7 @@ clusters. Each cluster carries its tool distribution, call counts, and error
 rates — answering "what are people _trying_ to do, and does it work?" rather
 than "which tool was called".
 
-Unlike tool quality and sessions (which are plain HogQL over `$mcp_tool_call`),
+Unlike tool quality and sessions (which ultimately aggregate `$mcp_tool_call`),
 clustering needs embeddings and is **not expressible in SQL**. It is served by
 two typed tools backed by a stored snapshot.
 
@@ -63,8 +63,9 @@ posthog:mcp-analytics-intent-clusters-recompute
 ```
 
 Returns immediately with `status: computing` (HTTP 202); the work runs in the
-background. Poll `...-retrieve` until `status` returns to `idle` (done) or
-`error`. Don't block waiting — tell the user to re-ask in a minute.
+background. Poll `posthog:mcp-analytics-intent-clusters-retrieve` until `status`
+returns to `idle` (done) or `error`. Don't block waiting — tell the user to
+re-ask in a minute.
 
 ## Constructing UI links
 

@@ -1,17 +1,18 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
 from unittest import mock
 
+from requests import Response
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.clickup import (
     ClickUpResumeConfig,
-    _build_url,
     _ms_to_iso,
     _normalize_task,
     _to_epoch_ms,
     clickup_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.settings import (
@@ -19,7 +20,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.se
     ENDPOINTS,
 )
 
-SESSION_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.clickup.clickup.make_tracked_session"
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the clickup module.
+CLICKUP_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.clickup.clickup.make_tracked_session"
+)
+
+
+def _response(payload: dict[str, Any], status_code: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = json.dumps(payload).encode()
+    return resp
 
 
 def _make_manager(resume_state: ClickUpResumeConfig | None = None) -> mock.MagicMock:
@@ -29,12 +42,30 @@ def _make_manager(resume_state: ClickUpResumeConfig | None = None) -> mock.Magic
     return manager
 
 
-def _response(payload: dict[str, Any], status_code: int = 200) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.status_code = status_code
-    resp.ok = 200 <= status_code < 300
-    resp.json.return_value = payload
-    return resp
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and capture each request's url + params AT SEND TIME.
+
+    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
+    shows only the final state — snapshot a copy when each request is prepared instead.
+    """
+    session.headers = {}
+    snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        snapshots.append({"url": request.url, "params": dict(request.params or {})})
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return snapshots
+
+
+def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
+    return clickup_source("pk", "9", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs)
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
 
 
 class TestMsToIso:
@@ -83,15 +114,6 @@ class TestToEpochMs:
         assert _to_epoch_ms(value) == expected
 
 
-class TestBuildUrl:
-    def test_no_params(self) -> None:
-        assert _build_url("/team") == "https://api.clickup.com/api/v2/team"
-
-    def test_encodes_params(self) -> None:
-        url = _build_url("/team/9/task", {"page": 0, "include_closed": "true"})
-        assert url == "https://api.clickup.com/api/v2/team/9/task?page=0&include_closed=true"
-
-
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected_valid",
@@ -102,13 +124,13 @@ class TestValidateCredentials:
             (500, False),
         ],
     )
-    @mock.patch(SESSION_PATH)
+    @mock.patch(CLICKUP_SESSION_PATCH)
     def test_status_mapping(self, mock_session: mock.MagicMock, status_code: int, expected_valid: bool) -> None:
         mock_session.return_value.get.return_value = _response({"teams": [{"id": "9"}]}, status_code=status_code)
         valid, _ = validate_credentials("pk_token", workspace_id=None)
         assert valid is expected_valid
 
-    @mock.patch(SESSION_PATH)
+    @mock.patch(CLICKUP_SESSION_PATCH)
     def test_workspace_must_be_accessible(self, mock_session: mock.MagicMock) -> None:
         mock_session.return_value.get.return_value = _response({"teams": [{"id": "9"}]})
 
@@ -119,7 +141,7 @@ class TestValidateCredentials:
         assert bad is False
         assert message is not None and "404" in message
 
-    @mock.patch(SESSION_PATH)
+    @mock.patch(CLICKUP_SESSION_PATCH)
     def test_request_exception_returns_error(self, mock_session: mock.MagicMock) -> None:
         import requests
 
@@ -129,82 +151,81 @@ class TestValidateCredentials:
         assert message == "boom"
 
 
-class TestGetRowsTasks:
-    @mock.patch(SESSION_PATH)
-    def test_paginates_until_short_page(self, mock_session: mock.MagicMock) -> None:
+class TestTasks:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_until_short_page(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
         full_page = {"tasks": [{"id": str(i), "date_updated": "1567785250202"} for i in range(100)]}
         short_page = {"tasks": [{"id": "100", "date_updated": "1567785250202"}]}
-        mock_session.return_value.get.side_effect = [_response(full_page), _response(short_page)]
+        snapshots = _wire(session, [_response(full_page), _response(short_page)])
 
         manager = _make_manager()
-        batches = list(get_rows("pk", "9", "tasks", mock.MagicMock(), manager))
+        rows = _rows(_source("tasks", manager))
 
-        assert mock_session.return_value.get.call_count == 2
-        assert sum(len(b) for b in batches) == 101
-        # date fields normalized to ISO on the way out
-        assert batches[0][0]["date_updated"].startswith("2019-09-06T")
-        # State saved after each yielded page.
-        assert manager.save_state.call_count == 2
-        assert manager.save_state.call_args_list[0].args[0].page == 0
-        assert manager.save_state.call_args_list[1].args[0].page == 1
+        assert session.send.call_count == 2
+        assert len(rows) == 101
+        # Date fields normalized to ISO on the way out.
+        assert rows[0]["date_updated"].startswith("2019-09-06T")
+        assert snapshots[0]["params"]["page"] == 0
+        assert snapshots[1]["params"]["page"] == 1
+        # Checkpoint the page just yielded so a crash re-fetches it (merge dedupes). The final short
+        # page has no next page, so no checkpoint follows it.
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0] == ClickUpResumeConfig(page=0)
 
-    @mock.patch(SESSION_PATH)
-    def test_last_page_flag_stops_pagination(self, mock_session: mock.MagicMock) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_last_page_flag_stops_pagination(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
         page = {"tasks": [{"id": str(i)} for i in range(100)], "last_page": True}
-        mock_session.return_value.get.return_value = _response(page)
+        _wire(session, [_response(page)])
 
-        list(get_rows("pk", "9", "tasks", mock.MagicMock(), _make_manager()))
-        assert mock_session.return_value.get.call_count == 1
+        _rows(_source("tasks", _make_manager()))
+        assert session.send.call_count == 1
 
-    @mock.patch(SESSION_PATH)
-    def test_empty_first_page_yields_nothing(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = _response({"tasks": []})
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_first_page_yields_nothing(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"tasks": []})])
+
         manager = _make_manager()
-
-        batches = list(get_rows("pk", "9", "tasks", mock.MagicMock(), manager))
-        assert batches == []
+        rows = _rows(_source("tasks", manager))
+        assert rows == []
+        assert session.send.call_count == 1
         manager.save_state.assert_not_called()
 
-    @mock.patch(SESSION_PATH)
-    def test_resumes_from_saved_page(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = _response({"tasks": [{"id": "1"}]})
-        manager = _make_manager(ClickUpResumeConfig(page=4))
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_page(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response({"tasks": [{"id": "1"}]})])
 
-        list(get_rows("pk", "9", "tasks", mock.MagicMock(), manager))
+        _rows(_source("tasks", _make_manager(ClickUpResumeConfig(page=4))))
+        assert snapshots[0]["params"]["page"] == 4
 
-        url = mock_session.return_value.get.call_args_list[0].args[0]
-        assert "page=4" in url
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_adds_date_updated_filter(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response({"tasks": [{"id": "1"}]})])
 
-    @mock.patch(SESSION_PATH)
-    def test_incremental_adds_date_updated_filter(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = _response({"tasks": [{"id": "1"}]})
-
-        list(
-            get_rows(
-                "pk",
-                "9",
+        _rows(
+            _source(
                 "tasks",
-                mock.MagicMock(),
                 _make_manager(),
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=datetime(2019, 9, 6, 15, 54, 10, 202000, tzinfo=UTC),
             )
         )
+        assert snapshots[0]["params"]["date_updated_gt"] == 1567785250202
 
-        url = mock_session.return_value.get.call_args_list[0].args[0]
-        assert "date_updated_gt=1567785250202" in url
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_refresh_omits_date_filter(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response({"tasks": [{"id": "1"}]})])
 
-    @mock.patch(SESSION_PATH)
-    def test_full_refresh_omits_date_filter(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = _response({"tasks": [{"id": "1"}]})
-
-        list(get_rows("pk", "9", "tasks", mock.MagicMock(), _make_manager(), should_use_incremental_field=False))
-
-        url = mock_session.return_value.get.call_args_list[0].args[0]
-        assert "date_updated_gt" not in url
+        _rows(_source("tasks", _make_manager(), should_use_incremental_field=False))
+        assert "date_updated_gt" not in snapshots[0]["params"]
 
 
-class TestGetRowsTeamScoped:
+class TestTeamScoped:
     @pytest.mark.parametrize(
         "endpoint, expected_path",
         [
@@ -213,48 +234,59 @@ class TestGetRowsTeamScoped:
             ("goals", "/team/9/goal"),
         ],
     )
-    @mock.patch(SESSION_PATH)
-    def test_team_scoped_endpoints(self, mock_session: mock.MagicMock, endpoint: str, expected_path: str) -> None:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_team_scoped_endpoints(self, MockSession: mock.MagicMock, endpoint: str, expected_path: str) -> None:
+        session = MockSession.return_value
         data_key = CLICKUP_ENDPOINTS[endpoint].data_key
-        mock_session.return_value.get.return_value = _response({data_key: [{"id": "1"}, {"id": "2"}]})
+        snapshots = _wire(session, [_response({data_key: [{"id": "1"}, {"id": "2"}]})])
 
-        batches = list(get_rows("pk", "9", endpoint, mock.MagicMock(), _make_manager()))
+        rows = _rows(_source(endpoint, _make_manager()))
 
-        called_url = mock_session.return_value.get.call_args_list[0].args[0]
-        assert called_url.endswith(expected_path)
-        assert [item["id"] for batch in batches for item in batch] == ["1", "2"]
+        assert snapshots[0]["url"].endswith(expected_path)
+        assert [row["id"] for row in rows] == ["1", "2"]
 
 
-class TestGetRowsFanOut:
-    @mock.patch(SESSION_PATH)
-    def test_folders_fan_out_over_spaces(self, mock_session: mock.MagicMock) -> None:
-        spaces = _response({"spaces": [{"id": "s1"}, {"id": "s2"}]})
-        s1_folders = _response({"folders": [{"id": "f1"}]})
-        s2_folders = _response({"folders": [{"id": "f2"}]})
-        mock_session.return_value.get.side_effect = [spaces, s1_folders, s2_folders]
+class TestFanOut:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_folders_fan_out_over_spaces(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response({"spaces": [{"id": "s1"}, {"id": "s2"}]}),
+                _response({"folders": [{"id": "f1"}]}),
+                _response({"folders": [{"id": "f2"}]}),
+            ],
+        )
 
-        batches = list(get_rows("pk", "9", "folders", mock.MagicMock(), _make_manager()))
+        rows = _rows(_source("folders", _make_manager()))
+        assert [row["id"] for row in rows] == ["f1", "f2"]
 
-        assert [item["id"] for batch in batches for item in batch] == ["f1", "f2"]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_lists_combine_folderless_and_folder_lists(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        # Folderless lists are fetched first (space -> list), then folder lists (space -> folder ->
+        # list); the space list is re-fetched to drive each of the two fan-outs.
+        _wire(
+            session,
+            [
+                _response({"spaces": [{"id": "s1"}]}),
+                _response({"lists": [{"id": "l1"}]}),
+                _response({"spaces": [{"id": "s1"}]}),
+                _response({"folders": [{"id": "f1"}]}),
+                _response({"lists": [{"id": "l2"}]}),
+            ],
+        )
 
-    @mock.patch(SESSION_PATH)
-    def test_lists_combine_folderless_and_folder_lists(self, mock_session: mock.MagicMock) -> None:
-        spaces = _response({"spaces": [{"id": "s1"}]})
-        folderless = _response({"lists": [{"id": "l1"}]})
-        folders = _response({"folders": [{"id": "f1"}]})
-        folder_lists = _response({"lists": [{"id": "l2"}]})
-        mock_session.return_value.get.side_effect = [spaces, folderless, folders, folder_lists]
-
-        batches = list(get_rows("pk", "9", "lists", mock.MagicMock(), _make_manager()))
-
-        assert [item["id"] for batch in batches for item in batch] == ["l1", "l2"]
+        rows = _rows(_source("lists", _make_manager()))
+        assert [row["id"] for row in rows] == ["l1", "l2"]
 
 
 class TestClickUpSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         config = CLICKUP_ENDPOINTS[endpoint]
-        response = clickup_source("pk", "9", endpoint, mock.MagicMock(), _make_manager())
+        response = _source(endpoint, _make_manager())
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
@@ -266,10 +298,10 @@ class TestClickUpSourceResponse:
             assert response.partition_keys is None
 
     def test_tasks_use_desc_sort_mode(self) -> None:
-        assert clickup_source("pk", "9", "tasks", mock.MagicMock(), _make_manager()).sort_mode == "desc"
+        assert _source("tasks", _make_manager()).sort_mode == "desc"
 
     def test_non_task_endpoints_use_asc_sort_mode(self) -> None:
-        assert clickup_source("pk", "9", "spaces", mock.MagicMock(), _make_manager()).sort_mode == "asc"
+        assert _source("spaces", _make_manager()).sort_mode == "asc"
 
     @pytest.mark.parametrize("config", list(CLICKUP_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config: Any) -> None:

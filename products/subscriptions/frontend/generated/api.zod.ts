@@ -157,6 +157,12 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe('Optional message included in the invitation email when adding new recipients.'),
+        send_test_now: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected.'
+            ),
         summary_enabled: zod
             .boolean()
             .optional()
@@ -321,6 +327,12 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe('Optional message included in the invitation email when adding new recipients.'),
+        send_test_now: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected.'
+            ),
         summary_enabled: zod
             .boolean()
             .optional()
@@ -492,6 +504,12 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe('Optional message included in the invitation email when adding new recipients.'),
+        send_test_now: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected.'
+            ),
         summary_enabled: zod
             .boolean()
             .optional()
