@@ -152,8 +152,18 @@ MAX_QUERY_ROWS = 50_000
 # Event-sourced intents are free text written by the calling agent — clip them
 # so one oversized value can't blow up embedding requests (the worker's model
 # has a token ceiling) or bloat the snapshot blob. Real intents are one or two
-# sentences; anything past this length adds no clustering signal.
+# sentences; anything past this length adds no clustering signal. Clipping
+# happens inside the corpus SQL (HogQL left → leftUTF8) so oversized values
+# never leave ClickHouse — up to MAX_QUERY_ROWS of them would otherwise
+# materialize in worker memory; build_call_corpus re-clips as defense for
+# callers that feed it rows from elsewhere.
 MAX_INTENT_TEXT_LENGTH = 1000
+
+# Tool names are sender-controlled too, so they get the same SQL-boundary clip.
+# Must be applied identically across the calls, descriptions, and
+# advertised-catalog queries, or pivot and discovery keys stop matching for
+# oversized names. Real tool names are well under 100 chars.
+MAX_TOOL_NAME_LENGTH = 256
 
 # Sessions that recorded at least one $mcp_intent, sampled deterministically.
 # Ordering by cityHash64(session_id) is a pseudo-random sample: unbiased across
@@ -181,8 +191,8 @@ LIMIT {max_sessions}
 _SESSION_CALLS_SQL = """
 SELECT
     $session_id AS session_id,
-    {tool_expr} AS tool,
-    coalesce(toString(properties.$mcp_intent), '') AS intent,
+    left({tool_expr}, {max_tool_len}) AS tool,
+    left(coalesce(toString(properties.$mcp_intent), ''), {max_intent_len}) AS intent,
     toString(properties.$mcp_is_error) IN ('true', '1') AS is_error
 FROM events
 WHERE event = {event}
@@ -200,9 +210,9 @@ LIMIT {max_rows}
 _SESSION_ADVERTISED_TOOLS_SQL = """
 SELECT
     $session_id AS session_id,
-    arrayDistinct(arrayFlatten(groupArray(
+    arrayDistinct(arrayMap(x -> left(x, {max_tool_len}), arrayFlatten(groupArray(
         JSONExtract(coalesce(toString(properties.$mcp_listed_tool_names), '[]'), 'Array(String)')
-    ))) AS advertised_tools
+    )))) AS advertised_tools
 FROM events
 WHERE event = {event}
     AND $session_id IN {session_ids}
@@ -230,8 +240,8 @@ WHERE event = {event}
 # picks the newest revision, which is the one agents currently see.
 _TOOL_DESCRIPTIONS_SQL = """
 SELECT
-    {tool_expr} AS tool,
-    argMax({description_expr}, timestamp) AS description
+    left({tool_expr}, {max_tool_len}) AS tool,
+    argMax(left({description_expr}, {max_desc_len}), timestamp) AS description
 FROM events
 WHERE event = {event}
     AND timestamp >= now() - INTERVAL {lookback_days} DAY
@@ -286,6 +296,8 @@ def fetch_session_calls(
             "session_ids": _session_ids_tuple(session_ids),
             "lookback_days": ast.Constant(value=lookback_days),
             "max_rows": ast.Constant(value=MAX_QUERY_ROWS),
+            "max_tool_len": ast.Constant(value=MAX_TOOL_NAME_LENGTH),
+            "max_intent_len": ast.Constant(value=MAX_INTENT_TEXT_LENGTH),
         },
     )
     rows = [
@@ -325,6 +337,7 @@ def fetch_advertised_tools(
             "session_ids": _session_ids_tuple(session_ids),
             "lookback_days": ast.Constant(value=lookback_days),
             "max_rows": ast.Constant(value=MAX_QUERY_ROWS),
+            "max_tool_len": ast.Constant(value=MAX_TOOL_NAME_LENGTH),
         },
     )
     out: dict[str, set[str]] = {}
@@ -368,6 +381,8 @@ def fetch_tool_descriptions(team: Team, lookback_days: int = DEFAULT_LOOKBACK_DA
             "description_expr_where": parse_expr(EFFECTIVE_DESCRIPTION_SQL),
             "lookback_days": ast.Constant(value=lookback_days),
             "max_rows": ast.Constant(value=MAX_QUERY_ROWS),
+            "max_tool_len": ast.Constant(value=MAX_TOOL_NAME_LENGTH),
+            "max_desc_len": ast.Constant(value=MAX_DESCRIPTION_LENGTH),
         },
     )
     return {

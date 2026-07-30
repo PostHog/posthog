@@ -32,6 +32,7 @@ from products.mcp_analytics.backend.intent_clustering import (
     JOURNEY_DEPTH,
     MAX_DESCRIPTION_LENGTH,
     MAX_INTENT_TEXT_LENGTH,
+    MAX_TOOL_NAME_LENGTH,
     MIN_ADVERTISED_SESSIONS,
     NO_INTENT_RECORDED_FALLBACK,
     SNAPSHOT_VERSION,
@@ -819,6 +820,24 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
             ("query_trends", "", True),
         ]
         assert [(r[1], r[2], r[3]) for r in by_session["session-b"]] == [("feature_flag_get", "check flags", False)]
+
+    def test_oversized_sender_strings_are_clipped_at_the_sql_boundary(self) -> None:
+        # A sender with the capture token controls these strings; without the SQL
+        # clip a recompute materializes up to 50k full-size values in worker memory.
+        long_tool = "t" * (MAX_TOOL_NAME_LENGTH + 50)
+        long_intent = "i" * (MAX_INTENT_TEXT_LENGTH + 50)
+        self._seed_tool_call("session-a", long_tool, intent=long_intent)
+        self._seed_tools_list("session-a", [long_tool])
+        flush_persons_and_events()
+
+        rows = fetch_session_calls(self.team, ["session-a"])
+        advertised = fetch_advertised_tools(self.team, ["session-a"])
+
+        assert rows[0][1] == long_tool[:MAX_TOOL_NAME_LENGTH]
+        assert rows[0][2] == long_intent[:MAX_INTENT_TEXT_LENGTH]
+        # Discovery matching depends on the calls and advertised-catalog queries
+        # clipping tool names identically.
+        assert advertised["session-a"] == {rows[0][1]}
 
     def test_advertised_tools_union_across_tools_list_events(self) -> None:
         self._seed_tools_list("session-a", ["exec", "render-ui"])
