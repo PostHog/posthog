@@ -39,6 +39,12 @@ from .types import (
 )
 
 
+def _record_outcome(counter: Counter, inputs: RasterizeRecordingInputs) -> None:
+    if wf.unsafe.is_replaying():
+        return
+    counter.labels(product=inputs.product, task_queue=wf.info().task_queue).inc()
+
+
 @wf.defn(name="rasterize-recording")
 class RasterizeRecordingWorkflow(PostHogWorkflow):
     inputs_cls = RasterizeRecordingInputs
@@ -56,12 +62,11 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
         try:
             result = await self._run(inputs)
         except Exception:
-            if not wf.unsafe.is_replaying():
-                RASTERIZATION_FAILED_COUNTER.labels(product=inputs.product, task_queue=wf.info().task_queue).inc()
+            _record_outcome(RASTERIZATION_FAILED_COUNTER, inputs)
             await self._maybe_bump_stuck_counter()
             raise
         await self._maybe_clear_stuck_counter()
-        RASTERIZATION_COMPLETED_COUNTER.labels(product=inputs.product, task_queue=wf.info().task_queue).inc()
+        _record_outcome(RASTERIZATION_COMPLETED_COUNTER, inputs)
         return result
 
     async def _maybe_bump_stuck_counter(self) -> None:

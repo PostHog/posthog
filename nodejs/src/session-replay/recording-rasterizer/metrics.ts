@@ -1,24 +1,11 @@
 import { Counter, Gauge, Histogram, Summary } from 'prom-client'
 
+import { toRasterizationErrorCode } from './errors'
 import { recordActivity, recordError } from './otel-metrics'
 
 const QUANTILES = [0.5, 0.95, 0.99]
 const MAX_AGE_SECONDS = 600
 const AGE_BUCKETS = 5
-
-// Alerting reads errors_total by code; the player relays browser-supplied codes, so clamp
-// anything unexpected to OTHER to keep label cardinality bounded.
-const KNOWN_ERROR_CODES = new Set([
-    'UNKNOWN',
-    'TIMEOUT',
-    'CAPTURE_ABORTED',
-    'BEGINFRAME_DEADLOCK',
-    'INVALID_INPUT',
-    'BLOCK_LISTING_FAILED',
-    'S3_UPLOAD_UNDECODABLE_RESPONSE',
-    'NO_SNAPSHOTS',
-    'INIT_FAILED',
-])
 
 export class RasterizationMetrics {
     // --- Activity timing ---
@@ -169,7 +156,8 @@ export class RasterizationMetrics {
     }
 
     public static incrementError(code: string, retryable: boolean): void {
-        const clamped = KNOWN_ERROR_CODES.has(code) ? code : 'OTHER'
+        // Clamp so label cardinality stays bounded even if an untyped code slips through.
+        const clamped = toRasterizationErrorCode(code)
         this.errorsTotal.labels({ code: clamped, retryable: String(retryable) }).inc()
         recordError(clamped, retryable)
     }

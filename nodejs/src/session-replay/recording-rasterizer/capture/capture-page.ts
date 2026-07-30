@@ -2,6 +2,7 @@ import * as fs from 'fs/promises'
 import { CDPSession, Page } from 'puppeteer'
 
 import { config as defaultConfig } from '~/session-replay/recording-rasterizer/config'
+import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
 import { type Logger, createLogger } from '~/session-replay/recording-rasterizer/logger'
 
 export const playerHtmlCache = {
@@ -33,9 +34,9 @@ export const playerHtmlCache = {
  * optional log forwarding, and frame filtering for puppeteer-capture.
  */
 export class CapturePage {
-    // Set when a beginFrame times out so the abort can be attributed to the
-    // compositor deadlock instead of the generic CAPTURE_ABORTED code.
-    beginFrameDeadlock = false
+    // Set at the site that detects a fatal cause (e.g. the beginFrame compositor deadlock)
+    // so the generic captureStopped handler can attribute the abort instead of guessing.
+    fatalError: RasterizationError | null = null
 
     private constructor(
         readonly page: Page,
@@ -154,7 +155,11 @@ export class CapturePage {
                         return result
                     } catch (err) {
                         if (timedOut) {
-                            this.beginFrameDeadlock = true
+                            this.fatalError = new RasterizationError(
+                                'beginFrame timeout (15s) — compositor deadlock',
+                                true,
+                                'BEGINFRAME_DEADLOCK'
+                            )
                             log.error({ params }, 'beginFrame timed out, detaching CDP session')
                             try {
                                 await session.detach()

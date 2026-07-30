@@ -2,17 +2,15 @@
 
 from datetime import UTC, datetime
 from typing import Any, cast
-from uuid import UUID
 
 import structlog
 from temporalio import activity
-from temporalio.client import Client, WorkflowExecutionStatus
-from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
 from products.replay_vision.backend.models.vision_action import VisionActionRun, VisionActionRunStatus
+from products.replay_vision.backend.temporal.activities.reaping import classify_stale_rows
 from products.replay_vision.backend.temporal.constants import (
     REAP_STUCK_VISION_ACTION_RUNS_BATCH_SIZE,
     VISION_ACTION_RUN_STUCK_CUTOFF,
@@ -21,6 +19,8 @@ from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.metrics import record_vision_action_runs_reaped
 
 logger = structlog.get_logger(__name__)
+
+_REAPED_ERROR = {"reaped": "The run stopped without recording an outcome."}
 
 
 def _list_stuck_runs() -> list[dict[str, Any]]:
@@ -34,26 +34,12 @@ def _list_stuck_runs() -> list[dict[str, Any]]:
     return cast(list[dict[str, Any]], list(rows))
 
 
-async def _workflow_is_open(temporal: Client, workflow_id: str) -> bool | None:
-    """Whether the latest run of `workflow_id` is still open; `None` when Temporal couldn't answer."""
-    try:
-        desc = await temporal.get_workflow_handle(workflow_id).describe()
-    except RPCError as e:
-        if e.status == RPCStatusCode.NOT_FOUND:
-            return False
-        return None
-    except Exception:
-        return None
-    return desc.status == WorkflowExecutionStatus.RUNNING
-
-
-def _mark_reaped(run_id: UUID) -> bool:
-    # Status guard keeps this idempotent against a workflow that terminated between listing and now.
-    updated = VisionActionRun.all_teams.filter(id=run_id, status=VisionActionRunStatus.RUNNING).update(
+def _mark_reaped(run_ids: list[Any]) -> int:
+    # Status guard keeps this idempotent against workflows that terminated between listing and now.
+    return VisionActionRun.all_teams.filter(id__in=run_ids, status=VisionActionRunStatus.RUNNING).update(
         status=VisionActionRunStatus.FAILED,
-        error={"reaped": "The run stopped without recording an outcome."},
+        error=_REAPED_ERROR,
     )
-    return updated > 0
 
 
 @activity.defn
@@ -64,20 +50,12 @@ async def reap_stuck_vision_action_runs_activity() -> int:
     if not rows:
         return 0
     temporal = await async_connect()
+    reapable, skipped_open, skipped_temporal_error = await classify_stale_rows(
+        temporal, rows, workflow_id_key="temporal_workflow_id"
+    )
     reaped = 0
-    skipped_open = 0
-    skipped_temporal_error = 0
-    for row in rows:
-        if row["temporal_workflow_id"]:
-            is_open = await _workflow_is_open(temporal, row["temporal_workflow_id"])
-            if is_open:
-                skipped_open += 1
-                continue
-            if is_open is None:
-                skipped_temporal_error += 1  # Can't prove it's closed — leave it for the next tick.
-                continue
-        if await database_sync_to_async(_mark_reaped, thread_sensitive=False)(row["id"]):
-            reaped += 1
+    if reapable:
+        reaped = await database_sync_to_async(_mark_reaped, thread_sensitive=False)([row["id"] for row in reapable])
     record_vision_action_runs_reaped(reaped)
     logger.info(
         "replay_vision.reap_stuck_vision_action_runs",

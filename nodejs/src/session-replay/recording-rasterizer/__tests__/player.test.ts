@@ -180,7 +180,7 @@ describe('PlayerController', () => {
         const err = controller.getError()
         expect(err).toBeInstanceOf(RasterizationError)
         expect(err!.message).toBe('[PLAYBACK_ERROR] rendering failed')
-        expect(err!.code).toBe('PLAYBACK_ERROR')
+        expect(err!.code).toBe('OTHER')
         expect(err!.retryable).toBe(true)
     })
 

@@ -9,6 +9,7 @@ is swallowed so telemetry can never fail an activity.
 """
 
 from prometheus_client import Counter, Gauge, Histogram
+from temporalio import workflow
 
 from posthog.otel_metrics import OtelInstrumentFactory
 
@@ -188,13 +189,14 @@ def record_enqueue_claim_failure(operation: str) -> None:
 
 
 def record_vision_action_occurrence_dropped() -> None:
+    # Callable from workflow code: replays must not double-count.
+    if workflow.in_workflow() and workflow.unsafe.is_replaying():
+        return
     REPLAY_VISION_ACTION_OCCURRENCES_DROPPED.inc()
     _otel.record_counter_twin(REPLAY_VISION_ACTION_OCCURRENCES_DROPPED, 1, {})
 
 
 def record_vision_action_runs_reaped(count: int) -> None:
-    if count <= 0:
-        return
     REPLAY_VISION_ACTION_RUNS_REAPED.inc(count)
     _otel.record_counter_twin(REPLAY_VISION_ACTION_RUNS_REAPED, count, {})
 
