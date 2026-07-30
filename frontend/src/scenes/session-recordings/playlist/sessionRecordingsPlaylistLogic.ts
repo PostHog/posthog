@@ -993,9 +993,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     const response = await api.recordings.list(params)
                     const loadTimeMs = performance.now() - startTime
 
-                    actions.reportRecordingsListFetched(loadTimeMs, values.filters, defaultRecordingDurationFilter)
-
+                    // Bail before touching values: the playlist can unmount mid-request (navigating away,
+                    // switching person tabs), and reading a removed store path throws
                     breakpoint()
+
+                    actions.reportRecordingsListFetched(loadTimeMs, values.filters, defaultRecordingDurationFilter)
 
                     return {
                         has_next:

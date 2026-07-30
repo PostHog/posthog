@@ -986,6 +986,33 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
+    describe('unmounting while a request is in flight', () => {
+        it('abandons the response instead of reading state that is already gone', async () => {
+            let requestStarted: () => void = () => {}
+            const started = new Promise<void>((resolve) => (requestStarted = resolve))
+            let finishRequest: (response: any) => void = () => {}
+
+            jest.spyOn(api.recordings, 'list').mockImplementation(() => {
+                requestStarted()
+                return new Promise((resolve) => (finishRequest = resolve))
+            })
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation()
+
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: 'unmount-mid-request',
+                updateSearchParams: true,
+            })
+            logic.mount()
+            await started
+
+            logic.unmount()
+            finishRequest({ results: listOfSessionRecordings, has_next: false })
+            await new Promise(process.nextTick)
+
+            expect(captureException).not.toHaveBeenCalled()
+        })
+    })
+
     describe('total filters count', () => {
         beforeEach(() => {
             logic = sessionRecordingsPlaylistLogic({
