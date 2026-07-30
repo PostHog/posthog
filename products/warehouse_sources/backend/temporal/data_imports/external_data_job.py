@@ -49,7 +49,10 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
 )
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    ResumableSource,
+    error_message_matches,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
@@ -233,7 +236,7 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
         else:
             non_retryable_errors = {**Any_Source_Errors, **non_retryable_errors}
 
-        has_non_retryable_error = any(error in internal_error_normalized for error in non_retryable_errors.keys())
+        has_non_retryable_error = error_message_matches(internal_error_normalized, non_retryable_errors.keys())
         if has_non_retryable_error:
             posthoganalytics.capture(
                 distinct_id=get_machine_id(),
@@ -254,7 +257,7 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
             friendly_errors = [
                 friendly_error
                 for error, friendly_error in non_retryable_errors.items()
-                if error in internal_error_normalized
+                if error_message_matches(internal_error_normalized, [error])
             ]
 
             if friendly_errors and friendly_errors[0] is not None:
