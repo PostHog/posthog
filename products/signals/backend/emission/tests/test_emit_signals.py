@@ -16,6 +16,8 @@ from temporalio.worker import Worker
 
 from posthog.hogql import ast
 
+from posthog.llm.anthropic_response import UnexpectedGatewayResponseError
+
 from products.signals.backend.emission.emit_signals import (
     EmitDataImportSignalsWorkflow,
     EmitSignalsActivityInputs,
@@ -293,6 +295,21 @@ class TestCheckActionability:
         is_actionable = await _check_actionability(mock_client, 1, _make_output(), "prompt {description}")
 
         assert is_actionable is True
+
+    @pytest.mark.asyncio
+    async def test_non_json_gateway_body_reports_a_named_gateway_error(self):
+        # A non-JSON gateway body (proxy error page, plain-text 200) comes back from the Anthropic
+        # SDK as a raw str, which used to surface as an opaque AttributeError on `.content`.
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(return_value="<html><body>502 Bad Gateway</body></html>")
+
+        with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics") as mock_analytics:
+            with patch(f"{PIPELINE_MODULE_PATH}.asyncio.sleep", new=AsyncMock()):
+                await _check_actionability(mock_client, 1, _make_output(), "prompt {description}")
+
+        captured = mock_analytics.capture_exception.call_args.args[0]
+        assert isinstance(captured, UnexpectedGatewayResponseError)
+        assert "502 Bad Gateway" in str(captured)
 
     @pytest.mark.asyncio
     async def test_passes_team_attribution_headers(self):

@@ -12,6 +12,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.event_usage import groups
+from posthog.llm.anthropic_response import anthropic_text_blocks
 from posthog.llm.gateway_client import build_async_anthropic_client, resolve_ai_gateway_config
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
@@ -81,7 +82,7 @@ def _signals_extra_headers(
 
 def _extract_text(response: Any) -> str:
     """Concatenate the text blocks of an Anthropic Messages response (ignores non-text blocks)."""
-    return "".join(block.text for block in response.content if getattr(block, "type", None) == "text")
+    return "".join(anthropic_text_blocks(response))
 
 
 def _capture_pipeline_stage(

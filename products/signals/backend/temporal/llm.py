@@ -8,6 +8,7 @@ import structlog
 from anthropic.types import MessageParam
 
 from posthog.helpers.tiktoken_encoding import TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
+from posthog.llm.anthropic_response import anthropic_text_blocks
 from posthog.llm.gateway_client import (
     build_async_anthropic_client,
     get_async_anthropic_gateway_client,
@@ -59,10 +60,10 @@ class EmptyLLMResponseError(Exception):
 
 def _extract_text_content(response) -> str:
     """Extract text content from Anthropic response."""
-    for block in reversed(response.content):
-        if block.type == "text":
-            return block.text
-    raise EmptyLLMResponseError("No text content in response")
+    text_blocks = anthropic_text_blocks(response)
+    if not text_blocks:
+        raise EmptyLLMResponseError("No text content in response")
+    return text_blocks[-1]
 
 
 # I could not for the life of me get thinking claude to stop outputting markdown.

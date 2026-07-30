@@ -3,6 +3,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import override_settings
 
+from posthog.llm.anthropic_response import UnexpectedGatewayResponseError
+
 from products.signals.backend.temporal.emit_eval_signal import (
     EmitEvalSignalInputs,
     EvalSignalSummary,
@@ -27,6 +29,25 @@ def _mock_anthropic_client() -> MagicMock:
     client = MagicMock()
     client.messages.create = AsyncMock(return_value=_text_response("ok"))
     return client
+
+
+@pytest.mark.asyncio
+async def test_non_json_gateway_body_raises_a_named_gateway_error():
+    # A non-JSON gateway body (proxy error page, plain-text 200) comes back from the Anthropic SDK
+    # as a raw str, which used to surface as an opaque AttributeError on `.content`.
+    client = MagicMock()
+    client.messages.create = AsyncMock(return_value="upstream request timeout")
+
+    with patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client):
+        with pytest.raises(UnexpectedGatewayResponseError, match="upstream request timeout"):
+            await call_llm(
+                team_id=1,
+                system_prompt="s",
+                user_prompt="u",
+                validate=lambda text: text,
+                stage="match",
+                ai_product="signals_grouping",
+            )
 
 
 @pytest.mark.asyncio
