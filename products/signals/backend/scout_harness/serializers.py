@@ -1198,9 +1198,17 @@ class ScoutFleetEntrySerializer(serializers.Serializer):
     not_running_reason = serializers.CharField(
         allow_null=True,
         help_text=(
-            "Why this scout is in the `disabled` bucket: `turned_off` (an operator set it off) or "
-            "`skill_unavailable` (left on, but its skill was deleted, superseded, or withheld, so it "
-            "never dispatches). Null for scouts that actually run."
+            "Why this scout is in the `disabled` bucket: `turned_off` (a person or seed posture set it "
+            "off), `auto_paused` (the system paused it), or `skill_unavailable` (left on, but its skill "
+            "was deleted, superseded, or withheld, so it never dispatches). Null for scouts that "
+            "actually run."
+        ),
+    )
+    pause_reason = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The cause behind an `auto_paused` entry: `no_output`, `ignored`, or `repeated_failures`. "
+            "Null for every other entry."
         ),
     )
 
