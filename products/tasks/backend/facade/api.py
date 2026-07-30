@@ -3957,7 +3957,11 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     """
     from posthog.models import Team  # noqa: PLC0415
 
+    from products.signals.backend.discussion_notes import (  # noqa: PLC0415 — cross-product write kept off the api import path
+        forward_discussion_note,
+    )
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the api import path
+        TASK_RUN_TYPE_DISCUSSION,
         record_report_task,
     )
     from products.tasks.backend.logic.services.title_generator import generate_task_title  # noqa: PLC0415
@@ -4093,6 +4097,21 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
                 task_id=str(task.id),
                 relationship=signal_report_task_relationship,
             )
+
+    if (
+        signal_report_task_relationship == TASK_RUN_TYPE_DISCUSSION
+        and task.signal_report_id
+        and task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+    ):
+        # Forward the user's question to the report's scout as a steering note. Best-effort and kept
+        # out of the create transaction: the note is a derived convenience the scout can weigh or
+        # ignore, and the question lives on the discussion task either way.
+        forward_discussion_note(
+            team=team,
+            report_id=str(task.signal_report_id),
+            text=task.description or "",
+            user_id=user_id,
+        )
 
     return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))
 

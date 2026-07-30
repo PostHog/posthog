@@ -1412,6 +1412,39 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION), [])
         self.assertFalse(SignalReportTask.objects.filter(report=report, task_id=data["id"]).exists())
 
+    @parameterized.expand([("discussion", True), ("implementation", False), ("research", False)])
+    def test_signal_report_task_forwards_discussion_question_as_scout_note(self, relationship, should_forward):
+        # Wiring guard: a "Discuss" kickoff (and only a discussion relationship) forwards the user's
+        # question to the report's scout as a REPORT_DISCUSSION note. Guards the facade hook firing for
+        # discussion but not for implementation/research (which would spam a note on every PR kickoff),
+        # and the URL-prefix strip end to end.
+        from products.signals.backend.models import SignalReport, SignalScoutNote
+
+        report = SignalReport.objects.create(team=self.team, title="Checkout errors spiked")
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Discuss report",
+                "description": (
+                    "Let's discuss this PostHog Inbox report: "
+                    "https://us.posthog.com/project/2/inbox/reports/x\n\nIs this still happening?"
+                ),
+                "origin_product": "signal_report",
+                "signal_report": str(report.id),
+                "signal_report_task_relationship": relationship,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        notes = SignalScoutNote.objects.filter(team=self.team, origin=SignalScoutNote.Origin.REPORT_DISCUSSION)
+        if should_forward:
+            note = notes.get()
+            self.assertIn("Is this still happening?", note.content)
+            self.assertNotIn("https://us.posthog.com", note.content)
+            self.assertEqual(note.skill_name, "")  # no authoring run recorded → addressed to the whole fleet
+        else:
+            self.assertFalse(notes.exists())
+
     def test_create_task_with_signal_report_accepts_free_form_relationship(self):
         from products.signals.backend.models import SignalReport, SignalReportTask
         from products.signals.backend.task_run_artefacts import signals_task_ids

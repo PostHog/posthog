@@ -190,9 +190,29 @@ def _may_steer_scouts(request: Request, canonical_team: Team) -> bool:
     if scoped_teams and canonical_team.id not in scoped_teams:
         return False
 
+    return user_can_steer_scouts(user, canonical_team)
+
+
+def user_can_steer_scouts(user: User, canonical_team: Team) -> bool:
+    """The user leg of the notes-write gate: access to the canonical project + `llm_skill` editor.
+
+    Shared with `discussion_notes`, which resolves feedback from a `user_id` with no request in hand
+    and so can't check the API-token `scoped_teams` leg `_may_steer_scouts` adds; such callers confine
+    forwarding to the canonical team instead, so a child environment's content never reaches the
+    parent project's readers.
+    """
     if not canonical_team.all_users_with_access().filter(pk=user.pk).exists():
         return False
     return UserAccessControl(user=user, team=canonical_team).check_access_level_for_resource("llm_skill", "editor")
+
+
+def resolve_report_scout_skill(team_id: int, report_id: str) -> str:
+    """The scout skill a report's derived note should target, "" meaning the whole fleet.
+
+    Thin single-report wrapper over `_target_skill_names` (the same emit-time authorship resolution
+    the dismissal path uses), shared with `discussion_notes`.
+    """
+    return _target_skill_names(team_id, [report_id]).get(report_id, "")
 
 
 def _describe(reports: Sequence[SignalReport]) -> list[tuple[SignalReport, str]]:

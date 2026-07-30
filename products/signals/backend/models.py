@@ -1433,20 +1433,22 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
     channel, not new power. The run prompt additionally frames note content as advisory
     steering that never overrides the harness ground rules.
 
-    A second writer derives rows from elsewhere: judging an inbox report with a note also leaves
-    it here as a `REPORT_DISMISSAL` row (dismiss, snooze, or restore; not resolve, see
-    `dismissal_notes.py`). Dismissing needs only `task:write`, so that path re-checks the RBAC leg of this gate itself before
-    writing, against the canonical project whose scouts read the row. It does not re-check the
-    `llm_skill:write` key scope, because a dismissal's text already reaches run context
-    verbatim through the `dismissal_note` field on the inbox reports API that every scout is
-    told to read before emitting, so demanding the scope would drop feedback without closing a
-    path. `origin` keeps the two kinds apart so the run prompt can frame a derived row as one
-    reviewer's verdict on one report rather than as fleet-level steering.
+    Two more writers derive rows from inbox activity, both re-checking the RBAC leg of this gate
+    themselves (the actions behind them need only `task:write`) against the canonical project whose
+    scouts read the row, and both skipping the `llm_skill:write` key scope because the same text
+    already reaches run context by another path a scout is told to read:
+    - `REPORT_DISMISSAL` — judging a report with a note (dismiss, snooze, or restore; not resolve),
+      see `dismissal_notes.py`. Its text also lands on the `dismissal_note` field of the reports API.
+    - `REPORT_DISCUSSION` — opening a discussion on a report with a question, see
+      `discussion_notes.py`. The question also lands in the discussion task the kickoff creates.
+    `origin` keeps the kinds apart so the run prompt can frame a dismissal as one reviewer's verdict
+    on one report, and a discussion as a question to weigh rather than fleet-level steering.
     """
 
     class Origin(models.TextChoices):
         HUMAN = "human", "Left directly"
         REPORT_DISMISSAL = "report_dismissal", "Derived from inbox dismissal feedback"
+        REPORT_DISCUSSION = "report_discussion", "Derived from inbox discussion feedback"
 
     # See SignalScoutConfig.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012
