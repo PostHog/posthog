@@ -45,8 +45,8 @@ gh stack submit --auto
 
 Pushes all branches, creates each PR with the correct base, and links the stack on GitHub.
 `--auto` creates new PRs **as drafts** — the right default here, since drafts run the narrowed CI matrix.
-Mark layers ready individually with `gh pr ready <n>`, or pass `--open` to create/mark everything ready.
-Interactive `gh stack submit` (no flags) opens an editor for titles/descriptions; note its new-PR default is ready-for-review, not draft.
+Mark layers ready individually with `gh pr ready <n>`, or pass `--open` to mark everything ready.
+Interactive `gh stack submit` (no flags) opens an editor for titles/descriptions — but there new PRs default to ready-for-review, not draft.
 
 ## Iterate and keep in sync
 
@@ -59,7 +59,7 @@ gh stack sync --prune    # also delete local branches for merged PRs
 - On rebase conflict, sync restores all branches untouched; run `gh stack rebase`, resolve, then `gh stack rebase --continue` (or `--abort`).
 - `gh stack view --short` shows status (`--json` for scripting); `gh stack checkout <stack-number|PR|URL>` pulls down and tracks a stack you don't have locally, including a teammate's.
 - `gh stack modify` interactively reorders, folds, drops, or renames layers.
-- Batch work before syncing: every sync force-pushes every rebased branch, and each push dispatches a full CI matrix per layer. Don't re-sync on every master change — sync when you need the rebase, not to stay perfectly current.
+- Batch work before syncing — each sync force-pushes and re-runs a full CI matrix for every rebased layer. Sync when you need the rebase, not to track master.
 - The `ci:preflight` pre-push hook runs on these pushes like any other; never bypass it.
 
 ## Merging: Trunk queue only, bottom-up
