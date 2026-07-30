@@ -1,15 +1,9 @@
 import { DataColorToken, dataColorVars } from 'lib/colors'
-import {
-    getFunnelDatasetKey,
-    getTrendDatasetKey,
-    isNullBreakdown,
-    isOtherBreakdown,
-    sortCohorts,
-} from 'scenes/insights/utils'
+import { getFunnelDatasetKey, getTrendDatasetKey, isNullBreakdown, isOtherBreakdown } from 'scenes/insights/utils'
 
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { hasBreakdownFilter, isFunnelsQuery, isInsightVizNode, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
-import { CohortType, DashboardTile, FunnelVizType, QueryBasedInsightModel } from '~/types'
+import { DashboardTile, FunnelVizType, QueryBasedInsightModel } from '~/types'
 
 export type BreakdownColorSource = 'auto' | 'manual'
 
@@ -188,11 +182,13 @@ export function hasUnresolvedBreakdownTiles(insightTiles: DashboardTile<QueryBas
     })
 }
 
+/** Deduplicated breakdown values across all tiles, ordered the way auto-assignment ranks
+ * them, so the colors modal lists values in the order their colors are handed out. */
 export function extractBreakdownValues(
-    insightTiles: DashboardTile<QueryBasedInsightModel>[] | null,
-    cohorts: CohortType[] | null
+    insightTiles: DashboardTile<QueryBasedInsightModel>[] | null
 ): BreakdownValueAndType[] {
-    return extractBreakdownValuesByTile(insightTiles)
+    const tileBreakdownValues = extractBreakdownValuesByTile(insightTiles)
+    return tileBreakdownValues
         .flat()
         .reduce<BreakdownValueAndType[]>((acc, curr) => {
             if (!acc.some((x) => x.breakdownValue === curr.breakdownValue && x.breakdownType === curr.breakdownType)) {
@@ -200,18 +196,7 @@ export function extractBreakdownValues(
             }
             return acc
         }, [])
-        .sort((a, b) => {
-            if (a.breakdownType === 'cohort' && b.breakdownType === 'cohort') {
-                return sortCohorts(a.breakdownValue, b.breakdownValue, cohorts)
-            }
-
-            // put cohorts at the end
-            if (a.breakdownType === 'cohort' || b.breakdownType === 'cohort') {
-                return a.breakdownType === 'cohort' ? 1 : -1
-            }
-
-            return String(a.breakdownValue).localeCompare(String(b.breakdownValue))
-        })
+        .sort(buildAssignmentRankComparator(collectValueTileStats(tileBreakdownValues)))
 }
 
 /** Sentinel rows keep their built-in muted/fixed treatment instead of an assigned palette color. */
@@ -246,6 +231,44 @@ function compareAssignmentOrder(a: BreakdownValueAndType, b: BreakdownValueAndTy
 // \u001f), so value/type pairs cannot collide in this key space.
 function breakdownValueTileKey(value: BreakdownValueAndType): string {
     return `${value.breakdownType ?? 'event'}\u0000${value.breakdownValue}`
+}
+
+type ValueTileStats = Map<string, { value: BreakdownValueAndType; tiles: number[]; positionSum: number }>
+
+function collectValueTileStats(tileBreakdownValues: BreakdownValueAndType[][]): ValueTileStats {
+    const valueTiles: ValueTileStats = new Map()
+    tileBreakdownValues.forEach((values, tileIndex) => {
+        values.forEach((value, position) => {
+            const key = breakdownValueTileKey(value)
+            const entry = valueTiles.get(key)
+            if (entry) {
+                entry.tiles.push(tileIndex)
+                entry.positionSum += position
+            } else {
+                valueTiles.set(key, { value, tiles: [tileIndex], positionSum: position })
+            }
+        })
+    })
+    return valueTiles
+}
+
+// Rank by re-use first, so the values shared by the most charts claim the earliest
+// slots. Ties break by the values' ranking within their own charts: each tile's value
+// list is in chart series order, and positions are summed across a value's tiles,
+// which compares like the average because tile counts are equal whenever the sum is
+// reached. Plain value order settles full ties (e.g. values leading disjoint tiles).
+function buildAssignmentRankComparator(
+    valueTiles: ValueTileStats
+): (a: BreakdownValueAndType, b: BreakdownValueAndType) => number {
+    return (a, b) => {
+        const entryA = valueTiles.get(breakdownValueTileKey(a))
+        const entryB = valueTiles.get(breakdownValueTileKey(b))
+        return (
+            (entryB?.tiles.length ?? 0) - (entryA?.tiles.length ?? 0) ||
+            (entryA?.positionSum ?? 0) - (entryB?.positionSum ?? 0) ||
+            compareAssignmentOrder(a, b)
+        )
+    }
 }
 
 /** Membership test for values that appear on two or more tiles. Only those receive a
@@ -290,35 +313,10 @@ export function applyAutoBreakdownColors(
         return [...existingConfigs]
     }
 
-    const valueTiles = new Map<string, { value: BreakdownValueAndType; tiles: number[]; positionSum: number }>()
-    tileBreakdownValues.forEach((values, tileIndex) => {
-        values.forEach((value, position) => {
-            const key = breakdownValueTileKey(value)
-            const entry = valueTiles.get(key)
-            if (entry) {
-                entry.tiles.push(tileIndex)
-                entry.positionSum += position
-            } else {
-                valueTiles.set(key, { value, tiles: [tileIndex], positionSum: position })
-            }
-        })
-    })
+    const valueTiles = collectValueTileStats(tileBreakdownValues)
     const tilesOf = (value: BreakdownValueAndType): number[] =>
         valueTiles.get(breakdownValueTileKey(value))?.tiles ?? []
-    // Rank by re-use first, so the values shared by the most charts claim the earliest
-    // slots. Ties break by the values' ranking within their own charts: each tile's value
-    // list is in chart series order, and positions are summed across a value's tiles,
-    // which compares like the average because tile counts are equal whenever the sum is
-    // reached. Plain value order settles full ties (e.g. values leading disjoint tiles).
-    const compareAssignmentRank = (a: BreakdownValueAndType, b: BreakdownValueAndType): number => {
-        const entryA = valueTiles.get(breakdownValueTileKey(a))
-        const entryB = valueTiles.get(breakdownValueTileKey(b))
-        return (
-            (entryB?.tiles.length ?? 0) - (entryA?.tiles.length ?? 0) ||
-            (entryA?.positionSum ?? 0) - (entryB?.positionSum ?? 0) ||
-            compareAssignmentOrder(a, b)
-        )
-    }
+    const compareAssignmentRank = buildAssignmentRankComparator(valueTiles)
 
     // Per-tile slot usage drives collision checks; global usage keeps distinct values on
     // distinct colors while free slots last.
