@@ -6,6 +6,7 @@ import {
     MissingOrganizationContextError,
     MissingProjectContextError,
     PostHogApiError,
+    PostHogPermissionError,
     wrapError,
 } from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
@@ -203,7 +204,33 @@ export class StateManager {
      * service bug. Treat it as recoverable so it stays out of error tracking.
      */
     private _isRecoverableNotFound(error: unknown): boolean {
-        return error instanceof PostHogApiError && error.status === 404
+        return this._causeChain(error).some((e) => e instanceof PostHogApiError && e.status === 404)
+    }
+
+    /**
+     * Entity fetches fail routinely for reasons that are the caller's config,
+     * not a bug here: the project/org was deleted, membership was dropped, or
+     * the key lacks a scope. Those are recoverable — `getOrFetchCached` serves
+     * the cached value and the request completes — so they get a warn instead
+     * of an error tracking capture, leaving 5xx and unexpected failures visible.
+     */
+    private _isExpectedAccessFailure(error: unknown): boolean {
+        return (
+            this._isRecoverableNotFound(error) ||
+            this._causeChain(error).some((e) => e instanceof PostHogPermissionError)
+        )
+    }
+
+    /** Fetchers wrap API errors via `wrapError`, so inspect `cause` too. */
+    private _causeChain(error: unknown): unknown[] {
+        const chain: unknown[] = []
+        let current = error
+        // Bounded so a self-referential `cause` can't spin here.
+        for (let depth = 0; depth < 5 && current !== undefined && current !== null; depth++) {
+            chain.push(current)
+            current = (current as { cause?: unknown }).cause
+        }
+        return chain
     }
 
     private _reportException(error: unknown, context: string, extra: Record<string, unknown> = {}): void {
@@ -316,7 +343,13 @@ export class StateManager {
             ])
             return data as State[D]
         } catch (error) {
-            this._reportException(error, `get_or_fetch_${opts.name}`)
+            if (this._isExpectedAccessFailure(error)) {
+                console.warn(
+                    `[StateManager] ${opts.name} fetch failed with a recoverable access error; serving cached value: ${error instanceof Error ? error.message : String(error)}`
+                )
+            } else {
+                this._reportException(error, `get_or_fetch_${opts.name}`)
+            }
             await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
             return cached
         }

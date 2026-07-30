@@ -1453,7 +1453,9 @@ export class ApiClient {
     async getGroupTypes(projectId: string): Promise<GroupType[]> {
         const result = await this.fetchJson<GroupType[]>(`${this.baseUrl}/api/projects/${projectId}/groups_types/`)
         if (!result.success) {
-            throw new Error(result.error.message)
+            // Rethrow the typed error, not a flattened `Error` — callers classify
+            // 404/403 as recoverable off its status.
+            throw result.error
         }
         return result.data
     }

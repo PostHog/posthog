@@ -2,10 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
-import { PostHogApiError } from '@/lib/errors'
+import { PostHogApiError, PostHogPermissionError, wrapError } from '@/lib/errors'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
 import type { State } from '@/tools/types'
+
+const captureException = vi.fn()
+vi.mock('@/lib/posthog', () => ({
+    getPostHogClient: () => ({ captureException }),
+}))
 
 describe('StateManager', () => {
     let stateManager: StateManager
@@ -847,6 +852,73 @@ describe('StateManager', () => {
 
             await stateManager.getOrFetchGroupTypes(projectId)
             expect(getGroupTypes).toHaveBeenCalledTimes(2)
+        })
+
+        it.each([
+            [
+                '404',
+                new PostHogApiError({
+                    status: 404,
+                    statusText: 'Not Found',
+                    body: '{}',
+                    url: 'https://us.posthog.com/api/projects/42/groups_types/',
+                    method: 'GET',
+                }),
+            ],
+            [
+                'wrapped 404',
+                wrapError(
+                    'Failed to get user',
+                    new PostHogApiError({
+                        status: 404,
+                        statusText: 'Not Found',
+                        body: '{}',
+                        url: 'https://us.posthog.com/api/users/@me/',
+                        method: 'GET',
+                    })
+                ),
+            ],
+            [
+                '403 permission denied',
+                new PostHogPermissionError({
+                    detail: 'permission denied',
+                    missingScope: undefined,
+                    url: 'https://us.posthog.com/api/projects/42/groups_types/',
+                    method: 'GET',
+                }),
+            ],
+        ])('does not report a recoverable %s failure to error tracking', async (_label, error) => {
+            captureException.mockClear()
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+            const mockApi = stateManager as any
+            mockApi._api = { getGroupTypes: vi.fn().mockRejectedValue(error) }
+
+            expect(await stateManager.getOrFetchGroupTypes(projectId)).toBeUndefined()
+
+            expect(captureException).not.toHaveBeenCalled()
+            expect(warn).toHaveBeenCalled()
+            warn.mockRestore()
+        })
+
+        it('reports a 500 failure to error tracking', async () => {
+            captureException.mockClear()
+            const error = new PostHogApiError({
+                status: 500,
+                statusText: 'Internal Server Error',
+                body: '{}',
+                url: 'https://us.posthog.com/api/projects/42/groups_types/',
+                method: 'GET',
+            })
+            const mockApi = stateManager as any
+            mockApi._api = { getGroupTypes: vi.fn().mockRejectedValue(error) }
+
+            expect(await stateManager.getOrFetchGroupTypes(projectId)).toBeUndefined()
+
+            expect(captureException).toHaveBeenCalledWith(
+                error,
+                undefined,
+                expect.objectContaining({ context: 'get_or_fetch_group_types' })
+            )
         })
 
         it('should return undefined (not stale data) when fetch succeeds then later fails', async () => {
