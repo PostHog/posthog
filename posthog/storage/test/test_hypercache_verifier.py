@@ -1187,7 +1187,9 @@ class TestFetchTeamBatch(SimpleTestCase):
         assert base_qs.requested_after_ids == [3, 3]
 
     def test_raises_team_batch_fetch_error_once_retries_are_exhausted(self):
-        errors = [OperationalError("too many clients already") for _ in range(TEAM_BATCH_FETCH_MAX_ATTEMPTS)]
+        errors: list[Exception] = [
+            OperationalError("too many clients already") for _ in range(TEAM_BATCH_FETCH_MAX_ATTEMPTS)
+        ]
         base_qs = _FlakyTeamQuerySet(errors, [])
 
         with (
