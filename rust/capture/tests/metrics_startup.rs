@@ -1,11 +1,8 @@
-//! Metrics emitted while components are built must survive to the scrape
-//! endpoint. `build_components` installs the global recorder, so ordering
-//! inside it decides whether a startup metric is recorded or silently dropped
-//! — and that is only observable through the real startup path, never from a
-//! unit test with a local recorder.
+//! Metrics emitted during `build_components` must reach `/metrics`. Whether
+//! they do depends on the global recorder being installed first, which only the
+//! real startup path exercises: a unit test's local recorder always exists.
 //!
-//! Keep this binary to a single test: installing the Prometheus recorder is a
-//! once-per-process operation.
+//! One test per binary, since the recorder installs once per process.
 
 use std::time::Duration;
 
@@ -19,9 +16,7 @@ async fn startup_gauge_reaches_the_scrape_endpoint() {
 
     let mut config = DEFAULT_CONFIG.clone();
     config.export_prometheus = true;
-    // Warnings asked for but no dedicated hosts: the emitter reports `0` with a
-    // reason during `build_components`, which is precisely the window where the
-    // gauge used to be dropped.
+    // Warnings enabled but no hosts, so the emitter reports `0` during startup.
     config.capture_ingestion_warnings_enabled = true;
     config.capture_ingestion_warnings_kafka_hosts = String::new();
 
@@ -42,20 +37,15 @@ async fn startup_gauge_reaches_the_scrape_endpoint() {
     let line = body
         .lines()
         .find(|line| line.starts_with("ingestion_warnings_emitter_enabled{"))
-        .unwrap_or_else(|| {
-            panic!("emitter gauge missing from scrape output, startup metrics are being dropped")
-        });
+        .unwrap_or_else(|| panic!("gauge missing, startup metrics are being dropped"));
 
     assert!(
         line.contains(r#"reason="hosts_unset""#),
         "gauge must name the misconfiguration: {line}"
     );
-    assert!(
-        line.ends_with(" 0"),
-        "an enabled-but-unbuildable emitter must report 0: {line}"
-    );
-    // Recorder-level labels only exist when the recorder is installed before
-    // the emission, so their presence pins the ordering too.
+    assert!(line.ends_with(" 0"), "emitter is down, expected 0: {line}");
+    // The recorder's global labels only land if it was installed before the
+    // emission, so checking them also pins the ordering.
     assert!(
         line.contains(r#"capture_mode="events""#) && line.contains(r#"role="capture-testing""#),
         "gauge must carry the recorder's global labels: {line}"

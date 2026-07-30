@@ -453,10 +453,9 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         .layer(axum::middleware::from_fn(track_metrics))
         .with_state(state);
 
-    // The recorder is installed by the caller (`setup::build_components`), which
-    // must do it before any component emits, so all we do here is expose its
-    // output. `None` covers capture-as-a-library, where installing a global
-    // recorder does not work well.
+    // The caller installs the recorder, before anything can emit; here we only
+    // expose its output. `None` for tests and library use, which have no
+    // recorder of their own.
     if let Some(recorder_handle) = recorder_handle {
         router.route("/metrics", get(move || ready(recorder_handle.render())))
     } else {

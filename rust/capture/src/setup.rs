@@ -162,10 +162,8 @@ pub async fn build_components(
         liveness,
     } = handles;
 
-    // First thing in the startup path: `gauge!`/`counter!` before the global
-    // recorder exists are silently dropped, and the recorder fixes its global
-    // `role`/`capture_mode` labels at install time. Anything built below is
-    // free to emit.
+    // Must come first: metrics emitted before the global recorder exists are
+    // silently dropped, and its `role`/`capture_mode` labels are fixed here.
     let recorder_handle = config.export_prometheus.then(|| {
         setup_metrics_recorder(
             config.otel_service_name.clone(),
@@ -761,8 +759,8 @@ async fn create_ingestion_warning_emitter(
     }
 
     // Past this point the operator asked for warnings, so every exit reports
-    // through the gauge, labelled with which misconfiguration it hit. Leaving
-    // it unset above keeps "disabled" distinct from "enabled but broken".
+    // through the gauge with the reason it bailed. Leaving it unset above keeps
+    // "disabled" distinct from "enabled but broken".
     let report_disabled = |reason: &'static str| {
         gauge!(INGESTION_WARNINGS_EMITTER_ENABLED, "reason" => reason).set(0.0)
     };
@@ -943,9 +941,7 @@ mod tests {
         envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config")
     }
 
-    /// The emitter gauge as `(reason, value)`, or `None` when it was never
-    /// emitted. Reads the `reason` label directly so a regression that drops it
-    /// from one branch fails rather than silently changing the label set.
+    /// The emitter gauge as `(reason, value)`, or `None` if never emitted.
     fn emitter_enabled_gauge(snapshotter: &Snapshotter) -> Option<(String, f64)> {
         snapshotter
             .snapshot()
@@ -966,9 +962,8 @@ mod tests {
             })
     }
 
-    /// Run `f` with metrics captured locally. `with_local_recorder` is
-    /// thread-scoped, so the future has to be driven on this thread — hence a
-    /// current-thread runtime rather than `#[tokio::test]`.
+    /// Run `f` with metrics captured locally. The recorder is thread-scoped, so
+    /// callers drive futures on this thread via `current_thread_runtime`.
     fn capture_metrics<T>(f: impl FnOnce() -> T) -> (T, Snapshotter) {
         let recorder = DebuggingRecorder::new();
         let snapshotter = recorder.snapshotter();
@@ -1187,10 +1182,8 @@ mod tests {
         assert!(super::parse_token_allowlist("  ,  , ").is_empty());
     }
 
-    /// The gauge is the only signal that separates "warnings are off on
-    /// purpose" (absent) from "an operator asked for warnings and we could not
-    /// build them" (`0`), and `reason` is what makes the second case
-    /// actionable without reading pod logs.
+    /// Absent gauge means warnings are off on purpose; `0` means an operator
+    /// asked for them and we could not build them. `reason` says which.
     #[rstest]
     #[case::off_on_purpose(false, "", "", None)]
     #[case::hosts_unset(true, "", "", Some("hosts_unset"))]
@@ -1216,16 +1209,15 @@ mod tests {
             ),
             None => assert!(
                 emitter_enabled_gauge(&snapshotter).is_none(),
-                "a pod with warnings disabled must leave the gauge unset, or it \
-                 is indistinguishable from a misconfigured one",
+                "disabled must stay unset, or it looks misconfigured",
             ),
         }
     }
 
     #[test]
     fn healthy_emitter_reports_ok() {
-        // TEST-NET-1 host: the no-ping constructor never dials it, so this
-        // takes the real success path offline.
+        // TEST-NET-1 host: the no-ping constructor never dials it, so the real
+        // success path runs offline.
         let config = warnings_config(true, "192.0.2.1:9092", "client_ingestion_warning");
         let mut manager = lifecycle::Manager::builder("test")
             .with_trap_signals(false)
@@ -1248,8 +1240,7 @@ mod tests {
         assert_eq!(
             emitter_enabled_gauge(&snapshotter),
             Some(("ok".to_string(), 1.0)),
-            "the healthy path must label the gauge too, so both states share a \
-             label set and `min() == 0` needs no aggregation workaround",
+            "healthy and failed emissions must share a label set",
         );
     }
 }
