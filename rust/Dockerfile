@@ -132,7 +132,12 @@ WORKDIR /app
 USER nobody
 
 COPY --from=builder /app/target/release/$BIN /usr/local/bin
-ENTRYPOINT ["/bin/sh", "-c", "/usr/local/bin/$BIN"]
+# `exec` makes the service binary replace the shell as PID 1 so it receives
+# SIGTERM directly. Without it, dash stays at PID 1 (it does not apply its
+# tail-exec optimization to this command form), silently discards SIGTERM,
+# and every pod runs out its full termination grace period before dying by
+# SIGKILL — no service ever executes its graceful shutdown path.
+ENTRYPOINT ["/bin/sh", "-c", "exec /usr/local/bin/$BIN"]
 
 # Opt-in stage for jumphost images (see bin/rust-jumphost) — not used by
 # request-path services, which keep building the smaller `runtime` stage.
