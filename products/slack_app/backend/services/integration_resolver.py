@@ -6,10 +6,11 @@ from django.db.models import Q
 import structlog
 
 from posthog.models.integration import Integration
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
 
-from products.slack_app.backend.helpers import local_dev_slack_email
+from products.slack_app.backend.helpers import local_dev_slack_email, project_integrations_url
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
 
 logger = structlog.get_logger(__name__)
@@ -65,6 +66,37 @@ class ResolutionResult:
 
 def format_project_candidate_list(candidates: list[Integration]) -> str:
     return "\n".join(f"• `{c.team_id}` — {c.team.organization.name} · {c.team.name}" for c in candidates)
+
+
+def load_accessible_projects(user: User) -> list[Team]:
+    """Every project the user can access, whether or not it already holds a Slack
+    integration row. Slack's project picker needs the full list so someone whose
+    integration landed on the wrong project can still name the right one.
+
+    Per-team ``effective_membership_level`` rather than ``user.teams`` for the
+    same reason as ``resolve_from_candidates``: the latter gates its
+    access-control filter on an arbitrary organization's feature flags.
+    """
+    permissions = UserPermissions(user=user)
+    teams = (
+        Team.objects.filter(organization__members=user)
+        .select_related("organization")
+        .order_by("organization__name", "name", "id")
+    )
+    return [t for t in teams if permissions.team(t).effective_membership_level is not None]
+
+
+def format_project_option_list(teams: list[Team], connected_team_ids: set[int]) -> str:
+    """Render the picker list, pointing projects without a Slack integration at
+    the settings page that creates one.
+    """
+    lines: list[str] = []
+    for team in teams:
+        line = f"• `{team.id}` — {team.organization.name} · {team.name}"
+        if team.id not in connected_team_ids:
+            line += f" (not connected yet: <{project_integrations_url(team.id)}|connect Slack>)"
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def resolve_from_candidates(

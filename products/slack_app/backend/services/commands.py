@@ -3,6 +3,8 @@ from typing import TYPE_CHECKING
 from posthog.models.integration import Integration, SlackIntegration
 
 if TYPE_CHECKING:
+    from posthog.models.user import User
+
     from products.slack_app.backend.api import RulesCommand
     from products.slack_app.backend.services.integration_resolver import ResolutionResult
 
@@ -187,7 +189,8 @@ def _handle_project_show(
     from posthog.models.user import User
 
     from products.slack_app.backend.services.integration_resolver import (
-        format_project_candidate_list,
+        format_project_option_list,
+        load_accessible_projects,
         load_integrations,
         resolve_from_candidates,
     )
@@ -222,26 +225,71 @@ def _handle_project_show(
         )
         return
 
-    if not result.candidates:
+    # List every project the user can reach, not only the ones that already hold a
+    # Slack integration — otherwise someone whose integration landed on the wrong
+    # project has nothing to pick.
+    projects = load_accessible_projects(user)
+    if not projects:
         slack.client.chat_postEphemeral(
             channel=channel,
             user=slack_user_id,
             thread_ts=thread_ts,
-            text=("I couldn't find your PostHog account in any organization connected to this Slack workspace."),
+            text=(
+                "I couldn't find any PostHog project you have access to. Ask an admin to add you to "
+                "one, then try again."
+            ),
         )
         return
 
-    lines = format_project_candidate_list(result.candidates)
+    lines = format_project_option_list(projects, {c.team_id for c in result.candidates})
     slack.client.chat_postEphemeral(
         channel=channel,
         user=slack_user_id,
         thread_ts=thread_ts,
         text=(
-            "You haven't set a default project for this Slack workspace yet. Available PostHog "
-            "projects you can pick:\n"
+            "You haven't set a default project for this Slack workspace yet. Projects you can pick:\n"
             f"{lines}\n\n"
             f"Set one with `{command_prefix} project <id>`."
         ),
+    )
+
+
+def _has_project_access(user: "User", target_team_id: int) -> bool:
+    from products.slack_app.backend.services.integration_resolver import load_accessible_projects
+
+    return any(t.id == target_team_id for t in load_accessible_projects(user))
+
+
+def _find_workspace_integration(
+    target_team_id: int,
+    *,
+    slack_workspace_id: str,
+    workspace_candidates: list[Integration] | None,
+) -> Integration | None:
+    if workspace_candidates is not None:
+        return next((c for c in workspace_candidates if c.team_id == target_team_id), None)
+    return (
+        Integration.objects.filter(
+            kind="slack",
+            integration_id=slack_workspace_id,
+            team_id=target_team_id,
+        )
+        .select_related("team", "team__organization")
+        .first()
+    )
+
+
+def _not_connected_reply(target_team_id: int, *, retry_command: str) -> str:
+    """Tell the user how to connect the project they named. Slack can't run the
+    OAuth flow itself, so the way out is the project's own settings page — the web
+    flow lands the integration on whichever project started it.
+    """
+    from products.slack_app.backend.helpers import project_integrations_url
+
+    return (
+        f"Project `{target_team_id}` isn't connected to this Slack workspace yet. "
+        f"Connect Slack from the project's settings page, then run `{retry_command}` again: "
+        f"{project_integrations_url(target_team_id)}"
     )
 
 
@@ -254,39 +302,35 @@ def _handle_project_set(
     user_id: int,
     target_team_id: int,
     workspace_candidates: list[Integration] | None = None,
+    *,
+    command_prefix: str = "@PostHog",
 ) -> None:
     from posthog.models.user import User
 
     from products.slack_app.backend.models import SlackSettings
 
     user = User.objects.get(id=user_id)
-    if not user.teams.filter(id=target_team_id).exists():
+    if not _has_project_access(user, target_team_id):
         slack.client.chat_postEphemeral(
             channel=channel,
             user=slack_user_id,
             thread_ts=thread_ts,
-            text=f"You don't have access to project `{target_team_id}`.",
+            text=(
+                f"You don't have access to project `{target_team_id}`. Run `{command_prefix} project` "
+                "to see the projects you can pick."
+            ),
         )
         return
 
-    if workspace_candidates is not None:
-        target = next((c for c in workspace_candidates if c.team_id == target_team_id), None)
-    else:
-        target = (
-            Integration.objects.filter(
-                kind="slack",
-                integration_id=slack_workspace_id,
-                team_id=target_team_id,
-            )
-            .select_related("team", "team__organization")
-            .first()
-        )
+    target = _find_workspace_integration(
+        target_team_id, slack_workspace_id=slack_workspace_id, workspace_candidates=workspace_candidates
+    )
     if target is None:
         slack.client.chat_postEphemeral(
             channel=channel,
             user=slack_user_id,
             thread_ts=thread_ts,
-            text=f"Project `{target_team_id}` isn't connected to this Slack workspace.",
+            text=_not_connected_reply(target_team_id, retry_command=f"{command_prefix} project {target_team_id}"),
         )
         return
 
@@ -339,33 +383,29 @@ def _handle_project_set_workspace(
         return
 
     user = User.objects.get(id=user_id)
-    if not user.teams.filter(id=target_team_id).exists():
+    if not _has_project_access(user, target_team_id):
         slack.client.chat_postEphemeral(
             channel=channel,
             user=slack_user_id,
             thread_ts=thread_ts,
-            text=f"You don't have access to project `{target_team_id}`.",
+            text=(
+                f"You don't have access to project `{target_team_id}`. Run `{command_prefix} project` "
+                "to see the projects you can pick."
+            ),
         )
         return
 
-    if workspace_candidates is not None:
-        target = next((c for c in workspace_candidates if c.team_id == target_team_id), None)
-    else:
-        target = (
-            Integration.objects.filter(
-                kind="slack",
-                integration_id=slack_workspace_id,
-                team_id=target_team_id,
-            )
-            .select_related("team", "team__organization")
-            .first()
-        )
+    target = _find_workspace_integration(
+        target_team_id, slack_workspace_id=slack_workspace_id, workspace_candidates=workspace_candidates
+    )
     if target is None:
         slack.client.chat_postEphemeral(
             channel=channel,
             user=slack_user_id,
             thread_ts=thread_ts,
-            text=f"Project `{target_team_id}` isn't connected to this Slack workspace.",
+            text=_not_connected_reply(
+                target_team_id, retry_command=f"{command_prefix} project workspace {target_team_id}"
+            ),
         )
         return
 
@@ -505,6 +545,7 @@ def dispatch_rules_command(
             user_id,
             command.project_team_id,
             workspace_candidates=workspace_candidates,
+            command_prefix=command_prefix,
         )
     elif command.action == "project_set_workspace":
         if command.project_team_id is None:
