@@ -12,6 +12,8 @@ import {
     ComboboxList,
     ComboboxListFooter,
     ComboboxTrigger,
+    InputGroupAddon,
+    InputGroupButton,
     Tooltip,
     TooltipContent,
     TooltipTrigger,
@@ -110,34 +112,36 @@ export function GitHubBranchCombobox({
                 }
             />
             <ComboboxContent anchor={triggerRef} side="bottom" sideOffset={6} className="min-w-[280px]">
-                <div className="flex min-w-0 items-center gap-1 pe-2">
-                    <div className="min-w-0 flex-1">
-                        <ComboboxInput placeholder="Search branches..." />
-                    </div>
-                    <Tooltip>
-                        <TooltipTrigger
-                            render={
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    disabled={disabled || loading}
-                                    aria-label="Refresh branches"
-                                    onMouseDown={(event: MouseEvent) => {
-                                        event.preventDefault()
-                                        event.stopPropagation()
-                                    }}
-                                    onClick={(event: MouseEvent) => {
-                                        event.preventDefault()
-                                        event.stopPropagation()
-                                        refresh()
-                                    }}
-                                >
-                                    <IconRefresh className={loading ? 'animate-spin' : undefined} />
-                                </Button>
-                            }
-                        />
-                        <TooltipContent>Refresh branches</TooltipContent>
-                    </Tooltip>
+                {/* Matches GitHubRepositoryCombobox: field inset to the list's own padding, refresh in
+                    the field's addon so both share one chrome, chevron hidden while the popup is open. */}
+                <div className="p-1">
+                    <ComboboxInput placeholder="Search branches..." showTrigger={false} className="w-full">
+                        <InputGroupAddon align="inline-end">
+                            <Tooltip>
+                                <TooltipTrigger
+                                    render={
+                                        <InputGroupButton
+                                            size="icon-xs"
+                                            disabled={disabled || loading}
+                                            aria-label="Refresh branches"
+                                            onMouseDown={(event: MouseEvent) => {
+                                                event.preventDefault()
+                                                event.stopPropagation()
+                                            }}
+                                            onClick={(event: MouseEvent) => {
+                                                event.preventDefault()
+                                                event.stopPropagation()
+                                                refresh()
+                                            }}
+                                        >
+                                            <IconRefresh className={loading ? 'animate-spin' : undefined} />
+                                        </InputGroupButton>
+                                    }
+                                />
+                                <TooltipContent>Refresh branches</TooltipContent>
+                            </Tooltip>
+                        </InputGroupAddon>
+                    </ComboboxInput>
                 </div>
                 <ComboboxEmpty>
                     {showInlineLoadingState ? 'Loading branches...' : error ? error : 'No branches found.'}
