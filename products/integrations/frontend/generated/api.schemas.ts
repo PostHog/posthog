@@ -387,6 +387,32 @@ export interface LinearTeamsResponseApi {
     teams: LinearTeamApi[]
 }
 
+export interface GitHubAvailableInstallationApi {
+    /** GitHub installation ID to pass to github/link_existing when linking this installation. */
+    installation_id: string
+    /**
+     * GitHub account (organization or user) the installation belongs to, for display in the picker.
+     * @nullable
+     */
+    account_name: string | null
+    /**
+     * GitHub account type, e.g. 'Organization' or 'User'.
+     * @nullable
+     */
+    account_type: string | null
+    /** A project in the organization that already has this installation linked. */
+    source_team_id: number
+}
+
+export interface PaginatedGitHubAvailableInstallationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: GitHubAvailableInstallationApi[]
+}
+
 export interface GitHubLinkExistingRequestApi {
     /**
      * Sibling team in the same organization whose GitHub installation should be reused.
@@ -700,3 +726,107 @@ export type IntegrationsGithubTeamsRetrieveParams = {
      */
     search?: string
 }
+
+export type IntegrationsGithubAvailableInstallationsListParams = {
+    /**
+     * * `anthropic` - Anthropic
+     * * `apns` - Apple Push
+     * * `aws-s3` - Aws S3
+     * * `azure-blob` - Azure Blob
+     * * `bing-ads` - Bing Ads
+     * * `clickup` - Clickup
+     * * `customerio-app` - Customerio App
+     * * `customerio-track` - Customerio Track
+     * * `customerio-webhook` - Customerio Webhook
+     * * `databricks` - Databricks
+     * * `email` - Email
+     * * `firebase` - Firebase
+     * * `github` - Github
+     * * `gitlab` - Gitlab
+     * * `google-ads` - Google Ads
+     * * `google-analytics` - Google Analytics
+     * * `google-cloud-service-account` - Google Cloud Service Account
+     * * `google-cloud-storage` - Google Cloud Storage
+     * * `google-pubsub` - Google Pubsub
+     * * `google-search-console` - Google Search Console
+     * * `google-sheets` - Google Sheets
+     * * `hubspot` - Hubspot
+     * * `intercom` - Intercom
+     * * `jira` - Jira
+     * * `linear` - Linear
+     * * `linkedin-ads` - Linkedin Ads
+     * * `meta-ads` - Meta Ads
+     * * `pardot` - Pardot
+     * * `pinterest-ads` - Pinterest Ads
+     * * `postgresql` - Postgresql
+     * * `reddit-ads` - Reddit Ads
+     * * `resend` - Resend
+     * * `s3-compatible` - S3 Compatible
+     * * `salesforce` - Salesforce
+     * * `slack` - Slack
+     * * `slack-posthog-code` - Slack Posthog Code
+     * * `snapchat` - Snapchat
+     * * `snowflake` - Snowflake
+     * * `stripe` - Stripe
+     * * `tiktok-ads` - Tiktok Ads
+     * * `twilio` - Twilio
+     * * `vercel` - Vercel
+     */
+    kind?: IntegrationsGithubAvailableInstallationsListKind
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type IntegrationsGithubAvailableInstallationsListKind =
+    (typeof IntegrationsGithubAvailableInstallationsListKind)[keyof typeof IntegrationsGithubAvailableInstallationsListKind]
+
+export const IntegrationsGithubAvailableInstallationsListKind = {
+    Anthropic: 'anthropic',
+    Apns: 'apns',
+    AwsS3: 'aws-s3',
+    AzureBlob: 'azure-blob',
+    BingAds: 'bing-ads',
+    Clickup: 'clickup',
+    CustomerioApp: 'customerio-app',
+    CustomerioTrack: 'customerio-track',
+    CustomerioWebhook: 'customerio-webhook',
+    Databricks: 'databricks',
+    Email: 'email',
+    Firebase: 'firebase',
+    Github: 'github',
+    Gitlab: 'gitlab',
+    GoogleAds: 'google-ads',
+    GoogleAnalytics: 'google-analytics',
+    GoogleCloudServiceAccount: 'google-cloud-service-account',
+    GoogleCloudStorage: 'google-cloud-storage',
+    GooglePubsub: 'google-pubsub',
+    GoogleSearchConsole: 'google-search-console',
+    GoogleSheets: 'google-sheets',
+    Hubspot: 'hubspot',
+    Intercom: 'intercom',
+    Jira: 'jira',
+    Linear: 'linear',
+    LinkedinAds: 'linkedin-ads',
+    MetaAds: 'meta-ads',
+    Pardot: 'pardot',
+    PinterestAds: 'pinterest-ads',
+    Postgresql: 'postgresql',
+    RedditAds: 'reddit-ads',
+    Resend: 'resend',
+    S3Compatible: 's3-compatible',
+    Salesforce: 'salesforce',
+    Slack: 'slack',
+    SlackPosthogCode: 'slack-posthog-code',
+    Snapchat: 'snapchat',
+    Snowflake: 'snowflake',
+    Stripe: 'stripe',
+    TiktokAds: 'tiktok-ads',
+    Twilio: 'twilio',
+    Vercel: 'vercel',
+} as const

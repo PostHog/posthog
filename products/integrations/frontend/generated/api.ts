@@ -21,6 +21,7 @@ import type {
     IntegrationAccessRequestResponseApi,
     IntegrationConfigApi,
     IntegrationsChannelsRetrieveParams,
+    IntegrationsGithubAvailableInstallationsListParams,
     IntegrationsGithubBranchesRetrieveParams,
     IntegrationsGithubReposRetrieveParams,
     IntegrationsGithubTeamsRetrieveParams,
@@ -28,6 +29,7 @@ import type {
     JiraProjectsResponseApi,
     LinearTeamsResponseApi,
     OrganizationIntegrationApi,
+    PaginatedGitHubAvailableInstallationListApi,
     PaginatedIntegrationConfigListApi,
     PaginatedRoleExternalReferenceListApi,
     PatchedIntegrationConfigApi,
@@ -667,6 +669,46 @@ export const integrationsDomainConnectCheckRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getIntegrationsGithubAvailableInstallationsListUrl = (
+    projectId: string,
+    params?: IntegrationsGithubAvailableInstallationsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/github/available_installations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/github/available_installations/`
+}
+
+/**
+ * List the org's existing GitHub installations this project can reuse.
+ *
+ * A GitHub App installs once per organization, so a second project links an existing
+ * installation rather than reinstalling. This backs the picker: when the org has more than
+ * one installation, the client passes the chosen installation_id to github/link_existing.
+ */
+export const integrationsGithubAvailableInstallationsList = async (
+    projectId: string,
+    params?: IntegrationsGithubAvailableInstallationsListParams,
+    options?: RequestInit
+): Promise<PaginatedGitHubAvailableInstallationListApi> => {
+    return apiMutator<PaginatedGitHubAvailableInstallationListApi>(
+        getIntegrationsGithubAvailableInstallationsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getIntegrationsGithubLinkExistingCreateUrl = (projectId: string) => {
