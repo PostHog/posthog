@@ -56500,10 +56500,15 @@ export namespace Schemas {
          */
       last_emitted_at: string | null;
       /**
-         * Why this scout is in the `disabled` bucket: `turned_off` (an operator set it off) or `skill_unavailable` (left on, but its skill was deleted, superseded, or withheld, so it never dispatches). Null for scouts that actually run.
+         * Why this scout is in the `disabled` bucket: `turned_off` (a person or seed posture set it off), `auto_paused` (the system paused it), or `skill_unavailable` (left on, but its skill was deleted, superseded, or withheld, so it never dispatches). Null for scouts that actually run.
          * @nullable
          */
       not_running_reason: string | null;
+      /**
+         * The cause behind an `auto_paused` entry: `no_output`, `ignored`, or `repeated_failures`. Null for every other entry.
+         * @nullable
+         */
+      pause_reason: string | null;
     }
 
     /**
