@@ -12,8 +12,58 @@
         },
         "already_addressed": {
             "default": false,
-            "description": "Whether the issue already appears fixed in recent changes (tracked separately).",
+            "description": "Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Gates autostart, so a wrong `false` opens a duplicate PR. Tracked separately.",
             "type": "boolean"
+        },
+        "charts": {
+            "description": "Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried.",
+            "items": {
+                "description": "One chart attached to a report — rendered in the inbox and referenceable from the summary.",
+                "properties": {
+                    "caption": {
+                        "anyOf": [
+                            {
+                                "maxLength": 500,
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Optional one-line note on what to look at in the chart."
+                    },
+                    "chart_id": {
+                        "description": "Stable slug for this chart within the report (lowercase letters, numbers, underscores, hyphens; must start with a letter or number). Reference it from `summary` as a markdown link with a `chart:` target — `[Daily signups](chart:signups-drop)` — to place the chart at that point in the body. A chart you don't reference still renders, below the summary.",
+                        "maxLength": 100,
+                        "type": "string"
+                    },
+                    "query": {
+                        "description": "The query node to render. `kind` must be `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a SQL series — a `HogQLQuery` source plus a `display`), or `SavedInsightNode` (an existing insight by `shortId`). Pin the window to absolute dates where the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report."
+                    },
+                    "size": {
+                        "anyOf": [
+                            {
+                                "description": "* `small` - small\n* `medium` - medium\n* `large` - large",
+                                "enum": ["small", "medium", "large"],
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "How much height the chart gets: `small` for a single number or a short series, `medium` for an ordinary graph, `large` when there are rows or a grid to read (retention, paths, a wide breakdown). Leave it out unless the default looks wrong — the inbox sizes a chart from its query, and two charts referenced from the same paragraph sit side by side.\n\n* `small` - small\n* `medium` - medium\n* `large` - large"
+                    },
+                    "title": {
+                        "description": "Short heading shown above the chart.",
+                        "maxLength": 200,
+                        "type": "string"
+                    }
+                },
+                "required": ["chart_id", "title", "query"],
+                "type": "object"
+            },
+            "maxItems": 20,
+            "type": "array"
         },
         "evidence": {
             "description": "The observations backing the report — each becomes a bound signal. At least one.",
@@ -88,6 +138,18 @@
                         "description": "GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.",
                         "maxLength": 200,
                         "type": "string"
+                    },
+                    "reason": {
+                        "anyOf": [
+                            {
+                                "maxLength": 500,
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "One sentence of evidence for WHY this person: what ties them to the affected surface (e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human correction routed the prior tracing report to them'). Persisted on the report so the routing is auditable — always set it when you can name the evidence; 'precedent' alone is weak, prefer code-derived ownership."
                     },
                     "user_uuid": {
                         "description": "PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here.",

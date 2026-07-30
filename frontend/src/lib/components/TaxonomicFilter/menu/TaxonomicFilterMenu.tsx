@@ -39,6 +39,7 @@ import {
     PopoverTrigger,
 } from '@posthog/quill'
 
+import type { SeriesRename } from 'lib/components/EntityFilterInfo'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { isDefinitionStale } from 'lib/utils/definitions'
@@ -70,6 +71,8 @@ export interface TaxonomicFilterMenuProps {
     triggerLabel?: string
     /** Currently-selected entry — drives the trigger label. Optional. */
     selected?: MenuFilterEntry | null
+    /** Rename (custom name) carried by the series being edited — applied to the selected row in the combobox. */
+    selectedRename?: SeriesRename | null
     /**
      * Trigger override. Static element or render function receiving
      * trigger state.
@@ -234,6 +237,7 @@ export function resolveInitialMenuState(
 export function TaxonomicFilterMenu({
     triggerLabel,
     selected,
+    selectedRename,
     trigger,
     onCommit,
     placeholder,
@@ -721,6 +725,7 @@ export function TaxonomicFilterMenu({
                             // already title themselves with the group name.
                             title={state.drillTo === 'all' ? comboboxTitle : undefined}
                             selectedEntry={selected ?? null}
+                            selectedRename={selectedRename}
                             onCommit={handleCommit}
                             onBack={openMenu}
                             inputRef={comboboxInputRef}

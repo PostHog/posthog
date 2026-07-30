@@ -6,14 +6,16 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.gainsight_px import (
     GainsightPxResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.source import GainsightPxSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GainsightPxSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gainsightpx import (
+    GainsightPxSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -127,7 +129,8 @@ class TestGainsightPxSource:
             api_key="key",
             region="us",
             endpoint="users",
-            logger=logger,
+            team_id=self.team_id,
+            job_id="job-1",
             resumable_source_manager=manager,
         )
         assert response is mock_gainsight_source.return_value

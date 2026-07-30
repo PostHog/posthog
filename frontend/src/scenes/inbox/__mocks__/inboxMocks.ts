@@ -556,3 +556,13 @@ export const mockAutonomy = {
     slack_notification_channel: null,
     slack_notification_min_priority: null,
 }
+
+export const mockTeamConfig = {
+    id: 'team-cfg-1',
+    autostart_enabled: true,
+    default_autostart_priority: 'P2',
+    default_slack_notification_channel: null,
+    autostart_base_branches: {},
+    created_at: BASE_DATE,
+    updated_at: BASE_DATE,
+}

@@ -44,6 +44,7 @@ import {
     isNodeWithSource,
     isStickinessQuery,
     isTrendsQuery,
+    queryUsesDataWarehouse,
 } from '~/queries/utils'
 import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import {
@@ -59,6 +60,7 @@ import {
     ExperimentHoldoutType,
     ExperimentIdType,
     ExperimentStatsMethod,
+    ExporterFormat,
     FilterLogicalOperator,
     FunnelCorrelation,
     HelpType,
@@ -99,7 +101,7 @@ export enum DashboardEventSource {
     DashboardVariableOverride = 'dashboard_variable_override',
 }
 
-export type DashboardFilterChangeType = 'date' | 'properties' | 'breakdown' | 'variable' | 'interval'
+export type DashboardFilterChangeType = 'date' | 'properties' | 'breakdown' | 'variable' | 'interval' | 'test_accounts'
 
 export enum InsightEventSource {
     LongPress = 'long_press',
@@ -290,8 +292,12 @@ function sanitizeDashboard(dashboard: DashboardType<QueryBasedInsightModel> | nu
         return null
     }
 
+    // Remove breakdown color entries, as they carry raw breakdown values (user data) — report only their count
+    const { breakdown_colors, ...sanitizedDashboard } = dashboard
+
     return {
-        ...dashboard,
+        ...sanitizedDashboard,
+        breakdown_colors_count: breakdown_colors?.length ?? 0,
         tiles: dashboard.tiles?.map((tile) => sanitizeTile(tile)) || [],
     }
 }
@@ -301,6 +307,9 @@ function sanitizeQuery(query: Node | null): Record<string, string | number | boo
     const payload: Record<string, string | number | boolean | undefined> = {
         query_kind: query?.kind,
         query_source_kind: isNodeWithSource(query) ? query.source.kind : undefined,
+        // Whether this insight/query reads from a connector-synced data warehouse source (series-level
+        // detection). Raw SQL/HogQL warehouse usage is flagged from the query response in performQuery.
+        uses_data_warehouse_source: queryUsesDataWarehouse(query),
     }
 
     if (isInsightVizNode(query) || isInsightQueryNode(query)) {
@@ -564,6 +573,24 @@ export interface eventUsageLogicActions {
         journeyName: string
         stepCount: number
     }
+    reportDashboardBreakdownColorsSaved: (
+        dashboard: DashboardType<QueryBasedInsightModel> | null,
+        manualCount: number,
+        autoCount: number,
+        breakdownTypes: string[]
+    ) => {
+        autoCount: number
+        breakdownTypes: string[]
+        dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
+        manualCount: number
+    }
+    reportDashboardColorThemeSet: (
+        dashboard: DashboardType<QueryBasedInsightModel> | null,
+        themeId: number | null
+    ) => {
+        dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
+        themeId: number | null
+    }
     reportDashboardDateRangeChanged: (
         dashboard: DashboardType<QueryBasedInsightModel> | null,
         dateFrom?: string | Dayjs | null,
@@ -586,6 +613,13 @@ export interface eventUsageLogicActions {
     ) => {
         dashboardId: number | undefined
         promptLabel: string
+    }
+    reportDashboardExported: (
+        dashboardId: number,
+        exportFormat: ExporterFormat
+    ) => {
+        dashboardId: number
+        exportFormat: ExporterFormat
     }
     reportDashboardFiltersChanged: (
         dashboard: DashboardType<QueryBasedInsightModel> | null,
@@ -720,7 +754,6 @@ export interface eventUsageLogicActions {
     }
     reportDashboardRefreshed: (
         dashboardId: number,
-        dashboard: DashboardType<QueryBasedInsightModel> | null,
         filters: Record<string, any>,
         variables: Record<string, any>,
         lastRefreshed: string | Dayjs | null,
@@ -736,7 +769,6 @@ export interface eventUsageLogicActions {
         }
     ) => {
         action: string
-        dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
         dashboardId: number
         filters: Record<string, any>
         forceRefresh: boolean
@@ -757,6 +789,15 @@ export interface eventUsageLogicActions {
     ) => {
         dashboardId: number | undefined
         isShared: boolean
+    }
+    reportDashboardTileIgnoreDashboardFiltersToggled: (
+        dashboardId: number | undefined,
+        insightId: number | null,
+        ignored: boolean
+    ) => {
+        dashboardId: number | undefined
+        ignored: boolean
+        insightId: number | null
     }
     reportDashboardTileInsertedInline: (
         tileType: DashboardAddTileType,
@@ -1052,6 +1093,7 @@ export interface eventUsageLogicActions {
             succeeded?: number
             total_metrics?: number
             trigger?:
+                | 'agent_mcp'
                 | 'auto_refresh'
                 | 'cold_run'
                 | 'config_change'
@@ -1072,6 +1114,7 @@ export interface eventUsageLogicActions {
             succeeded?: number | undefined
             total_metrics?: number | undefined
             trigger?:
+                | 'agent_mcp'
                 | 'auto_refresh'
                 | 'cold_run'
                 | 'config_change'
@@ -1311,6 +1354,16 @@ export interface eventUsageLogicActions {
     }
     reportInsightDateRangeChanged: (queryKind: string | undefined) => {
         queryKind: string | undefined
+    }
+    reportInsightDraftDiscarded: (draftAgeSeconds: number) => {
+        draftAgeSeconds: number
+    }
+    reportInsightDraftRestored: (
+        surface: 'insight_editor' | 'saved_insights',
+        draftAgeSeconds: number
+    ) => {
+        draftAgeSeconds: number
+        surface: 'insight_editor' | 'saved_insights'
     }
     reportInsightDragToZoomed: (queryKind: string | undefined) => {
         queryKind: string | undefined
@@ -1597,35 +1650,11 @@ export interface eventUsageLogicActions {
         dashboardId: number | null
         insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null
     }
-    reportRevenueAnalyticsBreakdownAdded: (
-        breakdownProperty: string,
-        breakdownType: string
-    ) => {
-        breakdownProperty: string
-        breakdownType: string
-    }
-    reportRevenueAnalyticsBreakdownRemoved: (
-        breakdownProperty: string,
-        breakdownType: string
-    ) => {
-        breakdownProperty: string
-        breakdownType: string
-    }
-    reportRevenueAnalyticsDataSourceConnected: (sourceType: string) => {
-        sourceType: string
-    }
     reportRevenueAnalyticsDataSourceDisabled: (sourceType: string) => {
         sourceType: string
     }
     reportRevenueAnalyticsDataSourceEnabled: (sourceType: string) => {
         sourceType: string
-    }
-    reportRevenueAnalyticsDateRangeChanged: (
-        dateFrom: string | null,
-        dateTo: string | null
-    ) => {
-        dateFrom: string | null
-        dateTo: string | null
     }
     reportRevenueAnalyticsEventCreated: (eventName: string) => {
         eventName: string
@@ -1636,28 +1665,9 @@ export interface eventUsageLogicActions {
     reportRevenueAnalyticsEventEdited: (eventName: string) => {
         eventName: string
     }
-    reportRevenueAnalyticsFilterApplied: (filterCount: number) => {
-        filterCount: number
-    }
-    reportRevenueAnalyticsGoalConfigured: () => {}
-    reportRevenueAnalyticsMRRBreakdownModalOpened: () => {}
-    reportRevenueAnalyticsMRRModeChanged: (mrrMode: string) => {
-        mrrMode: string
-    }
-    reportRevenueAnalyticsOnboardingCompleted: (
-        hasEvents: boolean,
-        hasSources: boolean
-    ) => {
-        hasEvents: boolean
-        hasSources: boolean
-    }
-    reportRevenueAnalyticsOnboardingViewed: () => {}
     reportRevenueAnalyticsSettingsViewed: () => {}
     reportRevenueAnalyticsTestAccountFilterUpdated: (filterTestAccounts: boolean) => {
         filterTestAccounts: boolean
-    }
-    reportRevenueAnalyticsViewed: (delay?: number) => {
-        delay: number | undefined
     }
     reportRoleCreated: (role: string) => {
         role: string
@@ -1668,8 +1678,12 @@ export interface eventUsageLogicActions {
     reportSavedInsightFilterUsed: (filterKeys: string[]) => {
         filterKeys: string[]
     }
-    reportSavedInsightNewInsightClicked: (insightType: string) => {
+    reportSavedInsightNewInsightClicked: (
+        insightType: string,
+        presetKey?: string
+    ) => {
         insightType: string
+        presetKey: string | undefined
     }
     reportSavedInsightTabChanged: (tab: string) => {
         tab: string
@@ -2091,6 +2105,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             changeType: DashboardFilterChangeType,
             properties: Record<string, string | number | boolean | null | undefined>
         ) => ({ dashboard, changeType, properties }),
+        reportDashboardTileIgnoreDashboardFiltersToggled: (
+            dashboardId: number | undefined,
+            insightId: number | null,
+            ignored: boolean
+        ) => ({ dashboardId, insightId, ignored }),
         reportDashboardLayoutZoomChanged: (
             dashboard: DashboardType<QueryBasedInsightModel> | null,
             layoutZoom: number,
@@ -2100,9 +2119,18 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             dashboard: DashboardType<QueryBasedInsightModel> | null,
             action: 'shown' | 'discarded' | 'kept_editing'
         ) => ({ dashboard, action }),
+        reportDashboardBreakdownColorsSaved: (
+            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            manualCount: number,
+            autoCount: number,
+            breakdownTypes: string[]
+        ) => ({ dashboard, manualCount, autoCount, breakdownTypes }),
+        reportDashboardColorThemeSet: (
+            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            themeId: number | null
+        ) => ({ dashboard, themeId }),
         reportDashboardRefreshed: (
             dashboardId: number,
-            dashboard: DashboardType<QueryBasedInsightModel> | null,
             filters: Record<string, any>,
             variables: Record<string, any>,
             lastRefreshed: string | Dayjs | null,
@@ -2118,7 +2146,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             }
         ) => ({
             dashboardId,
-            dashboard,
             filters,
             variables,
             lastRefreshed,
@@ -2209,6 +2236,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             promptLabel,
             dashboardId,
         }),
+        reportDashboardExported: (dashboardId: number, exportFormat: ExporterFormat) => ({
+            dashboardId,
+            exportFormat,
+        }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
@@ -2252,7 +2283,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ fromDashboardId, toDashboardId, tileType }),
         reportSavedInsightTabChanged: (tab: string) => ({ tab }),
         reportSavedInsightFilterUsed: (filterKeys: string[]) => ({ filterKeys }),
-        reportSavedInsightNewInsightClicked: (insightType: string) => ({ insightType }),
+        reportSavedInsightNewInsightClicked: (insightType: string, presetKey?: string) => ({
+            insightType,
+            presetKey,
+        }),
+        reportInsightDraftRestored: (surface: 'saved_insights' | 'insight_editor', draftAgeSeconds: number) => ({
+            surface,
+            draftAgeSeconds,
+        }),
+        reportInsightDraftDiscarded: (draftAgeSeconds: number) => ({ draftAgeSeconds }),
         reportPersonSplit: (merge_count: number) => ({ merge_count }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
@@ -2412,6 +2451,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                     | 'experiment_launch'
                     | 'experiment_stop'
                     | 'experiment_update'
+                    | 'agent_mcp'
                 is_existing?: boolean
                 total_metrics?: number
                 succeeded?: number
@@ -2626,35 +2666,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }) => props,
         reportAccountOwnerClicked: ({ name, email }: { name: string; email: string }) => ({ name, email }),
         // revenue analytics
-        reportRevenueAnalyticsViewed: (delay?: number) => ({ delay }),
         reportRevenueAnalyticsSettingsViewed: () => ({}),
-        reportRevenueAnalyticsOnboardingViewed: () => ({}),
-        reportRevenueAnalyticsOnboardingCompleted: (hasEvents: boolean, hasSources: boolean) => ({
-            hasEvents,
-            hasSources,
-        }),
         reportRevenueAnalyticsEventCreated: (eventName: string) => ({ eventName }),
         reportRevenueAnalyticsEventDeleted: (eventName: string) => ({ eventName }),
         reportRevenueAnalyticsEventEdited: (eventName: string) => ({ eventName }),
-        reportRevenueAnalyticsDataSourceConnected: (sourceType: string) => ({ sourceType }),
         reportRevenueAnalyticsDataSourceEnabled: (sourceType: string) => ({ sourceType }),
         reportRevenueAnalyticsDataSourceDisabled: (sourceType: string) => ({ sourceType }),
-        reportRevenueAnalyticsFilterApplied: (filterCount: number) => ({ filterCount }),
-        reportRevenueAnalyticsBreakdownAdded: (breakdownProperty: string, breakdownType: string) => ({
-            breakdownProperty,
-            breakdownType,
-        }),
-        reportRevenueAnalyticsBreakdownRemoved: (breakdownProperty: string, breakdownType: string) => ({
-            breakdownProperty,
-            breakdownType,
-        }),
-        reportRevenueAnalyticsDateRangeChanged: (dateFrom: string | null, dateTo: string | null) => ({
-            dateFrom,
-            dateTo,
-        }),
-        reportRevenueAnalyticsMRRModeChanged: (mrrMode: string) => ({ mrrMode }),
-        reportRevenueAnalyticsMRRBreakdownModalOpened: () => ({}),
-        reportRevenueAnalyticsGoalConfigured: () => ({}),
         reportRevenueAnalyticsTestAccountFilterUpdated: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
         // marketing analytics
         reportMarketingAnalyticsOnboardingViewed: () => ({}),
@@ -2929,7 +2946,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 dashboard_id: id,
                 lastRefreshed: lastRefreshed?.toISOString(),
                 refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
-                dashboard: sanitizeDashboard(dashboard),
+                uses_data_warehouse_source: false,
+                data_warehouse_tiles_count: 0,
             }
 
             for (const item of dashboard.tiles || []) {
@@ -2942,6 +2960,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                         properties[key] += 1
                     }
                     properties.sample_items_count += item.insight.is_sample ? 1 : 0
+                    if (queryUsesDataWarehouse(item.insight.query)) {
+                        properties.uses_data_warehouse_source = true
+                        properties.data_warehouse_tiles_count += 1
+                    }
                 } else if (item.widget) {
                     if (!properties['widget_tiles_count']) {
                         properties['widget_tiles_count'] = 1
@@ -3021,11 +3043,34 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 layout_zoom: layoutZoom ?? undefined,
             })
         },
+        reportDashboardBreakdownColorsSaved: async ({ dashboard, manualCount, autoCount, breakdownTypes }) => {
+            posthog.capture('dashboard breakdown colors saved', {
+                dashboard_id: dashboard?.id,
+                dashboard: sanitizeDashboard(dashboard),
+                manual_count: manualCount,
+                auto_count: autoCount,
+                breakdown_types: breakdownTypes,
+            })
+        },
+        reportDashboardColorThemeSet: async ({ dashboard, themeId }) => {
+            posthog.capture('dashboard color theme set', {
+                dashboard_id: dashboard?.id,
+                dashboard: sanitizeDashboard(dashboard),
+                theme_id: themeId,
+            })
+        },
         reportDashboardFiltersChanged: async ({ dashboard, changeType, properties }) => {
             posthog.capture('dashboard filters changed', {
                 dashboard_id: dashboard?.id,
                 change_type: changeType,
                 ...properties,
+            })
+        },
+        reportDashboardTileIgnoreDashboardFiltersToggled: async ({ dashboardId, insightId, ignored }) => {
+            posthog.capture('dashboard tile ignore dashboard filters toggled', {
+                dashboard_id: dashboardId,
+                insight_id: insightId,
+                ignored,
             })
         },
         reportDashboardLayoutZoomChanged: async ({ dashboard, layoutZoom, source }) => {
@@ -3045,7 +3090,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportDashboardRefreshed: async ({
             dashboardId,
-            dashboard,
             filters,
             variables,
             lastRefreshed,
@@ -3055,7 +3099,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }) => {
             posthog.capture(`dashboard refreshed`, {
                 dashboard_id: dashboardId,
-                dashboard: sanitizeDashboard(dashboard),
                 filters,
                 variables,
                 last_refreshed: lastRefreshed?.toString(),
@@ -3090,7 +3133,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 refresh_age: insight?.last_refresh ? now().diff(insight?.last_refresh, 'seconds') : undefined,
                 filters,
                 variables,
-                tile: sanitizeTile(tile),
                 refresh_duration_ms: refreshDurationMs,
                 individual_refresh: individualRefresh,
                 ...sanitizedQuery,
@@ -3198,6 +3240,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 source: 'web',
             })
         },
+        reportDashboardExported: async ({ dashboardId, exportFormat }) => {
+            posthog.capture('dashboard exported', {
+                dashboard_id: dashboardId,
+                export_format: exportFormat,
+            })
+        },
         reportUpgradeModalShown: async (payload) => {
             posthog.capture('upgrade modal shown', payload)
         },
@@ -3290,8 +3338,17 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSavedInsightTabChanged: ({ tab }) => {
             posthog.capture('saved insights list page tab changed', { tab })
         },
-        reportSavedInsightNewInsightClicked: ({ insightType }) => {
-            posthog.capture('saved insights new insight clicked', { insight_type: insightType })
+        reportInsightDraftRestored: ({ surface, draftAgeSeconds }) => {
+            posthog.capture('insight draft restored', { surface, draft_age_seconds: draftAgeSeconds })
+        },
+        reportInsightDraftDiscarded: ({ draftAgeSeconds }) => {
+            posthog.capture('insight draft discarded', { draft_age_seconds: draftAgeSeconds })
+        },
+        reportSavedInsightNewInsightClicked: ({ insightType, presetKey }) => {
+            posthog.capture('saved insights new insight clicked', {
+                insight_type: insightType,
+                ...(presetKey ? { preset_key: presetKey } : {}),
+            })
         },
         reportPersonSplit: (props) => {
             posthog.capture('split person started', props)
@@ -4027,24 +4084,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('account owner clicked', { name, email })
         },
         // revenue analytics
-        reportRevenueAnalyticsViewed: async ({ delay }, breakpoint) => {
-            if (!delay) {
-                await breakpoint(500)
-            }
-            const eventName = delay ? 'revenue analytics analyzed' : 'revenue analytics viewed'
-            posthog.capture(eventName, { delay })
-        },
         reportRevenueAnalyticsSettingsViewed: () => {
             posthog.capture('revenue analytics settings viewed')
-        },
-        reportRevenueAnalyticsOnboardingViewed: () => {
-            posthog.capture('revenue analytics onboarding viewed')
-        },
-        reportRevenueAnalyticsOnboardingCompleted: ({ hasEvents, hasSources }) => {
-            posthog.capture('revenue analytics onboarding completed', {
-                has_events: hasEvents,
-                has_sources: hasSources,
-            })
         },
         reportRevenueAnalyticsEventCreated: ({ eventName }) => {
             posthog.capture('revenue analytics event created', { event_name: eventName })
@@ -4055,44 +4096,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportRevenueAnalyticsEventEdited: ({ eventName }) => {
             posthog.capture('revenue analytics event edited', { event_name: eventName })
         },
-        reportRevenueAnalyticsDataSourceConnected: async ({ sourceType }) => {
-            posthog.capture('revenue analytics data source connected', { source_type: sourceType })
-        },
         reportRevenueAnalyticsDataSourceEnabled: ({ sourceType }) => {
             posthog.capture('revenue analytics data source enabled', { source_type: sourceType })
         },
         reportRevenueAnalyticsDataSourceDisabled: ({ sourceType }) => {
             posthog.capture('revenue analytics data source disabled', { source_type: sourceType })
-        },
-        reportRevenueAnalyticsFilterApplied: ({ filterCount }) => {
-            posthog.capture('revenue analytics filter applied', { filter_count: filterCount })
-        },
-        reportRevenueAnalyticsBreakdownAdded: ({ breakdownProperty, breakdownType }) => {
-            posthog.capture('revenue analytics breakdown added', {
-                breakdown_property: breakdownProperty,
-                breakdown_type: breakdownType,
-            })
-        },
-        reportRevenueAnalyticsBreakdownRemoved: ({ breakdownProperty, breakdownType }) => {
-            posthog.capture('revenue analytics breakdown removed', {
-                breakdown_property: breakdownProperty,
-                breakdown_type: breakdownType,
-            })
-        },
-        reportRevenueAnalyticsDateRangeChanged: ({ dateFrom, dateTo }) => {
-            posthog.capture('revenue analytics date range changed', {
-                date_from: dateFrom,
-                date_to: dateTo,
-            })
-        },
-        reportRevenueAnalyticsMRRModeChanged: ({ mrrMode }) => {
-            posthog.capture('revenue analytics MRR mode changed', { mrr_mode: mrrMode })
-        },
-        reportRevenueAnalyticsMRRBreakdownModalOpened: () => {
-            posthog.capture('revenue analytics MRR breakdown modal opened')
-        },
-        reportRevenueAnalyticsGoalConfigured: () => {
-            posthog.capture('revenue analytics goal configured')
         },
         reportRevenueAnalyticsTestAccountFilterUpdated: ({ filterTestAccounts }) => {
             posthog.capture('revenue analytics test account filter updated', {

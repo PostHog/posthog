@@ -1,5 +1,6 @@
 import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -17,7 +18,7 @@ import { normalizeFiltersForUrl, sqlEditorLogic, toDataVisualizationNode } from 
 import type { QueryTab, SqlEditorSource } from './sqlEditorLogic'
 
 export interface SaveAsMenuItem {
-    action: 'insight' | 'endpoint' | 'view'
+    action: 'insight' | 'endpoint' | 'view' | 'metric'
     label: string
     dataAttr?: string
 }
@@ -404,6 +405,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 featureFlags: import('../../../lib/logic/featureFlagLogic').FeatureFlagsSet
             ): { primary: SaveAsMenuItem; secondary: SaveAsMenuItem[] } => {
                 const endpointsEnabled = !!featureFlags[FEATURE_FLAGS.ENDPOINTS]
+                const metricsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_DATA_CATALOG]
                 const saveAsInsightItem: SaveAsMenuItem = {
                     action: 'insight',
                     label: dashboardId ? 'Save & add to dashboard' : 'Save as insight',
@@ -417,24 +419,43 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                     label: 'Save as view',
                     dataAttr: 'sql-editor-save-view-button',
                 }
+                const saveAsMetricItem: SaveAsMenuItem = {
+                    action: 'metric',
+                    label: 'Save as metric',
+                }
+                const extraItems = [
+                    ...(endpointsEnabled ? [saveAsEndpointItem] : []),
+                    ...(metricsEnabled ? [saveAsMetricItem] : []),
+                ]
+
+                if (editorSource === 'metric' && metricsEnabled) {
+                    return {
+                        primary: saveAsMetricItem,
+                        secondary: [
+                            saveAsInsightItem,
+                            saveAsViewItem,
+                            ...(endpointsEnabled ? [saveAsEndpointItem] : []),
+                        ],
+                    }
+                }
 
                 if (editorSource === 'endpoint' && endpointsEnabled) {
                     return {
                         primary: saveAsEndpointItem,
-                        secondary: [saveAsInsightItem, saveAsViewItem],
+                        secondary: [saveAsInsightItem, saveAsViewItem, ...(metricsEnabled ? [saveAsMetricItem] : [])],
                     }
                 }
 
                 if (editorSource === 'view') {
                     return {
                         primary: saveAsViewItem,
-                        secondary: endpointsEnabled ? [saveAsInsightItem, saveAsEndpointItem] : [saveAsInsightItem],
+                        secondary: [saveAsInsightItem, ...extraItems],
                     }
                 }
 
                 return {
                     primary: saveAsInsightItem,
-                    secondary: endpointsEnabled ? [saveAsEndpointItem, saveAsViewItem] : [saveAsViewItem],
+                    secondary: [saveAsViewItem, ...extraItems],
                 }
             },
         ],
@@ -464,6 +485,11 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         ],
     }),
     listeners(({ values }) => ({
+        openHistoryModal: () => {
+            posthog.capture('sql-editor-history-modal-opened', {
+                object: values.editingView ? 'view' : 'insight',
+            })
+        },
         shareTab: () => {
             const { activeTab, queryInput, sourceQuery } = values
             if (!activeTab) {

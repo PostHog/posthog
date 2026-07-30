@@ -48,7 +48,8 @@ def run_streamlit_app_lifecycle(app_id: str, action: Literal["start", "restart"]
     """Celery entry point for both start and restart."""
     from posthog.storage import object_storage
 
-    from products.streamlit_apps.backend.logic.app_runtime import AppRuntimeConcurrencyError, AppRuntimeService
+    from products.streamlit_apps.backend.facade.contracts import AppRuntimeConcurrencyError
+    from products.streamlit_apps.backend.logic.app_runtime import AppRuntimeService
     from products.streamlit_apps.backend.models import StreamlitApp
 
     try:

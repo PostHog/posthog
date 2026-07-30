@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import json
 import subprocess
+from collections import defaultdict
 
 import click
 
@@ -159,14 +160,28 @@ def _consolidation_suggestions(owners_dirs: dict[str, bool], threshold: int = 3)
     )
 
 
+def _live_scope(owners_by_file: dict[str, set[str]], paths: tuple[str, ...]) -> set[str]:
+    """Owners to validate: all of them, or only those declared in PATHS.
+
+    Callers scope this to the diff's ownership files. Unscoped, one stale slug
+    fails every PR that touches any owners.yaml, none of which can fix it. A
+    path with nothing to contribute (deleted, not an ownership file) just misses.
+    """
+    if not paths:
+        return {owner for owners in owners_by_file.values() for owner in owners}
+    wanted = {normalize_path(p) for p in paths}
+    return {owner for rel, owners in owners_by_file.items() if rel in wanted for owner in owners}
+
+
 @click.command(name="owners:lint", help="Validate owners.yaml files, conflicts, dead globs, and coverage")
 @click.option("--live", is_flag=True, help="Also validate team slugs and @handles against the GitHub org")
-def cmd_lint(live: bool) -> None:
+@click.argument("paths", nargs=-1)
+def cmd_lint(live: bool, paths: tuple[str, ...]) -> None:
     resolver = OwnersResolver()
     repo_root = resolver.repo_root
     errors: list[str] = []
     warnings: list[str] = []
-    all_owners: set[str] = set()
+    owners_by_file: defaultdict[str, set[str]] = defaultdict(set)
     owners_dirs: dict[str, bool] = {}
 
     tracked = resolver.tracked_files()
@@ -193,7 +208,7 @@ def cmd_lint(live: bool) -> None:
             if directory in owners_yaml_dirs:
                 errors.append(f"{directory or '<root>'}: has both product.yaml (with owners) and owners.yaml")
             if parsed and parsed.owners:
-                all_owners.update(normalize_product_owners(parsed.owners))
+                owners_by_file[rel].update(normalize_product_owners(parsed.owners))
             continue
 
         for err in entry.errors:
@@ -202,7 +217,7 @@ def cmd_lint(live: bool) -> None:
         if parsed is None:
             continue
         if parsed.owners:
-            all_owners.update(parsed.owners)
+            owners_by_file[rel].update(parsed.owners)
 
         if not parsed.rules:
             continue
@@ -216,13 +231,13 @@ def cmd_lint(live: bool) -> None:
         # Slice paths relative to the file's directory once, not per rule.
         rel_paths = [p[len(directory) + 1 :] for p in under_dir] if directory else under_dir
         for rule in parsed.rules:
-            all_owners.update(o for o in (rule.owners if isinstance(rule.owners, list) else []))
+            owners_by_file[rel].update(rule.owners if isinstance(rule.owners, list) else [])
             matcher = compile_pattern(rule.match)
             if not any(matcher.test(rp) for rp in rel_paths):
                 warnings.append(f"{rel}: rule '{rule.match}' matches zero tracked files (dead glob)")
 
     if live:
-        errors.extend(_validate_owners_live(all_owners))
+        errors.extend(_validate_owners_live(_live_scope(owners_by_file, paths)))
 
     unowned = resolver.unowned(tracked)
     warnings.append(f"coverage: {len(unowned)} of {len(tracked)} tracked file(s) resolve to unowned")

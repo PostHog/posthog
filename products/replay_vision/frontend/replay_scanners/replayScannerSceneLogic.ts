@@ -6,6 +6,7 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
 
 export enum ReplayScannerTab {
+    Overview = 'overview',
     Observations = 'observations',
     Quality = 'quality',
     OnDemand = 'on-demand',
@@ -14,7 +15,8 @@ export enum ReplayScannerTab {
 }
 
 const SCANNER_TABS: ReplayScannerTab[] = Object.values(ReplayScannerTab)
-const DEFAULT_TAB: ReplayScannerTab = ReplayScannerTab.Observations
+// The at-a-glance Overview (charts + stat panels) is the landing tab; Observations is the drill-down list.
+const DEFAULT_TAB: ReplayScannerTab = ReplayScannerTab.Overview
 
 function parseTab(tab: unknown): ReplayScannerTab {
     return SCANNER_TABS.includes(tab as ReplayScannerTab) ? (tab as ReplayScannerTab) : DEFAULT_TAB

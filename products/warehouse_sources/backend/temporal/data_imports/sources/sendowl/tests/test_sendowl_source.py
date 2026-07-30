@@ -6,7 +6,9 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SendowlSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sendowl import (
+    SendowlSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.sendowl.sendowl import SendowlResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sendowl.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.sendowl.source import SendowlSource

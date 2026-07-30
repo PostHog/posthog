@@ -27,10 +27,6 @@ from typing import TYPE_CHECKING, Any, Generic
 import structlog
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ConfigType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
@@ -44,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     sql_schema_metadata,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import prune_enabled_columns
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -116,6 +113,7 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         impl = self.get_implementation
         with impl.connect(config) as conn:

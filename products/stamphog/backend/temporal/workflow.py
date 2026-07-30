@@ -38,6 +38,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
         mark_review_failed,
         post_verdict,
         run_review_in_sandbox,
+        signal_review_started,
     )
 
 
@@ -58,6 +59,18 @@ class StamphogReviewWorkflow(PostHogWorkflow):
                 start_to_close_timeout=POST_VERDICT_TIMEOUT,
                 retry_policy=ACTIVITY_RETRY_POLICY,
             )
+
+            # New command added after this workflow's initial rollout — gated so in-flight executions
+            # replaying their recorded history (which never saw this activity) don't hit a
+            # Non-Deterministic Error. The moment this run commits to reviewing (right after the stale
+            # approval sweep) is also the moment it should show a "review in flight" 👀 on the PR.
+            if workflow.patched("stamphog-eyes-reaction"):
+                await workflow.execute_activity(
+                    signal_review_started,
+                    input,
+                    start_to_close_timeout=POST_VERDICT_TIMEOUT,
+                    retry_policy=ACTIVITY_RETRY_POLICY,
+                )
 
             await workflow.execute_activity(
                 fetch_review_context,

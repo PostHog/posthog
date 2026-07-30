@@ -7,19 +7,25 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 import { incidentStatusLogic } from 'lib/components/HelpMenu/incidentStatusLogic'
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import {
+    DEFAULT_PAID_RESPONSE_TIME,
+    PAY_AS_YOU_GO_RESPONSE_TIME,
+    getCurrentSupportPlan,
+    getSupportResponseTimeFeature,
+} from 'lib/components/Support/supportResponseTime'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AvailableFeature, BillingFeatureType, BillingPlan, BillingType, SidePanelTab } from '~/types'
+import { BillingPlan, BillingType, SidePanelTab } from '~/types'
 
 import { SidePanelTickets } from 'products/conversations/frontend/components/SidePanel/SidePanelTickets'
+import { sidepanelTicketsLogic } from 'products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { SidePanelContentContainer } from '../../SidePanelContentContainer'
@@ -114,37 +120,17 @@ const SupportResponseTimesTable = ({
     const { supportPlans, billingPlan } = useValues(billingLogic)
     const { user } = useValues(userLogic)
 
-    const knownEnterpriseOrgIds = ['018713f3-8d56-0000-32fa-75ce97e6662f']
-    const isKnownEnterpriseOrg = knownEnterpriseOrgIds.includes(user?.organization?.id || '')
-
     const hasBoostTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'boost'
     const hasScaleTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'scale'
     const hasEnterpriseTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'enterprise'
 
     const hasExpiredTrial = billing?.trial?.status === 'expired'
     const expiredTrialDate = hasExpiredTrial ? dayjs(billing?.trial?.expires_at) : null
-    const getResponseTimeFeature = (planName: string): BillingFeatureType | undefined => {
-        // Find the plan in supportPlans
-        const plan = supportPlans?.find((p) => p.name?.includes(planName))
-
-        // Return the support_response_time feature if found
-        return plan?.features?.find((f) => f.key === AvailableFeature.SUPPORT_RESPONSE_TIME)
-    }
-
-    const getCurrentPlan = (): string => {
-        if (isKnownEnterpriseOrg || hasEnterpriseTrial || billingPlan === BillingPlan.Enterprise) {
-            return 'enterprise'
-        } else if (hasScaleTrial) {
-            return 'scale_trial'
-        } else if (hasBoostTrial) {
-            return 'boost_trial'
-        } else if (billingPlan) {
-            return billingPlan
-        }
-        return 'free'
-    }
-
-    const currentPlan = getCurrentPlan()
+    const currentPlan = getCurrentSupportPlan({
+        billing,
+        billingPlan,
+        organizationId: user?.organization?.id,
+    })
 
     const plansToDisplay: {
         name: string
@@ -156,29 +142,31 @@ const SupportResponseTimesTable = ({
     }[] = [
         {
             name: 'Free',
-            current_plan: currentPlan === 'free',
+            current_plan: currentPlan === BillingPlan.Free,
             features: [{ note: 'Community support only' }],
             plan_key: BillingPlan.Free,
             link: 'https://posthog.com/questions',
         },
         {
             name: 'Pay-as-you-go',
-            current_plan: currentPlan === 'paid',
-            features: [{ note: '72 hours' }],
+            current_plan: currentPlan === BillingPlan.Paid,
+            features: [{ note: PAY_AS_YOU_GO_RESPONSE_TIME }],
             plan_key: BillingPlan.Paid,
         },
         {
             name: 'Boost',
-            current_plan: currentPlan === 'boost',
-            features: [getResponseTimeFeature('Boost') || { note: '1 business day' }],
+            current_plan: currentPlan === BillingPlan.Boost,
+            features: [getSupportResponseTimeFeature(supportPlans, 'Boost') || { note: DEFAULT_PAID_RESPONSE_TIME }],
             plan_key: BillingPlan.Boost,
         },
         ...(billingPlan === BillingPlan.Teams
             ? [
                   {
                       name: 'Teams',
-                      current_plan: currentPlan === 'teams',
-                      features: [getResponseTimeFeature('Teams') || { note: '1 business day' }],
+                      current_plan: currentPlan === BillingPlan.Teams,
+                      features: [
+                          getSupportResponseTimeFeature(supportPlans, 'Teams') || { note: DEFAULT_PAID_RESPONSE_TIME },
+                      ],
                       plan_key: BillingPlan.Teams,
                       legacy_product: true,
                   },
@@ -186,14 +174,16 @@ const SupportResponseTimesTable = ({
             : []),
         {
             name: 'Scale',
-            current_plan: currentPlan === 'scale',
-            features: [getResponseTimeFeature('Scale') || { note: '1 business day' }],
+            current_plan: currentPlan === BillingPlan.Scale,
+            features: [getSupportResponseTimeFeature(supportPlans, 'Scale') || { note: DEFAULT_PAID_RESPONSE_TIME }],
             plan_key: BillingPlan.Scale,
         },
         {
             name: 'Enterprise',
-            current_plan: currentPlan === 'enterprise',
-            features: [getResponseTimeFeature('Enterprise') || { note: '1 business day' }],
+            current_plan: currentPlan === BillingPlan.Enterprise,
+            features: [
+                getSupportResponseTimeFeature(supportPlans, 'Enterprise') || { note: DEFAULT_PAID_RESPONSE_TIME },
+            ],
             plan_key: BillingPlan.Enterprise,
         },
     ]
@@ -249,7 +239,7 @@ const SupportResponseTimesTable = ({
             {(hasBoostTrial || hasScaleTrial || hasEnterpriseTrial) && (
                 <>
                     <div className="font-bold border-t">Your trial</div>
-                    <div className="font-bold border-t text-right">1 business day</div>
+                    <div className="font-bold border-t text-right">{DEFAULT_PAID_RESPONSE_TIME}</div>
                     {billing?.trial?.expires_at && (
                         <div className="col-span-2 text-sm">
                             (Trial expires {dayjs(billing.trial.expires_at).format('MMMM D, YYYY')})
@@ -319,24 +309,20 @@ export function SidePanelSupport(): JSX.Element {
     const { closeEmailForm, openEmailForm, closeSupportForm, resetSendSupportRequest } = useActions(supportLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { billing, billingLoading, billingPlan } = useValues(billingLogic)
-    const { isCurrentOrganizationNew } = useValues(organizationLogic)
+    const { tickets, canCreateTicket } = useValues(sidepanelTicketsLogic)
 
     const useProductSupportSidePanel = featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL]
 
-    const hasBoostTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'boost'
-    const hasScaleTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'scale'
-    const hasEnterpriseTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'enterprise'
-    const hasActiveTrial = hasBoostTrial || hasScaleTrial || hasEnterpriseTrial
-
-    const canEmail =
-        billing?.subscription_level === 'paid' ||
-        billing?.subscription_level === 'custom' ||
-        hasActiveTrial ||
-        targetArea === 'billing' ||
-        isCurrentOrganizationNew
-    const showEmailSupport = (preflight?.cloud || process.env.NODE_ENV === 'development') && canEmail
-    const showMaxAI = preflight?.cloud || process.env.NODE_ENV === 'development'
+    // With the side panel on, a billing CTA grants an exemption that `canCreateTicket` already carries.
+    // The `targetArea` arm is for the classic Zendesk form, which never reaches that listener.
+    const canEmail = canCreateTicket || targetArea === 'billing'
+    const isCloudOrDev = preflight?.cloud || process.env.NODE_ENV === 'development'
+    const showEmailSupport = isCloudOrDev && canEmail
+    const showMaxAI = isCloudOrDev
     const isBillingLoaded = !billingLoading && billing !== undefined
+    // Free plans can't open new tickets, but tickets they already have (billing questions, PostHog AI
+    // bug reports) stay readable and repliable here
+    const showTickets = isCloudOrDev && useProductSupportSidePanel && (canCreateTicket || tickets.length > 0)
 
     const handleOpenEmailForm = (): void => {
         if (showEmailSupport && isBillingLoaded) {
@@ -385,13 +371,14 @@ export function SidePanelSupport(): JSX.Element {
                                 </Section>
                             )}
 
-                            {showEmailSupport && isBillingLoaded && useProductSupportSidePanel && (
-                                <Section title="Contact us">
+                            {showTickets && isBillingLoaded && (
+                                <Section title={canCreateTicket ? 'Contact us' : 'Your tickets'}>
                                     <StatusPageAlert />
                                     <SupportMessageOverride />
                                     <p>
-                                        Can't find what you need and PostHog AI unable to help? Message our support
-                                        engineers.
+                                        {canCreateTicket
+                                            ? "Can't find what you need and PostHog AI unable to help? Message our support engineers."
+                                            : 'You can keep replying to tickets you already have open.'}
                                     </p>
                                     <SidePanelTickets />
                                 </Section>

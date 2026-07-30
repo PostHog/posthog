@@ -15,6 +15,7 @@ import { compactAgeLabel, compactHoursLabel } from '../lib/format'
 import { githubPrUrl } from '../lib/github'
 import { pushRoundFromSample } from '../lib/pushRounds'
 import { rowNavigationProps } from '../lib/rowNavigation'
+import { withCurrentScope } from '../lib/scope'
 import { PullRequestRow, prKeyOf } from '../scenes/engineeringAnalyticsLogic'
 import { BillableBadge } from './BillableBadge'
 import { CIStatusTag } from './CIStatusTag'
@@ -23,10 +24,7 @@ import { PushHistorySparkline } from './PushHistorySparkline'
 
 /** The PR's detail page, carrying the active source so it opens scoped to the same one. */
 function detailUrlOf(row: PullRequestRow, sourceId: string | null): string {
-    return combineUrl(
-        urls.engineeringAnalyticsPullRequest(row.repoOwner, row.repoName, row.number),
-        sourceId ? { source: sourceId } : {}
-    ).url
+    return withCurrentScope(urls.engineeringAnalyticsPullRequest(row.repoOwner, row.repoName, row.number), sourceId)
 }
 
 /** How long the PR has been (or was) open, in the shared hours/days headline format.

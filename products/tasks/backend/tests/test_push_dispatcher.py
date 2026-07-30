@@ -15,6 +15,7 @@ from products.tasks.backend.push_dispatcher import (
     notify_task_run_cancelled,
     notify_task_run_completed,
     notify_task_run_failed,
+    notify_task_run_turn_completed,
 )
 
 
@@ -46,6 +47,7 @@ class TestPushDispatcher(TestCase):
             ("failed", notify_task_run_failed, "failed"),
             ("cancelled", notify_task_run_cancelled, "cancelled"),
             ("awaiting", notify_task_run_awaiting_input, "needs your input"),
+            ("turn_completed", notify_task_run_turn_completed, "finished"),
         ]
     )
     @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
@@ -56,7 +58,7 @@ class TestPushDispatcher(TestCase):
         mock_delay.assert_called_once()
         user_id, title, body, data, suppressed = mock_delay.call_args.args
         self.assertEqual(user_id, self.user.id)
-        self.assertEqual(title, "PostHog Code")
+        self.assertEqual(title, "PostHog Desktop")
         self.assertIn(expected_body_fragment, body)
         self.assertEqual(data["taskId"], str(self.task.id))
         self.assertEqual(data["taskRunId"], str(self.task_run.id))
@@ -96,7 +98,8 @@ class TestPushDispatcher(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             notify_task_run_completed(self.task_run)
             notify_task_run_awaiting_input(self.task_run)
-        self.assertEqual(mock_delay.call_count, 2)
+            notify_task_run_turn_completed(self.task_run)
+        self.assertEqual(mock_delay.call_count, 3)
 
     @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")

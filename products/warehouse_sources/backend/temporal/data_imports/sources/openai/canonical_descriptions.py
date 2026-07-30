@@ -99,6 +99,30 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "num_sessions": "Number of code interpreter sessions.",
         },
     },
+    "usage_web_search_calls": {
+        "description": "Web search tool-call usage aggregated into daily buckets, broken down by project, user, API key, model, and context level.",
+        "docs_url": f"{_API_DOCS}/usage/web_search_calls",
+        "columns": {
+            **_USAGE_DIMENSION_COLUMNS,
+            "context_level": "Search context size the tool call used (low, medium, or high), or null.",
+            "num_requests": "Number of web search tool calls made.",
+            "num_model_requests": "Count of requests made to the model.",
+        },
+    },
+    "usage_file_search_calls": {
+        "description": "File search tool-call usage aggregated into daily buckets, broken down by project, user, API key, and vector store.",
+        "docs_url": f"{_API_DOCS}/usage/file_search_calls",
+        "columns": {
+            "id": "Synthesized surrogate key: a hash of the bucket start and every grouping dimension.",
+            "start_time": "Start of the time bucket (inclusive) as a UTC timestamp.",
+            "end_time": "End of the time bucket (exclusive) as a UTC timestamp.",
+            "project_id": "ID of the project the usage is attributed to, or null.",
+            "user_id": "ID of the user the usage is attributed to, or null.",
+            "api_key_id": "ID of the API key used, or null.",
+            "vector_store_id": "ID of the vector store the search ran against, or null.",
+            "num_requests": "Number of file search tool calls made.",
+        },
+    },
     "costs": {
         "description": "Daily spend for your OpenAI organization, broken down by project, line item, and API key.",
         "docs_url": f"{_API_DOCS}/usage/costs",

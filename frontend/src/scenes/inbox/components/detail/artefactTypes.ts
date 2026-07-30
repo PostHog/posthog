@@ -1,5 +1,5 @@
 // Pure (no-React) artefact helpers shared by the detail logic and the activity-log renderers.
-// Mirrors the PostHog Code inbox's artefact-log domain helpers. Content shapes stay loose
+// Mirrors the PostHog Desktop inbox's artefact-log domain helpers. Content shapes stay loose
 // (`Record<string, any>` on the artefact) and are read through these typed accessors so legacy
 // rows with extra/missing keys never crash a render.
 
@@ -87,6 +87,7 @@ export const ARTEFACT_TYPE_LABELS: Record<string, string> = {
     video_segment: 'Video segment',
     title_change: 'Title edited',
     summary_change: 'Summary edited',
+    related_to: 'Related report',
 }
 
 export function artefactTypeLabel(type: string): string {
@@ -163,6 +164,9 @@ export function deriveTaskPurpose(content: TaskRunArtefactContent): DerivedPurpo
         if (content.type === 'repo_selection') {
             return null
         }
+        if (content.type === 'scout') {
+            return { purpose: 'other', purposeLabel: 'Scout' }
+        }
         return { purpose: 'other', purposeLabel: `Signals — ${identifierToHuman(content.type)}` }
     }
     return {
@@ -182,6 +186,7 @@ export function taskRunTypeLabel(content: TaskRunArtefactContent): string {
             research: 'Research',
             implementation: 'Implementation',
             repo_selection: 'Repo selection',
+            scout: 'Scout',
         }
         return labels[content.type] ?? identifierToHuman(content.type)
     }

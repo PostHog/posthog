@@ -8,7 +8,7 @@ import { RaceConditionError } from '~/common/utils/utils'
 import { BatchWritingGroupStore } from './batch-writing-group-store'
 import { groupCacheOperationsCounter } from './metrics'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
-import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
+import { GroupCreateResult, GroupRepository } from '~/common/groups/repositories/group-repository.interface'
 
 import { GroupsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
@@ -49,6 +49,7 @@ describe('BatchWritingGroupStore', () => {
             }),
             fetchGroupsByKeys: jest.fn().mockResolvedValue([]),
             updateGroupsBatch: jest.fn().mockResolvedValue([]),
+            insertGroupsBatch: jest.fn().mockResolvedValue([]),
             insertGroup: jest.fn().mockImplementation(() => {
                 return Promise.resolve(1)
             }),
@@ -106,7 +107,12 @@ describe('BatchWritingGroupStore', () => {
         clickhouseGroupRepository = new ClickhouseGroupRepository({
             queueMessages: mockQueueMessages,
         } as unknown as IngestionOutputs<GroupsOutput>)
-        groupStore = new BatchWritingGroupStore(groupRepository, clickhouseGroupRepository)
+        // Pin the individual CAS flush path: it remains the fallback for
+        // missing rows and failed batch statements, so this block keeps it
+        // covered while `useBatchUpdates` describes the default batched path.
+        groupStore = new BatchWritingGroupStore(groupRepository, clickhouseGroupRepository, {
+            useBatchUpdates: false,
+        })
     })
 
     afterEach(async () => {
@@ -525,6 +531,221 @@ describe('BatchWritingGroupStore', () => {
 
             expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
             expect(results).toHaveLength(1)
+        })
+    })
+
+    describe('useBatchCreates', () => {
+        beforeEach(() => {
+            // Updates pinned to the individual path so create-routing
+            // assertions stay independent of the update flush mode.
+            groupStore = new BatchWritingGroupStore(groupRepository, clickhouseGroupRepository, {
+                useBatchCreates: true,
+                useBatchUpdates: false,
+            })
+        })
+
+        it('defers new groups to flush and inserts them in one statement, leaving updates on their own path', async () => {
+            const timestamp = DateTime.now()
+            // 'test' exists; the two new keys don't.
+            jest.spyOn(groupRepository, 'fetchGroup').mockImplementation((_teamId, _groupTypeIndex, groupKey) =>
+                Promise.resolve(groupKey === 'test' ? group : undefined)
+            )
+            const rowA = {
+                ...group,
+                group_type_index: 0 as GroupTypeIndex,
+                group_key: 'new-a',
+                group_properties: { a: '1' },
+                created_at: timestamp,
+                version: 1,
+                inserted: true,
+            }
+            const rowB = {
+                ...group,
+                group_type_index: 1 as GroupTypeIndex,
+                group_key: 'new-b',
+                group_properties: { b: '2' },
+                created_at: timestamp,
+                version: 1,
+                inserted: true,
+            }
+            jest.spyOn(groupRepository, 'insertGroupsBatch').mockResolvedValue([rowA, rowB])
+
+            await groupStore.upsertGroup(teamId, projectId, 0, 'new-a', { a: '1' }, timestamp)
+            await groupStore.upsertGroup(teamId, projectId, 1, 'new-b', { b: '2' }, timestamp)
+            await groupStore.upsertGroup(teamId, projectId, 1, 'test', { u: '1' }, timestamp)
+
+            // No inline insert during event processing.
+            expect(groupRepository.insertGroup).not.toHaveBeenCalled()
+            expect(groupRepository.insertGroupsBatch).not.toHaveBeenCalled()
+
+            const results = await groupStore.flush()
+
+            expect(groupRepository.insertGroup).not.toHaveBeenCalled()
+            expect(groupRepository.insertGroupsBatch).toHaveBeenCalledTimes(1)
+            expect(groupRepository.insertGroupsBatch).toHaveBeenCalledWith([
+                { teamId, groupTypeIndex: 0, groupKey: 'new-a', groupProperties: { a: '1' }, createdAt: timestamp },
+                { teamId, groupTypeIndex: 1, groupKey: 'new-b', groupProperties: { b: '2' }, createdAt: timestamp },
+            ])
+            // The existing group still goes through the regular update path.
+            expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
+            expect(jest.mocked(groupRepository.updateGroupOptimistically).mock.calls[0][2]).toBe('test')
+
+            // Each created group's ClickHouse message reflects its returned row.
+            expect(results).toHaveLength(3)
+            const messagesByKey = new Map(
+                results.map((result) => [result.groupKey, parseJSON(result.messages[0].value.toString())])
+            )
+            expect(parseJSON(messagesByKey.get('new-a').group_properties)).toEqual({ a: '1' })
+            expect(messagesByKey.get('new-a').version).toBe(1)
+            expect(parseJSON(messagesByKey.get('new-b').group_properties)).toEqual({ b: '2' })
+            expect(messagesByKey.get('new-b').version).toBe(1)
+
+            // The cache converges on the authoritative inserted rows.
+            expect(groupStore.getGroupCache().get(teamId, 0, 'new-a')?.version).toBe(1)
+            expect(groupStore.getGroupCache().get(teamId, 1, 'new-b')?.version).toBe(1)
+        })
+
+        it('accumulates repeated events for a new group into a single creation', async () => {
+            const timestamp = DateTime.now()
+            jest.spyOn(groupRepository, 'fetchGroup').mockResolvedValue(undefined)
+            jest.spyOn(groupRepository, 'insertGroupsBatch').mockResolvedValue([
+                { ...group, group_key: 'new-key', group_properties: { a: '2', b: 'x' }, version: 1, inserted: true },
+            ])
+
+            await groupStore.upsertGroup(teamId, projectId, 1, 'new-key', { a: '1' }, timestamp)
+            await groupStore.upsertGroup(teamId, projectId, 1, 'new-key', { a: '2', b: 'x' }, timestamp)
+
+            await groupStore.flush()
+
+            // One fetch, one batched insert carrying the merged view (later event wins).
+            expect(groupRepository.fetchGroup).toHaveBeenCalledTimes(1)
+            expect(groupRepository.insertGroupsBatch).toHaveBeenCalledTimes(1)
+            expect(groupRepository.insertGroupsBatch).toHaveBeenCalledWith([
+                {
+                    teamId,
+                    groupTypeIndex: 1,
+                    groupKey: 'new-key',
+                    groupProperties: { a: '2', b: 'x' },
+                    createdAt: timestamp,
+                },
+            ])
+        })
+
+        it('takes the merged row when a creation lost the cross-pod race, without extra round trips', async () => {
+            const timestamp = DateTime.now()
+            jest.spyOn(groupRepository, 'fetchGroup').mockResolvedValueOnce(undefined)
+            // The row already existed: the statement merged our properties onto
+            // the winner's row and flags it as not-inserted.
+            jest.spyOn(groupRepository, 'insertGroupsBatch').mockResolvedValue([
+                {
+                    ...group,
+                    group_key: 'new-key',
+                    group_properties: { test: 'test', a: '1' },
+                    version: 6,
+                    inserted: false,
+                },
+            ])
+
+            await groupStore.upsertGroup(teamId, projectId, 1, 'new-key', { a: '1' }, timestamp)
+            const results = await groupStore.flush()
+
+            // No refetch, no CAS, no per-row insert — the merge already happened.
+            expect(groupRepository.insertGroup).not.toHaveBeenCalled()
+            expect(groupRepository.updateGroupOptimistically).not.toHaveBeenCalled()
+            expect(groupRepository.fetchGroup).toHaveBeenCalledTimes(1)
+            expect(results).toHaveLength(1)
+            const message = parseJSON(results[0].messages[0].value.toString())
+            expect(parseJSON(message.group_properties)).toEqual({ test: 'test', a: '1' })
+            expect(message.version).toBe(6)
+            expect(groupStore.getGroupCache().get(teamId, 1, 'new-key')?.version).toBe(6)
+        })
+
+        it('routes rows missing from the batch result through the individual update path', async () => {
+            // Postgres returns one row per input, but a misbehaving repository
+            // implementation (or a dropped guard) must not silently lose
+            // creations — the residue converges through the standard CAS path.
+            const timestamp = DateTime.now()
+            jest.spyOn(groupRepository, 'fetchGroup')
+                .mockResolvedValueOnce(undefined)
+                .mockResolvedValue({ ...group, group_key: 'new-key', version: 5 })
+            jest.spyOn(groupRepository, 'insertGroupsBatch').mockResolvedValue([])
+            jest.spyOn(groupRepository, 'updateGroupOptimistically')
+                .mockResolvedValueOnce(undefined) // version-0 CAS fails
+                .mockResolvedValueOnce(6)
+
+            await groupStore.upsertGroup(teamId, projectId, 1, 'new-key', { a: '1' }, timestamp)
+            const results = await groupStore.flush()
+
+            expect(groupRepository.insertGroup).not.toHaveBeenCalled()
+            // Rebased onto the winner: version 5, our delta merged on top.
+            expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(2)
+            expect(groupRepository.updateGroupOptimistically).toHaveBeenLastCalledWith(
+                teamId,
+                1,
+                'new-key',
+                5,
+                { test: 'test', a: '1' },
+                timestamp,
+                {},
+                {}
+            )
+            expect(results).toHaveLength(1)
+            expect(parseJSON(results[0].messages[0].value.toString()).version).toBe(6)
+        })
+
+        it('falls back to individual inserts when the batch create statement fails', async () => {
+            const timestamp = DateTime.now()
+            jest.spyOn(groupRepository, 'fetchGroup').mockResolvedValue(undefined)
+            jest.spyOn(groupRepository, 'insertGroupsBatch').mockRejectedValue(new Error('connection lost'))
+
+            await groupStore.upsertGroup(teamId, projectId, 0, 'new-a', { a: '1' }, timestamp)
+            await groupStore.upsertGroup(teamId, projectId, 1, 'new-b', { b: '2' }, timestamp)
+
+            const results = await groupStore.flush()
+
+            expect(groupRepository.insertGroup).toHaveBeenCalledTimes(2)
+            expect(results).toHaveLength(2)
+            const messagesByKey = new Map(
+                results.map((result) => [result.groupKey, parseJSON(result.messages[0].value.toString())])
+            )
+            expect(parseJSON(messagesByKey.get('new-a').group_properties)).toEqual({ a: '1' })
+            expect(parseJSON(messagesByKey.get('new-b').group_properties)).toEqual({ b: '2' })
+        })
+
+        it('claims pending creates synchronously at flush so a concurrent flush cannot double-insert', async () => {
+            const timestamp = DateTime.now()
+            jest.spyOn(groupRepository, 'fetchGroup').mockResolvedValue(undefined)
+            let resolveInsert: (rows: GroupCreateResult[]) => void = () => {}
+            jest.spyOn(groupRepository, 'insertGroupsBatch').mockImplementation(
+                () => new Promise<GroupCreateResult[]>((resolve) => (resolveInsert = resolve))
+            )
+            jest.spyOn(groupRepository, 'updateGroupOptimistically').mockResolvedValue(2)
+
+            await groupStore.upsertGroup(teamId, projectId, 1, 'new-key', { a: '1' }, timestamp)
+
+            // Kick off flush WITHOUT awaiting: the claim must happen before any
+            // DB I/O, so pendingCreate is already cleared here.
+            const firstFlush = groupStore.flush()
+            const entry = groupStore.getGroupCache().get(teamId, 1, 'new-key')
+            expect(entry?.pendingCreate).toBe(false)
+            expect(entry?.needsWrite).toBe(false)
+
+            // Re-dirty the key while the insert is still in flight — a second
+            // flush must capture it as a regular update, not a second insert.
+            await groupStore.upsertGroup(teamId, projectId, 1, 'new-key', { b: '2' }, timestamp)
+            const secondFlush = groupStore.flush()
+
+            resolveInsert([
+                { ...group, group_key: 'new-key', group_properties: { a: '1' }, version: 1, inserted: true },
+            ])
+            await Promise.all([firstFlush, secondFlush])
+
+            expect(groupRepository.insertGroupsBatch).toHaveBeenCalledTimes(1)
+            expect(groupRepository.insertGroup).not.toHaveBeenCalled()
+            expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
+            // The insert's older row (version 1) must not regress the cache
+            // entry the second flush already synced to its newer write.
+            expect(groupStore.getGroupCache().get(teamId, 1, 'new-key')?.version).toBe(2)
         })
     })
 

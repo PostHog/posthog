@@ -233,6 +233,11 @@ export interface PaginatedInterviewInviteResultListApi {
     results: InterviewInviteResultApi[]
 }
 
+export interface SharedInterviewLinkApi {
+    /** Public, unauthenticated URL any respondent can open to start a new interview for this topic. Backed by a topic-level SharingConfiguration access token — not tied to any specific interviewee. Each visit is a new anonymous respondent who self-identifies with a name; `distinct_id` and `session_id` query params on the URL are captured as best-effort person/session linkage. */
+    interview_url: string
+}
+
 export interface LatestTestInterviewApi {
     /** When the test interview was completed. */
     completed_at: string

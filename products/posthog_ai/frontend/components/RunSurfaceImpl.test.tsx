@@ -3,6 +3,8 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 
+import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+
 import type { RunStatus } from '../logics/runStreamLogic'
 import type { PermissionRequestRecord } from '../types/streamTypes'
 import { RunSurface } from './RunSurfaceImpl'
@@ -35,6 +37,7 @@ function setValues(
         pendingPermissionRequest: PermissionRequestRecord | null
         bootstrapLoading: boolean
         threadItems: unknown[]
+        task: { origin_product: string; runtime?: RuntimeEnumApi } | null
     }>
 ): void {
     ;(useValues as jest.Mock).mockReturnValue({
@@ -42,8 +45,10 @@ function setValues(
         threadItems: [],
         pendingPermissionRequest: null,
         currentRunStatus: 'in_progress',
-        task: null,
+        task: { origin_product: 'user_created', runtime: RuntimeEnumApi.Acp },
         taskLoading: false,
+        taskError: null,
+        taskNotFound: false,
         ...overrides,
     })
 }
@@ -74,6 +79,36 @@ describe('RunSurface', () => {
 
     afterEach(() => {
         cleanup()
+    })
+
+    it('does not mount the ACP run surface for a Pi task', () => {
+        setValues({ task: { origin_product: 'user_created', runtime: RuntimeEnumApi.Pi } })
+
+        render(
+            <RunSurface.Root taskId="task-1" runId="run-1" interaction="live">
+                <RunSurface.Thread />
+                <RunSurface.Composer>
+                    <div data-attr="composer-child" />
+                </RunSurface.Composer>
+            </RunSurface.Root>
+        )
+
+        expect(screen.getByText("Pi session logs aren't available in PostHog yet.")).toBeInTheDocument()
+        expect(screen.queryByTestId('thread')).not.toBeInTheDocument()
+        expect(screen.queryByTestId('composer')).not.toBeInTheDocument()
+    })
+
+    it('keeps the ACP run surface available when an older API response omits runtime', () => {
+        setValues({ task: { origin_product: 'user_created' } })
+
+        render(
+            <RunSurface.Root taskId="task-1" runId="run-1" interaction="live">
+                <RunSurface.Thread />
+            </RunSurface.Root>
+        )
+
+        expect(screen.getByTestId('thread')).toBeInTheDocument()
+        expect(screen.queryByText("Pi session logs aren't available in PostHog yet.")).not.toBeInTheDocument()
     })
 
     describe('Composer slot', () => {

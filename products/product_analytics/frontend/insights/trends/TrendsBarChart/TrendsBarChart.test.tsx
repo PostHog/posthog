@@ -4,8 +4,6 @@ import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 
 import { dimensions, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { ExportType } from '~/exporter/types'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildTrendsQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
@@ -233,13 +231,17 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         })
 
         await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
-        expect(getHogChart().xAxisLabel()).toBe('Total events')
-        expect(getHogChart().yAxisLabel()).toBe('Series')
-        expect(
-            getHogChart()
-                .element.querySelector<SVGTextElement>('[data-attr="hog-chart-axis-title-y"]')
-                ?.getAttribute('transform')
-        ).toContain('rotate(-90')
+        // Axis titles are a layout-dependent overlay that commits a tick after the
+        // chart's aria-label appears, so read them through waitFor rather than synchronously.
+        await waitFor(() => {
+            expect(getHogChart().xAxisLabel()).toBe('Total events')
+            expect(getHogChart().yAxisLabel()).toBe('Series')
+            expect(
+                getHogChart()
+                    .element.querySelector<SVGTextElement>('[data-attr="hog-chart-axis-title-y"]')
+                    ?.getAttribute('transform')
+            ).toContain('rotate(-90')
+        })
     })
 
     // Five hedgehog breakdowns → by default one series carrying five per-bar colors across five
@@ -469,6 +471,26 @@ describe('TrendsBarChart (ActionsUnstackedBar)', () => {
     })
 })
 
+describe('TrendsBarChart (ActionsStackedBar)', () => {
+    // Regression for #66497: ActionsStackedBar is a deprecated alias of ActionsBar on trends
+    // queries — never emitted by the UI, but accepted from the API/MCP. It used to fall through
+    // the trends render dispatch and produce a blank tile; getDisplay() now normalizes it.
+    it('renders the stacked bar chart instead of a blank tile', async () => {
+        renderInsight({
+            query: buildTrendsQuery({
+                trendsFilter: { display: ChartDisplayType.ActionsStackedBar },
+            }),
+        })
+
+        await waitFor(
+            () => {
+                expect(screen.getByTestId('trend-bar-graph')).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
+    })
+})
+
 describe('TrendsBarChart overlays', () => {
     it('renders value labels when showValuesOnSeries is enabled', async () => {
         renderInsight({
@@ -560,8 +582,7 @@ describe('TrendsBarChart overlays', () => {
         }
     )
 
-    describe('quill in-chart legend (PRODUCT_ANALYTICS_QUILL_LEGEND on)', () => {
-        const quillLegendFlag = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]: true }
+    describe('quill in-chart legend', () => {
         const twoSeriesBar = trendsBar({
             series: [
                 { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
@@ -574,7 +595,7 @@ describe('TrendsBarChart overlays', () => {
             container.querySelector<HTMLElement>('[data-attr="hog-chart-timeseries-bar-legend"]')!
 
         it('renders the in-chart legend with a row per series', async () => {
-            const { container } = renderInsight({ query: twoSeriesBar, featureFlags: quillLegendFlag })
+            const { container } = renderInsight({ query: twoSeriesBar })
 
             await waitFor(() => {
                 expect(screen.getByLabelText(/chart with 2 data series/i)).toBeInTheDocument()

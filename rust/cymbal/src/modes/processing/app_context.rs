@@ -178,7 +178,7 @@ impl AppContext {
         let process_request_limiter =
             Arc::new(Semaphore::new(config.process_max_in_flight_requests.max(1)));
 
-        let issue_cache = CacheBuilder::new(1000)
+        let issue_cache = CacheBuilder::new(config.issue_cache_capacity)
             .time_to_live(Duration::from_secs(config.issue_cache_ttl_seconds))
             .build();
 

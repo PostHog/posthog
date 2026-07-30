@@ -17,7 +17,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models import Team
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
-from products.replay_vision.backend.models.replay_scanner import SamplingMode
+from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, SamplingMode
 from products.replay_vision.backend.temporal.constants import (
     MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
     MAX_SESSION_ID_LENGTH,
@@ -27,9 +27,6 @@ from products.replay_vision.backend.temporal.constants import (
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
-
-# 30-min inactivity timeout + 5-min merge-lag buffer.
-SETTLE_INTERVAL = dt.timedelta(minutes=35)
 
 # Partition prune anchored to the SDK's 24h session_id rotation + 2h headroom for skew and lag.
 _PARTITION_LOOKBACK = dt.timedelta(hours=26)

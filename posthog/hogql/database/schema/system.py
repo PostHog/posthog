@@ -1,14 +1,22 @@
 from functools import lru_cache
 
 from posthog.hogql import ast
+from posthog.hogql.base import Expr
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.lazy_join_tags import TICKET_TAGS
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
+    DANGEROUS_NoTeamIdCheckTable,
     DateTimeDatabaseField,
     DecimalDatabaseField,
     ExpressionField,
     FieldOrTable,
     FloatDatabaseField,
     IntegerDatabaseField,
+    LazyJoin,
+    LazyJoinToAdd,
+    LazyTable,
+    LazyTableToAdd,
     StringArrayDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
@@ -18,12 +26,14 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.information_schema import information_schema_node
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.errors import ResolutionError
+from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.scopes import APIScopeObject
 
 from products.customer_analytics.backend.facade.hogql import (
     account_custom_property_values,
+    account_custom_property_values_history,
     account_relationship_definitions,
     account_relationships,
     account_resource_notebooks,
@@ -1489,6 +1499,99 @@ logs_alerts: PostgresTable = PostgresTable(
     },
 )
 
+
+class _TicketScopedPostgresTable(PostgresTable, DANGEROUS_NoTeamIdCheckTable):
+    """PostgresTable variant for the tag junction, which has no `team_id` column of its own.
+
+    The framework's auto-injected `team_id = X` guard is skipped (the column doesn't exist);
+    isolation instead flows from the predicate scoping through `system.support_tickets`, whose
+    own team_id guard the framework re-applies to the inner reference. The same predicate prunes
+    non-ticket `posthog_taggeditem` rows (tags on insights, dashboards, accounts, ...), which
+    carry a NULL `ticket_id` and so never match a ticket id.
+    """
+
+    predicates: list[Expr] = [parse_expr("ticket_id IN (SELECT id FROM system.support_tickets)")]
+
+
+ticket_tagged_items: _TicketScopedPostgresTable = _TicketScopedPostgresTable(
+    name="_ticket_tagged_items",
+    postgres_table_name="posthog_taggeditem",
+    description="Internal junction table (PostgreSQL `posthog_taggeditem`) of tag-to-ticket links; not for direct querying — use `system.support_tickets.tags`.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Primary key of the tagged-item junction row."),
+        "tag_id": UUIDDatabaseField(name="tag_id", description="Tag applied to the ticket; join to `system.tags.id`."),
+        "ticket_id": StringDatabaseField(
+            name="ticket_id",
+            nullable=True,
+            description="Ticket the tag is applied to; join to `system.support_tickets.id`.",
+        ),
+    },
+)
+
+
+def _ticket_tags_select() -> ast.SelectQuery | ast.SelectSetQuery:
+    return parse_select(
+        """
+        SELECT
+            tti.ticket_id AS ticket_id,
+            arraySort(arrayDistinct(groupArray(t.name))) AS names
+        FROM system._ticket_tagged_items AS tti
+        INNER JOIN system.tags AS t ON t.id = tti.tag_id
+        GROUP BY tti.ticket_id
+        """
+    )
+
+
+class _TicketTagsTable(LazyTable):
+    description: str = (
+        "Internal aggregating table backing `system.support_tickets.tags`: the distinct, sorted tag names per ticket."
+    )
+    fields: dict[str, FieldOrTable] = {
+        "ticket_id": StringDatabaseField(
+            name="ticket_id", description="Ticket these tags belong to; join to `system.support_tickets.id`."
+        ),
+        "names": StringArrayDatabaseField(
+            name="names", description="Distinct, sorted tag names applied to the ticket."
+        ),
+    }
+
+    def lazy_select(
+        self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        return _ticket_tags_select()
+
+    def to_printed_clickhouse(self, context: HogQLContext) -> str:
+        return "ticket_tags"
+
+    def to_printed_hogql(self) -> str:
+        return "ticket_tags"
+
+
+def ticket_tags_join(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery) -> ast.JoinExpr:
+    if not join_to_add.fields_accessed:
+        raise ResolutionError("No fields requested from `support_tickets.tags`")
+    return ast.JoinExpr(
+        alias=join_to_add.to_table,
+        table=_ticket_tags_select(),
+        join_type="LEFT JOIN",
+        constraint=ast.JoinConstraint(
+            constraint_type="ON",
+            expr=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=[join_to_add.from_table, "id"]),
+                right=ast.Field(chain=[join_to_add.to_table, "ticket_id"]),
+            ),
+        ),
+    )
+
+
+ticket_tags_lazy_join: LazyJoin = LazyJoin(
+    from_field=["id"],
+    join_table=_TicketTagsTable(),
+    resolver=TICKET_TAGS,
+)
+
+
 support_tickets: PostgresTable = PostgresTable(
     name="support_tickets",
     postgres_table_name="posthog_conversations_ticket",
@@ -1557,6 +1660,7 @@ support_tickets: PostgresTable = PostgresTable(
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the ticket was opened."),
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the ticket was last updated."),
+        "tags": ticket_tags_lazy_join,
     },
 )
 
@@ -1788,7 +1892,7 @@ tasks: PostgresTable = PostgresTable(
     # Mirror the REST API's default filter: internal tasks (signals pipeline, etc.) are not
     # exposed to end users. They are excluded entirely from HogQL.
     predicates=[parse_expr("internal != true")],
-    description="Tasks (PostHog Code / agent work items); one row per user-facing task (internal pipeline tasks are excluded).",
+    description="Tasks (PostHog Desktop / agent work items); one row per user-facing task (internal pipeline tasks are excluded).",
     fields={
         "id": StringDatabaseField(name="id", description="Task UUID."),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -2024,6 +2128,9 @@ class SystemTables(TableNode):
         "_account_custom_property_values": TableNode(
             name="_account_custom_property_values", table=account_custom_property_values, hidden=True
         ),
+        "_account_custom_property_values_history": TableNode(
+            name="_account_custom_property_values_history", table=account_custom_property_values_history, hidden=True
+        ),
         "account_relationship_definitions": TableNode(
             name="account_relationship_definitions", table=account_relationship_definitions
         ),
@@ -2094,6 +2201,7 @@ class SystemTables(TableNode):
         "session_recordings": TableNode(name="session_recordings", table=session_recordings),
         "source_schemas": TableNode(name="source_schemas", table=source_schemas),
         "source_sync_jobs": TableNode(name="source_sync_jobs", table=source_sync_jobs),
+        "_ticket_tagged_items": TableNode(name="_ticket_tagged_items", table=ticket_tagged_items, hidden=True),
         "support_tickets": TableNode(name="support_tickets", table=support_tickets),
         "surveys": TableNode(name="surveys", table=surveys),
         "task_runs": TableNode(name="task_runs", table=task_runs),

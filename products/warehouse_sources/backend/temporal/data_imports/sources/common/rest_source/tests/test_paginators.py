@@ -190,3 +190,122 @@ class TestSingleEntityPath:
     )
     def test_detection(self, path: str, expected: bool) -> None:
         assert single_entity_path(path) == expected
+
+
+class TestPaginatorResume:
+    def test_offset_paginator_round_trips_resume_state(self) -> None:
+        p = OffsetPaginator(limit=100, total_path=None)
+        p.update_state(_make_response(), data=[{} for _ in range(100)])  # full page -> more
+        assert p.has_next_page is True
+        state = p.get_resume_state()
+        assert state == {"offset": 100}
+
+        resumed = OffsetPaginator(limit=100, total_path=None)
+        resumed.set_resume_state(state)
+        req = Request(method="GET", url="https://api.example.com/x")
+        resumed.init_request(req)
+        assert req.params["offset"] == 100
+
+    def test_offset_paginator_no_resume_state_when_done(self) -> None:
+        p = OffsetPaginator(limit=100, total_path=None)
+        p.update_state(_make_response(), data=[{}])  # short page -> done
+        assert p.get_resume_state() is None
+
+    def test_page_number_paginator_round_trips_resume_state(self) -> None:
+        p = PageNumberPaginator(page=1)
+        p.update_state(_make_response(), data=[{} for _ in range(50)])
+        state = p.get_resume_state()
+        assert state == {"page": 2}
+
+        resumed = PageNumberPaginator(page=1)
+        resumed.set_resume_state(state)
+        req = Request(method="GET", url="https://api.example.com/x")
+        resumed.init_request(req)
+        assert req.params["page"] == 2
+
+    def test_cursor_paginator_round_trips_resume_state(self) -> None:
+        p = JSONResponseCursorPaginator(cursor_path="cursors.next", cursor_param="cursor")
+        p.update_state(_make_response({"cursors": {"next": "abc"}}))
+        state = p.get_resume_state()
+        assert state == {"cursor": "abc"}
+
+        resumed = JSONResponseCursorPaginator(cursor_param="cursor")
+        resumed.set_resume_state(state)
+        req = Request(method="GET", url="https://api.example.com/x")
+        resumed.init_request(req)
+        assert req.params["cursor"] == "abc"
+
+    def test_next_url_paginator_round_trips_resume_state(self) -> None:
+        p = JSONResponsePaginator(next_url_path="next")
+        p.update_state(_make_response({"next": "https://api.example.com/page2"}))
+        state = p.get_resume_state()
+        assert state == {"next_url": "https://api.example.com/page2"}
+
+        resumed = JSONResponsePaginator()
+        resumed.set_resume_state(state)
+        req = Request(method="GET", url="https://api.example.com/page1")
+        resumed.init_request(req)
+        assert req.url == "https://api.example.com/page2"
+
+
+class TestOffsetPaginatorTotalHeader:
+    def test_stops_when_offset_reaches_header_total(self) -> None:
+        p = OffsetPaginator(limit=2, total_path=None, total_header="X-Total")
+        resp = _make_response({}, headers={"X-Total": "2"})
+        p.update_state(resp, data=[{}, {}])  # full page, offset -> 2, total 2 -> stop
+        assert p.has_next_page is False
+
+    def test_continues_when_below_header_total(self) -> None:
+        p = OffsetPaginator(limit=2, total_path=None, total_header="X-Total")
+        resp = _make_response({}, headers={"X-Total": "5"})
+        p.update_state(resp, data=[{}, {}])  # offset -> 2, below 5 -> continue
+        assert p.has_next_page is True
+
+
+class TestJsonBodyPagination:
+    def test_offset_paginator_injects_into_json_body(self) -> None:
+        p = OffsetPaginator(limit=50, total_path=None, param_location="json")
+        req = Request(method="POST", url="https://api.example.com/search", json=None)
+        p.init_request(req)
+        assert req.json == {"offset": 0, "limit": 50}
+        assert not req.params
+
+        p.update_state(_make_response(), data=[{} for _ in range(50)])
+        p.update_request(req)
+        assert req.json["offset"] == 50
+
+    def test_page_number_paginator_injects_into_json_body(self) -> None:
+        p = PageNumberPaginator(base_page=0, page_param="page", param_location="json")
+        req = Request(method="POST", url="https://api.example.com/search", json={"query": ""})
+        p.init_request(req)
+        assert req.json == {"query": "", "page": 0}
+
+    def test_cursor_paginator_injects_into_json_body(self) -> None:
+        p = JSONResponseCursorPaginator(cursor_path="cursor", cursor_param="cursor", param_location="json")
+        p.update_state(_make_response({"cursor": "abc"}))
+        req = Request(method="POST", url="https://api.example.com/browse", json={"hitsPerPage": 1000})
+        p.update_request(req)
+        assert req.json == {"hitsPerPage": 1000, "cursor": "abc"}
+
+
+class TestPageNumberTotalPages:
+    def test_stops_after_last_page_per_total_pages(self) -> None:
+        p = PageNumberPaginator(base_page=1, total_path="pagination.total_pages")
+        resp = _make_response({"pagination": {"total_pages": 2}})
+        p.update_state(resp, data=[{}])  # fetched page 1 of 2 -> continue
+        assert p.has_next_page is True
+        p.update_state(resp, data=[{}])  # fetched page 2 of 2 -> stop, no extra request
+        assert p.has_next_page is False
+
+    def test_zero_based_pages_respect_total(self) -> None:
+        p = PageNumberPaginator(base_page=0, total_path="pages")
+        resp = _make_response({"pages": 1})
+        p.update_state(resp, data=[{}])  # fetched page 0, total 1 page -> stop
+        assert p.has_next_page is False
+
+    def test_missing_total_falls_back_to_empty_page_stop(self) -> None:
+        p = PageNumberPaginator(base_page=1, total_path="pagination.total_pages")
+        p.update_state(_make_response({}), data=[{}])
+        assert p.has_next_page is True
+        p.update_state(_make_response({}), data=[])
+        assert p.has_next_page is False

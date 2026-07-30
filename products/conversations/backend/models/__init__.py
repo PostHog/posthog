@@ -10,6 +10,7 @@ from .team_conversations_teams_channel_sync import TeamConversationsTeamsChannel
 from .team_conversations_teams_config import TeamConversationsTeamsConfig
 from .ticket import Ticket
 from .ticket_view import TicketView
+from .ticket_view_favorite import TicketViewFavorite
 from .zendesk_import_job import ZendeskImportJob
 
 __all__ = [
@@ -29,5 +30,6 @@ __all__ = [
     "Ticket",
     "TicketAssignment",
     "TicketView",
+    "TicketViewFavorite",
     "ZendeskImportJob",
 ]

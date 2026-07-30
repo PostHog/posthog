@@ -4,6 +4,7 @@ import re
 import ssl
 import math
 import time
+import functools
 import collections
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager
@@ -12,20 +13,22 @@ from typing import Any, Literal, Optional
 import pyarrow as pa
 import structlog
 from clickhouse_connect import get_client
+from clickhouse_connect.driver import httputil
 from clickhouse_connect.driver.client import Client as ClickHouseClient
-from clickhouse_connect.driver.exceptions import ClickHouseError
+from clickhouse_connect.driver.exceptions import ClickHouseError, ProgrammingError
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
-    DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     build_pyarrow_decimal_type,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     Column,
     Table,
@@ -38,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ValidatedRowFilter,
     render_named_conditions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
 
 # ClickHouse default ports
@@ -71,6 +75,22 @@ class ClickHouseConnectionError(Exception):
     """Raised when we cannot establish or use a ClickHouse connection."""
 
     pass
+
+
+# clickhouse-connect probes the server with `SELECT version(), timezone()` while
+# constructing the client and unpacks the reply into exactly two tab-separated
+# values (BaseClient._init_common_settings). A host that answers 2xx with a body
+# that isn't a ClickHouse response — a proxy/load-balancer landing page, or a
+# different service listening on the host/port — splits into a different shape, so
+# the driver raises a bare `ValueError` ("too many values to unpack") before we ever
+# run a query. The endpoint isn't serving the ClickHouse HTTP interface, so a retry
+# replays the identical failure; we surface it as a connection error rather than
+# leaking the cryptic ValueError.
+NOT_A_CLICKHOUSE_HTTP_RESPONSE = (
+    "The host answered but did not return a valid ClickHouse response, so it isn't serving the "
+    "ClickHouse HTTP interface on that host/port. Check the host, port, and HTTPS setting "
+    "(and any tunnel or proxy in front of it)."
+)
 
 
 def _quote_identifier(identifier: str) -> str:
@@ -112,11 +132,79 @@ _TRANSIENT_CONNECT_DROP_SUBSTRINGS = (
     "Tunnel connection failed: 502",
     "Tunnel connection failed: 503",
     "Tunnel connection failed: 504",
+    # The ClickHouse host (or a proxy/gateway in front of it) rate-limited the
+    # request with HTTP 429 ("HTTPDriver for <url> returned response code 429").
+    # A 429 is a transient "back off and retry" signal, not a config error.
+    # clickhouse-connect already retries 429 for queries (query_retries), but
+    # the probe it runs while constructing the client passes retries=0, so a
+    # 429 at connect time reaches us with no retry at all — a bounded backoff
+    # retry here recovers the common transient burst. We match only 429; other
+    # HTTP statuses keep their existing handling (404 is non-retryable in the
+    # source, 5xx stay retryable via Temporal).
+    "returned response code 429",
 )
 
 
 def _is_transient_connect_drop(error_message: str) -> bool:
     return any(substring in error_message for substring in _TRANSIENT_CONNECT_DROP_SUBSTRINGS)
+
+
+# clickhouse-connect surfaces an upstream rate-limit as a full HTTP response
+# ("HTTPDriver for <url> returned response code 429"), not a dropped connection:
+# the request reached the server (or a proxy in front of it) and it told us to
+# slow down. A 429 is explicitly "retry later", so a brief backed-off re-attempt
+# often clears a short rate-limit burst; if it doesn't, the failing Temporal
+# activity stays retryable and recovers later. We match only 429 — other 4xx
+# response codes are deterministic (e.g. 404 stays non-retryable). Matching the
+# stable status phrase keeps the volatile per-request URL out of the comparison.
+_TRANSIENT_RATE_LIMIT_SUBSTRING = "returned response code 429"
+
+# Backoff base between connect retries after a 429. Longer than the connect-drop
+# retry (which just re-dials) to give the rate limit room to clear.
+_RATE_LIMIT_BACKOFF_BASE_SECONDS = 2
+
+
+def _is_rate_limited(error_message: str) -> bool:
+    return _TRANSIENT_RATE_LIMIT_SUBSTRING in error_message
+
+
+def _is_retryable_connect_error(error_message: str) -> bool:
+    return _is_transient_connect_drop(error_message) or _is_rate_limited(error_message)
+
+
+def _apply_session_settings(client: ClickHouseClient, settings: dict[str, Any]) -> None:
+    """Apply session settings, tolerating a server that reports one as readonly.
+
+    Our settings are performance and Arrow-output tuning hints. A readonly user
+    profile (common on managed ClickHouse) reports every setting as readonly, and
+    clickhouse-connect refuses to send those — raising ProgrammingError ("Setting
+    <x> is unknown or readonly"). Passing them at client construction turns that
+    into a fatal connect error that fails the whole sync. Applying them one by one
+    lets us keep the settings the server accepts and fall back to the server
+    default for the rest.
+    """
+    for key, value in settings.items():
+        try:
+            client.set_client_setting(key, value)
+        except ProgrammingError as e:
+            structlog.get_logger().warning(
+                "ClickHouse rejected session setting; falling back to server default",
+                setting=key,
+                exc_info=e,
+            )
+
+
+@functools.cache
+def _no_env_proxy_pool_manager(verify: bool) -> Any:
+    """A shared urllib3 pool manager that never consults HTTP(S)_PROXY env vars.
+
+    clickhouse-connect only checks the proxy env vars when it builds its own
+    pool manager, so handing it one is the sanctioned per-code-path opt-out
+    from the egress proxy (see posthog/security/outbound_proxy.py for the
+    requests/httpx equivalents). Cached because clients don't own an injected
+    manager (`close()` leaves it alive), so per-call managers would leak.
+    """
+    return httputil.get_pool_manager(verify=verify)
 
 
 def _get_client(
@@ -130,6 +218,7 @@ def _get_client(
     verify: bool,
     query_timeout: int = DATA_QUERY_TIMEOUT_SECONDS,
     settings: Optional[dict[str, Any]] = None,
+    bypass_env_proxy: bool = False,
 ) -> ClickHouseClient:
     """Create a ClickHouse HTTP client.
 
@@ -137,11 +226,16 @@ def _get_client(
     firewall-friendly, easy to tunnel via SSH, and exposes a streaming Arrow
     reader that we use to read very large tables without buffering them in
     memory.
+
+    `bypass_env_proxy` connects directly instead of honouring the
+    HTTP(S)_PROXY env vars. Only ever set for PostHog-internal teams
+    (`is_team_allowlisted_for_internal_hosts`) — for customer-supplied config
+    the egress proxy is the SSRF backstop and must stay in the path.
     """
     attempt = 0
     while True:
         try:
-            return get_client(
+            client = get_client(
                 host=host,
                 port=port,
                 database=database,
@@ -153,8 +247,8 @@ def _get_client(
                 connect_timeout=CONNECT_TIMEOUT_SECONDS,
                 send_receive_timeout=query_timeout,
                 query_limit=0,  # we manage limits ourselves
-                settings=settings or {},
                 compress=True,
+                pool_mgr=_no_env_proxy_pool_manager(verify) if bypass_env_proxy else None,
             )
         except (ClickHouseError, OSError, ssl.SSLError) as e:
             # OSError covers socket.gaierror, ConnectionRefusedError, TimeoutError,
@@ -163,16 +257,32 @@ def _get_client(
             # the request.
             attempt += 1
             message = str(e)
-            if attempt < _MAX_CONNECT_ATTEMPTS and _is_transient_connect_drop(message):
+            if attempt < _MAX_CONNECT_ATTEMPTS and _is_retryable_connect_error(message):
+                # A 429 is the server asking us to slow down, so back off
+                # exponentially to give the rate limit room to clear; a dropped
+                # connection just needs a re-dial, so a short linear wait is enough.
+                wait = _RATE_LIMIT_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)) if _is_rate_limited(message) else attempt
                 structlog.get_logger().warning(
-                    "Transient ClickHouse connection drop during connect; retrying",
+                    "Transient ClickHouse connect error; retrying",
                     attempt=attempt,
                     max_attempts=_MAX_CONNECT_ATTEMPTS,
+                    wait_seconds=wait,
                     exc_info=e,
                 )
-                time.sleep(attempt)
+                time.sleep(wait)
                 continue
             raise ClickHouseConnectionError(message) from e
+        except ValueError as e:
+            # The construction-time server probe got a response it couldn't parse as a
+            # ClickHouse handshake (see NOT_A_CLICKHOUSE_HTTP_RESPONSE). Deterministic, so
+            # never retryable — don't spend the transient-retry budget on it.
+            raise ClickHouseConnectionError(NOT_A_CLICKHOUSE_HTTP_RESPONSE) from e
+
+        # Apply tuning settings after connect, not at construction, so a readonly
+        # source profile that rejects one degrades to the server default instead
+        # of failing the whole connection.
+        _apply_session_settings(client, settings or {})
+        return client
 
 
 def _strip_type_modifiers(type_name: str) -> tuple[str, bool]:
@@ -243,6 +353,7 @@ def get_schemas(
     secure: bool,
     verify: bool,
     names: list[str] | None = None,
+    bypass_env_proxy: bool = False,
 ) -> dict[str, list[tuple[str, str, bool]]]:
     """Discover columns for all tables in the given database.
 
@@ -260,6 +371,7 @@ def get_schemas(
         secure=secure,
         verify=verify,
         query_timeout=METADATA_QUERY_TIMEOUT_SECONDS,
+        bypass_env_proxy=bypass_env_proxy,
     )
 
     try:
@@ -272,11 +384,18 @@ def get_schemas(
             params["names"] = tuple(names)
             names_filter = "AND table IN %(names)s"
 
+        # Skip ALIAS and EPHEMERAL columns. A native `SELECT *` never touches them, but our
+        # `SELECT *` expands to an explicit column list — so an ALIAS whose defining expression no
+        # longer resolves on the server (a dropped/renamed underlying column, or one the connecting
+        # user can't read) fails the whole query with UNKNOWN_IDENTIFIER (code 47), and EPHEMERAL
+        # columns aren't selectable at all. Ordinary, DEFAULT and MATERIALIZED columns hold real,
+        # selectable data and are kept.
         result = client.query(
             f"""
             SELECT table, name, type
             FROM system.columns
             WHERE database = %(database)s {names_filter}
+              AND default_kind NOT IN ('ALIAS', 'EPHEMERAL')
             ORDER BY table ASC, position ASC
             """,
             parameters=params,
@@ -350,6 +469,7 @@ def get_clickhouse_row_count(
     secure: bool,
     verify: bool,
     names: list[str] | None = None,
+    bypass_env_proxy: bool = False,
 ) -> dict[str, int]:
     """Return total_rows per table from `system.tables`.
 
@@ -371,6 +491,7 @@ def get_clickhouse_row_count(
         secure=secure,
         verify=verify,
         query_timeout=METADATA_QUERY_TIMEOUT_SECONDS,
+        bypass_env_proxy=bypass_env_proxy,
     )
 
     try:
@@ -474,6 +595,7 @@ def get_connection_metadata(
     password: str | None,
     secure: bool,
     verify: bool,
+    bypass_env_proxy: bool = False,
 ) -> dict[str, Any]:
     """Probe the server for version metadata.
 
@@ -490,6 +612,7 @@ def get_connection_metadata(
         secure=secure,
         verify=verify,
         query_timeout=METADATA_QUERY_TIMEOUT_SECONDS,
+        bypass_env_proxy=bypass_env_proxy,
     )
 
     try:
@@ -724,6 +847,7 @@ def get_primary_keys_for_schemas(
     secure: bool,
     verify: bool,
     table_names: list[str],
+    bypass_env_proxy: bool = False,
 ) -> dict[str, list[str] | None]:
     """Detect primary keys (sorting key columns) for multiple tables.
 
@@ -745,6 +869,7 @@ def get_primary_keys_for_schemas(
             secure=secure,
             verify=verify,
             query_timeout=METADATA_QUERY_TIMEOUT_SECONDS,
+            bypass_env_proxy=bypass_env_proxy,
         )
         try:
             for table_name in table_names:
@@ -801,10 +926,15 @@ _DUPLICATE_PK_CHECK_SETTINGS: dict[str, Any] = {
 #     caps before `read_overflow_mode='break'` truncates on rows — the probe
 #     behaving exactly as designed. Some managed servers also enforce a memory
 #     cap below our `max_memory_usage`, surfacing the same way.
+#   - "Read timed out": the probe's `max_execution_time` only bounds server-side
+#     execution, not ClickHouse Cloud's cold-resume wake-up latency or a scan
+#     the server hasn't yet gotten around to capping — so the HTTP client's own
+#     read timeout can fire first. Same designed fallback as the budget caps.
 _EXPECTED_PROBE_FAILURE_SUBSTRINGS: tuple[str, ...] = (
     "is unknown or readonly",
     "MEMORY_LIMIT_EXCEEDED",
     "TIMEOUT_EXCEEDED",
+    "Read timed out",
 )
 
 
@@ -872,6 +1002,7 @@ def _get_incremental_row_count(
     incremental_field: str,
     last_value: Any,
     logger: FilteringBoundLogger,
+    incremental_field_type: Optional[IncrementalFieldType] = None,
 ) -> int | None:
     """Count rows the incremental sync will actually pull.
 
@@ -882,7 +1013,8 @@ def _get_incremental_row_count(
     back to the total-table count.
     """
     quoted_field = _quote_identifier(incremental_field)
-    query = f"SELECT count() FROM {_qualified_table(database, table_name)} WHERE {quoted_field} > %(last_value)s"
+    last_value_expr = _last_value_expr(incremental_field_type)
+    query = f"SELECT count() FROM {_qualified_table(database, table_name)} WHERE {quoted_field} > {last_value_expr}"
     try:
         result = client.query(
             query,
@@ -897,6 +1029,24 @@ def _get_incremental_row_count(
         return None
     count = result.result_rows[0][0]
     return int(count) if count is not None else None
+
+
+# clickhouse-connect surfaces a non-2xx HTTP status from the server (or a
+# proxy/LB in front of it) as `HTTPDriver for <url> returned response code <N>`.
+# 429 (rate limited) and the transient gateway codes mean the endpoint can't
+# serve us right now, not that anything we sent was wrong — they clear on their
+# own. A real ClickHouse query error carries a `Code: NNN` instead. We match
+# only these transient statuses so genuine failures still surface.
+_TRANSIENT_HTTP_RESPONSE_SUBSTRINGS: tuple[str, ...] = (
+    "returned response code 429",
+    "returned response code 502",
+    "returned response code 503",
+    "returned response code 504",
+)
+
+
+def _is_transient_http_response(message: str) -> bool:
+    return any(substring in message for substring in _TRANSIENT_HTTP_RESPONSE_SUBSTRINGS)
 
 
 def _get_partition_settings(
@@ -920,7 +1070,12 @@ def _get_partition_settings(
             parameters={"database": database, "table": table_name},
         )
     except ClickHouseError as e:
-        capture_exception(e)
+        # Partitioning is a best-effort optimization; any failure here degrades
+        # to default partitioning. A transient rate-limit/gateway response from
+        # the source isn't actionable on our side, so don't add error-tracking
+        # noise for it — genuine errors are still captured.
+        if not _is_transient_http_response(str(e)):
+            capture_exception(e)
         logger.debug(f"_get_partition_settings: failed: {e}")
         return None
 
@@ -1015,6 +1170,21 @@ def _project_columns(
     return projected or columns
 
 
+def _last_value_expr(incremental_field_type: Optional[IncrementalFieldType]) -> str:
+    """SQL expression binding the `last_value` parameter for the incremental cursor.
+
+    The stored cursor for a `Date` column can arrive as a raw day-count integer
+    (ClickHouse's own on-disk representation) rather than a date/string, e.g. after a
+    round-trip through JSON. Comparing that integer directly against a `Date` column
+    fails with "Illegal types of arguments (Date, UInt16) of function greater". Casting
+    through `toDate32` accepts both a day-count integer and a date string, so the
+    comparison always type-checks regardless of which shape the cursor is in.
+    """
+    if incremental_field_type == IncrementalFieldType.Date:
+        return "toDate32(%(last_value)s)"
+    return "%(last_value)s"
+
+
 def _build_query(
     *,
     database: str,
@@ -1022,6 +1192,7 @@ def _build_query(
     columns: list[ClickHouseColumn],
     should_use_incremental_field: bool,
     incremental_field: Optional[str],
+    incremental_field_type: Optional[IncrementalFieldType] = None,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
 ) -> tuple[str, dict[str, Any]]:
     """Build the data extraction query and its bound parameters.
@@ -1047,7 +1218,7 @@ def _build_query(
         raise ValueError("incremental_field can't be None when should_use_incremental_field is True")
 
     quoted_field = _quote_identifier(incremental_field)
-    conditions = [f"{quoted_field} > %(last_value)s", *filter_conditions]
+    conditions = [f"{quoted_field} > {_last_value_expr(incremental_field_type)}", *filter_conditions]
     query = f"SELECT {select_list} FROM {qualified} WHERE {' AND '.join(conditions)} ORDER BY {quoted_field} ASC"
     return query, filter_params
 
@@ -1101,6 +1272,7 @@ def clickhouse_source(
     incremental_field_type: Optional[IncrementalFieldType] = None,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
     enabled_columns: Optional[list[str]] = None,
+    bypass_env_proxy: bool = False,
 ) -> SourceResponse:
     """Build a SourceResponse that pulls a single ClickHouse table.
 
@@ -1123,6 +1295,7 @@ def clickhouse_source(
             secure=secure,
             verify=verify,
             query_timeout=METADATA_QUERY_TIMEOUT_SECONDS,
+            bypass_env_proxy=bypass_env_proxy,
         )
 
         try:
@@ -1161,6 +1334,7 @@ def clickhouse_source(
                 secure=secure,
                 verify=verify,
                 names=[table_name],
+                bypass_env_proxy=bypass_env_proxy,
             )
             rows_to_sync: int | None = row_counts.get(table_name)
 
@@ -1174,6 +1348,7 @@ def clickhouse_source(
                     incremental_field,
                     db_incremental_field_last_value,
                     logger,
+                    incremental_field_type=incremental_field_type,
                 )
                 if incremental_count is not None:
                     rows_to_sync = incremental_count
@@ -1205,6 +1380,7 @@ def clickhouse_source(
                 verify=verify,
                 query_timeout=DATA_QUERY_TIMEOUT_SECONDS,
                 settings=_query_settings(chunk_size),
+                bypass_env_proxy=bypass_env_proxy,
             )
 
             try:
@@ -1214,6 +1390,7 @@ def clickhouse_source(
                     columns=projected_columns,
                     should_use_incremental_field=should_use_incremental_field,
                     incremental_field=incremental_field,
+                    incremental_field_type=incremental_field_type,
                     row_filters=row_filters,
                 )
 

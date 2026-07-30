@@ -37,27 +37,25 @@ from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_ta
 from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
-    incremental_type_to_initial_value,
-    incremental_type_to_operator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import (
-    DEFAULT_CHUNK_SIZE,
-    DEFAULT_TABLE_SIZE_BYTES,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
-    DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
     MAX_NUMERIC_SCALE,
     QueryTimeoutException,
     TemporaryFileSizeExceedsLimitException,
     build_pyarrow_decimal_type,
     table_from_iterator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import (
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_TABLE_SIZE_BYTES,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
+    incremental_type_to_initial_value,
+    incremental_type_to_operator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
@@ -76,7 +74,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     and_join,
     render_psycopg_row_filter_conditions,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
+    PostgresSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import XminUnsupportedError
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables import (
     build_partition_query,
@@ -127,6 +128,14 @@ _MAX_SETUP_CONNECTION_DROPPED_RETRIES = 5
 # the read from scratch is safe even for an unordered full-table scan. Past this the drop is treated
 # as sustained and re-raised for Temporal to retry the whole activity.
 _MAX_INITIAL_READ_DROP_RETRIES = 5
+
+# Bounded in-process retries for a source-side lock_timeout hit while opening the main server-cursor
+# read *before* the first row is yielded — the DECLARE waited past the source's lock_timeout for a
+# lock another transaction held (a concurrent DDL / VACUUM FULL taking ACCESS EXCLUSIVE conflicts
+# with our ACCESS SHARE). It's transient: the lock frees once that transaction ends. At offset 0
+# nothing has been emitted, so re-running the read from scratch is safe for any sync type. Past this
+# the conflict is treated as sustained and re-raised for Temporal to retry the whole activity.
+_MAX_INITIAL_READ_LOCK_TIMEOUT_RETRIES = 5
 
 
 def source_requires_ssl(source: ExternalDataSource, source_config: Any = None) -> bool:
@@ -219,6 +228,17 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # ("password authentication failed", "SASL authentication failed"), and exclude the volatile
     # millisecond value.
     "authentication did not complete within",
+    # Supavisor authenticates a tenant with no static user record by running an `auth_query` against
+    # the tenant's own backend database to fetch/cache the password secret used to validate the
+    # client's credentials. If that secret isn't cached yet (e.g. right after Supavisor starts
+    # managing the tenant) and the backend is briefly slow to answer, Supavisor's own wait for the
+    # secret times out and it refuses the connect with a bare OperationalError carrying its
+    # "(EAUTHQUERY)" code: "FATAL: (EAUTHQUERY) auth_query secret check timed out". This is a race in
+    # the pooler's own bookkeeping, not a rejection of the credentials, so a fresh connect once the
+    # secret is cached typically succeeds — recover by reconnecting rather than failing the whole
+    # activity. Match the stable code, distinct from genuine credential-rejection wordings
+    # ("password authentication failed", "SASL authentication failed").
+    "(eauthquery)",
     # pgcat (a Rust Postgres pooler) refuses to hand out a backend when every server in the pool is
     # currently banned/down — a failed health check bans a server and pgcat auto-unbans it after
     # `ban_time` — reporting it as SQLSTATE 58000 ("could not get connection from the pool -
@@ -3512,6 +3532,7 @@ def postgres_source(
                 return
 
             initial_read_drop_retries = 0
+            initial_read_lock_timeout_retries = 0
             while True:
                 offset = 0
                 try:
@@ -3586,6 +3607,26 @@ def postgres_source(
                     )
                     if timeout_error is not None:
                         raise timeout_error from e
+                    raise
+                except psycopg.errors.LockNotAvailable as e:
+                    # The server-cursor DECLARE waited past the source's lock_timeout for a lock
+                    # another transaction holds (a concurrent DDL / VACUUM FULL takes ACCESS
+                    # EXCLUSIVE, which conflicts with our ACCESS SHARE). It's transient — the lock
+                    # frees once that transaction ends — so it must stay retryable and is never a
+                    # NonRetryableError. LockNotAvailable subclasses OperationalError, so this clause
+                    # must precede the connection-dropped handler below. At offset 0 nothing has been
+                    # emitted, so re-running the read from scratch is safe for any sync type; retry in
+                    # process with bounded backoff instead of failing the activity and flooding error
+                    # tracking. Once a row is out, or the conflict is sustained, propagate so Temporal
+                    # retries the whole activity.
+                    if offset == 0 and initial_read_lock_timeout_retries < _MAX_INITIAL_READ_LOCK_TIMEOUT_RETRIES:
+                        initial_read_lock_timeout_retries += 1
+                        logger.debug(
+                            f"Lock timeout before first row ({e}). Retrying read "
+                            f"(attempt {initial_read_lock_timeout_retries}/{_MAX_INITIAL_READ_LOCK_TIMEOUT_RETRIES})."
+                        )
+                        time.sleep(min(2 * initial_read_lock_timeout_retries, 30))
+                        continue
                     raise
                 except _CONNECTION_DROPPED_ERROR_TYPES as e:
                     # The server cursor holds a transaction open across the slow

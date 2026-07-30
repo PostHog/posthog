@@ -13,6 +13,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 from products.product_analytics.backend.models.insight import Insight
 from products.pulse.backend.config import BriefSettings
 from products.pulse.backend.sources.base import EvidenceRef, EvidenceType, SourceItem, SourceItemKind
+from products.pulse.backend.urls import insight_url
 
 logger = structlog.get_logger(__name__)
 
@@ -89,7 +90,7 @@ class MovementScoringStrategy:
             return []
         items: list[SourceItem] = []
         label = insight.name or insight.derived_name or ""
-        insight_url = f"/project/{team.id}/insights/{insight.short_id}"
+        url = insight_url(team.id, insight.short_id)
         for series_index, series_result in enumerate(calculation.result):
             if not isinstance(series_result, dict) or "data" not in series_result:
                 continue  # non-trends result shape — skip
@@ -119,9 +120,7 @@ class MovementScoringStrategy:
                         "current_total": movement.current_total,
                         "lookback_days": lookback_days,
                     },
-                    evidence=[
-                        EvidenceRef(type=EvidenceType.INSIGHT, ref=insight.short_id, label=label, url=insight_url)
-                    ],
+                    evidence=[EvidenceRef(type=EvidenceType.INSIGHT, ref=insight.short_id, label=label, url=url)],
                     fingerprint_hint=f"{insight.short_id}:{series_index}",
                 )
             )

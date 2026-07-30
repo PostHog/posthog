@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 
 import { IconCheckCircle, IconExternal, IconHourglass, IconPause, IconXCircle } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
@@ -66,10 +66,11 @@ export function WorkflowRunDetailScene(): JSX.Element {
     const verdict = run ? verdictTag(run.conclusion) : null
     const prUrl =
         run && run.pr_number > 0
-            ? combineUrl(
+            ? withScope(
                   urls.engineeringAnalyticsPullRequest(run.repo.owner, run.repo.name, run.pr_number),
-                  sourceId ? { source: sourceId } : {}
-              ).url
+                  searchParams,
+                  sourceId
+              )
             : null
     // Run started → first job started: the runner-capacity wait before anything executed.
     const jobStarts = (jobs ?? []).map((job) => job.started_at).filter((at): at is string => !!at)

@@ -61,6 +61,7 @@ from github import (
     _git_diff_files,
     _normalize_discussion_for_prompt,
     _normalize_reviews_for_prompt,
+    _prompt_worthy_author,
     _reaction_emoji,
     is_bot_author,
 )
@@ -114,10 +115,12 @@ def _build_pr_data(context: dict) -> PRData:
     raw as the Action does) — so the prerequisite gate blocks on an active
     CHANGES_REQUESTED, the agent sees maintainer discussion, and the migration
     gate can see a passing "Migration risk" check. Inline review-thread comments
-    (a GraphQL-only surface with thread-resolution state) and reactions are not
-    carried, so they default empty — the reviewer prompt renders those sections
-    as "none", which is strictly a subset of what the Action shows, never a
-    fabrication.
+    (a GraphQL-only surface with thread-resolution state) are carried when the
+    hosted context supplies "review_threads"; only UNRESOLVED threads flow into
+    the prompt, since an unresolved inline "do not merge" is the blocker the
+    reviewer must see and resolved threads are noise. An absent key (the Action
+    runtime doesn't pass it) means an empty list — a clean no-op, never a crash.
+    Reactions on those inline comments are not carried, so they default empty.
     """
     pr = context.get("pr") or {}
     user = pr.get("user") or {}
@@ -128,11 +131,12 @@ def _build_pr_data(context: dict) -> PRData:
     if not files:
         files = [_convert_api_file(f) for f in context.get("files") or []]
 
-    # Drop only EMPTY COMMENTED reviews from the offline reviews. The hosted context carries no
-    # inline review-thread comments (review_comments=[]), so a bare COMMENTED state has no readable
-    # feedback — yet _summarize_assurance would surface its author as a current-head reviewer
-    # ("head_commented"), reading as independent assurance. Unseen feedback must reduce to "no
-    # assurance," never a positive vouch. A COMMENTED review WITH a body is different: that text is
+    # Drop only EMPTY COMMENTED reviews from the offline reviews. A bare COMMENTED top-level review
+    # carries no readable body — yet _summarize_assurance would surface its author as a current-head
+    # reviewer ("head_commented"), reading as independent assurance. Unseen feedback must reduce to "no
+    # assurance," never a positive vouch. (Any inline feedback that review left still reaches the prompt
+    # via review_comments below, so dropping the empty top-level state loses nothing the reviewer needs.)
+    # A COMMENTED review WITH a body is different: that text is
     # a maintainer's visible feedback (possibly a comment-only "hold"), and dropping it would let
     # the reviewer approve without ever seeing it — it flows through, body and all.
     reviews = [
@@ -149,6 +153,42 @@ def _build_pr_data(context: dict) -> PRData:
         if (login := r.get("user") or "") and login.lower() in TRUSTED_REACTOR_BOTS and login != author_login
     ]
 
+    # Flatten the injected inline review threads into the review_comments shape the reviewer prompt
+    # consumes. Only UNRESOLVED threads reach the prompt (see _build_pr_data's docstring); the full
+    # list stays in the context. Each comment passes the same author-trust gate as reviews and
+    # discussion — an untrusted external commenter must not plant a fake maintainer hold, and
+    # stamphog's own prior comments must not feed back as third-party claims. Absent key -> empty, so
+    # the Action runtime (which doesn't pass it) is unaffected and the prompt renders no
+    # inline-comments section, exactly as before.
+    review_comments: list[dict] = []
+    for thread in context.get("review_threads") or []:
+        if thread.get("is_resolved"):
+            continue
+        for index, comment in enumerate(thread.get("comments") or []):
+            if not _prompt_worthy_author(
+                comment.get("author"), comment.get("author_association"), bool(comment.get("author_is_bot"))
+            ):
+                continue
+            # Real reply ids aren't carried in the lean shape; a truthy placeholder on the replies
+            # only marks reply-ness — the prompt's "(reply)" label and _summarize_assurance's
+            # "count threads (in_reply_to_id is None), not comments" semantic both key off it.
+            # Parity with the Action (github.py): only the TRUE thread root (index 0) may carry None.
+            # When the root is filtered (untrusted author, or stamphog's own finding), every survivor
+            # is a reply, so the thread contributes 0 to unresolved_threads — exactly like the Action,
+            # whose surviving replies keep their real non-None replyTo ids.
+            review_comments.append(
+                {
+                    "user": comment.get("author") or "ghost",
+                    "body": comment.get("body", ""),
+                    "path": thread.get("path", ""),
+                    "line": thread.get("line"),
+                    "in_reply_to_id": None if index == 0 else -1,
+                    "is_resolved": False,
+                    "is_outdated": bool(thread.get("is_outdated")),
+                    "reactions": [],
+                }
+            )
+
     return PRData(
         number=int(pr.get("number") or 0),
         repo=context.get("repo") or "",
@@ -162,7 +202,7 @@ def _build_pr_data(context: dict) -> PRData:
         head_sha=head_sha,
         files=files,
         reviews=_normalize_reviews_for_prompt(reviews, head_sha),
-        review_comments=[],
+        review_comments=review_comments,
         check_runs=context.get("check_runs") or [],
         author_is_bot=is_bot_author(user),
         pr_reactions=pr_reactions,

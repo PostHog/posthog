@@ -81,8 +81,8 @@ export const llmSkillsCreate = async (
     projectId: string,
     lLMSkillCreateApi: NonReadonly<LLMSkillCreateApi>,
     options?: RequestInit
-): Promise<LLMSkillCreateApi> => {
-    return apiMutator<LLMSkillCreateApi>(getLlmSkillsCreateUrl(projectId), {
+): Promise<LLMSkillApi> => {
+    return apiMutator<LLMSkillApi>(getLlmSkillsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

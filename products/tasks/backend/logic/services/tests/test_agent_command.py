@@ -320,6 +320,44 @@ class TestSendAgentCommand:
         assert "content filtering" in (result.error or "")
         assert not result.retryable
 
+    @patch("products.tasks.backend.logic.services.agent_command.validate_sandbox_url", return_value=None)
+    @patch("products.tasks.backend.logic.services.agent_command.requests.post")
+    def test_content_block_stream_error_is_retryable(self, mock_post, mock_validate):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {"code": -32603, "message": "Internal error: API Error: Content block not found"},
+        }
+        mock_post.return_value = mock_resp
+
+        task_run = self._make_task_run(sandbox_url="https://sandbox.modal.run/rpc")
+        result = send_agent_command(task_run, "user_message", params={"content": "hi"})
+
+        assert not result.success
+        assert result.retryable
+
+    @patch("products.tasks.backend.logic.services.agent_command.validate_sandbox_url", return_value=None)
+    @patch("products.tasks.backend.logic.services.agent_command.requests.post")
+    @pytest.mark.parametrize("message", [None, {}, []])
+    def test_malformed_jsonrpc_error_message_is_normalized(self, mock_post, mock_validate, message):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "error": {"code": -32603, "message": message},
+        }
+        mock_post.return_value = mock_resp
+
+        task_run = self._make_task_run(sandbox_url="https://sandbox.modal.run/rpc")
+        result = send_agent_command(task_run, "user_message", params={"content": "hi"})
+
+        assert not result.success
+        assert result.error == "Unknown agent error"
+        assert not result.retryable
+
 
 class TestSendUserMessage:
     @patch("products.tasks.backend.logic.services.agent_command.send_agent_command")
@@ -352,6 +390,21 @@ class TestSendUserMessage:
             timeout=15,
         )
         assert result.success
+
+    @patch("products.tasks.backend.logic.services.agent_command.send_agent_command")
+    def test_sends_steer_flag(self, mock_send):
+        mock_send.return_value = CommandResult(success=True, status_code=200)
+        task_run = MagicMock()
+
+        send_user_message(task_run, "change direction", steer=True)
+
+        mock_send.assert_called_once_with(
+            task_run,
+            method="user_message",
+            params={"content": "change direction", "steer": True},
+            auth_token=None,
+            timeout=15,
+        )
 
 
 class TestSendCancel:

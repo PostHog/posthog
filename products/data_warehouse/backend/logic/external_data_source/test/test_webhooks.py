@@ -277,7 +277,9 @@ class TestCreateAndRegisterWebhook:
         assert result.success is True
         assert result.webhook_url == hog_fn_result.webhook_url
         assert result.error is None
-        webhook_source.create_webhook.assert_called_once_with(config, hog_fn_result.webhook_url, team.id)
+        webhook_source.create_webhook.assert_called_once_with(
+            config, hog_fn_result.webhook_url, team.id, api_version=None
+        )
 
     def test_success_saves_extra_inputs_to_hog_function(self):
         _, team = _create_org_and_team()
@@ -396,7 +398,7 @@ class TestReconcileWebhookEvents:
 
         assert result.success is True
         webhook_source.sync_webhook_events.assert_called_once_with(
-            config, hog_fn_result.webhook_url, team.id, ["Customers"]
+            config, hog_fn_result.webhook_url, team.id, ["Customers"], api_version=None
         )
 
     def test_propagates_failure_without_raising(self):

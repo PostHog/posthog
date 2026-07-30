@@ -90,10 +90,13 @@ under "Tool-quality matrix".
 For one tool's top failure buckets (grouped by harness), call
 `posthog:query-mcp-tool-failures` with the `toolName` — it's the typed equivalent of the
 query below. Failures come from the **same source as the error rate**: errored
-`$mcp_tool_call` events (`$mcp_is_error`), scoped by the effective tool name. There is no
-free-text error message on tool calls, so failures are grouped by `$mcp_error_type` (a
-semantic bucket: `internal`, `validation`, `api_4xx`, `api_5xx`, `permission`, `timeout`,
-`rate_limited`, `missing_context`) and the HTTP `$mcp_error_status` when present:
+`$mcp_tool_call` events (`$mcp_is_error`), scoped by the effective tool name. Failures are
+grouped by `$mcp_error_type` (a semantic bucket: `internal`, `validation`, `api_4xx`,
+`api_5xx`, `permission`, `timeout`, `rate_limited`, `missing_context`) and the HTTP
+`$mcp_error_status` when present. To see individual errored calls inside a bucket — with
+the captured `$mcp_error_message`, session id, harness, and intent — pass the bucket's raw
+`error_type`/`error_status` to `posthog:query-mcp-tool-failure-occurrences`
+(`$mcp_error_message` is empty on events captured before message capture shipped):
 
 ```sql
 posthog:execute-sql

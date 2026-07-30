@@ -7,6 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.monday.mon
     ITEMS_PAGE_SIZE,
     PAGE_SIZE,
     MondayGraphQLError,
+    MondayRetryableError,
     get_rows,
     monday_source,
     validate_credentials,
@@ -71,6 +72,27 @@ class TestGetRowsPaged:
         mock_session.return_value.post.return_value = _response({}, errors=[{"message": "Field not found"}])
 
         with pytest.raises(MondayGraphQLError):
+            list(get_rows("token", "users", mock.MagicMock()))
+
+    @mock.patch("time.sleep")
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_internal_server_error_is_retried_then_succeeds(self, mock_session, _mock_sleep):
+        mock_session.return_value.post.side_effect = [
+            _response({}, errors=[{"message": "Internal Server Error"}]),
+            _response({"users": [{"id": "1"}]}),
+        ]
+
+        batches = list(get_rows("token", "users", mock.MagicMock()))
+
+        assert batches == [[{"id": "1"}]]
+        assert mock_session.return_value.post.call_count == 2
+
+    @mock.patch("time.sleep")
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_internal_server_error_raises_retryable_when_exhausted(self, mock_session, _mock_sleep):
+        mock_session.return_value.post.return_value = _response({}, errors=[{"message": "Internal Server Error"}])
+
+        with pytest.raises(MondayRetryableError):
             list(get_rows("token", "users", mock.MagicMock()))
 
     @mock.patch(f"{_MODULE}.make_tracked_session")

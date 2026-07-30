@@ -24,6 +24,14 @@ SLACK_APP_MENTION_IDLE_TIMEOUT_SECONDS = 30
 # stays small; old keys only matter for Slack retries, which arrive within
 # minutes of the original event.
 SLACK_APP_MENTION_MAX_PROCESSED_KEYS = 200
+# Temporal runs buffered signal handlers before run() starts, so dedup state seeded in
+# run() arrived too late: a redelivered Slack event signalled into the first workflow task
+# missed the dedup keys and started a duplicate child workflow. Seeding moved to __init__,
+# which runs first. That changes which child workflows an execution starts, so executions
+# that already recorded the old order keep replaying it through this patch. The patch can
+# be deleted once no pre-patch executions remain, which takes minutes because these
+# workflows complete after a 30 second idle timeout.
+SLACK_APP_MENTION_SEED_IN_INIT_PATCH = "slack-app-mention-seed-in-init"
 
 
 def derive_slack_app_mention_workflow_id(inputs: PostHogCodeSlackMentionWorkflowInputs) -> str | None:
@@ -68,13 +76,23 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
     deduped and gets processed again.
     """
 
-    def __init__(self) -> None:
-        self._queue: list[PostHogCodeSlackMentionWorkflowInputs] = []
+    @workflow.init
+    def __init__(self, inputs: SlackAppMentionWorkflowInputs) -> None:
         self._processing = False
         # Dedup for Slack event redeliveries: signals have no server-side
         # dedup the way per-message workflow IDs did. A dict, not a set, so
         # iteration order stays deterministic for the continue_as_new carry-over.
         self._seen_keys: dict[str, None] = {}
+        self._queue: list[PostHogCodeSlackMentionWorkflowInputs] = []
+        if workflow.patched(SLACK_APP_MENTION_SEED_IN_INIT_PATCH):
+            self._seed(inputs)
+
+    def _seed(self, inputs: SlackAppMentionWorkflowInputs) -> None:
+        for key in inputs.processed_event_keys:
+            self._seen_keys[key] = None
+        for message in inputs.pending_messages:
+            self._seen_keys.setdefault(derive_mention_workflow_id(message), None)
+            self._queue.append(message)
 
     @workflow.signal
     async def new_message(self, message: PostHogCodeSlackMentionWorkflowInputs) -> None:
@@ -158,11 +176,9 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: SlackAppMentionWorkflowInputs) -> None:
-        for key in inputs.processed_event_keys:
-            self._seen_keys[key] = None
-        for message in inputs.pending_messages:
-            self._seen_keys.setdefault(derive_mention_workflow_id(message), None)
-            self._queue.append(message)
+        # Executions that predate the patch recorded their seeding here, so they keep it.
+        if not workflow.patched(SLACK_APP_MENTION_SEED_IN_INIT_PATCH):
+            self._seed(inputs)
 
         while True:
             try:

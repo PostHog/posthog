@@ -9,9 +9,9 @@ from requests.exceptions import ChunkedEncodingError
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import ID, resolve_schema_name
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONFIGS
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.utils import (
@@ -26,7 +26,7 @@ from .constants import (
     SHOPIFY_ACCESS_TOKEN_GRANT,
     SHOPIFY_ACCESS_TOKEN_URL,
     SHOPIFY_API_URL,
-    SHOPIFY_API_VERSION,
+    SHOPIFY_API_VERSION_2026_07,
     SHOPIFY_DEFAULT_PAGE_SIZE,
     SHOPIFY_GRAPHQL_OBJECTS,
     SHOPIFY_PAGE_SIZE_OVERRIDES,
@@ -74,6 +74,18 @@ SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE = (
     "Shopify returned 402 Payment Required — your Shopify store appears to be frozen due to "
     "an unpaid bill. Settle your outstanding balance in Shopify to unfreeze the store, then "
     "the import will resume."
+)
+
+# 401 from the Admin API GraphQL endpoint itself (as opposed to the OAuth token endpoint
+# above) — the token was accepted when minted but is no longer valid for the store, e.g. the
+# app was uninstalled or the token revoked mid-sync. Re-minting on retry can't fix that, so
+# `ShopifySource.get_non_retryable_errors` matches on the stable status text (not the
+# per-store URL) to fail the job fast.
+SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH = "401 Client Error: Unauthorized"
+SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE = (
+    "Shopify rejected the request with 401 Unauthorized — your Shopify access token is no "
+    "longer valid, likely because the app was uninstalled or access was revoked. Please "
+    "reconnect your Shopify integration."
 )
 
 
@@ -384,10 +396,11 @@ def shopify_source(
     db_incremental_field_earliest_value: Any | None,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[ShopifyResumeConfig],
+    api_version: str = SHOPIFY_API_VERSION_2026_07,
     should_use_incremental_field: bool = False,
 ):
     store_id = normalize_store_id(shopify_store_id)
-    api_url = SHOPIFY_API_URL.format(store_id, SHOPIFY_API_VERSION)
+    api_url = SHOPIFY_API_URL.format(store_id, api_version)
     shopify_access_token = _get_shopify_access_token(store_id, shopify_client_id, shopify_client_secret)
     schema_name = resolve_schema_name(graphql_object_name)
 
@@ -512,9 +525,16 @@ def _format_graphql_errors(errors: Any) -> str:
     return str(errors)
 
 
-def _authenticated_session(store_id: str, client_id: str, client_secret: str) -> tuple[str, requests.Session]:
-    """Fetch an access token and return the GraphQL URL plus a session that carries it."""
-    api_url = SHOPIFY_API_URL.format(store_id, SHOPIFY_API_VERSION)
+def _authenticated_session(
+    store_id: str, client_id: str, client_secret: str, api_version: str = SHOPIFY_API_VERSION_2026_07
+) -> tuple[str, requests.Session]:
+    """Fetch an access token and return the GraphQL URL plus a session that carries it.
+
+    Shopify carries the version in the URL path, so callers that have a source pin must pass it:
+    a 2025-10-pinned source has to validate and probe permissions against 2025-10, not the
+    current default. Pre-creation callers omit it and get `default_version`.
+    """
+    api_url = SHOPIFY_API_URL.format(store_id, api_version)
     access_token = _get_shopify_access_token(store_id, client_id, client_secret)
     sess = make_tracked_session(headers={"Content-Type": "application/json", "X-Shopify-Access-Token": access_token})
     return api_url, sess
@@ -535,7 +555,11 @@ def _probe_resource_permission(api_url: str, sess: requests.Session, resource: S
 
 
 def validate_credentials(
-    shopify_store_id: str, shopify_client_id: str, shopify_client_secret: str, resources: list[str] | None = None
+    shopify_store_id: str,
+    shopify_client_id: str,
+    shopify_client_secret: str,
+    resources: list[str] | None = None,
+    api_version: str = SHOPIFY_API_VERSION_2026_07,
 ) -> bool:
     """Validate Shopify credentials.
 
@@ -545,7 +569,7 @@ def validate_credentials(
       naming any whose scope is missing.
     """
     store_id = normalize_store_id(shopify_store_id)
-    api_url, sess = _authenticated_session(store_id, shopify_client_id, shopify_client_secret)
+    api_url, sess = _authenticated_session(store_id, shopify_client_id, shopify_client_secret, api_version)
 
     # A valid token can always read the shop resource.
     try:
@@ -574,13 +598,17 @@ def validate_credentials(
 
 
 def check_endpoint_permissions(
-    shopify_store_id: str, shopify_client_id: str, shopify_client_secret: str, endpoints: list[str]
+    shopify_store_id: str,
+    shopify_client_id: str,
+    shopify_client_secret: str,
+    endpoints: list[str],
+    api_version: str = SHOPIFY_API_VERSION_2026_07,
 ) -> dict[str, str | None]:
     """Per-endpoint read-scope probe for the schema picker: {name: None} if reachable, else a
     message naming the missing scope. A throttle/5xx/transport blip on one endpoint leaves that
     table unknown rather than aborting the batch; only failing to obtain the access token raises."""
     store_id = normalize_store_id(shopify_store_id)
-    api_url, sess = _authenticated_session(store_id, shopify_client_id, shopify_client_secret)
+    api_url, sess = _authenticated_session(store_id, shopify_client_id, shopify_client_secret, api_version)
     results: dict[str, str | None] = {}
     for name in endpoints:
         resource = SHOPIFY_GRAPHQL_OBJECTS.get(resolve_schema_name(name))

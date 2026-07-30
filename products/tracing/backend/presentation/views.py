@@ -38,6 +38,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -48,10 +49,13 @@ from ..facade.api import (
     run_attribute_breakdown_query,
     run_count_query,
     run_duration_histogram_query,
+    run_latency_heatmap_query,
     run_symbol_stats_query,
 )
 from ..has_spans_query_runner import team_has_spans
 from ..logic import (
+    _ROW_LIMIT,
+    DEFAULT_AGGREGATION_ROW_LIMIT,
     TraceSpansQueryRunner,
     run_aggregation_query,
     run_attribute_names_query,
@@ -61,6 +65,20 @@ from ..logic import (
 )
 from ..sparkline_query_runner import TraceSpansSparklineQueryRunner
 from .date_window import normalize_tracing_date_range
+
+
+def _serialize_compare_rows(compare_rows: list | None) -> list[dict] | None:
+    """Serialize comparison-window rows for a response.
+
+    Preserves the difference between "comparison not requested" (`None`) and "comparison
+    requested but the window matched no spans" (`[]`). Collapsing the empty case to null
+    makes a successful comparison indistinguishable from one that never ran — the caller
+    reads it as the comparison being silently ignored.
+    """
+    if compare_rows is None:
+        return None
+    return [row.model_dump() for row in compare_rows]
+
 
 # Serializers below are used exclusively for OpenAPI spec generation via
 # drf-spectacular. They are NOT used for request validation — the existing
@@ -228,6 +246,36 @@ class _TracingDurationHistogramRequestSerializer(serializers.Serializer):
     query = _TracingDurationHistogramQueryBodySerializer(help_text="The duration-histogram query to execute.")
 
 
+class _TracingLatencyHeatmapRequestSerializer(serializers.Serializer):
+    query = _TracingDurationHistogramQueryBodySerializer(help_text="The latency-heatmap query to execute.")
+
+
+class _TracingLatencyHeatmapCellSerializer(serializers.Serializer):
+    time = serializers.CharField(help_text="ISO 8601 UTC start of the time bucket.")
+    bucket_ns = serializers.IntegerField(
+        help_text=(
+            "Lower edge of the 1-2-5 series duration bucket in nanoseconds (1ms, 2ms, 5ms, 10ms, ...). "
+            "0 on the sentinel row that enumerates a time bucket with no matching spans."
+        ),
+    )
+    count = serializers.IntegerField(
+        help_text=(
+            "Traces in this cell, bucketed by root-span duration (the default, rootSpans=true). "
+            "When rootSpans is false, every matching span is counted instead. 0 only on sentinel rows."
+        ),
+    )
+
+
+class _TracingLatencyHeatmapResponseSerializer(serializers.Serializer):
+    results = _TracingLatencyHeatmapCellSerializer(
+        many=True,
+        help_text=(
+            "Sparse heatmap cells ordered by time then duration bucket. Every time bucket in the "
+            "window appears in at least one row, so the full x axis can be derived from the response."
+        ),
+    )
+
+
 class _TracingSparklineQueryBodySerializer(_TracingTimeseriesQueryBodySerializer):
     rootSpans = serializers.BooleanField(
         required=False,
@@ -354,10 +402,61 @@ class _TracingAggregationQueryBodySerializer(serializers.Serializer):
         default=[],
         help_text="Property filters applied to spans in both windows.",
     )
+    limit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=_ROW_LIMIT,
+        help_text=(
+            f"Max rows to return, ordered by total_duration_nano DESC. Defaults to {DEFAULT_AGGREGATION_ROW_LIMIT}; "
+            f"hard max {_ROW_LIMIT}. Keep this small to bound the response size — a high value on high-cardinality "
+            "span names (e.g. untemplated URL paths) returns a very large payload. Prefer narrowing with "
+            "`serviceNames`/`filterGroup` over raising the limit."
+        ),
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text=(
+            "Row offset for pagination. Combine with `limit` and the `next_offset` returned in the response to page "
+            "through results beyond the first page."
+        ),
+    )
 
 
 class _TracingAggregationRequestSerializer(serializers.Serializer):
     query = _TracingAggregationQueryBodySerializer(help_text="The span aggregation query to execute.")
+
+
+class _AggregatedSpanRowSerializer(serializers.Serializer):
+    service_name = serializers.CharField(help_text="Service that emitted the spans in this group.")
+    name = serializers.CharField(help_text="Span name (operation) for this group.")
+    count = serializers.IntegerField(help_text="Number of spans matched in this group.")
+    total_duration_nano = serializers.FloatField(help_text="Sum of span durations in nanoseconds.")
+    avg_duration_nano = serializers.FloatField(help_text="Average span duration in nanoseconds.")
+    p50_duration_nano = serializers.FloatField(help_text="Median span duration in nanoseconds.")
+    p95_duration_nano = serializers.FloatField(help_text="95th percentile span duration in nanoseconds.")
+    p99_duration_nano = serializers.FloatField(help_text="99th percentile span duration in nanoseconds.")
+    p999_duration_nano = serializers.FloatField(help_text="99.9th percentile span duration in nanoseconds.")
+    error_count = serializers.IntegerField(help_text="Spans with OTel status code Error (status_code = 2).")
+
+
+class _TracingAggregationResponseSerializer(serializers.Serializer):
+    results = _AggregatedSpanRowSerializer(
+        many=True,
+        help_text="One row per (service_name, name) group, ordered by total_duration_nano descending.",
+    )
+    compare = _AggregatedSpanRowSerializer(
+        many=True,
+        allow_null=True,
+        help_text="Rows for the comparison window when compareFilter.compare is true, else null.",
+    )
+    has_more = serializers.BooleanField(
+        help_text="True when more rows exist beyond this page — page further with `next_offset`, or narrow the query."
+    )
+    next_offset = serializers.IntegerField(
+        allow_null=True,
+        help_text="Offset to request the next page, or null when this is the last page.",
+    )
 
 
 class _TracingAttributeBreakdownQueryBodySerializer(serializers.Serializer):
@@ -641,12 +740,35 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return filter_group
         return {"type": "AND", "values": []}
 
+    @staticmethod
+    def _parse_positive_int(value: object, default: int, *, minimum: int) -> int:
+        """Coerce an untrusted JSON value to an int no smaller than `minimum`, falling back to `default`."""
+        if not isinstance(value, int | str | float) or isinstance(value, bool):
+            return default
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return default
+        return max(minimum, parsed)
+
     def _report_usage(self, request: Request, event: str, properties: dict) -> None:
         # Usage telemetry must never turn a successful read into a 5xx, so swallow and record any failure.
         try:
             report_user_action(request.user, event, properties, team=self.team, request=request)
         except Exception as e:
             capture_exception(e)
+
+    def _parse_compare_filter(self, query_data: dict) -> CompareFilter | None:
+        """Parse an optional comparison window from the request body.
+
+        A malformed ``compareFilter`` raises (surfacing a 400), rather than being swallowed
+        into ``None`` — otherwise a caller that asked for a comparison gets a successful
+        response with ``compare: null`` and no hint that its filter was rejected.
+        """
+        compare_data = query_data.get("compareFilter")
+        if not compare_data:
+            return None
+        return self.get_model(compare_data, CompareFilter)
 
     @extend_schema(parameters=[_TracingServiceNamesQuerySerializer])
     @action(detail=False, methods=["GET"], url_path="service-names", required_scopes=["tracing:read"])
@@ -807,13 +929,26 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             else None
         )
 
-        response = run_count_query(
-            team=self.team,
-            date_range=date_range,
-            service_names=query_data.get("serviceNames", None),
-            status_codes=query_data.get("statusCodes", None),
-            filter_group=filter_group,
-        )
+        try:
+            response = run_count_query(
+                team=self.team,
+                date_range=date_range,
+                service_names=query_data.get("serviceNames", None),
+                status_codes=query_data.get("statusCodes", None),
+                filter_group=filter_group,
+            )
+        except CHQueryErrorTooManyBytes:
+            # The count is a bounded pre-flight; when it would scan past the byte cap we
+            # return an actionable 400 instead of surfacing an opaque 500 to the caller.
+            return Response(
+                {
+                    "detail": (
+                        "This count scans too much data to run as a pre-flight. Narrow the date "
+                        "range or add serviceNames, statusCodes, or filterGroup filters, then retry."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         report_user_action(
             request.user,
@@ -972,7 +1107,37 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         return Response({"results": response.results}, status=status.HTTP_200_OK)
 
-    @extend_schema(request=_TracingAggregationRequestSerializer)
+    @extend_schema(
+        request=_TracingLatencyHeatmapRequestSerializer,
+        responses={200: _TracingLatencyHeatmapResponseSerializer},
+    )
+    @action(detail=False, methods=["POST"], url_path="latency-heatmap", required_scopes=["tracing:read"])
+    def latency_heatmap(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        query_data = request.data.get("query", {}) or {}
+        date_range = self.get_model(normalize_tracing_date_range(query_data.get("dateRange")), DateRange)
+
+        try:
+            filter_group = (
+                self.get_model(self._normalize_filter_group(query_data["filterGroup"]), PropertyGroupFilter)
+                if query_data.get("filterGroup")
+                else None
+            )
+        except (ValidationError, ValueError, ParseError):
+            filter_group = None
+
+        response = run_latency_heatmap_query(
+            team=self.team,
+            date_range=date_range,
+            service_names=query_data.get("serviceNames", None),
+            status_codes=query_data.get("statusCodes", None),
+            filter_group=filter_group,
+            root_spans=query_data.get("rootSpans", True),
+        )
+
+        return Response({"results": response.results}, status=status.HTTP_200_OK)
+
+    @extend_schema(request=_TracingAggregationRequestSerializer, responses={200: _TracingAggregationResponseSerializer})
     @action(detail=False, methods=["POST"], url_path="aggregate", required_scopes=["tracing:read"])
     def aggregate(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
@@ -988,27 +1153,40 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except (ValidationError, ValueError, ParseError):
             filter_group = None
 
-        compare_filter: CompareFilter | None = None
-        compare_data = query_data.get("compareFilter")
-        if compare_data:
-            try:
-                compare_filter = self.get_model(compare_data, CompareFilter)
-            except (ValidationError, ValueError, ParseError):
-                compare_filter = None
+        compare_filter = self._parse_compare_filter(query_data)
 
+        # Bound the payload: default to a conservative page so agent/MCP callers don't pull the
+        # full high-cardinality tail. Callers opt into more via `limit`/`offset`.
+        limit = self._parse_positive_int(query_data.get("limit"), DEFAULT_AGGREGATION_ROW_LIMIT, minimum=1)
+        limit = min(limit, _ROW_LIMIT)
+        offset = self._parse_positive_int(query_data.get("offset"), 0, minimum=0)
+
+        # Over-fetch one row so we can report `has_more` without a separate count query.
         response = run_aggregation_query(
             team=self.team,
             date_range=date_range,
             compare_filter=compare_filter,
             filter_group=filter_group,
             service_names=query_data.get("serviceNames", None),
+            limit=min(limit + 1, _ROW_LIMIT),
+            offset=offset,
         )
+
+        results = list(response.results)
+        has_more = len(results) > limit
+        results = results[:limit]
+        # `None` when no comparison was requested, `[]` when it ran but matched no spans — keep them
+        # distinct so an empty baseline isn't reported as "comparison ignored".
+        compare_rows = list(response.compare)[:limit] if response.compare is not None else None
 
         self._report_usage(
             request,
             "tracing aggregation queried",
             {
-                "results_count": len(response.results),
+                "results_count": len(results),
+                "has_more": has_more,
+                "limit": limit,
+                "offset": offset,
                 "has_compare": bool(query_data.get("compareFilter")),
                 "has_filter_group": bool(query_data.get("filterGroup")),
                 "service_names_count": len(query_data.get("serviceNames") or []),
@@ -1017,8 +1195,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         return Response(
             {
-                "results": [row.model_dump() for row in response.results],
-                "compare": [row.model_dump() for row in (response.compare or [])] if response.compare else None,
+                "results": [row.model_dump() for row in results],
+                "compare": _serialize_compare_rows(compare_rows),
+                "has_more": has_more,
+                "next_offset": offset + limit if has_more else None,
             },
             status=status.HTTP_200_OK,
         )
@@ -1053,13 +1233,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except (ValidationError, ValueError, ParseError):
             filter_group = None
 
-        compare_filter: CompareFilter | None = None
-        compare_data = query_data.get("compareFilter")
-        if compare_data:
-            try:
-                compare_filter = self.get_model(compare_data, CompareFilter)
-            except (ValidationError, ValueError, ParseError):
-                compare_filter = None
+        compare_filter = self._parse_compare_filter(query_data)
 
         response = run_tree_query(
             team=self.team,
@@ -1074,7 +1248,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         return Response(
             {
                 "results": [row.model_dump() for row in response.results],
-                "compare": [row.model_dump() for row in (response.compare or [])] if response.compare else None,
+                "compare": _serialize_compare_rows(response.compare),
             },
             status=status.HTTP_200_OK,
         )
@@ -1130,13 +1304,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except (ValidationError, ValueError, ParseError):
             filter_group = None
 
-        compare_filter: CompareFilter | None = None
-        compare_data = query_data.get("compareFilter")
-        if compare_data:
-            try:
-                compare_filter = self.get_model(compare_data, CompareFilter)
-            except (ValidationError, ValueError, ParseError):
-                compare_filter = None
+        compare_filter = self._parse_compare_filter(query_data)
 
         response = run_attribute_breakdown_query(
             team=self.team,
@@ -1154,7 +1322,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         return Response(
             {
                 "results": [row.model_dump() for row in response.results],
-                "compare": [row.model_dump() for row in (response.compare or [])] if response.compare else None,
+                "compare": _serialize_compare_rows(response.compare),
             },
             status=status.HTTP_200_OK,
         )

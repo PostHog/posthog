@@ -8,6 +8,7 @@ import SignupReferralSource from 'lib/components/SignupReferralSource'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import passkeyLogo from 'lib/components/SocialLoginButton/passkey.svg'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
@@ -193,7 +194,6 @@ function SignupAuthPanel(): JSX.Element {
         signupPanelEmail,
         isSignupPanelAuthSubmitting,
         validatedPassword,
-        passkeySignupEnabled,
         passkeyRegistered,
         isPasskeyRegistering,
         passkeyError,
@@ -239,26 +239,25 @@ function SignupAuthPanel(): JSX.Element {
                     <span>{passkeyError}</span>
                 </div>
             )}
-            {passkeySignupEnabled &&
-                (passkeyRegistered ? (
-                    <div className="PaperDesk__note text-center py-3 px-3.5 text-xs leading-relaxed text-secondary bg-[#fbfbf9] border border-dashed border-[#c5c6bd] rounded">
-                        Passkey registered. Continue below.
-                    </div>
-                ) : (
-                    <LemonButton
-                        type="secondary"
-                        size="large"
-                        fullWidth
-                        icon={<img src={passkeyLogo} alt="Passkey" className="object-contain w-7 h-7" />}
-                        onClick={registerPasskey}
-                        loading={isPasskeyRegistering}
-                        disabled={isPasskeyRegistering}
-                        data-attr="signup-passkey"
-                        center
-                    >
-                        Sign up with a passkey
-                    </LemonButton>
-                ))}
+            {passkeyRegistered ? (
+                <div className="PaperDesk__note text-center py-3 px-3.5 text-xs leading-relaxed text-secondary bg-[#fbfbf9] border border-dashed border-[#c5c6bd] rounded">
+                    Passkey registered. Continue below.
+                </div>
+            ) : (
+                <LemonButton
+                    type="secondary"
+                    size="large"
+                    fullWidth
+                    icon={<img src={passkeyLogo} alt="Passkey" className="object-contain w-7 h-7" />}
+                    onClick={registerPasskey}
+                    loading={isPasskeyRegistering}
+                    disabled={isPasskeyRegistering}
+                    data-attr="signup-passkey"
+                    center
+                >
+                    Sign up with a passkey
+                </LemonButton>
+            )}
             {!passkeyRegistered && (
                 <div className="my-4 flex gap-3 items-center">
                     <span className="flex-1 h-px bg-[#e0e1d9]" />
@@ -325,6 +324,7 @@ function SignupProfilePanel(): JSX.Element {
     } = useValues(signupLogic)
     const { preflight } = useValues(preflightLogic)
     const { setTurnstileToken, setPanel } = useActions(signupLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
     const submitLabel = !preflight?.demo
         ? 'Create account'
@@ -374,6 +374,26 @@ function SignupProfilePanel(): JSX.Element {
             {signupPanelOnboardingManualErrors?.generic && (
                 <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
                     <span>{signupPanelOnboardingManualErrors.generic.detail || 'Could not complete your signup.'}</span>
+                    {preflight?.cloud && (
+                        <>
+                            {' '}
+                            <Link
+                                data-attr="login-error-contact-support"
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    openSupportForm({
+                                        kind: 'support',
+                                        target_area: 'login',
+                                        email: signupPanelEmail.email,
+                                    })
+                                }}
+                                className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                            >
+                                Contact us
+                            </Link>{' '}
+                            <span>to resolve this.</span>
+                        </>
+                    )}
                 </div>
             )}
             <Form

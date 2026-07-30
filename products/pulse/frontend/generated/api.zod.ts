@@ -27,6 +27,8 @@ export const pulseBriefConfigsCreateBodySettingsOneConfidenceThresholdMax = 1
 
 export const pulseBriefConfigsCreateBodySettingsOneMaxOpportunitiesMax = 20
 
+export const pulseBriefConfigsCreateBodySettingsOneMaxAnnotationsMax = 100
+
 export const PulseBriefConfigsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(pulseBriefConfigsCreateBodyNameMax).describe('Human-readable name for this brief focus.'),
     focus_prompt: zod
@@ -86,6 +88,12 @@ export const PulseBriefConfigsCreateBody = /* @__PURE__ */ zod.object({
                 .max(pulseBriefConfigsCreateBodySettingsOneMaxOpportunitiesMax)
                 .optional()
                 .describe('Maximum opportunities kept per brief. Default 3.'),
+            max_annotations: zod
+                .number()
+                .min(1)
+                .max(pulseBriefConfigsCreateBodySettingsOneMaxAnnotationsMax)
+                .optional()
+                .describe('Maximum annotations gathered as context per brief. Default 20.'),
         })
         .optional()
         .describe('Per-config tunables overriding the system defaults. Omitted knobs keep their default.'),
@@ -115,6 +123,8 @@ export const pulseBriefConfigsUpdateBodySettingsOneConfidenceThresholdMin = 0
 export const pulseBriefConfigsUpdateBodySettingsOneConfidenceThresholdMax = 1
 
 export const pulseBriefConfigsUpdateBodySettingsOneMaxOpportunitiesMax = 20
+
+export const pulseBriefConfigsUpdateBodySettingsOneMaxAnnotationsMax = 100
 
 export const PulseBriefConfigsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(pulseBriefConfigsUpdateBodyNameMax).describe('Human-readable name for this brief focus.'),
@@ -175,6 +185,12 @@ export const PulseBriefConfigsUpdateBody = /* @__PURE__ */ zod.object({
                 .max(pulseBriefConfigsUpdateBodySettingsOneMaxOpportunitiesMax)
                 .optional()
                 .describe('Maximum opportunities kept per brief. Default 3.'),
+            max_annotations: zod
+                .number()
+                .min(1)
+                .max(pulseBriefConfigsUpdateBodySettingsOneMaxAnnotationsMax)
+                .optional()
+                .describe('Maximum annotations gathered as context per brief. Default 20.'),
         })
         .optional()
         .describe('Per-config tunables overriding the system defaults. Omitted knobs keep their default.'),
@@ -204,6 +220,8 @@ export const pulseBriefConfigsPartialUpdateBodySettingsOneConfidenceThresholdMin
 export const pulseBriefConfigsPartialUpdateBodySettingsOneConfidenceThresholdMax = 1
 
 export const pulseBriefConfigsPartialUpdateBodySettingsOneMaxOpportunitiesMax = 20
+
+export const pulseBriefConfigsPartialUpdateBodySettingsOneMaxAnnotationsMax = 100
 
 export const PulseBriefConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -268,6 +286,12 @@ export const PulseBriefConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .max(pulseBriefConfigsPartialUpdateBodySettingsOneMaxOpportunitiesMax)
                 .optional()
                 .describe('Maximum opportunities kept per brief. Default 3.'),
+            max_annotations: zod
+                .number()
+                .min(1)
+                .max(pulseBriefConfigsPartialUpdateBodySettingsOneMaxAnnotationsMax)
+                .optional()
+                .describe('Maximum annotations gathered as context per brief. Default 20.'),
         })
         .optional()
         .describe('Per-config tunables overriding the system defaults. Omitted knobs keep their default.'),

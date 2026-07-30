@@ -41,12 +41,13 @@ export interface RelatedFlagsFilters {
 export interface relatedFeatureFlagsLogicValues {
     featureFlags: FeatureFlagsResult // featureFlagsLogic
     featureFlagsLoading: boolean // featureFlagsLogic
-    pagination: PaginationManual // featureFlagsLogic
     currentProjectId: number | null // projectLogic
     filteredMappedFlags: RelatedFeatureFlag[]
     filters: Partial<RelatedFlagsFilters>
     isLoading: boolean
+    loadError: boolean
     mappedRelatedFeatureFlags: RelatedFeatureFlag[]
+    pagination: PaginationManual | undefined
     relatedFeatureFlags: RelatedFeatureFlagResponse | null
     relatedFeatureFlagsLoading: boolean
     searchTerm: string
@@ -117,6 +118,7 @@ export interface relatedFeatureFlagsLogicMeta {
             mappedRelatedFeatureFlags: RelatedFeatureFlag[],
             filters: Partial<RelatedFlagsFilters>
         ) => RelatedFeatureFlag[]
+        pagination: (pagination: PaginationManual, loadError: boolean) => PaginationManual | undefined
     }
 }
 
@@ -138,12 +140,7 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
     ),
     key((props) => `${props.distinctId}`),
     connect(() => ({
-        values: [
-            projectLogic,
-            ['currentProjectId'],
-            featureFlagsLogic,
-            ['featureFlags', 'pagination', 'featureFlagsLoading'],
-        ],
+        values: [projectLogic, ['currentProjectId'], featureFlagsLogic, ['featureFlags', 'featureFlagsLoading']],
         actions: [featureFlagsLogic, ['setFeatureFlagsFilters', 'loadFeatureFlags']],
     })),
     actions({
@@ -187,6 +184,16 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
                     }
                     return { ...state, ...filters }
                 },
+            },
+        ],
+        // Track whether the evaluation_reasons request failed so the table can show a
+        // retry affordance instead of rendering as an empty (looks like "no flags") list.
+        loadError: [
+            false,
+            {
+                loadRelatedFeatureFlags: () => false,
+                loadRelatedFeatureFlagsSuccess: () => false,
+                loadRelatedFeatureFlagsFailure: () => true,
             },
         ],
     }),
@@ -242,6 +249,15 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
                 }
                 return filteredFlags
             },
+        ],
+        // The flags list is server-paginated (100 per page) and this table pages through it via
+        // the `page` URL param (see urlToAction below), so it reuses featureFlagsLogic's
+        // controlled pagination. Suppress it while the evaluation_reasons load has failed —
+        // otherwise the controls advertise the full flags count next to an empty error state.
+        pagination: [
+            () => [featureFlagsLogic.selectors.pagination, selectors.loadError],
+            (pagination: PaginationManual, loadError: boolean): PaginationManual | undefined =>
+                loadError ? undefined : pagination,
         ],
     })),
     listeners(({ values, actions }) => ({

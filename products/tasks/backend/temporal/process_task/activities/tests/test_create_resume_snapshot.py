@@ -39,7 +39,12 @@ def test_create_directory_resume_snapshot_uses_tmp_mount_path(activity_environme
             "snapshot_kind": SNAPSHOT_KIND_DIRECTORY,
             "snapshot_mount_path": DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
         },
-        remove_keys=["pending_user_message", "pending_user_artifact_ids", "pending_user_message_ts"],
+        remove_keys=[
+            "pending_user_message",
+            "pending_user_artifact_ids",
+            "pending_user_message_id",
+            "pending_user_message_ts",
+        ],
     )
     assert output.external_id == "im-dir"
     assert output.snapshot_kind == SNAPSHOT_KIND_DIRECTORY

@@ -18,9 +18,9 @@ from posthog.hogql.database.models import (
     LazyJoinToAdd,
     LazyTable,
     LazyTableToAdd,
-    StringDatabaseField,
     StringJSONDatabaseField,
     Table,
+    UUIDDatabaseField,
 )
 from posthog.hogql.database.schema.persons_pdi import PersonsPDITable
 from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from posthog.models.organization import Organization
 
 PERSONS_FIELDS: dict[str, FieldOrTable] = {
-    "id": StringDatabaseField(
+    "id": UUIDDatabaseField(
         name="id", nullable=False, description="Stable person identifier; join target for `events.person_id`."
     ),
     "created_at": DateTimeDatabaseField(

@@ -131,12 +131,53 @@ describe('subscriptionLogic', () => {
         })
     })
 
+    it('preselects an AI prompt report from the new-subscription URL', async () => {
+        router.actions.push('/insights/123/subscriptions/new?resource_type=ai_prompt')
+
+        await expectLogic(newLogic).toFinishListeners()
+
+        expect(newLogic.values.subscription.resource_type).toBe('ai_prompt')
+    })
+
     it('sets the type from query params', async () => {
         router.actions.push('/insights/123/subscriptions/new?target_type=slack')
         await expectLogic(newLogic).toFinishListeners()
         expect(newLogic.values.subscription).toMatchObject({
             target_type: 'slack',
         })
+    })
+
+    // Products deep-link here with a ready-made report (the MCP analytics recurring-report cards),
+    // so dropping this prefill would silently open an empty form and lose the whole one-click flow.
+    it('prefills a ready-made AI report from the parent-less new-subscription URL', async () => {
+        const promptLogic = subscriptionLogic({ id: 'new' })
+        promptLogic.mount()
+
+        router.actions.push(
+            '/subscriptions/new?resource_type=ai_prompt&prompt=Rank%20what%20agents%20asked%20for&title=MCP%20intent%20roundup&frequency=weekly&target_type=slack'
+        )
+        await expectLogic(promptLogic).toFinishListeners()
+
+        expect(promptLogic.values.subscription).toMatchObject({
+            resource_type: 'ai_prompt',
+            prompt: 'Rank what agents asked for',
+            title: 'MCP intent roundup',
+            frequency: 'weekly',
+            target_type: 'slack',
+        })
+    })
+
+    it.each([
+        ['an unsupported frequency', 'frequency=hourly', 'frequency', 'weekly'],
+        ['a blank prompt', 'prompt=', 'prompt', undefined],
+    ])('ignores %s in the prefill', async (_label, search, field, expected) => {
+        const promptLogic = subscriptionLogic({ id: 'new' })
+        promptLogic.mount()
+
+        router.actions.push(`/subscriptions/new?${search}`)
+        await expectLogic(promptLogic).toFinishListeners()
+
+        expect(promptLogic.values.subscription[field as 'frequency' | 'prompt']).toBe(expected)
     })
 
     it.each<[string, string, string]>([
@@ -231,7 +272,7 @@ describe('subscriptionLogic', () => {
         router.actions.push(`/dashboard/9/subscriptions/new${search}`)
         await expectLogic(testLogic).toFinishListeners()
 
-        testLogic.actions.applyInsightSelectionDefaults([101, 102])
+        testLogic.actions.applyDefaultSelectedInsights([101, 102])
         await expectLogic(testLogic).toFinishListeners()
 
         expect(testLogic.values.subscription.dashboard_export_insights).toEqual([101, 102])

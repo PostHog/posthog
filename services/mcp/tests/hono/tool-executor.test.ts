@@ -288,13 +288,16 @@ describe('ToolExecutor', () => {
             expect(result.tools.map((t) => t.name)).toEqual(['exec', 'render-ui'])
 
             // The advertised schema is derived from the zod validation schema —
-            // pin the contract the agent writes calls against.
+            // pin the contract the agent writes calls against. The analytics
+            // client injects a required `context` intent parameter into every
+            // advertised tool (surfaced as `$mcp_intent`).
             const renderUiEntry = result.tools[1]!
             const properties = renderUiEntry.inputSchema.properties as Record<string, Record<string, unknown>>
             expect(properties.tool_name!.enum).toEqual(['survey-get'])
             expect(properties.tool_name!.description).toBeTruthy()
             expect(properties.tool_input!.description).toBeTruthy()
-            expect(renderUiEntry.inputSchema.required).toEqual(['tool_name'])
+            expect(properties.context!.description).toBeTruthy()
+            expect(renderUiEntry.inputSchema.required).toEqual(['tool_name', 'context'])
         })
 
         it('omits render-ui when render-ui is disabled, even with a UI-app tool available', async () => {

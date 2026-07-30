@@ -14,14 +14,18 @@ pub use column_families::{
     CF_META, CF_PENDING_TRANSFERS, CF_PERSON_RECORDS, CF_STAGE2,
 };
 pub use handle::{OffloadConfig, OffloadMode, ReadLane, StoreHandle};
-pub use keys::{MergeAppliedKey, MergeDrainKey, PendingTransferKey, Stage2Key, TombstoneKey};
+pub use keys::{
+    MergeAppliedKey, MergeDrainKey, PendingTransferKey, Stage2CohortPrefix, Stage2DirtyKey,
+    Stage2DirtyPrefix, Stage2Key, Stage2TransferredRegisterKey,
+    Stage2TransferredRegisterPersonPrefix, TombstoneKey,
+};
 pub use keyspace::{
     Behavioral, BehavioralKey, Keyspace, Meta, MetaKey, PersonPrefix, PersonRecordKey,
     PersonRecords,
 };
 pub use rocks::{
-    BatchBuilder, CfStats, CohortStore, EventSnapshotRaw, StoreConfig, StoreError, StoreStats,
-    STORE_SCHEMA_VERSION,
+    BatchBuilder, CfStats, CohortStore, EventSnapshotRaw, Stage2DirtyTrackingGuard, StoreConfig,
+    StoreError, StoreStats, STORE_SCHEMA_VERSION,
 };
 pub use staged::StagedBatch;
 
