@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
@@ -64,6 +64,29 @@ UNSET = _Unset()
 
 
 @dataclass(frozen=True)
+class _DatasetItemContent:
+    input: JSONValue
+    expected_output: JSONValue
+    source_output: JSONValue
+    metadata: dict[str, JSONValue]
+    source_trace_id: str | None
+    source_event_id: str | None
+    source_timestamp: datetime | None
+
+    @classmethod
+    def from_version(cls, version: DatasetItemVersion) -> _DatasetItemContent:
+        return cls(
+            input=version.input,
+            expected_output=version.expected_output,
+            source_output=version.source_output,
+            metadata=version.metadata,
+            source_trace_id=version.source_trace_id,
+            source_event_id=version.source_event_id,
+            source_timestamp=version.source_timestamp,
+        )
+
+
+@dataclass(frozen=True)
 class DatasetItemMutationResult:
     item: DatasetItem
     version: DatasetItemVersion
@@ -120,39 +143,35 @@ def _validate_dataset_fields(*, name: str, description: str, metadata: dict[str,
 
 def _validate_item_content(
     *,
-    input: JSONValue,
-    expected_output: JSONValue,
-    source_output: JSONValue,
-    metadata: dict[str, JSONValue],
-    source_trace_id: str | None,
-    source_event_id: str | None,
-    source_timestamp: datetime | None,
+    content: _DatasetItemContent,
 ) -> None:
-    if input is None:
+    if content.input is None:
         raise DatasetValidationError("input", "Input cannot be null.")
 
-    _validate_metadata(metadata)
+    _validate_metadata(content.metadata)
 
-    if source_trace_id == "":
+    if content.source_trace_id == "":
         raise DatasetValidationError("source_trace_id", "Source trace ID cannot be blank.")
-    if source_event_id == "":
+    if content.source_event_id == "":
         raise DatasetValidationError("source_event_id", "Source event ID cannot be blank.")
-    if source_trace_id is not None and len(source_trace_id) > MAX_SOURCE_ID_LENGTH:
+    if content.source_trace_id is not None and len(content.source_trace_id) > MAX_SOURCE_ID_LENGTH:
         raise DatasetValidationError(
             "source_trace_id",
             f"Source trace IDs must be {MAX_SOURCE_ID_LENGTH} characters or fewer.",
         )
-    if source_event_id is not None and len(source_event_id) > MAX_SOURCE_ID_LENGTH:
+    if content.source_event_id is not None and len(content.source_event_id) > MAX_SOURCE_ID_LENGTH:
         raise DatasetValidationError(
             "source_event_id",
             f"Source event IDs must be {MAX_SOURCE_ID_LENGTH} characters or fewer.",
         )
-    if source_trace_id is None and (source_event_id is not None or source_timestamp is not None):
+    if content.source_trace_id is None and (
+        content.source_event_id is not None or content.source_timestamp is not None
+    ):
         raise DatasetValidationError(
             "source_trace_id",
             "Provide a source trace ID when using a source event ID or timestamp.",
         )
-    if source_trace_id is not None and source_timestamp is None:
+    if content.source_trace_id is not None and content.source_timestamp is None:
         raise DatasetValidationError(
             "source_timestamp",
             "Provide the source timestamp when using a source trace ID.",
@@ -160,13 +179,25 @@ def _validate_item_content(
 
     _json_size(
         {
-            "input": input,
-            "expected_output": expected_output,
-            "source_output": source_output,
-            "metadata": metadata,
+            "input": content.input,
+            "expected_output": content.expected_output,
+            "source_output": content.source_output,
+            "metadata": content.metadata,
         },
         field="item",
         limit=MAX_DATASET_ITEM_PAYLOAD_BYTES,
+    )
+
+
+def _item_contents_equal(left: _DatasetItemContent, right: _DatasetItemContent) -> bool:
+    return (
+        _json_values_equal(left.input, right.input)
+        and _json_values_equal(left.expected_output, right.expected_output)
+        and _json_values_equal(left.source_output, right.source_output)
+        and _json_values_equal(left.metadata, right.metadata)
+        and left.source_trace_id == right.source_trace_id
+        and left.source_event_id == right.source_event_id
+        and left.source_timestamp == right.source_timestamp
     )
 
 
@@ -250,13 +281,7 @@ def _create_item_version(
     created_by: User | None,
     version_number: int,
     archived: bool,
-    input: JSONValue,
-    expected_output: JSONValue,
-    source_output: JSONValue,
-    metadata: dict[str, JSONValue],
-    source_trace_id: str | None,
-    source_event_id: str | None,
-    source_timestamp: datetime | None,
+    content: _DatasetItemContent,
 ) -> DatasetItemVersion:
     revision = _create_revision(dataset=dataset, created_by=created_by)
     version = DatasetItemVersion.objects.for_team(dataset.team_id, canonical=True).create(
@@ -265,13 +290,13 @@ def _create_item_version(
         dataset_revision=revision,
         version=version_number,
         archived=archived,
-        input=input,
-        expected_output=expected_output,
-        source_output=source_output,
-        metadata=metadata,
-        source_trace_id=source_trace_id,
-        source_event_id=source_event_id,
-        source_timestamp=source_timestamp,
+        input=content.input,
+        expected_output=content.expected_output,
+        source_output=content.source_output,
+        metadata=content.metadata,
+        source_trace_id=content.source_trace_id,
+        source_event_id=content.source_event_id,
+        source_timestamp=content.source_timestamp,
         created_by=created_by,
     )
 
@@ -389,8 +414,7 @@ def create_dataset_item(
     source_timestamp: datetime | None = None,
 ) -> DatasetItemMutationResult:
     normalized_metadata = metadata if metadata is not None else {}
-    _validate_external_id(external_id)
-    _validate_item_content(
+    content = _DatasetItemContent(
         input=input,
         expected_output=expected_output,
         source_output=source_output,
@@ -399,6 +423,8 @@ def create_dataset_item(
         source_event_id=source_event_id,
         source_timestamp=source_timestamp,
     )
+    _validate_external_id(external_id)
+    _validate_item_content(content=content)
 
     dataset = _lock_dataset(team_id=team_id, dataset_id=dataset_id)
     if dataset.archived:
@@ -416,15 +442,8 @@ def create_dataset_item(
         )
         if existing_item is not None:
             current_version = _current_item_version(dataset=dataset, item=existing_item)
-            if (
-                not current_version.archived
-                and _json_values_equal(current_version.input, input)
-                and _json_values_equal(current_version.expected_output, expected_output)
-                and _json_values_equal(current_version.source_output, source_output)
-                and _json_values_equal(current_version.metadata, normalized_metadata)
-                and current_version.source_trace_id == source_trace_id
-                and current_version.source_event_id == source_event_id
-                and current_version.source_timestamp == source_timestamp
+            if not current_version.archived and _item_contents_equal(
+                _DatasetItemContent.from_version(current_version), content
             ):
                 return DatasetItemMutationResult(
                     item=existing_item,
@@ -450,13 +469,7 @@ def create_dataset_item(
         created_by=created_by,
         version_number=1,
         archived=False,
-        input=input,
-        expected_output=expected_output,
-        source_output=source_output,
-        metadata=normalized_metadata,
-        source_trace_id=source_trace_id,
-        source_event_id=source_event_id,
-        source_timestamp=source_timestamp,
+        content=content,
     )
     return DatasetItemMutationResult(item=item, version=version)
 
@@ -490,24 +503,16 @@ def update_dataset_item(
             current_item_id=item.id,
         )
 
-    next_input = current_version.input if isinstance(input, _Unset) else input
-    next_expected_output = current_version.expected_output if isinstance(expected_output, _Unset) else expected_output
-    next_metadata = current_version.metadata if isinstance(metadata, _Unset) else metadata
-    _validate_item_content(
-        input=next_input,
-        expected_output=next_expected_output,
-        source_output=current_version.source_output,
-        metadata=next_metadata,
-        source_trace_id=current_version.source_trace_id,
-        source_event_id=current_version.source_event_id,
-        source_timestamp=current_version.source_timestamp,
+    current_content = _DatasetItemContent.from_version(current_version)
+    next_content = replace(
+        current_content,
+        input=current_content.input if isinstance(input, _Unset) else input,
+        expected_output=current_content.expected_output if isinstance(expected_output, _Unset) else expected_output,
+        metadata=current_content.metadata if isinstance(metadata, _Unset) else metadata,
     )
+    _validate_item_content(content=next_content)
 
-    if (
-        _json_values_equal(current_version.input, next_input)
-        and _json_values_equal(current_version.expected_output, next_expected_output)
-        and _json_values_equal(current_version.metadata, next_metadata)
-    ):
+    if _item_contents_equal(current_content, next_content):
         return DatasetItemMutationResult(
             item=item,
             version=current_version,
@@ -520,13 +525,7 @@ def update_dataset_item(
         created_by=created_by,
         version_number=current_version.version + 1,
         archived=False,
-        input=next_input,
-        expected_output=next_expected_output,
-        source_output=current_version.source_output,
-        metadata=next_metadata,
-        source_trace_id=current_version.source_trace_id,
-        source_event_id=current_version.source_event_id,
-        source_timestamp=current_version.source_timestamp,
+        content=next_content,
     )
     return DatasetItemMutationResult(item=item, version=version)
 
@@ -563,13 +562,7 @@ def archive_dataset_item(
         created_by=created_by,
         version_number=current_version.version + 1,
         archived=True,
-        input=current_version.input,
-        expected_output=current_version.expected_output,
-        source_output=current_version.source_output,
-        metadata=current_version.metadata,
-        source_trace_id=current_version.source_trace_id,
-        source_event_id=current_version.source_event_id,
-        source_timestamp=current_version.source_timestamp,
+        content=_DatasetItemContent.from_version(current_version),
     )
     return DatasetItemMutationResult(item=item, version=version)
 
@@ -614,12 +607,6 @@ def restore_dataset_item(
         created_by=created_by,
         version_number=current_version.version + 1,
         archived=False,
-        input=restored_version.input,
-        expected_output=restored_version.expected_output,
-        source_output=restored_version.source_output,
-        metadata=restored_version.metadata,
-        source_trace_id=restored_version.source_trace_id,
-        source_event_id=restored_version.source_event_id,
-        source_timestamp=restored_version.source_timestamp,
+        content=_DatasetItemContent.from_version(restored_version),
     )
     return DatasetItemMutationResult(item=item, version=version)

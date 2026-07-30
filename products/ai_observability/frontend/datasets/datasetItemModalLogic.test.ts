@@ -1,12 +1,24 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
+import { ApiError } from 'lib/api-error'
+
 import { initKeaTests } from '~/test/init'
 
+import { CodeEnumApi } from '../generated/api.schemas'
 import type { DatasetItemReadApi as DatasetItem } from '../generated/api.schemas'
 import { datasetItemModalLogic } from './datasetItemModalLogic'
 import { datasetsApi } from './datasetsApi'
 import { EMPTY_JSON, isStringJsonValue } from './utils'
 
+jest.mock('@posthog/lemon-ui', () => ({
+    ...jest.requireActual('@posthog/lemon-ui'),
+    lemonToast: {
+        error: jest.fn(),
+        success: jest.fn(),
+    },
+}))
 jest.mock('./datasetsApi', () => ({
     datasetsApi: {
         createItem: jest.fn(),
@@ -136,6 +148,42 @@ describe('datasetItemModalLogic', () => {
             expected_output: mockDatasetItem.expected_output,
             metadata: mockDatasetItem.metadata,
         })
+        expect(mockCloseModal).toHaveBeenCalledWith(true)
+    })
+
+    it('offers to reload an item when editing an outdated version', async () => {
+        const errorDetail = 'This dataset item changed after it was loaded. Reload it and try again.'
+        mockDatasetsApi.updateItem.mockRejectedValue(
+            new ApiError(errorDetail, 409, undefined, {
+                code: CodeEnumApi.StaleVersion,
+                detail: errorDetail,
+                current_version: 2,
+            })
+        )
+        const logic = datasetItemModalLogic({
+            datasetId: 'test-dataset-1',
+            partialDatasetItem: mockDatasetItem,
+            closeModal: mockCloseModal,
+            isModalOpen: true,
+        })
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.submitDatasetItemForm()
+        }).toFinishAllListeners()
+
+        expect(lemonToast.error).toHaveBeenCalledWith(errorDetail, {
+            button: {
+                label: 'Reload item',
+                action: expect.any(Function),
+            },
+        })
+
+        const toastOptions = (lemonToast.error as jest.Mock).mock.calls.at(-1)?.[1] as {
+            button: { action: () => void }
+        }
+        toastOptions.button.action()
+
         expect(mockCloseModal).toHaveBeenCalledWith(true)
     })
 

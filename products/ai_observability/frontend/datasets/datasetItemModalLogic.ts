@@ -4,6 +4,9 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api-error'
+
+import { CodeEnumApi } from '../generated/api.schemas'
 import type { DatasetItemCreateApi, DatasetItemReadApi } from '../generated/api.schemas'
 import { datasetsApi } from './datasetsApi'
 import {
@@ -24,18 +27,11 @@ export interface DatasetItemModalLogicProps {
     isModalOpen: boolean
 }
 
-export enum DatasetTab {
-    Items = 'items',
-    Metadata = 'metadata',
-}
-
 export interface DatasetItemFormValues {
     input: string | null
     expectedOutput: string | null
     metadata: string | null
 }
-
-export const DATASET_ITEMS_PER_PAGE = 50
 
 const FORM_DEFAULT_VALUE: DatasetItemFormValues = {
     input: EMPTY_JSON,
@@ -196,8 +192,24 @@ export const datasetItemModalLogic = kea<datasetItemModalLogicType>([
                         actions.setDatasetItemFormValues(getDatasetItemFormDefaults(updatedItem))
                     }
                 } catch (error) {
-                    console.error(error)
-                    lemonToast.error('Failed to save a dataset item.')
+                    if (error instanceof ApiError && error.code === CodeEnumApi.StaleVersion) {
+                        lemonToast.error(
+                            error.detail || 'This dataset item changed after it was loaded. Reload it and try again.',
+                            {
+                                button: {
+                                    label: 'Reload item',
+                                    action: () => props.closeModal(true),
+                                },
+                            }
+                        )
+                        return
+                    }
+
+                    lemonToast.error(
+                        error instanceof ApiError && error.detail
+                            ? error.detail
+                            : "Couldn't save dataset item. Try again."
+                    )
                 }
             },
         },
@@ -226,7 +238,7 @@ export function isStoredDatasetItem(item?: DatasetItemModalValue | null): item i
     return !!item && 'id' in item
 }
 
-export function getDatasetItemFormDefaults(partialDatasetItem: DatasetItemModalValue): DatasetItemFormValues {
+function getDatasetItemFormDefaults(partialDatasetItem: DatasetItemModalValue): DatasetItemFormValues {
     return {
         input: prettifyJson(partialDatasetItem.input) || EMPTY_JSON,
         expectedOutput: prettifyJson(partialDatasetItem.expected_output) || '',

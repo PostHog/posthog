@@ -21127,14 +21127,11 @@ export namespace Schemas {
     }
 
     /**
-     * Input supplied to the system under test. Any non-null JSON value is accepted.
-     */
-    export type DatasetItemCreateInput = { [key: string]: unknown } | unknown[] | string | number | boolean;
-
-    /**
      * Optional JSON object with item metadata.
      */
     export type DatasetItemCreateMetadata = { [key: string]: unknown };
+
+    export type DatasetJSONValue = { [key: string]: unknown } | unknown[] | string | number | boolean;
 
     export interface DatasetItemCreate {
       /** Dataset that will own the item. */
@@ -21146,11 +21143,11 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /** Input supplied to the system under test. Any non-null JSON value is accepted. */
-      input: DatasetItemCreateInput;
+      input: DatasetJSONValue;
       /** Optional user-authored expected output. */
-      expected_output?: unknown;
+      expected_output?: DatasetJSONValue | null;
       /** Optional actual output captured from the source trace. */
-      source_output?: unknown;
+      source_output?: DatasetJSONValue | null;
       /** Optional JSON object with item metadata. */
       metadata?: DatasetItemCreateMetadata;
       /**
@@ -21171,11 +21168,6 @@ export namespace Schemas {
          */
       source_timestamp?: string | null;
     }
-
-    /**
-     * Input supplied to the system under test.
-     */
-    export type DatasetItemReadInput = { [key: string]: unknown } | unknown[] | string | number | boolean;
 
     /**
      * JSON object with item metadata.
@@ -21201,11 +21193,11 @@ export namespace Schemas {
       readonly dataset_revision_id: string;
       readonly archived: boolean;
       /** Input supplied to the system under test. */
-      readonly input: DatasetItemReadInput;
+      readonly input: DatasetJSONValue;
       /** Optional user-authored expected output. */
-      readonly expected_output: unknown;
+      readonly expected_output: DatasetJSONValue | null;
       /** Optional actual output captured from the source trace. */
-      readonly source_output: unknown;
+      readonly source_output: DatasetJSONValue | null;
       /** JSON object with item metadata. */
       readonly metadata: DatasetItemReadMetadata;
       /** @nullable */
@@ -75462,6 +75454,11 @@ export namespace Schemas {
     export type DatasetItemsPartialUpdateBodyInput = { [key: string]: unknown } | unknown[] | string | number | boolean;
 
     /**
+     * Replacement expected output. Send null to clear it.
+     */
+    export type DatasetItemsPartialUpdateBodyExpectedOutput = { [key: string]: unknown } | unknown[] | string | number | boolean | null;
+
+    /**
      * Replacement metadata object. Send an empty object to clear it.
      */
     export type DatasetItemsPartialUpdateBodyMetadata = { [key: string]: unknown };
@@ -75475,7 +75472,7 @@ export namespace Schemas {
       /** Replacement input. Omit to keep the current value. */
       input?: DatasetItemsPartialUpdateBodyInput;
       /** Replacement expected output. Send null to clear it. */
-      expected_output?: unknown;
+      expected_output?: DatasetItemsPartialUpdateBodyExpectedOutput;
       /** Replacement metadata object. Send an empty object to clear it. */
       metadata?: DatasetItemsPartialUpdateBodyMetadata;
     };
@@ -75496,6 +75493,12 @@ export namespace Schemas {
      * Return archived datasets instead of active datasets.
      */
     archived?: boolean;
+    /**
+     * Filter to these dataset IDs. Repeat the parameter or pass one comma-separated list, up to 100 IDs.
+     * @minItems 1
+     * @maxItems 100
+     */
+    id__in?: string[];
     /**
      * Number of results to return per page.
      */

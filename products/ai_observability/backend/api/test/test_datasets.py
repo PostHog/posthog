@@ -89,6 +89,27 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(restore_response.status_code, status.HTTP_200_OK)
         self.assertFalse(restore_response.data["archived"])
 
+    def test_dataset_list_filters_by_comma_separated_ids(self) -> None:
+        first_dataset = self._create_dataset("First dataset")
+        second_dataset = self._create_dataset("Second dataset")
+        self._create_dataset("Excluded dataset")
+
+        response = self.client.get(
+            self.datasets_url,
+            {"id__in": f"{first_dataset['id']},{second_dataset['id']}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertCountEqual(
+            [result["id"] for result in response.data["results"]],
+            [first_dataset["id"], second_dataset["id"]],
+        )
+
+    def test_dataset_list_rejects_invalid_ids(self) -> None:
+        response = self.client.get(self.datasets_url, {"id__in": "not-a-uuid"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     @parameterized.expand(
         [
             ("false", False),
@@ -547,3 +568,17 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["count"], 101)
         self.assertEqual(len(response.data["results"]), 100)
+
+    def test_dataset_item_list_caps_requested_page_size(self) -> None:
+        dataset = self._create_dataset()
+        for index in range(26):
+            self._create_item(dataset["id"], input=index)
+
+        response = self.client.get(
+            self.items_url,
+            {"dataset": dataset["id"], "limit": 10_000},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 26)
+        self.assertEqual(len(response.data["results"]), 25)

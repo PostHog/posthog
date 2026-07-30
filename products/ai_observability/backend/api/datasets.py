@@ -17,6 +17,7 @@ from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.documentation import extend_schema
+from posthog.api.fields import RepeatedOrCommaSeparatedListField
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -50,16 +51,17 @@ from products.ai_observability.backend.dataset_service import (
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItemVersion, DatasetRevision
 
 
-def _non_null_json_schema() -> dict[str, object]:
-    return {
-        "oneOf": [
-            {"type": "object", "additionalProperties": True},
-            {"type": "array", "items": {}},
-            {"type": "string"},
-            {"type": "number"},
-            {"type": "boolean"},
-        ]
-    }
+def _json_value_schema(*, nullable: bool = False) -> dict[str, object]:
+    variants: list[dict[str, object]] = [
+        {"type": "object", "additionalProperties": True},
+        {"type": "array", "items": {}},
+        {"type": "string"},
+        {"type": "number"},
+        {"type": "boolean"},
+    ]
+    if nullable:
+        variants.append({"type": "null"})
+    return {"oneOf": variants}
 
 
 def _dataset_item_update_request_schema() -> dict[str, object]:
@@ -74,10 +76,11 @@ def _dataset_item_update_request_schema() -> dict[str, object]:
                 "description": "Current item version observed by the caller.",
             },
             "input": {
-                **_non_null_json_schema(),
+                **_json_value_schema(),
                 "description": "Replacement input. Omit to keep the current value.",
             },
             "expected_output": {
+                **_json_value_schema(nullable=True),
                 "description": "Replacement expected output. Send null to clear it.",
             },
             "metadata": {
@@ -89,13 +92,8 @@ def _dataset_item_update_request_schema() -> dict[str, object]:
     }
 
 
-@extend_schema_field(_non_null_json_schema())
+@extend_schema_field(_json_value_schema(), component_name="DatasetJSONValue")
 class DatasetJSONField(serializers.JSONField):
-    pass
-
-
-@extend_schema_field(OpenApiTypes.ANY)
-class NullableDatasetJSONField(serializers.JSONField):
     pass
 
 
@@ -218,6 +216,15 @@ class DatasetUpdateSerializer(DatasetMutationSerializer):
 
 
 class DatasetListQuerySerializer(serializers.Serializer):
+    id__in = RepeatedOrCommaSeparatedListField(
+        child=serializers.UUIDField(),
+        required=False,
+        min_length=1,
+        max_length=100,
+        help_text=(
+            "Filter to these dataset IDs. Repeat the parameter or pass one comma-separated list, up to 100 IDs."
+        ),
+    )
     archived = serializers.BooleanField(
         required=False,
         default=False,
@@ -279,12 +286,12 @@ class DatasetItemReadSerializer(serializers.ModelSerializer):
         help_text="ID of the dataset revision that introduced this item version.",
     )
     input = DatasetJSONField(read_only=True, help_text="Input supplied to the system under test.")
-    expected_output = NullableDatasetJSONField(
+    expected_output = DatasetJSONField(
         read_only=True,
         allow_null=True,
         help_text="Optional user-authored expected output.",
     )
-    source_output = NullableDatasetJSONField(
+    source_output = DatasetJSONField(
         read_only=True,
         allow_null=True,
         help_text="Optional actual output captured from the source trace.",
@@ -355,13 +362,13 @@ class DatasetItemCreateSerializer(DatasetMutationSerializer):
         allow_null=False,
         help_text="Input supplied to the system under test. Any non-null JSON value is accepted.",
     )
-    expected_output = NullableDatasetJSONField(
+    expected_output = DatasetJSONField(
         required=False,
         allow_null=True,
         default=None,
         help_text="Optional user-authored expected output.",
     )
-    source_output = NullableDatasetJSONField(
+    source_output = DatasetJSONField(
         required=False,
         allow_null=True,
         default=None,
@@ -403,7 +410,7 @@ class DatasetItemUpdateSerializer(DatasetMutationSerializer):
         allow_null=False,
         help_text="Replacement input. Omit to keep the current value.",
     )
-    expected_output = NullableDatasetJSONField(
+    expected_output = DatasetJSONField(
         required=False,
         allow_null=True,
         help_text="Replacement expected output. Send null to clear it.",
@@ -447,6 +454,11 @@ class DatasetItemListQuerySerializer(serializers.Serializer):
 class DatasetPagination(LimitOffsetPagination):
     default_limit = 50
     max_limit = 100
+
+
+class DatasetItemPagination(LimitOffsetPagination):
+    default_limit = 10
+    max_limit = 25
 
 
 class DatasetItemParentAccessControlPermission(AccessControlPermission):
@@ -544,6 +556,8 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         query = query_serializer.validated_data
 
         queryset = self.filter_queryset(self.get_queryset()).filter(archived=query["archived"])
+        if dataset_ids := query.get("id__in"):
+            queryset = queryset.filter(id__in=dataset_ids)
         if search := query.get("search"):
             queryset = queryset.filter(
                 Q(name__icontains=search) | Q(description__icontains=search) | Q(metadata__icontains=search)
@@ -690,7 +704,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object_write_actions = ["create", "partial_update", "archive", "restore"]
     permission_classes = [PostHogFeatureFlagPermission]
     posthog_feature_flag = "llm-analytics-datasets"
-    pagination_class = DatasetPagination
+    pagination_class = DatasetItemPagination
     serializer_class = DatasetItemReadSerializer
     queryset = _item_version_queryset().filter(dataset_item__current_version_id=F("id"))
     lookup_field = "dataset_item_id"

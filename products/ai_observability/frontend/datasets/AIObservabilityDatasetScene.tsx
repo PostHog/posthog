@@ -202,7 +202,6 @@ export function AIObservabilityDatasetScene(): JSX.Element {
                                 {({ disabledReason }) => (
                                     <SceneMenuBarItem
                                         variant="destructive"
-                                        opensFloatingUi
                                         disabled={!!disabledReason || datasetLoading || isArchivingDataset}
                                         onClick={() => {
                                             LemonDialog.open({
@@ -242,7 +241,7 @@ export function AIObservabilityDatasetScene(): JSX.Element {
                                     submitDatasetForm()
                                 }}
                                 dataAttrKey={RESOURCE_TYPE}
-                                isLoading={datasetLoading}
+                                isLoading={datasetLoading || isDatasetFormSubmitting}
                                 canEdit={userHasAccess(
                                     AccessControlResourceType.LlmAnalytics,
                                     AccessControlLevel.Editor
@@ -257,7 +256,7 @@ export function AIObservabilityDatasetScene(): JSX.Element {
                                 }}
                                 dataAttrKey={RESOURCE_TYPE}
                                 optional
-                                isLoading={datasetLoading}
+                                isLoading={datasetLoading || isDatasetFormSubmitting}
                                 canEdit={userHasAccess(
                                     AccessControlResourceType.LlmAnalytics,
                                     AccessControlLevel.Editor

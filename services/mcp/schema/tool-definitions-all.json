@@ -5178,21 +5178,6 @@
         },
         "feature_flag": "llm-analytics-datasets"
     },
-    "llma-dataset-get": {
-        "description": "Retrieve an active or archived dataset by ID, including its descriptive metadata and current revision.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Get dataset",
-        "title": "Get dataset",
-        "required_scopes": ["dataset:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "llm-analytics-datasets"
-    },
     "llma-dataset-item-archive": {
         "description": "Archive an active dataset item by stable item ID. Pass its current version as `base_version` to prevent a stale write. This creates an immutable archived version and a new dataset revision while preserving history.",
         "category": "AI observability",
@@ -5220,36 +5205,6 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "llm-analytics-datasets"
-    },
-    "llma-dataset-item-get": {
-        "description": "Retrieve the current version of an active or archived item by its stable item ID. Call `llma-dataset-item-version-list` to inspect its immutable history.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Get dataset item",
-        "title": "Get dataset item",
-        "required_scopes": ["dataset:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "llm-analytics-datasets"
-    },
-    "llma-dataset-item-list": {
-        "description": "List active items in a dataset. Pass the required dataset ID and optionally a revision number to read the exact snapshot at that revision. Set `archived=true` to return archived items instead. Responses can be large, so request only the fields needed for the task.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "List dataset items",
-        "title": "List dataset items",
-        "required_scopes": ["dataset:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
         },
         "feature_flag": "llm-analytics-datasets"
     },
@@ -5283,36 +5238,6 @@
         },
         "feature_flag": "llm-analytics-datasets"
     },
-    "llma-dataset-item-version-list": {
-        "description": "List every immutable version of an item, newest first. Responses can be large, so request only the fields needed to compare versions or inspect history.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "List dataset item versions",
-        "title": "List dataset item versions",
-        "required_scopes": ["dataset:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "llm-analytics-datasets"
-    },
-    "llma-dataset-list": {
-        "description": "List active datasets in the current project. Set `archived=true` to list archived datasets, use `search` to match names, descriptions, and metadata, and use `order_by` to control ordering.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "List datasets",
-        "title": "List datasets",
-        "required_scopes": ["dataset:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "llm-analytics-datasets"
-    },
     "llma-dataset-restore": {
         "description": "Restore an archived dataset by ID. This makes item mutations available again without changing item states or creating a dataset revision. Restoring an active dataset leaves it unchanged.",
         "category": "AI observability",
@@ -5325,21 +5250,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "llm-analytics-datasets"
-    },
-    "llma-dataset-revision-list": {
-        "description": "List a dataset's immutable revisions, newest first. Pass a returned revision number to `llma-dataset-item-list` to read that exact snapshot.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "List dataset revisions",
-        "title": "List dataset revisions",
-        "required_scopes": ["dataset:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
         },
         "feature_flag": "llm-analytics-datasets"
     },

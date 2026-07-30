@@ -1,6 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { initKeaTests } from '~/test/init'
@@ -22,7 +23,6 @@ import {
 jest.mock('./datasetsApi', () => ({
     datasetsApi: {
         listDatasets: jest.fn(),
-        getDataset: jest.fn(),
         createItem: jest.fn(),
     },
 }))
@@ -87,13 +87,6 @@ describe('saveToDatasetButtonLogic', () => {
         ;(lemonToast.error as jest.Mock) = jest.fn()
 
         mockDatasetsApi.listDatasets.mockResolvedValue(mockDatasetsResponse)
-        mockDatasetsApi.getDataset.mockImplementation(async (id) => {
-            const dataset = mockDatasetsResponse.results.find((candidate) => candidate.id === id)
-            if (!dataset) {
-                throw new Error('Dataset not found')
-            }
-            return dataset
-        })
         mockDatasetsApi.createItem.mockResolvedValue({} as never)
     })
 
@@ -359,7 +352,7 @@ describe('saveToDatasetButtonLogic', () => {
                 })
             })
 
-            it('handles dataset item creation failure with retry', async () => {
+            it('shows the API detail when dataset item creation conflicts', async () => {
                 const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem })
                 logic.mount()
 
@@ -371,19 +364,19 @@ describe('saveToDatasetButtonLogic', () => {
                     [storageKey]: mockDatasetsResponse.results,
                 })
                 logic.actions.setEditMode('create')
-                mockDatasetsApi.createItem.mockRejectedValue(new Error('Creation failed'))
+                mockDatasetsApi.createItem.mockRejectedValue(
+                    new ApiError(undefined, 409, undefined, {
+                        detail: 'Restore this dataset before adding items.',
+                        code: 'dataset_archived',
+                    })
+                )
 
                 await expectLogic(logic, () => {
                     logic.actions.setSearchFormValues({ search: '', datasetId: 'test-dataset-1' })
                     logic.actions.submitSearchForm()
                 }).toFinishAllListeners()
 
-                expect(lemonToast.error).toHaveBeenCalledWith('Failed to create dataset item', {
-                    button: {
-                        label: 'Retry',
-                        action: expect.any(Function),
-                    },
-                })
+                expect(lemonToast.error).toHaveBeenCalledWith('Restore this dataset before adding items.')
             })
 
             it('opens modal in edit mode without creating item', async () => {
@@ -690,8 +683,11 @@ describe('saveToDatasetButtonLogic', () => {
                         logic.actions.loadRecentDatasets()
                     }).toFinishAllListeners()
 
-                    expect(mockDatasetsApi.getDataset).toHaveBeenCalledWith('test-dataset-1')
-                    expect(mockDatasetsApi.getDataset).toHaveBeenCalledWith('test-dataset-2')
+                    expect(mockDatasetsApi.listDatasets).toHaveBeenCalledWith({
+                        id__in: ['test-dataset-1', 'test-dataset-2'],
+                        limit: RECENT_DATASETS_LIMIT,
+                        offset: 0,
+                    })
                 })
 
                 it('returns empty array when no recent dataset IDs exist', async () => {
@@ -706,7 +702,9 @@ describe('saveToDatasetButtonLogic', () => {
                     }).toFinishAllListeners()
 
                     expect(logic.values.recentDatasets).toEqual([])
-                    expect(mockDatasetsApi.getDataset).not.toHaveBeenCalled()
+                    expect(mockDatasetsApi.listDatasets).not.toHaveBeenCalledWith(
+                        expect.objectContaining({ id__in: expect.anything() })
+                    )
                 })
 
                 it('handles missing datasets by updating recent dataset IDs', async () => {
@@ -736,17 +734,36 @@ describe('saveToDatasetButtonLogic', () => {
                     expect(logic.values.recentDatasets).toEqual([mockDataset2, mockDataset1])
                 })
 
-                it('handles API errors gracefully', async () => {
+                it('excludes archived datasets and removes them from recents', async () => {
                     const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem })
                     logic.mount()
 
-                    logic.actions.setRecentDatasetIds(['test-dataset-1'])
-                    mockDatasetsApi.getDataset.mockRejectedValue(new Error('API Error'))
+                    logic.actions.setRecentDatasetIds(['test-dataset-1', 'test-dataset-2'])
+                    mockDatasetsApi.listDatasets.mockResolvedValue({
+                        ...mockDatasetsResponse,
+                        results: [mockDataset1, { ...mockDataset2, archived: true }],
+                    })
 
                     await expectLogic(logic, () => {
                         logic.actions.loadRecentDatasets()
                     }).toFinishAllListeners()
 
+                    expect(logic.values.recentDatasetIds).toEqual(['test-dataset-1'])
+                    expect(logic.values.recentDatasets).toEqual([mockDataset1])
+                })
+
+                it('keeps recent dataset IDs when loading fails', async () => {
+                    const logic = saveToDatasetButtonLogic({ partialDatasetItem: mockPartialDatasetItem })
+                    logic.mount()
+
+                    logic.actions.setRecentDatasetIds(['test-dataset-1'])
+                    mockDatasetsApi.listDatasets.mockRejectedValue(new Error('API Error'))
+
+                    await expectLogic(logic, () => {
+                        logic.actions.loadRecentDatasets()
+                    }).toFinishAllListeners()
+
+                    expect(logic.values.recentDatasetIds).toEqual(['test-dataset-1'])
                     expect(logic.values.recentDatasets).toEqual([])
                 })
 
@@ -760,7 +777,11 @@ describe('saveToDatasetButtonLogic', () => {
                         logic.actions.loadRecentDatasets(true)
                     }).toFinishAllListeners()
 
-                    expect(mockDatasetsApi.getDataset).toHaveBeenCalledWith('test-dataset-1')
+                    expect(mockDatasetsApi.listDatasets).toHaveBeenCalledWith({
+                        id__in: ['test-dataset-1'],
+                        limit: RECENT_DATASETS_LIMIT,
+                        offset: 0,
+                    })
                 })
 
                 it('loads recent datasets on mount when recent dataset IDs exist', async () => {
@@ -770,13 +791,17 @@ describe('saveToDatasetButtonLogic', () => {
                     // Set up recent dataset IDs and verify they're loaded when loadRecentDatasets is called
                     logic.actions.setRecentDatasetIds(['test-dataset-1'])
 
-                    mockDatasetsApi.getDataset.mockClear()
+                    mockDatasetsApi.listDatasets.mockClear()
 
                     await expectLogic(logic, () => {
                         logic.actions.loadRecentDatasets()
                     }).toFinishAllListeners()
 
-                    expect(mockDatasetsApi.getDataset).toHaveBeenCalledWith('test-dataset-1')
+                    expect(mockDatasetsApi.listDatasets).toHaveBeenCalledWith({
+                        id__in: ['test-dataset-1'],
+                        limit: RECENT_DATASETS_LIMIT,
+                        offset: 0,
+                    })
                 })
             })
 

@@ -19,6 +19,8 @@ jest.mock('./datasetsApi', () => ({
         getDataset: jest.fn(),
         listDatasets: jest.fn(),
         listItems: jest.fn(),
+        archiveDataset: jest.fn(),
+        restoreDataset: jest.fn(),
     },
 }))
 jest.mock('lib/lemon-ui/LemonToast/LemonToast')
@@ -99,6 +101,8 @@ describe('aiObservabilityDatasetLogic', () => {
         mockDatasetsApi.getDataset.mockResolvedValue(mockDataset)
         mockDatasetsApi.listDatasets.mockResolvedValue({ results: [], count: 0 })
         mockDatasetsApi.listItems.mockResolvedValue({ results: [], count: 0 })
+        mockDatasetsApi.archiveDataset.mockResolvedValue({ ...mockDataset, archived: true })
+        mockDatasetsApi.restoreDataset.mockResolvedValue(mockDataset)
     })
 
     describe('new dataset creation', () => {
@@ -325,6 +329,54 @@ describe('aiObservabilityDatasetLogic', () => {
         })
     })
 
+    describe('dataset archiving', () => {
+        let logic: ReturnType<typeof aiObservabilityDatasetLogic.build>
+
+        beforeEach(async () => {
+            logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('restores the dataset and reloads the active list from Undo', async () => {
+            const datasetsLogic = aiObservabilityDatasetsLogic()
+            datasetsLogic.mount()
+            await expectLogic(datasetsLogic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.archiveDataset()
+            }).toFinishAllListeners()
+            await expectLogic(datasetsLogic).toFinishAllListeners()
+
+            const listCallCount = mockDatasetsApi.listDatasets.mock.calls.length
+            const toastOptions = (lemonToast.info as jest.Mock).mock.calls.at(-1)?.[1] as {
+                button: { action: () => Promise<void> }
+            }
+
+            await toastOptions.button.action()
+            await expectLogic(datasetsLogic).toFinishAllListeners()
+
+            expect(mockDatasetsApi.restoreDataset).toHaveBeenCalledWith(mockDataset.id)
+            expect(mockDatasetsApi.listDatasets).toHaveBeenCalledTimes(listCallCount + 1)
+            expect(lemonToast.success).toHaveBeenCalledWith('Test Dataset has been restored.')
+        })
+
+        it('shows an error when Undo cannot restore the dataset', async () => {
+            mockDatasetsApi.restoreDataset.mockRejectedValue(new Error('Network error'))
+
+            await expectLogic(logic, () => {
+                logic.actions.archiveDataset()
+            }).toFinishAllListeners()
+
+            const toastOptions = (lemonToast.info as jest.Mock).mock.calls.at(-1)?.[1] as {
+                button: { action: () => Promise<void> }
+            }
+            await toastOptions.button.action()
+
+            expect(lemonToast.error).toHaveBeenCalledWith("Couldn't restore dataset. Try again.")
+        })
+    })
+
     describe('dataset loading and defaults', () => {
         let logic: ReturnType<typeof aiObservabilityDatasetLogic.build>
         const props: DatasetLogicProps = { datasetId: 'existing-dataset-id' }
@@ -428,7 +480,7 @@ describe('aiObservabilityDatasetLogic', () => {
             it('applies default filters when no filters set', () => {
                 expect(logic.values.filters).toEqual({
                     page: 1,
-                    limit: 50,
+                    limit: 25,
                 })
             })
 
@@ -452,7 +504,7 @@ describe('aiObservabilityDatasetLogic', () => {
                 logic.actions.setFilters({ page: 2, limit: 'invalid' as any })
                 expect(logic.values.filters).toEqual({
                     page: 2,
-                    limit: 50,
+                    limit: 25,
                 })
             })
 
@@ -484,8 +536,8 @@ describe('aiObservabilityDatasetLogic', () => {
 
                 expect(mockDatasetsApi.listItems).toHaveBeenCalledWith({
                     dataset: 'existing-dataset-id',
-                    offset: 50, // (page 2 - 1) * 50 (DATASET_ITEMS_PER_PAGE)
-                    limit: 50, // DATASET_ITEMS_PER_PAGE constant
+                    offset: 25,
+                    limit: 25,
                 })
             })
 
@@ -496,8 +548,8 @@ describe('aiObservabilityDatasetLogic', () => {
 
                 expect(mockDatasetsApi.listItems).toHaveBeenCalledWith({
                     dataset: 'existing-dataset-id',
-                    offset: 100, // (page 3 - 1) * 50 (DATASET_ITEMS_PER_PAGE)
-                    limit: 50,
+                    offset: 50,
+                    limit: 25,
                 })
             })
 
@@ -505,7 +557,7 @@ describe('aiObservabilityDatasetLogic', () => {
                 const initialCallCount = mockDatasetsApi.listItems.mock.calls.length
 
                 await expectLogic(logic, () => {
-                    logic.actions.setFilters({ page: 1, limit: 50 }) // Same as defaults
+                    logic.actions.setFilters({ page: 1, limit: 25 })
                 }).toFinishAllListeners()
 
                 expect(mockDatasetsApi.listItems).toHaveBeenCalledTimes(initialCallCount) // Should not increase

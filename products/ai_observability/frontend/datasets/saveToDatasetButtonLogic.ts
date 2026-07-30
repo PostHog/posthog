@@ -15,6 +15,7 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { loaders } from 'kea-loaders'
 import { encodeParams, router } from 'kea-router'
 
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { urls } from 'scenes/urls'
 
@@ -271,17 +272,16 @@ export const saveToDatasetButtonLogic = kea<saveToDatasetButtonLogicType>([
                         return []
                     }
 
-                    const recentDatasets = (
-                        await Promise.all(
-                            values.recentDatasetIds.map(async (id) => {
-                                try {
-                                    return await datasetsApi.getDataset(id)
-                                } catch {
-                                    return null
-                                }
-                            })
-                        )
-                    ).filter((dataset): dataset is DatasetReadApi => dataset !== null)
+                    const response = await datasetsApi.listDatasets({
+                        id__in: values.recentDatasetIds,
+                        limit: RECENT_DATASETS_LIMIT,
+                        offset: 0,
+                    })
+                    const datasetsById = new Map(response.results.map((dataset) => [dataset.id, dataset]))
+                    const recentDatasets = values.recentDatasetIds.flatMap((id) => {
+                        const dataset = datasetsById.get(id)
+                        return dataset && !dataset.archived ? [dataset] : []
+                    })
 
                     if (recentDatasets.length !== values.recentDatasetIds.length) {
                         actions.setRecentDatasetIds(recentDatasets.map((dataset) => dataset.id))
@@ -321,43 +321,30 @@ export const saveToDatasetButtonLogic = kea<saveToDatasetButtonLogicType>([
                     return
                 }
 
-                async function createDatasetItem(datasetId: string, recursionCount: number = 0): Promise<void> {
-                    try {
-                        await datasetsApi.createItem({
-                            dataset: datasetId,
-                            external_id: props.partialDatasetItem?.external_id,
-                            input: props.partialDatasetItem?.input ?? {},
-                            expected_output: props.partialDatasetItem?.expected_output,
-                            source_output: props.partialDatasetItem?.source_output,
-                            metadata: props.partialDatasetItem?.metadata,
-                            source_trace_id: props.partialDatasetItem?.source_trace_id,
-                            source_event_id: props.partialDatasetItem?.source_event_id,
-                            source_timestamp: props.partialDatasetItem?.source_timestamp,
-                        })
-                        lemonToast.success('Dataset item has been created successfully', {
-                            button: {
-                                label: 'View',
-                                action: () => {
-                                    router.actions.push(urls.aiObservabilityDataset(datasetId))
-                                },
+                try {
+                    await datasetsApi.createItem({
+                        dataset: datasetId,
+                        external_id: props.partialDatasetItem?.external_id,
+                        input: props.partialDatasetItem?.input ?? {},
+                        expected_output: props.partialDatasetItem?.expected_output,
+                        source_output: props.partialDatasetItem?.source_output,
+                        metadata: props.partialDatasetItem?.metadata,
+                        source_trace_id: props.partialDatasetItem?.source_trace_id,
+                        source_event_id: props.partialDatasetItem?.source_event_id,
+                        source_timestamp: props.partialDatasetItem?.source_timestamp,
+                    })
+                    lemonToast.success('Dataset item has been created successfully', {
+                        button: {
+                            label: 'View',
+                            action: () => {
+                                router.actions.push(urls.aiObservabilityDataset(datasetId))
                             },
-                        })
-                    } catch {
-                        lemonToast.error('Failed to create dataset item', {
-                            button:
-                                recursionCount < 3
-                                    ? {
-                                          label: 'Retry',
-                                          action: () => {
-                                              createDatasetItem(datasetId, recursionCount + 1)
-                                          },
-                                      }
-                                    : undefined,
-                        })
-                    }
+                        },
+                    })
+                } catch (error) {
+                    const detail = error instanceof ApiError ? error.detail : null
+                    lemonToast.error(detail || "Couldn't add item to dataset. Try again.")
                 }
-
-                await createDatasetItem(datasetId)
             },
         },
     })),

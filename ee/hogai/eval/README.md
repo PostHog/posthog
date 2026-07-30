@@ -139,6 +139,7 @@ ops:
   prepare_dataset:
     config:
       dataset_id: '01992de8-3773-7946-afad-e028d45eba01' # Dataset ID
+      revision: 3 # Optional. Omit to run the current revision.
   spawn_evaluation_container:
     config:
       evaluation_module: ee/hogai/eval/offline/eval_sql.py # Evaluation module
@@ -146,7 +147,8 @@ ops:
       image_tag: master # Use master or commit hash of the branch you want to evaluate
 ```
 
-The job will pull the provided dataset, validate dataset items, export team data, run the evaluation, and report results back to you.
+The job resolves one immutable dataset revision, validates its items, exports team data, runs the evaluation, and reports results back to you.
+Results are compared only with earlier runs of the same dataset revision.
 
 If you want to run an evaluation for a branch that is not `master`, you will need to build an image with the `build-ai-evals-image` tag. Once the CI is complete, you are ready to run the evaluation.
 

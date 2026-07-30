@@ -191,6 +191,8 @@ export interface _ErrorResponseApi {
     detail: string
 }
 
+export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -247,11 +249,6 @@ export interface UserBasicApi {
 }
 
 /**
- * Input supplied to the system under test.
- */
-export type DatasetItemReadApiInput = { [key: string]: unknown } | unknown[] | string | number | boolean
-
-/**
  * JSON object with item metadata.
  */
 export type DatasetItemReadApiMetadata = { [key: string]: unknown }
@@ -275,11 +272,11 @@ export interface DatasetItemReadApi {
     readonly dataset_revision_id: string
     readonly archived: boolean
     /** Input supplied to the system under test. */
-    readonly input: DatasetItemReadApiInput
+    readonly input: DatasetJSONValueApi
     /** Optional user-authored expected output. */
-    readonly expected_output: unknown
+    readonly expected_output: DatasetJSONValueApi | null
     /** Optional actual output captured from the source trace. */
-    readonly source_output: unknown
+    readonly source_output: DatasetJSONValueApi | null
     /** JSON object with item metadata. */
     readonly metadata: DatasetItemReadApiMetadata
     /** @nullable */
@@ -313,11 +310,6 @@ export interface PaginatedDatasetItemReadListApi {
 }
 
 /**
- * Input supplied to the system under test. Any non-null JSON value is accepted.
- */
-export type DatasetItemCreateApiInput = { [key: string]: unknown } | unknown[] | string | number | boolean
-
-/**
  * Optional JSON object with item metadata.
  */
 export type DatasetItemCreateApiMetadata = { [key: string]: unknown }
@@ -332,11 +324,11 @@ export interface DatasetItemCreateApi {
      */
     external_id?: string | null
     /** Input supplied to the system under test. Any non-null JSON value is accepted. */
-    input: DatasetItemCreateApiInput
+    input: DatasetJSONValueApi
     /** Optional user-authored expected output. */
-    expected_output?: unknown
+    expected_output?: DatasetJSONValueApi | null
     /** Optional actual output captured from the source trace. */
-    source_output?: unknown
+    source_output?: DatasetJSONValueApi | null
     /** Optional JSON object with item metadata. */
     metadata?: DatasetItemCreateApiMetadata
     /**
@@ -2944,6 +2936,17 @@ export type DatasetItemsListParams = {
 export type DatasetItemsPartialUpdateBodyInput = { [key: string]: unknown } | unknown[] | string | number | boolean
 
 /**
+ * Replacement expected output. Send null to clear it.
+ */
+export type DatasetItemsPartialUpdateBodyExpectedOutput =
+    | { [key: string]: unknown }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null
+
+/**
  * Replacement metadata object. Send an empty object to clear it.
  */
 export type DatasetItemsPartialUpdateBodyMetadata = { [key: string]: unknown }
@@ -2957,7 +2960,7 @@ export type DatasetItemsPartialUpdateBody = {
     /** Replacement input. Omit to keep the current value. */
     input?: DatasetItemsPartialUpdateBodyInput
     /** Replacement expected output. Send null to clear it. */
-    expected_output?: unknown
+    expected_output?: DatasetItemsPartialUpdateBodyExpectedOutput
     /** Replacement metadata object. Send an empty object to clear it. */
     metadata?: DatasetItemsPartialUpdateBodyMetadata
 }
@@ -2978,6 +2981,12 @@ export type DatasetsListParams = {
      * Return archived datasets instead of active datasets.
      */
     archived?: boolean
+    /**
+     * Filter to these dataset IDs. Repeat the parameter or pass one comma-separated list, up to 100 IDs.
+     * @minItems 1
+     * @maxItems 100
+     */
+    id__in?: string[]
     /**
      * Number of results to return per page.
      */

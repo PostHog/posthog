@@ -1,8 +1,7 @@
-from typing import cast
-
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.db.models import F, Func, Q, Value
+from django.db.models.expressions import NegatedExpression
 from django.db.models.lookups import Exact
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -16,8 +15,8 @@ def _json_type_is(field_name: str, json_type: str) -> Exact:
     )
 
 
-def _json_type_is_not(field_name: str, json_type: str) -> Q:
-    return cast(Q, ~_json_type_is(field_name, json_type))
+def _json_type_is_not(field_name: str, json_type: str) -> NegatedExpression:
+    return ~_json_type_is(field_name, json_type)
 
 
 class Dataset(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):

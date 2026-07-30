@@ -55,7 +55,7 @@ export interface DatasetItemsFilters {
     limit: number
 }
 
-export const DATASET_ITEMS_PER_PAGE = 50
+export const DATASET_ITEMS_PER_PAGE = 25
 
 export function isDataset(dataset: DatasetReadApi | DatasetFormValues | null): dataset is DatasetReadApi {
     return dataset !== null && 'id' in dataset
@@ -482,12 +482,19 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
             if (props.datasetId !== 'new') {
                 try {
                     await datasetsApi.archiveDataset(props.datasetId)
-                    lemonToast.info(`${values.dataset?.name || 'Dataset'} has been archived.`, {
+                    const datasetName = values.dataset?.name || 'Dataset'
+                    lemonToast.info(`${datasetName} has been archived.`, {
                         button: {
                             label: 'Undo',
                             dataAttr: 'undo-archive-dataset',
                             action: async () => {
-                                await datasetsApi.restoreDataset(props.datasetId)
+                                try {
+                                    await datasetsApi.restoreDataset(props.datasetId)
+                                    aiObservabilityDatasetsLogic.findMounted()?.actions.loadDatasets(false)
+                                    lemonToast.success(`${datasetName} has been restored.`)
+                                } catch {
+                                    lemonToast.error("Couldn't restore dataset. Try again.")
+                                }
                             },
                         },
                     })

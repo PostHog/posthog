@@ -34,8 +34,32 @@ export const DatasetItemsCreateBody = /* @__PURE__ */ zod.object({
             zod.boolean(),
         ])
         .describe('Input supplied to the system under test. Any non-null JSON value is accepted.'),
-    expected_output: zod.unknown().optional().describe('Optional user-authored expected output.'),
-    source_output: zod.unknown().optional().describe('Optional actual output captured from the source trace.'),
+    expected_output: zod
+        .union([
+            zod.union([
+                zod.record(zod.string(), zod.unknown()),
+                zod.array(zod.unknown()),
+                zod.string(),
+                zod.number(),
+                zod.boolean(),
+            ]),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Optional user-authored expected output.'),
+    source_output: zod
+        .union([
+            zod.union([
+                zod.record(zod.string(), zod.unknown()),
+                zod.array(zod.unknown()),
+                zod.string(),
+                zod.number(),
+                zod.boolean(),
+            ]),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Optional actual output captured from the source trace.'),
     metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Optional JSON object with item metadata.'),
     source_trace_id: zod
         .string()
@@ -69,7 +93,17 @@ export const DatasetItemsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional()
         .describe('Replacement input. Omit to keep the current value.'),
-    expected_output: zod.unknown().optional().describe('Replacement expected output. Send null to clear it.'),
+    expected_output: zod
+        .union([
+            zod.record(zod.string(), zod.unknown()),
+            zod.array(zod.unknown()),
+            zod.string(),
+            zod.number(),
+            zod.boolean(),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Replacement expected output. Send null to clear it.'),
     metadata: zod
         .record(zod.string(), zod.unknown())
         .optional()
