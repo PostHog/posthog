@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use chrono::DateTime;
+use common_ingestion_warnings::{WarningEmitter, CAPTURE_LEGACY_RATE_LIMIT};
 use common_types::{CapturedEvent, RawEvent};
 use limiters::token_dropper::TokenDropper;
 use metrics::counter;
@@ -22,6 +23,7 @@ use crate::{
     event_restrictions::{EventContext as RestrictionEventContext, EventRestrictionService},
     events::overflow_stamping::stamp_overflow_reason,
     global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter},
+    ingestion_warnings::{emit_rate_limit_warning, legacy_request_context},
     prometheus::{report_clock_skew, report_dropped_events},
     router, sinks,
     utils::uuid_v7_from_datetime,
@@ -241,6 +243,7 @@ pub async fn process_events(
     global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     overflow_limiter: Option<Arc<OverflowLimiter>>,
     ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
+    ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
     ai_routing: &AiRouting,
     events: Vec<RawEvent>,
     context: &ProcessingContext,
@@ -406,6 +409,12 @@ pub async fn process_events(
     //      end state matches, but the pass order differs.
     //   2. Lane assignment is a single `DataType::from_event_name` match in
     //      legacy versus assign-then-reroute in v1.
+    //   3. Events whose person processing was already off: v1 skips its stamps
+    //      entirely (so such an event is never rerouted to overflow) and reports
+    //      it as outcome="already_disabled". Legacy still stamps and reroutes it,
+    //      and still counts it in the metric and log below; only the warning
+    //      excludes it. So legacy's limited count can exceed its warned count,
+    //      where v1's cannot.
     // Both paths consult the same shared limiter for every non-dropped event, so
     // per-key counts are identical regardless of which pipeline serves the key.
     // Import is unaffected by both: the GRL never runs (guard below) and no
@@ -414,11 +423,21 @@ pub async fn process_events(
         if let Some(ref limiter) = global_rate_limiter {
             let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
             let mut limited_event_count: u64 = 0;
+            // Narrower than the tallies above: events an upstream event
+            // restriction had already taken person processing away from are
+            // excluded. The limiter didn't change their fate, so telling the
+            // customer we skipped person processing for them would inflate the
+            // count and name distinct_ids the limit never affected. v1 draws the
+            // same line via `already_disabled` in
+            // `v1::analytics::process::apply_token_distinct_id_limits`.
+            let mut warned_distinct_ids: HashSet<&str> = HashSet::new();
+            let mut warned_event_count: u64 = 0;
             for event in events.iter_mut() {
                 let cache_key =
                     GlobalRateLimitKey::TokenDistinctId(&context.token, &event.event.distinct_id)
                         .to_cache_key();
                 if limiter.is_limited(&cache_key, 1).await.is_some() {
+                    let already_disabled = event.metadata.skip_person_processing;
                     event.metadata.skip_person_processing = true;
                     // Reroute the hot key to overflow. AnalyticsMain only: historical
                     // never overflows, the AI lane keeps its dedicated topic (v1
@@ -429,6 +448,10 @@ pub async fn process_events(
                     }
                     limited_distinct_ids.insert(&event.event.distinct_id);
                     limited_event_count += 1;
+                    if !already_disabled {
+                        warned_distinct_ids.insert(&event.event.distinct_id);
+                        warned_event_count += 1;
+                    }
                 }
             }
             if limited_event_count > 0 {
@@ -449,6 +472,16 @@ pub async fn process_events(
                     distinct_id_count = limited_distinct_ids.len(),
                     distinct_ids = %preview,
                     "events rate limited by distinct_id -- person processing disabled"
+                );
+            }
+
+            if warned_event_count > 0 {
+                emit_rate_limit_warning(
+                    ingestion_warning_emitter.as_deref(),
+                    &legacy_request_context(context),
+                    CAPTURE_LEGACY_RATE_LIMIT,
+                    &warned_distinct_ids,
+                    warned_event_count,
                 );
             }
         }
@@ -485,9 +518,12 @@ pub async fn process_events(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ingestion_warnings::SdkAttribution;
     use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::{OverflowReason, ProcessingContext};
     use chrono::{DateTime, TimeZone, Utc};
+    use common_ingestion_warnings::test_support::CollectingEmitter;
+    use common_ingestion_warnings::WarningType;
     use common_types::RawEvent;
     use serde_json::json;
     use std::collections::HashMap;
@@ -510,6 +546,7 @@ mod tests {
             historical_migration: false,
             chatty_debug_enabled: false,
             capture_mode: crate::config::CaptureMode::Events,
+            sdk_attribution: crate::ingestion_warnings::SdkAttribution::default(),
         }
     }
 
@@ -779,6 +816,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -826,6 +864,7 @@ mod tests {
             dropper,
             Some(service),
             historical_cfg,
+            None,
             None,
             None,
             None,
@@ -880,6 +919,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -928,6 +968,7 @@ mod tests {
             dropper,
             Some(service),
             historical_cfg,
+            None,
             None,
             None,
             None,
@@ -989,6 +1030,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -1024,6 +1066,7 @@ mod tests {
             dropper,
             None,
             historical_cfg,
+            None,
             None,
             None,
             None,
@@ -1083,6 +1126,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -1130,6 +1174,7 @@ mod tests {
             dropper,
             Some(service),
             historical_cfg,
+            None,
             None,
             None,
             None,
@@ -1197,6 +1242,7 @@ mod tests {
             dropper,
             None,
             historical_cfg,
+            None,
             None,
             None,
             None,
@@ -1281,6 +1327,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &AiRouting::Secondary,
             events,
             &context,
@@ -1343,6 +1390,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &AiRouting::Secondary,
             events,
             &context,
@@ -1401,6 +1449,7 @@ mod tests {
             dropper,
             Some(service),
             historical_cfg,
+            None,
             None,
             None,
             None,
@@ -1479,6 +1528,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -1553,6 +1603,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -1622,6 +1673,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -1683,6 +1735,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -1738,6 +1791,7 @@ mod tests {
             None,
             None, // no overflow limiter
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -1775,6 +1829,7 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
+            None,
             None,
             &AiRouting::Primary,
             events,
@@ -1828,6 +1883,7 @@ mod tests {
             None,
             None,
             ai_limiter,
+            None,
             &AiRouting::Secondary,
             events,
             &context,
@@ -1865,6 +1921,7 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
+            None,
             None,
             &AiRouting::Primary,
             events,
@@ -1907,6 +1964,7 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
+            None,
             None,
             &AiRouting::Primary,
             events,
@@ -1967,6 +2025,7 @@ mod tests {
             None,
             Some(limiter),
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -2007,6 +2066,7 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
+            None,
             None,
             &AiRouting::Primary,
             events,
@@ -2060,6 +2120,7 @@ mod tests {
             historical_cfg,
             Some(global_limiter),
             Some(overflow_limiter),
+            None,
             None,
             &AiRouting::Primary,
             events,
@@ -2126,6 +2187,7 @@ mod tests {
             Some(global_limiter),
             None, // no overflow limiter -- isolate global RL behavior
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -2141,6 +2203,142 @@ mod tests {
             captured[0].metadata.overflow_reason,
             Some(OverflowReason::ForceLimited),
             "globally limited AnalyticsMain should be rerouted to overflow"
+        );
+    }
+
+    // The legacy path carries the bulk of rate-limited traffic, and it's the one
+    // whose SDK attribution has to survive a snapshot taken back at batch
+    // construction — by this stage the events are serialized.
+    #[rstest::rstest]
+    #[case::sdk_reported(
+        Some(SdkAttribution {
+            lib: Some("web".to_string()),
+            lib_version: Some("1.2.3".to_string()),
+        }),
+        "web",
+        "1.2.3"
+    )]
+    #[case::sdk_absent(None, "unknown", "unknown")]
+    #[tokio::test]
+    async fn global_rate_limit_emits_a_warning_naming_the_hot_key(
+        #[case] attribution: Option<SdkAttribution>,
+        #[case] expected_lib: &str,
+        #[case] expected_lib_version: &str,
+    ) {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut context = create_test_context(now, None);
+        if let Some(attribution) = attribution {
+            context.sdk_attribution = attribution;
+        }
+        let events = vec![create_test_event(
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        )];
+
+        let sink = Arc::new(MockSink::new());
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+        let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
+        let collector = Arc::new(CollectingEmitter::new());
+
+        process_events(
+            sink.clone(),
+            dropper,
+            None,
+            historical_cfg,
+            Some(global_limiter),
+            None,
+            None,
+            Some(collector.clone()),
+            &AiRouting::Primary,
+            events,
+            &context,
+        )
+        .await
+        .unwrap();
+
+        let emitted = collector.emitted();
+        assert_eq!(emitted.len(), 1);
+        let w = &emitted[0];
+        assert_eq!(w.token, "test_token");
+        assert_eq!(w.warning, WarningType::HighVolumeDistinctId);
+        assert_eq!(w.source, CAPTURE_LEGACY_RATE_LIMIT);
+        assert_eq!(w.count, 1);
+        assert_eq!(
+            w.extra_details["distinctId"],
+            serde_json::json!("test_user")
+        );
+        assert_eq!(w.extra_details["distinctIdCount"], serde_json::json!(1));
+        assert_eq!(w.extra_details["lib"], serde_json::json!(expected_lib));
+        assert_eq!(
+            w.extra_details["libVersion"],
+            serde_json::json!(expected_lib_version)
+        );
+        assert_eq!(w.extra_details["path"], serde_json::json!("/e/"));
+    }
+
+    #[tokio::test]
+    async fn global_rate_limit_does_not_warn_when_person_processing_was_already_off() {
+        // An ops restriction already took person processing away, so the limiter
+        // changed nothing the customer would recognize. It still reroutes the hot
+        // key, but a warning here would overstate the limit's reach.
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+        let events = vec![create_test_event(
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        )];
+
+        let sink = Arc::new(MockSink::new());
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+        let global_limiter = Arc::new(GlobalRateLimiter::mock_limiting(&["test_token:test_user"]));
+        let collector = Arc::new(CollectingEmitter::new());
+
+        let service =
+            EventRestrictionService::new(vec![Pipeline::Analytics], Duration::from_secs(300));
+        let mut manager = RestrictionManager::new();
+        manager.insert_restrictions(
+            Pipeline::Analytics,
+            "test_token",
+            vec![Restriction {
+                restriction_type: RestrictionType::SkipPersonProcessing,
+                scope: RestrictionScope::AllEvents,
+                args: None,
+            }],
+        );
+        service.update(manager).await;
+
+        process_events(
+            sink.clone(),
+            dropper,
+            Some(service),
+            historical_cfg,
+            Some(global_limiter),
+            None,
+            None,
+            Some(collector.clone()),
+            &AiRouting::Primary,
+            events,
+            &context,
+        )
+        .await
+        .unwrap();
+
+        assert!(collector.emitted().is_empty());
+        let captured = sink.get_events();
+        assert_eq!(captured.len(), 1);
+        assert!(captured[0].metadata.skip_person_processing);
+        assert_eq!(
+            captured[0].metadata.overflow_reason,
+            Some(OverflowReason::ForceLimited),
+            "the hot key is still rerouted to overflow"
         );
     }
 
@@ -2171,6 +2369,7 @@ mod tests {
             historical_cfg,
             Some(global_limiter),
             None, // no overflow limiter -- isolate global RL behavior
+            None,
             None,
             &AiRouting::Primary,
             events,
@@ -2221,6 +2420,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -2259,6 +2459,7 @@ mod tests {
             dropper,
             None,
             historical_cfg,
+            None,
             None,
             None,
             None,
@@ -2306,6 +2507,7 @@ mod tests {
             None,
             historical_cfg,
             Some(global_limiter),
+            None,
             None,
             None,
             &AiRouting::Primary,
@@ -2362,6 +2564,7 @@ mod tests {
             None,
             Some(limiter),
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -2414,6 +2617,7 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
+            None,
             None,
             &AiRouting::Primary,
             events,
@@ -2470,6 +2674,7 @@ mod tests {
             historical_cfg,
             None,
             Some(limiter),
+            None,
             None,
             &AiRouting::Primary,
             events,
@@ -2718,6 +2923,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -2768,6 +2974,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &AiRouting::Primary,
             events,
             &context,
@@ -2804,6 +3011,7 @@ mod tests {
             dropper,
             None,
             historical_cfg,
+            None,
             None,
             None,
             None,
@@ -2851,6 +3059,7 @@ mod tests {
             dropper,
             None,
             historical_cfg,
+            None,
             None,
             None,
             None,

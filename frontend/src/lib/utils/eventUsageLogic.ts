@@ -3140,7 +3140,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 refresh_age: insight?.last_refresh ? now().diff(insight?.last_refresh, 'seconds') : undefined,
                 filters,
                 variables,
-                tile: sanitizeTile(tile),
                 refresh_duration_ms: refreshDurationMs,
                 individual_refresh: individualRefresh,
                 ...sanitizedQuery,

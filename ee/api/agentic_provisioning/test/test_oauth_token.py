@@ -12,7 +12,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX
-from ee.api.agentic_provisioning.test.base import TEST_PARTNER_SCOPES, ProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import TEST_PARTNER_SCOPES, ProvisioningTestBase, provisioning_config
 from ee.models.rbac.access_control import AccessControl
 
 TOKEN_URL = "/api/agentic/oauth/token"
@@ -181,8 +181,7 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
             algorithm="RS256",
             scopes=TEST_PARTNER_SCOPES,
             is_provisioning_partner=True,
-            provisioning_partner_type="test_partner",
-            provisioning_active=True,
+            _provisioning_config=provisioning_config(active=True),
         )
         code, verifier = self._mint_auth_code(partner=pkce_partner)
 
