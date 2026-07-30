@@ -428,6 +428,33 @@ mod test {
     }
 
     #[test]
+    fn it_reads_a_stacktrace_that_omits_its_type_tag() {
+        // The shape posthog-python sent before 5.x: no "type": "raw" on the stacktrace
+        let raw: &'static str = r#"{
+            "$exception_list": [{
+                "type": "OperationalError",
+                "value": "connection failed",
+                "module": "psycopg",
+                "stacktrace": {"frames": [{
+                    "platform": "python",
+                    "filename": "app/db.py",
+                    "function": "connect",
+                    "lineno": 1
+                }]}
+            }]
+        }"#;
+
+        let props: RawExceptionProperties =
+            serde_json::from_str(raw).expect("An untagged stacktrace is read as raw");
+        assert_eq!(props.exception_list.len(), 1);
+        let stack = props.exception_list[0]
+            .stack
+            .as_ref()
+            .expect("frames are kept");
+        assert!(matches!(stack, Stacktrace::Raw { frames } if frames.len() == 1));
+    }
+
+    #[test]
     fn a_missing_exception_list_deserializes_to_an_empty_list() {
         let raw: &'static str = r#"{"$lib": "posthog-python"}"#;
         let props: RawExceptionProperties =
