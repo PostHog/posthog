@@ -658,6 +658,13 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
         allow_null=True,
         help_text="The data-warehouse view-sync binding feeding this property, or null when values are set manually.",
     )
+    is_canonical = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True when PostHog writes this property itself. Its name and display type are fixed — "
+            "an update changing either is rejected."
+        ),
+    )
     created_at = serializers.DateTimeField(read_only=True)
     created_by = serializers.IntegerField(read_only=True, allow_null=True)
     updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
@@ -692,6 +699,7 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
             "target_type",
             "group_type_index",
             "is_big_number",
+            "is_canonical",
             "options",
             "source",
             "created_at",
