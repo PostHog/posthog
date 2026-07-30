@@ -127,14 +127,12 @@ export function Tooltip({
         }
     }, [open, onOpen])
 
-    // Dismiss on scroll: the trigger can scroll away (or out of a clipped container) from under
-    // the pointer, leaving the tooltip floating detached from anything.
+    // Dismiss on scroll, otherwise the tooltip lingers detached after its trigger scrolls away
     useEffect(() => {
         if (!open || controlledOpen !== undefined) {
             return
         }
         const handleScroll = (event: Event): void => {
-            // Scrolls within the tooltip's own popup (interactive content) shouldn't dismiss it
             if (event.target instanceof Element && event.target.closest('.Tooltip')) {
                 return
             }

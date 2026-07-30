@@ -100,7 +100,6 @@ interface RawDateFilterProps extends DateFilterProps {
     onExclusionsChange?: (exclusions: DateFilterExclusions) => void
     showIncompletePeriodExclusion?: boolean
     showDaysOfWeekExclusions?: boolean
-    /** Size of the option rows in the dropdown. Defaults to medium. */
     optionsSize?: 'small' | 'medium'
 }
 
@@ -290,14 +289,9 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
             />
         ) : (
             <div className="flex max-h-full min-h-0 flex-col" ref={optionsRef} onClick={(e) => e.stopPropagation()}>
-                {/* The preset list scrolls on short screens; the custom options, toggles, and
-                    exclusions below stay pinned (mirrors the quill DateRangePresetsPanel). The
-                    scroll area's own border doubles as the divider so it sits exactly at the
-                    scroll cutoff. */}
                 <ScrollableShadows
                     direction="vertical"
-                    // max-h shows ~9 preset rows with a sliver of the tenth as a scroll hint; the
-                    // shadow and clipped row signal scrollability, so skip the scrollbar gutter
+                    // max-h-80 shows ~9 preset rows with a sliver of the tenth as a scroll hint
                     hideScrollbars
                     className={clsx('min-h-0 flex-1 border-b', optionsSize === 'small' && 'max-h-80')}
                     innerClassName="deprecated-space-y-px p-1"
@@ -478,8 +472,6 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
             additionalRefs={[rollingDateRangeRef]}
             onClickOutside={close}
             closeParentPopoverOnClickInside={false}
-            // The quick list manages its own scrolling (presets scroll, footer pinned); the
-            // calendar views keep the popover's default scroll container.
             overflowHidden={view === DateFilterView.QuickList}
         >
             {renderTrigger ? (

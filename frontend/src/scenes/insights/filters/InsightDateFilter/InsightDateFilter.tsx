@@ -24,16 +24,13 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
     const { insightData } = useValues(insightVizDataLogic(insightProps))
     const { reportInsightDatePickerOpened } = useActions(eventUsageLogic)
 
-    // The picker speaks excluded days; the query schema stores included days. The legacy
-    // display-only trendsFilter.hideWeekends is deliberately NOT folded in — different semantics.
+    // The picker speaks excluded days; the query schema stores included days
     const excludedDaysOfWeek = getExcludedDaysOfWeek(dateRange)
     // The backend rejects daysOfWeek together with smoothing, so don't offer it
     const smoothingActive = isTrends && (trendsFilter?.smoothingIntervals ?? 1) > 1
     const showDaysOfWeekExclusions = isTrends && !smoothingActive
 
-    // Hiding the exclusions control (smoothing turned on, or the insight type changed away from
-    // trends) must also clear any daysOfWeek already on the query — otherwise it lingers with no
-    // UI left to remove it, and the backend rejects daysOfWeek alongside smoothing.
+    // Clear daysOfWeek when the control hides, otherwise it lingers with no UI left to remove it
     useEffect(() => {
         if (!showDaysOfWeekExclusions && dateRange?.daysOfWeek?.length) {
             updateQuerySource(computeDaysOfWeekUpdate([], dateRange))

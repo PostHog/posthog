@@ -9,9 +9,6 @@ import {
     dateFilterExclusionsSummary,
 } from 'lib/components/DateFilter/DateFilterExclusionsControl'
 
-/** LemonUI twin of the quill DateFilterExclusionsControl: an "Exclude" row that opens a flyout
- * with an incomplete-period switch and exclude-day chips. Speaks _excluded_ ISO days ('1'–'7'). */
-
 const DAYS_OF_WEEK: { day: string; label: string; name: string }[] = [
     { day: '1', label: 'M', name: 'Monday' },
     { day: '2', label: 'T', name: 'Tuesday' },
@@ -42,8 +39,7 @@ export function LemonDateFilterExclusions({
             visible={visible}
             onClickOutside={() => setVisible(false)}
             placement="right-end"
-            // Side placements only: flip's bestFit keeps the flyout beside the row (like the quill
-            // control) and shift nudges it vertically, instead of flipping to above/below.
+            // side fallbacks only, so collision handling keeps the flyout beside the row instead of flipping above/below
             fallbackPlacements={['left-end']}
             padded={false}
             overlay={
