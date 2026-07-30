@@ -211,6 +211,37 @@ describe('exportsLogic', () => {
             }
         )
 
+        it('offers a Download button when the create call outlived the user gesture', async () => {
+            // A slow synchronous render outlives Safari's user-activation window, so an auto-download
+            // would be silently dropped. The export must instead surface a Download button (a fresh
+            // click) and stay highlighted as undownloaded until the user clicks it.
+            const original = Object.getOwnPropertyDescriptor(navigator, 'userActivation')
+            Object.defineProperty(navigator, 'userActivation', { value: { isActive: false }, configurable: true })
+            try {
+                const response = asset({ id: 15, export_format: ExporterFormat.CSV, has_content: true })
+                jest.spyOn(api.exports, 'create').mockResolvedValue(response)
+                const downloadExportSpy = jest.spyOn(logic.actions, 'downloadExport')
+
+                logic.actions.createExport({ exportData: { export_format: ExporterFormat.CSV } })
+                await flush()
+
+                expect(jest.mocked(downloadExportedAsset)).not.toHaveBeenCalled()
+                expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toEqual([15])
+                expect(lemonToast.success).toHaveBeenCalledWith(
+                    'Export complete!',
+                    expect.objectContaining({ button: expect.objectContaining({ label: 'Download' }) })
+                )
+                jest.mocked(lemonToast.success).mock.calls.at(-1)![1]!.button!.action()
+                expect(downloadExportSpy).toHaveBeenCalledWith(response)
+            } finally {
+                if (original) {
+                    Object.defineProperty(navigator, 'userActivation', original)
+                } else {
+                    delete (navigator as any).userActivation
+                }
+            }
+        })
+
         it('notifies once with a Download button that routes through downloadExport', async () => {
             const pending = asset({ id: 21, export_format: ExporterFormat.MP4, has_content: false })
             const finished = asset({ id: 21, export_format: ExporterFormat.MP4, has_content: true })
