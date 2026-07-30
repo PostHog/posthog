@@ -122,8 +122,9 @@ export function DashboardInsightColorsModal(): JSX.Element {
 
             <LemonLabel className="mt-4">Breakdown colors</LemonLabel>
             <p className="text-muted-alt mb-4">
-                Breakdown values get a consistent color across all insights on this dashboard. Pick a color to pin a
-                value to it. <i>Note: This works for trend, funnel, and retention insights.</i>
+                Breakdown values that appear on multiple insights share one color across this dashboard, listed here
+                with the most widely shared first. Values on a single insight keep that insight's own colors. Pick a
+                color to pin a value to it.
             </p>
             <LemonTable
                 columns={columns}

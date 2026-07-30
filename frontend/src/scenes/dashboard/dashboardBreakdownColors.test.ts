@@ -55,7 +55,7 @@ describe('dashboardBreakdownColors', () => {
 
     describe('extractBreakdownValues', () => {
         it('returns empty array for null input', () => {
-            expect(extractBreakdownValues(null, null)).toEqual([])
+            expect(extractBreakdownValues(null)).toEqual([])
         })
 
         it('handles funnel insights with steps visualization', () => {
@@ -86,11 +86,13 @@ describe('dashboardBreakdownColors', () => {
                 }),
             ]
 
-            expect(extractBreakdownValues(tiles, null)).toEqual([
+            // Baseline is on both tiles, so it outranks the single-tile values; Chrome and
+            // Safari tie on chart position and fall back to value order
+            expect(extractBreakdownValues(tiles)).toEqual([
                 { breakdownValue: 'Baseline', breakdownType: 'event' },
                 { breakdownValue: 'Chrome', breakdownType: 'event' },
-                { breakdownValue: 'Firefox', breakdownType: 'event' },
                 { breakdownValue: 'Safari', breakdownType: 'event' },
+                { breakdownValue: 'Firefox', breakdownType: 'event' },
             ])
         })
 
@@ -103,10 +105,27 @@ describe('dashboardBreakdownColors', () => {
                 trendsTile([{ action: { order: 0 }, breakdown_value: 'Safari' }]),
             ]
 
-            expect(extractBreakdownValues(tiles, null)).toEqual([
+            expect(extractBreakdownValues(tiles)).toEqual([
                 { breakdownValue: 'Chrome', breakdownType: 'event' },
-                { breakdownValue: 'Firefox', breakdownType: 'event' },
                 { breakdownValue: 'Safari', breakdownType: 'event' },
+                { breakdownValue: 'Firefox', breakdownType: 'event' },
+            ])
+        })
+
+        it('orders values by assignment rank, most re-used first', () => {
+            const tiles = [
+                trendsTile([
+                    { action: { order: 0 }, breakdown_value: ['Apple'] },
+                    { action: { order: 0 }, breakdown_value: ['Zebra'] },
+                ]),
+                trendsTile([{ action: { order: 0 }, breakdown_value: ['Zebra'] }]),
+            ]
+
+            // Zebra is on two charts vs Apple's one, so the modal lists it first even
+            // though it trails the first chart and sorts later as a value
+            expect(extractBreakdownValues(tiles)).toEqual([
+                { breakdownValue: 'Zebra', breakdownType: 'event' },
+                { breakdownValue: 'Apple', breakdownType: 'event' },
             ])
         })
 
@@ -122,7 +141,7 @@ describe('dashboardBreakdownColors', () => {
                 ]),
             ]
 
-            expect(extractBreakdownValues(tiles, null)).toEqual([
+            expect(extractBreakdownValues(tiles)).toEqual([
                 { breakdownValue: 'Chrome', breakdownType: 'event' },
                 { breakdownValue: 'Firefox', breakdownType: 'event' },
                 { breakdownValue: 'Safari', breakdownType: 'event' },
@@ -142,7 +161,7 @@ describe('dashboardBreakdownColors', () => {
                 }),
             ]
 
-            expect(extractBreakdownValues(tiles, null)).toEqual([
+            expect(extractBreakdownValues(tiles)).toEqual([
                 { breakdownValue: '123', breakdownType: 'event' },
                 { breakdownValue: 'Baseline', breakdownType: 'event' },
             ])
@@ -164,7 +183,7 @@ describe('dashboardBreakdownColors', () => {
                 }),
             ]
 
-            expect(extractBreakdownValues(tiles, null)).toEqual([
+            expect(extractBreakdownValues(tiles)).toEqual([
                 { breakdownValue: 'Chrome', breakdownType: 'event' },
                 { breakdownValue: 'Firefox', breakdownType: 'event' },
             ])
@@ -193,10 +212,10 @@ describe('dashboardBreakdownColors', () => {
                 retentionTile([{ breakdown_value: 'Firefox' }]),
             ]
 
-            expect(extractBreakdownValues(tiles, null)).toEqual([
-                { breakdownValue: '$$_posthog_breakdown_other_$$', breakdownType: 'event' },
+            expect(extractBreakdownValues(tiles)).toEqual([
                 { breakdownValue: 'Chrome', breakdownType: 'event' },
                 { breakdownValue: 'Firefox', breakdownType: 'event' },
+                { breakdownValue: '$$_posthog_breakdown_other_$$', breakdownType: 'event' },
             ])
         })
 
@@ -235,7 +254,7 @@ describe('dashboardBreakdownColors', () => {
                 }),
             ],
         ])('ignores %s', (_name, tile) => {
-            expect(extractBreakdownValues([tile], null)).toEqual([])
+            expect(extractBreakdownValues([tile])).toEqual([])
         })
 
         it('handles cohort breakdowns', () => {
@@ -251,10 +270,11 @@ describe('dashboardBreakdownColors', () => {
                     } as InsightVizNode<InsightQueryNode>,
                 })
 
-            expect(extractBreakdownValues([cohortTile([[1], [2]]), cohortTile([[3]])], null)).toEqual([
+            // cohorts 1 and 3 lead their charts and tie, so value order decides; 2 trails its chart
+            expect(extractBreakdownValues([cohortTile([[1], [2]]), cohortTile([[3]])])).toEqual([
                 { breakdownValue: '1', breakdownType: 'cohort' },
-                { breakdownValue: '2', breakdownType: 'cohort' },
                 { breakdownValue: '3', breakdownType: 'cohort' },
+                { breakdownValue: '2', breakdownType: 'cohort' },
             ])
         })
     })
