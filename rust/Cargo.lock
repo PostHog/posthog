@@ -2258,12 +2258,14 @@ dependencies = [
  "metrics",
  "moka",
  "opentelemetry-proto 0.29.0",
+ "prometheus-rw-proto",
  "prost 0.13.5",
  "rdkafka",
  "serde",
  "serde_derive",
  "serde_json",
  "siphasher 1.0.2",
+ "snap",
  "sqlx",
  "thiserror 2.0.18",
  "tokio",
@@ -9222,6 +9224,14 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "watto",
+]
+
+[[package]]
+name = "prometheus-rw-proto"
+version = "0.1.0"
+dependencies = [
+ "prost 0.13.5",
+ "tonic-build 0.12.3",
 ]
 
 [[package]]
