@@ -3,7 +3,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1270_untrack_provisioning_auth_columns"),
+        ("posthog", "1276_untrack_legacy_provisioning_columns"),
     ]
 
     operations = [

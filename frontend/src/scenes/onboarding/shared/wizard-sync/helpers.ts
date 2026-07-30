@@ -1,5 +1,16 @@
-import { InstallationProgress, InstallationStep, InstallationStepStatus } from './installationProgressLogic'
+import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
+
+import type { InstallationProgress, InstallationStep, InstallationStepStatus } from './installationProgressLogic'
 import type { TaskRunConnectionStatus } from './taskRunStreamLogic'
+
+// Prefer a real name; fall back to email so we never render a blank attribution.
+export function startedByFromSession(session: WizardSessionDTOApi | null): { name: string; email: string } | null {
+    const createdBy = session?.created_by
+    if (!createdBy) {
+        return null
+    }
+    return { name: createdBy.first_name || createdBy.email, email: createdBy.email }
+}
 
 // Ceiling on the displayed elapsed time. The clock is driven by a persisted handle that outlives the
 // run it names, so without a cap a run nobody ever settled counts up for as long as the browser keeps
@@ -87,6 +98,9 @@ export function syncHeadline(progress: InstallationProgress): string {
     if (progress.prUrl) {
         return 'Pull request ready'
     }
+    if (progress.pendingInput) {
+        return 'Waiting for your answer'
+    }
     if (progress.phase === 'connecting') {
         return 'Getting ready'
     }
@@ -112,11 +126,25 @@ export function currentTaskLabel(progress: InstallationProgress): string | null 
     if (progress.phase === 'completed') {
         return progress.prUrl ? 'Pull request is ready to review' : 'Everything is wired up'
     }
+    if (progress.pendingInput) {
+        // The run is blocked and the user is usually looking at the app, not the terminal, so the
+        // prominent line is the call to go back there. The question itself is secondary, since
+        // knowing there is one is what unblocks the run.
+        return 'Your terminal needs your attention'
+    }
     const step = activeStep(progress.steps)
     if (step) {
         return step.detail ?? step.label
     }
     return progress.phase === 'connecting' ? 'Connecting to your run' : 'Getting things ready'
+}
+
+/**
+ * The pending question, shown below the call to action rather than in place of it. Null when nothing
+ * is pending and for sensitive asks, which publish no prompt text at all.
+ */
+export function pendingQuestionLabel(progress: InstallationProgress): string | null {
+    return progress.pendingInput?.prompts[0] ?? null
 }
 
 export function stepCounts(steps: InstallationStep[]): { completed: number; total: number } {
@@ -148,6 +176,9 @@ export function toneTextClass(progress: InstallationProgress): string {
     }
     if (progress.phase === 'error') {
         return 'text-danger'
+    }
+    if (progress.pendingInput) {
+        return 'text-warning'
     }
     return 'text-accent'
 }

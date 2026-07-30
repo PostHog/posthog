@@ -1309,6 +1309,53 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(sorted(body["available_tags"]), ["onboarding", "support", "surprise"])
         self.assertIsNone(body["monitor"])
         self.assertIsNone(body["scorer"])
+        self.assertIsNone(body["summarizer"])
+
+    def test_stats_summarizer_facet_rankings(self) -> None:
+        summarizer = self._create_scanner(
+            name="journeys",
+            scanner_type=ScannerType.SUMMARIZER,
+            scanner_config={"prompt": "p", "length": "medium"},
+        )
+        for idx, (friction, keywords) in enumerate(
+            [
+                (["checkout stalls"], ["checkout"]),
+                (["checkout stalls", "filter reset"], ["checkout", "filters"]),
+                ([], []),
+            ]
+        ):
+            ReplayObservation.objects.create(
+                scanner=summarizer,
+                session_id=f"sess-{idx}",
+                scanner_snapshot=_snapshot_for(summarizer),
+                triggered_by=ObservationTrigger.SCHEDULE,
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=timezone.now(),
+                scanner_result={
+                    "model_output": {
+                        "scanner_type": "summarizer",
+                        "title": "t",
+                        "summary": "s",
+                        "friction_points": friction,
+                        "keywords": keywords,
+                        "confidence": 0.5,
+                    },
+                    "signals_count": 0,
+                },
+            )
+        resp = self.client.get(f"{self.observations_url(str(summarizer.id))}stats/")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["summarizer"]["total_with_facets"], 2)
+        self.assertEqual(
+            body["summarizer"]["friction_ranked"],
+            [{"term": "checkout stalls", "count": 2}, {"term": "filter reset", "count": 1}],
+        )
+        self.assertEqual(
+            body["summarizer"]["keyword_ranked"],
+            [{"term": "checkout", "count": 2}, {"term": "filters", "count": 1}],
+        )
+        self.assertIsNone(body["classifier"])
 
     def test_filterset_status_multi_value(self) -> None:
         self._create_observation(session_id="ok", status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
