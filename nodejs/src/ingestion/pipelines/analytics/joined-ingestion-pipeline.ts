@@ -29,6 +29,7 @@ import {
     createValidateAiEventTokensStep,
     createValidateHistoricalMigrationStep,
 } from '~/ingestion/common/steps/event-preprocessing'
+import { createMeterCapturedEventStep } from '~/ingestion/common/steps/event-preprocessing/meter-captured-event'
 import { EventPipelineRunnerOptions } from '~/ingestion/common/steps/event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
 import { createFlushHogTransformerStep } from '~/ingestion/common/steps/event-processing/flush-hog-transformer-step'
@@ -228,6 +229,7 @@ export function createJoinedIngestionPipeline<
             .pipeChunk(createSkipCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
             .parseMessage()
             .resolveTeam()
+            .pipe(createMeterCapturedEventStep(finopsUsageMeter))
             .pipe(createValidateHistoricalMigrationStep())
             .pipe(createValidateAiEventTokensStep())
             .pipe(createEnrichSurveyPersonPropertiesStep())

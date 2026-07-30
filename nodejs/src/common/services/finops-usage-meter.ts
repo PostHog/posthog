@@ -64,6 +64,13 @@ export interface FinopsEventOutputMeterInput {
     resourceId: string
 }
 
+export interface FinopsCapturedEventMeterInput {
+    teamId: number
+    orgId: string
+    byteLength: number
+    resourceId: string
+}
+
 export interface FinopsUsageMeterOptions {
     /** When false (the default) queue() and flush() are no-ops — the emitter is opt-in per consumer, env-controlled. */
     enabled?: boolean
@@ -166,6 +173,23 @@ export class FinopsUsageMeter {
             costType: 'cogs',
             system: 'warpstream',
             workload: `emit:${event.output}`,
+            resourceId: event.resourceId,
+        })
+    }
+
+    queueCapturedEvent(event: FinopsCapturedEventMeterInput): void {
+        this.queue({
+            product: 'shared',
+            billableUnit: 'events',
+            team: 'ingestion',
+            teamId: event.teamId,
+            orgId: event.orgId,
+            quantity: 1,
+            costUnit: 'bytes',
+            costQuantity: event.byteLength,
+            costType: 'cogs',
+            system: 'warpstream',
+            workload: 'consume:capture',
             resourceId: event.resourceId,
         })
     }

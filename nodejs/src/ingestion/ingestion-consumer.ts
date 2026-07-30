@@ -446,24 +446,6 @@ export class IngestionConsumer {
             }
         }
 
-        // WarpStream bills on throughput, so costQuantity records message bytes while quantity
-        // keeps the customer-facing event count used to allocate that cost.
-        if (this.config.INGESTION_FINOPS_USAGE_METERS_ENABLED) {
-            const batchBytes = messages.reduce((total, message) => total + (message.size ?? 0), 0)
-            this.finopsUsageMeter.queue({
-                product: 'shared',
-                billableUnit: 'events',
-                quantity: messages.length,
-                costUnit: 'bytes',
-                costQuantity: batchBytes,
-                team: 'ingestion',
-                costType: 'cogs',
-                system: 'warpstream',
-                workload: `consume:${this.groupId}`,
-                resourceId: this.topic,
-            })
-        }
-
         return {
             backgroundTask: this.runInstrumented('awaitScheduledWork', async () => {
                 const labels = { groupId: this.groupId }

@@ -151,6 +151,26 @@ describe('FinopsUsageMeter', () => {
         })
     })
 
+    it('aggregates captured input by customer before downstream outcomes', async () => {
+        const meter = new FinopsUsageMeter(outputs, { enabled: true })
+        meter.queueCapturedEvent({ teamId: 42, orgId: 'org-42', byteLength: 100, resourceId: 'capture-topic' })
+        meter.queueCapturedEvent({ teamId: 42, orgId: 'org-42', byteLength: 250, resourceId: 'capture-topic' })
+        await meter.flush()
+
+        expect(getRows()[0]).toMatchObject({
+            product: 'shared',
+            billable_unit: 'events',
+            team: 'ingestion',
+            team_id: 42,
+            org_id: 'org-42',
+            quantity: 2,
+            cost_unit: 'bytes',
+            cost_quantity: 350,
+            workload: 'consume:capture',
+            resource_id: 'capture-topic',
+        })
+    })
+
     it.each([
         ['product', { product: 'cdp' }],
         ['billableUnit', { billableUnit: 'invocations' }],
