@@ -379,6 +379,10 @@ class TestCollectStatementsScripted:
             ("SELECT $tag$api_token=secret$tag$ FROM t", "SELECT '?' FROM t"),
             ("SELECT $$outer $notatag inner$$ FROM t", "SELECT '?' FROM t"),
             ("SELECT $$unterminated secret", "SELECT '?'"),
+            # A backslash escapes the next character inside a literal, so the span ends at
+            # the real closing quote — otherwise everything after `\'` leaked out.
+            (r"SELECT * FROM t WHERE k = E'first\'still secret'", "SELECT * FROM t WHERE k = E'?'"),
+            (r"SELECT 'ends with backslash\\' , 'next'", "SELECT '?' , '?'"),
             # `$1` is a parameter placeholder, not a dollar quote — the whole point of
             # normalized text, so it has to survive.
             ("SELECT $1, $2 FROM t WHERE id = $1", "SELECT $1, $2 FROM t WHERE id = $1"),

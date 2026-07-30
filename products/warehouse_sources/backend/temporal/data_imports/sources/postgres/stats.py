@@ -320,6 +320,15 @@ def _scrub_statement_text(text: str) -> str:
         if char in "'\"":
             end = index + 1
             while end < length:
+                # Inside a string literal a backslash escapes the next character, so
+                # `E'a\'b'` ends at the second quote, not the escaped one. Treated as an
+                # escape unconditionally: `standard_conforming_strings` decides whether it
+                # applies, and we can't know its value per statement. When it's on and a
+                # literal genuinely ends in a backslash we over-consume, which costs some
+                # of the statement's shape but can never leak — the safe direction.
+                if char == "'" and text[end] == "\\":
+                    end += 2
+                    continue
                 if text[end] == char:
                     if end + 1 < length and text[end + 1] == char:
                         end += 2
