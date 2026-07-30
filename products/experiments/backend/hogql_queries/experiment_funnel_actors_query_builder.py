@@ -1,6 +1,12 @@
 from typing import cast
 
-from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentFunnelMetric, MultipleVariantHandling
+from posthog.schema import (
+    ActionsNode,
+    AnyPropertyFilterDiscriminated,
+    ExperimentEventExposureConfig,
+    ExperimentFunnelMetric,
+    MultipleVariantHandling,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
@@ -42,6 +48,7 @@ class ExperimentFunnelActorsQueryBuilder:
         funnel_step: int,
         funnel_step_breakdown: str | int | float,
         include_recordings: bool,
+        exposure_exclusions: list[AnyPropertyFilterDiscriminated] | None = None,
     ):
         self.team = team
         self.metric = metric
@@ -65,6 +72,7 @@ class ExperimentFunnelActorsQueryBuilder:
             date_range_query=date_range_query,
             entity_key=entity_key,
             metric=metric,
+            exposure_exclusions=exposure_exclusions,
         )
 
     def build_actors_query(self) -> ast.SelectQuery:

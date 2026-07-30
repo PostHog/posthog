@@ -1,8 +1,21 @@
 import pytest
+from posthog.test.base import BaseTest
 
-from posthog.schema import ExperimentEventExposureConfig, ExperimentExposureCriteria
+from posthog.schema import (
+    EventPropertyFilter,
+    ExperimentEventExposureConfig,
+    ExperimentExposureCriteria,
+    PersonPropertyFilter,
+    PropertyOperator,
+)
 
-from products.experiments.backend.hogql_queries.exposure_query_logic import normalize_to_exposure_criteria
+from posthog.hogql import ast
+
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    UnsupportedExposureExclusionError,
+    build_exposure_exclusion_expr,
+    normalize_to_exposure_criteria,
+)
 
 
 class TestNormalizeToExposureCriteria:
@@ -45,3 +58,33 @@ class TestNormalizeToExposureCriteria:
 
         # Should return the exact same object, not a copy
         assert result is typed_criteria
+
+
+class TestBuildExposureExclusionExpr(BaseTest):
+    def test_person_filter_reads_current_state_not_the_event_snapshot(self):
+        expr = build_exposure_exclusion_expr(
+            [PersonPropertyFilter(key="consent_withdrawn", value=["true"], operator=PropertyOperator.EXACT)],
+            self.team,
+        )
+
+        # The subquery against `persons` is the whole point: reading `person.properties` off the
+        # events row would give the value snapshotted when the event was ingested, so nobody
+        # exposed before the property was set would ever be removed. Keying it on `person_id`
+        # rather than the row is what takes the person's earlier exposures with them.
+        assert isinstance(expr, ast.Not)
+        membership = expr.expr
+        assert isinstance(membership, ast.CompareOperation)
+        assert membership.op == ast.CompareOperationOp.In
+        assert membership.left == ast.Field(chain=["person_id"])
+        assert isinstance(membership.right, ast.SelectQuery)
+        assert membership.right.select_from is not None
+        assert membership.right.select_from.table == ast.Field(chain=["persons"])
+
+    def test_rejects_filters_that_cannot_resolve_at_query_time(self):
+        with pytest.raises(UnsupportedExposureExclusionError):
+            build_exposure_exclusion_expr(
+                [EventPropertyFilter(key="plan", value=["paid"], operator=PropertyOperator.EXACT)], self.team
+            )
+
+    def test_no_exclusions_is_no_predicate(self):
+        assert build_exposure_exclusion_expr([], self.team) is None

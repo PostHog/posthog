@@ -385,6 +385,34 @@ class ExperimentService:
             return rendered[: cls._ERROR_VALUE_MAX_LEN] + "...(truncated)"
         return rendered
 
+    # Anything else can't be resolved against the person's current state, so it would silently
+    # fail to remove people exposed before the filter started matching.
+    EXCLUSION_FILTER_TYPES = ("person", "cohort", "static-cohort", "precalculated-cohort")
+
+    EXCLUSION_HINT = (
+        "exposure_criteria.exclusions removes people from the experiment entirely, so it accepts "
+        f"only these property filter types: {list(EXCLUSION_FILTER_TYPES)}."
+    )
+
+    @classmethod
+    def _validate_exposure_exclusions(cls, exclusions: object) -> None:
+        if not isinstance(exclusions, list):
+            raise ValidationError(
+                f"exposure_criteria.exclusions must be a list, got {type(exclusions).__name__}. {cls.EXCLUSION_HINT}"
+            )
+
+        for exclusion in exclusions:
+            if not isinstance(exclusion, dict):
+                raise ValidationError(
+                    f"exposure_criteria.exclusions entries must be objects, got "
+                    f"{type(exclusion).__name__}. {cls.EXCLUSION_HINT}"
+                )
+            if exclusion.get("type") not in cls.EXCLUSION_FILTER_TYPES:
+                raise ValidationError(
+                    f"Unsupported exposure_criteria.exclusions type "
+                    f"{cls._safe_repr(exclusion.get('type'))}. {cls.EXCLUSION_HINT}"
+                )
+
     @classmethod
     def validate_experiment_exposure_criteria(cls, exposure_criteria: object) -> None:
         """Validate experiment exposure criteria payloads.
@@ -408,6 +436,9 @@ class ExperimentService:
                     f"exposure_criteria.filterTestAccounts must be a boolean, got "
                     f"{type(filter_test_accounts).__name__}: {cls._safe_repr(filter_test_accounts)}."
                 )
+
+        if "exclusions" in exposure_criteria and exposure_criteria["exclusions"] is not None:
+            cls._validate_exposure_exclusions(exposure_criteria["exclusions"])
 
         if "exposure_config" in exposure_criteria:
             exposure_config = exposure_criteria["exposure_config"]

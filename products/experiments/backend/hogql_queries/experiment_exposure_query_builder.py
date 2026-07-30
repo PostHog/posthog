@@ -10,6 +10,7 @@ from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import event_or_action_to_filter
 from products.experiments.backend.hogql_queries.breakdown_injector import BreakdownInjector
 from products.experiments.backend.hogql_queries.experiment_query_context import ExperimentQueryContext
+from products.experiments.backend.hogql_queries.exposure_query_logic import build_exposure_exclusion_expr
 
 
 def _optimize_and_chain(expr: ast.Expr) -> ast.Expr:
@@ -230,6 +231,14 @@ class ExposureQueryBuilder:
 
         return event_predicate
 
+    def build_exclusion_filter(self) -> ast.Expr:
+        """Drop excluded people's entire history from the experiment. True when nothing is excluded."""
+        exclusion_expr = build_exposure_exclusion_expr(
+            list(self.context.exposure_exclusions),
+            self.context.team,
+        )
+        return exclusion_expr if exclusion_expr is not None else ast.Constant(value=True)
+
     def build_exposure_predicate(self) -> ast.Expr:
         """
         Builds the exposure predicate as an AST expression.
@@ -241,6 +250,7 @@ class ExposureQueryBuilder:
                 AND timestamp <= {date_to}
                 AND {event_predicate}
                 AND {test_accounts_filter}
+                AND {exclusion_filter}
                 AND {variant_property} IN {variants}
                 """,
                 placeholders={
@@ -250,12 +260,16 @@ class ExposureQueryBuilder:
                     "variant_property": self.build_variant_property(),
                     "variants": ast.Constant(value=list(self.context.variants)),
                     "test_accounts_filter": self.build_test_accounts_filter(),
+                    "exclusion_filter": self.build_exclusion_filter(),
                 },
             )
         )
 
     def select_query(self) -> ast.SelectQuery:
-        if self.preaggregation_job_ids and not self.context.breakdowns:
+        # Exclusions must resolve against current person state on every read, so they can't come
+        # from the precomputed table — those rows are built once and cached for weeks, which would
+        # pin the membership as it stood at build time and defeat retroactive exclusion.
+        if self.preaggregation_job_ids and not self.context.breakdowns and not self.context.exposure_exclusions:
             return self.precomputed_select_query(self.preaggregation_job_ids)
 
         return self._build_exposure_select_query()

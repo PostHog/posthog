@@ -10,6 +10,7 @@ from typing import Optional, Union
 
 from posthog.schema import (
     ActionsNode,
+    AnyPropertyFilterDiscriminated,
     ExperimentEventExposureConfig,
     ExperimentExposureCriteria,
     MultipleVariantHandling,
@@ -147,6 +148,82 @@ def get_test_accounts_filter(
     if filter_test_accounts and isinstance(team.test_account_filters, list) and len(team.test_account_filters) > 0:
         return [property_to_expr(property, team) for property in team.test_account_filters]
     return []
+
+
+class UnsupportedExposureExclusionError(ValueError):
+    """Raised when an exposure exclusion names a filter type we can't resolve at query time."""
+
+
+def get_exposure_exclusions(
+    exposure_criteria: Union[ExperimentExposureCriteria, dict, None],
+) -> list[AnyPropertyFilterDiscriminated]:
+    """
+    Returns the person/cohort filters that remove people from the experiment entirely.
+
+    Unlike `exposure_config.properties`, these apply whether or not a custom exposure event is
+    configured, so an experiment left on the default exposure event can still exclude people.
+    """
+    criteria = normalize_to_exposure_criteria(exposure_criteria)
+    return list(criteria.exclusions or []) if criteria else []
+
+
+def build_exposure_exclusion_expr(
+    exclusions: list[AnyPropertyFilterDiscriminated],
+    team: Team,
+    entity_expr: Optional[ast.Expr] = None,
+) -> Optional[ast.Expr]:
+    """
+    Compiles exposure exclusions into a predicate that drops a matching person's whole history.
+
+    Two properties make retroactive exclusion (consent withdrawal, say) work, and both are the
+    reason this isn't just `property_to_expr` over the events table:
+
+    - Query-time resolution. Person properties read off an event resolve to the value snapshotted
+      when that event was ingested, so marking someone excluded today would leave every earlier
+      exposure in place. Person filters are therefore compiled into a subquery against `persons`,
+      which reads current state. Cohort filters already compile to a query-time membership check.
+    - Whole-history removal. The predicate keys on the person rather than the row, so excluding
+      someone drops their exposures and their metric events together. Removing only the rows that
+      match would leave a half-counted person: still in the denominator, unable to convert.
+
+    `entity_expr` overrides the person column when the predicate is applied to a table that names
+    it something other than `person_id`.
+    """
+    if not exclusions:
+        return None
+
+    person_filters: list[AnyPropertyFilterDiscriminated] = []
+    match_exprs: list[ast.Expr] = []
+
+    for prop in exclusions:
+        prop_type = getattr(prop, "type", None)
+        if prop_type == "person":
+            person_filters.append(prop)
+        elif prop_type in ("cohort", "static-cohort", "precalculated-cohort"):
+            match_exprs.append(property_to_expr(prop, team))
+        else:
+            # Loud rather than silently unfiltered: a dropped exclusion reads as "these people are
+            # gone" while they're still in the results, which is the failure this feature exists to
+            # prevent.
+            raise UnsupportedExposureExclusionError(
+                f"Exposure exclusions accept person and cohort filters only, got {prop_type!r}."
+            )
+
+    if person_filters:
+        person_where = [property_to_expr(prop, team, scope="person") for prop in person_filters]
+        match_exprs.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=entity_expr or ast.Field(chain=["person_id"]),
+                right=ast.SelectQuery(
+                    select=[ast.Field(chain=["id"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+                    where=person_where[0] if len(person_where) == 1 else ast.Or(exprs=person_where),
+                ),
+            )
+        )
+
+    return ast.Not(expr=match_exprs[0] if len(match_exprs) == 1 else ast.Or(exprs=match_exprs))
 
 
 def get_exposure_event_and_property(

@@ -4345,6 +4345,14 @@ export interface ExperimentExposureCriteria {
     filterTestAccounts?: boolean
     exposure_config?: ExperimentExposureConfig
     multiple_variant_handling?: 'exclude' | 'first_seen'
+    /**
+     * People matching any of these filters are dropped from the experiment entirely, including
+     * everything they did before the filter started matching. Only person and cohort filters are
+     * accepted, and both resolve against the person's current state at query time, which is what
+     * makes retroactive exclusion (consent withdrawal) work. Available whether or not a custom
+     * exposure event is configured.
+     */
+    exclusions?: AnyPropertyFilter[]
 }
 
 export interface ExperimentEventExposureConfig extends Node {

@@ -3,8 +3,10 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { LemonModal } from '@posthog/lemon-ui'
 
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { teamLogic } from 'scenes/teamLogic'
@@ -129,6 +131,27 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                     />
                 </div>
             )}
+            <div className="mb-4">
+                <LemonLabel info="Both person properties and cohorts are checked against the person's current state, so this works after the fact. Filtering on an event property would only hide events recorded after the property changed.">
+                    Exclude people
+                </LemonLabel>
+                <div className="text-xs text-muted mb-2">
+                    People matching any of these filters are left out of the experiment completely, including everything
+                    they did before you added the filter.
+                </div>
+                <PropertyFilters
+                    pageKey="experiment-exposure-exclusions"
+                    propertyFilters={exposureCriteria?.exclusions ?? []}
+                    onChange={(exclusions) => {
+                        setExposureCriteria({
+                            ...exposureCriteria,
+                            exclusions,
+                        })
+                    }}
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]}
+                    buttonText="Add exclusion"
+                />
+            </div>
             <div className="w-[405px]">
                 <div className="mb-4">
                     <label className="block text-sm font-medium text-default mb-2">Multiple variant handling</label>

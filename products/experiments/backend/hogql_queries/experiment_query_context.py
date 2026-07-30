@@ -1,6 +1,12 @@
 from dataclasses import dataclass
 
-from posthog.schema import ActionsNode, Breakdown, ExperimentEventExposureConfig, MultipleVariantHandling
+from posthog.schema import (
+    ActionsNode,
+    AnyPropertyFilterDiscriminated,
+    Breakdown,
+    ExperimentEventExposureConfig,
+    MultipleVariantHandling,
+)
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
@@ -29,6 +35,9 @@ class ExperimentQueryContext:
     breakdowns: tuple[Breakdown, ...]
     only_count_matured_users: bool
     cuped_config: CupedQueryConfig
+    # Person/cohort filters that remove people from the experiment entirely, applied whether or
+    # not a custom exposure event is configured. See `build_exposure_exclusion_expr`.
+    exposure_exclusions: tuple[AnyPropertyFilterDiscriminated, ...] = ()
 
 
 @dataclass(frozen=True)

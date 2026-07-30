@@ -741,6 +741,18 @@ class TestExperimentService(APIBaseTest):
                 {"exposure_config": {"kind": "ActionsNode"}},
                 "Invalid exposure_criteria.exposure_config (kind='ActionsNode')",
             ),
+            (
+                "exclusions_not_a_list",
+                {"exclusions": {"key": "consent_withdrawn", "type": "person"}},
+                "exposure_criteria.exclusions must be a list, got dict",
+            ),
+            (
+                # An event property can only be read as the value snapshotted on the event, so an
+                # exclusion built on one would silently leave earlier exposures in the results.
+                "exclusions_event_property",
+                {"exclusions": [{"key": "plan", "type": "event", "value": ["paid"]}]},
+                "Unsupported exposure_criteria.exclusions type 'event'",
+            ),
         ]
     )
     def test_validate_experiment_exposure_criteria_rejects_invalid_payloads(
@@ -778,6 +790,14 @@ class TestExperimentService(APIBaseTest):
             (
                 "event_payload_without_explicit_kind",
                 {"exposure_config": {"event": "$pageview", "properties": []}},
+            ),
+            (
+                "exclusions_on_default_exposure",
+                {"exclusions": [{"key": "consent_withdrawn", "type": "person", "value": ["true"]}]},
+            ),
+            (
+                "cohort_exclusion",
+                {"exclusions": [{"key": "id", "type": "cohort", "value": 7}]},
             ),
         ]
     )

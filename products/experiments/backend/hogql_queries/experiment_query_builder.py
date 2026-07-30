@@ -4,6 +4,7 @@ from django.utils import timezone
 
 from posthog.schema import (
     ActionsNode,
+    AnyPropertyFilterDiscriminated,
     Breakdown,
     ExperimentDataWarehouseNode,
     ExperimentEventExposureConfig,
@@ -87,6 +88,7 @@ class ExperimentQueryBuilder:
         breakdowns: list[Breakdown] | None = None,
         only_count_matured_users: bool = False,
         cuped_config: CupedQueryConfig | None = None,
+        exposure_exclusions: list[AnyPropertyFilterDiscriminated] | None = None,
     ):
         self.team = team
         self.metric = metric
@@ -103,6 +105,7 @@ class ExperimentQueryBuilder:
         self.preaggregation_job_ids: list[str] | None = None
         self.metric_events_preaggregation_job_ids: list[str] | None = None
         self.cuped_config = cuped_config or CupedQueryConfig()
+        self.exposure_exclusions = tuple(exposure_exclusions or [])
 
         # Experiment-level invariants, gathered into a single frozen context for
         # later extracted modules to consume. Additive: every self.* attribute
@@ -119,6 +122,7 @@ class ExperimentQueryBuilder:
             breakdowns=tuple(self.breakdowns),
             only_count_matured_users=self.only_count_matured_users,
             cuped_config=self.cuped_config,
+            exposure_exclusions=self.exposure_exclusions,
         )
 
     # Experiment queries group by (variant, breakdown_values), so the row count is

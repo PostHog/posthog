@@ -233,6 +233,22 @@ export const getExperimentChangeDescription = (
                         }
                         return null
                     })
+                    .with('exclusions', () => {
+                        const afterExclusions = typedAfter?.exclusions ?? []
+                        const beforeExclusions = typedBefore?.exclusions ?? []
+
+                        if (equal(afterExclusions, beforeExclusions)) {
+                            return null
+                        }
+
+                        if (afterExclusions.length === 0) {
+                            return 'removed the exposure exclusions'
+                        }
+
+                        return `changed the exposure exclusions to ${afterExclusions.length} filter${
+                            afterExclusions.length === 1 ? '' : 's'
+                        }`
+                    })
                     .exhaustive()
             )
 

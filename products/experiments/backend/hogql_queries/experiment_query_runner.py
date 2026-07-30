@@ -58,6 +58,7 @@ from products.experiments.backend.hogql_queries.experiment_query_builder import 
 from products.experiments.backend.hogql_queries.experiment_query_context import ExperimentPrecomputationContext
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_entity_key,
+    get_exposure_exclusions,
     get_multiple_variant_handling_from_experiment,
 )
 from products.experiments.backend.hogql_queries.utils import (
@@ -447,6 +448,7 @@ class ExperimentQueryRunner(QueryRunner):
             multiple_variant_handling,
             filter_test_accounts,
         ) = get_exposure_config_params_for_builder(self.experiment.exposure_criteria)
+        exposure_exclusions = get_exposure_exclusions(self.experiment.exposure_criteria)
 
         builder = ExperimentQueryBuilder(
             team=self.team,
@@ -461,6 +463,7 @@ class ExperimentQueryRunner(QueryRunner):
             breakdowns=self._get_breakdowns_for_builder(),
             only_count_matured_users=self.experiment.only_count_matured_users,
             cuped_config=self.cuped_config,
+            exposure_exclusions=exposure_exclusions,
         )
 
         should_precompute = self._should_precompute()
@@ -473,7 +476,14 @@ class ExperimentQueryRunner(QueryRunner):
         # Group-aggregated experiments are excluded too: their build INSERT references
         # $group_N, which the INSERT ... SELECT analysis path can't resolve (MATERIALIZED
         # on sharded_events), so every build fails with UNKNOWN_IDENTIFIER.
-        if should_precompute and not self.is_data_warehouse_query and self.group_type_index is None:
+        # Exclusions are resolved per read against current person state, so a precomputed
+        # exposure snapshot would freeze the membership at build time.
+        if (
+            should_precompute
+            and not exposure_exclusions
+            and not self.is_data_warehouse_query
+            and self.group_type_index is None
+        ):
             try:
                 with tags_context(experiment_query_surface="precompute_build", experiment_precompute_table="exposures"):
                     result = self._ensure_exposures_precomputed(builder)
@@ -924,6 +934,7 @@ class ExperimentQueryRunner(QueryRunner):
             funnel_step=funnel_step,
             funnel_step_breakdown=funnel_step_breakdown,
             include_recordings=self.actors_query.includeRecordings or False,
+            exposure_exclusions=get_exposure_exclusions(self.experiment.exposure_criteria),
         )
 
         return builder.build_actors_query()

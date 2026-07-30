@@ -23338,6 +23338,17 @@ class ExperimentExposureCriteria(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    exclusions: list[AnyPropertyFilterDiscriminated] | None = Field(
+        default=None,
+        description=(
+            "People matching any of these filters are dropped from the experiment"
+            " entirely, including everything they did before the filter started"
+            " matching. Only person and cohort filters are accepted, and both resolve"
+            " against the person's current state at query time, which is what makes"
+            " retroactive exclusion (consent withdrawal) work. Available whether or not"
+            " a custom exposure event is configured."
+        ),
+    )
     exposure_config: ExperimentEventExposureConfig | ActionsNode | None = None
     filterTestAccounts: bool | None = None
     multiple_variant_handling: MultipleVariantHandling | None = None

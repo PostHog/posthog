@@ -45,7 +45,7 @@ from products.experiments.backend.hogql_queries.experiment_query_runner import (
     experiment_precompute_ttl_schedule,
     has_uncalculated_cohorts,
 )
-from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key
+from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key, get_exposure_exclusions
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
@@ -138,6 +138,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             multiple_variant_handling,
             filter_test_accounts,
         ) = get_exposure_config_params_for_builder(self.exposure_criteria)
+        exposure_exclusions = get_exposure_exclusions(self.exposure_criteria)
 
         builder = ExperimentQueryBuilder(
             team=self.team,
@@ -148,6 +149,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             variants=self.variants,
             date_range_query=self.date_range_query,
             entity_key=get_entity_key(self.group_type_index),
+            exposure_exclusions=exposure_exclusions,
         )
 
         # TODO: Add query-level precomputation_mode override for ExperimentExposureQuery.
@@ -158,8 +160,11 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
         # group_type_index gate: mirrors the main runner — group builds always fail
         # (the INSERT can't resolve the materialized $group_N column on sharded_events).
+        # Exclusions are resolved per read against current person state, so a precomputed
+        # exposure snapshot would freeze the membership at build time.
         if (
             self.group_type_index is None
+            and not exposure_exclusions
             and config.experiment_precomputation_enabled
             and experiment_has_min_runtime_for_precomputation(
                 self.experiment.start_date,
