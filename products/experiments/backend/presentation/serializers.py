@@ -43,6 +43,7 @@ from products.experiments.backend.models.experiment import (
     experiment_has_legacy_metrics,
 )
 from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
+from products.experiments.backend.session_context import MAX_SESSION_CONTEXT_BATCH
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 
@@ -263,7 +264,10 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         """
         if flag is None:
             return
-        parameters = dict(data.get("parameters") or {})
+        stored = data.get("parameters")
+        # The JSON column can legally hold a non-dict on legacy rows (see migration 0026); the flag
+        # is the source of truth for the keys below, so a malformed blob is simply dropped.
+        parameters = dict(stored) if isinstance(stored, dict) else {}
 
         parameters["feature_flag_variants"] = _with_split_percent(flag.variants)
 
@@ -375,7 +379,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         read_only=True,
         allow_null=True,
         help_text=(
-            "ID of the Code task opened to remove the experiment's feature-flag code, when one was "
+            "ID of the Desktop task opened to remove the experiment's feature-flag code, when one was "
             "requested via open_cleanup_pr on end/ship_variant. Read its status via the "
             "flag_cleanup_task action."
         ),
@@ -534,11 +538,11 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             raise serializers.ValidationError("Repository must be in the format organization/repository")
         value = value.lower()
         # The field steers where the cleanup PR is opened, so pointing it somewhere new
-        # needs the same PostHog Code access as opening one (mirrors open_cleanup_pr).
+        # needs the same PostHog Desktop access as opening one (mirrors open_cleanup_pr).
         if self.instance is None or value != self.instance.repository:
             request = self.context.get("request")
             if request is None or not has_tasks_access(request.user):
-                raise PermissionDenied("Setting a cleanup repository requires access to PostHog Code.")
+                raise PermissionDenied("Setting a cleanup repository requires access to PostHog Desktop.")
         return value
 
     def validate(self, data):
@@ -1050,14 +1054,14 @@ class EndExperimentSerializer(serializers.Serializer):
         default=False,
         help_text=(
             "When true, open a draft pull request that removes the experiment's feature-flag code "
-            "from the linked repository. Requires the requesting user to have access to PostHog Code "
+            "from the linked repository. Requires the requesting user to have access to PostHog Desktop "
             "(403 otherwise). Only acts for allowlisted teams; ignored otherwise."
         ),
     )
 
 
 class ExperimentFlagCleanupTaskSerializer(serializers.Serializer):
-    task_id = serializers.UUIDField(help_text="ID of the flag-cleanup Code task.")
+    task_id = serializers.UUIDField(help_text="ID of the flag-cleanup Desktop task.")
     run_status = serializers.ChoiceField(
         choices=["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
         help_text="Status of the task's latest run.",
@@ -1071,7 +1075,7 @@ class ExperimentFlagCleanupTaskSerializer(serializers.Serializer):
     )
     can_view_task = serializers.BooleanField(
         help_text=(
-            "Whether the requesting user can open the task in PostHog Code. Cleanup tasks are "
+            "Whether the requesting user can open the task in PostHog Desktop. Cleanup tasks are "
             "visible to their creator only, so other viewers should not be shown a task link."
         ),
     )
@@ -1613,3 +1617,32 @@ class ExperimentSessionContextResponseSerializer(serializers.Serializer):
 class ExperimentActivityQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(required=False, default=10, min_value=1, help_text="Number of items per page")
     page = serializers.IntegerField(required=False, default=1, min_value=1, help_text="Page number")
+
+
+class ExperimentSessionContextsRequestSerializer(serializers.Serializer):
+    """Request body for the batch session-context endpoint."""
+
+    session_ids = serializers.ListField(
+        child=serializers.CharField(allow_blank=False, help_text="ID of one session recording."),
+        min_length=1,
+        max_length=MAX_SESSION_CONTEXT_BATCH,
+        help_text=(
+            f"IDs of the session recordings to resolve experiment context for, at most "
+            f"{MAX_SESSION_CONTEXT_BATCH} per request. Duplicates are ignored."
+        ),
+    )
+
+
+class ExperimentSessionContextsResponseSerializer(serializers.Serializer):
+    """Experiment/variant context for a batch of session recordings."""
+
+    results = ExperimentSessionContextResponseSerializer(
+        many=True,
+        help_text=(
+            "Per-session experiment context, in the order the session IDs were requested. Sessions whose "
+            "recording metadata doesn't exist yet (still ingesting, or unknown to this project) are omitted, "
+            "as are recordings you don't have access to and sessions beyond the batch's recording-day budget "
+            "(only the most recent days are computed). Fetch omitted sessions individually via the "
+            "single-session endpoint."
+        ),
+    )

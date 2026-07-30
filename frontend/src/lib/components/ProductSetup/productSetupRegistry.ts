@@ -48,7 +48,7 @@ export const AI_TASKS: SetupTask[] = [
     },
     {
         id: SetupTaskId.UsePosthogCode,
-        title: 'Try PostHog Code',
+        title: 'Try PostHog Desktop',
         description:
             'An AI devtool that understands your product, not just your codebase — it triages bugs and opens pull requests from your product data.',
         taskType: 'ai',

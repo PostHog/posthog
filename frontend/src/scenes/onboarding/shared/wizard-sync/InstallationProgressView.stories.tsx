@@ -45,7 +45,17 @@ function steps(
 }
 
 function progress(overrides: Partial<InstallationProgress>): InstallationProgress {
-    return { phase: 'running', steps: [], error: null, prUrl: null, prMerged: false, isCurrent: true, ...overrides }
+    return {
+        phase: 'running',
+        steps: [],
+        error: null,
+        prUrl: null,
+        prMerged: false,
+        isCurrent: true,
+        pendingInput: null,
+        startedBy: null,
+        ...overrides,
+    }
 }
 
 export const Connecting: Story = {
@@ -188,6 +198,20 @@ export const FailedWizard: Story = {
             phase: 'error',
             steps: steps(['completed', 'completed', 'failed', 'pending']),
             error: { title: 'Installation failed', detail: 'PostHog setup wizard failed with exit code 1.' },
+        }),
+    },
+}
+
+// A run whose stream never delivered any state: no pipeline steps to show, only the recovery CTAs.
+export const LostContact: Story = {
+    args: {
+        progress: progress({
+            phase: 'error',
+            steps: [],
+            error: {
+                title: 'Setup lost contact',
+                detail: 'We stopped hearing back from this run. Run the wizard yourself, or dismiss it and start over.',
+            },
         }),
     },
 }

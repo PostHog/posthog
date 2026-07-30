@@ -19,21 +19,20 @@ class FlakyTestItemSerializer(DataclassSerializer):
     class Meta:
         dataclass = FlakyTestItem
         extra_kwargs = {
+            "runner": {"help_text": "Test runner that emitted this signal: 'pytest' or 'jest'."},
             "nodeid": {
-                "help_text": "Reconstructed pytest nodeid (the CI span name), e.g. "
-                "'posthog/api/test/test_event/TestEvents::test_x'. A stable grouping key, not a runnable "
-                "selector — use `selector` to run or quarantine the test.",
+                "help_text": "Runner-specific stable test identity (the CI span name). This is a grouping key, "
+                "not necessarily runnable; use `selector` to run or quarantine the test.",
             },
             "selector": {
-                "help_text": "Runnable pytest selector, e.g. "
-                "'posthog/api/test/test_event.py::TestEvents::test_x'. Exact when the CI reporter emitted it; "
-                "otherwise reconstructed from the nodeid, where the file/class boundary is a best-effort guess.",
+                "help_text": "Runnable pytest or Jest selector. Exact when the CI reporter emitted it; older "
+                "pytest spans use a best-effort reconstruction from the nodeid.",
             },
             "classification": {
                 "help_text": "confirmed_flake: one commit both failed and passed the test (a re-run attempt went "
-                "green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: it "
-                "fails while masked as xfail. suspected_regression: only failures were recorded, which is "
-                "absence of proof, not proof that it is a real break.",
+                "green, or an in-job retry recovered it), so it is provably nondeterministic. quarantined: a "
+                "tolerated failure was recorded while it was masked. suspected_regression: only failures were "
+                "recorded, which is absence of proof, not proof that it is a real break.",
             },
             "same_commit_recovery_run_count": {
                 "help_text": "Runs where one commit both failed and passed the test: a 'Re-run failed jobs' "
@@ -54,11 +53,11 @@ class FlakyTestItemSerializer(DataclassSerializer):
                 "now' signal that a test is breaking the trunk, not just PR branches.",
             },
             "quarantined_failed_run_count": {
-                "help_text": "Runs where the test failed while quarantined (xfail): already masked in CI, still "
-                "failing.",
+                "help_text": "Runs where the test recorded a tolerated failure while quarantined: already masked "
+                "in CI, still failing.",
             },
             "last_signal_at": {
-                "help_text": "Most recent failure, recovery, or xfail run for this test in the window.",
+                "help_text": "Most recent failure, recovery, or quarantined-failure run for this test in the window.",
             },
         }
 
@@ -217,6 +216,13 @@ class QuarantineRequestSerializer(DataclassSerializer):
             "selector": {
                 "help_text": "Test selector to act on: an exact test id, a file, a directory, a class prefix, or "
                 "'product:<dashed-name>'.",
+            },
+            "runner": {
+                "help_text": "Test runner the selector targets: 'pytest', 'jest', or 'playwright'. Existing entries "
+                "and Jest file extensions are inferred for older clients that omit it; other selectors default to "
+                "'pytest'.",
+                "required": False,
+                "allow_null": True,
             },
             "repo": {
                 "help_text": "Optional 'owner/name' repository override; defaults to the team's most active repo.",

@@ -74,7 +74,7 @@ which unlocks flexibility in data retrieval, search, and manipulation.
 Additionally, the consumer has access to a skill that provides schema references and example patterns,
 giving it richer context about PostHog's data model.
 
-Primarily oriented toward coding agents (PostHog Code, PostHog AI, Claude Code).
+Primarily oriented toward coding agents (PostHog Desktop, PostHog AI, Claude Code).
 
 ## SQL-first MCP: HogQL system tables
 

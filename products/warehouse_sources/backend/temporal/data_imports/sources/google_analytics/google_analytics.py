@@ -15,9 +15,9 @@ from google.oauth2.credentials import Credentials as OAuthCredentials
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleanalytics import (
     GoogleAnalyticsSourceConfig,
 )
@@ -61,6 +61,8 @@ class GoogleAnalyticsQuotaExceededError(Exception):
     Deliberately NOT matched by `get_non_retryable_errors` so Temporal retries
     the activity later (the resumable source picks up from the last saved
     chunk), which is the right recovery for hourly/daily property token quotas.
+    Tagged `(retryable)` so `GoogleAnalyticsSource.get_retryable_errors` can
+    keep this self-recovering failure out of error tracking.
     """
 
 
@@ -207,7 +209,8 @@ def _run_report(
         if attempt == RUNREPORT_MAX_RETRIES:
             if is_quota:
                 raise GoogleAnalyticsQuotaExceededError(
-                    f"Data API quota for property '{pid}' still exhausted after {RUNREPORT_MAX_RETRIES} retries"
+                    f"Data API quota for property '{pid}' still exhausted after "
+                    f"{RUNREPORT_MAX_RETRIES} retries (retryable)"
                 )
             # A transient 5xx that never cleared — surface the HTTPError so Temporal retries the activity.
             response.raise_for_status()

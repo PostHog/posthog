@@ -8,9 +8,7 @@ from asgiref.sync import async_to_sync
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_client
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
-    DeltaTableHelper,
-)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
 
 logger = structlog.get_logger(__name__)
 

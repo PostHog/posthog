@@ -1451,7 +1451,7 @@ export interface ExperimentWriteApi {
      */
     conclusion_comment?: string | null
     /**
-     * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+     * ID of the Desktop task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
      * @nullable
      */
     readonly flag_cleanup_task_id: string | null
@@ -1570,7 +1570,7 @@ export interface ExperimentApi {
      */
     conclusion_comment?: string | null
     /**
-     * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+     * ID of the Desktop task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
      * @nullable
      */
     readonly flag_cleanup_task_id: string | null
@@ -1685,7 +1685,7 @@ export interface PatchedExperimentWriteApi {
      */
     conclusion_comment?: string | null
     /**
-     * ID of the Code task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
+     * ID of the Desktop task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.
      * @nullable
      */
     readonly flag_cleanup_task_id?: string | null
@@ -1809,7 +1809,7 @@ export interface EndExperimentApi {
      * @nullable
      */
     conclusion_comment?: string | null
-    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
+    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
     open_cleanup_pr?: boolean
 }
 
@@ -1833,7 +1833,7 @@ export const RunStatusEnumApi = {
 } as const
 
 export interface ExperimentFlagCleanupTaskApi {
-    /** ID of the flag-cleanup Code task. */
+    /** ID of the flag-cleanup Desktop task. */
     task_id: string
     /** Status of the task's latest run.
      *
@@ -1851,12 +1851,13 @@ export interface ExperimentFlagCleanupTaskApi {
      * @nullable
      */
     pr_url: string | null
-    /** Whether the requesting user can open the task in PostHog Code. Cleanup tasks are visible to their creator only, so other viewers should not be shown a task link. */
+    /** Whether the requesting user can open the task in PostHog Desktop. Cleanup tasks are visible to their creator only, so other viewers should not be shown a task link. */
     can_view_task: boolean
 }
 
 /**
  * * `manual` - Manual
+ * * `agent_mcp` - Agent (MCP)
  * * `cold_run` - Cold Run
  * * `stale_refresh` - Stale Refresh
  * * `auto_refresh` - Auto Refresh
@@ -1869,6 +1870,7 @@ export type TriggerEnumApi = (typeof TriggerEnumApi)[keyof typeof TriggerEnumApi
 
 export const TriggerEnumApi = {
     Manual: 'manual',
+    AgentMcp: 'agent_mcp',
     ColdRun: 'cold_run',
     StaleRefresh: 'stale_refresh',
     AutoRefresh: 'auto_refresh',
@@ -1885,6 +1887,7 @@ export interface RecalculateMetricsRequestApi {
     /** What triggered this recalculation (manual is the default for user-initiated runs)
      *
      * * `manual` - Manual
+     * * `agent_mcp` - Agent (MCP)
      * * `cold_run` - Cold Run
      * * `stale_refresh` - Stale Refresh
      * * `auto_refresh` - Auto Refresh
@@ -2000,6 +2003,7 @@ export interface ExperimentMetricsRecalculationApi {
     /** What triggered this recalculation
      *
      * * `manual` - Manual
+     * * `agent_mcp` - Agent (MCP)
      * * `cold_run` - Cold Run
      * * `stale_refresh` - Stale Refresh
      * * `auto_refresh` - Auto Refresh
@@ -2063,7 +2067,7 @@ export interface ShipVariantApi {
      * @nullable
      */
     conclusion_comment?: string | null
-    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
+    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
     open_cleanup_pr?: boolean
     /** The key of the variant to ship. */
     variant_key: string
@@ -2335,6 +2339,26 @@ export interface ExperimentSessionContextResponseApi {
     session_id: string
     /** Experiments (and variants) the session saw, sorted by experiment name. Empty when no launched experiment's run window overlaps the recording or no flag data was observed in the session. */
     results: ExperimentSessionContextItemApi[]
+}
+
+/**
+ * Request body for the batch session-context endpoint.
+ */
+export interface ExperimentSessionContextsRequestApi {
+    /**
+     * IDs of the session recordings to resolve experiment context for, at most 20 per request. Duplicates are ignored.
+     * @minItems 1
+     * @maxItems 20
+     */
+    session_ids: string[]
+}
+
+/**
+ * Experiment/variant context for a batch of session recordings.
+ */
+export interface ExperimentSessionContextsResponseApi {
+    /** Per-session experiment context, in the order the session IDs were requested. Sessions whose recording metadata doesn't exist yet (still ingesting, or unknown to this project) are omitted, as are recordings you don't have access to and sessions beyond the batch's recording-day budget (only the most recent days are computed). Fetch omitted sessions individually via the single-session endpoint. */
+    results: ExperimentSessionContextResponseApi[]
 }
 
 export type ExperimentHoldoutsListParams = {

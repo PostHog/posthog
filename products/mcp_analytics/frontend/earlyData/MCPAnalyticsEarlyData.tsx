@@ -47,8 +47,11 @@ export function MCPAnalyticsActivityDashboard(): JSX.Element {
     return (
         <div className="flex flex-col gap-4" data-attr="mcp-analytics-activity">
             <SummaryCard />
-            <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-                <div className="lg:col-span-3">
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 lg:min-h-[36rem]">
+                {/* Matched column heights are the goal: the sidebar sets the row height and the feed
+                    fills it. Taking the feed out of flow is what makes that one-directional — in
+                    flow its own row count would be the taller side and stretch the grid. */}
+                <div className="lg:relative lg:col-span-3">
                     <LiveActivityCard />
                 </div>
                 <div className="flex flex-col gap-4">
@@ -116,9 +119,10 @@ function LiveActivityCard(): JSX.Element {
     const { recentCalls, overviewLoading } = useValues(mcpEarlyDataLogic)
 
     return (
-        <Card title="Live activity" className="h-full" flush>
-            {/* Roughly the top 10 rows visible; the rest scroll. */}
-            <div className="max-h-[36rem] overflow-y-auto">
+        <Card title="Live activity" className="h-full lg:absolute lg:inset-0" flush>
+            {/* Fills the card so the feed ends where the sidebar does; the rest scrolls. Stacked
+                layouts have no sidebar to match, so they fall back to a fixed cap. */}
+            <div className="flex-1 min-h-0 max-h-[36rem] lg:max-h-none overflow-y-auto">
                 <LemonTable<EarlyRecentCall>
                     embedded
                     dataSource={recentCalls}

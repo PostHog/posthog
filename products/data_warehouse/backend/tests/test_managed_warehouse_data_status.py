@@ -7,7 +7,8 @@ from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 
-from posthog.ducklake.models import DuckgresServerTeam, DuckgresSinkSchemaState
+from posthog.ducklake.cp_teams import CPTeam
+from posthog.ducklake.models import DuckgresSinkSchemaState
 from posthog.models import Organization, Team
 
 from products.data_warehouse.backend.logic.managed_warehouse_data_status import (
@@ -96,8 +97,18 @@ class TestDatasetStatus(SimpleTestCase):
             updated_at=datetime(2026, 7, 12, tzinfo=UTC),
         )
 
-    def _backfill(self, earliest_event_date: date | None = date(2026, 3, 14)) -> DuckgresServerTeam:
-        return DuckgresServerTeam(team_id=1, backfill_enabled=True, earliest_event_date=earliest_event_date)
+    def _backfill(self, earliest_event_date: date | None = date(2026, 3, 14)) -> CPTeam:
+        return CPTeam(
+            team_id=1,
+            organization_id="org-a",
+            schema_name="prod",
+            enabled=True,
+            backfill_enabled=True,
+            events_table_name=None,
+            persons_table_name=None,
+            schema_data_imports_name=None,
+            earliest_event_date=earliest_event_date,
+        )
 
     def test_daily_partitions_do_not_count_toward_historical_progress(self) -> None:
         # Daily runs land constantly once a team is live. Counting them as historical progress would

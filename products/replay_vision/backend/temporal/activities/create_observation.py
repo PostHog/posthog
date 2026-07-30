@@ -46,9 +46,26 @@ def create_observation_activity(inputs: CreateObservationInputs) -> CreateObserv
 
 
 def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOutput:
-    scanner = ReplayScanner.objects.filter(pk=inputs.scanner_id, team_id=inputs.team_id).select_related("team").first()
+    # team__organization is prefetched for the AI-consent check below.
+    scanner = (
+        ReplayScanner.objects.filter(pk=inputs.scanner_id, team_id=inputs.team_id)
+        .select_related("team", "team__organization")
+        .first()
+    )
     if scanner is None:
         raise ValueError(f"ReplayScanner {inputs.scanner_id} not found for team {inputs.team_id}")
+
+    # No AI processing of recordings without organization consent, even for scanners created earlier.
+    if not scanner.team.organization.is_ai_data_processing_approved:
+        activity.logger.info(
+            "Skipping observation: AI data processing not approved for organization",
+            extra={"scanner_id": str(inputs.scanner_id), "team_id": inputs.team_id, "session_id": inputs.session_id},
+        )
+        return CreateObservationOutput(
+            observation_id=None,
+            was_created=False,
+            scanner_type=scanner.scanner_type,
+        )
 
     if inputs.triggered_by_user_id is not None:
         # The activity is the persistence boundary, so re-check team membership rather than trusting the trigger.

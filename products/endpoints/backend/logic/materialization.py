@@ -206,6 +206,11 @@ class EndpointMaterializationService:
         # is deferred to on_commit (tiered) or terminal (v1), so nothing rolls back after it fires.
         with transaction.atomic():
             saved_query = self._get_or_build_saved_query(version)
+            # No live saved query row means materialization is being stood up fresh (first
+            # enable, re-enable after disable, or a version bump). Only that case gets an
+            # immediate first run; a retained enable (e.g. a metadata-only endpoint update
+            # re-reconciling materialization) must not restart the workflow.
+            newly_materialized = saved_query._state.adding
             self._configure_saved_query(saved_query, version, data_freshness_seconds, bucket_overrides)
             version.enable_materialization(saved_query, bucket_overrides)
 
@@ -229,10 +234,12 @@ class EndpointMaterializationService:
                     },
                 )
 
-            # NOTE: schedule_materialization only triggers an immediate run when it CREATES the
-            # Temporal schedule; re-enabling an existing materialization just (re)syncs the schedule.
+            # NOTE: on v1, schedule_materialization only triggers an immediate run when it CREATES
+            # the Temporal schedule; re-enabling an existing materialization just (re)syncs it.
+            # trigger_immediate_run mirrors that on v2: first run only for a newly created saved
+            # query (deferred to on_commit, so it sees the version link above).
             try:
-                saved_query.schedule_materialization()
+                saved_query.schedule_materialization(trigger_immediate_run=newly_materialized)
             except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as e:
                 # The chosen data freshness can't be honored (e.g. finer than an upstream import
                 # delivers) — a request problem, not a server one.

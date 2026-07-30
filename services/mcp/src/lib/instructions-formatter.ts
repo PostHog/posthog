@@ -30,7 +30,7 @@ import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
 import TOOL_SEARCH from '@/templates/sections/tool-search.md'
 import URL_PATTERNS from '@/templates/sections/url-patterns.md'
-import type { ExecHelpEntry } from '@/tools/exec-help'
+import { type ExecHelpEntry, LEARN_COMMAND_LINE } from '@/tools/exec-help'
 
 export interface InstructionsContext {
     guidelines: string
@@ -172,7 +172,7 @@ export class InstructionsFormatter {
             {
                 compact: false,
                 compactToolDomains: true,
-                extraCommands: 'learn <topic...> - load one or more learning topics\n',
+                extraCommands: LEARN_COMMAND_LINE,
             }
         )
     }

@@ -20,8 +20,7 @@ export const DASHBOARD_CANNOT_EDIT_MESSAGE =
     "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."
 
 export function DashboardHeader(): JSX.Element | null {
-    const { dashboard, dashboardLoading, dashboardMode, canEditDashboard, postHogAIButtonLabelVariant } =
-        useValues(dashboardLogic)
+    const { dashboard, dashboardLoading, dashboardMode, canEditDashboard } = useValues(dashboardLogic)
     const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
     const { updateDashboard } = useActions(dashboardsModel)
 
@@ -57,7 +56,7 @@ export function DashboardHeader(): JSX.Element | null {
                 isLoading={dashboardLoading}
                 saveOnBlur
                 renameDebounceMs={0}
-                maxButtonLabel={postHogAIButtonLabelVariant === 'test' ? 'PostHog AI' : undefined}
+                maxButtonLabel="PostHog AI"
                 maxToolProps={
                     dashboard && canEditDashboard
                         ? {

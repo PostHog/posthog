@@ -51,6 +51,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/customer_analytics/frontend/scenes/CustomerJourneyBuilderScene/CustomerJourneyBuilderScene'),
     CustomerJourneyTemplates: () =>
         import('../../products/customer_analytics/frontend/scenes/CustomerJourneyTemplatesScene/CustomerJourneyTemplatesScene'),
+    DataCatalog: () => import('../../products/data_catalog/frontend/DataCatalogScene'),
+    DataCatalogMetric: () => import('../../products/data_catalog/frontend/DataCatalogMetricScene'),
     DataOps: () => import('../../products/data_warehouse/DataWarehouseScene'),
     Models: () => import('../../frontend/src/scenes/models/ModelsScene'),
     NodeDetail: () => import('../../frontend/src/scenes/models/NodeDetailScene'),
@@ -120,6 +122,9 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Skills: () => import('../../products/skills/frontend/LLMSkillsScene'),
     Skill: () => import('../../products/skills/frontend/LLMSkillScene'),
     Stamphog: () => import('../../products/stamphog/frontend/scenes/StamphogScene/StamphogScene'),
+    StreamlitApps: () => import('../../products/streamlit_apps/frontend/StreamlitApps'),
+    StreamlitApp: () => import('../../products/streamlit_apps/frontend/StreamlitApp'),
+    StreamlitAppEdit: () => import('../../products/streamlit_apps/frontend/StreamlitAppEdit'),
     Subscriptions: () => import('../../products/subscriptions/frontend/scenes/SubscriptionsScene'),
     Subscription: () => import('../../products/subscriptions/frontend/scenes/SubscriptionScene'),
     SlackTaskContext: () => import('../../products/tasks/frontend/SlackTaskContextScene'),

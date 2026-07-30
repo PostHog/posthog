@@ -146,7 +146,7 @@ export const visionActionRunsLogic = kea<visionActionRunsLogicType>([
     }),
 
     selectors({
-        // A summary/alert run is actively processing — used to keep "Run now" disabled (a second run
+        // A digest/alert run is actively processing — used to keep "Run now" disabled (a second run
         // coalesces server-side anyway, but disabling makes that obvious) and to drive polling.
         runInProgress: [
             (s) => [s.runs],
@@ -211,7 +211,7 @@ export const visionActionRunsLogic = kea<visionActionRunsLogicType>([
                     // (the workflow creates the row asynchronously) and then until it finishes.
                     actions.loadRuns()
                 } catch (error: any) {
-                    lemonToast.error(`Couldn't run this summary${error?.detail ? `: ${error.detail}` : ''}`)
+                    lemonToast.error(`Couldn't run this digest${error?.detail ? `: ${error.detail}` : ''}`)
                 } finally {
                     actions.runNowDone()
                 }

@@ -7,6 +7,7 @@ import {
     type ToolResultPayload,
 } from '@/lib/build-tool-result'
 import {
+    ExecCommandError,
     handleToolError,
     MissingOrganizationContextError,
     MissingProjectContextError,
@@ -330,10 +331,12 @@ export class ToolExecutor {
             return response
         } catch (error: unknown) {
             const metricTool = execToolName()
-            if (!execMetrics.innerToolName) {
-                toolCallsTotal.inc({ tool: 'exec', status: 'error' })
-            }
             const classification = classifyToolError(error, metricTool)
+            if (!execMetrics.innerToolName) {
+                // Match the inner-tool path, which labels rejected input `validation_error`.
+                const status = classification.errorType === 'validation' ? 'validation_error' : 'error'
+                toolCallsTotal.inc({ tool: 'exec', status })
+            }
 
             void trackToolCall(
                 metricTool,
@@ -516,6 +519,12 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
             ...(error.inputKeys.length ? { validationInputKeys: error.inputKeys } : {}),
         }
     }
+    // Agent-recoverable command mistakes, so keep them out of the `internal` rate
+    // ops alerts on. `missing_scope` is the exception: no input the agent sends
+    // fixes it, the connection has to be reauthorized.
+    if (error instanceof ExecCommandError) {
+        return { errorType: error.reason === 'missing_scope' ? 'permission' : 'validation' }
+    }
     if (findPostHogPermissionError(error)) {
         return { errorType: 'permission' }
     }
@@ -573,6 +582,11 @@ function resolveSafeErrorMessage(error: unknown): string | undefined {
     // Documented value-free: offending field paths + issue codes, never input values.
     if (error instanceof ToolInputValidationError) {
         return error.message
+    }
+    // Value-free: the reason enum only. The dispatcher's human message can echo the
+    // caller's tool name or a JSON-parser fragment, so it's never captured.
+    if (error instanceof ExecCommandError) {
+        return `Exec command rejected: ${error.reason}`
     }
     if (error instanceof Error && error.name === 'TimeoutError') {
         return 'Tool call timed out'

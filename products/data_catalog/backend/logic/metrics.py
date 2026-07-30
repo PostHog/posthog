@@ -8,7 +8,7 @@ measurement.
 """
 
 import re
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
@@ -16,7 +16,6 @@ from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.models.scoping import team_scope
 from posthog.rbac.user_access_control import UserAccessControl
@@ -25,9 +24,20 @@ from products.product_analytics.backend.models.insight import Insight
 
 from ..facade.enums import CreatedSource, MetricStatus
 from ..models import METRIC_NAME_REGEX, Metric
+from .analytics import (
+    METRIC_APPROVAL_BLOCKED_EVENT,
+    METRIC_APPROVED_EVENT,
+    METRIC_CREATED_EVENT,
+    METRIC_DELETED_EVENT,
+    METRIC_UPDATED_EVENT,
+    capture_metric_event,
+)
 from .drift import canonical_query_hash, compute_drift, effective_insight_query, fetch_insight
 from .exceptions import MetricDrifted, SourceInsightUnavailable
 from .validation import validate_metric_definition
+
+if TYPE_CHECKING:
+    from rest_framework.request import Request
 
 
 class _Unset:
@@ -47,23 +57,6 @@ _APPROVAL_FIELDS = frozenset({"status", "approved_by", "approved_at"})
 # The definition is compared by canonical hash separately; these are compared by value. display_name
 # (a cosmetic label), owner, and provenance metadata are not part of what a reviewer blessed.
 _APPROVAL_RELEVANT_FIELDS = frozenset({"description", "unit"})
-
-
-def _capture(user: Optional[User], team: Team, event: str, metric: Metric) -> None:
-    if user is None:
-        return
-    report_user_action(
-        user=user,
-        event=event,
-        team=team,
-        properties={
-            "metric_id": str(metric.id),
-            "metric_name": metric.name,
-            "definition_kind": metric.definition_kind,
-            "status": metric.status,
-            "created_source": metric.created_source,
-        },
-    )
 
 
 def _canonical_definition(
@@ -203,6 +196,7 @@ def upsert_metric(
     ai_model: str | _Unset = _UNSET,
     confidence: float | None | _Unset = _UNSET,
     reasoning: str | _Unset = _UNSET,
+    request: "Request | None" = None,
 ) -> Metric:
     """Create a metric, or refine/resurrect the one already holding ``name`` for this team.
 
@@ -260,11 +254,15 @@ def upsert_metric(
                 _resurrect_or_refine(existing, fields)
                 metric, created = existing, False
 
-    _capture(user, team, "data catalog metric created" if created else "data catalog metric updated", metric)
+    capture_metric_event(
+        METRIC_CREATED_EVENT if created else METRIC_UPDATED_EVENT, metric, team=team, user=user, request=request
+    )
     return metric
 
 
-def update_metric(metric: Metric, *, team: Team, user: Optional[User], **fields) -> Metric:
+def update_metric(
+    metric: Metric, *, team: Team, user: Optional[User], request: "Request | None" = None, **fields
+) -> Metric:
     """Partially update a metric. Name is write-once; editing an approved definition resets approval."""
     if "name" in fields:
         raise ValidationError({"name": "Metric name is write-once and cannot be changed."})
@@ -289,15 +287,23 @@ def update_metric(metric: Metric, *, team: Team, user: Optional[User], **fields)
             changed_fields |= _APPROVAL_FIELDS
 
         metric.save(update_fields=[*changed_fields, "updated_at"])
-    _capture(user, team, "data catalog metric updated", metric)
+    capture_metric_event(METRIC_UPDATED_EVENT, metric, team=team, user=user, request=request)
     return metric
 
 
-def approve_metric(metric: Metric, user: Optional[User]) -> Metric:
+def approve_metric(metric: Metric, user: Optional[User], request: "Request | None" = None) -> Metric:
     """Bless a metric as canonical. Blocked (409) while drifted. Idempotent on an already-approved metric."""
     with team_scope(metric.team_id), transaction.atomic():
         metric = Metric.objects.for_team(metric.team_id).select_for_update().get(pk=metric.pk)
         if compute_drift([metric])[metric.id]:
+            capture_metric_event(
+                METRIC_APPROVAL_BLOCKED_EVENT,
+                metric,
+                team=metric.team,
+                user=user,
+                request=request,
+                extra={"reason": "drifted"},
+            )
             raise MetricDrifted()
         if metric.status == MetricStatus.APPROVED:
             return metric
@@ -305,11 +311,11 @@ def approve_metric(metric: Metric, user: Optional[User]) -> Metric:
         metric.approved_by = user
         metric.approved_at = timezone.now()
         metric.save(update_fields=[*_APPROVAL_FIELDS, "updated_at"])
-    _capture(user, metric.team, "data catalog metric approved", metric)
+    capture_metric_event(METRIC_APPROVED_EVENT, metric, team=metric.team, user=user, request=request)
     return metric
 
 
-def refresh_metric_from_insight(metric: Metric, user: Optional[User]) -> Metric:
+def refresh_metric_from_insight(metric: Metric, user: Optional[User], request: "Request | None" = None) -> Metric:
     """Re-snapshot the linked insight's current query; a changed definition resets approval."""
     with team_scope(metric.team_id), transaction.atomic():
         metric = Metric.objects.for_team(metric.team_id).select_for_update().get(pk=metric.pk)
@@ -339,16 +345,16 @@ def refresh_metric_from_insight(metric: Metric, user: Optional[User]) -> Metric:
             changed_fields |= _APPROVAL_FIELDS
 
         metric.save(update_fields=[*changed_fields, "updated_at"])
-    _capture(user, metric.team, "data catalog metric updated", metric)
+    capture_metric_event(METRIC_UPDATED_EVENT, metric, team=metric.team, user=user, request=request)
     return metric
 
 
-def soft_delete_metric(metric: Metric, user: Optional[User] = None) -> None:
+def soft_delete_metric(metric: Metric, user: Optional[User] = None, request: "Request | None" = None) -> None:
     metric.deleted = True
     metric.deleted_at = timezone.now()
     with team_scope(metric.team_id):
         metric.save(update_fields=["deleted", "deleted_at", "updated_at"])
-    _capture(user, metric.team, "data catalog metric deleted", metric)
+    capture_metric_event(METRIC_DELETED_EVENT, metric, team=metric.team, user=user, request=request)
 
 
 def _reset_to_proposed(metric: Metric) -> None:

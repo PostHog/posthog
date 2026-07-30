@@ -1,6 +1,6 @@
 """Token-authed sandbox -> backend callback for SQLV2 runs (Journey 1 slice).
 
-Mirrors PostHog Code's agent-proxy callback: a plain function view (no team
+Mirrors PostHog Desktop's agent-proxy callback: a plain function view (no team
 scoping, no session), authed by a Bearer token the run endpoint minted. Wired in
 posthog/urls.py at internal/notebooks/runs/<run_id>/result/.
 """

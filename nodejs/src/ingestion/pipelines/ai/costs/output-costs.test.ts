@@ -180,6 +180,18 @@ describe('calculateOutputCost()', () => {
                 expectedCost: 0.0036,
                 description: 'includes reasoning tokens for gemini-3.1-pro-preview',
             },
+            {
+                // The Gemini SDK reports models as `models/<name>`; the provider
+                // prefix must be stripped before the anchored reasoning regex,
+                // otherwise reasoning tokens are silently priced at zero.
+                modelName: 'models/gemini-3-flash-preview',
+                modelRow: gemini3FlashModel,
+                outputTokens: 2,
+                reasoningTokens: 77,
+                // (2 + 77) * 3e-6 = 0.000237
+                expectedCost: 0.000237,
+                description: 'includes reasoning tokens for models/-prefixed gemini-3-flash-preview',
+            },
         ])('$description', ({ modelName, modelRow, outputTokens, reasoningTokens, expectedCost }) => {
             const event = createAIEvent({
                 $ai_provider: 'google',
