@@ -21,6 +21,15 @@ class UtmIssueKind(StrEnum):
     # Campaign name matches events with a utm_source unknown to every integration.
     # Safe to suggest a custom source mapping as an alternative to fixing the URLs.
     UNKNOWN_SOURCE = "unknown_source"
+    # Campaign name matches events, but they carry no utm_source at all (empty/missing).
+    # Common for auto-tagged campaigns (e.g. Performance Max) that set utm_campaign only.
+    MISSING_SOURCE = "missing_source"
+
+
+# Choice list for the API serializer. Derived from the enum so the two can't drift, and referenced
+# by name from SPECTACULAR_SETTINGS["ENUM_NAME_OVERRIDES"] so the generated schema keeps a stable
+# enum name instead of a hash-suffixed one.
+UTM_ISSUE_KIND_CHOICES = [kind.value for kind in UtmIssueKind]
 
 
 class SuggestedAction(StrEnum):
@@ -59,6 +68,10 @@ class UtmIssue:
     message: str = ""
     alternative_sources: list[AlternativeSource] = dataclass_field(default_factory=list)
     shared_with_integrations: list[str] = dataclass_field(default_factory=list)
+    # Pageviews that matched the campaign but carried no utm_source. Reported on every kind, not
+    # just MISSING_SOURCE: a partly-tagged campaign is classified by its mistagged half, and
+    # dropping this count would hide the rest of the problem from whoever has to fix the URLs.
+    missing_source_count: int = 0
     # Ordered list of suggested remediations. First entry is the primary recommendation.
     suggested_actions: list[SuggestedAction] = dataclass_field(default_factory=list)
 
