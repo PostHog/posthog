@@ -30,6 +30,11 @@ const PIE_VALUE_DISPLAY_OPTIONS: { value: 'absolute' | 'percentage'; label: stri
     { value: 'percentage', label: 'Percentage' },
 ]
 
+const LINE_STYLE_OPTIONS: { value: 'smooth' | 'linear'; label: string }[] = [
+    { value: 'smooth', label: 'Smooth' },
+    { value: 'linear', label: 'Straight' },
+]
+
 export const DisplayTab = (): JSX.Element => {
     const { effectiveVisualizationType } = useValues(dataVisualizationLogic)
     const { goalLines, chartSettings } = useValues(displayLogic)
@@ -37,6 +42,9 @@ export const DisplayTab = (): JSX.Element => {
 
     const isStackedBarChart = effectiveVisualizationType === ChartDisplayType.ActionsStackedBar
     const isPieChart = effectiveVisualizationType === ChartDisplayType.ActionsPie
+    const isLineChart =
+        effectiveVisualizationType === ChartDisplayType.ActionsLineGraph ||
+        effectiveVisualizationType === ChartDisplayType.ActionsAreaGraph
 
     const renderYAxisSettings = (name: 'leftYAxisSettings' | 'rightYAxisSettings'): JSX.Element => {
         const labelPlaceholder = name === 'leftYAxisSettings' ? 'Left Y-axis label' : 'Right Y-axis label'
@@ -182,6 +190,21 @@ export const DisplayTab = (): JSX.Element => {
                                                 updateChartSettings({ showValuesOnSeries: value })
                                             }}
                                         />
+                                        {isLineChart && (
+                                            <div className="flex flex-col gap-1">
+                                                <LemonLabel>Line style</LemonLabel>
+                                                <LemonSegmentedButton
+                                                    className="w-full"
+                                                    data-attr="data-visualization-line-style"
+                                                    value={chartSettings.chartStyle?.curve ?? 'smooth'}
+                                                    onChange={(value) =>
+                                                        updateChartSettings({ chartStyle: { curve: value } })
+                                                    }
+                                                    options={LINE_STYLE_OPTIONS}
+                                                    fullWidth
+                                                />
+                                            </div>
+                                        )}
                                         <div className="flex flex-col gap-1">
                                             <LemonLabel>X-axis label</LemonLabel>
                                             <LemonInput

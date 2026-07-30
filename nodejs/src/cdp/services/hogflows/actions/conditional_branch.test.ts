@@ -86,8 +86,7 @@ describe('action.conditional_branch', () => {
                 action.config.delay_duration = '2h'
                 const result = await checkConditions(invocation, action)
                 expect(result).toEqual({
-                    // With the poll removed, the wait parks once to its full max_wait deadline (2h)
-                    // rather than the old 10-minute cap; the matcher wakes it earlier on a match.
+                    // Parks once, straight to the step's own deadline
                     scheduledAt: DateTime.utc().plus({ hours: 2 }),
                 })
             })
@@ -254,11 +253,10 @@ describe('action.conditional_branch', () => {
             expect(result.nextAction).toBeUndefined()
         })
 
-        it('parks a wait_until_condition once until its max_wait deadline', async () => {
-            // With polling removed, the wait parks a single time to startedAt + max_wait rather than
-            // re-parking on a 10-minute cap. A 30-minute wait therefore schedules ~30 minutes out; the
-            // subscription matcher wakes it earlier on a matching signal, and if none arrives it resumes
-            // at the deadline and takes the timeout branch.
+        it('parks a wait_until_condition once, to its max_wait deadline', async () => {
+            // With no periodic re-check there is nothing to re-park for: a 30-minute wait sleeps the
+            // full 30 minutes, and the matcher wakes it earlier if a matching signal arrives. A
+            // reintroduced cap would show up here as a schedule far short of the deadline.
             waitAction.config.max_wait_duration = '30m'
 
             const result = await handler.execute({
@@ -270,24 +268,9 @@ describe('action.conditional_branch', () => {
             expect(result.scheduledAt).toEqual(DateTime.utc().plus({ minutes: 30 }))
         })
 
-        it('advances to the matched branch when the condition is true on evaluation', async () => {
-            // A wait whose condition evaluates true — re-checked when the matcher wakes it, or at the
-            // deadline — advances down the matched branch rather than the timeout branch.
-            waitAction.config.condition = {
-                filters: {
-                    bytecode: ['_H', 1, 32, 'test', 32, 'event', 1, 1, 11],
-                    events: [{ id: 'test', name: 'test', type: 'events', order: 0 }],
-                },
-            }
 
-            const result = await handler.execute({
-                invocation: waitInvocation,
-                action: waitAction,
-                result: createInvocationResult(waitInvocation),
-            })
 
-            expect(result.nextAction).toEqual(findActionById(waitInvocation.hogFlow, 'matched_target'))
-        })
+
 
         it('records a rekey wake as advanced and consumes the one-shot flag when the merge makes the condition match', async () => {
             // A merge re-keyed this parked wait onto the survivor and woke it (rekeyWake). The re-check

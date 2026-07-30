@@ -18,7 +18,11 @@ import structlog
 from prometheus_client import Histogram
 from psycopg import sql
 
-from posthog.ducklake.common import duckgres_data_imports_schema, get_duckgres_config_for_org
+from posthog.ducklake.common import (
+    duckgres_data_imports_schema,
+    duckgres_data_imports_table_name,
+    get_duckgres_config_for_org,
+)
 from posthog.ducklake.storage import setup_duckgres_session
 from posthog.models import Team
 
@@ -594,21 +598,14 @@ def _process_backfill_batch(
 
 
 def _duckgres_schema_name(team_id: int) -> str:
-    # Resolves to posthog_data_imports_<table_suffix> when the team has set one
-    # (DuckgresServerTeam.table_suffix — the same suffix that names its
-    # events/persons tables), else the legacy posthog_data_imports_team_<id>.
+    # Resolves to posthog_data_imports_<schema> from the team's duckgres control-plane
+    # row (the same identifier that names its events/persons tables), else the legacy
+    # posthog_data_imports_team_<id>.
     return duckgres_data_imports_schema(team_id)
 
 
 def _duckgres_table_name(schema: ExternalDataSchema) -> str:
-    source_type = schema.source.source_type
-    normalized_name = schema.normalized_name
-    raw_name = (
-        f"{source_type}_{schema.source.prefix}_{normalized_name}"
-        if schema.source.prefix
-        else f"{source_type}_{normalized_name}"
-    )
-    return NamingConvention.normalize_identifier(raw_name, max_length=63)
+    return duckgres_data_imports_table_name(schema)
 
 
 def _should_replace_table(batch: PendingBatch) -> bool:

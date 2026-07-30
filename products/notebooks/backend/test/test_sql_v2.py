@@ -1179,11 +1179,17 @@ class TestSQLV2RunInterrupt(APIBaseTest):
         self.assertIn("detail", response.json())
         self.assertEqual(self._reload_run().status, NotebookNodeRun.Status.RUNNING)
 
+    @parameterized.expand([("query_cancelled", None), ("cancellation_failed", Exception("cluster unreachable"))])
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
     @patch("products.notebooks.backend.sql_v2.requests.post")
-    def test_direct_sql_run_interrupt_marks_without_kernel(self, mock_post, _mock_enabled):
-        # A direct (hogql) run has no kernel to signal: interrupt marks the row abandoned
-        # immediately, even when a live kernel exists for this user.
+    @patch("products.notebooks.backend.sql_v2_direct.cancel_query")
+    def test_direct_sql_run_interrupt_stops_the_query_without_a_kernel(
+        self, _name, cancel_error, mock_cancel_query, mock_post, _mock_enabled
+    ):
+        # A direct (hogql) run has no kernel to signal: interrupt marks the row abandoned and
+        # stops the query at the manager, even when a live kernel exists for this user. A failed
+        # cancellation must not turn the user's Stop into an error.
+        mock_cancel_query.side_effect = cancel_error
         self._create_runtime()
         with team_scope(self.team.id):
             sql_run = NotebookNodeRun.objects.create(
@@ -1199,6 +1205,8 @@ class TestSQLV2RunInterrupt(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], NotebookNodeRun.Status.INTERRUPTED)
         mock_post.assert_not_called()
+        # The private derived id, not the run id: that is what the query was enqueued under.
+        mock_cancel_query.assert_called_once_with(self.team.id, notebook_direct_query_id(str(sql_run.id)))
         reloaded = NotebookNodeRun.objects.for_team(self.team.id).get(id=sql_run.id)
         self.assertEqual(reloaded.status, NotebookNodeRun.Status.INTERRUPTED)
         self.assertTrue(reloaded.error)

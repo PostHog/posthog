@@ -59,6 +59,7 @@ import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlert
 import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRulesSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
 import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
+import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
@@ -171,6 +172,7 @@ import { PersonalGitHubIntegrations, PersonalSlackIntegrations } from './user/Pe
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
 import { Reminders } from './user/Reminders'
 import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
+import { HomepageSetting, SidebarItemsSetting, SidebarMyToolsSetting } from './user/SidebarSettings'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
@@ -1356,7 +1358,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'workflows-engagement-events',
                 title: 'Engagement events',
                 description:
-                    'When enabled, email engagement activity (sent, delivered, opened, link clicked, bounced, blocked, failed) is captured as standard PostHog events alongside the existing workflow metrics. This lets you build insights, funnels, and dashboards from workflows data. These events count toward your event usage and are billed like any other event.',
+                    'When enabled, email engagement activity (sent, delivered, opened, link clicked, bounced, blocked, failed) is captured as standard PostHog events alongside the existing workflow metrics. This lets you build insights, funnels, and dashboards from workflows data. These events count toward your event usage and are billed like any other event. This setting only controls event capture: it does not disable open and click tracking itself. To stop tracking opens and clicks for an email, turn off "Track opens and link clicks" on that email step.',
                 docsUrl: 'https://posthog.com/docs/workflows/engagement-events',
                 component: <WorkflowsEngagementEventsSettings />,
                 keywords: [
@@ -1373,6 +1375,25 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'bounced',
                     'blocked',
                     'failed',
+                ],
+            },
+            {
+                id: 'workflows-email-tracking-consent',
+                title: 'Email tracking consent',
+                description:
+                    'Controls whether open and click tracking on marketing workflow emails requires recipient consent. Untracked emails contain no tracking pixel and no rewritten links, and never record opens or clicks. Transactional emails are exempt. Delivery, bounce, and unsubscribe events are always recorded.',
+                component: <WorkflowsEmailTrackingConsentSettings />,
+                keywords: [
+                    'workflows',
+                    'email',
+                    'tracking',
+                    'consent',
+                    'pixel',
+                    'cnil',
+                    'gdpr',
+                    'privacy',
+                    'opt-in',
+                    'opt-out',
                 ],
             },
         ],
@@ -1998,6 +2019,38 @@ export const SETTINGS_MAP: SettingSection[] = [
                         to customize yourself outside of the app
                     </div>
                 ),
+            },
+        ],
+    },
+    {
+        level: 'user',
+        id: 'user-navigation',
+        title: 'Navigation',
+        flag: 'UI_CUSTOMIZATION',
+        settings: [
+            {
+                id: 'homepage',
+                title: 'Homepage',
+                description:
+                    'The page that opens when you open PostHog or select Home in the sidebar. This applies to the current project.',
+                component: <HomepageSetting />,
+                keywords: ['homepage', 'home', 'default page', 'landing page', 'launchpad', 'start'],
+            },
+            {
+                id: 'sidebar-items',
+                title: 'Navigation items',
+                description:
+                    'Choose which items appear in your sidebar. These preferences only apply to you. Activity and Settings always stay visible.',
+                component: <SidebarItemsSetting />,
+                keywords: ['sidebar', 'navigation', 'navbar', 'menu', 'hide', 'show', 'customize', 'starred'],
+            },
+            {
+                id: 'sidebar-my-tools',
+                title: 'My Tools',
+                description:
+                    'Choose which tools appear in the My Tools section of your sidebar. This selection applies to the current project.',
+                component: <SidebarMyToolsSetting />,
+                keywords: ['sidebar', 'tools', 'products', 'apps', 'my tools', 'customize'],
             },
         ],
     },

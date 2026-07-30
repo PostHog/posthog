@@ -104,10 +104,11 @@ export async function checkConditions(
     }
 
     if (action.config.delay_duration) {
-        // Park once until the max_wait deadline. The subscription matcher wakes the job early on any
-        // matching signal (the events / clickhouse_person / cdp_internal_events / person-repoint
-        // streams); if none arrives the job resumes at the deadline and takes the timeout branch. The
-        // 10-minute polling re-check was removed once those streams were proven to cover every wake.
+        // Re-park on the 10-minute cap so the condition is re-checked by polling. The subscription
+        // matcher also wakes the job early on a matching signal, but polling is kept as the backstop
+        // for now; removing it is a follow-up once the matcher streams are proven in production.
+        // Park once, to the step's own max_wait deadline. The subscription matcher wakes the job
+        // early on a matching signal; with no periodic re-check there is nothing else to wait for.
         const scheduledAt = calculatedScheduledAt(
             action.config.delay_duration,
             invocation.state.currentAction?.startedAtTimestamp

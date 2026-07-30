@@ -7,8 +7,8 @@ from parameterized import parameterized
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.front import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.front.front import FrontResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.front.source import FrontSource

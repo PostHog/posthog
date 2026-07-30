@@ -8,6 +8,8 @@ from parameterized import parameterized
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.cloudbeds import (
+    CLOUDBEDS_API_VERSION_V1_2,
+    CLOUDBEDS_API_VERSION_V1_3,
     PAGE_SIZE,
     CloudbedsResumeConfig,
     cloudbeds_source,
@@ -81,6 +83,7 @@ def _source(
     *,
     manager: mock.MagicMock | None = None,
     property_id: str | None = None,
+    api_version: str = CLOUDBEDS_API_VERSION_V1_3,
 ) -> Any:
     return cloudbeds_source(
         api_key="cbat_key",
@@ -88,6 +91,7 @@ def _source(
         team_id=1,
         job_id="j",
         resumable_source_manager=manager if manager is not None else _make_manager(),
+        api_version=api_version,
         property_id=property_id,
     )
 
@@ -203,6 +207,32 @@ class TestPagination:
         ]
 
 
+class TestApiVersion:
+    def _capture_urls(self, session: mock.MagicMock, responses: list[Response]) -> list[str]:
+        session.headers = {}
+        urls: list[str] = []
+
+        def _prepare(request: Any) -> mock.MagicMock:
+            urls.append(getattr(request, "url", ""))
+            return mock.MagicMock()
+
+        session.prepare_request.side_effect = _prepare
+        session.send.side_effect = responses
+        return urls
+
+    @parameterized.expand([(CLOUDBEDS_API_VERSION_V1_2,), (CLOUDBEDS_API_VERSION_V1_3,)])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_requested_version_is_the_url_segment(self, api_version: str, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        urls = self._capture_urls(session, [_response([{"reservationID": "1"}])])
+
+        _rows(_source(manager=_make_manager(), api_version=api_version))
+
+        # The resolved pin must reach the request path verbatim so a v1.2-pinned source never drifts
+        # onto v1.3 (the default) or vice versa.
+        assert urls and all(f"/api/{api_version}/getReservations" in url for url in urls)
+
+
 class TestFailLoud:
     @parameterized.expand(
         [("missing_data_key", {"success": True}), ("success_false", {"success": False, "message": "Access denied"})]
@@ -275,19 +305,30 @@ class TestValidateCredentials:
         mock_session: mock.MagicMock,
     ) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        assert validate_credentials("cbat_key") == (expected_valid, expected_message)
+        assert validate_credentials("cbat_key", CLOUDBEDS_API_VERSION_V1_3) == (expected_valid, expected_message)
 
     @mock.patch(CLOUDBEDS_SESSION_PATCH)
     def test_connection_error_is_not_valid(self, mock_session: mock.MagicMock) -> None:
         mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("cbat_key") == (False, "Could not connect to Cloudbeds")
+        assert validate_credentials("cbat_key", CLOUDBEDS_API_VERSION_V1_3) == (
+            False,
+            "Could not connect to Cloudbeds",
+        )
 
     @mock.patch(CLOUDBEDS_SESSION_PATCH)
     def test_probe_scopes_to_property_when_configured(self, mock_session: mock.MagicMock) -> None:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("cbat_key", property_id="12345")
+        validate_credentials("cbat_key", CLOUDBEDS_API_VERSION_V1_3, property_id="12345")
         called_url = mock_session.return_value.get.call_args.args[0]
         assert "propertyID=12345" in called_url
+
+    @parameterized.expand([(CLOUDBEDS_API_VERSION_V1_2,), (CLOUDBEDS_API_VERSION_V1_3,)])
+    @mock.patch(CLOUDBEDS_SESSION_PATCH)
+    def test_probe_url_carries_requested_version(self, api_version: str, mock_session: mock.MagicMock) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+        validate_credentials("cbat_key", api_version)
+        called_url = mock_session.return_value.get.call_args.args[0]
+        assert called_url.startswith(f"https://api.cloudbeds.com/api/{api_version}/getHotels")
 
 
 class TestCloudbedsSourceResponse:

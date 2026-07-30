@@ -229,6 +229,7 @@ export type MinimalAppMetric = {
         | 'fetch'
         | 'billable_invocation'
         | 'dropped'
+        | 'budget_skipped'
         | 'email_queued'
         | 'email_sent'
         | 'email_delivered'
@@ -244,6 +245,7 @@ export type MinimalAppMetric = {
         | 'email_blocked'
         | 'email_spam'
         | 'email_unsubscribed'
+        | 'email_untracked'
         | 'push_sent'
         | 'push_failed'
         | 'push_skipped'
@@ -455,6 +457,7 @@ export type HogFunctionInputSchemaType = {
 export type HogFunctionTypeType =
     | 'destination'
     | 'transformation'
+    | 'transformation_log'
     | 'internal_destination'
     | 'source_webhook'
     | 'warehouse_source_webhook'

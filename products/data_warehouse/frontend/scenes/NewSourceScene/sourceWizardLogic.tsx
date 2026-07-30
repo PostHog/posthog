@@ -694,6 +694,7 @@ export interface sourceWizardLogicActions {
             | 'Beehiiv'
             | 'Bettermode'
             | 'BetterStack'
+            | 'Bexio'
             | 'BigCommerce'
             | 'Bigeye'
             | 'BigMailer'
@@ -898,12 +899,14 @@ export interface sourceWizardLogicActions {
             | 'DropboxSign'
             | 'Dub'
             | 'Dubsado'
+            | 'DuckLake'
             | 'Dwolla'
             | 'Dynamics365'
             | 'Dynamics365BusinessCentral'
             | 'DynamoDB'
             | 'Dynatrace'
             | 'E2B'
+            | 'Easybill'
             | 'Easypost'
             | 'Easypromos'
             | 'Ebay'
@@ -954,6 +957,7 @@ export interface sourceWizardLogicActions {
             | 'Firecrawl'
             | 'FireHydrant'
             | 'FireworksAI'
+            | 'FirstPromoter'
             | 'Five9'
             | 'Flagsmith'
             | 'Fleetio'
@@ -1122,6 +1126,7 @@ export interface sourceWizardLogicActions {
             | 'Instatus'
             | 'Intercom'
             | 'Interzoid'
+            | 'Inth'
             | 'Intruder'
             | 'Invoiced'
             | 'Invoiceninja'
@@ -1154,6 +1159,7 @@ export interface sourceWizardLogicActions {
             | 'Kestra'
             | 'Kick'
             | 'Kickscale'
+            | 'Kickstarter'
             | 'Kinde'
             | 'Kion'
             | 'Kisi'
@@ -1220,6 +1226,7 @@ export interface sourceWizardLogicActions {
             | 'Mailosaur'
             | 'Mailtrap'
             | 'Mantle'
+            | 'Manychat'
             | 'Marketo'
             | 'Marketstack'
             | 'Mastodon'
@@ -1553,6 +1560,7 @@ export interface sourceWizardLogicActions {
             | 'Shortcut'
             | 'Shortio'
             | 'Shutterstock'
+            | 'SideShift'
             | 'SigmaComputing'
             | 'SignNow'
             | 'SigNoz'
@@ -1604,6 +1612,7 @@ export interface sourceWizardLogicActions {
             | 'Square'
             | 'Squarespace'
             | 'StackOverflowForTeams'
+            | 'Starburst'
             | 'Statsig'
             | 'Statuscake'
             | 'Statuspage'
@@ -1694,9 +1703,11 @@ export interface sourceWizardLogicActions {
             | 'TwoC2p'
             | 'TyntecSMS'
             | 'Typeform'
+            | 'Typesense'
             | 'Ubidots'
             | 'UkCompaniesHouse'
             | 'UkOns'
+            | 'Umami'
             | 'UnComtrade'
             | 'Unleash'
             | 'Unstructured'
@@ -1747,6 +1758,7 @@ export interface sourceWizardLogicActions {
             | 'WooCommerce'
             | 'Wordpress'
             | 'Workable'
+            | 'Workato'
             | 'Workday'
             | 'Workflowmax'
             | 'Workiz'
@@ -1780,6 +1792,7 @@ export interface sourceWizardLogicActions {
             | 'Zenefits'
             | 'Zenloop'
             | 'Zep'
+            | 'Zero'
             | 'Zluri'
             | 'ZohoAnalytics'
             | 'ZohoBigin'
@@ -3328,7 +3341,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     source_type: source,
                 })
             } else {
-                lemonToast.error(`Something went wrong.`)
+                lemonToast.error(
+                    `Couldn't finish connecting your source. Please try again, and if it keeps happening contact support.`
+                )
             }
         },
         submitSourceConnectionDetailsSuccess: () => {

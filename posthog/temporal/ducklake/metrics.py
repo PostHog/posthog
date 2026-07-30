@@ -44,3 +44,14 @@ def get_ducklake_copy_data_imports_verification_metric(check_name: str, status: 
             "Number of DuckLake data imports verification checks completed.",
         )
     )
+
+
+def get_ducklake_register_data_imports_finished_metric(status: str) -> MetricCounter:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes({"status": status})
+        .create_counter(
+            "ducklake_register_data_imports_finished",
+            "Number of DuckLake prepared data import registration workflows finished, including failures.",
+        )
+    )
