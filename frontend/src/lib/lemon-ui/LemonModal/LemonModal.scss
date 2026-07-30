@@ -4,8 +4,7 @@
     // instead keeps the modal's scroll pane and footer above the fold; scrolling the overlay is
     // the last resort for a modal that still can't fit.
     position: fixed;
-    inset: 0 0 auto;
-    top: var(--visual-viewport-offset-top);
+    inset: var(--visual-viewport-offset-top) 0 auto;
     z-index: var(--z-modal);
     display: flex;
     align-items: flex-start;
