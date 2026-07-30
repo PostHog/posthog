@@ -127,6 +127,10 @@ jobs:
               if: github.event_name == 'pull_request'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  # E2E is the one suite that exercises cross-area combinations, so the
+                  # merge queue must evaluate it against the whole test-branch diff,
+                  # including dependent PRs, never just the tested PRs' files.
+                  scope-trunk-merge: 'false'
                   filters: |
                       shouldRun:
                         # Any change that could affect E2E behavior triggers a run.

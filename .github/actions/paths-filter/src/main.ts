@@ -9,7 +9,7 @@ import {File, ChangeStatus} from './file'
 import * as git from './git'
 import {backslashEscape, shellEscape} from './list-format/shell-escape'
 import {csvEscape} from './list-format/csv-escape'
-import {isTrunkMergeRef, parseTestedPrNumbers} from './trunk-merge'
+import {parseTestedPrNumbers, trunkMergeLeadPr} from './trunk-merge'
 
 type ExportFormat = 'none' | 'csv' | 'json' | 'shell' | 'escape'
 
@@ -27,6 +27,7 @@ async function run(): Promise<void> {
     const filtersYaml = isPathInput(filtersInput) ? getConfigFileContent(filtersInput) : filtersInput
     const listFiles = core.getInput('list-files', {required: false}).toLowerCase() || 'none'
     const initialFetchDepth = parseInt(core.getInput('initial-fetch-depth', {required: false})) || 10
+    const scopeTrunkMerge = core.getBooleanInput('scope-trunk-merge', {required: false})
 
     if (!isExportFormat(listFiles)) {
       core.setFailed(`Input parameter 'list-files' is set to invalid value '${listFiles}'`)
@@ -34,7 +35,7 @@ async function run(): Promise<void> {
     }
 
     const filter = new Filter(filtersYaml)
-    const files = await getChangedFiles(token, base, ref, initialFetchDepth)
+    const files = await getChangedFiles(token, base, ref, initialFetchDepth, scopeTrunkMerge)
     core.info(`Detected ${files.length} changed files`)
     const results = filter.match(files)
     exportResults(results, listFiles)
@@ -59,7 +60,13 @@ function getConfigFileContent(configPath: string): string {
   return fs.readFileSync(configPath, {encoding: 'utf8'})
 }
 
-async function getChangedFiles(token: string, base: string, ref: string, initialFetchDepth: number): Promise<File[]> {
+async function getChangedFiles(
+  token: string,
+  base: string,
+  ref: string,
+  initialFetchDepth: number,
+  scopeTrunkMerge: boolean
+): Promise<File[]> {
   // if base is 'HEAD' only local uncommitted changes will be detected
   // This is the simplest case as we don't need to fetch more commits or evaluate current/before refs
   if (base === git.HEAD) {
@@ -84,7 +91,7 @@ async function getChangedFiles(token: string, base: string, ref: string, initial
       }
       const pr = github.context.payload.pull_request as PullRequest
       if (token) {
-        if (isTrunkMergeRef(pr.head?.ref)) {
+        if (scopeTrunkMerge) {
           const testedPrFiles = await getTrunkMergeTestedPrFiles(token, pr)
           if (testedPrFiles !== null) {
             return testedPrFiles
@@ -171,37 +178,59 @@ async function getChangedFilesFromGit(base: string, head: string, initialFetchDe
   return await git.getChangesSinceMergeBase(base, head, initialFetchDepth)
 }
 
-// On a trunk-merge test branch, returns the union of changed files of the PRs
-// the branch actually tests, so path filters skip jobs only dependent PRs need.
-// Returns null on any parse or fetch problem: the caller MUST then fall back to
-// the full test-branch diff. Over-selection wastes runner minutes; a silent
-// under-selection lets breakage merge to master.
+// On a trunk-merge test branch, scopes the change list to the PRs the branch
+// actually tests: the queue PR's own diff (which also carries every dependent
+// PR stacked underneath) restricted to the filenames the tested PRs change.
+// Every emitted entry comes from the queue diff, so paths and statuses always
+// describe the checked-out tree, and the body can only ever narrow GitHub's own
+// file list. Returns null on any guard, parse, or fetch problem: the caller
+// MUST then fall back to the full test-branch diff. Over-selection wastes
+// runner minutes; a silent under-selection lets breakage merge to master.
 async function getTrunkMergeTestedPrFiles(token: string, pullRequest: PullRequest): Promise<File[] | null> {
+  const leadPr = trunkMergeLeadPr(pullRequest.head?.ref)
+  if (leadPr === null) {
+    return null
+  }
+  // Only Trunk's own queue PRs qualify: anyone can open a PR from a branch
+  // named trunk-merge/** with a crafted body, and scoping from it would let
+  // that PR skip suites its real diff requires.
+  const repoFullName = `${github.context.repo.owner}/${github.context.repo.repo}`
+  if (pullRequest.user?.login !== 'trunk-io[bot]' || pullRequest.head?.repo?.full_name !== repoFullName) {
+    core.info('Head ref looks like a trunk-merge branch but the PR is not Trunk-authored - using the full diff')
+    return null
+  }
   const testedPrNumbers = parseTestedPrNumbers(pullRequest.body, github.context.repo)
   if (testedPrNumbers.length === 0) {
     core.warning('Could not parse tested PRs from the trunk-merge PR body - using the full test-branch diff')
     return null
   }
-  core.info(`Trunk-merge test branch detected - scoping filters to tested PRs: ${testedPrNumbers.join(', ')}`)
+  if (!testedPrNumbers.includes(leadPr)) {
+    core.warning(
+      `Tested PRs parsed from the trunk-merge PR body (${testedPrNumbers.join(', ')}) are missing ` +
+        `the branch's lead PR ${leadPr} - using the full test-branch diff`
+    )
+    return null
+  }
   try {
-    const files: File[] = []
-    const seen = new Set<string>()
+    const branchFiles = await getChangedFilesFromApi(token, pullRequest.number)
+    const testedFilenames = new Set<string>()
     for (const prNumber of testedPrNumbers) {
       for (const file of await getChangedFilesFromApi(token, prNumber)) {
-        const key = `${file.status} ${file.filename}`
-        if (!seen.has(key)) {
-          seen.add(key)
-          files.push(file)
-        }
+        testedFilenames.add(file.filename)
       }
     }
-    if (files.length === 0) {
-      core.warning('Tested PRs report no changed files - using the full test-branch diff')
+    const scoped = branchFiles.filter(file => testedFilenames.has(file.filename))
+    if (scoped.length === 0) {
+      core.warning('No test-branch files matched the tested PRs - using the full test-branch diff')
       return null
     }
-    return files
+    core.info(
+      `Trunk-merge test branch: scoping filters to tested PRs ${testedPrNumbers.join(', ')} ` +
+        `(${scoped.length} of ${branchFiles.length} changed files)`
+    )
+    return scoped
   } catch (error) {
-    core.warning(`Failed to fetch tested PR files (${getErrorMessage(error)}) - using the full test-branch diff`)
+    core.warning(`Failed to scope to tested PR files (${getErrorMessage(error)}) - using the full test-branch diff`)
     return null
   }
 }

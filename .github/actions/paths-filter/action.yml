@@ -44,6 +44,14 @@ inputs:
             This option takes effect only when changes are detected using git against different base branch.
         required: false
         default: '100'
+    scope-trunk-merge:
+        description: |
+            On Trunk merge-queue test branches (trunk-merge/**), restrict change detection to the
+            files of the PRs the branch actually tests, instead of the whole test-branch diff that
+            also carries dependent PRs. Set to 'false' for filters that must always see the full
+            branch diff. Ignored everywhere else.
+        required: false
+        default: 'true'
 outputs:
     changes:
         description: JSON array with names of all filters matching any of changed files

@@ -69,13 +69,19 @@ changed:
 
 On a `trunk-merge/**` test branch (head ref), the PR's own diff against master also
 carries every dependent PR stacked underneath it in the parallel queue, which would
-stop path filters from skipping anything. Instead of that diff, the action unions the
-changed files of the PRs the branch actually tests, parsed from the
-"Pull Requests Being Tested" section Trunk writes into the queue PR body.
+stop path filters from skipping anything. Instead, the action takes that full diff and
+keeps only the files also changed by the PRs the branch actually tests, parsed from the
+"Pull Requests Being Tested" section Trunk writes into the queue PR body. Because every
+emitted entry comes from the queue PR's own diff, paths and statuses always describe
+the checked-out tree, and the body can only ever narrow GitHub's file list.
 
-If the body can't be parsed or any file fetch fails, the action falls back to the full
-test-branch diff (today's behavior), so failures over-select jobs rather than under-select.
-Normal PRs are unaffected.
+Scoping applies only when the PR is authored by `trunk-io[bot]` from a same-repo
+branch and the branch's lead PR number appears in the parsed set. Any failed guard,
+unparseable body, or fetch error falls back to the full test-branch diff, so failures
+over-select jobs rather than under-select. Normal PRs are unaffected.
+
+Set `scope-trunk-merge: 'false'` on a filter step that must always see the full branch
+diff (ci-e2e-playwright.yml does, since E2E covers cross-PR combinations).
 
 ## Rebuilding after source changes
 

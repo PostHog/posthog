@@ -1,4 +1,4 @@
-import {isTrunkMergeRef, parseTestedPrNumbers} from '../src/trunk-merge'
+import {parseTestedPrNumbers, trunkMergeLeadPr} from '../src/trunk-merge'
 
 const REPO = {owner: 'PostHog', repo: 'posthog'}
 
@@ -31,43 +31,38 @@ This pull request is testing the changes from pull request [73792](https://www.g
 
 describe('trunk-merge', () => {
   test.each([
-    ['batch of two', BATCH_BODY, [74757, 73853]],
+    ['batch of two, dependencies excluded', BATCH_BODY, [74757, 73853]],
     ['single PR (bisection)', SINGLE_PR_BODY, [73792]],
+    ['batch body with CRLF line endings', BATCH_BODY.replace(/\n/g, '\r\n'), [74757, 73853]],
     ['missing tested section', 'This PR depends on [1](https://www.github.com/PostHog/posthog/pull/1).', []],
-    ['empty body', '', []]
+    ['empty body', '', []],
+    [
+      'foreign repos and lookalike hosts ignored',
+      `## Pull Requests Being Tested
+
+Testing [111](https://www.github.com/PostHog/posthog/pull/111), [999](https://www.github.com/OtherOrg/other-repo/pull/999), [9](https://github.com.evil.io/PostHog/posthog/pull/9) and [7](https://notgithub.com/PostHog/posthog/pull/7).
+`,
+      [111]
+    ],
+    [
+      'repeated links deduplicated',
+      `## Pull Requests Being Tested
+
+[42](https://www.github.com/PostHog/posthog/pull/42) and again [42](https://www.github.com/PostHog/posthog/pull/42).
+`,
+      [42]
+    ]
   ])('parseTestedPrNumbers: %s', (_name, body, expected) => {
     expect(parseTestedPrNumbers(body, REPO)).toEqual(expected)
   })
 
-  test('never returns numbers from the Dependencies section', () => {
-    const tested = parseTestedPrNumbers(BATCH_BODY, REPO)
-    for (const dependent of [74793, 74914, 74763]) {
-      expect(tested).not.toContain(dependent)
-    }
-  })
-
-  test('ignores PR links pointing at other repositories', () => {
-    const body = `## Pull Requests Being Tested
-
-Testing [111](https://www.github.com/PostHog/posthog/pull/111) and [999](https://www.github.com/OtherOrg/other-repo/pull/999).
-`
-    expect(parseTestedPrNumbers(body, REPO)).toEqual([111])
-  })
-
-  test('deduplicates repeated links', () => {
-    const body = `## Pull Requests Being Tested
-
-[42](https://www.github.com/PostHog/posthog/pull/42) and again [42](https://www.github.com/PostHog/posthog/pull/42).
-`
-    expect(parseTestedPrNumbers(body, REPO)).toEqual([42])
-  })
-
   test.each([
-    ['trunk-merge/pr-74757/56ddd0d8-4bd4-4b4f-b61a-6899fc540034', true],
-    ['trunk-merge/pr-73792/8eb3d9bb-07c3-44e0-8467-ae8c04a3511b-bisection', true],
-    ['feature/trunk-merge-lookalike', false],
-    [undefined, false]
-  ])('isTrunkMergeRef(%s) = %s', (ref, expected) => {
-    expect(isTrunkMergeRef(ref)).toBe(expected)
+    ['trunk-merge/pr-74757/56ddd0d8-4bd4-4b4f-b61a-6899fc540034', 74757],
+    ['trunk-merge/pr-73792/8eb3d9bb-07c3-44e0-8467-ae8c04a3511b-bisection', 73792],
+    ['feature/trunk-merge-lookalike', null],
+    ['trunk-merge/no-pr-number', null],
+    [undefined, null]
+  ])('trunkMergeLeadPr(%s) = %s', (ref, expected) => {
+    expect(trunkMergeLeadPr(ref)).toBe(expected)
   })
 })
