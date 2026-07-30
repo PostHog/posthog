@@ -284,10 +284,11 @@ def _classify_error_for_slo(exc: Exception) -> tuple[QueryErrorCategory, SloOutc
       abuse, or normal interaction (cancel-on-navigate-away), not platform
       reliability. The completed event still fires with the error_category tag
       so dashboards can slice by it.
-    - QUERY_PERFORMANCE_ERROR and unclassified exceptions → FAILURE. Timeouts
-      and OOM dominate that category at scale; the user-input limits inside it
-      (EstimatedQueryExecutionTimeTooLong, QuerySizeExceeded) are a minority
-      worth living with for now.
+    - QUERY_PERFORMANCE_ERROR and unclassified exceptions → FAILURE, so the
+      reliability numbers still count a query that didn't return data. Note this
+      is only the SLO outcome: whether the exception also reaches error tracking
+      is decided separately by `classify_failure`, which keeps the query-shape
+      limits inside this category (timeouts, per-query memory, size) out of it.
 
     UserAccessControlError is folded into USER_ERROR locally since
     classify_query_error doesn't recognise it but a 403 is the user's input,
@@ -1923,7 +1924,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 except Exception as exc:
                     if getattr(exc, "served_from_query_failure_cache", False):
                         # ClickHouse was never touched; the original failure was already
-                        # classified and captured when it happened.
+                        # classified and reported when it happened.
                         slo.succeed(error_category="query_failure_cache")
                         raise
                     # Don't pass execution_path here: whichever branch tag was set before the raise
@@ -1931,24 +1932,26 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     # dashboards can attribute errors to the path they happened in. Errors that fire
                     # before any branch tag is set leave execution_path unset, which is honest.
                     category, outcome = _classify_error_for_slo(exc)
+                    # Transient error classes classify to None; the rest are limits the query's own
+                    # shape triggered, which is why the same call decides both what the breaker
+                    # remembers and what error tracking is spared.
+                    failure_kind = classify_failure(exc)
                     if outcome == SloOutcome.SUCCESS:
                         slo.succeed(error_category=category.value)
                     else:
                         slo.fail(error_category=category.value)
-                        # Capture only what classifies as a FAILURE outcome. User-input query errors
-                        # (USER_ERROR / cancelled / rate-limited) classify as SUCCESS above and are
-                        # deliberately not captured — they're returned to the user as 4xx. Note this
-                        # gate is the SLO outcome, not a strict platform-vs-user split:
-                        # QUERY_PERFORMANCE_ERROR is FAILURE (so captured) even though a minority of
-                        # those are user-input limits — see _classify_error_for_slo.
-                        capture_exception(exc)
-                    if self._query_failure_caching_enabled:
-                        # Transient error classes classify to None and are never recorded.
-                        failure_kind = classify_failure(exc)
-                        if failure_kind is not None:
-                            QueryCache(team_id=self.team.pk, cache_key=cache_key).record_failure(
-                                failure_kind, str(exc), budget=budget_for_limit_context(self.limit_context)
-                            )
+                        # Capture only what classifies as a FAILURE outcome, minus the query-shape
+                        # limits. User-input query errors (USER_ERROR / cancelled / rate-limited)
+                        # classify as SUCCESS above; timeouts and the other deterministic limits stay
+                        # FAILURE for the reliability numbers but are the caller's SQL to fix, and
+                        # they arrive back with a hint saying so — capturing them buries genuine
+                        # query-path regressions under customer-authored slow queries.
+                        if failure_kind is None:
+                            capture_exception(exc)
+                    if self._query_failure_caching_enabled and failure_kind is not None:
+                        QueryCache(team_id=self.team.pk, cache_key=cache_key).record_failure(
+                            failure_kind, str(exc), budget=budget_for_limit_context(self.limit_context)
+                        )
                     raise
 
     def _execute_and_cache_blocking(

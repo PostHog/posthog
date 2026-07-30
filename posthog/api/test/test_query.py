@@ -42,6 +42,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
 from posthog.event_usage import EventSource
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models.utils import UUIDT
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
@@ -64,6 +65,30 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         detail = response.json()["detail"]
         self.assertEqual(detail, CONCURRENCY_LIMIT_USER_MESSAGE)
         self.assertNotIn("app:query:per-org", detail)
+
+    @parameterized.expand(
+        [
+            # A timeout is the caller's SQL to narrow. The runner already leaves it out of error
+            # tracking, and this catch-all used to capture it again on the way out — including the
+            # copies the failure breaker replays without touching ClickHouse, which was the single
+            # largest source of the flood.
+            ("clickhouse_query_timeout", ClickHouseQueryTimeOut(), 504, False),
+            # Cluster-wide memory pressure lands in the same SLO category but isn't the query's
+            # own shape, so it stays captured.
+            ("cluster_memory_limit_exceeded", ClickHouseQueryMemoryLimitExceeded(), 513, True),
+        ]
+    )
+    def test_query_error_capture_skips_query_shape_limits(self, _name, exc, expected_status, expected_captured):
+        with (
+            patch("posthog.api.query.process_query_model", side_effect=exc),
+            patch("posthog.api.query.capture_exception") as mock_capture_exception,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": HogQLQuery(query="select 1").model_dump()},
+            )
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(mock_capture_exception.called, expected_captured)
 
     @snapshot_clickhouse_queries
     def test_select_hogql_expressions(self):

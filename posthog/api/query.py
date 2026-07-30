@@ -55,6 +55,7 @@ from posthog.event_usage import EventSource, get_request_analytics_properties, r
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.hogql_queries.query_failure_handling import classify_failure
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 from posthog.models.user import User
 from posthog.models.utils import uuid7
@@ -347,7 +348,12 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         except ConcurrencyLimitExceeded as c:
             self._raise_concurrency_throttled(c)
         except Exception as e:
-            capture_exception(e)
+            # Limits the query's own shape triggered — a ClickHouse timeout, per-query memory
+            # limit, size limit — are the caller's SQL to fix and come back with a hint saying so.
+            # The query runner already leaves them out of error tracking, including the ones its
+            # breaker replays without touching ClickHouse; capturing them here would undo that.
+            if classify_failure(e) is None:
+                capture_exception(e)
             raise
 
     @extend_schema(

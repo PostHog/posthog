@@ -759,6 +759,25 @@ class TestQueryRunner(BaseTest):
                 "error",
                 True,
             ),
+            (
+                # A ClickHouse execution-budget timeout is the caller's SQL to narrow, and the error
+                # they get back says so. It still counts against the SLO, but capturing it buried
+                # real query-path regressions under customer-authored slow queries.
+                "clickhouse_query_timeout",
+                ClickHouseQueryTimeOut,
+                SloOutcome.FAILURE,
+                "query_performance_error",
+                False,
+            ),
+            (
+                # Cluster-wide memory pressure shares the timeout's SLO category but isn't the
+                # query's own shape, so it must stay captured.
+                "cluster_memory_limit_exceeded",
+                ClickHouseQueryMemoryLimitExceeded,
+                SloOutcome.FAILURE,
+                "query_performance_error",
+                True,
+            ),
             ("unclassified_value_error", ValueError, SloOutcome.FAILURE, "error", True),
         ]
     )
