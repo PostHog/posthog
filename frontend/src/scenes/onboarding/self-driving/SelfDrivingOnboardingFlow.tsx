@@ -2,25 +2,20 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
-import { IconArrowLeft, IconArrowRight, IconCheckCircle } from '@posthog/icons'
+import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { cn } from 'lib/utils/css-classes'
 
-import selfDrivingHog from 'public/hedgehog/self-driving-hog.png'
-
 // Deliberate self-driving → legacy import: onboardingLogic owns the completion flow (marking the
 // team onboarded, redirecting out) for both variants.
 import { onboardingLogic } from '../legacy/onboardingLogic'
-import { type ContextOnboardingStepId, onboardingEventUsageLogic } from '../onboardingEventUsageLogic'
-import { useWizardCommand } from '../shared/useWizardCommand'
-import { SELF_DRIVING_WORKFLOW_ID } from '../shared/wizard-sync/installationProgressLogic'
-import { InstallationProgressView, useLocalWizardRunActive } from '../shared/wizard-sync/InstallationProgressView'
-import { WizardCommandBlock } from '../shared/wizard-sync/WizardCommandBlock'
-import { WizardInstallOptions } from '../shared/wizard-sync/WizardInstallOptions'
-import { ContextBillingStep } from './ContextBillingStep'
+import { onboardingEventUsageLogic, type SelfDrivingOnboardingStepId } from '../onboardingEventUsageLogic'
+import { BillingStep } from './steps/BillingStep'
+import { InstallStep } from './steps/InstallStep'
+import { WelcomeStep } from './steps/WelcomeStep'
 
 /**
  * The self-driving onboarding: run the wizard, pick a plan, land in the inbox.
@@ -31,108 +26,8 @@ import { ContextBillingStep } from './ContextBillingStep'
  * same thing.
  */
 
-// ---- Steps ---------------------------------------------------------------------------------------
-
-/** The opener: what self-driving is, before we ask anyone to paste a command. */
-function WelcomeStep(): JSX.Element {
-    return (
-        <div className="flex flex-col items-center text-center gap-5">
-            <img src={selfDrivingHog} alt="A hedgehog riding in a self-driving car" className="w-full rounded-lg" />
-            <div className="flex flex-col gap-2">
-                <h1 className="text-2xl font-bold m-0">Let's make your product self-driving</h1>
-                <p className="text-muted max-w-md mx-auto m-0">
-                    PostHog runs on your product's context. One command gets it flowing, then agents can start finding
-                    and fixing things, with you steering.
-                </p>
-            </div>
-        </div>
-    )
-}
-
-/** What the self-driving run wires up, so the command isn't a leap of faith. */
-const WIZARD_SETS_UP = [
-    'Connects your GitHub, so agents can open pull requests',
-    'Picks the signal sources and scouts worth watching',
-    'Sends findings to your inbox as they land',
-]
-
-// The self-driving run is interactive: it asks about your issue tracker, walks you through the
-// GitHub App install, and proposes scouts. The cloud runner can't do any of that (it runs headless
-// and the CLI rejects `--ci` for this program), so the cloud arm is forced off here rather than
-// being left to the experiment flag.
-function InstallOptions({ onContinue }: { onContinue: () => void }): JSX.Element {
-    const { isCloudOrDev } = useWizardCommand()
-    const { reportContextOnboardingInstallModeSelected } = useActions(onboardingEventUsageLogic)
-
-    // Self-hosted: the wizard CLI only targets cloud + dev, so the command block renders nothing.
-    // Show a real, actionable fallback instead of an empty step.
-    if (!isCloudOrDev) {
-        return (
-            <div className="flex flex-col gap-3">
-                <p className="text-sm text-muted m-0">
-                    Install the PostHog SDK for your framework and your product's context starts flowing in, ready for
-                    agents to act on.
-                </p>
-                <LemonButton type="primary" to="https://posthog.com/docs/getting-started/install" targetBlank>
-                    Read the install docs
-                </LemonButton>
-            </div>
-        )
-    }
-
-    return (
-        <div className="flex flex-col gap-4">
-            <p className="text-sm text-muted text-center m-0">
-                Run this in your project. It sets everything up and hands back an inbox that's already working.
-            </p>
-            <WizardInstallOptions
-                hideHog
-                offerCloudRun={false}
-                onQueued={onContinue}
-                onModeSelected={reportContextOnboardingInstallModeSelected}
-                localBlock={
-                    <WizardCommandBlock
-                        hideHog
-                        subcommand="self-driving"
-                        description="Takes about ten minutes. It'll ask you a few things along the way."
-                    />
-                }
-            />
-            <ul className="flex flex-col gap-1.5 m-0 p-0 list-none">
-                {WIZARD_SETS_UP.map((line) => (
-                    <li key={line} className="flex items-start gap-2">
-                        <IconCheckCircle className="size-4 text-success shrink-0 mt-0.5" />
-                        <span className="text-xs text-muted">{line}</span>
-                    </li>
-                ))}
-            </ul>
-        </div>
-    )
-}
-
-/**
- * The step swaps to the live tracker as soon as the CLI registers a run. Sync is unconditional here
- * (no `ONBOARDING_WIZARD_SYNC` gate): without it this step is a static command with no feedback, and
- * watching the run is the whole point of the flow. There is no cloud run to coordinate with, so the
- * local session stream is the only source.
- */
-function InstallStep({ onContinue }: { onContinue: () => void }): JSX.Element {
-    const isLocalRunActive = useLocalWizardRunActive(SELF_DRIVING_WORKFLOW_ID)
-    return isLocalRunActive ? (
-        <InstallationProgressView
-            mode="local"
-            workflowId={SELF_DRIVING_WORKFLOW_ID}
-            continueHint="Keep answering the wizard in your terminal. Progress shows up here as it goes, so you can carry on with the rest of onboarding whenever you like."
-        />
-    ) : (
-        <InstallOptions onContinue={onContinue} />
-    )
-}
-
-// ---- Shell ---------------------------------------------------------------------------------------
-
 interface StepDef {
-    id: ContextOnboardingStepId
+    id: SelfDrivingOnboardingStepId
     title: string
     Content: (props: { onContinue: () => void }) => JSX.Element
     skippable?: boolean
@@ -154,25 +49,25 @@ const STEPS: StepDef[] = [
     {
         id: 'billing',
         title: 'Pick a plan',
-        Content: ContextBillingStep,
+        Content: BillingStep,
         hideContinue: true,
         maxWidth: 'max-w-3xl',
     },
 ]
 
 // The card: chrome (sm+ panel; full-bleed on mobile) plus the content flex-column. Width varies per
-// step via StepDef.maxWidth — LegacyOnboarding just provides the backdrop + logo.
+// step via StepDef.maxWidth — SelfDrivingOnboarding just provides the backdrop + logo.
 const CARD_CLASSES =
     'relative w-full flex flex-col gap-5 overflow-hidden p-0 transition-[max-width] duration-300 sm:max-h-[calc(100dvh-7rem)] sm:p-8 md:p-10 sm:bg-surface-primary sm:rounded-xl sm:shadow-md sm:border sm:border-primary'
 
-export function ContextOnboarding(): JSX.Element {
-    const { completeContextOnboarding } = useActions(onboardingLogic)
+export function SelfDrivingOnboardingFlow(): JSX.Element {
+    const { completeSelfDrivingOnboarding } = useActions(onboardingLogic)
     const { isCompleting } = useValues(onboardingLogic)
     const {
-        reportContextOnboardingStarted,
-        reportContextOnboardingStepViewed,
-        reportContextOnboardingStepCompleted,
-        reportContextOnboardingStepSkipped,
+        reportSelfDrivingOnboardingStarted,
+        reportSelfDrivingOnboardingStepViewed,
+        reportSelfDrivingOnboardingStepCompleted,
+        reportSelfDrivingOnboardingStepSkipped,
     } = useActions(onboardingEventUsageLogic)
     // Initialize from the URL so a refresh — or an OAuth callback that lands back on ?step=install
     // (e.g. the GitHub connect flow) — resumes where it left off instead of restarting at welcome.
@@ -190,12 +85,12 @@ export function ContextOnboarding(): JSX.Element {
     // including the one this mounts on.
     useOnMountEffect(() => {
         if (stepIndex === 0) {
-            reportContextOnboardingStarted()
+            reportSelfDrivingOnboardingStarted()
         }
     })
     useEffect(() => {
-        reportContextOnboardingStepViewed(STEPS[stepIndex].id)
-    }, [stepIndex, reportContextOnboardingStepViewed])
+        reportSelfDrivingOnboardingStepViewed(STEPS[stepIndex].id)
+    }, [stepIndex, reportSelfDrivingOnboardingStepViewed])
 
     // Keep ?step= in sync as the user moves so the URL stays resumable, preserving any other params
     // (like the integration ids the GitHub callback appends).
@@ -211,7 +106,7 @@ export function ContextOnboarding(): JSX.Element {
         if (isLast) {
             // Marks onboarding complete (credits the sources turned on) and navigates out, so
             // sceneLogic doesn't bounce the user back into onboarding.
-            completeContextOnboarding()
+            completeSelfDrivingOnboarding()
             return
         }
         goToStep(stepIndex + 1)
@@ -220,11 +115,11 @@ export function ContextOnboarding(): JSX.Element {
     // e.g. a queued cloud run or a plan pick) or skipping it — reported separately so the funnel
     // can tell drop-off from opt-out.
     const completeStep = (): void => {
-        reportContextOnboardingStepCompleted(step.id)
+        reportSelfDrivingOnboardingStepCompleted(step.id)
         advance()
     }
     const skipStep = (): void => {
-        reportContextOnboardingStepSkipped(step.id)
+        reportSelfDrivingOnboardingStepSkipped(step.id)
         advance()
     }
     const goBack = (): void => goToStep(Math.max(0, stepIndex - 1))

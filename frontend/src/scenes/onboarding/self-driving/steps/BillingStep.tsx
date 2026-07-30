@@ -140,7 +140,7 @@ function PlanChoice({
     onContinue: () => void
 }): JSX.Element {
     const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
-    const { reportContextOnboardingPlanSelected } = useActions(onboardingEventUsageLogic)
+    const { reportSelfDrivingOnboardingPlanSelected } = useActions(onboardingEventUsageLogic)
     // Guard the subscribe button against double-submit: `isLoading` covers the returning-customer
     // activate call, `paymentEntryModalOpen` covers a new customer once the Stripe modal is up.
     const { isLoading, paymentEntryModalOpen } = useValues(paymentEntryLogic)
@@ -152,12 +152,12 @@ function PlanChoice({
     // Reported at the pick, not at payment completion — whether payment then resolves is billing's
     // own funnel (GROW-89).
     const subscribe = (): void => {
-        reportContextOnboardingPlanSelected('pay_as_you_go')
+        reportSelfDrivingOnboardingPlanSelected('pay_as_you_go')
         // Returning the user to the same URL keeps them in the onboarding flow once payment resolves.
         startPaymentEntryFlow(platformProduct, window.location.pathname + window.location.search)
     }
     const continueFree = (): void => {
-        reportContextOnboardingPlanSelected('free')
+        reportSelfDrivingOnboardingPlanSelected('free')
         onContinue()
     }
 
@@ -198,7 +198,7 @@ function PlanChoice({
                     center
                     onClick={continueFree}
                     className="mt-auto"
-                    data-attr="context-onboarding-free"
+                    data-attr="self-driving-onboarding-free"
                 >
                     Start free
                 </LemonButton>
@@ -234,7 +234,7 @@ function PlanChoice({
                     disabledReason={subscribing ? 'Opening payment…' : undefined}
                     disableClientSideRouting
                     onClick={subscribe}
-                    data-attr="context-onboarding-subscribe"
+                    data-attr="self-driving-onboarding-subscribe"
                 >
                     Add payment method
                 </BillingUpgradeCTA>
@@ -245,7 +245,7 @@ function PlanChoice({
     )
 }
 
-export function ContextBillingStep({ onContinue }: { onContinue: () => void }): JSX.Element {
+export function BillingStep({ onContinue }: { onContinue: () => void }): JSX.Element {
     const { billing, billingLoading } = useValues(billingLogic)
 
     if (!billing && billingLoading) {
@@ -263,7 +263,7 @@ export function ContextBillingStep({ onContinue }: { onContinue: () => void }): 
         return (
             <div className="flex flex-col gap-3">
                 <p className="text-sm text-muted m-0">
-                    We couldn't load billing just now. Nothing is blocked – your agents are set up, and you can pick a
+                    We couldn't load billing just now. Nothing is blocked. Your agents are set up, and you can pick a
                     plan later from billing settings.
                 </p>
                 <div className="flex items-center justify-between gap-2">

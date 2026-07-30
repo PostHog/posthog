@@ -99,7 +99,7 @@ export interface onboardingLogicActions {
     openGlobalSetup: () => {
         value: true
     } // globalSetupLogic
-    reportContextOnboardingCompleted: (productKey: string) => {
+    reportSelfDrivingOnboardingCompleted: (productKey: string) => {
         productKey: string
     } // onboardingEventUsageLogic
     openSidePanel: (
@@ -123,7 +123,7 @@ export interface onboardingLogicActions {
     clearProductKey: () => {
         value: true
     }
-    completeContextOnboarding: () => {
+    completeSelfDrivingOnboarding: () => {
         value: true
     }
     completeOnboarding: (options?: { redirectUrlOverride?: string }) => {
@@ -257,7 +257,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             globalSetupLogic,
             ['openGlobalSetup'],
             onboardingEventUsageLogic,
-            ['reportContextOnboardingCompleted'],
+            ['reportSelfDrivingOnboardingCompleted'],
         ],
     })),
     actions({
@@ -272,7 +272,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         }),
         // Completion for the context-first flow, which has no selected product. Marks onboarding done
         // (so sceneLogic stops redirecting here) and credits the sources the user turned on.
-        completeContextOnboarding: true,
+        completeSelfDrivingOnboarding: true,
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
         setTeamPropertiesForProduct: (productKey: ProductKey) => ({ productKey }),
         setWaitForBilling: (waitForBilling: boolean) => ({ waitForBilling }),
@@ -798,7 +798,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 lemonToast.error("Couldn't save onboarding progress. Please try again.")
             }
         },
-        completeContextOnboarding: async () => {
+        completeSelfDrivingOnboarding: async () => {
             // Idempotency guard — Finish can fire twice on a double-click.
             if (values.isCompleting) {
                 return
@@ -820,7 +820,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             for (const productKey of products) {
                 // Same `onboarding completed` event name as the legacy flow, stamped `version: 2`
                 // so dashboards can split the flows without a rename (GROW-89).
-                actions.reportContextOnboardingCompleted(productKey)
+                actions.reportSelfDrivingOnboardingCompleted(productKey)
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey })
             }
             // Persist both completion signals before navigating. updateCurrentTeam is not optimistic,
