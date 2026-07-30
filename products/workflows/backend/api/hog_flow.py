@@ -3279,7 +3279,7 @@ class HogFlowViewSet(
         # Server-side by necessity: the response is capped to the worst 50 workflows, so filtering
         # client-side could never find a healthy workflow beyond the cap.
         search = (request.query_params.get("search") or "").strip().lower()
-        workflow_rows = [
+        workflow_rows: list[dict[str, Any]] = [
             {
                 "hog_flow_id": flow_id,
                 "hog_flow_name": names_by_flow_id[flow_id],
