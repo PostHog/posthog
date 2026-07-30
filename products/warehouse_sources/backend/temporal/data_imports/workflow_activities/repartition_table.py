@@ -24,6 +24,7 @@ from temporalio import activity
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.utils import retry_on_db_connection_drop
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -186,7 +187,9 @@ def maybe_repartition_table_activity(inputs: RepartitionActivityInputs) -> None:
 
 def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: FilteringBoundLogger) -> None:
     try:
-        schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+        schema = retry_on_db_connection_drop(
+            lambda: ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+        )
     except ExternalDataSchema.DoesNotExist:
         logger.warning(
             f"repartition: schema not found, skipping activity schema_id={inputs.schema_id}",
@@ -233,7 +236,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         return
 
     try:
-        job = ExternalDataJob.objects.get(id=inputs.job_id)
+        job = retry_on_db_connection_drop(lambda: ExternalDataJob.objects.get(id=inputs.job_id))
     except ExternalDataJob.DoesNotExist:
         logger.warning(
             f"repartition: job not found, skipping activity job_id={inputs.job_id}",
