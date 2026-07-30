@@ -41,7 +41,12 @@ from posthog.models import SessionRecording, SharePassword, SharingConfiguration
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.resource_transfer.visitors.insight import InsightVisitor
 from posthog.models.user import User
-from posthog.rate_limit import BurstRateThrottle, SharePasswordThrottle, SustainedRateThrottle
+from posthog.rate_limit import (
+    BurstRateThrottle,
+    SharePasswordThrottle,
+    SharePasswordVolumeThrottle,
+    SustainedRateThrottle,
+)
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import (
     UserAccessControl,
@@ -833,7 +838,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
     # Only use sharing-specific authentication, ignore regular PostHog auth
     authentication_classes = [SharingPasswordProtectedAuthentication, SharingAccessTokenAuthentication]
     permission_classes = []
-    throttle_classes = [BurstRateThrottle, SustainedRateThrottle, SharePasswordThrottle]
+    # SharePasswordThrottle is deliberately not here - it's charged manually in retrieve(),
+    # only on a wrong password, so a correct one always succeeds regardless of its budget.
+    throttle_classes = [BurstRateThrottle, SustainedRateThrottle, SharePasswordVolumeThrottle]
     serializer_class = SharingConfigurationSerializer  # Required by DRF but not used in practice
 
     # Set by get_object() when the resolved resource is an ExportedAsset whose token carried a purpose claim.
@@ -1043,6 +1050,18 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
                 if not validated_password:
                     _log_share_password_attempt(resource, request, success=False)
+
+                    # Charged only on a wrong guess, so a correct password always succeeds even
+                    # if an attacker has driven this link's wrong-guess budget to its cap -
+                    # SharePasswordVolumeThrottle bounds the total POST rate this depends on.
+                    wrong_password_throttle = SharePasswordThrottle()
+                    if not wrong_password_throttle.allow_request(request, self):
+                        throttle_response = response.Response(
+                            {"error": "Too many attempts on this link. Wait a minute and try again."}, status=429
+                        )
+                        throttle_response["Retry-After"] = str(int(wrong_password_throttle.wait()))
+                        return throttle_response
+
                     return response.Response({"error": "Incorrect password"}, status=401)
 
                 _log_share_password_attempt(resource, request, success=True, validated_password=validated_password)

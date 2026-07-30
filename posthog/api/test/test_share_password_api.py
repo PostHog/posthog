@@ -12,7 +12,7 @@ from rest_framework.test import APIRequestFactory
 from posthog.api.test.test_sharing import mock_exporter_template
 from posthog.constants import AvailableFeature
 from posthog.models import SharePassword, SharingConfiguration
-from posthog.rate_limit import SharePasswordThrottle
+from posthog.rate_limit import SharePasswordThrottle, SharePasswordVolumeThrottle
 
 from products.dashboards.backend.models.dashboard import Dashboard
 
@@ -222,6 +222,56 @@ class TestSharePasswordAPI(APIBaseTest):
             throttle.allow_request(request, view)  # type: ignore[arg-type]
 
         self.assertEqual(cache.get(key), 3)
+
+    def test_correct_password_succeeds_after_wrong_guess_budget_exhausted(self):
+        # SharePasswordThrottle's budget is shared by every viewer of a link, keyed only on the
+        # token. If a wrong guess and a correct one both drew from it, an attacker holding just
+        # the URL could submit garbage passwords to deny everyone else who knows the real one.
+        SharePassword.create_password(
+            sharing_configuration=self.sharing_config, created_by=self.user, raw_password="secure-test-password"
+        )
+
+        statuses = []
+        for attempt in range(15):
+            source_ip = f"10.0.1.{attempt}"
+            wrong_response = self.client.post(
+                f"/shared/{self.sharing_config.access_token}",
+                data=json.dumps({"password": f"wrong-password-{attempt}"}),
+                content_type="application/json",
+                REMOTE_ADDR=source_ip,
+                HTTP_X_FORWARDED_FOR=source_ip,
+            )
+            statuses.append(wrong_response.status_code)
+            if wrong_response.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
+                break
+
+        self.assertEqual(statuses[-1], status.HTTP_429_TOO_MANY_REQUESTS)
+
+        correct_response = self.client.post(
+            f"/shared/{self.sharing_config.access_token}",
+            data=json.dumps({"password": "secure-test-password"}),
+            content_type="application/json",
+            REMOTE_ADDR="10.0.2.1",
+            HTTP_X_FORWARDED_FOR="10.0.2.1",
+        )
+
+        self.assertEqual(correct_response.status_code, status.HTTP_200_OK)
+        self.assertIn("shareToken", correct_response.json())
+
+    def test_volume_throttle_caps_attempts_regardless_of_correctness(self):
+        # SharePasswordThrottle only meters wrong guesses, so nothing else bounds sheer POST
+        # volume - and thus password-hashing cost - per link. SharePasswordVolumeThrottle is
+        # that backstop; losing it from throttle_classes would leave submissions uncapped.
+        throttle = SharePasswordVolumeThrottle()
+        request = APIRequestFactory().post(f"/shared/{self.sharing_config.access_token}")
+        view = SimpleNamespace(kwargs={"access_token": self.sharing_config.access_token})
+
+        key = throttle.get_cache_key(request, view)  # type: ignore[arg-type]
+        cache.delete(key)
+        results = [throttle.allow_request(request, view) for _ in range(throttle.num_requests + 1)]  # type: ignore[arg-type]
+
+        self.assertTrue(all(results[: throttle.num_requests]))
+        self.assertFalse(results[-1])
 
     @mock_exporter_template
     def test_head_request_does_not_bypass_password_gate(self):

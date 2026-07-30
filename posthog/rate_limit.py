@@ -1053,27 +1053,27 @@ class RestoreRedeemThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
 
 
-class SharePasswordThrottle(SimpleRateThrottle):
+class _SharedLinkAtomicThrottle(SimpleRateThrottle):
     """
-    Rate limit share password submissions per shared link.
+    Rate limit requests to a shared link, counted atomically per link rather than per caller.
 
     Deliberately not a PersonalApiKeyRateThrottle subclass: this must apply even when the
     RATE_LIMIT_ENABLED instance setting is off. Keyed on the share link rather than the caller
-    so rotating source addresses doesn't hand out a fresh budget.
+    so rotating source addresses doesn't hand out a fresh budget. Subclasses set `scope` and
+    `rate`; each gets its own counter since the cache key includes `scope`.
     """
 
-    scope = "share_password"
-    rate = "10/minute"
+    # Assigned by SimpleRateThrottle.__init__ from the parsed rate; the stubs don't declare them.
+    num_requests: int
+    duration: int
 
     def allow_request(self, request: "Request", view: "APIView") -> bool:
-        # Only password submissions cost budget - every viewer of a link shares one bucket, so
-        # counting ordinary page loads would lock out a popular share.
+        # Only POSTs cost budget - every viewer of a link shares one bucket, so counting
+        # ordinary page loads would lock out a popular share.
         if request.method != "POST":
             return True
 
         self.key = self.get_cache_key(request, view)
-        if self.key is None:
-            return True
 
         # A counter incremented in place, rather than SimpleRateThrottle's read-modify-write of a
         # timestamp list: that reads the history, appends, and writes it back, so submissions
@@ -1099,6 +1099,33 @@ class SharePasswordThrottle(SimpleRateThrottle):
         access_token = (view.kwargs.get("access_token") or "").split(".")[0]
         ident = hashlib.sha256(access_token.encode()).hexdigest() if access_token else self.get_ident(request)
         return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class SharePasswordVolumeThrottle(_SharedLinkAtomicThrottle):
+    """
+    Caps total share-password POST volume per link, regardless of whether the password is right.
+
+    Runs automatically via throttle_classes, ahead of any password hashing, so a flood of
+    submissions can't burn unbounded CPU on password checks before SharePasswordThrottle -
+    which only meters wrong guesses - ever gets consulted. Sized loosely so a share handed to a
+    large group doesn't trip it under normal use.
+    """
+
+    scope = "share_password_volume"
+    rate = "60/minute"
+
+
+class SharePasswordThrottle(_SharedLinkAtomicThrottle):
+    """
+    Meters wrong share-password guesses per link.
+
+    Called manually from the view, and only charged on a wrong guess: a correct password always
+    succeeds, so one attacker flooding wrong guesses can't lock out every other viewer of the
+    same link. SharePasswordVolumeThrottle bounds the total POST rate this depends on.
+    """
+
+    scope = "share_password"
+    rate = "10/minute"
 
 
 class CodeInviteThrottle(UserRateThrottle):
