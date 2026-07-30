@@ -20,13 +20,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    BaseMathType,
-    ChartDisplayType,
-    InsightType,
-} from '~/types'
+import { AccessControlLevel, AccessControlResourceType, BaseMathType, ChartDisplayType, InsightType } from '~/types'
 
 import {
     AiSketch,
