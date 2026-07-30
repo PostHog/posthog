@@ -219,9 +219,12 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
             )
             incoming_column = incoming_table.column(column_name)
 
-        # Normalize timestamps to microseconds and no timezone.
+        # Normalize timestamps to microseconds and no timezone. Delta only supports
+        # microsecond precision, so any other unit (not just "ns") must be caught here —
+        # e.g. the Snowflake connector's zero-row `_create_empty_table` path ignores
+        # `force_microsecond_precision` and yields second-precision columns.
         if pa.types.is_timestamp(incoming_field.type) and (
-            incoming_field.type.unit == "ns" or incoming_field.type.tz is not None
+            incoming_field.type.unit != "us" or incoming_field.type.tz is not None
         ):
             microsecond_timestamps = pc.cast(incoming_column, pa.timestamp("us"), safe=False).combine_chunks()
             incoming_table = incoming_table.set_column(
