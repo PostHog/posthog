@@ -90,6 +90,7 @@ from products.workflows.backend.models.email_reputation import EmailReputationSn
 from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
     PERSON_DEPENDENT_ACTION_TYPES,
+    SUPPORTED_ACTION_TYPES,
     HogFlow,
 )
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
@@ -596,6 +597,31 @@ class HogFlowActionConfigField(serializers.JSONField):
     pass
 
 
+class HogFlowActionTypeField(serializers.ChoiceField):
+    """A closed set of action types, rejected at write time rather than at run time.
+
+    A type with no worker handler can never execute: it saves fine, then every run that reaches it
+    dies with "Action type 'x' not supported", and unless the step sets on_error: continue everything
+    downstream silently never happens. Keeping `choices` populated also means drf-spectacular emits
+    the enum, so generated clients and MCP tools advertise the valid values instead of callers
+    guessing them.
+
+    ChoiceField's own invalid_choice message is run through str.format, which can't carry the JSON
+    example below (its braces would be read as format placeholders), so the message is raised here.
+    """
+
+    def to_internal_value(self, data: Any) -> str:
+        if data in self.choices:
+            return super().to_internal_value(data)
+        raise serializers.ValidationError(
+            f'Unsupported action type "{data}". Valid types are: {", ".join(SUPPORTED_ACTION_TYPES)}. '
+            "Steps that act on PostHog data don't get a type of their own - they are type 'function' "
+            "with a template_id. To set person properties, use template_id "
+            "'template-posthog-update-person-properties' with inputs distinct_id, set_properties and "
+            "set_once_properties."
+        )
+
+
 class HogFlowActionSerializer(serializers.Serializer):
     # max_length bounds every downstream copy of the id (edges, action_redirects, worker cache);
     # real ids are short generated slugs, so 200 is generous.
@@ -613,12 +639,9 @@ class HogFlowActionSerializer(serializers.Serializer):
     filters = HogFunctionFiltersSerializer(
         required=False, default=None, allow_null=True, help_text="Property filters gating this action."
     )
-    type = serializers.CharField(
-        max_length=100,
-        help_text=(
-            "trigger | function | function_email | function_sms | delay | "
-            "conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit."
-        ),
+    type = HogFlowActionTypeField(
+        choices=SUPPORTED_ACTION_TYPES,
+        help_text="One of: " + " | ".join(SUPPORTED_ACTION_TYPES) + ".",
     )
     config = HogFlowActionConfigField(
         help_text=(
