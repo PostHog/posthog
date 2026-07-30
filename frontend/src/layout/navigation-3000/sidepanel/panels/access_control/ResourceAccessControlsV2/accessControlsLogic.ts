@@ -165,6 +165,16 @@ export interface accessControlsLogicActions {
             source: AccessControlUIVersion
         }
     } // accessControlLogic
+    deleteRoleSuccess: (
+        roles: RoleType[],
+        payload?: any
+    ) => {
+        roles: RoleType[]
+        payload?: any
+    } // roleAccessControlLogic
+    roleMembershipsChanged: () => {
+        value: true
+    } // roleAccessControlLogic
     updateAccessControlMembers: (
         accessControls: {
             level: AccessControlLevel | null
@@ -873,6 +883,8 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                 'updateAccessControlRoles',
                 'updateAccessControlRolesSuccess',
             ],
+            roleAccessControlLogic,
+            ['roleMembershipsChanged'],
         ],
         values: [
             userLogic,
@@ -1293,6 +1305,15 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
         },
         updateAccessControlMembersSuccess: () => {
             actions.loadMembers()
+        },
+        roleMembershipsChanged: () => {
+            // A member's roles decide what they inherit, so both lists go stale at once
+            if (values.membersData) {
+                actions.loadMembers()
+            }
+            if (values.rolesData) {
+                actions.loadRoles()
+            }
         },
         updateResourceAccessControlsSuccess: () => {
             actions.loadDefaults()
