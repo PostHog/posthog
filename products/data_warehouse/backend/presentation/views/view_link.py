@@ -5,6 +5,7 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_
 from rest_framework import filters, response, serializers, status, viewsets
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.lazy_join_tags import DATA_WAREHOUSE
@@ -30,6 +31,11 @@ from products.data_tools.backend.facade.models import DataWarehouseJoin
 MATCH_RATE_SAMPLE_SIZE = 10_000
 PREVIEW_SCAN_ROWS = 1000
 PREVIEW_DISTINCT_PAIRS = 5
+# The match-rate stats query tests each sampled source key against the joining table's key column,
+# which reads that column in full. Cap its execution so this best-effort scan can't tie up warehouse
+# query capacity; over-limit runs raise and fall back to null stats rather than sampling the joining
+# side, which would silently corrupt the match rate.
+MATCH_RATE_MAX_EXECUTION_TIME = 30
 
 
 class ViewLinkValidationMixin:
@@ -249,6 +255,7 @@ def _join_match_stats(
             query=stats_query,
             team=team,
             context=HogQLContext(database=database, user=user),
+            settings=HogQLGlobalSettings(max_execution_time=MATCH_RATE_MAX_EXECUTION_TIME),
         )
         total, matched = stats_response.results[0]
         total_rows, matched_rows = int(total), int(matched)
