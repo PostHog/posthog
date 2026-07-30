@@ -90,13 +90,13 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
     is_trusted_partner = False
     partner_app = resolve_pending_partner(partner_id)
     if partner_app is not None:
-        if not partner_app.provisioning_active:
+        if not partner_app.provisioning.active:
             cache.delete(pending_key)
             capture_provisioning_event("authorize", "partner_deactivated")
             return HttpResponseRedirect(f"{settings.SITE_URL}?error=partner_deactivated")
         # Fail closed: a partner-identified pending state missing the flag (e.g. created by an
         # older pod mid-deploy) must still require consent, never silently auto-approve.
-        is_trusted_partner = partner_app.provisioning_skip_existing_user_consent and not pending.get(
+        is_trusted_partner = partner_app.provisioning.skip_existing_user_consent and not pending.get(
             "consent_required", True
         )
 
@@ -193,7 +193,7 @@ class AuthorizeConfirmView(APIView):
 
         confirm_partner_id = pending.get("partner_id", "")
         confirm_partner: OAuthApplication | None = resolve_pending_partner(confirm_partner_id)
-        if confirm_partner is not None and not confirm_partner.provisioning_active:
+        if confirm_partner is not None and not confirm_partner.provisioning.active:
             cache.delete(pending_key)
             capture_provisioning_event("authorize_confirm", "partner_deactivated", partner=confirm_partner)
             return Response({"error": "partner_deactivated"}, status=403)
