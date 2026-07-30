@@ -36,9 +36,6 @@ export function createCreateEventStep<O extends string, T extends CreateEventSte
         const rawEvent = createEvent(preparedEvent, person, processPerson, historicalMigration, capturedAt)
         const eventsToEmit: EventToEmit<O>[] = [{ event: rawEvent, output }]
 
-        // Runs here rather than earlier in the pipeline so the exposure inherits
-        // the fully processed row, including person properties and person mode,
-        // and is emitted through the same produce loop.
         const exposure = applyExperimentExposure(rawEvent, experimentExposureService)
         if (exposure) {
             eventsToEmit.push({ event: exposure, output })

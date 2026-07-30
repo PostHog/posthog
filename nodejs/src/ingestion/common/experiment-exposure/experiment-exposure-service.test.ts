@@ -45,9 +45,6 @@ function service(mode: string, teams = '*', excluded = ''): ExperimentExposureSe
 
 describe('experiment exposure', () => {
     describe('classifyFlagCalledEvent', () => {
-        // The savings case depends entirely on boolean flags being excluded: they are
-        // the majority of flag-called volume, so misclassifying them would duplicate
-        // most of the traffic instead of a slice of it.
         it.each([
             { label: 'boolean true response', response: true, expected: 'not_experiment' },
             { label: 'boolean false response', response: false, expected: 'not_experiment' },
@@ -97,9 +94,6 @@ describe('experiment exposure', () => {
             const exposures = buildExperimentExposuresProperty({
                 '$feature/multivariate-flag': 'control',
                 '$feature/another-flag': 'test',
-                // Boolean flags cannot host an experiment, and they are the bulk of
-                // these properties by volume. Including them would make the map as
-                // large as what it replaces.
                 '$feature/boolean-flag': true,
                 '$feature/off-flag': false,
                 $current_url: 'https://example.com',
@@ -145,9 +139,6 @@ describe('experiment exposure', () => {
             })
         })
 
-        // Kafka delivers at least once, so a replayed batch re-derives the exposure.
-        // A non-deterministic uuid would write a second row for the same exposure on
-        // every redelivery.
         it('derives a stable exposure uuid from the source event uuid', () => {
             const properties = { $feature_flag: 'f', $feature_flag_response: 'control' }
             const first = applyExperimentExposure(processedEvent({ properties: { ...properties } }), service('enabled'))
@@ -192,8 +183,6 @@ describe('experiment exposure', () => {
                 expected: 'disabled',
             },
             { label: 'valid mode is kept', mode: 'enabled', teams: '*', excluded: '', expected: 'enabled' },
-            // The escape hatch has to stop writes, but not the accounting it was never
-            // meant to disable.
             {
                 label: 'excluding every team downgrades writes to metrics',
                 mode: 'enabled',

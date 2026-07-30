@@ -184,17 +184,30 @@ class ExposureQueryBuilder:
             )
         return ast.Constant(value=True)
 
-    def build_variant_property(self) -> ast.Field:
-        """Derive which event property that should be used for variants"""
-
-        # $feature_flag_called events are special as we can use the $feature_flag_response
-        if (
+    def _uses_default_exposure(self) -> bool:
+        return (
             isinstance(self.context.exposure_config, ExperimentEventExposureConfig)
             and self.context.exposure_config.event == "$feature_flag_called"
-        ):
-            return ast.Field(chain=["properties", "$feature_flag_response"])
+        )
 
-        return ast.Field(chain=["properties", f"$feature/{self.context.feature_flag_key}"])
+    def build_variant_property(self) -> ast.Expr:
+        if self._uses_default_exposure():
+            return parse_expr(
+                "if(event = '$experiment_exposure', {new_variant}, {legacy_variant})",
+                placeholders={
+                    "new_variant": ast.Field(chain=["properties", "$experiment_variant"]),
+                    "legacy_variant": ast.Field(chain=["properties", "$feature_flag_response"]),
+                },
+            )
+
+        return parse_expr(
+            "coalesce(nullIf(JSONExtractString({exposures}, {flag_key}), ''), {legacy_variant})",
+            placeholders={
+                "exposures": ast.Field(chain=["properties", "$experiment_exposures"]),
+                "flag_key": ast.Constant(value=self.context.feature_flag_key),
+                "legacy_variant": ast.Field(chain=["properties", f"$feature/{self.context.feature_flag_key}"]),
+            },
+        )
 
     def build_exposure_event_predicate(self) -> ast.Expr:
         """
@@ -208,23 +221,23 @@ class ExposureQueryBuilder:
         """
         event_predicate = event_or_action_to_filter(self.context.team, self.context.exposure_config)
 
-        # $feature_flag_called events are special. We need to check that the property
-        # $feature_flag matches the flag
-        if (
-            isinstance(self.context.exposure_config, ExperimentEventExposureConfig)
-            and self.context.exposure_config.event == "$feature_flag_called"
-        ):
-            flag_property = f"$feature_flag"
+        if self._uses_default_exposure():
+            flag_matches = parse_expr(
+                "{flag_property} = {feature_flag_key}",
+                placeholders={
+                    "flag_property": ast.Field(chain=["properties", "$feature_flag"]),
+                    "feature_flag_key": ast.Constant(value=self.context.feature_flag_key),
+                },
+            )
             event_predicate = ast.And(
                 exprs=[
-                    event_predicate,
-                    parse_expr(
-                        "{flag_property} = {feature_flag_key}",
-                        placeholders={
-                            "flag_property": ast.Field(chain=["properties", flag_property]),
-                            "feature_flag_key": ast.Constant(value=self.context.feature_flag_key),
-                        },
+                    ast.Or(
+                        exprs=[
+                            event_predicate,
+                            parse_expr("event = '$experiment_exposure'"),
+                        ]
                     ),
+                    flag_matches,
                 ]
             )
 

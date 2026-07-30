@@ -72,7 +72,16 @@ export function createPerDistinctIdPipeline<
     builder: StartPipelineBuilder<TInput, TContext>,
     config: PerDistinctIdPipelineConfig
 ): PipelineBuilder<TInput, EmitEventStepOutput, TContext, AsyncOutput> {
-    const { options, outputs, aiSubpipelineFactory, teamManager, groupTypeManager, hogTransformer, topHog } = config
+    const {
+        options,
+        outputs,
+        aiSubpipelineFactory,
+        teamManager,
+        groupTypeManager,
+        experimentExposureService,
+        hogTransformer,
+        topHog,
+    } = config
 
     // Retry is applied per step inside each branch's subpipeline (on the I/O
     // steps that can throw transient errors), rather than around the whole chain.
@@ -94,6 +103,7 @@ export function createPerDistinctIdPipeline<
                     outputs,
                     teamManager,
                     groupTypeManager,
+                    experimentExposureService,
                     hogTransformer,
                     topHog,
                 })

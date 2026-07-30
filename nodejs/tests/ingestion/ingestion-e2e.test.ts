@@ -127,6 +127,72 @@ describe.each([
     )
 
     testWithTeamIngester(
+        'writes experiment exposure events and mappings',
+        {
+            pluginServerConfig: {
+                INGESTION_EXPERIMENT_EXPOSURE_MODE: 'enabled',
+                INGESTION_EXPERIMENT_EXPOSURE_TEAMS: '*',
+            },
+        },
+        async ({ ingester, team, kafkaProducer, token }) => {
+            const distinctId = new UUIDT().toString()
+            const events = [
+                new EventBuilder(team, distinctId)
+                    .withEvent('$feature_flag_called')
+                    .withProperties({
+                        $feature_flag: 'checkout-experiment',
+                        $feature_flag_response: 'test',
+                        '$feature/checkout-experiment': 'test',
+                        '$feature/search-experiment': 'control',
+                        '$feature/boolean-release': true,
+                    })
+                    .build(),
+                new EventBuilder(team, distinctId)
+                    .withEvent('checkout completed')
+                    .withProperties({
+                        '$feature/checkout-experiment': 'test',
+                        '$feature/boolean-release': false,
+                    })
+                    .build(),
+            ]
+
+            await ingester.handleKafkaBatch(createKafkaMessages(events, token))
+            await waitForKafkaMessages(kafkaProducer)
+
+            await waitForExpect(async () => {
+                const ingestedEvents = await fetchEvents(clickhouse, team.id)
+                expect(ingestedEvents).toHaveLength(3)
+
+                const flagCalled = ingestedEvents.find(({ event }) => event === '$feature_flag_called')
+                const exposure = ingestedEvents.find(({ event }) => event === '$experiment_exposure')
+                const customEvent = ingestedEvents.find(({ event }) => event === 'checkout completed')
+
+                expect(flagCalled?.properties.$experiment_exposures).toEqual({
+                    'checkout-experiment': 'test',
+                    'search-experiment': 'control',
+                })
+                expect(exposure?.properties).toEqual(
+                    expect.objectContaining({
+                        $experiment_variant: 'test',
+                        $feature_flag: 'checkout-experiment',
+                        $experiment_exposures: {
+                            'checkout-experiment': 'test',
+                            'search-experiment': 'control',
+                        },
+                    })
+                )
+                expect(customEvent?.properties).toEqual(
+                    expect.objectContaining({
+                        '$feature/checkout-experiment': 'test',
+                        '$feature/boolean-release': false,
+                        $experiment_exposures: { 'checkout-experiment': 'test' },
+                    })
+                )
+            })
+        }
+    )
+
+    testWithTeamIngester(
         'can set and update group properties with $groupidentify events',
         {},
         async ({ ingester, infra, team, kafkaProducer, token }) => {

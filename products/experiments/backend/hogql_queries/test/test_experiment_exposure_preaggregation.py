@@ -61,6 +61,18 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             },
         )
 
+    def _create_dedicated_exposure_event(self, distinct_id, feature_flag, variant, timestamp):
+        _create_event(
+            team=self.team,
+            event="$experiment_exposure",
+            distinct_id=distinct_id,
+            timestamp=timestamp,
+            properties={
+                "$experiment_variant": variant,
+                "$feature_flag": feature_flag.key,
+            },
+        )
+
     def _run_experiment(self, experiment, metric) -> ExperimentQueryResponse:
         query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
         runner = ExperimentQueryRunner(query=query, team=self.team)
@@ -177,6 +189,42 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         assert direct_result.baseline.number_of_samples == 5
         assert direct_result.variant_results is not None
         assert direct_result.variant_results[0].number_of_samples == 7
+
+    def test_reads_legacy_and_dedicated_exposure_events_without_double_counting(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 5),
+        )
+        metric = ExperimentMeanMetric(source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL))
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+        timestamp = datetime(2024, 1, 2, 12, 0, 0, tzinfo=UTC)
+
+        for distinct_id, variant, source in [
+            ("legacy-control", "control", "legacy"),
+            ("dedicated-test", "test", "dedicated"),
+            ("dual-written-test", "test", "both"),
+        ]:
+            _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
+            if source in {"legacy", "both"}:
+                self._create_exposure_event(distinct_id, feature_flag, variant, timestamp)
+            if source in {"dedicated", "both"}:
+                self._create_dedicated_exposure_event(distinct_id, feature_flag, variant, timestamp)
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=distinct_id,
+                timestamp=datetime(2024, 1, 2, 13, 0, 0, tzinfo=UTC),
+            )
+
+        result = self._run_experiment(experiment, metric)
+
+        assert result.baseline is not None
+        assert result.baseline.number_of_samples == 1
+        assert result.variant_results is not None
+        assert result.variant_results[0].number_of_samples == 2
 
     def test_frozen_band_jobs_capped_at_max_window_days(self):
         feature_flag = self.create_feature_flag(key="window-cap-test")
