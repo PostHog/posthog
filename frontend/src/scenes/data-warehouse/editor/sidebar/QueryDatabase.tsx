@@ -20,6 +20,7 @@ import {
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconTextSize } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -131,6 +132,7 @@ export const QueryDatabase = ({
         openUnsavedQuery,
         deleteUnsavedQuery,
         setTreeConnectionScope,
+        clearTreeConnectionScope,
     } = useActions(queryDatabaseLogic)
     const {
         createDataWarehouseSavedQueryFolder,
@@ -157,6 +159,9 @@ export const QueryDatabase = ({
     useEffect(() => {
         setTreeConnectionScope(selectedConnectionId ?? null)
     }, [selectedConnectionId, setTreeConnectionScope])
+    // Withdraw the report once this tree goes away, so a closed editor's connection doesn't keep
+    // scoping the logic — it outlives us.
+    useOnMountEffect(() => () => clearTreeConnectionScope())
     // Project-wide warehouse write actions (Add join, Materialization) — gated at the
     // resource level regardless of per-object creator bypass. Per-object actions like
     // Edit view use the view's own user_access_level inline below.

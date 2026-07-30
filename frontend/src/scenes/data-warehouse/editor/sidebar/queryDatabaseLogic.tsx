@@ -1521,6 +1521,9 @@ export interface queryDatabaseLogicActions {
     clearSearch: () => {
         value: true
     }
+    clearTreeConnectionScope: () => {
+        value: true
+    }
     deleteUnsavedQuery: (record: Record<string, any>) => {
         record: Record<string, any>
     }
@@ -1819,6 +1822,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         openUnsavedQuery: (record: Record<string, any>) => ({ record }),
         deleteUnsavedQuery: (record: Record<string, any>) => ({ record }),
         setTreeConnectionScope: (connectionId: string | null) => ({ connectionId }),
+        clearTreeConnectionScope: true,
     }),
     connect(() => ({
         values: [
@@ -1890,6 +1894,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             null as TreeConnectionScope | null,
             {
                 setTreeConnectionScope: (_, { connectionId }) => ({ connectionId }),
+                clearTreeConnectionScope: () => null,
             },
         ],
         expandedFoldersByConnection: [

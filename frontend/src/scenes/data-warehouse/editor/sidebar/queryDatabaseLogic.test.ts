@@ -229,6 +229,14 @@ describe('queryDatabaseLogic', () => {
             expect(hasTopLevelViewsSection()).toEqual(true)
         })
 
+        it('falls back to the shared catalog once the reporting tree unmounts', () => {
+            databaseTableListLogic.findMounted()?.actions.setConnection('postgres-connection')
+            logic.actions.setTreeConnectionScope(null)
+            logic.actions.clearTreeConnectionScope()
+
+            expect(logic.values.treeConnectionId).toEqual('postgres-connection')
+        })
+
         it('hides saved views for the editor that is querying a direct connection', () => {
             logic.actions.setTreeConnectionScope('postgres-connection')
 
