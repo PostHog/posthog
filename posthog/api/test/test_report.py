@@ -9,6 +9,8 @@ from parameterized import parameterized
 from rest_framework import status
 from structlog.testing import capture_logs
 
+from posthog.api.csp import CSP_REPORT_REJECTED
+
 SINGLE_VIOLATION_REPORT_URI = {
     "csp-report": {
         "document-uri": "https://example.com/foo/bar",
@@ -22,6 +24,11 @@ SINGLE_VIOLATION_REPORT_TO = {
         "documentURL": "https://example.com/foo/bar",
         "effectiveDirective": "script-src",
     },
+}
+
+NON_VIOLATION_REPORT = {
+    "type": "deprecation",
+    "body": {"id": "some-deprecated-api"},
 }
 
 
@@ -44,28 +51,36 @@ class TestCspReport(BaseTest):
                 "application/reports+json",
                 [SINGLE_VIOLATION_REPORT_TO] * 3,
                 {"CSP_REPORT_MAX_REPORTS": 2},
+                "too_many_reports",
             ),
             (
                 "report_to_over_body_cap",
                 "application/reports+json",
                 [SINGLE_VIOLATION_REPORT_TO] * 3,
                 {"CSP_REPORT_MAX_BODY_BYTES": 64},
+                "body_too_large",
             ),
             (
                 "report_uri_over_body_cap",
                 "application/csp-report",
                 SINGLE_VIOLATION_REPORT_URI,
                 {"CSP_REPORT_MAX_BODY_BYTES": 64},
+                "body_too_large",
             ),
             (
                 "report_to_over_count_cap_buffered",
                 "application/reports+json",
                 [SINGLE_VIOLATION_REPORT_TO] * 3,
                 {"CSP_REPORT_MAX_REPORTS": 2, "CSP_REPORT_BUFFERED_FORWARD": True},
+                "too_many_reports",
             ),
         ]
     )
-    def test_oversized_csp_report_is_rejected_before_expansion(self, _name, content_type, payload, overrides):
+    def test_oversized_csp_report_is_rejected_before_expansion(
+        self, _name, content_type, payload, overrides, expected_reason
+    ):
+        rejected_before = CSP_REPORT_REJECTED.labels(reason=expected_reason)._value.get()
+
         with (
             self.settings(**overrides),
             patch("posthog.api.report.capture_batch_internal") as mock_batch_capture,
@@ -85,6 +100,27 @@ class TestCspReport(BaseTest):
         mock_batch_capture.assert_not_called()
         mock_capture.assert_not_called()
         mock_buffer.enqueue.assert_not_called()
+        assert CSP_REPORT_REJECTED.labels(reason=expected_reason)._value.get() - rejected_before == 1
+
+    @patch("posthog.api.report.capture_batch_internal")
+    def test_mixed_report_types_not_rejected_by_violation_count_cap(self, mock_batch_capture):
+        # A reports+json bundle can legitimately carry non-CSP report types (deprecation,
+        # intervention, ...) alongside csp-violation entries; the count cap must bound the
+        # number of violations that become events, not the raw bundle length.
+        mock_batch_capture.return_value = MagicMock(raise_for_status=MagicMock())
+
+        bundle = [SINGLE_VIOLATION_REPORT_TO, NON_VIOLATION_REPORT, NON_VIOLATION_REPORT]
+
+        with self.settings(CSP_REPORT_MAX_REPORTS=1):
+            response = self.client.post(
+                f"/report/?token={self.team.api_token}",
+                data=json.dumps(bundle),
+                content_type="application/reports+json",
+            )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        mock_batch_capture.assert_called_once()
+        assert len(mock_batch_capture.call_args.kwargs["events"]) == 1
 
     def test_csp_report_never_logs_request_headers(self):
         with capture_logs() as logs, patch("posthog.api.report.capture_internal") as mock_capture:

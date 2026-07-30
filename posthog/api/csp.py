@@ -7,6 +7,7 @@ from django.http import HttpResponse
 from django.utils.html import escape
 
 import structlog
+from prometheus_client import Counter
 from rest_framework import status
 
 from posthog.exceptions import generate_exception_response
@@ -15,6 +16,12 @@ from posthog.sampling import sample_on_property
 from posthog.utils_cors import cors_response
 
 logger = structlog.get_logger(__name__)
+
+CSP_REPORT_REJECTED = Counter(
+    "csp_report_rejected",
+    "CSP reports rejected before processing, by reason.",
+    labelnames=["reason"],
+)
 
 CSP_REPORT_TYPES_MAPPING_TABLE = """
 | Normalized Key             | report-to format                     | report-uri format                  |
@@ -170,13 +177,19 @@ def process_csp_report(request):
 
         body_size = len(request.body)
         if body_size > settings.CSP_REPORT_MAX_BODY_BYTES:
+            CSP_REPORT_REJECTED.labels(reason="body_too_large").inc()
             raise CSPReportTooLarge(f"CSP report body of {body_size} bytes exceeds the limit")
 
         csp_data = json.loads(request.body)
 
-        # Each element becomes its own event, so bound the count before any per-element work runs.
-        if isinstance(csp_data, list) and len(csp_data) > settings.CSP_REPORT_MAX_REPORTS:
-            raise CSPReportTooLarge(f"CSP report bundle of {len(csp_data)} reports exceeds the limit")
+        # A reports+json bundle can carry other Reporting API types (deprecation, intervention, ...)
+        # alongside csp-violation entries; only the latter become events, so bound on that count
+        # rather than the raw bundle length to avoid rejecting legitimate mixed-type batches.
+        if isinstance(csp_data, list):
+            violation_count = sum(1 for item in csp_data if is_csp_violation(item))
+            if violation_count > settings.CSP_REPORT_MAX_REPORTS:
+                CSP_REPORT_REJECTED.labels(reason="too_many_reports").inc()
+                raise CSPReportTooLarge(f"CSP report bundle of {violation_count} violations exceeds the limit")
 
         distinct_id = request.GET.get("distinct_id") or str(uuid7())
         session_id = request.GET.get("session_id") or str(uuid7())
