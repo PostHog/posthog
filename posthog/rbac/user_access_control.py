@@ -93,6 +93,10 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "llm_playground",
 )
 
+# Resources whose access comes from membership rather than resource-level AccessControl rows,
+# so nothing sits above an object of this type to fall back to
+RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS: frozenset[APIScopeObject] = frozenset({"organization", "project", "plugin"})
+
 # Resource inheritance mapping - child resources inherit access from parent resources
 RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "session_recording_playlist": "session_recording",
@@ -911,8 +915,7 @@ class UserAccessControl:
             # Use parent resource for access control checks
             return self.access_level_for_resource(parent_resource)
 
-        # These are resources which we don't have resource level access controls for
-        if resource == "organization" or resource == "project" or resource == "plugin":
+        if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
             return default_access_level(resource)
 
         org_membership = self._organization_membership

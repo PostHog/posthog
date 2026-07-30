@@ -5887,8 +5887,9 @@ export type AccessControlResponseType = {
     user_can_edit_access_levels: boolean
     /** Resource whose project-wide rules apply while the object carries no override of its own. */
     inherited_resource?: APIScopeObject | null
-    /** The project-wide rules for `inherited_resource`. */
-    inherited_access_controls?: AccessControlType[]
+    /** The level that applies while the object carries no override: the project-wide rule for
+     * `inherited_resource`, or its built-in default when no rule is set. */
+    inherited_access_level?: AccessControlLevel | null
 }
 
 export type InheritedAccessLevelReason = 'project_default' | 'role_override' | 'organization_admin'

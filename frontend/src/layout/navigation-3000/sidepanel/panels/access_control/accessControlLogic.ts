@@ -35,8 +35,7 @@ export type AccessControlLogicProps = {
 
 /** The access level that applies while a rule carries no override, and where it comes from. */
 export type InheritedAccess = {
-    level: AccessControlLevel
-    /** The level as shown to a user, e.g. "No access" rather than "none". */
+    /** The inherited level as shown to a user, e.g. "No access" rather than "none". */
     label: string
     /** One line naming the rule the level comes from, shown in the tooltip and the menu entry. */
     reason: string
@@ -1299,16 +1298,12 @@ export const accessControlLogic = kea<accessControlLogicType>([
             (s) => [s.accessControls],
             (accessControls: AccessControlResponseType | null): InheritedAccess | null => {
                 const inheritedResource = accessControls?.inherited_resource
-                if (!accessControls || !inheritedResource) {
+                const inheritedLevel = accessControls?.inherited_access_level
+                if (!inheritedResource || !inheritedLevel) {
                     return null
                 }
-                const everyone = (accessControls.inherited_access_controls ?? []).find(
-                    (accessControl) => !accessControl.organization_member && !accessControl.role
-                )
-                const level = everyone?.access_level ?? accessControls.default_access_level
                 return {
-                    level,
-                    label: humanizeAccessControlLevel(level),
+                    label: humanizeAccessControlLevel(inheritedLevel),
                     // A configured project rule and the built-in fallback are both "the default
                     // for <resource>", so one reason covers them without claiming someone set it
                     reason: `Based on the default for ${pluralizeResource(inheritedResource)}`,

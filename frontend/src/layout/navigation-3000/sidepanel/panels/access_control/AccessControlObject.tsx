@@ -95,13 +95,14 @@ function AccessControlObjectDefaults(): JSX.Element | null {
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     if (!accessControls) {
-        // Until the controls land, a null value would render as a misleading "No override"
+        // A null level is a real state ("No override") for this select, so it can't double as
+        // the loading state the way it does elsewhere — loading needs its own placeholder
         return <LemonSelect placeholder="Loading..." disabledReason="Loading…" options={[]} />
     }
 
     return (
         <SimplLevelComponent
-            level={(accessControlDefault?.access_level as AccessControlLevel | null) ?? null}
+            level={accessControlDefault?.access_level ?? null}
             levels={availableLevelsWithNone}
             inherited={inheritedAccess}
             disabledReason={accessControlsLoading ? 'Loading…' : undefined}
@@ -414,7 +415,7 @@ function SimplLevelComponent(props: {
             size={props.size}
             placeholder="Select level..."
             value={props.level}
-            onChange={(newValue) => props.onChange(newValue)}
+            onChange={props.onChange}
             // The permission gate wins over any caller-supplied reason, so a reason passed for
             // some other purpose can never re-enable the control for someone who cannot edit
             disabledReason={!canEditAccessControls || props.disabled ? 'You cannot edit this' : props.disabledReason}
@@ -426,8 +427,8 @@ function SimplLevelComponent(props: {
                         : `Overrides ${inherited.label}. ${inherited.reason}.`
                     : undefined
             }
-            renderButtonContent={(leaf) =>
-                noOverrideLabel && props.level === null ? noOverrideLabel : (leaf?.label ?? '')
+            renderButtonContent={
+                noOverrideLabel ? (leaf) => (props.level === null ? noOverrideLabel : (leaf?.label ?? '')) : undefined
             }
             options={
                 inherited
