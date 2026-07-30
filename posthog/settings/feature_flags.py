@@ -107,15 +107,17 @@ MAX_FEATURE_FLAG_FILTER_SIZE_BYTES: int = get_from_env(
 )
 
 # Staged rollout switch for feature flag filters validation (#50084). When off (the
-# production default for now), structural and cross-field filters validation on the flag
+# production default for now), the new structural and cross-field filter tiers on the flag
 # API log violations (`feature_flag_filters_enforcement_bypassed`) instead of rejecting
-# them; contextual checks (cohort existence, circular dependencies, size limits) still
-# reject. Rollout: ship with the default off, compare the bypass-log volume against the
-# audit's per-rule predictions for a few days of live traffic (the audit measured stored
-# data, never request-shaped input), then enable via env var and eventually remove the
-# switch. Note log-only mode is LESS validation than before enforcement shipped — the
-# procedural checks it replaced are gone — so don't linger in it. Defaults on under TEST
-# so the suite validates the enforced behavior.
+# them. Not gated by this switch: the pre-enforcement type/bounds checks
+# (_reject_serde_unsafe_filters — the cache-poisoning class) and contextual checks (cohort
+# existence, circular dependencies, size limits) always reject, so off means exactly the
+# protection that predated enforcement, plus observation logging. Rollout: ship with the
+# default off, compare the bypass-log volume against the audit's per-rule predictions for
+# a few days of live traffic (the audit measured stored data, never request-shaped input),
+# then enable via env var. The follow-up flip PR removes this switch and the now-redundant
+# _reject_serde_unsafe_filters. Defaults on under TEST so the suite validates the enforced
+# behavior.
 FEATURE_FLAG_FILTERS_ENFORCEMENT: bool = get_from_env("FEATURE_FLAG_FILTERS_ENFORCEMENT", TEST, type_cast=str_to_bool)
 
 # Team ID for the local-evaluation canary. Unset disables the canary task.

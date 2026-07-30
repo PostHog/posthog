@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import copy
 import json
+import math
 import logging
 import functools
 from collections.abc import Iterator
@@ -775,6 +776,99 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
         return ret
 
 
+def _reject_serde_unsafe_filters(filters: dict[str, Any]) -> None:
+    """Unconditional serde-fidelity guard on incoming filters, active regardless of the
+    FEATURE_FLAG_FILTERS_ENFORCEMENT switch.
+
+    These are the pre-#50084 procedural type/bounds checks: values that fail serde in the
+    Rust flag service and poison the team's flag cache. While the enforcement switch is off,
+    the structural tier only logs, so this keeps the poisoning class rejected exactly as it
+    was before enforcement shipped. With the switch on, the structural tier rejects all of
+    this first and these never fire. DELETE together with the switch in the follow-up PR
+    that defaults enforcement on.
+    """
+
+    def _validate_rollout_percentage(value: Any, path: str, *, allow_null: bool = True) -> None:
+        if value is None:
+            if not allow_null:
+                raise serializers.ValidationError(f"{path} must be a number, got null")
+            return
+        # Check bool before int/float because bool is a subclass of int
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            expected = "a number or null" if allow_null else "a number"
+            raise serializers.ValidationError(f"{path} must be {expected}, got {type(value).__name__}")
+        if not math.isfinite(value):
+            raise serializers.ValidationError(f"{path} must be finite, got {value}")
+        if value < 0 or value > 100:
+            raise serializers.ValidationError(f"{path} must be between 0 and 100, got {value}")
+
+    def _validate_integer(value: Any, path: str) -> None:
+        # Check bool before int because bool is a subclass of int
+        if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
+            raise serializers.ValidationError(f"{path} must be an integer or null, got {type(value).__name__}")
+
+    _validate_integer(filters.get("aggregation_group_type_index"), "aggregation_group_type_index")
+
+    early_exit = filters.get("early_exit")
+    if early_exit is not None and not isinstance(early_exit, bool):
+        raise serializers.ValidationError(f"early_exit must be a boolean or null, got {type(early_exit).__name__}")
+
+    groups = filters.get("groups", [])
+    if not isinstance(groups, list):
+        raise serializers.ValidationError(f"groups must be a list, got {type(groups).__name__}")
+    for group_index, group in enumerate(groups):
+        if not isinstance(group, dict):
+            raise serializers.ValidationError(f"groups[{group_index}] must be a dictionary, got {type(group).__name__}")
+        variant = group.get("variant")
+        if variant is not None and not isinstance(variant, str):
+            raise serializers.ValidationError(
+                f"groups[{group_index}].variant must be a string or null, got {type(variant).__name__}"
+            )
+        _validate_rollout_percentage(group.get("rollout_percentage"), f"groups[{group_index}].rollout_percentage")
+        _validate_integer(
+            group.get("aggregation_group_type_index"), f"groups[{group_index}].aggregation_group_type_index"
+        )
+
+        properties = group.get("properties") or []
+        if not isinstance(properties, list):
+            raise serializers.ValidationError(
+                f"groups[{group_index}].properties must be a list, got {type(properties).__name__}"
+            )
+        for prop_index, prop in enumerate(properties):
+            if not isinstance(prop, dict):
+                raise serializers.ValidationError(
+                    f"groups[{group_index}].properties[{prop_index}] must be a dictionary, got {type(prop).__name__}"
+                )
+            _validate_integer(
+                prop.get("group_type_index"), f"groups[{group_index}].properties[{prop_index}].group_type_index"
+            )
+
+    multivariate = filters.get("multivariate")
+    if multivariate is not None and not isinstance(multivariate, dict):
+        raise serializers.ValidationError(
+            f"multivariate must be a dictionary or null, got {type(multivariate).__name__}"
+        )
+    variants = (multivariate or {}).get("variants") or []
+    if not isinstance(variants, list):
+        raise serializers.ValidationError(f"multivariate.variants must be a list, got {type(variants).__name__}")
+    for var_index, variant_item in enumerate(variants):
+        if not isinstance(variant_item, dict):
+            raise serializers.ValidationError(
+                f"multivariate.variants[{var_index}] must be a dictionary, got {type(variant_item).__name__}"
+            )
+        _validate_rollout_percentage(
+            variant_item.get("rollout_percentage"),
+            f"multivariate.variants[{var_index}].rollout_percentage",
+            allow_null=False,
+        )
+
+    # Explicit null is allowed (Rust reads payloads as an Option) even though the old check
+    # rejected it — the structural tier owns that looser, serde-faithful contract.
+    payloads = filters.get("payloads")
+    if payloads is not None and not isinstance(payloads, dict):
+        raise serializers.ValidationError("Payloads must be passed as a dictionary")
+
+
 def _iter_flag_filter_properties(groups: Any) -> Iterator[tuple[int, int, dict[str, Any]]]:
     """Yield (group_index, property_index, property) over well-formed group/property dicts.
 
@@ -1284,6 +1378,10 @@ class FeatureFlagSerializer(
         # (types trusted, operator aliases canonical, payload values JSON-encoded strings),
         # unless the enforcement kill switch is off, in which case it can be any raw dict.
         enforcement: bool = settings.FEATURE_FLAG_FILTERS_ENFORCEMENT
+
+        # Cache-poisoning inputs are rejected regardless of the switch — log-only mode must
+        # never accept what the pre-enforcement validator rejected.
+        _reject_serde_unsafe_filters(filters)
 
         # Updates validate and store the merged final state (#50084): incoming top-level keys
         # replace stored ones atomically, so `filters: {}` is a validated no-op and

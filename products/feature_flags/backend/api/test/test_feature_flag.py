@@ -8564,16 +8564,35 @@ class TestFeatureFlagFiltersEnforcement(APIBaseTest):
         self.assertEqual(filters_edit.json()["attr"], "filters")
 
     @override_settings(FEATURE_FLAG_FILTERS_ENFORCEMENT=False)
-    def test_kill_switch_logs_instead_of_rejecting(self):
-        response = self.client.post(
+    def test_kill_switch_logs_new_rules_but_still_rejects_serde_unsafe_input(self):
+        # Log-only mode accepts what only the NEW tiers reject — the variant key charset
+        # rule was never enforced before, so it must not 400 during the bake.
+        new_rule_only = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
-            {"key": "bypassed-flag", "filters": {"groups": [{"properties": [], "rollout_percentage": "50"}]}},
+            {
+                "key": "bypassed-flag",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None}],
+                    "multivariate": {"variants": [{"key": "foo bar", "rollout_percentage": 100}]},
+                },
+            },
             format="json",
         )
+        self.assertEqual(new_rule_only.status_code, status.HTTP_201_CREATED, new_rule_only.json())
+        flag = FeatureFlag.objects.get(id=new_rule_only.json()["id"])
+        self.assertEqual(flag.filters["multivariate"]["variants"][0]["key"], "foo bar")
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        flag = FeatureFlag.objects.get(id=response.json()["id"])
-        self.assertEqual(flag.filters["groups"][0]["rollout_percentage"], "50")
+        # But the pre-enforcement type/bounds checks stay active: cache-poisoning input is
+        # rejected exactly as before enforcement shipped, switch or no switch.
+        serde_unsafe = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "poison-flag", "filters": {"groups": [{"properties": [], "rollout_percentage": "50"}]}},
+            format="json",
+        )
+        self.assertEqual(serde_unsafe.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            serde_unsafe.json()["detail"], "groups[0].rollout_percentage must be a number or null, got str"
+        )
 
     def test_display_passthrough_fields_round_trip(self):
         filters = {
