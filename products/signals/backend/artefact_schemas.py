@@ -181,6 +181,13 @@ class RelevantCommit(BaseModel):
     url: str
 
 
+# Ceiling for pipeline-authored reviewer lists: both the deterministic ranking in
+# `report_generation/resolve_reviewers.py` and the research agent's reviewers-turn proposal
+# truncate to this. Lives here (not in resolve_reviewers) so the dependency-light research
+# module can reference it without importing the Django-model-heavy resolver.
+MAX_SUGGESTED_REVIEWERS = 3
+
+
 class SuggestedReviewerEntry(BaseModel):
     """One reviewer in a `suggested_reviewers` artefact's content list."""
 

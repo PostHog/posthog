@@ -15,6 +15,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user_integration import UserIntegration
 from posthog.sync import database_sync_to_async
 
+from products.signals.backend.auto_start import ReviewerContent
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
@@ -24,17 +25,23 @@ from products.signals.backend.report_generation.research import (
     Priority,
     PriorityAssessment,
     PriorityUpdate,
+    ProposedReviewer,
+    ReportPresentationOutput,
     ReportResearchOutput,
     SignalFinding,
+    SuggestedReviewersProposal,
     _resolve_actionability_response,
     _resolve_priority_response,
     run_multi_turn_research,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.reviewer_corrections import ReviewerCorrection
 from products.signals.backend.temporal.agentic.report import (
     RunAgenticReportInput,
     _parse_artefact_content,
     _parse_stored_charts,
+    _resolve_reviewers_content,
+    _reviewers_from_proposals,
     run_agentic_report_activity,
 )
 from products.signals.backend.temporal.agentic.select_repository import (
@@ -642,3 +649,199 @@ def test_resolve_priority_response(response, previous, expected_explanation, exp
     result, is_new = _resolve_priority_response(response, previous)
     assert is_new is expected_is_new
     assert result.explanation == expected_explanation
+
+
+def _ranked_reviewer_content(login: str = "alice", name: str | None = "Alice") -> ReviewerContent:
+    return ReviewerContent(
+        github_login=login,
+        github_name=name,
+        relevant_commits=[{"sha": "abc1234", "url": "https://github.com/x/y/commit/abc1234", "reason": "authored it"}],
+        reason=None,
+        is_skill_owner=False,
+    )
+
+
+def _correction(after: list[str], before: list[str] | None = None) -> ReviewerCorrection:
+    return ReviewerCorrection(
+        report_id="corrected-report-1",
+        report_title="fix(signals): a similar report",
+        before=before or [],
+        after=after,
+        at="2026-07-01T00:00:00+00:00",
+    )
+
+
+def test_reviewers_from_proposals_keeps_only_evidence_backed_logins():
+    # The whole point of validation: an agent-proposed login persists only when the ranking, org
+    # membership, or a human correction backs it — a hallucinated login must never route a report.
+    proposals = [
+        ProposedReviewer(github_login="@Alice", reason="authored the causative commit"),
+        ProposedReviewer(github_login="carol", reason="human correction on a similar report"),
+        ProposedReviewer(github_login="dana", reason="owns the affected surface"),
+        ProposedReviewer(github_login="mallory", reason="sounds plausible"),
+    ]
+    member = Mock(first_name="Dana", last_name="Doe")
+    with patch(
+        "products.signals.backend.temporal.agentic.report.get_org_member_github_login_to_user_map",
+        return_value={"dana": member},
+    ):
+        result = _reviewers_from_proposals(
+            team_id=1,
+            proposals=proposals,
+            deterministic=[_ranked_reviewer_content("alice")],
+            corrections=[_correction(after=["carol"])],
+        )
+
+    assert [reviewer["github_login"] for reviewer in result] == ["alice", "carol", "dana"]
+    # A pick the ranking agrees with keeps its commit evidence and resolved name.
+    assert result[0]["relevant_commits"][0]["sha"] == "abc1234"
+    assert result[0]["github_name"] == "Alice"
+    assert result[0]["reason"] == "authored the causative commit"
+    # A correction-backed pick has no commit trail but keeps the agent's reason.
+    assert result[1]["relevant_commits"] == []
+    # An org-member pick resolves its display name from the member record.
+    assert result[2]["github_name"] == "Dana Doe"
+
+
+def test_reviewers_from_proposals_dedupes_and_caps():
+    logins = ["alice", "alice", "bob", "carol", "dave"]
+    proposals = [ProposedReviewer(github_login=login, reason="correction precedent") for login in logins]
+    with patch(
+        "products.signals.backend.temporal.agentic.report.get_org_member_github_login_to_user_map",
+        return_value={},
+    ):
+        result = _reviewers_from_proposals(
+            team_id=1,
+            proposals=proposals,
+            deterministic=[],
+            corrections=[_correction(after=["alice", "bob", "carol", "dave"])],
+        )
+    assert [reviewer["github_login"] for reviewer in result] == ["alice", "bob", "carol"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("proposal_logins", "expected_logins", "expected_from_agent"),
+    [
+        # A validated agent pick wins over the deterministic ranking.
+        (["carol"], ["carol"], True),
+        # An all-invalid proposal falls back to the deterministic ranking.
+        (["mallory"], ["alice"], False),
+        # No proposal at all (turn disabled or failed) also falls back.
+        ([], ["alice"], False),
+    ],
+)
+async def test_resolve_reviewers_content_falls_back_to_deterministic(
+    proposal_logins, expected_logins, expected_from_agent
+):
+    result = _build_research_output().model_copy(
+        update={
+            "suggested_reviewers": [
+                ProposedReviewer(github_login=login, reason="correction precedent") for login in proposal_logins
+            ]
+        }
+    )
+    with patch(
+        "products.signals.backend.temporal.agentic.report.get_org_member_github_login_to_user_map",
+        return_value={},
+    ):
+        reviewers, from_agent = await _resolve_reviewers_content(
+            1,
+            "posthog/posthog",
+            result,
+            [_ranked_reviewer_content("alice")],
+            [_correction(after=["carol"])],
+        )
+    assert [reviewer["github_login"] for reviewer in reviewers] == expected_logins
+    assert from_agent is expected_from_agent
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_run_agentic_report_activity_persists_agent_reviewers_without_new_findings(monkeypatch, ateam):
+    # On a re-research where every finding was confirmed unchanged, deterministic reviewers are not
+    # re-persisted — but agent-decided reviewers must be, since correction precedent can change the
+    # right routing between runs. Regression guard for the `has_new_finding or reviewers_from_agent`
+    # persistence gate.
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=SignalReport.Status.IN_PROGRESS, signal_count=2, total_weight=1.3
+    )
+    base = _build_research_output()
+    output = base.model_copy(
+        update={
+            "new_artefacts": [],
+            "old_artefacts": base.new_artefacts,
+            "suggested_reviewers": [
+                ProposedReviewer(github_login="carol", reason="human correction on a similar report")
+            ],
+        }
+    )
+
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report._team_agentic_reviewers_enabled",
+        lambda team_id: True,
+    )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.recent_reviewer_corrections",
+        lambda team_id: [_correction(after=["carol"])],
+    )
+
+    await _run_activity_with_output(monkeypatch, ateam, report, output)
+
+    artefacts = await database_sync_to_async(
+        lambda: list(
+            SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+            )
+        )
+    )()
+    assert len(artefacts) == 1
+    stored = json.loads(artefacts[0].content)
+    assert [entry["github_login"] for entry in stored] == ["carol"]
+    assert stored[0]["reason"] == "human correction on a similar report"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("reviewers_turn_result", "expected_logins"),
+    [
+        # A successful turn lands the proposal on the research output.
+        (
+            SuggestedReviewersProposal(
+                suggested_reviewers=[ProposedReviewer(github_login="alice", reason="authored it")]
+            ),
+            ["alice"],
+        ),
+        # A failed turn is swallowed: the run still completes with an empty proposal (the caller
+        # then falls back to deterministic reviewers) instead of losing the whole research output.
+        (RuntimeError("reviewers turn timed out"), []),
+    ],
+)
+async def test_run_multi_turn_research_reviewers_turn(reviewers_turn_result, expected_logins):
+    signals = _build_signals()
+
+    session = Mock()
+    session.task = Mock(id="task-1")
+    session.end = AsyncMock()
+    session.send_followup = AsyncMock(
+        side_effect=[
+            SignalFinding(signal_id="sig-2", relevant_code_paths=[], data_queried="", verified=True),
+            ActionabilityAssessment(
+                explanation="clear", actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE, already_addressed=False
+            ),
+            PriorityAssessment(explanation="core flow", priority=Priority.P1),
+            reviewers_turn_result,
+            ReportPresentationOutput(title="Report title", summary="Report summary"),
+        ]
+    )
+    first_finding = SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True)
+
+    with patch(
+        "products.tasks.backend.facade.agents.MultiTurnSession.start",
+        AsyncMock(return_value=(session, first_finding)),
+    ):
+        result = await run_multi_turn_research(signals, Mock(), suggest_reviewers=True)
+
+    assert result.title == "Report title"
+    assert [reviewer.github_login for reviewer in result.suggested_reviewers] == expected_logins
+    session.end.assert_awaited_once_with()

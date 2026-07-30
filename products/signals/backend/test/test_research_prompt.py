@@ -4,12 +4,15 @@ import pytest
 
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
+    ReviewerCandidate,
     SignalFinding,
     _render_signal_for_research,
     build_initial_research_prompt,
     build_report_presentation_prompt,
+    build_reviewer_suggestion_prompt,
     build_signal_investigation_prompt,
 )
+from products.signals.backend.reviewer_corrections import ReviewerCorrection
 from products.signals.backend.temporal.types import SignalData
 
 
@@ -174,3 +177,33 @@ class TestBuildReportPresentationPrompt:
         assert "Charts this report already shows" in on
         assert "signups-drop" in on
         assert "Charts this report already shows" not in off
+
+
+class TestReviewerSuggestionPrompt:
+    def test_renders_candidates_and_corrections(self):
+        # Wiring guard: corrections fetched by the caller must actually reach the prompt —
+        # a rendering drop would leave the precedent feature silently inert.
+        prompt = build_reviewer_suggestion_prompt(
+            2,
+            candidates=[ReviewerCandidate(github_login="alice", github_name="Alice", evidence=["authored it"])],
+            corrections=[
+                ReviewerCorrection(
+                    report_id="r-1",
+                    report_title="fix(signals): a similar report",
+                    before=["bob"],
+                    after=["carol"],
+                    at="2026-07-01T00:00:00+00:00",
+                )
+            ],
+        )
+
+        assert '"github_login": "alice"' in prompt
+        assert "## Recent human corrections to report reviewers" in prompt
+        assert '"carol"' in prompt
+        assert "suggested_reviewers" in prompt  # response schema present
+
+    def test_omits_corrections_section_and_flags_missing_candidates(self):
+        prompt = build_reviewer_suggestion_prompt(1, candidates=[], corrections=[])
+
+        assert "## Recent human corrections" not in prompt
+        assert "produced no candidates" in prompt

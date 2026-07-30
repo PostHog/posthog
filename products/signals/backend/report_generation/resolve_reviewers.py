@@ -23,6 +23,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
+from products.signals.backend.artefact_schemas import MAX_SUGGESTED_REVIEWERS, SignalFinding
 from products.signals.backend.contracts import RelevantCommit
 from products.signals.backend.report_generation.repo_activity import (
     ACTIVITY_WINDOW_DAYS,
@@ -38,7 +39,6 @@ from ..models import SignalReportArtefact
 
 logger = logging.getLogger(__name__)
 
-MAX_SUGGESTED_REVIEWERS = 3
 MAX_COMMIT_LOOKUPS = 15
 
 RECENCY_FULL_WEIGHT_DAYS = 30
@@ -126,6 +126,20 @@ def normalized_github_logins_from_reviewer_payloads(rows: Iterable[object]) -> f
         if s:
             logins.add(s)
     return frozenset(logins)
+
+
+def commit_hashes_from_findings(findings: Iterable[SignalFinding]) -> dict[str, str]:
+    """Deduplicate relevant commit SHAs across findings, keeping the first reason seen per SHA.
+
+    The shared input shape for `resolve_suggested_reviewers`: research findings each carry their
+    own `relevant_commit_hashes`, and overlapping signals routinely cite the same commits.
+    """
+    commit_hashes_with_reasons: dict[str, str] = {}
+    for finding in findings:
+        for sha, reason in finding.relevant_commit_hashes.items():
+            if sha and sha not in commit_hashes_with_reasons:
+                commit_hashes_with_reasons[sha] = str(reason) if reason else ""
+    return commit_hashes_with_reasons
 
 
 def resolve_suggested_reviewers(

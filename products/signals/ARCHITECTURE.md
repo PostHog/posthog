@@ -160,6 +160,7 @@ Defined in `backend/temporal/summary.py`.
 5. **Agentic research** → `run_agentic_report_activity` (`temporal/agentic/report.py`)
    - Sandbox-backed multi-turn research over the selected repository plus MCP data
    - Appends `repo_selection`, `signal_finding`, `actionability_judgment`, `priority_judgment`, and `suggested_reviewers` artefacts atomically on success (append-only — on re-research only entries that actually changed are appended)
+   - Suggested reviewers come from one of two sources: behind the `signals-agentic-reviewers` flag a dedicated reviewers turn lets the research agent pick them (shown the deterministic commit-authorship ranking and recent human reviewer corrections as evidence, with agent picks validated against that evidence before persisting); otherwise, and as the fallback whenever the agent proposes nothing usable, the deterministic ranking in `report_generation/resolve_reviewers.py` decides directly
 6. **Conditional coding-task auto-start** (inside `run_agentic_report_activity`) — see Autonomy & Auto-Start below
 7. **Apply the decision**:
    - If **not actionable** → `reset_report_to_potential_activity` (weight resets to 0, status becomes `potential`)

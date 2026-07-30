@@ -16,7 +16,17 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from products.signals.backend.agent_runtime import CODEX_RUNTIME
-from products.signals.backend.report_generation.research import ReportResearchOutput, run_multi_turn_research
+from products.signals.backend.report_generation.research import (
+    ReportResearchOutput,
+    ReviewerCandidate,
+    SignalFinding,
+    run_multi_turn_research,
+)
+from products.signals.backend.report_generation.resolve_reviewers import (
+    commit_hashes_from_findings,
+    resolve_suggested_reviewers,
+)
+from products.signals.backend.reviewer_corrections import recent_reviewer_corrections
 from products.signals.backend.temporal.types import SignalData
 from products.tasks.backend.facade.agents import resolve_sandbox_context_for_local_dev
 
@@ -234,6 +244,27 @@ class Command(BaseCommand):
         self.stdout.write(f"Signals: {len(signals)}")
         self.stdout.write("")
 
+        # Local debug tool: always exercise the reviewers turn, mirroring the DEBUG-on default of
+        # the production `signals-agentic-reviewers` gate. The rank hook mirrors the activity's:
+        # deterministic ranking over the findings' commit hashes, handed to the turn as evidence.
+        corrections = recent_reviewer_corrections(context.team_id)
+
+        async def _rank_reviewer_candidates(findings: list[SignalFinding]) -> list[ReviewerCandidate]:
+            resolved = await asyncio.to_thread(
+                resolve_suggested_reviewers,
+                context.team_id,
+                repository,
+                commit_hashes_from_findings(findings),
+            )
+            return [
+                ReviewerCandidate(
+                    github_login=reviewer.login,
+                    github_name=reviewer.name,
+                    evidence=[commit.reason for commit in reviewer.commits if commit.reason],
+                )
+                for reviewer in resolved
+            ]
+
         result = asyncio.run(
             run_multi_turn_research(
                 signals,
@@ -247,6 +278,9 @@ class Command(BaseCommand):
                 # Local debug tool: always exercise the chart-authoring path, mirroring the
                 # DEBUG-on default of the production `signals-report-charts` gate.
                 charts_enabled=True,
+                suggest_reviewers=True,
+                reviewer_corrections=corrections,
+                rank_reviewer_candidates=_rank_reviewer_candidates,
             )
         )
 
@@ -257,6 +291,9 @@ class Command(BaseCommand):
         self.stdout.write(f"Charts: {len(result.charts)}")
         for chart in result.charts:
             self.stdout.write(f"  - {chart.chart_id}: {chart.title}")
+        self.stdout.write(f"Suggested reviewers: {len(result.suggested_reviewers)}")
+        for reviewer in result.suggested_reviewers:
+            self.stdout.write(f"  - {reviewer.github_login}: {reviewer.reason}")
         actionability = result.effective_actionability()
         priority = result.effective_priority()
         self.stdout.write(f"Actionability: {actionability.actionability}")

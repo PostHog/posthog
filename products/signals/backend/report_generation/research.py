@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -11,6 +12,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 # persisted as artefacts); re-exported here because this module is where research callers and
 # prompts historically import them from.
 from products.signals.backend.artefact_schemas import (
+    MAX_SUGGESTED_REVIEWERS,
     ActionabilityAssessment,
     ActionabilityChoice,
     Priority,
@@ -27,6 +29,9 @@ from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChar
 # SignalData is annotation-only (this module uses `from __future__ import annotations`); the one
 # runtime helper is imported locally in _render_signal_for_research.
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from products.signals.backend.reviewer_corrections import ReviewerCorrection
     from products.signals.backend.temporal.types import SignalData
 
 if TYPE_CHECKING:
@@ -39,10 +44,13 @@ __all__ = [
     "ActionabilityChoice",
     "Priority",
     "PriorityAssessment",
+    "ProposedReviewer",
     "ReportPresentationOutput",
     "ReportResearchOutput",
     "ResearchArtefactContent",
+    "ReviewerCandidate",
     "SignalFinding",
+    "SuggestedReviewersProposal",
     "run_multi_turn_research",
 ]
 
@@ -105,6 +113,66 @@ Hard rules:
         return v
 
 
+class ProposedReviewer(BaseModel):
+    """One reviewer pick from the reviewers turn.
+
+    Session output shape only, never stored as-is: the caller validates the login against the
+    evidence it holds (ranking candidates, org members, correction history) before persisting a
+    `suggested_reviewers` artefact, so a hallucinated login can't route a report."""
+
+    github_login: str = Field(
+        description=(
+            "Bare lowercase GitHub login (no `@`, no display name). Only name logins backed by "
+            "evidence from this session: the ranked candidates, the human correction history, or "
+            "commit authorship you saw during research. A guessed or mis-cased login routes to no one."
+        ),
+    )
+    reason: str = Field(
+        description=(
+            "One sentence of concrete evidence tying this person to the report (e.g. authored the "
+            "causative commit, human correction on a similar report routed to them). Persisted on "
+            "the report and shown to humans."
+        ),
+    )
+
+    @field_validator("github_login", "reason")
+    @classmethod
+    def reviewer_fields_must_not_be_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("must not be empty")
+        return v
+
+
+class SuggestedReviewersProposal(BaseModel):
+    """Response envelope for the reviewers turn. Session output shape only; never stored."""
+
+    suggested_reviewers: list[ProposedReviewer] = Field(
+        default_factory=list,
+        max_length=MAX_SUGGESTED_REVIEWERS,
+        description=(
+            f"Up to {MAX_SUGGESTED_REVIEWERS} reviewers, most relevant first. An empty list is a "
+            "valid answer when no one is clearly supported by evidence."
+        ),
+    )
+
+
+@dataclass(frozen=True)
+class ReviewerCandidate:
+    """A commit-authorship reviewer candidate shown to the reviewers turn as evidence.
+
+    Produced by the caller-injected ranking hook (the deterministic scoring in
+    `resolve_reviewers.py`), which lives behind a callable because this module must stay free of
+    DB and GitHub access."""
+
+    github_login: str
+    github_name: str | None
+    evidence: list[str]
+
+
+if TYPE_CHECKING:
+    RankReviewerCandidatesFn = Callable[[list[SignalFinding]], Awaitable[list[ReviewerCandidate]]]
+
+
 # The report artefacts a research run produces: one finding per signal plus the two assessments.
 ResearchArtefactContent = SignalFinding | ActionabilityAssessment | PriorityAssessment
 
@@ -121,6 +189,13 @@ class ReportResearchOutput(BaseModel):
         default=None,
         description="UUID of the sandbox task that performed the research; artefacts persisted from "
         "this output are attributed to it. None for saved fixtures / pre-existing outputs.",
+    )
+    suggested_reviewers: list[ProposedReviewer] = Field(
+        default_factory=list,
+        description="Reviewer picks from the reviewers turn, most relevant first. Empty when the "
+        "turn didn't run (not enabled for the team, or the turn failed and research continued "
+        "without it). The caller validates each login against evidence before persisting, and "
+        "falls back to the deterministic commit-authorship ranking when this is empty.",
     )
     # The run's findings and assessments split by whether they changed: `old_artefacts` were
     # confirmed unchanged (already persisted — a re-research reusing them writes nothing) and
@@ -632,6 +707,110 @@ Respond with a JSON object matching this schema:
 </jsonschema>"""
 
 
+def _render_reviewer_candidates(candidates: list[ReviewerCandidate]) -> str:
+    if not candidates:
+        return (
+            "## Ranked candidates from commit authorship\n\n"
+            "The deterministic ranking produced no candidates for this report (no resolvable commit "
+            "authors, or the ranking was unavailable this run). Rely on the correction history and "
+            "the commit authorship you saw during research."
+        )
+    rendered = json.dumps(
+        [
+            {
+                "github_login": candidate.github_login,
+                "name": candidate.github_name,
+                "evidence": candidate.evidence,
+            }
+            for candidate in candidates
+        ],
+        indent=2,
+    )
+    return f"""## Ranked candidates from commit authorship
+
+The deterministic reviewer ranking (commit authors from your findings, weighted by recent activity \
+in the touched areas) produced these candidates, most relevant first:
+
+```json
+{rendered}
+```
+
+This ranking is evidence, not the answer. It only sees commit authors, so it misses people who own \
+an area without recent commits, and it can surface someone whose relationship to the code is \
+incidental."""
+
+
+def _render_reviewer_corrections(corrections: list[ReviewerCorrection]) -> str:
+    if not corrections:
+        return ""
+    rendered = json.dumps(
+        [
+            {
+                "report_title": correction.report_title,
+                "reviewers_before": correction.before,
+                "reviewers_after": correction.after,
+                "at": correction.at,
+            }
+            for correction in corrections
+        ],
+        indent=2,
+    )
+    return f"""## Recent human corrections to report reviewers
+
+Humans edited the suggested reviewers on these recent reports in this project (before and after \
+login lists, newest first):
+
+```json
+{rendered}
+```
+
+A human swapping a suggested reviewer for someone else is the strongest ownership evidence there \
+is: treat it as authoritative precedent over commit history **when the corrected report covers a \
+similar area to this one**. Someone repeatedly added by humans is probably the right owner even \
+with no commits in the ranking; someone repeatedly removed is probably the wrong route even when \
+blame points at them. Weigh each correction by how similar its report is to this report, since a \
+correction on an unrelated report is not a routing rule."""
+
+
+def build_reviewer_suggestion_prompt(
+    total_signals: int,
+    *,
+    candidates: list[ReviewerCandidate],
+    corrections: list[ReviewerCorrection],
+) -> str:
+    schema = json.dumps(SuggestedReviewersProposal.model_json_schema(), indent=2)
+    corrections_section = _render_reviewer_corrections(corrections)
+    corrections_block = f"\n{corrections_section}\n" if corrections_section else ""
+
+    return f"""Now decide **who should review this report**, based on your research across all \
+{total_signals} signal(s).
+
+Pick up to {MAX_SUGGESTED_REVIEWERS} people, most relevant first, each as a bare lowercase GitHub \
+login. These route the report in the inbox: the people you name get notified, so fewer, \
+better-targeted reviewers beat a filled-out list. An empty list is a valid answer when nobody is \
+clearly supported by evidence.
+
+{_render_reviewer_candidates(candidates)}
+{corrections_block}
+## Rules
+
+- Never guess a login. Only name logins that appear in the ranked candidates, the correction \
+history above, or commit authorship you saw during research. A guessed, mis-cased, or display-name \
+handle routes to no one, and unverifiable logins are dropped.
+- Never include bots (logins ending in `[bot]`) or LLM commit authors (Claude, OpenAI, etc.).
+- Set `reason` on every pick: one sentence of the concrete evidence tying this person to this \
+report. It is persisted on the report and shown to humans, so an evidence-backed route can be told \
+from a guess.
+- When you found work already in flight by a specific person (an open PR or an assigned issue \
+covering this problem), that person is usually the best first reviewer.
+
+Respond with a JSON object matching this schema:
+
+<jsonschema>
+{schema}
+</jsonschema>"""
+
+
 def build_report_presentation_prompt(
     total_signals: int,
     *,
@@ -742,8 +921,19 @@ async def run_multi_turn_research(
     resolved_report_title: str | None = None,
     resolved_report_summary: str | None = None,
     charts_enabled: bool = False,
+    suggest_reviewers: bool = False,
+    reviewer_corrections: list[ReviewerCorrection] | None = None,
+    rank_reviewer_candidates: RankReviewerCandidatesFn | None = None,
 ) -> ReportResearchOutput:
-    """Orchestrate a multi-turn sandbox session that investigates each signal individually."""
+    """Orchestrate a multi-turn sandbox session that investigates each signal individually.
+
+    When ``suggest_reviewers`` is on, a dedicated reviewers turn runs after the assessments: the
+    agent picks the report's suggested reviewers itself, shown the deterministic
+    commit-authorship ranking (via ``rank_reviewer_candidates``, injected because this module
+    stays free of DB and GitHub access) and recent human reviewer corrections as evidence. The
+    turn is best-effort; a failure leaves ``suggested_reviewers`` empty and the caller falls back
+    to the deterministic ranking, so the new turn can never fail an otherwise-good research run.
+    """
     from products.tasks.backend.facade import api as tasks_facade
     from products.tasks.backend.facade.agents import MultiTurnSession
 
@@ -894,6 +1084,48 @@ async def run_multi_turn_research(
             if output_fn:
                 output_fn(f"Priority: {priority_result.priority.value}" + ("" if priority_is_new else " (unchanged)"))
 
+        proposed_reviewers: list[ProposedReviewer] = []
+        if suggest_reviewers:
+            if output_fn:
+                output_fn("Suggesting reviewers...")
+            # Same latest-per-signal collapse as `effective_findings()`, over this run's state.
+            findings_by_signal: dict[str, SignalFinding] = {}
+            for artefact in (*new_artefacts, *old_artefacts):
+                if isinstance(artefact, SignalFinding) and artefact.signal_id not in findings_by_signal:
+                    findings_by_signal[artefact.signal_id] = artefact
+
+            candidates: list[ReviewerCandidate] = []
+            if rank_reviewer_candidates is not None:
+                try:
+                    candidates = await rank_reviewer_candidates(list(findings_by_signal.values()))
+                except Exception:
+                    # Candidates are evidence for the turn, not a prerequisite: the agent still
+                    # holds the correction history and its own blame observations.
+                    logger.exception("reviewer candidate ranking failed, running the reviewers turn without it")
+
+            reviewers_prompt = build_reviewer_suggestion_prompt(
+                total,
+                candidates=candidates,
+                corrections=reviewer_corrections or [],
+            )
+            try:
+                reviewers_response = await session.send_followup(
+                    reviewers_prompt,
+                    SuggestedReviewersProposal,
+                    label="suggested_reviewers",
+                )
+                proposed_reviewers = reviewers_response.suggested_reviewers
+            except Exception:
+                # Best-effort turn: the caller falls back to the deterministic ranking on an empty
+                # proposal, so a failure here must not lose the findings and assessments above.
+                logger.exception("reviewer suggestion turn failed, falling back to deterministic reviewers")
+            if output_fn:
+                output_fn(
+                    "Reviewers proposed: " + ", ".join(r.github_login for r in proposed_reviewers)
+                    if proposed_reviewers
+                    else "Reviewers proposed: none"
+                )
+
         if output_fn:
             output_fn("Generating title and summary...")
         presentation_prompt = build_report_presentation_prompt(
@@ -930,6 +1162,7 @@ async def run_multi_turn_research(
         # change reintroduces the field into a disabled prompt.
         charts=presentation_result.charts if charts_enabled else [],
         research_task_id=str(session.task.id),
+        suggested_reviewers=proposed_reviewers,
         old_artefacts=old_artefacts,
         new_artefacts=new_artefacts,
     )

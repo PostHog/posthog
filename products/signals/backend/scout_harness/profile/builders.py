@@ -60,6 +60,7 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.facade import api as notebooks
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.reviewer_corrections import REVIEWER_CORRECTIONS_WINDOW_DAYS, recent_reviewer_corrections
 from products.signals.backend.scout_harness.config_registry import live_scout_skill_names
 from products.signals.backend.scout_harness.profile.schema import Inventory
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
@@ -103,12 +104,6 @@ RECENT_ENTITY_LIMIT = 5
 RECENT_ACTIVITY_WINDOW_DAYS = 14
 RECENT_ACTIVITY_LIMIT = 20
 
-# Human reviewer corrections are rare and precious routing precedent, so the window is
-# much longer than the general activity aggregate — 90d keeps a quarter of corrections
-# in the scout's orientation without an activity-log drill-down (which is premium-gated
-# on cloud, unlike this ORM read).
-REVIEWER_CORRECTIONS_WINDOW_DAYS = 90
-REVIEWER_CORRECTIONS_LIMIT = 20
 
 # How far back `_scout_fleet` looks for each scout's most recent emitting run. 30 days covers
 # several cycles of the default 24-hour cadence, so a scout that emits occasionally still reads
@@ -805,40 +800,23 @@ def _recent_activity(team: Team) -> dict[str, Any]:
 
 
 def _recent_reviewer_corrections(team: Team) -> dict[str, Any]:
-    """Human edits to report reviewer lists, from the activity log.
+    """Human edits to report reviewer lists, surfaced directly in the profile.
 
     A human swapping a report's suggested reviewers is the strongest ownership
-    precedent a scout can route by, so it's surfaced directly in the profile —
-    an ORM read, deliberately not the activity-log API (premium-gated on cloud),
-    so every scout sees it regardless of the org's plan. The impersonation/system
-    filter matches the partial index `idx_alog_team_scp_act_crtd` (both flags
-    required False) and keeps support-staff edits out of the team's routing
-    precedent — the write path records `was_impersonated`, so such rows do exist.
+    precedent a scout can route by. Read through the shared
+    `reviewer_corrections` module so scouts and the report-research reviewers
+    turn route by the same precedent.
     """
-    cutoff = timezone.now() - timedelta(days=REVIEWER_CORRECTIONS_WINDOW_DAYS)
-    rows = ActivityLog.objects.filter(
-        team_id=team.id,
-        scope="SignalReport",
-        activity="suggested_reviewers_changed",
-        created_at__gte=cutoff,
-        was_impersonated=False,
-        is_system=False,
-    ).order_by("-created_at")[:REVIEWER_CORRECTIONS_LIMIT]
-
-    corrections: list[dict[str, Any]] = []
-    for row in rows:
-        detail = row.detail or {}
-        changes = detail.get("changes") or []
-        change = changes[0] if changes and isinstance(changes[0], dict) else {}
-        corrections.append(
-            {
-                "report_id": str(row.item_id),
-                "report_title": detail.get("name"),
-                "before": change.get("before") or [],
-                "after": change.get("after") or [],
-                "at": row.created_at.isoformat() if row.created_at else None,
-            }
-        )
+    corrections = [
+        {
+            "report_id": correction.report_id,
+            "report_title": correction.report_title,
+            "before": correction.before,
+            "after": correction.after,
+            "at": correction.at,
+        }
+        for correction in recent_reviewer_corrections(team.id)
+    ]
     return {"window_days": REVIEWER_CORRECTIONS_WINDOW_DAYS, "corrections": corrections}
 
 

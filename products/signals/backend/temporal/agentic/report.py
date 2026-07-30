@@ -18,7 +18,12 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.business_knowledge.backend.logic import is_available_for_team
 from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_runtime
-from products.signals.backend.artefact_schemas import ArtefactContent, RelatedTo, SuggestedReviewers
+from products.signals.backend.artefact_schemas import (
+    MAX_SUGGESTED_REVIEWERS,
+    ArtefactContent,
+    RelatedTo,
+    SuggestedReviewers,
+)
 from products.signals.backend.auto_start import ReviewerContent, maybe_autostart_implementation_task
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
@@ -27,12 +32,19 @@ from products.signals.backend.report_generation.research import (
     ActionabilityChoice,
     Priority,
     PriorityAssessment,
+    ProposedReviewer,
     ReportResearchOutput,
+    ReviewerCandidate,
     SignalFinding,
     run_multi_turn_research,
 )
-from products.signals.backend.report_generation.resolve_reviewers import resolve_suggested_reviewers
+from products.signals.backend.report_generation.resolve_reviewers import (
+    commit_hashes_from_findings,
+    get_org_member_github_login_to_user_map,
+    resolve_suggested_reviewers,
+)
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.reviewer_corrections import ReviewerCorrection, recent_reviewer_corrections
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -230,11 +242,7 @@ def _build_reviewers_content(
       user's GitHub login and checking for jsonb containment on ``github_login``
       in this artefact's content — no cached user IDs needed.
     """
-    commit_hashes_with_reasons: dict[str, str] = {}
-    for finding in findings:
-        for sha, reason in finding.relevant_commit_hashes.items():
-            if sha and sha not in commit_hashes_with_reasons:
-                commit_hashes_with_reasons[sha] = str(reason) if reason else ""
+    commit_hashes_with_reasons = commit_hashes_from_findings(findings)
 
     if not commit_hashes_with_reasons or not repository:
         return []
@@ -256,6 +264,79 @@ def _build_reviewers_content(
             )
         )
     return reviewers_content
+
+
+def _reviewer_candidates_from_content(reviewers_content: list[ReviewerContent]) -> list[ReviewerCandidate]:
+    """Shape deterministic reviewer content into the prompt-facing candidate type."""
+    return [
+        ReviewerCandidate(
+            github_login=content["github_login"],
+            github_name=content["github_name"],
+            evidence=[reason for commit in content["relevant_commits"] if (reason := commit.get("reason"))],
+        )
+        for content in reviewers_content
+    ]
+
+
+def _reviewers_from_proposals(
+    team_id: int,
+    proposals: list[ProposedReviewer],
+    deterministic: list[ReviewerContent],
+    corrections: list[ReviewerCorrection],
+) -> list[ReviewerContent]:
+    """Validate the agent's reviewer picks against evidence and shape them for persistence.
+
+    An agent-proposed login is kept only when something this pipeline can verify backs it: it came
+    out of the deterministic ranking, it belongs to an org member with a linked GitHub identity, or
+    it appears in the human correction history. Anything else is treated as a hallucination and
+    dropped, so a made-up login can never route a report. Returns an empty list when nothing
+    survives; the caller then falls back to the deterministic ranking.
+    """
+    if not proposals:
+        return []
+
+    deterministic_by_login = {content["github_login"]: content for content in deterministic}
+    correction_logins = {
+        login.strip().lower()
+        for correction in corrections
+        for login in (*correction.before, *correction.after)
+        if login and login.strip()
+    }
+    member_map = get_org_member_github_login_to_user_map(team_id) or {}
+
+    validated: list[ReviewerContent] = []
+    seen: set[str] = set()
+    for proposal in proposals:
+        login = proposal.github_login.strip().lower().lstrip("@")
+        if not login or login in seen:
+            continue
+        ranked = deterministic_by_login.get(login)
+        member = member_map.get(login)
+        if ranked is None and member is None and login not in correction_logins:
+            logger.warning(
+                "dropping agent-proposed reviewer with no supporting evidence",
+                team_id=team_id,
+                github_login=login,
+            )
+            continue
+        seen.add(login)
+        github_name = ranked["github_name"] if ranked else None
+        if github_name is None and member is not None:
+            github_name = f"{member.first_name} {member.last_name}".strip() or None
+        validated.append(
+            ReviewerContent(
+                github_login=login,
+                github_name=github_name,
+                # Commit evidence carries over when the ranking also surfaced this person, so an
+                # agent pick that agrees with blame keeps its clickable commit trail.
+                relevant_commits=ranked["relevant_commits"] if ranked else [],
+                reason=proposal.reason.strip(),
+                is_skill_owner=False,
+            )
+        )
+        if len(validated) >= MAX_SUGGESTED_REVIEWERS:
+            break
+    return validated
 
 
 def _append_agentic_report_artefacts(*, team_id: int, report_id: str, artefacts: list[ArtefactDraft]) -> None:
@@ -310,23 +391,63 @@ def _resolve_report_charts_payload(
     return [chart.model_dump(mode="json") for chart in charts]
 
 
+async def _resolve_reviewers_content(
+    team_id: int,
+    repository: str,
+    result: ReportResearchOutput,
+    deterministic: list[ReviewerContent] | None,
+    corrections: list[ReviewerCorrection],
+) -> tuple[list[ReviewerContent], bool]:
+    """The report's reviewer set, and whether the agent's reviewers-turn picks supplied it.
+
+    ``deterministic`` is the ranking already computed mid-session for the reviewers turn (None
+    when the turn didn't run or never reached the ranking hook); computing it here otherwise keeps
+    the single GitHub-API resolution per run. Agent picks win when any survive validation; the
+    deterministic ranking is the fallback, so reviewer resolution behaves exactly as before this
+    turn existed whenever the agent proposes nothing usable.
+    """
+    if deterministic is None:
+        deterministic = await database_sync_to_async(_build_reviewers_content, thread_sensitive=False)(
+            team_id=team_id,
+            repository=repository,
+            findings=result.effective_findings(),
+        )
+    if result.suggested_reviewers:
+        agent_reviewers = await database_sync_to_async(_reviewers_from_proposals, thread_sensitive=False)(
+            team_id,
+            result.suggested_reviewers,
+            deterministic,
+            corrections,
+        )
+        if agent_reviewers:
+            return agent_reviewers, True
+    return deterministic, False
+
+
 async def _persist_agentic_report_artefacts(
     team_id: int,
     report_id: str,
     result: ReportResearchOutput,
     repo_selection: RepoSelectionResult,
+    reviewers_content: list[ReviewerContent] | None = None,
+    reviewers_from_agent: bool = False,
 ) -> None:
-    # Resolve suggested reviewers from commit hashes (always, from the effective findings —
-    # auto-start below needs them even when nothing is persisted this run)
-    reviewers_content = await database_sync_to_async(_build_reviewers_content, thread_sensitive=False)(
-        team_id=team_id,
-        repository=repo_selection.repository or "",
-        findings=result.effective_findings(),
-    )
+    # The activity resolves reviewers itself (it holds the mid-session ranking cache and the
+    # correction history) and passes them in; the seed/ingest management commands rely on this
+    # default to resolve deterministically from the fixture's findings.
+    if reviewers_content is None:
+        reviewers_content, reviewers_from_agent = await _resolve_reviewers_content(
+            team_id,
+            repo_selection.repository or "",
+            result,
+            None,
+            [],
+        )
 
     # Persist only what's new this run; values the agent confirmed unchanged keep their latest
-    # persisted row. Reviewers are derived purely from findings, so they're only re-persisted
-    # when at least one finding changed.
+    # persisted row. Deterministic reviewers are derived purely from findings, so they're only
+    # re-persisted when at least one finding changed; agent-decided reviewers can also change on
+    # unchanged findings (new correction precedent), so those persist whenever the agent decided.
     #
     # Attribution: the research findings / judgments / reviewers were produced by the research
     # sandbox agent, so they're attributed to its task. Repo selection has its own task when a
@@ -344,14 +465,14 @@ async def _persist_agentic_report_artefacts(
         else ArtefactAttribution.system()
     )
     # Everything the run flagged as new gets persisted; the artefact type derives from each content
-    # model. Reviewers are derived from findings, so they're only re-persisted when a finding changed.
+    # model.
     has_new_finding = any(isinstance(content, SignalFinding) for content in result.new_artefacts)
 
     artefacts = [
         ArtefactDraft(content=repo_selection, attribution=repo_selection_attribution),
         *(ArtefactDraft(content=content, attribution=research_attribution) for content in result.new_artefacts),
     ]
-    if reviewers_content and has_new_finding:
+    if reviewers_content and (has_new_finding or reviewers_from_agent):
         artefacts.append(
             ArtefactDraft(
                 content=SuggestedReviewers.model_validate(list(reviewers_content)),
@@ -430,6 +551,29 @@ def _team_report_charts_enabled(team_id: int) -> bool:
         return False
 
 
+def _team_agentic_reviewers_enabled(team_id: int) -> bool:
+    """Whether the research agent decides this team's suggested reviewers (the reviewers turn).
+
+    Gated by the `signals-agentic-reviewers` flag, org-keyed, evaluated fresh per run so a flip
+    takes effect immediately. Off by default so this ships dark on the fleet-wide research path; on
+    locally so `analyze_report` exercises it. Fails closed to False, which keeps the deterministic
+    commit-authorship ranking as the reviewer source on a flag-service hiccup."""
+    if settings.DEBUG:
+        return True
+    try:
+        team = Team.objects.get(id=team_id)
+        return feature_enabled_or_false(
+            "signals-agentic-reviewers",
+            str(team.organization_id),
+            groups={"organization": str(team.organization_id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        logger.warning("agentic-reviewers availability check failed", team_id=team_id, exc_info=True)
+        return False
+
+
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -466,6 +610,31 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             charts_enabled = await database_sync_to_async(_team_report_charts_enabled, thread_sensitive=False)(
                 input.team_id
             )
+            agentic_reviewers = await database_sync_to_async(_team_agentic_reviewers_enabled, thread_sensitive=False)(
+                input.team_id
+            )
+            corrections: list[ReviewerCorrection] = []
+            if agentic_reviewers:
+                corrections = await database_sync_to_async(recent_reviewer_corrections, thread_sensitive=False)(
+                    input.team_id
+                )
+
+            # The reviewers turn asks for the deterministic ranking mid-session (it needs the
+            # findings, which only exist then). The closure caches the result so the post-session
+            # reviewer resolution reuses it instead of repeating the GitHub API lookups.
+            deterministic_reviewers: list[ReviewerContent] | None = None
+
+            async def _rank_reviewer_candidates(findings: list[SignalFinding]) -> list[ReviewerCandidate]:
+                nonlocal deterministic_reviewers
+                deterministic_reviewers = await database_sync_to_async(
+                    _build_reviewers_content, thread_sensitive=False
+                )(
+                    team_id=input.team_id,
+                    repository=repository,
+                    findings=findings,
+                )
+                return _reviewer_candidates_from_content(deterministic_reviewers)
+
             # 2. Load previous research if this is a re-promoted report
             previous_research = await _load_previous_research(input.report_id)
             # 2b. Load the resolved report this one recurred from, if any, as extra research context
@@ -483,13 +652,35 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 resolved_report_title=resolved_report_title,
                 resolved_report_summary=resolved_report_summary,
                 charts_enabled=charts_enabled,
+                suggest_reviewers=agentic_reviewers,
+                reviewer_corrections=corrections,
+                rank_reviewer_candidates=_rank_reviewer_candidates if agentic_reviewers else None,
             )
-            # 4. Persist artefacts, avoid partial data from failed runs
+            # 4. Resolve the reviewer set (agent picks when validated, deterministic otherwise),
+            #    then persist artefacts, avoiding partial data from failed runs
+            reviewers_content, reviewers_from_agent = await _resolve_reviewers_content(
+                input.team_id,
+                repository,
+                result,
+                deterministic_reviewers,
+                corrections,
+            )
+            logger.info(
+                "signals reviewers resolved",
+                report_id=input.report_id,
+                team_id=input.team_id,
+                source="agent" if reviewers_from_agent else "deterministic",
+                reviewer_count=len(reviewers_content),
+                proposed_count=len(result.suggested_reviewers),
+                agentic_reviewers_enabled=agentic_reviewers,
+            )
             await _persist_agentic_report_artefacts(
                 input.team_id,
                 input.report_id,
                 result,
                 input.repo_selection,
+                reviewers_content,
+                reviewers_from_agent,
             )
         actionability = result.effective_actionability()
         priority = result.effective_priority()
