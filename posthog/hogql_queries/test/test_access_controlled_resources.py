@@ -139,7 +139,11 @@ class TestQueriedAccessControlledResources(BaseTest):
         # Retention reads warehouse tables through RetentionEntity rather than a DataWarehouseNode; missing
         # it here would serve an allowed user's cached warehouse rows to a denied user on a cache hit.
         query = RetentionQuery(retentionFilter=RetentionFilter(**{entity_field: self._dw_retention_entity()}))
-        assert queried_access_controlled_resources(query, self.team) == {"warehouse_table", "warehouse_view"}
+        assert queried_access_controlled_resources(query, self.team) == {
+            "external_data_source",
+            "warehouse_table",
+            "warehouse_view",
+        }
 
     def test_retention_query_without_data_warehouse_entity(self):
         query = RetentionQuery(
