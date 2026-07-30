@@ -869,7 +869,7 @@ class TestRunnerHumanMessageStamping(BaseTest):
         assert runner._latest_message is not None
         if provided is None:
             assert runner._latest_message.created_at
-            # server stamp must be a valid ISO 8601 timestamp
-            datetime.fromisoformat(runner._latest_message.created_at)
+            stamped = datetime.fromisoformat(runner._latest_message.created_at)
+            assert stamped.tzinfo is not None
         else:
             assert runner._latest_message.created_at == provided
