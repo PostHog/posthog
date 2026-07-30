@@ -706,6 +706,27 @@ class TestComputeToolOverlaps:
         assert overlaps == []
         assert dropped == 1
 
+    def test_pair_expansion_only_considers_each_clusters_head(self) -> None:
+        # An event sender controls tool names, so one intent can carry thousands of
+        # distinct tools; expanding all O(n^2) pairs before ranking would blow up
+        # the recompute. Only the head of each distribution enters pair expansion.
+        distribution = [
+            {"tool": f"t{i}", "count": 100 - i, "pct": 1.0, "errors": 0, "error_rate_pct": 0.0} for i in range(4)
+        ]
+        clusters = [
+            {
+                "id": 0,
+                "label": "x",
+                "call_count": sum(entry["count"] for entry in distribution),
+                "routing_entropy": 0.5,
+                "tool_distribution": distribution,
+            }
+        ]
+
+        overlaps, _ = compute_tool_overlaps(clusters, {}, max_tools_per_cluster=2)
+
+        assert [(o["tool_a"], o["tool_b"]) for o in overlaps] == [("t0", "t1")]
+
 
 # Corpus queries (ClickHouse-backed) ---------------------------------------
 

@@ -70,6 +70,10 @@ MAX_CLUSTERS_PER_TOOL = 20
 MAX_SWITCHES_PER_CLUSTER = 10
 MAX_SELF_RETRIES_PER_CLUSTER = 5
 MAX_CONFUSION_PAIRS = 50
+# Pair expansion is O(n^2) in a cluster's tool count, and event senders control
+# tool names, so only each cluster's highest-volume tools enter it. Tail tools
+# contribute at most their own tiny min(count) anyway.
+MAX_OVERLAP_TOOLS_PER_CLUSTER = 20
 
 # Placeholder previously written by the (now-removed) summariser job for sessions with no
 # recordable tool-call intents. Still filtered out of the corpus so it doesn't form a
@@ -871,6 +875,7 @@ def compute_tool_overlaps(
     clusters: list[dict[str, Any]],
     calls_by_session: dict[str, list[CallRecord]],
     max_pairs: int = MAX_CONFUSION_PAIRS,
+    max_tools_per_cluster: int = MAX_OVERLAP_TOOLS_PER_CLUSTER,
 ) -> tuple[list[dict[str, Any]], int]:
     """Tool pairs competing for the same intents.
 
@@ -878,13 +883,15 @@ def compute_tool_overlaps(
     the volume both tools could plausibly have taken. The session counts split
     substitution from cooperation: pairs used together in the same sessions are
     workflows, pairs whose sessions pick one or the other are confusion.
-    Returns ``(pairs, dropped_count)`` capped at ``max_pairs``.
+    Returns ``(pairs, dropped_count)`` capped at ``max_pairs``; only each
+    cluster's top ``max_tools_per_cluster`` tools enter pair expansion.
     """
     contested: dict[tuple[str, str], int] = defaultdict(int)
     top_cluster: dict[tuple[str, str], tuple[int, int]] = {}
 
     for cluster in clusters:
-        distribution = cluster["tool_distribution"]
+        # tool_distribution is sorted by count desc, so this keeps the head.
+        distribution = cluster["tool_distribution"][:max_tools_per_cluster]
         for i in range(len(distribution)):
             for j in range(i + 1, len(distribution)):
                 tool_i, tool_j = str(distribution[i]["tool"]), str(distribution[j]["tool"])
