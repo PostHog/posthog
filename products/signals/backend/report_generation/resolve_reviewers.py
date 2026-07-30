@@ -241,16 +241,6 @@ def _rank_scored_candidates(
 ) -> list[_ResolvedReviewer]:
     scores = _score_candidates(login_weights, activity_by_login)
 
-    # Activity-only owners are a last resort: only surface them when no weighted (blame/agent)
-    # candidate is still active in the area, so we don't pad noise next to a live reviewer.
-    # Recency, not map membership, decides "active" — the cached area map can be stale.
-    def _weighted_candidate_still_active(login: str) -> bool:
-        activity = activity_by_login.get(login)
-        return activity is not None and activity.days_since_last_commit < ACTIVITY_WINDOW_DAYS
-
-    if any(_weighted_candidate_still_active(login) for login in login_weights):
-        scores = {login: score for login, score in scores.items() if login in login_weights}
-
     def rank_key(item: tuple[str, float]) -> tuple[float, int, str]:
         login, score = item
         activity = activity_by_login.get(login)
@@ -395,32 +385,43 @@ def _recency_multiplier(days_since_last_commit: float | None) -> float:
     return 1.0 - progress * (1.0 - RECENCY_DECAY_FLOOR)
 
 
+def _is_active_in_area(activity: _AreaContributor | None) -> bool:
+    """Whether someone has committed in the report's areas inside the activity window.
+
+    Recency decides this, not presence in the cached area map: the map is served while a
+    rebuild is scheduled, so an entry can have aged past the window.
+    """
+    return activity is not None and activity.days_since_last_commit < ACTIVITY_WINDOW_DAYS
+
+
 def _score_candidates(
     login_weights: Counter[str],
     activity_by_login: dict[str, _AreaContributor],
 ) -> dict[str, float]:
     """Blend blame weights with area recency; add capped activity-only fallbacks.
 
-    Invariants: a freshly-active area contributor always outranks a blame author who is
-    gone from the area (their base starts above the stale floor), and never outranks the
-    *top-weighted* blame author while that author is active in the window (the cap sits
-    below the decay floor). Lower-weighted active blame authors can still be outranked by
-    a very active area owner — deliberate: weight-1 blame is one marginal commit, not a
-    stronger claim than sustained area ownership. Only contributors whose evidence area is
-    focused enough to imply ownership are nominated this way; activity in a crowded area
-    still decays blame weights but proposes nobody. With no activity data at all, blame
-    weights pass through unchanged (legacy behavior).
+    Weighted candidates (blame authors and agent-proposed assignees) decay toward the stale
+    floor as their last commit in the area recedes. Area contributors are proposed as
+    candidates in their own right only as a last resort, when two things hold: no weighted
+    candidate is still active in the area (one who is would be the live reviewer, so adding
+    area contributors beside them is noise), and the area is focused enough to imply
+    ownership (a crowd still decays blame weights but proposes nobody). Their base starts
+    above the stale floor, so they outrank blame authors who have left the area. With no
+    activity data at all, blame weights pass through unchanged (legacy behavior).
     """
     if not activity_by_login:
         return {login: float(weight) for login, weight in login_weights.items()}
 
-    max_blame_weight = float(max(login_weights.values(), default=0)) or 1.0
     scores: dict[str, float] = {}
     for login, weight in login_weights.items():
         activity = activity_by_login.get(login)
         multiplier = _recency_multiplier(activity.days_since_last_commit if activity else None)
         scores[login] = float(weight) * multiplier
 
+    if any(_is_active_in_area(activity_by_login.get(login)) for login in login_weights):
+        return scores
+
+    max_blame_weight = float(max(login_weights.values(), default=0)) or 1.0
     for login, activity in activity_by_login.items():
         if login in scores or not activity.implies_ownership:
             continue

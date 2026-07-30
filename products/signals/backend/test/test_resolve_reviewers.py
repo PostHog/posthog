@@ -176,7 +176,7 @@ class TestRecencyScoring:
         # old-timer authored the blame commits but has no recent commits in the area.
         assert scores["active-owner"] > scores["old-timer"]
 
-    def test_recently_active_blame_author_beats_activity_only_contributor(self):
+    def test_active_blame_author_suppresses_activity_only_candidates(self):
         weights = Counter({"active-author": 10})
         activity = {
             "active-author": _area_contributor(days_since_last_commit=5),
@@ -185,7 +185,8 @@ class TestRecencyScoring:
 
         scores = _score_candidates(weights, activity)
 
-        assert scores["active-author"] > scores["bystander"]
+        # The blame author is the live reviewer, so the fresher bystander is not proposed.
+        assert set(scores) == {"active-author"}
 
     def test_lightly_active_contributor_beats_stale_blame_even_with_tiny_blame_weight(self):
         # Regression: a single old blame commit (weight 1) used to crush activity-only
@@ -199,8 +200,10 @@ class TestRecencyScoring:
 
     def test_crowded_area_nominates_nobody_but_still_decays_blame(self):
         weights = Counter({"old-timer": 10})
+        # The blame author is past the activity window, so the last-resort path is open and
+        # only the crowded area keeps the stranger out.
         activity = {
-            "old-timer": _area_contributor(days_since_last_commit=80, implies_ownership=False),
+            "old-timer": _area_contributor(days_since_last_commit=ACTIVITY_WINDOW_DAYS + 5, implies_ownership=False),
             "prolific-stranger": _area_contributor(days_since_last_commit=1, implies_ownership=False),
         }
 
