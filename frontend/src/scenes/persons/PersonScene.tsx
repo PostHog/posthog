@@ -58,6 +58,7 @@ import { PersonCohorts } from './PersonCohorts'
 import { PersonEmailsTab } from './PersonEmailsTab'
 import { PersonLogsTab } from './PersonLogsTab'
 import PersonProfileCanvas from './PersonProfileCanvas'
+import { PersonPushNotificationsTab } from './PersonPushNotificationsTab'
 import { PERSON_EVENTS_CONTEXT_KEY, PersonsLogicProps, personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
 
@@ -420,6 +421,18 @@ export function PersonScene(): JSX.Element | null {
                               key: PersonsTabType.EMAILS,
                               label: <span data-attr="persons-emails-tab">Emails</span>,
                               content: <PersonEmailsTab teamId={currentTeam?.id ?? 0} personId={String(person.uuid)} />,
+                          }
+                        : false,
+                    person.uuid
+                        ? {
+                              key: PersonsTabType.PUSH_NOTIFICATIONS,
+                              label: <span data-attr="persons-push-notifications-tab">Push notifications</span>,
+                              content: (
+                                  <PersonPushNotificationsTab
+                                      teamId={currentTeam?.id ?? 0}
+                                      personId={String(person.uuid)}
+                                  />
+                              ),
                           }
                         : false,
                     {
