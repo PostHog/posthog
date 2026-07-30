@@ -111,8 +111,13 @@ each layer, in order of cost:
 2. **Protocol integration tests** (`personhog-coordination/tests/`,
    real etcd): every behavioral change pinned by a test that fails on
    the old code — see the red-check discipline below. Connection-level
-   behavior (blips, outages, margins) is testable with the `FlakyProxy`
-   fault injector in the test commons.
+   behavior (blips, outages, lease margins) is testable by routing the
+   component's store through a byte-forwarding TCP proxy the test
+   controls: sever live connections to simulate a blip, refuse new ones
+   to simulate an outage. The test commons' `FlakyProxy` provides this
+   (arriving with the etcd-resilience changes); on a tree without it,
+   that is the pattern to build — tokio only, well under a hundred
+   lines.
 3. **The e2e harness gates** (`personhog-test-harness gate`): run the CI
    gate scenarios locally against the built tree — at minimum the
    drain + zombie + writer-lag and kill + scale-up variants, plus any
