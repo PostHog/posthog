@@ -6,7 +6,13 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { mcpAnalyticsIntentClustersRecompute, mcpAnalyticsIntentClustersRetrieve } from '../generated/api'
-import type { MCPIntentClusterApi, MCPIntentClusterSnapshotApi } from '../generated/api.schemas'
+import type {
+    MCPIntentClusterApi,
+    MCPIntentClusterLongTailApi,
+    MCPIntentClusterSnapshotApi,
+    MCPRecurringIntentApi,
+} from '../generated/api.schemas'
+import { computeConcentratedRoutes, computeSpreadRoutes, computeTopErrorRoute } from './clusteringScorecards'
 
 const EMPTY_SNAPSHOT: MCPIntentClusterSnapshotApi = {
     status: 'idle',
@@ -21,12 +27,10 @@ const EMPTY_SNAPSHOT: MCPIntentClusterSnapshotApi = {
 
 const POLL_INTERVAL_MS = 3000
 
-// The heatmap renders clusters × tools cells in one synchronous pass — a large
-// snapshot (hundreds of clusters, ~200 distinct tools) produces tens of
-// thousands of DOM nodes and freezes the tab on mount. Cap the initial render;
-// "Show all" opts into the rest.
+// A large snapshot (hundreds of clusters) renders every row in one synchronous
+// pass and freezes the tab on mount. Cap the initial render; "Show all" opts
+// into the rest.
 export const MAX_VISIBLE_CLUSTERS = 30
-export const MAX_HEATMAP_TOOL_COLUMNS = 40
 
 // The generated client types the retrieve endpoint as returning an array, but the view actually
 // returns a single object. drf-spectacular assumes ViewSet `list` actions return arrays. Normalize.
@@ -56,6 +60,8 @@ export interface mcpClusteringLogicValues {
     hasSnapshot: boolean
     hiddenClusterCount: number
     isComputing: boolean
+    longTail: MCPIntentClusterLongTailApi | null
+    recurring: readonly MCPRecurringIntentApi[]
     selectedCluster: MCPIntentClusterApi | null
     selectedClusterId: number | null
     snapshot: MCPIntentClusterSnapshotApi
@@ -63,10 +69,8 @@ export interface mcpClusteringLogicValues {
     sortKey: ClusterSortKey
     sortedClusters: MCPIntentClusterApi[]
     spreadRoutes: number
-    toolColumns: string[]
     topErrorRoute: MCPIntentClusterApi | null
     totalClusterCount: number
-    totalToolCount: number
     visibleClusters: MCPIntentClusterApi[]
 }
 
@@ -132,9 +136,9 @@ export interface mcpClusteringLogicMeta {
         sortedClusters: (clusters: readonly MCPIntentClusterApi[], sortKey: ClusterSortKey) => MCPIntentClusterApi[]
         visibleClusters: (sortedClusters: MCPIntentClusterApi[], allClustersShown: boolean) => MCPIntentClusterApi[]
         hiddenClusterCount: (sortedClusters: MCPIntentClusterApi[], visibleClusters: MCPIntentClusterApi[]) => number
-        toolColumns: (clusters: readonly MCPIntentClusterApi[]) => string[]
-        totalToolCount: (clusters: readonly MCPIntentClusterApi[]) => number
         totalClusterCount: (snapshot: MCPIntentClusterSnapshotApi) => number
+        longTail: (snapshot: MCPIntentClusterSnapshotApi) => MCPIntentClusterLongTailApi | null
+        recurring: (snapshot: MCPIntentClusterSnapshotApi) => readonly MCPRecurringIntentApi[]
         selectedCluster: (
             clusters: readonly MCPIntentClusterApi[],
             selectedClusterId: number | null
@@ -236,7 +240,7 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
                 }
             },
         ],
-        // The heatmap rows: sliced after sorting so re-sorting can surface any
+        // The rendered rows: sliced after sorting so re-sorting can surface any
         // cluster into the visible set.
         visibleClusters: [
             (s) => [s.sortedClusters, s.allClustersShown],
@@ -248,34 +252,13 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
             (sortedClusters: MCPIntentClusterApi[], visibleClusters: MCPIntentClusterApi[]): number =>
                 sortedClusters.length - visibleClusters.length,
         ],
-        // Tools across the whole snapshot, ordered by total calls desc — these are
-        // the heatmap columns, capped so a wide tool set can't explode the table.
-        toolColumns: [
-            (s) => [s.clusters],
-            (clusters: readonly MCPIntentClusterApi[]): string[] => {
-                const totals = new Map<string, number>()
-                for (const cluster of clusters) {
-                    for (const entry of cluster.tool_distribution) {
-                        totals.set(entry.tool, (totals.get(entry.tool) ?? 0) + entry.count)
-                    }
-                }
-                return [...totals.entries()]
-                    .sort((a, b) => b[1] - a[1])
-                    .slice(0, MAX_HEATMAP_TOOL_COLUMNS)
-                    .map(([tool]) => tool)
-            },
+        longTail: [
+            (s) => [s.snapshot],
+            (snapshot: MCPIntentClusterSnapshotApi): MCPIntentClusterLongTailApi | null => snapshot.long_tail ?? null,
         ],
-        totalToolCount: [
-            (s) => [s.clusters],
-            (clusters: readonly MCPIntentClusterApi[]): number => {
-                const tools = new Set<string>()
-                for (const cluster of clusters) {
-                    for (const entry of cluster.tool_distribution) {
-                        tools.add(entry.tool)
-                    }
-                }
-                return tools.size
-            },
+        recurring: [
+            (s) => [s.snapshot],
+            (snapshot: MCPIntentClusterSnapshotApi): readonly MCPRecurringIntentApi[] => snapshot.recurring ?? [],
         ],
         // The true number of clusters the run found — the snapshot itself only
         // carries the top MAX_SNAPSHOT_CLUSTERS by call volume, so anything
@@ -297,33 +280,20 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
                 return clusters.find((c) => c.id === selectedClusterId) ?? null
             },
         ],
-        // Scorecard derivations — all from existing aggregate fields.
+        // Scorecard derivations, gated to clusters with enough sessions for the
+        // routing signal to mean anything (see clusteringScorecards.ts).
         concentratedRoutes: [
             (s) => [s.clusters],
-            (clusters: readonly MCPIntentClusterApi[]): { focused: number; total: number } => ({
-                focused: clusters.filter((c) => (c.tool_distribution[0]?.pct ?? 0) >= 80).length,
-                total: clusters.length,
-            }),
+            (clusters: readonly MCPIntentClusterApi[]): { focused: number; total: number } =>
+                computeConcentratedRoutes(clusters),
         ],
         spreadRoutes: [
             (s) => [s.clusters],
-            (clusters: readonly MCPIntentClusterApi[]): number =>
-                clusters.filter((c) => {
-                    const top = c.tool_distribution[0]?.pct ?? 100
-                    return c.tool_distribution.length >= 2 && top < 50
-                }).length,
+            (clusters: readonly MCPIntentClusterApi[]): number => computeSpreadRoutes(clusters),
         ],
         topErrorRoute: [
             (s) => [s.clusters],
-            (clusters: readonly MCPIntentClusterApi[]): MCPIntentClusterApi | null => {
-                if (clusters.length === 0) {
-                    return null
-                }
-                // Highest traffic-weighted error count — the cluster that loses the most calls to errors.
-                return [...clusters].sort(
-                    (a, b) => b.call_count * b.error_rate_pct - a.call_count * a.error_rate_pct
-                )[0]
-            },
+            (clusters: readonly MCPIntentClusterApi[]): MCPIntentClusterApi | null => computeTopErrorRoute(clusters),
         ],
         isComputing: [
             (s) => [s.snapshot],

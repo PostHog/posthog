@@ -20,6 +20,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 import type { MCPIntentClusterApi, MCPIntentClusterToolEntryApi } from '../generated/api.schemas'
+import { KPI_MIN_SESSIONS } from './clusteringScorecards'
 import { ClusterJourneySankey } from './ClusterJourneySankey'
 import { ClusterSortKey, mcpClusteringLogic } from './mcpClusteringLogic'
 
@@ -60,53 +61,42 @@ function EntropyBadge({ entropy }: { entropy: number }): JSX.Element {
     )
 }
 
-function HeatmapCell({
-    entry,
-    size,
-    rowMaxCount,
-}: {
-    entry: MCPIntentClusterToolEntryApi | undefined
-    size: number
-    rowMaxCount: number
-}): JSX.Element {
-    const sizeStyle = { width: size, height: size }
-    if (!entry || entry.count === 0) {
-        return (
-            <div
-                className="rounded-[2px] bg-surface-secondary/30"
-                // eslint-disable-next-line react/forbid-dom-props
-                style={sizeStyle}
-                aria-hidden
-            />
-        )
+const TOP_TOOL_CHIPS = 3
+
+function ToolChips({ distribution }: { distribution: readonly MCPIntentClusterToolEntryApi[] }): JSX.Element {
+    if (distribution.length === 0) {
+        return <span className="text-xs text-muted">No tool calls</span>
     }
-    // Scale relative to the row's max — so the most-called tool in each
-    // cluster is fully dark and the rest grade down. A 1-call tool next to
-    // a 50-call tool still shows up clearly thanks to the 0.3 floor.
-    const intensity = rowMaxCount > 0 ? entry.count / rowMaxCount : 0
-    const opacity = Math.max(0.3, Math.min(1, intensity))
-    const hasErrors = entry.error_rate_pct > 0
+    const top = distribution.slice(0, TOP_TOOL_CHIPS)
+    const remainder = distribution.length - top.length
     return (
-        <Tooltip
-            title={
-                <div className="flex flex-col gap-0.5">
-                    <span className="font-semibold">{entry.tool}</span>
-                    <span>{entry.count.toLocaleString()} calls</span>
-                    <span>{entry.pct.toFixed(1)}% of cluster</span>
-                    {hasErrors ? <span className="text-danger">{entry.error_rate_pct.toFixed(1)}% errors</span> : null}
-                </div>
-            }
-        >
-            <div
-                className="rounded-[2px] cursor-help"
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    ...sizeStyle,
-                    backgroundColor: hasErrors ? 'var(--danger)' : 'var(--accent)',
-                    opacity,
-                }}
-            />
-        </Tooltip>
+        <div className="flex flex-wrap items-center gap-1">
+            {top.map((entry) => (
+                <Tooltip
+                    key={entry.tool}
+                    title={
+                        <div className="flex flex-col gap-0.5">
+                            <span className="font-semibold">{entry.tool}</span>
+                            <span>{entry.count.toLocaleString()} calls</span>
+                            <span>{entry.pct.toFixed(1)}% of cluster</span>
+                            {entry.error_rate_pct > 0 ? (
+                                <span className="text-danger">{entry.error_rate_pct.toFixed(1)}% errors</span>
+                            ) : null}
+                        </div>
+                    }
+                >
+                    <span
+                        className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-mono bg-surface-secondary ${
+                            entry.error_rate_pct > 5 ? 'text-danger' : ''
+                        }`}
+                    >
+                        {entry.tool}
+                        <span className="text-muted tabular-nums">{Math.round(entry.pct)}%</span>
+                    </span>
+                </Tooltip>
+            ))}
+            {remainder > 0 ? <span className="text-[11px] text-muted">+{remainder} more</span> : null}
+        </div>
     )
 }
 
@@ -134,21 +124,24 @@ function Scorecards(): JSX.Element {
                         </span>
                         <span className="text-xs text-muted">({concentratedShare}%)</span>
                     </div>
-                    <span className="text-xs text-muted mt-1">Intent groups where one tool handles ≥80% of calls.</span>
+                    <span className="text-xs text-muted mt-1">
+                        Intent groups with {KPI_MIN_SESSIONS}+ sessions where one tool handles at least 80% of calls.
+                    </span>
                 </div>
                 <div className="bg-surface-primary border rounded p-3 min-h-[88px] flex flex-col">
                     <span className="text-muted text-xs font-medium uppercase">Spread routes</span>
                     <div className="flex items-baseline gap-2 mt-1">
                         <span className="text-2xl font-semibold">{spreadRoutes}</span>
-                        <span className="text-xs text-muted">of {clusters.length}</span>
+                        <span className="text-xs text-muted">of {concentratedRoutes.total}</span>
                     </div>
                     <span className="text-xs text-muted mt-1">
-                        Intent groups where no single tool covers half the calls — possible drift.
+                        Intent groups with {KPI_MIN_SESSIONS}+ sessions where no single tool covers half the calls.
+                        Possible routing drift.
                     </span>
                 </div>
                 <div className="bg-surface-primary border rounded p-3 min-h-[88px] flex flex-col">
                     <span className="text-muted text-xs font-medium uppercase">Top error route</span>
-                    {topErrorRoute && topErrorRoute.error_rate_pct > 0 ? (
+                    {topErrorRoute ? (
                         <>
                             <div className="flex items-baseline gap-2 mt-1">
                                 <span className="text-2xl font-semibold text-danger">
@@ -165,7 +158,9 @@ function Scorecards(): JSX.Element {
                             <div className="flex items-baseline gap-2 mt-1">
                                 <span className="text-2xl font-semibold text-success">0%</span>
                             </div>
-                            <span className="text-xs text-muted mt-1">No errors observed across clusters.</span>
+                            <span className="text-xs text-muted mt-1">
+                                No errors among intent groups with {KPI_MIN_SESSIONS}+ sessions.
+                            </span>
                         </>
                     )}
                 </div>
@@ -194,174 +189,190 @@ function SortHeader(): JSX.Element {
     )
 }
 
-function Heatmap(): JSX.Element {
-    const { visibleClusters, hiddenClusterCount, toolColumns, totalToolCount, selectedClusterId } =
-        useValues(mcpClusteringLogic)
+function ClusterList(): JSX.Element {
+    const { visibleClusters, hiddenClusterCount, longTail, selectedClusterId } = useValues(mcpClusteringLogic)
     const { selectCluster, showAllClusters } = useActions(mcpClusteringLogic)
 
-    if (toolColumns.length === 0) {
+    if (visibleClusters.length === 0 && !longTail) {
         return (
             <div className="bg-surface-primary border rounded p-4 text-center text-muted text-sm">
-                No tool calls observed in any cluster yet.
+                No intent clusters in this window.
             </div>
         )
     }
 
-    // Spacious mode: few tools and shortish names. Bigger cells, horizontal labels.
-    // Compact mode: many tools or long names. Github-style with rotated labels.
-    const longestName = Math.max(...toolColumns.map((t) => t.length))
-    const isSpacious = toolColumns.length <= 6 && longestName <= 14
-
-    const cellSize = isSpacious ? 22 : 14
-    const columnWidth = isSpacious ? 0 : 18 // 0 = let CSS auto-size to label width
-
-    const hiddenToolCount = totalToolCount - toolColumns.length
-
     return (
-        <div className="bg-surface-primary border rounded">
-            <div className="overflow-x-auto">
-                <table className="text-sm border-collapse" style={{ borderSpacing: 0 }}>
-                    <thead>
-                        <tr className="bg-surface-secondary text-[10px] text-muted">
-                            <th className="text-left px-3 py-2 sticky left-0 bg-surface-secondary z-10 min-w-[220px] align-bottom text-xs">
-                                Intent cluster
-                            </th>
-                            {toolColumns.map((tool) =>
-                                isSpacious ? (
-                                    <th
-                                        key={tool}
-                                        className="px-2 pb-1 pt-2 font-medium font-mono text-[11px] text-center align-bottom whitespace-nowrap"
-                                        title={tool}
-                                    >
-                                        {tool}
-                                    </th>
-                                ) : (
-                                    <th
-                                        key={tool}
-                                        className="px-0 pb-1 pt-2 font-medium align-bottom"
-                                        // eslint-disable-next-line react/forbid-dom-props
-                                        style={{ width: columnWidth, minWidth: columnWidth, maxWidth: columnWidth }}
-                                    >
-                                        <div
-                                            className="font-mono text-[10px] mx-auto whitespace-nowrap overflow-hidden text-ellipsis"
-                                            // eslint-disable-next-line react/forbid-dom-props
-                                            style={{
-                                                writingMode: 'vertical-rl',
-                                                transform: 'rotate(180deg)',
-                                                height: 96,
-                                                lineHeight: '18px',
-                                            }}
-                                            title={tool}
-                                        >
-                                            {tool}
-                                        </div>
-                                    </th>
-                                )
-                            )}
-                            <th className="px-3 py-2 text-right text-xs align-bottom">Calls</th>
-                            <th className="px-3 py-2 text-right text-xs align-bottom">Errors</th>
-                            <th className="px-3 py-2 text-left text-xs align-bottom">Routing</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {visibleClusters.map((cluster) => {
-                            const isSelected = cluster.id === selectedClusterId
-                            const byTool = new Map(cluster.tool_distribution.map((e) => [e.tool, e]))
-                            const rowMaxCount = cluster.tool_distribution.reduce(
-                                (max, entry) => Math.max(max, entry.count),
-                                0
-                            )
-                            // Sticky cells need their own background — `tr` backgrounds don't paint
-                            // through to sticky-positioned children when scrolled horizontally.
-                            const rowBg = isSelected
-                                ? 'bg-accent/10'
-                                : 'bg-surface-primary group-hover:bg-surface-secondary/60'
-                            return (
-                                <tr
-                                    key={cluster.id}
-                                    onClick={() => selectCluster(cluster.id)}
-                                    className={`group border-t border-primary cursor-pointer transition-colors ${
-                                        isSelected ? 'bg-accent/10' : 'hover:bg-surface-secondary/60'
-                                    }`}
-                                >
-                                    <td
-                                        className={`px-3 py-1.5 sticky left-0 z-10 min-w-[220px] max-w-[280px] transition-colors ${rowBg}`}
-                                    >
-                                        <div className="flex flex-col">
-                                            <span className="font-medium truncate" title={cluster.label}>
-                                                {cluster.label}
-                                            </span>
-                                            <span className="text-[10px] text-muted">
-                                                {cluster.session_count} session
-                                                {cluster.session_count === 1 ? '' : 's'} · {cluster.intent_count} intent
-                                                {cluster.intent_count === 1 ? '' : 's'}
-                                            </span>
-                                        </div>
-                                    </td>
-                                    {toolColumns.map((tool) => (
-                                        <td
-                                            key={tool}
-                                            className="p-0 align-middle"
-                                            // eslint-disable-next-line react/forbid-dom-props
-                                            style={
-                                                isSpacious
-                                                    ? undefined
-                                                    : {
-                                                          width: columnWidth,
-                                                          minWidth: columnWidth,
-                                                          maxWidth: columnWidth,
-                                                      }
-                                            }
-                                        >
-                                            <div className="flex justify-center items-center py-[2px]">
-                                                <HeatmapCell
-                                                    entry={byTool.get(tool)}
-                                                    size={cellSize}
-                                                    rowMaxCount={rowMaxCount}
-                                                />
-                                            </div>
-                                        </td>
-                                    ))}
-                                    <td className="px-3 py-1.5 text-right tabular-nums text-xs">
-                                        {cluster.call_count.toLocaleString()}
-                                    </td>
-                                    <td
-                                        className={`px-3 py-1.5 text-right tabular-nums text-xs ${
+        <div className="bg-surface-primary border rounded" data-quill>
+            <Table fullWidth>
+                <TableHeader>
+                    <TableRow>
+                        <TableHead expand>Intent cluster</TableHead>
+                        <TableHead>Top tools</TableHead>
+                        <TableHead align="right">Calls</TableHead>
+                        <TableHead align="right">Errors</TableHead>
+                        <TableHead>Routing</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {visibleClusters.map((cluster) => {
+                        const isSelected = cluster.id === selectedClusterId
+                        return (
+                            <TableRow
+                                key={cluster.id}
+                                onClick={() => selectCluster(cluster.id)}
+                                className={`cursor-pointer transition-colors ${
+                                    isSelected ? 'bg-accent/10' : 'hover:bg-surface-secondary/60'
+                                }`}
+                            >
+                                <TableCell expand>
+                                    <div className="flex flex-col max-w-[480px]">
+                                        <span className="font-medium truncate" title={cluster.label}>
+                                            {cluster.label}
+                                        </span>
+                                        <span className="text-[10px] text-muted">
+                                            {cluster.session_count} session
+                                            {cluster.session_count === 1 ? '' : 's'} · {cluster.intent_count} intent
+                                            {cluster.intent_count === 1 ? '' : 's'}
+                                        </span>
+                                    </div>
+                                </TableCell>
+                                <TableCell>
+                                    <ToolChips distribution={cluster.tool_distribution} />
+                                </TableCell>
+                                <TableCell align="right">
+                                    <span className="tabular-nums text-xs">{cluster.call_count.toLocaleString()}</span>
+                                </TableCell>
+                                <TableCell align="right">
+                                    <span
+                                        className={`tabular-nums text-xs ${
                                             cluster.error_rate_pct > 5 ? 'text-danger font-semibold' : ''
                                         }`}
                                     >
                                         {cluster.error_rate_pct.toFixed(1)}%
-                                    </td>
-                                    <td className="px-3 py-1.5">
-                                        <EntropyBadge entropy={cluster.routing_entropy} />
-                                    </td>
-                                </tr>
-                            )
-                        })}
-                    </tbody>
-                </table>
-            </div>
-            {(hiddenClusterCount > 0 || hiddenToolCount > 0) && (
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-primary px-3 py-2 text-xs text-muted">
-                    {hiddenClusterCount > 0 ? (
-                        <>
-                            <span>
-                                Showing the top {visibleClusters.length} of{' '}
-                                {visibleClusters.length + hiddenClusterCount} clusters.
-                            </span>
-                            <Button size="sm" variant="outline" onClick={showAllClusters}>
-                                Show all
-                            </Button>
-                        </>
+                                    </span>
+                                </TableCell>
+                                <TableCell>
+                                    <EntropyBadge entropy={cluster.routing_entropy} />
+                                </TableCell>
+                            </TableRow>
+                        )
+                    })}
+                    {longTail ? (
+                        <TableRow>
+                            <TableCell expand>
+                                <div className="flex flex-col">
+                                    <Tooltip
+                                        title={
+                                            <div className="flex flex-col gap-1 max-w-md">
+                                                <span className="font-semibold">Sample one-off intents</span>
+                                                {longTail.sample_intents.map((intent, idx) => (
+                                                    <span key={idx} className="text-xs">
+                                                        &ldquo;{intent}&rdquo;
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        }
+                                    >
+                                        <span className="font-medium text-muted cursor-help">
+                                            Long tail: {longTail.intent_count.toLocaleString()} one-off intents
+                                        </span>
+                                    </Tooltip>
+                                    <span className="text-[10px] text-muted">
+                                        {longTail.session_count.toLocaleString()} session
+                                        {longTail.session_count === 1 ? '' : 's'} that didn&apos;t group with anything
+                                        else
+                                    </span>
+                                </div>
+                            </TableCell>
+                            <TableCell>
+                                <span className="text-xs text-muted">Varied</span>
+                            </TableCell>
+                            <TableCell align="right">
+                                <span className="tabular-nums text-xs">{longTail.call_count.toLocaleString()}</span>
+                            </TableCell>
+                            <TableCell align="right">
+                                <span
+                                    className={`tabular-nums text-xs ${
+                                        longTail.error_rate_pct > 5 ? 'text-danger font-semibold' : ''
+                                    }`}
+                                >
+                                    {longTail.error_rate_pct.toFixed(1)}%
+                                </span>
+                            </TableCell>
+                            <TableCell>
+                                <span className="text-xs text-muted">n/a</span>
+                            </TableCell>
+                        </TableRow>
                     ) : null}
-                    {hiddenToolCount > 0 ? (
-                        <span>
-                            Columns show the top {toolColumns.length} of {totalToolCount} tools by call volume. Select a
-                            cluster to see its full tool breakdown.
-                        </span>
-                    ) : null}
+                </TableBody>
+            </Table>
+            {hiddenClusterCount > 0 ? (
+                <div className="flex flex-wrap items-center gap-3 border-t border-primary px-3 py-2 text-xs text-muted">
+                    <span>
+                        Showing the top {visibleClusters.length} of {visibleClusters.length + hiddenClusterCount}{' '}
+                        clusters.
+                    </span>
+                    <Button size="sm" variant="outline" onClick={showAllClusters}>
+                        Show all
+                    </Button>
                 </div>
-            )}
+            ) : null}
+        </div>
+    )
+}
+
+function RecurringIntentsSection(): JSX.Element | null {
+    const { recurring } = useValues(mcpClusteringLogic)
+    if (recurring.length === 0) {
+        return null
+    }
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="flex flex-col">
+                <h3 className="text-base font-semibold">Recurring automated intents</h3>
+                <span className="text-xs text-muted">
+                    The same intent text opened 3 or more sessions in this window. These are usually scheduled agents
+                    and crons, so they are listed here instead of the clusters above.
+                </span>
+            </div>
+            <div className="bg-surface-primary border rounded" data-quill>
+                <Table fullWidth>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead expand>Intent</TableHead>
+                            <TableHead align="right">Sessions</TableHead>
+                            <TableHead align="right">Calls</TableHead>
+                            <TableHead align="right">Errors</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {recurring.map((entry) => (
+                            <TableRow key={entry.intent_text}>
+                                <TableCell expand>
+                                    <span className="text-xs truncate block max-w-[560px]" title={entry.intent_text}>
+                                        {entry.intent_text}
+                                    </span>
+                                </TableCell>
+                                <TableCell align="right">
+                                    <span className="tabular-nums text-xs">{entry.session_count.toLocaleString()}</span>
+                                </TableCell>
+                                <TableCell align="right">
+                                    <span className="tabular-nums text-xs">{entry.call_count.toLocaleString()}</span>
+                                </TableCell>
+                                <TableCell align="right">
+                                    <span
+                                        className={`tabular-nums text-xs ${
+                                            entry.error_rate_pct > 5 ? 'text-danger font-semibold' : ''
+                                        }`}
+                                    >
+                                        {entry.error_rate_pct.toFixed(1)}%
+                                    </span>
+                                </TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+            </div>
         </div>
     )
 }
@@ -594,7 +605,7 @@ export function MCPAnalyticsClustering(): JSX.Element {
             <StatusRow />
             <Scorecards />
             <SortHeader />
-            <Heatmap />
+            <ClusterList />
             {selectedCluster ? (
                 <ClusterDetail cluster={selectedCluster} />
             ) : (
@@ -602,6 +613,7 @@ export function MCPAnalyticsClustering(): JSX.Element {
                     Click a cluster row above to see its sample intents and tool breakdown.
                 </div>
             )}
+            <RecurringIntentsSection />
         </div>
     )
 }

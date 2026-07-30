@@ -4,7 +4,7 @@ import { initKeaTests } from '~/test/init'
 
 import { mcpAnalyticsIntentClustersRetrieve } from '../generated/api'
 import type { MCPIntentClusterApi, MCPIntentClusterSnapshotApi } from '../generated/api.schemas'
-import { MAX_HEATMAP_TOOL_COLUMNS, MAX_VISIBLE_CLUSTERS, mcpClusteringLogic } from './mcpClusteringLogic'
+import { MAX_VISIBLE_CLUSTERS, mcpClusteringLogic } from './mcpClusteringLogic'
 
 jest.mock('lib/api')
 jest.mock('../generated/api', () => ({
@@ -24,12 +24,7 @@ function cluster(id: number, overrides: Partial<MCPIntentClusterApi> = {}): MCPI
         error_count: 0,
         error_rate_pct: 0,
         routing_entropy: 0,
-        // Two tools per cluster: a high-volume one unique to the cluster and a
-        // 1-call long-tail one, so the snapshot carries 2× clusters distinct tools.
-        tool_distribution: [
-            { tool: `tool-${id}`, count: 100 - id, pct: 99, errors: 0, error_rate_pct: 0 },
-            { tool: `tail-${id}`, count: 1, pct: 1, errors: 0, error_rate_pct: 0 },
-        ],
+        tool_distribution: [{ tool: `tool-${id}`, count: 100 - id, pct: 100, errors: 0, error_rate_pct: 0 }],
         sample_intents: [`intent ${id}`],
         journey: null,
         ...overrides,
@@ -50,6 +45,8 @@ const SNAPSHOT: MCPIntentClusterSnapshotApi = {
         // only enters the visible set under the errors sort.
         cluster(i, i === HIGH_ERROR_ID ? { error_rate_pct: 50, error_count: 10 } : {})
     ),
+    long_tail: null,
+    recurring: [],
     computed_with: {
         distance_threshold: 0.2,
         embedding_model: 'test',
@@ -94,13 +91,6 @@ describe('mcpClusteringLogic', () => {
         // …but worst error rate, so it leads once sorted by errors.
         expect(logic.values.visibleClusters[0].id).toBe(HIGH_ERROR_ID)
         expect(logic.values.visibleClusters).toHaveLength(MAX_VISIBLE_CLUSTERS)
-    })
-
-    it('caps heatmap tool columns by call volume and reports the full tool count', () => {
-        expect(logic.values.toolColumns).toHaveLength(MAX_HEATMAP_TOOL_COLUMNS)
-        // Highest-volume tool leads; the 1-call long-tail tools are what get cut.
-        expect(logic.values.toolColumns[0]).toBe('tool-0')
-        expect(logic.values.totalToolCount).toBe(N_CLUSTERS * 2)
     })
 
     it('reports the true cluster count from computed_with when the snapshot is truncated', async () => {
