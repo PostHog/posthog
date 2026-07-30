@@ -264,7 +264,7 @@ async fn pod_crash_reassigns_partitions(
 
     // Use a short lease for pod0 so crash is detected quickly
     let pod0_cancel = CancellationToken::new();
-    let _pod0 = start_pod_with_lease_ttl(Arc::clone(&store), "writer-0", 2, pod0_cancel.clone());
+    let _pod0 = start_pod_with_lease_ttl(Arc::clone(&store), "writer-0", 5, pod0_cancel.clone());
     let _pod1 = start_pod(Arc::clone(&store), "writer-1", cancel.clone());
 
     // Wait for balanced assignment across both pods
@@ -647,9 +647,9 @@ async fn scale_down_to_one_pod(
 
     // Start 3 pods with short leases so crash detection is fast
     let pod0_cancel = CancellationToken::new();
-    let _pod0 = start_pod_with_lease_ttl(Arc::clone(&store), "writer-0", 2, pod0_cancel.clone());
+    let _pod0 = start_pod_with_lease_ttl(Arc::clone(&store), "writer-0", 5, pod0_cancel.clone());
     let pod1_cancel = CancellationToken::new();
-    let _pod1 = start_pod_with_lease_ttl(Arc::clone(&store), "writer-1", 2, pod1_cancel.clone());
+    let _pod1 = start_pod_with_lease_ttl(Arc::clone(&store), "writer-1", 5, pod1_cancel.clone());
     let _pod2 = start_pod(Arc::clone(&store), "writer-2", cancel.clone());
 
     // Wait for balanced assignment across all 3 pods
@@ -824,7 +824,7 @@ async fn rolling_update(
         _old_pods.push(start_pod_with_lease_ttl(
             Arc::clone(&store),
             &format!("old-{i}"),
-            2,
+            5,
             old_cancel.clone(),
         ));
     }
