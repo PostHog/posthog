@@ -241,7 +241,12 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         )
         return
 
-    helper = DeltaTableHelper(resource_name=schema.name, job=job, logger=logger)
+    # `resolved_s3_folder_name` is authoritative for the Delta folder, not the row's own name: a row
+    # renamed during the multi-schema migration keeps its folder pinned to the original path (name
+    # `public.users`, folder `users`), and the pipeline writes there too. Deriving the folder from
+    # `name` alone probes a path that was never written and the repartition skips as `no_delta_table`.
+    resource_name = schema.resolved_s3_folder_name or schema.name
+    helper = DeltaTableHelper(resource_name=resource_name, job=job, logger=logger)
 
     if pending is None and swap is None:
         # Nothing was queued by a prior run's post-load detection, but the gate flagged the table for an
