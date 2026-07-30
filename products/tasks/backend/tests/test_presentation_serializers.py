@@ -8,6 +8,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.tasks.backend.presentation.serializers import (
+    SignalReportTaskCreateSerializer,
     TaskRunCreateRequestSerializer,
     TaskRunLivingArtifactCreateRequestSerializer,
     TaskWriteSerializer,
@@ -57,6 +58,10 @@ class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
                 "internal": internal,
             },
         )
+
+    def test_signal_report_serializer_assigns_origin(self) -> None:
+        serializer = SignalReportTaskCreateSerializer()
+        assert serializer.fields["origin_product"].default == "signal_report"
 
 
 class TestTaskRunLivingArtifactCreateRequestSerializer(SimpleTestCase):

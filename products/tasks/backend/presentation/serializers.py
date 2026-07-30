@@ -656,10 +656,9 @@ class TaskWriteSerializer(serializers.Serializer):
             },
         )
 
-        trusted_signal_report = self.context.get("trusted_signal_report", False)
-        if trusted_signal_report:
-            attrs["origin_product"] = tasks_facade.TaskOriginProduct.SIGNAL_REPORT
-        elif "signal_report" in attrs or "signal_report_task_relationship" in attrs:
+        if ("signal_report" in attrs or "signal_report_task_relationship" in attrs) and attrs.get(
+            "origin_product"
+        ) != tasks_facade.TaskOriginProduct.SIGNAL_REPORT:
             raise serializers.ValidationError(
                 {"signal_report": "Signal report attribution must use the signal report task endpoint."}
             )
@@ -697,6 +696,7 @@ class TaskCreateSerializer(TaskWriteSerializer):
 
 
 class SignalReportTaskCreateSerializer(TaskCreateSerializer):
+    origin_product = serializers.HiddenField(default=tasks_facade.TaskOriginProduct.SIGNAL_REPORT)
     signal_report = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
         queryset=Integration.objects.none(),
         required=True,

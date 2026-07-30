@@ -331,7 +331,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "team": self.team,
                 "team_id": self.team.id,
                 "request": self.request,
-                "trusted_signal_report": True,
             },
         )
         serializer.is_valid(raise_exception=True)
