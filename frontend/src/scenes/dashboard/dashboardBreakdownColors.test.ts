@@ -4,8 +4,11 @@ import { AccessControlLevel, DashboardTile, FunnelVizType, InsightShortId, Query
 import {
     BreakdownColorConfig,
     MULTI_BREAKDOWN_SEPARATOR,
-    computeAutoBreakdownColors,
+    applyAutoBreakdownColors,
+    buildSharedBreakdownValueLookup,
+    computeTileFallbackTokens,
     extractBreakdownValues,
+    extractBreakdownValuesByTile,
     findBreakdownColorConfig,
     mergeBreakdownColorConfigs,
 } from './dashboardBreakdownColors'
@@ -255,68 +258,108 @@ describe('dashboardBreakdownColors', () => {
         })
     })
 
-    describe('computeAutoBreakdownColors', () => {
+    describe('extractBreakdownValuesByTile', () => {
+        it('keeps values grouped by tile and deduplicates within a tile', () => {
+            const tiles = [
+                trendsTile([
+                    { action: { order: 0 }, breakdown_value: ['Chrome'] },
+                    // second series over the same breakdown repeats the value within the tile
+                    { action: { order: 1 }, breakdown_value: ['Chrome'] },
+                    { action: { order: 0 }, breakdown_value: ['Firefox'] },
+                ]),
+                trendsTile([{ action: { order: 0 }, breakdown_value: 'Chrome' }]),
+                trendsTile([]),
+            ]
+
+            expect(extractBreakdownValuesByTile(tiles)).toEqual([
+                [
+                    { breakdownValue: 'Chrome', breakdownType: 'event' },
+                    { breakdownValue: 'Firefox', breakdownType: 'event' },
+                ],
+                [{ breakdownValue: 'Chrome', breakdownType: 'event' }],
+            ])
+        })
+    })
+
+    describe('applyAutoBreakdownColors', () => {
         const value = (breakdownValue: string): { breakdownValue: string; breakdownType: 'event' } => ({
             breakdownValue,
             breakdownType: 'event',
         })
+        // most cases want values shared by two tiles, since single-tile values are not assigned
+        const sharedTiles = (...breakdownValues: string[]): { breakdownValue: string; breakdownType: 'event' }[][] => [
+            breakdownValues.map(value),
+            breakdownValues.map(value),
+        ]
+        const autoConfig = (
+            breakdownValue: string,
+            colorToken: BreakdownColorConfig['colorToken']
+        ): BreakdownColorConfig => ({ breakdownValue, breakdownType: 'event', colorToken, source: 'auto' })
 
-        it('fills free slots in sorted order without touching existing configs', () => {
+        it('assigns only values that appear on two or more tiles', () => {
+            const result = applyAutoBreakdownColors([[value('Chrome'), value('Firefox')], [value('Chrome')]], [])
+
+            // Firefox is unique to one tile, so it keeps position-based colors instead
+            expect(result).toEqual([
+                { breakdownValue: 'Chrome', breakdownType: 'event', colorToken: 'preset-1', source: 'auto' },
+            ])
+        })
+
+        it('fills free slots in sorted order and appends after existing configs', () => {
             const existing: BreakdownColorConfig[] = [
                 { breakdownValue: 'Chrome', breakdownType: 'event', colorToken: 'preset-3', source: 'manual' },
             ]
 
-            const assigned = computeAutoBreakdownColors([value('Google'), value('Alibaba'), value('Chrome')], existing)
+            const result = applyAutoBreakdownColors(sharedTiles('Google', 'Alibaba', 'Chrome'), existing)
 
-            expect(assigned).toEqual([
+            expect(result).toEqual([
+                { breakdownValue: 'Chrome', breakdownType: 'event', colorToken: 'preset-3', source: 'manual' },
                 { breakdownValue: 'Alibaba', breakdownType: 'event', colorToken: 'preset-1', source: 'auto' },
                 { breakdownValue: 'Google', breakdownType: 'event', colorToken: 'preset-2', source: 'auto' },
             ])
-            expect(existing[0].colorToken).toBe('preset-3')
+        })
+
+        it('returns non-colliding configs unchanged, by reference, in their original order', () => {
+            const existing: BreakdownColorConfig[] = [
+                autoConfig('Google', 'preset-2'),
+                { breakdownValue: 'Chrome', breakdownType: 'event', colorToken: 'preset-3', source: 'manual' },
+                autoConfig('Alibaba', 'preset-1'),
+            ]
+
+            const result = applyAutoBreakdownColors(sharedTiles('Google', 'Alibaba', 'Chrome'), existing)
+
+            // an unchanged dashboard must round-trip deep-equal, or every load looks like an edit to save
+            expect(result).toHaveLength(3)
+            result.forEach((config, index) => expect(config).toBe(existing[index]))
         })
 
         it('keeps covered values stable when a lexically-middle value appears', () => {
             const persistedAuto: BreakdownColorConfig[] = [
-                { breakdownValue: 'Alibaba', breakdownType: 'event', colorToken: 'preset-1', source: 'auto' },
-                { breakdownValue: 'Google', breakdownType: 'event', colorToken: 'preset-2', source: 'auto' },
+                autoConfig('Alibaba', 'preset-1'),
+                autoConfig('Google', 'preset-2'),
             ]
 
-            const assigned = computeAutoBreakdownColors(
-                [value('Alibaba'), value('Bing'), value('Google')],
-                persistedAuto
-            )
+            const result = applyAutoBreakdownColors(sharedTiles('Alibaba', 'Bing', 'Google'), persistedAuto)
 
             // Bing sorts between the two covered values but only takes a free slot
-            expect(assigned).toEqual([
-                { breakdownValue: 'Bing', breakdownType: 'event', colorToken: 'preset-3', source: 'auto' },
-            ])
+            expect(result).toEqual([...persistedAuto, autoConfig('Bing', 'preset-3')])
         })
 
         it('skips sentinel values', () => {
-            const assigned = computeAutoBreakdownColors(
-                [
-                    value('Baseline'),
-                    value('$$_posthog_breakdown_other_$$'),
-                    value('$$_posthog_breakdown_null_$$'),
-                    value('Chrome'),
-                ],
+            const result = applyAutoBreakdownColors(
+                sharedTiles('Baseline', '$$_posthog_breakdown_other_$$', '$$_posthog_breakdown_null_$$', 'Chrome'),
                 []
             )
 
-            expect(assigned).toEqual([
-                { breakdownValue: 'Chrome', breakdownType: 'event', colorToken: 'preset-1', source: 'auto' },
-            ])
+            expect(result).toEqual([autoConfig('Chrome', 'preset-1')])
         })
 
         it('assigns a value again when its pin was cleared with a null token', () => {
-            const assigned = computeAutoBreakdownColors(
-                [value('Chrome')],
-                [{ breakdownValue: 'Chrome', breakdownType: 'event', colorToken: null, source: 'manual' }]
-            )
-
-            expect(assigned).toEqual([
-                { breakdownValue: 'Chrome', breakdownType: 'event', colorToken: 'preset-1', source: 'auto' },
+            const result = applyAutoBreakdownColors(sharedTiles('Chrome'), [
+                { breakdownValue: 'Chrome', breakdownType: 'event', colorToken: null, source: 'manual' },
             ])
+
+            expect(result).toEqual([autoConfig('Chrome', 'preset-1')])
         })
 
         it('sizes slots to the given palette instead of the default 15 colors', () => {
@@ -324,32 +367,174 @@ describe('dashboardBreakdownColors', () => {
                 { breakdownValue: 'Pinned', breakdownType: 'event', colorToken: 'preset-7', source: 'manual' },
             ]
 
-            const assigned = computeAutoBreakdownColors(
-                [value('A'), value('B'), value('C'), value('D'), value('E')],
-                existing,
-                5
-            )
+            const result = applyAutoBreakdownColors(sharedTiles('A', 'B', 'C', 'D', 'E'), existing, 5)
 
-            // preset-7 renders as the second color of a five-color theme, so that slot is taken,
-            // and the fifth value wraps at the palette size rather than taking preset-6
-            expect(assigned.map((c) => c.colorToken)).toEqual([
+            // preset-7 renders as the second color of a five-color theme, so that slot is taken.
+            // E exhausts the palette, and since the pinned value is not on E's tiles, reusing the
+            // pin's slot is a cross-tile duplicate instead of a within-tile one.
+            expect(result.slice(1).map((c) => c.colorToken)).toEqual([
                 'preset-1',
                 'preset-3',
                 'preset-4',
                 'preset-5',
-                'preset-1',
+                'preset-2',
             ])
         })
 
-        it('wraps deterministically once the palette is exhausted', () => {
-            const values = Array.from({ length: 17 }, (_, i) => value(`value-${String(i + 1).padStart(2, '0')}`))
+        it('spreads within-tile duplicates evenly once every slot is on the tile', () => {
+            const breakdownValues = Array.from({ length: 17 }, (_, i) => `value-${String(i + 1).padStart(2, '0')}`)
 
-            const assigned = computeAutoBreakdownColors(values, [])
+            const result = applyAutoBreakdownColors(sharedTiles(...breakdownValues), [])
 
-            expect(assigned).toHaveLength(17)
-            expect(assigned[14].colorToken).toBe('preset-15')
-            expect(assigned[15].colorToken).toBe('preset-1')
-            expect(assigned[16].colorToken).toBe('preset-2')
+            expect(result).toHaveLength(17)
+            expect(result[14].colorToken).toBe('preset-15')
+            // values 16 and 17 must collide within the tile, but on the least-used slots
+            expect(result[15].colorToken).toBe('preset-1')
+            expect(result[16].colorToken).toBe('preset-2')
+        })
+
+        it('prefers a globally-used slot its own tiles do not show over a within-tile duplicate', () => {
+            const tiles = [...sharedTiles('A', 'B'), ...sharedTiles('Z')]
+
+            const result = applyAutoBreakdownColors(tiles, [], 2)
+
+            // the palette is exhausted by A and B, but Z's tiles show neither slot,
+            // so Z reuses a color rather than duplicating one on its own charts
+            expect(result).toEqual([
+                autoConfig('A', 'preset-1'),
+                autoConfig('B', 'preset-2'),
+                autoConfig('Z', 'preset-1'),
+            ])
+        })
+
+        it('re-slots the later-sorted persisted auto entry of a within-tile collision, in place', () => {
+            const existing: BreakdownColorConfig[] = [autoConfig('Bravo', 'preset-1'), autoConfig('Alpha', 'preset-1')]
+
+            const result = applyAutoBreakdownColors(sharedTiles('Alpha', 'Bravo'), existing)
+
+            // both entries came out of the pre-collision-aware wrap; Alpha sorts first and keeps the slot
+            expect(result).toEqual([autoConfig('Bravo', 'preset-2'), autoConfig('Alpha', 'preset-1')])
+        })
+
+        it('re-slots a persisted auto entry that collides with a manual pin', () => {
+            const existing: BreakdownColorConfig[] = [
+                autoConfig('Alpha', 'preset-3'),
+                { breakdownValue: 'Pinned', breakdownType: 'event', colorToken: 'preset-3', source: 'manual' },
+            ]
+
+            const result = applyAutoBreakdownColors(sharedTiles('Alpha', 'Pinned'), existing)
+
+            expect(result).toEqual([autoConfig('Alpha', 'preset-1'), existing[1]])
+        })
+
+        it('never moves manual pins, even when two of them collide on one tile', () => {
+            const pins: BreakdownColorConfig[] = [
+                { breakdownValue: 'One', breakdownType: 'event', colorToken: 'preset-5', source: 'manual' },
+                { breakdownValue: 'Two', breakdownType: 'event', colorToken: 'preset-5', source: 'manual' },
+            ]
+
+            const result = applyAutoBreakdownColors(sharedTiles('One', 'Two', 'Three'), pins)
+
+            expect(result).toEqual([...pins, autoConfig('Three', 'preset-1')])
+        })
+    })
+
+    describe('buildSharedBreakdownValueLookup', () => {
+        it('is true only for values appearing on two or more tiles', () => {
+            const isShared = buildSharedBreakdownValueLookup([
+                [
+                    { breakdownValue: 'Chrome', breakdownType: 'event' },
+                    { breakdownValue: 'Firefox', breakdownType: 'event' },
+                ],
+                [{ breakdownValue: 'Chrome', breakdownType: 'event' }],
+            ])
+
+            expect(isShared({ breakdownValue: 'Chrome', breakdownType: 'event' })).toBe(true)
+            expect(isShared({ breakdownValue: 'Firefox', breakdownType: 'event' })).toBe(false)
+            expect(isShared({ breakdownValue: 'Chrome', breakdownType: 'person' })).toBe(false)
+        })
+    })
+
+    describe('computeTileFallbackTokens', () => {
+        it('returns an empty map for a tile without overrides, keeping plain position colors', () => {
+            const tokens = computeTileFallbackTokens(
+                [
+                    { position: 0, overrideToken: null },
+                    { position: 1, overrideToken: null },
+                ],
+                15
+            )
+
+            expect(tokens.size).toBe(0)
+        })
+
+        it('fills the slots the tile overrides do not use, in position order', () => {
+            const tokens = computeTileFallbackTokens(
+                [
+                    { position: 0, overrideToken: null },
+                    { position: 1, overrideToken: 'preset-1' },
+                    { position: 2, overrideToken: null },
+                    { position: 3, overrideToken: 'preset-4' },
+                    { position: 4, overrideToken: null },
+                ],
+                15
+            )
+
+            expect(tokens).toEqual(
+                new Map([
+                    [0, 'preset-2'],
+                    [2, 'preset-3'],
+                    [4, 'preset-5'],
+                ])
+            )
+        })
+
+        it('assigns one slot per position when compare pairs repeat a position', () => {
+            const tokens = computeTileFallbackTokens(
+                [
+                    { position: 0, overrideToken: null },
+                    { position: 0, overrideToken: null },
+                    { position: 1, overrideToken: 'preset-1' },
+                ],
+                15
+            )
+
+            expect(tokens).toEqual(new Map([[0, 'preset-2']]))
+        })
+
+        it('cycles the free slots once exhausted instead of reusing an override slot', () => {
+            const tokens = computeTileFallbackTokens(
+                [
+                    { position: 0, overrideToken: 'preset-1' },
+                    { position: 1, overrideToken: null },
+                    { position: 2, overrideToken: null },
+                    { position: 3, overrideToken: null },
+                    { position: 4, overrideToken: null },
+                ],
+                3
+            )
+
+            expect(tokens).toEqual(
+                new Map([
+                    [1, 'preset-2'],
+                    [2, 'preset-3'],
+                    [3, 'preset-2'],
+                    [4, 'preset-3'],
+                ])
+            )
+        })
+
+        it('returns an empty map when overrides cover the whole palette', () => {
+            const tokens = computeTileFallbackTokens(
+                [
+                    { position: 0, overrideToken: 'preset-1' },
+                    { position: 1, overrideToken: 'preset-2' },
+                    { position: 2, overrideToken: null },
+                ],
+                2
+            )
+
+            expect(tokens.size).toBe(0)
         })
     })
 

@@ -474,26 +474,29 @@ describe('dashboardLogic', () => {
             expect(logic.values.hasUnsavedColorChanges).toBe(false)
         })
 
-        it('auto-assigns breakdown colors only behind the dashboard colors flag', async () => {
+        it('auto-assigns colors to multi-tile breakdown values only behind the dashboard colors flag', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
-            const tileInsight = logic.values.dashboard!.tiles.find((t) => !!t.insight)!.insight!
-            const insightWithBreakdowns = {
-                ...tileInsight,
+            const [firstInsight, secondInsight] = logic.values
+                .dashboard!.tiles.filter((t) => !!t.insight)
+                .map((t) => t.insight!)
+            const withBreakdowns = (insight: typeof firstInsight, breakdownValues: string[]): typeof firstInsight => ({
+                ...insight,
                 dashboards: [5],
                 dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
-                result: [
-                    { action: { order: 0 }, breakdown_value: ['Chrome'] },
-                    { action: { order: 0 }, breakdown_value: ['Firefox'] },
-                ],
+                result: breakdownValues.map((breakdown_value) => ({
+                    action: { order: 0 },
+                    breakdown_value: [breakdown_value],
+                })),
                 query: {
                     kind: NodeKind.InsightVizNode,
                     source: { kind: NodeKind.TrendsQuery, series: [] },
                 } as InsightVizNode<TrendsQuery>,
-            }
+            })
 
             await expectLogic(logic, () => {
-                dashboardsModel.actions.updateDashboardInsight(insightWithBreakdowns)
+                dashboardsModel.actions.updateDashboardInsight(withBreakdowns(firstInsight, ['Chrome', 'Firefox']))
+                dashboardsModel.actions.updateDashboardInsight(withBreakdowns(secondInsight, ['Chrome']))
             }).toFinishAllListeners()
 
             expect(logic.values.effectiveBreakdownColors).toEqual([])
@@ -502,9 +505,10 @@ describe('dashboardLogic', () => {
                 [FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]: true,
             })
 
+            // Chrome appears on both tiles; Firefox is unique to one tile and keeps
+            // position-based colors, so it gets no dashboard-wide entry
             expect(logic.values.effectiveBreakdownColors).toEqual([
                 expect.objectContaining({ breakdownValue: 'Chrome', colorToken: 'preset-1', source: 'auto' }),
-                expect.objectContaining({ breakdownValue: 'Firefox', colorToken: 'preset-2', source: 'auto' }),
             ])
         })
 
@@ -515,22 +519,24 @@ describe('dashboardLogic', () => {
                 [FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]: true,
             })
 
-            const tileInsight = logic.values.dashboard!.tiles.find((t) => !!t.insight)!.insight!
+            const tileInsights = logic.values.dashboard!.tiles.filter((t) => !!t.insight).map((t) => t.insight!)
             await expectLogic(logic, () => {
-                dashboardsModel.actions.updateDashboardInsight({
-                    ...tileInsight,
-                    dashboards: [5],
-                    dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
-                    result: [
-                        { action: { order: 0 }, breakdown_value: ['Chrome'] },
-                        { action: { order: 0 }, breakdown_value: ['Firefox'] },
-                        { action: { order: 0 }, breakdown_value: ['Safari'] },
-                    ],
-                    query: {
-                        kind: NodeKind.InsightVizNode,
-                        source: { kind: NodeKind.TrendsQuery, series: [] },
-                    } as InsightVizNode<TrendsQuery>,
-                })
+                for (const tileInsight of tileInsights) {
+                    dashboardsModel.actions.updateDashboardInsight({
+                        ...tileInsight,
+                        dashboards: [5],
+                        dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
+                        result: [
+                            { action: { order: 0 }, breakdown_value: ['Chrome'] },
+                            { action: { order: 0 }, breakdown_value: ['Firefox'] },
+                            { action: { order: 0 }, breakdown_value: ['Safari'] },
+                        ],
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: { kind: NodeKind.TrendsQuery, series: [] },
+                        } as InsightVizNode<TrendsQuery>,
+                    })
+                }
                 logic.actions.setDataColorThemeId(123)
             }).toFinishAllListeners()
 
