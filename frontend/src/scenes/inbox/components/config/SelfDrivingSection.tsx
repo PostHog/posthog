@@ -5,10 +5,16 @@ import { LemonSegmentedButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon
 import {
     Button,
     ButtonGroup,
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuTrigger,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
 } from '@posthog/quill'
 
 import { GitHubBranchCombobox } from 'lib/integrations/GitHubBranchCombobox'
@@ -99,6 +105,12 @@ function BaseBranchOverridePicker({ integrationIds }: { integrationIds: number[]
 
     const integrationId = draftBaseBranchIntegrationId ?? integrationIds[0]
     const githubIntegrations = getIntegrationsByKind(['github'])
+    // The pickers only ever emit whole values, so an incomplete draft is always a missing pick.
+    const addDisabledReason = !draftBaseBranchRepo
+        ? 'Choose a repository first'
+        : !draftBaseBranchBranch
+          ? 'Choose a branch first'
+          : null
 
     return (
         <div className="flex flex-wrap items-center gap-1">
@@ -150,40 +162,66 @@ function BaseBranchOverridePicker({ integrationIds }: { integrationIds: number[]
                     />
                 ) : null}
             </ButtonGroup>
-            <Button
-                variant="outline"
-                size="sm"
-                disabled={!canAddBaseBranchOverride}
-                loading={teamConfigUpdating}
-                aria-label="Add base branch override"
-                onClick={() => addBaseBranchOverride()}
-            >
-                <IconPlus />
-            </Button>
+            <Tooltip>
+                <TooltipTrigger
+                    render={
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={!canAddBaseBranchOverride}
+                            loading={teamConfigUpdating}
+                            aria-label="Add base branch override"
+                            onClick={() => addBaseBranchOverride()}
+                        >
+                            <IconPlus />
+                            Add
+                        </Button>
+                    }
+                />
+                <TooltipContent>{addDisabledReason ?? 'Add base branch override'}</TooltipContent>
+            </Tooltip>
         </div>
     )
 }
 
+/**
+ * Collapsed by default, because targeting anything but the repo's default branch is the exception.
+ * Opens on its own when overrides exist, so a configured team isn't left to discover them behind a
+ * chevron; the count keeps that state readable even once collapsed again.
+ */
 function BaseBranchOverrides(): JSX.Element {
+    const { baseBranchOverrides } = useValues(signalTeamConfigLogic)
     const { getIntegrationsByKind } = useValues(integrationsLogic)
     const integrationIds = getIntegrationsByKind(['github']).map((integration) => integration.id)
 
+    // The Collapsible root fills itself with --muted while open or hovered, which reads as an
+    // off-color patch against the card. The trigger owns the hover instead.
     return (
-        <div className="flex flex-col gap-1.5">
-            <span className="text-xs text-secondary">Base branches</span>
-            <p className="text-[11px] text-tertiary leading-snug mb-0">
-                PRs open against each repository's default branch. Add an override to target a different branch, like
-                develop.
-            </p>
-            <BaseBranchOverrideRows />
-            {integrationIds.length > 0 ? (
-                <BaseBranchOverridePicker integrationIds={integrationIds} />
-            ) : (
+        <Collapsible defaultOpen={baseBranchOverrides.length > 0} className="bg-transparent hover:bg-transparent">
+            {/* px-2.5/py-1.5 matches the Threshold row above; the Button's own fill is dropped so the
+                row reads as a label, not a band, leaving only the hover as the affordance. */}
+            <CollapsibleTrigger className="w-full h-auto px-2.5 py-1.5 text-xs text-secondary font-normal bg-transparent hover:bg-[var(--fill-hover)]">
+                <span className="flex-1 text-left">Base branch overrides</span>
+                {baseBranchOverrides.length > 0 && (
+                    <span className="text-tertiary tabular-nums">{baseBranchOverrides.length}</span>
+                )}
+            </CollapsibleTrigger>
+            {/* Padding goes on the panel itself rather than a nested wrapper, which would stack with
+                the panel's own inset. Same 10px/6px as the trigger and the Threshold row. */}
+            <CollapsibleContent className="flex flex-col gap-1.5 px-2.5 pb-1.5">
                 <p className="text-[11px] text-tertiary leading-snug mb-0">
-                    Connect GitHub above to choose a base branch.
+                    Otherwise, PRs use GitHub's default branch.
                 </p>
-            )}
-        </div>
+                <BaseBranchOverrideRows />
+                {integrationIds.length > 0 ? (
+                    <BaseBranchOverridePicker integrationIds={integrationIds} />
+                ) : (
+                    <p className="text-[11px] text-tertiary leading-snug mb-0">
+                        Connect GitHub above to add an override.
+                    </p>
+                )}
+            </CollapsibleContent>
+        </Collapsible>
     )
 }
 
@@ -225,10 +263,10 @@ export function SelfDrivingSection(): JSX.Element {
                 </div>
             </div>
 
-            <div className="border-t border-primary bg-surface-secondary px-2.5 py-1.5">
+            <div className="border-t border-primary bg-surface-secondary">
                 {autostartEnabled ? (
-                    <div className="flex flex-col gap-2">
-                        <div className="flex items-center justify-between gap-2">
+                    <>
+                        <div className="flex items-center justify-between gap-2 px-2.5 py-1.5">
                             <span className="text-xs text-secondary shrink-0">Threshold</span>
                             <LemonSegmentedButton
                                 size="xsmall"
@@ -238,10 +276,14 @@ export function SelfDrivingSection(): JSX.Element {
                                 onChange={(next) => patchTeamConfig({ default_autostart_priority: next })}
                             />
                         </div>
-                        <BaseBranchOverrides />
-                    </div>
+                        <div className="border-t border-primary">
+                            <BaseBranchOverrides />
+                        </div>
+                    </>
                 ) : (
-                    <p className="text-xs text-secondary mb-0">Reports still arrive and notify your team.</p>
+                    <p className="text-xs text-secondary mb-0 px-2.5 py-1.5">
+                        Reports still arrive and notify your team.
+                    </p>
                 )}
             </div>
         </div>
