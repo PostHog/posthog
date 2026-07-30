@@ -414,7 +414,8 @@ function serializeNode(node: JSONContent): string {
 }
 
 function serializeListNode(node: JSONContent, ordered: boolean, indent: string): string {
-    const start = ordered ? Number(node.attrs?.start ?? 1) : 1
+    const rawStart = Number(node.attrs?.start ?? 1)
+    const start = ordered && Number.isFinite(rawStart) ? Math.max(Math.trunc(rawStart), 1) : 1
     const lines: string[] = []
     let position = 0
     for (const item of node.content || []) {

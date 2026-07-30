@@ -101,6 +101,6 @@ describe('SupportEditor serialization and preview schema', () => {
     it('preview schema rejects unknown node types so the plain-content fallback kicks in', () => {
         const doc: JSONContent = { type: 'doc', content: [{ type: 'table', content: [] }] }
         const schema = getSchema([...SUPPORT_PREVIEW_EXTENSIONS])
-        expect(() => ProseMirrorNode.fromJSON(schema, doc)).toThrow()
+        expect(() => ProseMirrorNode.fromJSON(schema, doc)).toThrow('Unknown node type: table')
     })
 })

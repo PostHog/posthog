@@ -12,16 +12,6 @@ import { SUPPORT_PREVIEW_EXTENSIONS } from './SupportEditor'
 import { SupportMarkdown } from './SupportMarkdown'
 import { useImageLightbox } from './useImageLightbox'
 
-const DEFAULT_INITIAL_CONTENT: JSONContent = {
-    type: 'doc',
-    content: [
-        {
-            type: 'paragraph',
-            content: [],
-        },
-    ],
-}
-
 let previewSchema: ReturnType<typeof getSchema> | null = null
 
 function isRenderableRichContent(content: JSONContent | null): content is JSONContent {
@@ -57,24 +47,28 @@ export function SupportRichContentPreview({
     fallbackContent,
     fallbackDisableImages,
 }: SupportRichContentPreviewProps): JSX.Element {
-    const filter = useMemo(() => editorImageFilter, [])
-    const { handleClick, lightbox } = useImageLightbox(filter)
-
     const renderable = useMemo(() => isRenderableRichContent(content), [content])
 
-    const editor = useRichContentEditor({
-        extensions: [...SUPPORT_PREVIEW_EXTENSIONS],
-        disabled: true,
-        initialContent: renderable && content ? content : DEFAULT_INITIAL_CONTENT,
-    })
-
-    if (!renderable) {
+    if (!renderable || !content) {
         return (
             <SupportMarkdown className={className} disableImages={fallbackDisableImages}>
                 {fallbackContent ?? ''}
             </SupportMarkdown>
         )
     }
+
+    return <RichContentPreviewEditor content={content} className={className} />
+}
+
+function RichContentPreviewEditor({ content, className }: { content: JSONContent; className?: string }): JSX.Element {
+    const filter = useMemo(() => editorImageFilter, [])
+    const { handleClick, lightbox } = useImageLightbox(filter)
+
+    const editor = useRichContentEditor({
+        extensions: [...SUPPORT_PREVIEW_EXTENSIONS],
+        disabled: true,
+        initialContent: content,
+    })
 
     return (
         <>
