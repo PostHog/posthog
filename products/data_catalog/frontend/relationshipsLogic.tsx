@@ -215,8 +215,6 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
                     .filter((proposal) => proposal.status === 'accepted' && proposal.created_join)
                     .forEach((proposal) => acceptedByJoinId.set(proposal.created_join as string, proposal))
 
-                const joinIds = new Set(joins.map((join) => join.id))
-
                 const joinRows: RelationshipRow[] = joins.map((join) => {
                     const proposal = acceptedByJoinId.get(join.id)
                     return {
@@ -238,14 +236,12 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
                     }
                 })
 
-                // Accepted proposals whose created join isn't in the loaded joins (null, soft-deleted,
-                // or beyond the paginated response) would otherwise vanish — surface them as active rows.
+                // An accepted proposal that never persisted a join would otherwise vanish — surface it
+                // as an active row. A proposal whose created join is absent from the loaded joins was
+                // deleted (soft delete drops it from the list), and the backend treats it as gone, so
+                // it must not reappear as an uneditable active row.
                 const orphanedAcceptedRows: RelationshipRow[] = proposals
-                    .filter(
-                        (proposal) =>
-                            proposal.status === 'accepted' &&
-                            !(proposal.created_join && joinIds.has(proposal.created_join))
-                    )
+                    .filter((proposal) => proposal.status === 'accepted' && !proposal.created_join)
                     .map((proposal) => ({
                         key: `proposal-${proposal.id}`,
                         sourceTableName: proposal.source_table_name,
@@ -335,15 +331,11 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
             }
         },
         deleteJoin: async ({ join }) => {
-            try {
-                await deleteWithUndo({
-                    endpoint: `environments/${projectId()}/warehouse_view_link`,
-                    object: { id: join.id, name: `${join.field_name} on ${join.source_table_name}` },
-                    callback: () => actions.loadJoins(),
-                })
-            } catch (error) {
-                lemonToast.error(apiErrorDetail(error) || 'Could not delete the join. Try again.')
-            }
+            await deleteWithUndo({
+                endpoint: `environments/${projectId()}/warehouse_view_link`,
+                object: { id: join.id, name: `${join.field_name} on ${join.source_table_name}` },
+                callback: () => actions.loadJoins(),
+            })
         },
         // Refresh after the shared join modal saves. Referencing actionTypes builds
         // viewLinkLogic without mounting it, so the catalog scene doesn't eagerly load
