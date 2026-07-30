@@ -23,6 +23,7 @@ from products.error_tracking.backend.temporal.lifecycle.rendering import (
     decode_token_prefix,
     render_stacktrace,
 )
+from products.error_tracking.backend.temporal.lifecycle.signal_throttle import consume_lifecycle_signal_budget
 from products.signals.backend.facade.api import emit_signal
 
 KAFKA_DELIVERY_TIMEOUT_SECONDS = 30
@@ -146,6 +147,9 @@ async def emit_issue_lifecycle_signal(
     try:
         team = await Team.objects.aget(id=inputs.team_id)
     except Team.DoesNotExist:
+        return
+
+    if not await consume_lifecycle_signal_budget(team, source_type, inputs.notification_id):
         return
 
     event_properties = await sync_to_async(fetch_event_properties, thread_sensitive=False)(team, inputs)
