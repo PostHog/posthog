@@ -32,7 +32,12 @@ from products.data_modeling.backend.logic.node_frequency import (
     schedulable_nodes,
     set_declared_target,
 )
-from products.data_modeling.backend.logic.saved_query_dag_sync import DEGRADED_SYNC_KEY, sync_saved_query_to_dag
+from products.data_modeling.backend.logic.saved_query_dag_sync import (
+    DEGRADED_SYNC_KEY,
+    DegradedSyncMarker,
+    node_type_for,
+    sync_saved_query_to_dag,
+)
 from products.data_modeling.backend.logic.schedule_reconcile import (
     delete_v1_saved_query_schedules,
     list_existing_schedule_ids,
@@ -597,12 +602,7 @@ class Command(BaseCommand):
         fleet-wide, and the next successful sync clears the marker and rebuilds real edges.
         Returns None if even the bare node cannot be created, falling back to keeping the DAG.
         """
-        if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
-            node_type = NodeType.ENDPOINT
-        elif saved_query.table_id is not None:
-            node_type = NodeType.MAT_VIEW
-        else:
-            node_type = NodeType.VIEW
+        marker: DegradedSyncMarker = {"error": str(error)[:500], "at": timezone.now().isoformat()}
         try:
             # Atomic so a failed marker save rolls the creation back too: a committed but
             # unmarked node would make the re-run classify this query as DROP instead of
@@ -612,13 +612,10 @@ class Command(BaseCommand):
                     team_id=saved_query.team_id,
                     saved_query=saved_query,
                     dag=target,
-                    defaults={"name": saved_query.name, "type": node_type},
+                    defaults={"name": saved_query.name, "type": node_type_for(saved_query)},
                 )
                 properties = node.properties or {}
-                properties.setdefault("system", {})[DEGRADED_SYNC_KEY] = {
-                    "error": str(error)[:500],
-                    "at": timezone.now().isoformat(),
-                }
+                properties.setdefault("system", {})[DEGRADED_SYNC_KEY] = marker
                 node.properties = properties
                 node.save(update_fields=["properties"])
             return node

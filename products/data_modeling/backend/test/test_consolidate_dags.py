@@ -316,6 +316,34 @@ class TestConsolidateDags(BaseTest):
         self.assertTrue(Edge.objects.filter(dag=target, source=events, target=good_node).exists())
         self.assertIn("adopted bad_view without edges", output)
 
+    def test_adopted_node_unblocks_its_dependents_moves(self):
+        # The reason the flag exists: one unresolvable query must not cascade into N failed
+        # moves. Parent in a managed DAG (excluded from consolidation) → dependent fails
+        # Node.DoesNotExist and is adopted edge-less → the dependent's own dependent resolves
+        # the adopted node in the target and moves with a real edge.
+        target = DAG.get_or_create_default(self.team)
+        managed = DAG.get_or_create_revenue_analytics(self.team)
+        managed_parent = self._query("stripe_view", "SELECT 1")
+        self._node(managed, managed_parent)
+        source = DAG.objects.create(team=self.team, name="posthog_team")
+        blocked = self._query("blocked_view", "SELECT * FROM stripe_view")
+        dependent = self._query("dependent_view", "SELECT * FROM blocked_view")
+        blocked_node = self._node(source, blocked)
+        dependent_node = self._node(source, dependent)
+        Edge.objects.create(team=self.team, dag=source, source=blocked_node, target=dependent_node)
+
+        with _temporal_boundary():
+            output = self._run("--adopt-unresolvable", apply=True)
+
+        self.assertFalse(DAG.objects.filter(id=source.id).exists())
+        adopted = Node.objects.get(dag=target, saved_query=blocked)
+        self.assertFalse(Edge.objects.filter(dag=target, target=adopted).exists())
+        self.assertIn("degraded_sync", adopted.properties["system"])
+        moved = Node.objects.get(dag=target, saved_query=dependent)
+        self.assertTrue(Edge.objects.filter(dag=target, source=adopted, target=moved).exists())
+        self.assertIn("adopted blocked_view without edges", output)
+        self.assertIn("moved dependent_view", output)
+
     def test_adopt_unresolvable_does_not_adopt_non_resolution_failures(self):
         # The flag exists for SQL that cannot resolve. A sync that fails for operational reasons
         # (DB blip, programming error) must stay a failed move — adopting it would delete the
@@ -374,7 +402,7 @@ class TestConsolidateDags(BaseTest):
         sync_saved_query_to_dag(fixed, dag=target, reconcile=False)
 
         node.refresh_from_db()
-        self.assertNotIn("degraded_sync", node.properties["system"])
+        self.assertNotIn("system", node.properties)
         events = Node.objects.get(dag=target, name="events", type=NodeType.TABLE)
         self.assertTrue(Edge.objects.filter(dag=target, source=events, target=node).exists())
 
