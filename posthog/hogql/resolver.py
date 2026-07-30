@@ -2564,11 +2564,19 @@ class Resolver(CloningVisitor):
                     continue
                 field_name = getattr(uuid_side.type, "name", None) or getattr(uuid_side.type, "alias", None)
                 subject = f"'{field_name}'" if isinstance(field_name, str) else "a UUID column"
-                hex_digit_count = sum(1 for char in constant.value if char in string.hexdigits)
+                stripped = constant.value.strip()
+                # The digit count only helps a near miss like a truncated id; on text that was never
+                # a UUID attempt it reads as noise, so save it for the values it explains.
+                near_miss = bool(stripped) and all(char in string.hexdigits or char == "-" for char in stripped)
+                detail = (
+                    f" A UUID has 32 hexadecimal digits and this one has "
+                    f"{sum(1 for char in stripped if char in string.hexdigits)}."
+                    if near_miss
+                    else ""
+                )
                 raise QueryError(
-                    f"{constant.value!r} can never match {subject}, which holds UUIDs. A UUID has 32 "
-                    f"hexadecimal digits and this value has {hex_digit_count}. Enter a full UUID, "
-                    f"like '0198a4c2-8b3d-7e50-b4a1-2f9c6d8e0a1b'."
+                    f"{constant.value!r} can never match {subject}, which holds UUIDs.{detail} "
+                    f"Enter a full UUID, like '0198a4c2-8b3d-7e50-b4a1-2f9c6d8e0a1b'."
                 )
 
     def _resolves_to_uuid(self, node: ast.Expr) -> bool:

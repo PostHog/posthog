@@ -2109,6 +2109,21 @@ class TestResolver(BaseTest):
         with self.assertRaisesRegex(QueryError, r"'not a uuid '"):
             resolve_types(expr, self.context, dialect="clickhouse")
 
+    @parameterized.expand(
+        [
+            # a truncated id is a near miss, so the digit count explains the mismatch
+            ("truncated_uuid", "'0198a4c2-8b3d'", True),
+            ("numeric_id", "'2026072018044213140'", True),
+            # on text that was never a UUID attempt the same count would just read as noise
+            ("arbitrary_text", "'not a uuid'", False),
+        ]
+    )
+    def test_invalid_uuid_literal_message_counts_digits_only_for_near_misses(self, _name, literal, expects_count):
+        expr = self._select(f"SELECT event FROM events WHERE person_id = {literal}")
+        with self.assertRaises(QueryError) as raised:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        assert ("hexadecimal digits" in str(raised.exception)) is expects_count
+
     # ClickHouse only parses the canonical dashed-hex form, but these all name the same UUID —
     # normalize them instead of dead-ending a user who pasted one
     @parameterized.expand(
