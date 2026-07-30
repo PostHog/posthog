@@ -42,10 +42,11 @@ function DialogPrimitive({
                             '@container fixed left-1/2 w-[400px] max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-lg bg-surface-secondary shadow-xl border border-primary transition-all duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0 flex flex-col min-h-0 overflow-hidden overscroll-contain z-[var(--z-force-modal-above-popovers)]',
                             // Subtract whatever the on-screen keyboard covers, which no CSS unit sees,
                             // so the scroll pane can't end up below the fold. Both insets are 0 without
-                            // a keyboard. Below `sm` the popup uses the full height rather than 60dvh —
-                            // a phone has no room to spare for a compact overlay.
-                            'top-[calc(1rem+var(--keyboard-inset-top))] max-h-[calc(100dvh-2rem-var(--keyboard-inset-bottom))]',
-                            'sm:max-h-[calc(60dvh-var(--keyboard-inset-bottom))]',
+                            // a keyboard, leaving the same 60vh cap as before.
+                            // Keep `max-h` unprefixed and singular: tailwind-merge keys on the modifier,
+                            // so a `sm:max-h-*` here would survive alongside a consumer's plain `max-h-*`
+                            // and then win the cascade, silently capping every dialog that sets its own.
+                            'top-[calc(1rem+var(--keyboard-inset-top))] max-h-[calc(60dvh-var(--keyboard-inset-bottom))]',
                             className
                         )}
                     >
