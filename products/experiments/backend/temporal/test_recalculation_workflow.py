@@ -331,3 +331,45 @@ class TestExperimentMetricsRecalculationWorkflow:
         assert progress_updates[0].mark_completed is True
         assert progress_updates[0].mark_started is False
         assert progress_updates[0].status == "failed"
+
+    async def test_finalize_write_failure_records_real_status_not_failed(self):
+        # A run where every metric succeeded, but the finalize write (mark_completed, status=completed) exhausts
+        # its retries. The workflow must record the REAL status via the finalize-failure backstop, not let
+        # run()'s except overwrite it with a spurious "failed" (which would mislabel a healthy run).
+        progress_updates: list[RecalculationProgressUpdate] = []
+        finalize_attempts = {"count": 0}
+
+        @activity.defn(name="discover_experiment_metrics")
+        async def mock_discover(recalculation_id: str) -> list[ExperimentMetricToRecalculate]:
+            return [_metric("m1")]
+
+        @activity.defn(name="update_recalculation_progress")
+        async def mock_update_progress(update: RecalculationProgressUpdate) -> str | None:
+            # Fail the finish write (mark_completed) hard on its first invocation to simulate the finalize
+            # activity exhausting its retries; the workflow's finalize-failure path then re-writes via the
+            # backstop, which we let succeed.
+            if update.mark_completed and finalize_attempts["count"] == 0:
+                finalize_attempts["count"] += 1
+                raise ApplicationError("finalize boom", non_retryable=True)
+            progress_updates.append(update)
+            return _START_QUERY_TO if update.mark_started else None
+
+        @activity.defn(name="calculate_experiment_metric_for_recalculation")
+        async def mock_calculate(
+            experiment_id: int,
+            metric_uuid: str,
+            recalculation_id: str,
+            query_to: str,
+            metric_type: str = "primary",
+        ) -> MetricRecalculationResult:
+            return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
+
+        result = await _run_workflow([mock_discover, mock_update_progress, mock_calculate])
+
+        # The run is recorded completed with the real counts, NOT failed.
+        assert result == {"total": 1, "succeeded": 1, "failed": 0}
+        terminal = progress_updates[-1]
+        assert terminal.mark_completed is True
+        assert terminal.status == "completed"
+        assert terminal.succeeded_metrics == 1
+        assert terminal.failed_metrics == 0
