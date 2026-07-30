@@ -572,12 +572,17 @@ export type MessageAssetRow = {
     parent_run_id: string
     invocation_id: string
     action_id: string
-    kind: 'email'
+    kind: 'email' | 'push'
     distinct_id: string
     person_id: string
+    // Where the message went. An address for email; for push there is no address, so this carries the
+    // platforms it was delivered to — the person is already identified by distinct_id / person_id.
     recipient: string
+    // The message's headline: an email subject line, or a push notification title.
     subject: string
-    status: 'sent'
+    // A push that reached no device is still worth recording, so the person view can show it was
+    // attempted rather than silently omitting it.
+    status: 'sent' | 'skipped'
     sent_at: string // ISO microsecond DateTime64
     version: string // microsecond-precision UInt64, serialized as string to dodge JS's 53-bit cap
     is_deleted: 0 | 1

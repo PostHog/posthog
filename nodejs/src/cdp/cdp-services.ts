@@ -434,7 +434,8 @@ export function createCdpCoreServices(
             backoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
             backoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
         },
-        redis
+        redis,
+        messageAssetsService
     )
 
     const hogExecutor = new HogExecutorService(
