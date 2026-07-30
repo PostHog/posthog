@@ -399,6 +399,16 @@ def authenticated_drf_request(http_request: HttpRequest) -> Request:
     return cast(Request, drf_request)
 
 
+def _accessible_org_team_ids(user: User, organization: Organization) -> set[int]:
+    """Team ids in ``organization`` that ``user`` may actually access.
+
+    ``user.teams`` already honours project-based permissioning (private projects, RBAC roles,
+    org admin/owner implicit access), so this is the source-project access boundary that gates
+    which installations a user can discover and reuse.
+    """
+    return set(user.teams.filter(organization_id=organization.id).values_list("id", flat=True))
+
+
 def link_existing_team_github_integration(
     *,
     user: User,
@@ -472,6 +482,16 @@ def link_existing_team_github_integration(
                 code=GITHUB_LINK_EXISTING_ERROR_ORPHAN_INSTALLATION,
             )
 
+    # The source project is the one whose GitHub access we're reusing, so the requester must be able
+    # to access it — target-team admin alone is not enough. Without this, an org member who admins the
+    # target project but is locked out of a private sibling could pull that sibling's installation
+    # (and its repositories) in by supplying its source_team_id/installation_id.
+    if source.team_id not in _accessible_org_team_ids(user, organization):
+        raise ValidationError(
+            "No team in your organization has this GitHub installation linked",
+            code=GITHUB_LINK_EXISTING_ERROR_ORPHAN_INSTALLATION,
+        )
+
     installation_id = (source.config or {}).get("installation_id")
     if not installation_id:
         raise ValidationError("Source integration is missing installation_id")
@@ -493,18 +513,27 @@ def link_existing_team_github_integration(
 
 def list_org_github_installations(
     *,
+    user: User,
     organization: Organization,
     exclude_team_id: int | None = None,
 ) -> list[dict[str, Any]]:
-    """List the distinct GitHub App installations already linked anywhere in ``organization``.
+    """List the distinct GitHub App installations ``user`` may reuse within ``organization``.
 
     A GitHub App installs once per org, so when an org has more than one installation the caller
     can't rely on the single-install auto-resolve path in ``link_existing_team_github_integration``.
     This enumerates the installations so the UI can offer a picker and pass an explicit
     ``installation_id``. The first integration seen for each installation id (deterministic
     ``order_by("id")``) provides the representative account metadata and source team.
+
+    Only installations linked to source projects the user can access are returned — mirroring the
+    access boundary enforced in ``link_existing_team_github_integration`` so the picker never
+    surfaces an installation the user couldn't actually link.
     """
-    org_github = Integration.objects.filter(team__organization_id=organization.id, kind="github")
+    org_github = Integration.objects.filter(
+        team__organization_id=organization.id,
+        team_id__in=_accessible_org_team_ids(user, organization),
+        kind="github",
+    )
     if exclude_team_id is not None:
         org_github = org_github.exclude(team_id=exclude_team_id)
     org_github = org_github.order_by("id")

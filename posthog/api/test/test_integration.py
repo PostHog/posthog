@@ -21,6 +21,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.api.github_callback.state import store_unified_authorize_state
 from posthog.api.github_callback.team_services import (
+    GITHUB_LINK_EXISTING_ERROR_ORPHAN_INSTALLATION,
     GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
     authorize_link_existing_installation,
     link_existing_team_github_integration,
@@ -28,6 +29,7 @@ from posthog.api.github_callback.team_services import (
 )
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
 from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
+from posthog.constants import AvailableFeature
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
@@ -54,6 +56,8 @@ from products.batch_exports.backend.models import BatchExport, BatchExportDestin
 from products.cdp.backend.models import HogFunction
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.workflows.backend.models import HogFlow
+
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestSlackIntegration:
@@ -3187,12 +3191,52 @@ class TestGitHubTeamIntegrationComplete:
             sensitive_config={"access_token": "ghs_a2"},
         )
 
-        installations = list_org_github_installations(organization=self.organization, exclude_team_id=self.team.pk)
+        installations = list_org_github_installations(
+            user=self.user, organization=self.organization, exclude_team_id=self.team.pk
+        )
 
         assert [installation["installation_id"] for installation in installations] == ["111"]
         assert installations[0]["account_name"] == "acme"
         assert installations[0]["account_type"] == "Organization"
         assert installations[0]["source_team_id"] == first.pk
+
+    def test_link_existing_rejects_installation_from_inaccessible_source_project(self):
+        # A user who admins the target project but is locked out of a private sibling must not be able
+        # to discover or reuse that sibling's installation — target-team admin is not access to the
+        # source project. Without the source-team access boundary this both leaks the installation in
+        # the picker and links its repositories into the target.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(
+            self.organization, "outsider@posthog.com", "test", level=OrganizationMembership.Level.MEMBER
+        )
+        private = Team.objects.create(organization=self.organization, name="Private Project")
+        AccessControl.objects.create(team=private, resource="project", access_level="none")
+        Integration.objects.create(
+            team=private,
+            kind="github",
+            integration_id="777",
+            config={"installation_id": "777", "account": {"name": "secret", "type": "Organization"}},
+            sensitive_config={"access_token": "ghs_private"},
+        )
+
+        installations = list_org_github_installations(
+            user=member, organization=self.organization, exclude_team_id=self.team.pk
+        )
+        assert installations == []
+
+        with pytest.raises(ValidationError) as exc_info:
+            link_existing_team_github_integration(
+                user=member,
+                organization=self.organization,
+                team_id=self.team.pk,
+                source_team_id=None,
+                installation_id_param="777",
+            )
+        codes = exc_info.value.get_codes()
+        assert isinstance(codes, list) and GITHUB_LINK_EXISTING_ERROR_ORPHAN_INSTALLATION in codes
 
     def test_cross_user_state_rejected_on_unified_callback(self, client: HttpClient):
         # State tokens are bound to a user via the pending-pointer cache key.

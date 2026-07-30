@@ -1587,6 +1587,7 @@ class IntegrationViewSet(
         one installation, the client passes the chosen installation_id to github/link_existing.
         """
         installations = list_org_github_installations(
+            user=cast(User, request.user),
             organization=self.organization,
             exclude_team_id=self.team_id,
         )
