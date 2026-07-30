@@ -14,6 +14,9 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
+DEFAULT_SEND_RATE = 5_000
+
+
 def get_aws_external_id(team: "Team") -> str:
     region = (settings.CLOUD_DEPLOYMENT or "dev").lower()
     return f"posthog-{region}-{team.uuid}"

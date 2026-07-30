@@ -112,3 +112,17 @@ export function daysFromDateRange(dateFrom: string | null, dateTo: string | null
     const to = (dateTo && dateTo !== 'all' ? dateStringToDayJs(dateTo) : null) ?? dayjs()
     return Math.max(1, to.diff(from, 'day'))
 }
+
+export interface SummarizerFacetStats {
+    frictionRanked: [string, number][]
+    keywordRanked: [string, number][]
+    totalWithFacets: number
+}
+
+export function deriveSummarizerFacetStats(stats: ObservationStatsApi | null): SummarizerFacetStats {
+    return {
+        frictionRanked: (stats?.summarizer?.friction_ranked ?? []).map((f) => [f.term, f.count] as [string, number]),
+        keywordRanked: (stats?.summarizer?.keyword_ranked ?? []).map((f) => [f.term, f.count] as [string, number]),
+        totalWithFacets: stats?.summarizer?.total_with_facets ?? 0,
+    }
+}

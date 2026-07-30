@@ -316,9 +316,70 @@
         "title": "Edit notebook",
         "required_scopes": ["notebook:write"],
         "feature_flag": "notebooks-collaboration",
+        "hidden_when_flag_on": "revamped-py-notebooks",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "notebooks-create-markdown": {
+        "description": "Create a notebook for deep, step-by-step data analysis: query PostHog and connected data warehouse data with SQL (HogQL), or analyze with Python code. SQL and Python cells can also read and query dataframes fetched or created by upstream cells in the notebook. Run a cell, read its result, decide the next step; add markdown cells to explain and summarize findings, and embed saved insights. Give it a title and optionally an initial markdown body. Returns the notebook_id to use with notebooks-add-cell.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Create a markdown notebook for executable cells.",
+        "title": "Create markdown notebook",
+        "required_scopes": ["notebook:write"],
+        "feature_flag": "revamped-py-notebooks",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "notebooks-add-cell": {
+        "description": "Add a cell to a markdown notebook. SQL and Python cells run immediately: the call waits up to ~45s and returns the result — columns, a capped row preview, stdout/stderr (a Python cell's logs and tracebacks), and error — so you can look at the output and decide the next step (fix, or proceed). If the status comes back 'running', poll notebooks-run-cell-result with the run_id. A cell that reads other cells' dataframes references them by dataframe_name; those cells must have completed a run first, so add cells in dependency order. SQL cells are always HogQL: queries against PostHog or data warehouse tables run on ClickHouse, and a SQL cell that references a Python-created dataframe runs on the notebook's local engine automatically — any local dataframe is queryable by name, same syntax. The first Python cell can take longer while the notebook's sandbox kernel starts. component cells add other node types: Query, Image, Embed, Latex, FeatureFlag, Survey, Experiment, Person, Cohort, Recording, RecordingPlaylist.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Add a cell to a notebook; SQL/Python cells run immediately.",
+        "title": "Add notebook cell",
+        "required_scopes": ["notebook:write", "query:read"],
+        "feature_flag": "revamped-py-notebooks",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "notebooks-update-cell": {
+        "description": "Update a SQL or Python cell's code and re-run it, or re-run it unchanged by omitting code (how you refresh a stale cell). Waits up to ~45s and returns the result like notebooks-add-cell, plus stale_dependents: the downstream cells whose inputs this run invalidated. Nothing re-runs automatically — inspect each dependent and re-run it with this tool (no code) or fix it first, walking the graph one hop at a time.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Update a cell's code and re-run it.",
+        "title": "Update notebook cell",
+        "required_scopes": ["notebook:write", "query:read"],
+        "feature_flag": "revamped-py-notebooks",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "notebooks-delete-cell": {
+        "description": "Delete a cell from a markdown notebook by node_id. Nothing downstream is touched: the response lists orphaned_dependents — cells that referenced the deleted cell's dataframe and now need rewriting or deleting. The kernel keeps any already-materialized dataframe until it restarts, so a dependent may still run against the deleted cell's last result; rewrite dependents promptly.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Delete a notebook cell.",
+        "title": "Delete notebook cell",
+        "required_scopes": ["notebook:write"],
+        "feature_flag": "revamped-py-notebooks",
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
         }

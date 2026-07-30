@@ -1418,9 +1418,13 @@ async fn test_remote_config_personal_key_no_decryptor_returns_500() {
         .unwrap();
 
     let status = response.status();
-    let body = response.text().await.unwrap();
+    let body: Value = response.json().await.unwrap();
     assert_eq!(status, 500, "body: {body}");
-    assert!(!body.contains("world"), "leaked plaintext: {body}");
+    assert_eq!(body["code"], "remote_config_decrypt_failed");
+    assert!(
+        !body.to_string().contains("world"),
+        "leaked plaintext: {body}"
+    );
 }
 
 #[tokio::test]
@@ -1469,7 +1473,12 @@ async fn test_remote_config_personal_key_decrypt_failure_returns_500() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), 500);
+    let status = response.status();
+    // The SDK parses every remote_config response body as JSON on any status code, so this
+    // must not regress to a plain-text 500 that fails res.json() client-side.
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(status, 500, "body: {body}");
+    assert_eq!(body["code"], "remote_config_decrypt_failed");
 }
 
 #[tokio::test]

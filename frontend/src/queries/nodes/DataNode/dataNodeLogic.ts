@@ -1529,15 +1529,19 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 : (query.orderBy?.[0] ?? 'timestamp DESC')
                         if (isEventsQuery(query) && sortKey === 'timestamp DESC') {
                             const typedResults = (response as EventsQueryResponse)?.results
-                            const sortColumnIndex = query.select
-                                .map((hql) => removeExpressionComment(hql))
-                                .indexOf('timestamp')
+                            const cleanedColumns = query.select.map((hql) => removeExpressionComment(hql))
+                            const sortColumnIndex = cleanedColumns.indexOf('timestamp')
                             if (sortColumnIndex !== -1) {
-                                const lastTimestamp = typedResults?.[typedResults.length - 1]?.[sortColumnIndex]
+                                const lastRow = typedResults?.[typedResults.length - 1]
+                                const lastTimestamp = lastRow?.[sortColumnIndex]
                                 if (lastTimestamp) {
+                                    // Encode the last row's uuid into the cursor so pagination advances
+                                    // through events sharing a timestamp instead of dropping the ties past
+                                    // the page boundary. The backend splits `<timestamp>|<uuid>` back apart.
+                                    const lastUuid = extractCursorUuid(lastRow, cleanedColumns)
                                     const newQuery: EventsQuery = {
                                         ...query,
-                                        before: lastTimestamp,
+                                        before: lastUuid ? `${lastTimestamp}|${lastUuid}` : lastTimestamp,
                                         limit: Math.max(
                                             100,
                                             Math.min(2 * (typedResults?.length || 100), effectivePaginationLimit)
@@ -2055,4 +2059,24 @@ const dedupeResults = (arr: any[], key: string): any[] => {
             return acc
         }, {})
     )
+}
+
+// Pull the event uuid out of a result row to use as a stable pagination tiebreaker. It lives either
+// in the expanded `*` column (an object) or in an explicit `uuid` column.
+function extractCursorUuid(row: any[] | undefined, columns: string[]): string | undefined {
+    if (!row) {
+        return undefined
+    }
+    const starIndex = columns.indexOf('*')
+    if (starIndex !== -1) {
+        const starValue = row[starIndex]
+        if (starValue && typeof starValue === 'object' && typeof starValue.uuid === 'string') {
+            return starValue.uuid
+        }
+    }
+    const uuidIndex = columns.indexOf('uuid')
+    if (uuidIndex !== -1 && typeof row[uuidIndex] === 'string') {
+        return row[uuidIndex]
+    }
+    return undefined
 }
