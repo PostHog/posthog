@@ -31,6 +31,12 @@ class ScannerSnapshot(BaseModel, frozen=True):
     provider: str
     emits_signals: bool
     scanner_config: dict[str, Any]
+    # The remaining version-tracked fields. They never reach the LLM, but the config-versions history is
+    # rebuilt from these snapshots, so without them a version bumped by a sampling or filter change reads
+    # as "nothing changed". Optional so older rows decode as not recorded rather than as unchanged.
+    query: dict[str, Any] | None = None
+    sampling_rate: float | None = None
+    sampling_mode: str | None = None
 
     @classmethod
     def load_for(cls, observation_id: UUID, raw: dict[str, Any] | None) -> "ScannerSnapshot":
