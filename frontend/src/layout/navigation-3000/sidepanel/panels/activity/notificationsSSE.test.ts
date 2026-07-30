@@ -1,8 +1,9 @@
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 
 import { InAppNotification } from '~/types'
 
-import { connectToNotificationsSSE } from './notificationsSSE'
+import { SSEDisconnectedError, connectToNotificationsSSE, shouldRetrySSE } from './notificationsSSE'
 
 jest.mock('lib/api')
 
@@ -83,5 +84,49 @@ describe('connectToNotificationsSSE', () => {
         })
 
         await connectToNotificationsSSE(url, token, abortController.signal, jest.fn())
+    })
+
+    it('reports a disconnect once even though fetch-event-source re-reports our own throw', async () => {
+        const onError = jest.fn()
+
+        mockStream.mockImplementation(async (_url, opts) => {
+            // A non-ok status arrives via onError from inside onopen; the resulting throw then
+            // lands in fetch-event-source's catch, which calls onError with it a second time.
+            let rethrown: unknown
+            try {
+                opts.onError(new ApiError('unauthorized', 401))
+            } catch (e) {
+                rethrown = e
+            }
+            expect(() => opts.onError(rethrown)).toThrow(SSEDisconnectedError)
+        })
+
+        await connectToNotificationsSSE(url, token, abortController.signal, jest.fn(), { onError })
+
+        expect(onError).toHaveBeenCalledTimes(1)
+        expect(onError.mock.calls[0][1]).toEqual({ reason: 'auth', streamWasLive: false })
+    })
+
+    it.each([
+        ['auth failures', new SSEDisconnectedError('auth', false), false],
+        ['dropped streams', new SSEDisconnectedError('stream_dropped', true), true],
+    ])('shouldRetrySSE gates retries for %s', (_name, error, expected) => {
+        expect(shouldRetrySSE(error)).toBe(expected)
+    })
+
+    // Last in the file on purpose: the unload flag is module-level and deliberately one-way, so any
+    // case declared after this one would classify against an already-unloading page.
+    it('treats a disconnect during page unload as a clean shutdown, without reporting it', async () => {
+        window.dispatchEvent(new Event('beforeunload'))
+
+        const onError = jest.fn()
+        mockStream.mockImplementation(async (_url, opts) => {
+            expect(() => opts.onError(new TypeError('Failed to fetch'))).toThrow(
+                expect.objectContaining({ name: 'AbortError' })
+            )
+        })
+
+        await connectToNotificationsSSE(url, token, abortController.signal, jest.fn(), { onError })
+        expect(onError).not.toHaveBeenCalled()
     })
 })

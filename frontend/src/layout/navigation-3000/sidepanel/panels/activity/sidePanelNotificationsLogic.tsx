@@ -31,7 +31,11 @@ import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { connectToNotificationsSSE } from '~/layout/navigation-3000/sidepanel/panels/activity/notificationsSSE'
+import {
+    SSEDisconnectedError,
+    connectToNotificationsSSE,
+    shouldRetrySSE,
+} from '~/layout/navigation-3000/sidepanel/panels/activity/notificationsSSE'
 import { ChangesResponse } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
 import { InAppNotification, InsightShortId, ResourceEditedEvent } from '~/types'
 
@@ -870,9 +874,11 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                                                 posthog.capture('livestream_sse_first_message', { url })
                                             }
                                         },
-                                        onError: (error) => {
+                                        onError: (error, { reason, streamWasLive }) => {
                                             posthog.capture('livestream_sse_error', {
                                                 url,
+                                                reason,
+                                                stream_was_live: streamWasLive,
                                                 error_name: (error as Error | undefined)?.name,
                                                 error_message: (error as Error | undefined)?.message,
                                             })
@@ -884,6 +890,10 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                                 initialDelayMs: SSE_RETRY_INITIAL_DELAY_MS,
                                 backoffMultiplier: SSE_RETRY_BACKOFF_MULTIPLIER,
                                 signal: abortController.signal,
+                                // A stale live_events_token can't be fixed by trying again with it,
+                                // so give up immediately and let the focus-reconnect path pick up a
+                                // fresh one instead of spending the whole retry budget on 401s.
+                                shouldRetry: shouldRetrySSE,
                             }
                         ).catch((error) => {
                             // retryWithBackoff rejects with AbortError on clean shutdown
@@ -896,6 +906,10 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                             posthog.capture('livestream_sse_max_errors', {
                                 url,
                                 max_attempts: SSE_RETRY_ATTEMPTS,
+                                // A non-retryable reason (e.g. a stale token) gives up on the first
+                                // failure, so don't let `max_attempts` imply the budget was spent.
+                                reason: error instanceof SSEDisconnectedError ? error.reason : undefined,
+                                exhausted_attempts: shouldRetrySSE(error),
                             })
                             // Re-arm SSE the next time the user focuses the window. pauseOnPageHidden must be false
                             // so the listener stays attached while the tab is backgrounded — that's exactly when we want it.
