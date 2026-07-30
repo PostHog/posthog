@@ -53,6 +53,90 @@ function PanelEmpty({ loading, message }: { loading: boolean; message: string })
     return <div className="text-muted text-sm">{message}</div>
 }
 
+// Cap the rows so a panel can't outgrow the one beside it.
+const RANKED_ROWS = 5
+
+/**
+ * Two row shapes, because the terms differ in kind:
+ * - `tag` renders short vocabulary terms as pills, which is what marks them as tags rather than prose.
+ * - `phrase` renders model-written sentences as plain text with the bar behind the row, so they wrap
+ *   instead of being truncated into a pill.
+ */
+type RankedTermVariant = 'tag' | 'phrase'
+
+function RankedTermList({
+    ranked,
+    loading,
+    emptyMessage,
+    variant,
+    renderAction,
+}: {
+    ranked: [string, number][]
+    loading: boolean
+    emptyMessage: string
+    variant: RankedTermVariant
+    renderAction?: (term: string) => JSX.Element
+}): JSX.Element {
+    if (ranked.length === 0) {
+        return <PanelEmpty loading={loading} message={emptyMessage} />
+    }
+    const top = ranked.slice(0, RANKED_ROWS)
+    const maxCount = top[0][1]
+    // When no term repeats, every bar is full width and falsely reads as "these all dominate", so drop the bars.
+    const showBars = maxCount > 1
+    const percent = (count: number): number => Math.round((count / maxCount) * 100)
+
+    if (variant === 'tag') {
+        return (
+            <div className="space-y-1.5">
+                {top.map(([term, count]) => (
+                    <div key={term} className="flex items-center gap-2">
+                        {/* Fixed-width label column so every bar shares the same left edge and their lengths stay comparable. */}
+                        <div className="w-40 shrink-0 flex">
+                            <LemonTag type="option" title={term} className="max-w-full truncate">
+                                {term}
+                            </LemonTag>
+                        </div>
+                        {showBars ? (
+                            <LemonProgress percent={percent(count)} className="flex-1" />
+                        ) : (
+                            <div className="flex-1" />
+                        )}
+                        <span className="text-xs text-muted tabular-nums text-right whitespace-nowrap shrink-0 w-12">
+                            {count.toLocaleString()}
+                        </span>
+                        {renderAction?.(term)}
+                    </div>
+                ))}
+            </div>
+        )
+    }
+
+    return (
+        <div className="space-y-1">
+            {top.map(([term, count]) => (
+                <div key={term} className="relative rounded overflow-hidden">
+                    {showBars && (
+                        <div
+                            className="absolute inset-y-0 left-0 bg-accent-highlight-secondary"
+                            // Width is data-derived, so it can't live in a class.
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ width: `${percent(count)}%` }}
+                        />
+                    )}
+                    <div className="relative flex items-baseline justify-between gap-2 px-2 py-1">
+                        <span className="text-xs">{term}</span>
+                        <div className="flex items-center gap-1 shrink-0">
+                            <span className="text-xs font-medium tabular-nums">{count.toLocaleString()}</span>
+                            {renderAction?.(term)}
+                        </div>
+                    </div>
+                </div>
+            ))}
+        </div>
+    )
+}
+
 function ImpactOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
     const { scanner, overviewImpact, overviewImpactLoading } = useValues(scannerOverviewLogic({ scannerId }))
     // Cohort creation is a scanner-level action, independent of the overview's filter set.
@@ -177,50 +261,30 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
         ? 'No freeform tags match the current filter.'
         : 'No freeform tags emitted yet.'
 
-    const renderRanked = (ranked: [string, number][], emptyMessage: string): JSX.Element => {
-        if (ranked.length === 0) {
-            return <PanelEmpty loading={overviewStatsApiLoading} message={emptyMessage} />
-        }
-        // Cap at the 5 most common so the panels stay compact.
-        const top = ranked.slice(0, 5)
-        const maxCount = top[0][1]
-        return (
-            <div className="space-y-1.5">
-                {top.map(([tag, count]) => (
-                    <div key={tag} className="flex items-center gap-2">
-                        {/* Fixed-width label column so every bar shares the same left edge and their lengths stay comparable. */}
-                        <div className="w-40 shrink-0 flex">
-                            <LemonTag type="option" title={tag} className="max-w-full truncate">
-                                {tag}
-                            </LemonTag>
-                        </div>
-                        <LemonProgress percent={Math.round((count / maxCount) * 100)} className="flex-1" />
-                        <span className="text-xs text-muted tabular-nums text-right whitespace-nowrap shrink-0 w-12">
-                            {count.toLocaleString()}
-                        </span>
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconPeople />}
-                            tooltip={`Save users tagged "${tag}" in the last 30 days as a cohort`}
-                            onClick={() => saveAffectedCohort(tag)}
-                            loading={affectedCohortLoading && savingCohortTag === tag}
-                            disabledReason={
-                                affectedCohortLoading && savingCohortTag !== tag
-                                    ? 'Another cohort is being created'
-                                    : undefined
-                            }
-                            data-attr="vision-save-tag-cohort"
-                        />
-                    </div>
-                ))}
-            </div>
-        )
-    }
+    const cohortAction = (tag: string): JSX.Element => (
+        <LemonButton
+            size="xsmall"
+            icon={<IconPeople />}
+            tooltip={`Save users tagged "${tag}" in the last 30 days as a cohort`}
+            onClick={() => saveAffectedCohort(tag)}
+            loading={affectedCohortLoading && savingCohortTag === tag}
+            disabledReason={
+                affectedCohortLoading && savingCohortTag !== tag ? 'Another cohort is being created' : undefined
+            }
+            data-attr="vision-save-tag-cohort"
+        />
+    )
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <OverviewPanel title="Top fixed tags" subtitle="from configured vocabulary" fill>
-                {renderRanked(fixedRanked, fixedEmpty)}
+                <RankedTermList
+                    ranked={fixedRanked}
+                    loading={overviewStatsApiLoading}
+                    emptyMessage={fixedEmpty}
+                    variant="tag"
+                    renderAction={cohortAction}
+                />
             </OverviewPanel>
 
             <OverviewPanel
@@ -230,10 +294,16 @@ function ClassifierOverview({ scannerId }: { scannerId: string }): JSX.Element |
                 fill
             >
                 {freeformAllowed ? (
-                    renderRanked(freeformRanked, freeformEmpty)
+                    <RankedTermList
+                        ranked={freeformRanked}
+                        loading={overviewStatsApiLoading}
+                        emptyMessage={freeformEmpty}
+                        variant="tag"
+                        renderAction={cohortAction}
+                    />
                 ) : (
                     <div className="text-muted text-sm">
-                        Freeform tags are disabled for this scanner — the model can only pick from your configured
+                        Freeform tags are disabled for this scanner, so the model can only pick from your configured
                         vocabulary. Enable "Allow freeform tags" in the scanner config to let it propose new ones.
                     </div>
                 )}
@@ -289,7 +359,7 @@ function SummarizerOverview({ scannerId }: { scannerId: string }): JSX.Element |
     if (!scanner || scanner.scanner_type !== 'summarizer') {
         return null
     }
-    const { frictionRanked, keywordRanked, totalWithFacets } = summarizerFacetStats
+    const { frictionRanked, keywordRanked, totalSucceeded, totalWithFriction } = summarizerFacetStats
     const frictionEmpty = hasActiveOverviewFilters
         ? 'No friction points match the current filter.'
         : 'No friction points reported yet. They appear as summaries accumulate.'
@@ -297,81 +367,32 @@ function SummarizerOverview({ scannerId }: { scannerId: string }): JSX.Element |
         ? 'No keywords match the current filter.'
         : 'No keywords reported yet. They appear as summaries accumulate.'
 
-    // The fill is the row background so long phrases wrap instead of truncating.
-    const renderRankedPhrases = (ranked: [string, number][], emptyMessage: string): JSX.Element => {
-        if (ranked.length === 0) {
-            return <PanelEmpty loading={overviewStatsApiLoading} message={emptyMessage} />
-        }
-        const top = ranked.slice(0, 5)
-        const maxCount = top[0][1]
-        // Free-form phrases rarely repeat verbatim; without repeats a ranking is meaningless.
-        if (maxCount <= 1) {
-            return (
-                <ul className="space-y-1 text-xs text-secondary list-disc pl-4">
-                    {top.map(([term]) => (
-                        <li key={term}>{term}</li>
-                    ))}
-                </ul>
-            )
-        }
-        return (
-            <div className="space-y-1">
-                {top.map(([term, count]) => (
-                    <div key={term} className="relative rounded overflow-hidden">
-                        <div
-                            className="absolute inset-y-0 left-0"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{
-                                width: `${Math.round((count / maxCount) * 100)}%`,
-                                backgroundColor: 'color-mix(in srgb, var(--color-accent) 15%, transparent)',
-                            }}
-                        />
-                        <div className="relative flex items-baseline justify-between gap-2 px-2 py-1">
-                            <span className="text-xs text-secondary">{term}</span>
-                            <span className="text-xs font-medium tabular-nums shrink-0">{count.toLocaleString()}</span>
-                        </div>
-                    </div>
-                ))}
-            </div>
-        )
-    }
-
-    const renderRankedTags = (ranked: [string, number][], emptyMessage: string): JSX.Element => {
-        if (ranked.length === 0) {
-            return <PanelEmpty loading={overviewStatsApiLoading} message={emptyMessage} />
-        }
-        const top = ranked.slice(0, 5)
-        const maxCount = top[0][1]
-        return (
-            <div className="space-y-1.5">
-                {top.map(([term, count]) => (
-                    <div key={term} className="flex items-center gap-2">
-                        <div className="w-40 shrink-0 flex">
-                            <LemonTag type="option" title={term} className="max-w-full truncate">
-                                {term}
-                            </LemonTag>
-                        </div>
-                        <LemonProgress percent={Math.round((count / maxCount) * 100)} className="flex-1" />
-                        <span className="text-xs text-muted tabular-nums text-right whitespace-nowrap shrink-0 w-12">
-                            {count.toLocaleString()}
-                        </span>
-                    </div>
-                ))}
-            </div>
-        )
-    }
-
-    const subtitle =
-        totalWithFacets > 0
-            ? `from ${totalWithFacets.toLocaleString()} summar${totalWithFacets === 1 ? 'y' : 'ies'}`
+    const summaries = (count: number): string => `${count.toLocaleString()} summar${count === 1 ? 'y' : 'ies'}`
+    // Both subtitles use the same succeeded-summary denominator so the two panels stay comparable.
+    const frictionSubtitle =
+        totalSucceeded > 0
+            ? `${totalWithFriction.toLocaleString()} of ${summaries(totalSucceeded)} (${Math.round(
+                  (totalWithFriction / totalSucceeded) * 100
+              )}%)`
             : undefined
+    const keywordSubtitle = totalSucceeded > 0 ? `from ${summaries(totalSucceeded)}` : undefined
     return (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <OverviewPanel title="Top friction points" subtitle={subtitle} fill>
-                {renderRankedPhrases(frictionRanked, frictionEmpty)}
+            <OverviewPanel title="Top friction points" subtitle={frictionSubtitle} fill>
+                <RankedTermList
+                    ranked={frictionRanked}
+                    loading={overviewStatsApiLoading}
+                    emptyMessage={frictionEmpty}
+                    variant="phrase"
+                />
             </OverviewPanel>
-            <OverviewPanel title="Common keywords" subtitle={subtitle} fill>
-                {renderRankedTags(keywordRanked, keywordEmpty)}
+            <OverviewPanel title="Common keywords" subtitle={keywordSubtitle} fill>
+                <RankedTermList
+                    ranked={keywordRanked}
+                    loading={overviewStatsApiLoading}
+                    emptyMessage={keywordEmpty}
+                    variant="tag"
+                />
             </OverviewPanel>
         </div>
     )
@@ -393,10 +414,6 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
         ) : scannerType === 'summarizer' ? (
             <SummarizerOverview scannerId={scannerId} />
         ) : null
-    const showChart = scannerType !== 'summarizer'
-    if (!showChart && !typeOverview) {
-        return null
-    }
 
     // Scorer puts its line chart and score-distribution histogram side by side to reclaim vertical space.
     let body: JSX.Element
@@ -415,14 +432,14 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
         // Impact only exists for monitors; other types keep their overview at full width.
         body = (
             <div className="space-y-4">
-                {showChart && <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />}
+                <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />
                 {typeOverview}
             </div>
         )
     } else {
         body = (
             <div className="space-y-4">
-                {showChart && <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />}
+                <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     {typeOverview && <div className="min-w-0">{typeOverview}</div>}
                     <div className="min-w-0">
