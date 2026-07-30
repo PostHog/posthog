@@ -378,7 +378,16 @@ async def _handle_import_error(
         await logger.adebug("REST client exhausted its retries - re-raising for Temporal retry")
         raise error
 
-    non_retryable_errors = source_cls.get_non_retryable_errors()
+    # Cross-source non-retryable errors (missing primary key on an incremental table, bad SSH tunnel
+    # auth, a widened column type) are raised from shared pipeline code, not any one source. The
+    # finalization activity already consults this shared dict; this in-activity handler decides whether
+    # to re-raise for a full retry, so without it a shared config error retries the activity's whole
+    # budget and reports on every attempt. Merge it in — source-specific entries win on overlap.
+    from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (  # noqa: PLC0415 — deferred to break the external_data_job -> import_data_sync import cycle
+        Any_Source_Errors,
+    )
+
+    non_retryable_errors = {**Any_Source_Errors, **source_cls.get_non_retryable_errors()}
     if any(match in error_msg for match in non_retryable_errors):
         await handle_non_retryable_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
