@@ -4,6 +4,7 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.scout_harness.serializers import SignalScoutConfigUpdateSerializer
 
 Status = SignalScoutConfig.Status
 Reason = SignalScoutConfig.PauseReason
@@ -162,6 +163,17 @@ class TestScoutStatusEnabledReconciliation(BaseTest):
         assert config.status == Status.ACTIVE
         assert config.pause_reason is None
 
+    def test_create_with_explicit_status_derives_enabled(self) -> None:
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            status=Status.PAUSED_BY_SYSTEM,
+            pause_reason=Reason.NO_OUTPUT,
+        )
+
+        assert config.enabled is False
+        assert config.status == Status.PAUSED_BY_SYSTEM
+
     def test_status_named_alone_in_update_fields_derives_enabled(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
 
@@ -186,15 +198,36 @@ class TestScoutColdStartGrace(BaseTest):
         with freeze_time("2026-06-01T00:00:00Z"):
             config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=False)
         with freeze_time("2026-07-15T00:00:00Z"):
-            config.enabled = True
-            config.save(update_fields=["enabled"])
+            serializer = SignalScoutConfigUpdateSerializer(
+                config, data={"enabled": True}, partial=True, context={"request": self._request_stub()}
+            )
+            assert serializer.is_valid()
+            config = serializer.save()
         with freeze_time("2026-07-20T00:00:00Z"):
             assert config.in_cold_start_grace() is True
 
-    def test_a_paused_scout_does_not_re_anchor_on_status_change(self) -> None:
+    def test_an_unattributed_reactivation_does_not_re_anchor(self) -> None:
+        with freeze_time("2026-06-01T00:00:00Z"):
+            config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=False)
+        with freeze_time("2026-07-15T00:00:00Z"):
+            config.enabled = True
+            config.save(update_fields=["enabled"])
+        with freeze_time("2026-07-20T00:00:00Z"):
+            assert config.in_cold_start_grace() is False
+
+    def test_a_system_transition_does_not_re_anchor(self) -> None:
+        # A sweep's own pending_pause warning re-anchoring grace would put the scout back
+        # under protection and the sweep could never pause anything.
         with freeze_time("2026-06-01T00:00:00Z"):
             config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         with freeze_time("2026-07-15T00:00:00Z"):
-            config.transition_status_by_system(Status.PAUSED_BY_SYSTEM, pause_reason=Reason.NO_OUTPUT)
+            config.transition_status_by_system(Status.PENDING_PAUSE, pause_reason=Reason.NO_OUTPUT)
         with freeze_time("2026-07-20T00:00:00Z"):
             assert config.in_cold_start_grace() is False
+
+    def _request_stub(self):
+        class _Request:
+            def __init__(self, user):
+                self.user = user
+
+        return _Request(self.user)

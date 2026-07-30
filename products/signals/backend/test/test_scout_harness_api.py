@@ -1401,6 +1401,21 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.status == SignalScoutConfig.Status.ACTIVE
         assert config.pause_reason is None
 
+    def test_empty_partial_update_does_not_clear_a_pending_pause(self) -> None:
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            status=SignalScoutConfig.Status.PENDING_PAUSE,
+            pause_reason=SignalScoutConfig.PauseReason.NO_OUTPUT,
+        )
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.status == SignalScoutConfig.Status.PENDING_PAUSE
+        assert config.pause_reason == SignalScoutConfig.PauseReason.NO_OUTPUT
+
     def test_partial_update_slack_destination_is_project_scoped_and_round_trips(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         other_team = Team.objects.create(organization=self.organization, name="other")

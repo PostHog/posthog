@@ -2051,14 +2051,15 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
         # This serializer is the human write path, so it moves `status` through `enabled`:
         # false is a user pause the system must never override, true resumes from any pause.
         # An edit that doesn't touch `enabled` still clears a pending pause — a human tending
-        # the config is exactly the signal the warning exists to detect.
+        # the config is exactly the signal the warning exists to detect. An empty PATCH is not
+        # an edit and must not count as human contact.
         if "enabled" in validated_data:
             target = (
                 SignalScoutConfig.Status.ACTIVE
                 if validated_data["enabled"]
                 else SignalScoutConfig.Status.PAUSED_BY_USER
             )
-        elif instance.status == SignalScoutConfig.Status.PENDING_PAUSE:
+        elif validated_data and instance.status == SignalScoutConfig.Status.PENDING_PAUSE:
             target = SignalScoutConfig.Status.ACTIVE
         else:
             target = None

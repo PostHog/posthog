@@ -1153,9 +1153,9 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     skill_name = models.CharField(max_length=200)
     # Derived from `status` (`enabled = status in RUNNABLE_STATUSES`), but kept as a real
     # column because the coordinator filters on it at SQL level and the warehouse mirrors it.
-    # `save` reconciles the pair for writers that only set one side, and the
-    # `scout_config_enabled_matches_status` constraint makes a queryset update that flips one
-    # without the other fail loudly instead of leaving the scheduler and the UI disagreeing.
+    # `save` reconciles the pair for writers that only set one side; a DB constraint backstop
+    # is deferred to a follow-up migration (see Meta.constraints) so rolling deploys with
+    # enabled-only writers still in flight don't break.
     enabled = models.BooleanField(default=True, db_default=True)
     # Source of truth for the scout's lifecycle. Two of the four states pause scheduling; who
     # set the pause is the state itself (`paused_by_user` vs `paused_by_system`), not a
@@ -1258,13 +1258,10 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
         constraints = [
             models.UniqueConstraint(fields=["team", "skill_name"], name="unique_scout_config_per_team_skill"),
-            models.CheckConstraint(
-                condition=(
-                    models.Q(enabled=True, status__in=("active", "pending_pause"))
-                    | models.Q(enabled=False, status__in=("paused_by_system", "paused_by_user"))
-                ),
-                name="scout_config_enabled_matches_status",
-            ),
+            # A CHECK constraint tying `enabled` to `status` is deliberately deferred to a
+            # follow-up migration: enforcing it in the same deploy that introduces the
+            # dual-write breaks rolling deploys, because not-yet-replaced instances still
+            # write `enabled` alone and a NOT VALID constraint already checks new writes.
         ]
 
     def save(self, *args: Any, **kwargs: Any) -> None:
@@ -1273,13 +1270,19 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         `status` is the source of truth, but callers that predate it (fixtures, ad-hoc
         scripts, the config API's `enabled` field) still write `enabled` alone. When the pair
         disagrees at save time, resolve toward whichever side the caller touched: `status`
-        wins when `update_fields` names it without `enabled`; otherwise the `enabled` value is
-        taken as the intent (True resumes any pause, False records a user pause).
+        wins when `update_fields` names it without `enabled`, or on a create where a
+        non-default status was passed explicitly; otherwise the `enabled` value is taken as
+        the intent (True resumes any pause, False records a user pause).
         """
         update_fields = kwargs.get("update_fields")
         if self.enabled != (self.status in self.RUNNABLE_STATUSES):
             fields = set(update_fields) if update_fields is not None else None
-            if fields is not None and "status" in fields and "enabled" not in fields:
+            status_is_intent = (
+                ("status" in fields and "enabled" not in fields)
+                if fields is not None
+                else (self._state.adding and self.status != self.Status.ACTIVE)
+            )
+            if status_is_intent:
                 self.enabled = self.status in self.RUNNABLE_STATUSES
                 touched = {"enabled"}
             else:
@@ -1305,37 +1308,57 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         failure breaker `repeated_failures`) as well as the reason recorded on a pause. The
         rule: a system writer may never touch `paused_by_user`, and may only move a scout
         whose current pause carries its own reason, so independent pause mechanisms cannot
-        clear or overwrite each other's state. Saves and returns True when the transition
-        applies; returns False without writing when it is refused or a no-op.
+        clear or overwrite each other's state. The checks run against a freshly locked row,
+        not the caller's instance, so a human pause or another writer's claim that landed
+        after the caller read the row cannot be overwritten. Saves and returns True when the
+        transition applies; returns False without writing when it is refused or a no-op.
         """
         if new_status == self.Status.PAUSED_BY_USER:
             raise ValueError("Only a user write may set paused_by_user.")
-        if self.status == self.Status.PAUSED_BY_USER:
-            return False
-        if self.status != self.Status.ACTIVE and self.pause_reason != pause_reason:
-            return False
-        recorded_reason = None if new_status == self.Status.ACTIVE else pause_reason
-        if new_status == self.status and recorded_reason == self.pause_reason:
-            return False
-        self.status = new_status
-        self.pause_reason = recorded_reason
-        self.status_changed_at = timezone.now()
-        self.status_changed_by = None
-        self.enabled = new_status in self.RUNNABLE_STATUSES
-        self.save(
-            update_fields=["status", "pause_reason", "status_changed_at", "status_changed_by", "enabled", "updated_at"]
-        )
+        with transaction.atomic():
+            locked = type(self).all_teams.select_for_update().get(pk=self.pk)
+            if locked.status == self.Status.PAUSED_BY_USER:
+                return False
+            if locked.status != self.Status.ACTIVE and locked.pause_reason != pause_reason:
+                return False
+            recorded_reason = None if new_status == self.Status.ACTIVE else pause_reason
+            if new_status == locked.status and recorded_reason == locked.pause_reason:
+                return False
+            locked.status = new_status
+            locked.pause_reason = recorded_reason
+            locked.status_changed_at = timezone.now()
+            locked.status_changed_by = None
+            locked.enabled = new_status in self.RUNNABLE_STATUSES
+            locked.save(
+                update_fields=[
+                    "status",
+                    "pause_reason",
+                    "status_changed_at",
+                    "status_changed_by",
+                    "enabled",
+                    "updated_at",
+                ]
+            )
+        for field in ("status", "pause_reason", "status_changed_at", "status_changed_by", "enabled"):
+            setattr(self, field, getattr(locked, field))
         return True
 
     def in_cold_start_grace(self) -> bool:
         """True while the scout is provisional and system writers should not evaluate it.
 
-        Anchored on `created_at`, re-anchored by the most recent move into a runnable status
-        (a human re-enable grants a fresh window). Time-based only; a consumer that also
-        wants a minimum-runs floor applies that on top, since the floor differs per writer.
+        Anchored on `created_at`, re-anchored only by a human move back to `active` (a human
+        re-enable grants a fresh window; `status_changed_by` is null on system transitions).
+        System transitions must not re-anchor: a sweep's own `pending_pause` warning would
+        otherwise put the scout back into grace and the sweep could never pause anything.
+        Time-based only; a consumer that also wants a minimum-runs floor applies that on top,
+        since the floor differs per writer.
         """
         anchor = self.created_at
-        if self.status in self.RUNNABLE_STATUSES and self.status_changed_at is not None:
+        if (
+            self.status == self.Status.ACTIVE
+            and self.status_changed_at is not None
+            and self.status_changed_by_id is not None
+        ):
             anchor = max(anchor, self.status_changed_at)
         return timezone.now() < anchor + self.COLD_START_GRACE
 
