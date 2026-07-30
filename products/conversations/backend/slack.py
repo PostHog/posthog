@@ -11,6 +11,7 @@ All three converge to create_or_update_slack_ticket().
 
 import re
 import json
+from datetime import UTC, datetime
 from types import MappingProxyType
 from typing import Any, Literal, NamedTuple
 from urllib.parse import urljoin, urlparse
@@ -24,6 +25,7 @@ import posthoganalytics
 from slack_sdk import WebClient
 
 from posthog.event_usage import groups, report_team_action
+from posthog.exceptions_capture import capture_exception
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -697,12 +699,48 @@ def _configured_support_channels(settings: dict) -> set[str]:
     return ids
 
 
+def _record_last_slack_message(
+    team: Team, *, channel: str, slack_user_id: str, message_ts: str | None, is_bot: bool
+) -> None:
+    """Record the message time on the customer analytics account bound to `channel`.
+
+    Bound means the account carries the channel in its ``slack_channel_id`` property, which is
+    independent of ticketing — so this covers every channel the bot can see, not only the
+    configured support channels. Bots and PostHog teammates aren't customers, so their messages
+    don't count. Failures are captured and swallowed: this must not stop the ticket path.
+    """
+    if is_bot or not message_ts:
+        return
+
+    from products.customer_analytics.backend.facade import api as customer_analytics  # noqa: PLC0415
+
+    try:
+        team_id = _get_team_id(team)
+        account = customer_analytics.get_account_ref_by_slack_channel_id(team_id, channel)
+        if account is None:
+            return
+        slack_user = resolve_slack_user(get_slack_client(team), slack_user_id)
+        # An unresolved email may belong to a teammate, so treat it as one.
+        email = slack_user.get("email")
+        if not email or resolve_posthog_user_for_slack(email, team):
+            return
+        customer_analytics.record_last_slack_message_at(
+            team_id=team_id,
+            account_id=account.id,
+            timestamp=datetime.fromtimestamp(float(message_ts), tz=UTC),
+        )
+    except Exception as e:
+        capture_exception(e, {"team_id": getattr(team, "id", None), "slack_channel_id": channel})
+
+
 def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
     """
     Handle a Slack 'message' event for configured support channels.
 
     Top-level messages create new tickets.
     Thread replies add messages to existing tickets.
+    Any message from a customer also records the time on the account bound to the channel,
+    whether or not the channel is a support channel.
     """
     channel = event.get("channel")
     if not channel:
@@ -727,6 +765,8 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
     configured_channels = _configured_support_channels(settings_dict)
     thread_ts = event.get("thread_ts")
     message_ts = event.get("ts")
+
+    _record_last_slack_message(team, channel=channel, slack_user_id=slack_user_id, message_ts=message_ts, is_bot=is_bot)
 
     if thread_ts:
         if is_bot:

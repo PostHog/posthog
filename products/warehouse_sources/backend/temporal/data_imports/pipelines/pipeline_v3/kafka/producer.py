@@ -6,10 +6,6 @@ from temporalio import activity
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.topics import KAFKA_WAREHOUSE_SOURCES_JOBS
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    PartitionFormat,
-    PartitionMode,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.kafka.common import (
     ExportSignalMessage,
     SyncTypeLiteral,
@@ -19,6 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     get_kafka_flush_failures_metric,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+    PartitionFormat,
+    PartitionMode,
+)
 
 
 class KafkaBatchProducer:

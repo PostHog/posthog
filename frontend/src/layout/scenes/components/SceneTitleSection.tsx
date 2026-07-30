@@ -449,9 +449,17 @@ export function SceneName({
 }: SceneNameProps): JSX.Element {
     const [name, setName] = useState(initialName)
     const [prevInitialName, setPrevInitialName] = useState(initialName)
+    // Mirror of the value currently held in the local field. Lets us tell a genuine
+    // external update (loading a resource, an AI-generated name) apart from an echo of
+    // the user's own edit arriving back through the form, so the render-phase
+    // reconciliation below can't overwrite a keystroke that hasn't round-tripped yet.
+    const latestNameRef = useRef(initialName)
     if (initialName !== prevInitialName) {
         setPrevInitialName(initialName)
-        setName(initialName)
+        if (initialName !== latestNameRef.current) {
+            setName(initialName)
+            latestNameRef.current = initialName
+        }
     }
 
     const [isEditing, setIsEditing] = useState(forceEdit)
@@ -490,6 +498,10 @@ export function SceneName({
         }
         if (saveOnBlur && !isGeneratingMetadata && name !== initialName) {
             debouncedOnBlurSave(name || '')
+        } else if (!saveOnBlur) {
+            // Commit any pending debounced change synchronously so a submit or
+            // validation that immediately follows blur reads the value the user sees.
+            debouncedOnChange.flush()
         }
         if (!forceEdit) {
             setIsEditing(false)
@@ -509,6 +521,7 @@ export function SceneName({
                             value={name || ''}
                             readOnly={isGeneratingMetadata}
                             onChange={(e) => {
+                                latestNameRef.current = e.target.value
                                 setName(e.target.value)
                                 if (forceEdit && !saveOnBlur) {
                                     onChange?.(e.target.value)
@@ -650,9 +663,14 @@ function SceneDescription({
 }: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
     const [prevInitialDescription, setPrevInitialDescription] = useState(initialDescription)
+    // See SceneName: keep external updates from clobbering an in-flight local edit.
+    const latestDescriptionRef = useRef(initialDescription)
     if (initialDescription !== prevInitialDescription) {
         setPrevInitialDescription(initialDescription)
-        setDescription(initialDescription)
+        if (initialDescription !== latestDescriptionRef.current) {
+            setDescription(initialDescription)
+            latestDescriptionRef.current = initialDescription
+        }
     }
 
     const [isEditing, setIsEditing] = useState(forceEdit)
@@ -687,6 +705,8 @@ function SceneDescription({
     const handleBlur = (): void => {
         if (saveOnBlur && !isGeneratingMetadata && description !== initialDescription) {
             debouncedOnBlurSaveDescription(description || '')
+        } else if (!saveOnBlur) {
+            debouncedOnDescriptionChange.flush()
         }
         if (!forceEdit) {
             setIsEditing(false)
@@ -704,6 +724,7 @@ function SceneDescription({
                         maxLength={maxLength}
                         readOnly={isGeneratingMetadata}
                         onChange={(e) => {
+                            latestDescriptionRef.current = e.target.value
                             setDescription(e.target.value)
                             if (forceEdit && !saveOnBlur) {
                                 onChange?.(e.target.value)

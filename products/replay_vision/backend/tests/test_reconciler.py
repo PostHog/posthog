@@ -25,11 +25,13 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
 from products.replay_vision.backend.temporal.activities import (
     delete_scanner_schedule_activity,
     list_enabled_scanners_activity,
     list_scanner_schedules_activity,
     reap_orphaned_observations_activity,
+    reap_stuck_vision_action_runs_activity,
     upsert_scanner_schedule_activity,
 )
 from products.replay_vision.backend.temporal.constants import (
@@ -41,6 +43,7 @@ from products.replay_vision.backend.temporal.constants import (
     RECONCILER_WORKFLOW_NAME,
     SCANNER_SCHEDULE_ID_PREFIX,
     SWEEP_SCANNER_WORKFLOW_NAME,
+    VISION_ACTION_RUN_STUCK_CUTOFF,
 )
 from products.replay_vision.backend.temporal.reconciler import (
     ReconcileScannerSchedulesWorkflow,
@@ -210,13 +213,16 @@ class _ReconcileMocks:
         upsert_errors_for_ids: set[uuid.UUID] | None = None,
         delete_errors_for_ids: set[uuid.UUID] | None = None,
         reap_error: Exception | None = None,
+        reap_stuck_runs_error: Exception | None = None,
     ) -> None:
         self.enabled = enabled
         self.existing = existing
         self.upsert_errors = upsert_errors_for_ids or set()
         self.delete_errors = delete_errors_for_ids or set()
         self.reap_error = reap_error
+        self.reap_stuck_runs_error = reap_stuck_runs_error
         self.reap_calls = 0
+        self.reap_stuck_run_calls = 0
         self.upserted: list[uuid.UUID] = []
         self.deleted: list[uuid.UUID] = []
 
@@ -225,6 +231,11 @@ class _ReconcileMocks:
             self.reap_calls += 1
             if self.reap_error:
                 raise self.reap_error
+            return 0
+        if activity_fn is reap_stuck_vision_action_runs_activity:
+            self.reap_stuck_run_calls += 1
+            if self.reap_stuck_runs_error:
+                raise self.reap_stuck_runs_error
             return 0
         if activity_fn is list_enabled_scanners_activity:
             return self.enabled
@@ -243,7 +254,7 @@ class _ReconcileMocks:
         raise AssertionError(f"unexpected activity: {activity_fn!r}")
 
 
-async def _run_reconcile(mocks: _ReconcileMocks):
+async def _run_reconcile(mocks: _ReconcileMocks, patched: bool = True):
     # `workflow.logger` reaches into the workflow runtime, which isn't set up here.
     fake_logger = type(
         "Logger",
@@ -253,6 +264,7 @@ async def _run_reconcile(mocks: _ReconcileMocks):
     with (
         patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
         patch("temporalio.workflow.logger", fake_logger),
+        patch("temporalio.workflow.patched", return_value=patched),
     ):
         return await ReconcileScannerSchedulesWorkflow().run(ReconcileScannerSchedulesInputs())
 
@@ -373,6 +385,15 @@ async def test_reconcile_workflow(_name: str, build: Callable[[], tuple[_Reconci
         assert result.deleted == expected["deleted"]
     assert result.failed_upsert == expected.get("failed_upsert", [])
     assert result.failed_delete == expected.get("failed_delete", [])
+
+
+@pytest.mark.asyncio
+async def test_reconcile_workflow_pre_patch_skips_run_reaper() -> None:
+    # Replays of pre-patch executions must not see the new activity command.
+    mocks = _ReconcileMocks(enabled=_enabled(), existing=_existing())
+    await _run_reconcile(mocks, patched=False)
+    assert mocks.reap_calls == 1
+    assert mocks.reap_stuck_run_calls == 0
 
 
 @pytest.mark.asyncio
@@ -523,3 +544,59 @@ async def test_reap_orphaned_observations_activity(org_team) -> None:
         assert statuses[key].completed_at is None, key
     # The fresh row never reaches Temporal; the empty-workflow-id row is reaped without a describe.
     assert set(temporal.described) == {"wf-gone-1", "wf-timed-out", "wf-open", "wf-err"}
+
+
+def _make_run(action: VisionAction, *, status: str, workflow_id: str, age: dt.timedelta) -> VisionActionRun:
+    run = VisionActionRun.all_teams.create(
+        vision_action=action,
+        team=action.team,
+        temporal_workflow_id=workflow_id,
+        idempotency_key=str(uuid.uuid4()),
+        status=status,
+    )
+    VisionActionRun.all_teams.filter(pk=run.pk).update(created_at=timezone.now() - age)
+    return run
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_reap_stuck_vision_action_runs_activity(org_team) -> None:
+    _, team = org_team
+    scanner = await sync_to_async(_make_scanner)(team)
+    stale = VISION_ACTION_RUN_STUCK_CUTOFF + dt.timedelta(minutes=5)
+
+    def _setup() -> dict[str, VisionActionRun]:
+        action = VisionAction.all_teams.create(team=team, scanner=scanner, name="reaper-test")
+        return {
+            "running_gone": _make_run(action, status=VisionActionRunStatus.RUNNING, workflow_id="wf-gone-1", age=stale),
+            "running_open": _make_run(action, status=VisionActionRunStatus.RUNNING, workflow_id="wf-open", age=stale),
+            "describe_error": _make_run(action, status=VisionActionRunStatus.RUNNING, workflow_id="wf-err", age=stale),
+            "too_fresh": _make_run(
+                action, status=VisionActionRunStatus.RUNNING, workflow_id="wf-gone-2", age=dt.timedelta(minutes=30)
+            ),
+            "already_completed": _make_run(
+                action, status=VisionActionRunStatus.COMPLETED, workflow_id="wf-gone-3", age=stale
+            ),
+        }
+
+    rows = await sync_to_async(_setup)()
+    temporal = _StubReapTemporal({"wf-gone-1": "not_found", "wf-open": "open", "wf-err": "rpc_error"})
+
+    with patch(
+        "products.replay_vision.backend.temporal.activities.reap_stuck_vision_action_runs.async_connect",
+        AsyncMock(return_value=temporal),
+    ):
+        reaped = await reap_stuck_vision_action_runs_activity()
+
+    assert reaped == 1
+    statuses = {
+        key: await sync_to_async(lambda r=run: VisionActionRun.all_teams.get(pk=r.pk))() for key, run in rows.items()
+    }
+    assert statuses["running_gone"].status == VisionActionRunStatus.FAILED
+    assert statuses["running_gone"].error == {
+        "reaped": "The run stopped without recording an outcome.",
+        "delivery_unknown": True,
+    }
+    for key in ("running_open", "describe_error", "too_fresh", "already_completed"):
+        assert statuses[key].status == rows[key].status, key
+    assert set(temporal.described) == {"wf-gone-1", "wf-open", "wf-err"}

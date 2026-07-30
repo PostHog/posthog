@@ -79,6 +79,18 @@ class TestEventDefinitionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("repeated", "names=installed_app&names=purchase&names=missing_event"),
+            ("comma_separated", "names=installed_app,purchase,missing_event"),
+        ]
+    )
+    def test_list_event_definitions_with_exact_names(self, _name, query_string):
+        response = self.client.get(f"/api/projects/@current/event_definitions/?{query_string}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {result["name"] for result in response.json()["results"]} == {"installed_app", "purchase"}
+
+    @parameterized.expand(
+        [
             (
                 "ordering=name",
                 [
