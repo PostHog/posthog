@@ -36,6 +36,7 @@
 //! `nodejs/src/ingestion/common/steps/event-processing/handle-client-ingestion-warning-step.ts`.
 
 pub mod registry;
+pub mod request;
 pub mod serializer;
 pub mod test_support;
 pub mod throttle;
@@ -52,6 +53,7 @@ use serde_json::{Map, Value};
 use tracing::warn;
 
 pub use registry::WarningType;
+pub use request::{emit_request_warning, WarningRequestContext, UNKNOWN_ATTRIBUTION};
 pub use throttle::{ThrottleDecision, WarningThrottle};
 
 /// Counter of emission attempts: labels `type` (warning type), `source`
@@ -108,6 +110,24 @@ pub const CAPTURE_V1_ANALYTICS: WarningSource = WarningSource {
     service: serializer::SOURCE_CAPTURE,
     path: "v1_analytics",
     pipeline_step: "capture_validation",
+};
+
+/// Capture's v1 analytics per-`(token, distinct_id)` rate limiter.
+pub const CAPTURE_V1_RATE_LIMIT: WarningSource = WarningSource {
+    service: serializer::SOURCE_CAPTURE,
+    path: "v1_analytics",
+    pipeline_step: "capture_rate_limit",
+};
+
+/// Capture's legacy analytics pipeline (`rust/capture/src/events/analytics.rs`),
+/// per-`(token, distinct_id)` rate limiter. Split from the v1 source by `path`
+/// because the two pipelines rate-limit at different points in their passes and
+/// serve different deployments — the distinction is invisible in the message
+/// (both are `capture`) but decides which pipeline's volume a spike belongs to.
+pub const CAPTURE_LEGACY_RATE_LIMIT: WarningSource = WarningSource {
+    service: serializer::SOURCE_CAPTURE,
+    path: "legacy_analytics",
+    pipeline_step: "capture_rate_limit",
 };
 
 /// Sink-agnostic emitter seam. The Kafka implementation is
