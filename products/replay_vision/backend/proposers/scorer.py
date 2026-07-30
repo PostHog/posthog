@@ -19,6 +19,12 @@ the rationale that it looks good.
 """
 
 
+# Applied when the stored config carries no scale (legacy or direct-write rows). A 0-to-0 fallback would
+# fail `ScoreScale`'s min < max validator the moment the suggestion was applied.
+_DEFAULT_SCALE_MIN = 1.0
+_DEFAULT_SCALE_MAX = 5.0
+
+
 class ScorerProposer:
     scanner_type = "scorer"
 
@@ -45,10 +51,12 @@ class ScorerProposer:
         return _SYSTEM_PROMPT
 
     def grounding(self, scanner: "ReplayScanner") -> str:
-        # The schema requires echoing the scale, so the briefing must state the current one.
+        # The schema requires echoing the scale, so the briefing must state the current one. Staying silent
+        # when none is stored makes the model invent a range that `to_config_patch` then materializes as a
+        # deliberate change complete with a rationale.
         scale = (scanner.scanner_config or {}).get("scale") or {}
         if not scale:
-            return ""
+            return f"Current scale: none stored, so {_DEFAULT_SCALE_MIN} to {_DEFAULT_SCALE_MAX} applies. Echo it unless the rated sessions justify a different range."
         label = f" ({scale['label']})" if scale.get("label") else ""
         return f"Current scale: {scale.get('min')} to {scale.get('max')}{label}."
 
@@ -62,8 +70,8 @@ class ScorerProposer:
         min_value = scale.get("min")
         max_value = scale.get("max")
         config["scale"] = {
-            "min": float(min_value if min_value is not None else base_scale.get("min", 0.0)),
-            "max": float(max_value if max_value is not None else base_scale.get("max", 0.0)),
+            "min": float(min_value if min_value is not None else base_scale.get("min", _DEFAULT_SCALE_MIN)),
+            "max": float(max_value if max_value is not None else base_scale.get("max", _DEFAULT_SCALE_MAX)),
             "label": scale.get("label", base_scale.get("label")),
         }
         return config

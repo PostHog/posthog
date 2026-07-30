@@ -90,7 +90,11 @@ class TestPromptEvaluation(_VisionAPITestCase):
         [
             ({"verdict": "Yes "}, "Verdict: yes"),
             ({"verdict": "no", "tags": ["a"]}, "Verdict: no"),
-            ({"tags": ["Churn ", "bug", "churn"]}, "Tags: bug, churn, churn"),
+            # Slug-normalized and deduped, so casing and spacing can't read as a changed outcome.
+            ({"tags": ["Churn ", "bug", "churn"]}, "Tags: bug, churn"),
+            # Freeform tags count too: a rewrite that only moves those must not evaluate as "no change".
+            ({"tags": ["bug"], "tags_freeform": ["Payment Issues"]}, "Tags: bug, payment_issues"),
+            ({"tags": [], "tags_freeform": ["checkout"]}, "Tags: checkout"),
             # Preview types: scorer shows the raw score, summarizer prefers the title then falls back to the summary.
             ({"score": 7}, "Score: 7"),
             ({"score": 3.5}, "Score: 3.5"),

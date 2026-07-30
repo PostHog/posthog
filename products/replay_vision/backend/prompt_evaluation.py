@@ -12,6 +12,7 @@ from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import ReplayScannerPromptSuggestion
+from products.replay_vision.backend.tags import slugify_tag
 
 # Sized for a full run at the session cap (100 sessions, 4 concurrent, a few minutes each).
 # Lives here rather than temporal/constants so quota-path imports don't drag in the temporal package.
@@ -78,7 +79,10 @@ def primary_outcome(model_output: dict[str, Any] | None) -> str | None:
     verdict = output.get("verdict")
     if isinstance(verdict, str) and verdict:
         return f"Verdict: {verdict.strip().lower()}"
-    tags = sorted(t.strip().lower() for t in (output.get("tags") or []) if isinstance(t, str) and t.strip())
+    # Freeform tags are part of a classifier's output, so a rewrite that only changes them must not read as
+    # "no change". Matches `describe_output`, which merges both lists.
+    raw_tags = [*(output.get("tags") or []), *(output.get("tags_freeform") or [])]
+    tags = sorted({slugify_tag(t) for t in raw_tags if isinstance(t, str) and slugify_tag(t)})
     if tags:
         return f"Tags: {', '.join(tags)}"
     # Preview types have no discrete outcome, so show the raw output the reviewer compares by eye.
