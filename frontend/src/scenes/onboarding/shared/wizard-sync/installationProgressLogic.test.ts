@@ -326,6 +326,11 @@ describe('installationProgressLogic merge', () => {
             expect(localProgress(session({ run_phase: 'completed' }), 'open', true).prUrl).toBeNull()
         })
 
+        it('carries the handoff doc so the report button and dialog can render it', () => {
+            expect(localProgress(session({ handoff_text: '# report' }), 'open', true).handoffText).toBe('# report')
+            expect(localProgress(session(), 'open', true).handoffText).toBeNull()
+        })
+
         it('isCurrent mirrors the sticky freshness flag, never a bare session', () => {
             // A stale terminal row replayed by the SSE on connect must not read as a run in flight —
             // that is what used to hijack the install step before the freshness guard.
@@ -430,6 +435,7 @@ describe('installationProgressLogic merge', () => {
                 isCurrent: true,
                 pendingInput: null,
                 startedBy: null,
+                handoffText: null,
             })
         })
 
@@ -558,12 +564,14 @@ describe('installationProgressLogic merge', () => {
             markSessionCurrent: jest.Mock
             recordFinishedLocalRun: jest.Mock
             supersedeFinishedLocalRun: jest.Mock
+            handoffDocReceived: jest.Mock
             reportWizardSyncSessionDetected: jest.Mock
             reportWizardSyncSessionFinished: jest.Mock
         } => ({
             markSessionCurrent: jest.fn(),
             recordFinishedLocalRun: jest.fn(),
             supersedeFinishedLocalRun: jest.fn(),
+            handoffDocReceived: jest.fn(),
             reportWizardSyncSessionDetected: jest.fn(),
             reportWizardSyncSessionFinished: jest.fn(),
         })
@@ -634,6 +642,25 @@ describe('installationProgressLogic merge', () => {
             )
             expect(actions.supersedeFinishedLocalRun).toHaveBeenCalledWith('new-run')
             expect(actions.recordFinishedLocalRun).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            // The doc must ride the same freshness gate as everything else: a stale row's doc
+            // re-announced on every app load would fight the once-only auto-open downstream.
+            ['fresh session with a doc', fresh({ handoff_text: '# report' }), 1],
+            ['fresh session without a doc', fresh(), 0],
+            ['stale session with a doc', session({ handoff_text: '# report' }), 0],
+        ])('announces the handoff doc only for a %s', (_name, s, expectedCalls) => {
+            const actions = spyActions()
+            runLocalSessionBookkeeping(s, null, POSTHOG_INTEGRATION_WORKFLOW_ID, actions)
+            expect(actions.handoffDocReceived).toHaveBeenCalledTimes(expectedCalls)
+            if (expectedCalls > 0) {
+                expect(actions.handoffDocReceived).toHaveBeenCalledWith({
+                    key: s.session_id,
+                    text: '# report',
+                    startedByEmail: null,
+                })
+            }
         })
 
         it('tolerates a malformed session with null tasks', () => {

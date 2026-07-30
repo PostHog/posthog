@@ -231,6 +231,7 @@ export function cloudProgress(
         isCurrent: phase !== 'idle',
         pendingInput: phase === 'running' ? pendingInputFromSession(session) : null,
         startedBy: startedByFromSession(session),
+        handoffText: session?.handoff_text ?? null,
     }
 }
 
@@ -254,6 +255,7 @@ export function localProgress(
             isCurrent: false,
             pendingInput: null,
             startedBy: null,
+            handoffText: null,
         }
     }
 
@@ -303,6 +305,7 @@ export function localProgress(
         isCurrent: sessionIsCurrent && !dismissed,
         pendingInput: phase === 'running' && !dismissed ? pendingInputFromSession(latestSession) : null,
         startedBy: startedByFromSession(latestSession),
+        handoffText: latestSession.handoff_text ?? null,
     }
 }
 
@@ -321,5 +324,6 @@ export function progressFromFinishedLocalRun(handle: FinishedLocalRunHandle): In
         isCurrent: true,
         pendingInput: null,
         startedBy: handle.startedBy ?? null,
+        handoffText: handle.handoffText ?? null,
     }
 }
