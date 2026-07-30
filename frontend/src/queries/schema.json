@@ -7276,6 +7276,10 @@
                 "p_value": {
                     "type": "number"
                 },
+                "power_risk": {
+                    "$ref": "#/definitions/FunnelPowerRisk",
+                    "description": "Set when this funnel metric is too narrow to power a result."
+                },
                 "probability": {
                     "additionalProperties": {
                         "type": "number"
@@ -10086,6 +10090,10 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "power_risk": {
+                    "$ref": "#/definitions/FunnelPowerRisk",
+                    "description": "Set when this funnel metric is too narrow to power a result."
                 },
                 "query_metadata": {
                     "type": "object"
@@ -22021,6 +22029,10 @@
                 "p_value": {
                     "type": "number"
                 },
+                "power_risk": {
+                    "$ref": "#/definitions/FunnelPowerRisk",
+                    "description": "Set when this funnel metric is too narrow to power a result."
+                },
                 "probability": {
                     "additionalProperties": {
                         "type": "number"
@@ -24929,6 +24941,40 @@
                 }
             },
             "required": ["funnelSource"],
+            "type": "object"
+        },
+        "FunnelPowerRisk": {
+            "additionalProperties": false,
+            "description": "A funnel metric measured over all exposed users, where a step before the final one keeps only a small share of them. The result is a low-conversion binomial with a wide noise band, so swings on the final step read as movement when they are variance. Present on the response only when the metric is also short of the sample size needed to detect the experiment's minimum detectable effect.",
+            "properties": {
+                "minimum_detectable_effect": {
+                    "description": "Minimum detectable effect the recommendation is based on, as a percentage.",
+                    "type": "number"
+                },
+                "narrowest_step": {
+                    "$ref": "#/definitions/integer",
+                    "description": "1-indexed funnel step with the lowest retention of exposed users."
+                },
+                "narrowest_step_percentage": {
+                    "description": "Share of exposed users who reached that step, as a percentage (0-100).",
+                    "type": "number"
+                },
+                "observed_exposures": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Exposures observed across all variants for this metric."
+                },
+                "recommended_sample_size": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Exposures needed to detect the minimum detectable effect at the observed conversion rate."
+                }
+            },
+            "required": [
+                "narrowest_step",
+                "narrowest_step_percentage",
+                "observed_exposures",
+                "recommended_sample_size",
+                "minimum_detectable_effect"
+            ],
             "type": "object"
         },
         "FunnelStepReference": {
@@ -33777,6 +33823,10 @@
                     "description": "Whether exposures were served from the precomputation system",
                     "type": "boolean"
                 },
+                "power_risk": {
+                    "$ref": "#/definitions/FunnelPowerRisk",
+                    "description": "Set when this funnel metric is too narrow to power a result."
+                },
                 "variant_results": {
                     "anyOf": [
                         {
@@ -36783,6 +36833,10 @@
                         },
                         "p_value": {
                             "type": "number"
+                        },
+                        "power_risk": {
+                            "$ref": "#/definitions/FunnelPowerRisk",
+                            "description": "Set when this funnel metric is too narrow to power a result."
                         },
                         "probability": {
                             "additionalProperties": {

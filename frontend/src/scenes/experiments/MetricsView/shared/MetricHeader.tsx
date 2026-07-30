@@ -85,6 +85,7 @@ export const MetricHeader = ({
     onBreakdownChange,
     onDeleteMetricClick,
     readOnly,
+    warning,
 }: {
     displayOrder?: number
     metric: ExperimentMetric
@@ -96,6 +97,8 @@ export const MetricHeader = ({
     onBreakdownChange: (breakdown: Breakdown) => void
     onDeleteMetricClick?: (metric: ExperimentMetric) => void
     readOnly?: boolean
+    /** Analysis-health note about this metric, rendered under the metric's tags. */
+    warning?: JSX.Element
 }): JSX.Element => {
     /**
      * This is necessary for legacy experiments support
@@ -341,6 +344,7 @@ export const MetricHeader = ({
                         </LemonTag>
                     )}
                 </div>
+                {warning}
             </div>
         </div>
     )

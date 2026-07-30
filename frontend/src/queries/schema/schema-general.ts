@@ -4696,6 +4696,9 @@ export interface ExperimentQueryResponse {
 
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
+
+    /** Set when this funnel metric is too narrow to power a result. */
+    power_risk?: FunnelPowerRisk
 }
 
 // Strongly typed variants of ExperimentQueryResponse for better type safety
@@ -4805,6 +4808,8 @@ export interface NewExperimentQueryResponse {
     is_precomputed?: boolean
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarning[]
+    /** Set when this funnel metric is too narrow to power a result. */
+    power_risk?: FunnelPowerRisk
 }
 
 export interface ExperimentExposureTimeSeries {
@@ -4826,6 +4831,26 @@ export interface SampleRatioMismatch {
 export interface BiasRisk {
     /** Observed share of users assigned to `$multiple`, as a percentage (0-100). */
     multiple_variant_percentage: number
+}
+
+/**
+ * A funnel metric measured over all exposed users, where a step before the final one
+ * keeps only a small share of them. The result is a low-conversion binomial with a wide
+ * noise band, so swings on the final step read as movement when they are variance.
+ * Present on the response only when the metric is also short of the sample size needed
+ * to detect the experiment's minimum detectable effect.
+ */
+export interface FunnelPowerRisk {
+    /** 1-indexed funnel step with the lowest retention of exposed users. */
+    narrowest_step: integer
+    /** Share of exposed users who reached that step, as a percentage (0-100). */
+    narrowest_step_percentage: number
+    /** Exposures observed across all variants for this metric. */
+    observed_exposures: integer
+    /** Exposures needed to detect the minimum detectable effect at the observed conversion rate. */
+    recommended_sample_size: integer
+    /** Minimum detectable effect the recommendation is based on, as a percentage. */
+    minimum_detectable_effect: number
 }
 
 export interface ExperimentExposureQueryResponse {

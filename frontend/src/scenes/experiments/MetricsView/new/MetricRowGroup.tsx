@@ -32,6 +32,7 @@ import { ChartEmptyState } from '~/scenes/experiments/MetricsView/shared/ChartEm
 import { SkeletonResultCells } from '~/scenes/experiments/MetricsView/shared/ChartLoadingSkeleton'
 import { ChartLoadingState } from '~/scenes/experiments/MetricsView/shared/ChartLoadingState'
 import { useChartColors } from '~/scenes/experiments/MetricsView/shared/colors'
+import { FunnelPowerWarning } from '~/scenes/experiments/MetricsView/shared/FunnelPowerWarning'
 import { MetricHeader } from '~/scenes/experiments/MetricsView/shared/MetricHeader'
 import { MetricRetryState } from '~/scenes/experiments/MetricsView/shared/MetricRetryState'
 import {
@@ -943,6 +944,7 @@ export function MetricRowGroup({
                         onDuplicateAsSingleUseMetricClick={() => onDuplicateAsSingleUseMetric?.()}
                         onDeleteMetricClick={onDeleteMetric ? () => onDeleteMetric() : undefined}
                         onBreakdownChange={onBreakdownChange}
+                        warning={result.power_risk ? <FunnelPowerWarning powerRisk={result.power_risk} /> : undefined}
                     />
                 </td>
 

@@ -22,6 +22,7 @@ from posthog.schema import (
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     ExperimentStatsBase,
+    FunnelPowerRisk,
     IntervalType,
     MultipleVariantHandling,
     PrecomputationMode,
@@ -47,6 +48,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     parse_ttl_schedule,
 )
 from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.analysis_health import DEFAULT_MINIMUM_DETECTABLE_EFFECT, evaluate_funnel_power_risk
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
 from products.experiments.backend.hogql_queries.cuped_config import get_cuped_config
@@ -639,8 +641,32 @@ class ExperimentQueryRunner(QueryRunner):
         result.clickhouse_sql = self.clickhouse_sql
         result.hogql = self.hogql
         result.is_precomputed = self._is_precomputed
+        result.power_risk = self._evaluate_power_risk(result)
 
         return result
+
+    def _evaluate_power_risk(self, result: ExperimentQueryResponse) -> FunnelPowerRisk | None:
+        """Flag a funnel metric whose narrow step leaves it unable to power a result."""
+        if not isinstance(self.metric, ExperimentFunnelMetric) or result.baseline is None:
+            return None
+
+        variant_results = result.variant_results or []
+        return evaluate_funnel_power_risk(
+            baseline=result.baseline,
+            total_exposures=result.baseline.number_of_samples
+            + sum(variant.number_of_samples for variant in variant_results),
+            number_of_variants=len(variant_results) + 1,
+            minimum_detectable_effect=self._minimum_detectable_effect,
+        )
+
+    @cached_property
+    def _minimum_detectable_effect(self) -> float:
+        running_time_calculation = self.experiment.running_time_calculation or {}
+        return (
+            running_time_calculation.get("minimum_detectable_effect")
+            or self._team_experiments_config.default_minimum_detectable_effect
+            or DEFAULT_MINIMUM_DETECTABLE_EFFECT
+        )
 
     def _prepare_variant_results(self) -> list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]:
         """Fetch and prepare variant results with missing variants added."""

@@ -2,9 +2,13 @@ from unittest import TestCase
 
 from parameterized import parameterized
 
-from posthog.schema import BiasRisk, MultipleVariantHandling
+from posthog.schema import BiasRisk, ExperimentStatsBaseValidated, MultipleVariantHandling
 
-from products.experiments.backend.analysis_health import MULTIPLE_VARIANT_BIAS_THRESHOLD, evaluate_bias_risk
+from products.experiments.backend.analysis_health import (
+    MULTIPLE_VARIANT_BIAS_THRESHOLD,
+    evaluate_bias_risk,
+    evaluate_funnel_power_risk,
+)
 
 UNEVEN_2WAY = [{"rollout_percentage": 80}, {"rollout_percentage": 20}]
 EVEN_2WAY = [{"rollout_percentage": 50}, {"rollout_percentage": 50}]
@@ -102,3 +106,43 @@ class TestEvaluateBiasRisk(TestCase):
         )
         assert result is not None
         self.assertGreater(result.multiple_variant_percentage, MULTIPLE_VARIANT_BIAS_THRESHOLD)
+
+
+def baseline(step_counts: list[int], exposures: int) -> ExperimentStatsBaseValidated:
+    return ExperimentStatsBaseValidated(
+        key="control",
+        number_of_samples=exposures,
+        sum=step_counts[-1] if step_counts else 0,
+        sum_squares=step_counts[-1] if step_counts else 0,
+        step_counts=step_counts,
+    )
+
+
+class TestEvaluateFunnelPowerRisk(TestCase):
+    def test_narrow_middle_step_under_sample_size_is_flagged(self):
+        # 3% of exposures reach step 2 and 2% complete: a 2% binomial needs ~17k exposures to
+        # resolve a 30% relative change, and only 10k are in.
+        result = evaluate_funnel_power_risk(baseline([5000, 150, 100], 5000), 10000, 2, 30)
+        assert result is not None
+        self.assertEqual(result.narrowest_step, 2)
+        self.assertAlmostEqual(result.narrowest_step_percentage, 3.0)
+        self.assertEqual(result.observed_exposures, 10000)
+        self.assertGreater(result.recommended_sample_size, 10000)
+
+    @parameterized.expand(
+        [
+            # Every step keeps most exposures — nothing narrow to warn about.
+            ("wide_funnel", [10000, 9000, 8000], 10000, 20000),
+            # Narrow, but with enough exposures to detect the effect anyway.
+            ("narrow_but_powered", [5000, 150, 100], 5000, 200_000),
+            # A single-step funnel has no step to be narrow before the final one.
+            ("single_step", [200], 10000, 20000),
+            ("no_step_counts", [], 10000, 20000),
+            ("no_exposures", [0, 0], 0, 0),
+            # Nobody completed the funnel: there's no conversion rate to size against.
+            ("zero_conversions", [300, 0], 10000, 20000),
+        ]
+    )
+    def test_returns_none_when_not_at_risk(self, _name, step_counts, exposures, total_exposures):
+        result = evaluate_funnel_power_risk(baseline(step_counts, exposures), total_exposures, 2, 30)
+        self.assertIsNone(result)

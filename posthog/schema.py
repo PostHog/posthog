@@ -4949,6 +4949,29 @@ class FunnelExclusionSteps(BaseModel):
     funnelToStep: int
 
 
+class FunnelPowerRisk(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    minimum_detectable_effect: float = Field(
+        ...,
+        description=("Minimum detectable effect the recommendation is based on, as a percentage."),
+    )
+    narrowest_step: int = Field(
+        ...,
+        description="1-indexed funnel step with the lowest retention of exposed users.",
+    )
+    narrowest_step_percentage: float = Field(
+        ...,
+        description=("Share of exposed users who reached that step, as a percentage (0-100)."),
+    )
+    observed_exposures: int = Field(..., description="Exposures observed across all variants for this metric.")
+    recommended_sample_size: int = Field(
+        ...,
+        description=("Exposures needed to detect the minimum detectable effect at the observed conversion rate."),
+    )
+
+
 class FunnelsAlertConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -17226,6 +17249,10 @@ class NewExperimentQueryResponse(BaseModel):
         default=None,
         description="Whether exposures were served from the precomputation system",
     )
+    power_risk: FunnelPowerRisk | None = Field(
+        default=None,
+        description="Set when this funnel metric is too narrow to power a result.",
+    )
     variant_results: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian]
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
@@ -22906,6 +22933,10 @@ class CachedNewExperimentQueryResponse(BaseModel):
     )
     last_refresh: AwareDatetime
     next_allowed_client_refresh: AwareDatetime
+    power_risk: FunnelPowerRisk | None = Field(
+        default=None,
+        description="Set when this funnel metric is too narrow to power a result.",
+    )
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
         default=None,
@@ -25401,6 +25432,10 @@ class ExperimentQueryResponse(BaseModel):
         Field(default=None, discriminator="metric_type")
     )
     p_value: float | None = None
+    power_risk: FunnelPowerRisk | None = Field(
+        default=None,
+        description="Set when this funnel metric is too narrow to power a result.",
+    )
     probability: dict[str, float] | None = None
     significance_code: ExperimentSignificanceCode | None = None
     significant: bool | None = None
@@ -25459,6 +25494,10 @@ class QueryResponseAlternative18(BaseModel):
         Field(default=None, discriminator="metric_type")
     )
     p_value: float | None = None
+    power_risk: FunnelPowerRisk | None = Field(
+        default=None,
+        description="Set when this funnel metric is too narrow to power a result.",
+    )
     probability: dict[str, float] | None = None
     significance_code: ExperimentSignificanceCode | None = None
     significant: bool | None = None
@@ -25590,6 +25629,10 @@ class CachedExperimentQueryResponse(BaseModel):
     )
     next_allowed_client_refresh: AwareDatetime
     p_value: float | None = None
+    power_risk: FunnelPowerRisk | None = Field(
+        default=None,
+        description="Set when this funnel metric is too narrow to power a result.",
+    )
     probability: dict[str, float] | None = None
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
