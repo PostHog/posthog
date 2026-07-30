@@ -555,10 +555,18 @@ export const searchLogic = kea<searchLogicType>([
                         return []
                     }
 
-                    const response = await api.persons.list({ search: trimmed, limit: SEARCH_LIMIT })
+                    // Person search runs against a heavy table and can time out. Degrade to "no person
+                    // results" inside the dropdown rather than letting kea-loaders raise a global toast.
+                    // `client_request_failure` in lib/api already instruments the failure itself.
+                    let results: PersonType[] = []
+                    try {
+                        results = (await api.persons.list({ search: trimmed, limit: SEARCH_LIMIT })).results
+                    } catch (e) {
+                        console.warn('Person search failed, showing no person results', e)
+                    }
                     breakpoint()
 
-                    return response.results
+                    return results
                 },
             },
         ],

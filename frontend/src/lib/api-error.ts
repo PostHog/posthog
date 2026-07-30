@@ -6,6 +6,14 @@ export function isAccessDeniedError(error: { status?: number; code?: string | nu
     return error.status === 403 && error.code === 'permission_denied'
 }
 
+/**
+ * A request that never reached PostHog: `fetch` rejects with a `TypeError` ("Failed to fetch",
+ * "NetworkError when attempting to fetch resource", "Load failed") and there is no status to report.
+ */
+export function isNetworkFailureError(error: unknown): boolean {
+    return (error instanceof ApiError && error.networkFailure) || error instanceof TypeError
+}
+
 export class ApiError extends Error {
     /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null
@@ -18,6 +26,9 @@ export class ApiError extends Error {
 
     /** Link to external resources, e.g. stripe invoices */
     link: string | null
+
+    /** The request never reached PostHog (offline, DNS, CORS, ad blocker), so there is no `status`. */
+    networkFailure: boolean = false
 
     constructor(
         message?: string,

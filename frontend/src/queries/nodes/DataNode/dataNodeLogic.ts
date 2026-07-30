@@ -19,6 +19,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api, { ApiMethodOptions } from 'lib/api'
+import { isNetworkFailureError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { uuid } from 'lib/utils/dom'
@@ -135,6 +136,22 @@ export interface DataNodeLogicProps {
     maxPaginationLimit?: number
     /** Limit context sent to the /query endpoint */
     limitContext?: 'posthog_ai'
+}
+
+/** Copy for a request that never reached PostHog — the raw browser message ("Failed to fetch") means nothing to a user. */
+export const NETWORK_FAILURE_MESSAGE = "Couldn't reach PostHog. Check your connection and try again."
+
+function responseErrorMessage(error: string | null, errorObject: any): string {
+    if (isNetworkFailureError(errorObject)) {
+        return NETWORK_FAILURE_MESSAGE
+    }
+    if (errorObject && 'error' in errorObject && errorObject.error) {
+        return errorObject.error
+    }
+    if (errorObject && 'detail' in errorObject && errorObject.detail) {
+        return errorObject.detail
+    }
+    return error ?? 'Error loading data'
 }
 
 export const AUTOLOAD_INTERVAL = 30000
@@ -1295,24 +1312,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             {
                 loadData: () => null,
                 loadNewData: () => null,
-                loadDataFailure: (_, { error, errorObject }) => {
-                    if (errorObject && 'error' in errorObject) {
-                        return errorObject.error ?? 'Error loading data'
-                    }
-                    if (errorObject && 'detail' in errorObject) {
-                        return errorObject.detail ?? 'Error loading data'
-                    }
-                    return error ?? 'Error loading data'
-                },
-                loadNewDataFailure: (_, { error, errorObject }) => {
-                    if (errorObject && 'error' in errorObject) {
-                        return errorObject.error ?? 'Error loading data'
-                    }
-                    if (errorObject && 'detail' in errorObject) {
-                        return errorObject.detail ?? 'Error loading data'
-                    }
-                    return error ?? 'Error loading data'
-                },
+                loadDataFailure: (_, { error, errorObject }) => responseErrorMessage(error, errorObject),
+                loadNewDataFailure: (_, { error, errorObject }) => responseErrorMessage(error, errorObject),
                 loadDataSuccess: (_, { response }) =>
                     response && 'error' in response ? (response.error ?? null) : null,
                 loadNewDataSuccess: (_, { response }) =>

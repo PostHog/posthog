@@ -7524,6 +7524,28 @@ const api = {
 
 const warnedSharedViewLeaks = new Set<string>()
 
+function captureRequestFailure(
+    url: string,
+    method: string,
+    status: number,
+    duration: number,
+    extraProperties: Record<string, any> = {}
+): void {
+    // when used inside the posthog toolbar, `posthog.capture` isn't loaded
+    // check if the function is available before calling it.
+    if (!posthog.capture) {
+        return
+    }
+    posthog.capture('client_request_failure', {
+        pathname: new URL(url, location.origin).pathname,
+        method,
+        duration,
+        status,
+        is_shared_view: isSharedView(),
+        ...extraProperties,
+    })
+}
+
 async function handleFetch(
     url: string,
     method: string,
@@ -7546,7 +7568,14 @@ async function handleFetch(
         if (error && (error as any).name === 'AbortError') {
             throw error
         }
-        throw new ApiError(error as any, response?.status)
+        // A rejected `fetch` has no status, so this used to escape `client_request_failure` entirely,
+        // leaving network-level failures invisible in telemetry. Report them with status 0.
+        captureRequestFailure(url, method, 0, new Date().getTime() - startTime, {
+            error_name: (error as any)?.name ?? null,
+        })
+        const apiError = new ApiError(error as any, response?.status)
+        apiError.networkFailure = true
+        throw apiError
     }
 
     // Standalone OAuth mode: a 401 likely means the access token expired — refresh once and retry.
@@ -7562,17 +7591,7 @@ async function handleFetch(
         const duration = new Date().getTime() - startTime
         const pathname = new URL(url, location.origin).pathname
         const inSharedView = isSharedView()
-        // when used inside the posthog toolbar, `posthog.capture` isn't loaded
-        // check if the function is available before calling it.
-        if (posthog.capture) {
-            posthog.capture('client_request_failure', {
-                pathname,
-                method,
-                duration,
-                status: response.status,
-                is_shared_view: inSharedView,
-            })
-        }
+        captureRequestFailure(url, method, response.status, duration)
         if (inSharedView && (response.status === 401 || response.status === 403)) {
             const leakKey = `${method} ${pathname}`
             if (!warnedSharedViewLeaks.has(leakKey)) {

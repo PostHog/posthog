@@ -156,6 +156,23 @@ describe('API helper', () => {
         })
     })
 
+    it('reports a rejected fetch as a status-less client_request_failure', async () => {
+        fakeFetch.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+        await expect(api.get('/api/environments/2/query/')).rejects.toMatchObject({
+            networkFailure: true,
+            status: undefined,
+        })
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'client_request_failure',
+            expect.objectContaining({
+                pathname: '/api/environments/2/query/',
+                status: 0,
+                error_name: 'TypeError',
+            })
+        )
+    })
+
     it('uses response message as the ApiError message when no detail or error is present', async () => {
         fakeFetch.mockResolvedValueOnce({
             ok: false,
