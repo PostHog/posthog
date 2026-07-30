@@ -21,11 +21,12 @@ use std::collections::HashSet;
 
 use common_ingestion_warnings::{
     emit_request_warning, WarningEmitter, WarningRequestContext, WarningSource, WarningType,
-    UNKNOWN_ATTRIBUTION,
+    CAPTURE_LEGACY_ANALYTICS, UNKNOWN_ATTRIBUTION,
 };
 use common_types::{EventWithLibraryInfo, RawEvent};
 use serde_json::{json, Map};
 
+use crate::api::CaptureError;
 use crate::v0_request::ProcessingContext;
 use crate::v1::context::RequestContext;
 
@@ -140,9 +141,58 @@ fn unknown_if_missing(value: Option<&str>) -> String {
     }
 }
 
+/// Map a legacy-path request abort to the ingestion warning customers should
+/// see, or `None` for failures customers can't act on.
+///
+/// This is the legacy pipeline's counterpart to v1's `Error::tag()` →
+/// [`WarningType::from_tag`] route. It matches enum variants instead of the
+/// `to_metric_tag()` strings so renames are compile-checked, and it lives here
+/// rather than in `common_ingestion_warnings` so that crate never learns
+/// capture's error taxonomy.
+///
+/// `None` arms are deliberate, mirroring the exclusions v1 pins in
+/// `from_tag_rejects_unregistered_tags`: transport and parse failures have no
+/// verified token to attribute, auth failures can't be trusted to a team,
+/// quota/rate/restriction drops are surfaced through billing and ops channels,
+/// and sink or internal errors are ours to fix, not the customer's.
+pub fn warning_for_capture_error(err: &CaptureError) -> Option<WarningType> {
+    match err {
+        CaptureError::MissingEventName => Some(WarningType::MissingEventName),
+        CaptureError::MissingDistinctId => Some(WarningType::MissingDistinctId),
+        _ => None,
+    }
+}
+
+/// Emit the ingestion warning for a legacy-path `process_events` abort, if the
+/// error maps to one.
+///
+/// The legacy pipeline rejects the whole request on the first invalid event,
+/// so `count` charges the full batch, matching what `report_dropped_events`
+/// records for the same failure. Floored at 1 for v1 parity: a zero count
+/// would read as "nothing happened" in the v2 table.
+pub fn emit_processing_abort_warning(
+    emitter: Option<&dyn WarningEmitter>,
+    context: &ProcessingContext,
+    err: &CaptureError,
+    event_count: u64,
+) {
+    let Some(warning) = warning_for_capture_error(err) else {
+        return;
+    };
+    emit_request_warning(
+        emitter,
+        &legacy_request_context(context),
+        CAPTURE_LEGACY_ANALYTICS,
+        warning,
+        Map::new(),
+        event_count.max(1),
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common_ingestion_warnings::test_support::CollectingEmitter;
     use serde_json::json;
 
     fn raw_event(properties: serde_json::Value) -> RawEvent {
@@ -260,5 +310,128 @@ mod tests {
             assert_eq!(ctx.lib, expected_lib, "{label}: lib");
             assert_eq!(ctx.lib_version, expected_lib_version, "{label}: libVersion");
         }
+    }
+
+    #[test]
+    fn abort_warnings_map_only_customer_actionable_errors() {
+        let cases: [(CaptureError, Option<WarningType>); 13] = [
+            (
+                CaptureError::MissingEventName,
+                Some(WarningType::MissingEventName),
+            ),
+            (
+                CaptureError::MissingDistinctId,
+                Some(WarningType::MissingDistinctId),
+            ),
+            // Excluded on purpose; see warning_for_capture_error's doc.
+            (CaptureError::EventTooBig("too big".to_string()), None),
+            (CaptureError::InvalidCookielessMode, None),
+            (CaptureError::EmptyBatch, None),
+            (CaptureError::EmptyPayload, None),
+            (CaptureError::InvalidTimestamp, None),
+            (
+                CaptureError::RequestParsingError("bad json".to_string()),
+                None,
+            ),
+            (CaptureError::NoTokenError, None),
+            (CaptureError::BillingLimit, None),
+            (CaptureError::RetryableSinkError, None),
+            (CaptureError::NonRetryableSinkError, None),
+            (CaptureError::InternalError("boom".to_string()), None),
+        ];
+
+        for (err, expected) in cases {
+            assert_eq!(
+                warning_for_capture_error(&err),
+                expected,
+                "mapping for {err:?}"
+            );
+        }
+    }
+
+    // Guards the trust chain end to end: a mapper arm for a type that is not
+    // capture-produced would be demoted to a generic client warning by the
+    // nodejs consumer, and one routed via DIRECT_EMIT would violate the
+    // common crate's one-route invariant. Both fail silently in production,
+    // so pin them here like the common crate's weld test does for from_tag.
+    #[test]
+    fn mapped_abort_warnings_ride_the_capture_produced_tag_route() {
+        let mapped = [
+            CaptureError::MissingEventName,
+            CaptureError::MissingDistinctId,
+        ]
+        .iter()
+        .filter_map(warning_for_capture_error);
+
+        for warning in mapped {
+            assert!(
+                warning.capture_produced(),
+                "{warning:?} is not on the consumer trust allowlist"
+            );
+            assert_eq!(
+                WarningType::from_tag(warning.as_str()),
+                Some(warning),
+                "{warning:?} must be tag-routed"
+            );
+            assert!(
+                !WarningType::DIRECT_EMIT.contains(&warning),
+                "{warning:?} must not also be direct-emit"
+            );
+        }
+    }
+
+    #[test]
+    fn abort_helper_charges_full_batch_with_legacy_validation_source() {
+        // (event_count, expected emitted count): a whole-request abort charges
+        // the batch size; zero floors to 1 so the v2 row never reads as a
+        // no-op, matching v1's batch-abort convention.
+        let cases = [(25u64, 25u64), (0u64, 1u64)];
+
+        for (event_count, expected_count) in cases {
+            let emitter = CollectingEmitter::default();
+            let context = legacy_context(SdkAttribution {
+                lib: Some("web".to_string()),
+                lib_version: Some("1.2.3".to_string()),
+            });
+
+            emit_processing_abort_warning(
+                Some(&emitter),
+                &context,
+                &CaptureError::MissingDistinctId,
+                event_count,
+            );
+
+            let emitted = emitter.emitted();
+            assert_eq!(emitted.len(), 1, "event_count={event_count}");
+            let warning = &emitted[0];
+            assert_eq!(warning.token, "tok");
+            assert_eq!(
+                warning.source,
+                common_ingestion_warnings::CAPTURE_LEGACY_ANALYTICS
+            );
+            assert_eq!(warning.warning, WarningType::MissingDistinctId);
+            assert_eq!(warning.count, expected_count);
+            assert_eq!(warning.extra_details.get("lib"), Some(&json!("web")));
+            assert_eq!(
+                warning.extra_details.get("libVersion"),
+                Some(&json!("1.2.3"))
+            );
+            assert_eq!(warning.extra_details.get("path"), Some(&json!("/e/")));
+        }
+    }
+
+    #[test]
+    fn abort_helper_emits_nothing_for_unmapped_errors() {
+        let emitter = CollectingEmitter::default();
+        let context = legacy_context(SdkAttribution::default());
+
+        emit_processing_abort_warning(
+            Some(&emitter),
+            &context,
+            &CaptureError::RetryableSinkError,
+            10,
+        );
+
+        assert!(emitter.emitted().is_empty());
     }
 }
