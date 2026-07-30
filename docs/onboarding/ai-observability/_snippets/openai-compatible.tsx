@@ -57,8 +57,8 @@ export const getOpenAICompatibleSteps = (
                 <>
                     <Markdown>
                         {dedent`
-                            Create a PostHog client, then swap in PostHog's OpenAI wrapper pointed at ${config.label}'s
-                            API.
+                            Create a PostHog client, then swap in PostHog's OpenAI wrapper, pointed at
+                            ${config.label}.
                         `}
                     </Markdown>
 
