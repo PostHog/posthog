@@ -226,12 +226,16 @@ export function MessageList({
         .map(({ element }) => element)
 
     return (
-        <div className="relative flex flex-col flex-1 min-h-0">
+        // The wrapper is the component root, so it keeps the contract the scroll container used to
+        // hold: it takes the caller's className and the height bounds, and stays the flex child
+        // callers lay out against. Without that, a caller's spacing (e.g. `mb-3`) would land inside
+        // the wrapper and stop separating the thread from whatever follows it.
+        <div className={`relative flex flex-col flex-1 ${className}`} style={{ minHeight, maxHeight }}>
             <div
                 ref={containerRef}
                 onScroll={handleScroll}
-                className={`flex-1 overflow-y-auto space-y-1.5 ${className}`}
-                style={{ minHeight, maxHeight }}
+                data-attr="message-list-scroll"
+                className="flex-1 min-h-0 overflow-y-auto space-y-1.5"
             >
                 {olderMessagesLoading && (
                     <div className="flex items-center justify-center py-2">
