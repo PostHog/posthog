@@ -35,6 +35,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     DeliverSubscriptionResult,
     ExportAssetPreparationStatus,
     FetchDueSubscriptionsActivityInputs,
+    NoExportableInsightsReason,
     RecipientResult,
     SubscriptionAbortInfo,
     SubscriptionInfo,
@@ -190,46 +191,70 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
 
     selected_ids: set[int] | None = None
     tile_insight_pairs: list[tuple[DashboardTile | None, Insight]] = []
+    available_insight_count = 0
+    no_exportable_reason = NoExportableInsightsReason.MISSING_RESOURCE
 
-    if dashboard and not dashboard.deleted:
-        tiles = await database_sync_to_async(
-            lambda: list(
-                dashboard.tiles.select_related("insight").filter(insight__isnull=False, insight__deleted=False).all()
-            ),
-            thread_sensitive=False,
-        )()
-        tiles.sort(
-            key=lambda x: (
-                (x.layouts or {}).get("sm", {}).get("y", 100),
-                (x.layouts or {}).get("sm", {}).get("x", 100),
+    if dashboard:
+        if dashboard.deleted:
+            no_exportable_reason = NoExportableInsightsReason.DASHBOARD_DELETED
+        else:
+            tiles = await database_sync_to_async(
+                lambda: list(
+                    dashboard.tiles.select_related("insight")
+                    .filter(insight__isnull=False, insight__deleted=False)
+                    .all()
+                ),
+                thread_sensitive=False,
+            )()
+            tiles.sort(
+                key=lambda x: (
+                    (x.layouts or {}).get("sm", {}).get("y", 100),
+                    (x.layouts or {}).get("sm", {}).get("x", 100),
+                )
             )
-        )
-        tile_insight_pairs = [(tile, tile.insight) for tile in tiles if tile.insight]
+            tile_insight_pairs = [(tile, tile.insight) for tile in tiles if tile.insight]
+            available_insight_count = len(tile_insight_pairs)
 
-        selected_ids = await database_sync_to_async(
-            lambda: (
-                set(subscription.dashboard_export_insights.values_list("id", flat=True))
-                if subscription.dashboard_export_insights.exists()
-                else None
-            ),
-            thread_sensitive=False,
-        )()
-        if selected_ids:
-            tile_insight_pairs = [(t, i) for t, i in tile_insight_pairs if i.id in selected_ids]
-    elif subscription.insight and not subscription.insight.deleted:
-        tile_insight_pairs = [(None, subscription.insight)]
+            selected_ids = await database_sync_to_async(
+                lambda: (
+                    set(subscription.dashboard_export_insights.values_list("id", flat=True))
+                    if subscription.dashboard_export_insights.exists()
+                    else None
+                ),
+                thread_sensitive=False,
+            )()
+            if selected_ids:
+                tile_insight_pairs = [(t, i) for t, i in tile_insight_pairs if i.id in selected_ids]
+                if not tile_insight_pairs:
+                    no_exportable_reason = NoExportableInsightsReason.SELECTED_INSIGHTS_UNAVAILABLE
+            elif not tile_insight_pairs:
+                no_exportable_reason = NoExportableInsightsReason.EMPTY_DASHBOARD
+    elif subscription.insight:
+        if subscription.insight.deleted:
+            no_exportable_reason = NoExportableInsightsReason.INSIGHT_DELETED
+        else:
+            tile_insight_pairs = [(None, subscription.insight)]
+            available_insight_count = 1
 
     total_insight_count = len(tile_insight_pairs)
 
     if not tile_insight_pairs:
+        failure_context = {
+            "reason": no_exportable_reason,
+            "resource_type": "dashboard" if dashboard else "insight" if subscription.insight_id else "unknown",
+            "available_insight_count": available_insight_count,
+            "selected_insight_count": len(selected_ids) if selected_ids else 0,
+        }
         await LOGGER.awarning(
             "create_export_assets.no_exportable_insights",
             subscription_id=inputs.subscription_id,
             dashboard_id=subscription.dashboard_id,
             insight_id=subscription.insight_id,
-            selected_insight_count=len(selected_ids) if selected_ids else 0,
+            **failure_context,
         )
-        _capture_delivery_failed_event(subscription, NoExportableInsightsError(NO_EXPORTABLE_INSIGHTS_MESSAGE))
+        _capture_delivery_failed_event(
+            subscription, NoExportableInsightsError(NO_EXPORTABLE_INSIGHTS_MESSAGE), failure_context
+        )
         return CreateExportAssetsResult(
             exported_asset_ids=[],
             total_insight_count=total_insight_count,
@@ -237,6 +262,7 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             distinct_id=str(subscription.created_by.distinct_id) if subscription.created_by else str(team.id),
             target_type=subscription.target_type,
             status=ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS,
+            failure_context=failure_context,
         )
 
     export_pairs = tile_insight_pairs[: inputs.max_asset_count]

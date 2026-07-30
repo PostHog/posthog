@@ -25,6 +25,14 @@ class ExportAssetPreparationStatus:
     NO_EXPORTABLE_INSIGHTS = "no_exportable_insights"
 
 
+class NoExportableInsightsReason:
+    DASHBOARD_DELETED = "dashboard_deleted"
+    EMPTY_DASHBOARD = "empty_dashboard"
+    INSIGHT_DELETED = "insight_deleted"
+    MISSING_RESOURCE = "missing_resource"
+    SELECTED_INSIGHTS_UNAVAILABLE = "selected_insights_unavailable"
+
+
 NO_EXPORTABLE_INSIGHTS_MESSAGE = (
     "This subscription has no available insights to export. Add insights to the dashboard or update the subscription's "
     "insight selection."
@@ -111,6 +119,7 @@ class CreateExportAssetsResult:
     distinct_id: str = ""
     target_type: str = ""
     status: str = ExportAssetPreparationStatus.READY
+    failure_context: dict[str, int | str] = dataclasses.field(default_factory=dict)
 
 
 @dataclasses.dataclass

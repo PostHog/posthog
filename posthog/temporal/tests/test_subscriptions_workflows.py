@@ -61,6 +61,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     ExportAssetPreparationStatus,
     FetchDueSubscriptionsActivityInputs,
     GenerateAIReportInputs,
+    NoExportableInsightsReason,
     ProcessSubscriptionWorkflowInputs,
     ScheduleAllSubscriptionsWorkflowInputs,
     SubscriptionTriggerType,
@@ -1273,9 +1274,19 @@ async def test_stale_dashboard_selection_fails_without_retrying(
     assert delivery.error == {
         "message": NO_EXPORTABLE_INSIGHTS_MESSAGE,
         "type": ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS,
+        "reason": NoExportableInsightsReason.SELECTED_INSIGHTS_UNAVAILABLE,
+        "resource_type": "dashboard",
+        "available_insight_count": 1,
+        "selected_insight_count": 1,
     }
     mock_send_email.assert_not_called()
     mock_capture_delivery_failed.assert_called_once()
+    assert mock_capture_delivery_failed.call_args.args[2] == {
+        "reason": NoExportableInsightsReason.SELECTED_INSIGHTS_UNAVAILABLE,
+        "resource_type": "dashboard",
+        "available_insight_count": 1,
+        "selected_insight_count": 1,
+    }
 
     completed_calls = [
         call
@@ -1288,6 +1299,7 @@ async def test_stale_dashboard_selection_fails_without_retrying(
     assert properties["outcome"] == SloOutcome.SUCCESS
     assert properties["error_type"] == ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS
     assert properties["failure_type"] == "configuration"
+    assert properties["reason"] == NoExportableInsightsReason.SELECTED_INSIGHTS_UNAVAILABLE
 
 
 @freeze_time("2022-02-02T08:55:00.000Z")
@@ -1359,6 +1371,7 @@ async def test_create_export_assets_empty_dashboard(team, user):
     assert result.exported_asset_ids == []
     assert result.total_insight_count == 0
     assert result.status == ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS
+    assert result.failure_context["reason"] == NoExportableInsightsReason.EMPTY_DASHBOARD
 
 
 @freeze_time("2022-02-02T08:55:00.000Z")
@@ -1373,6 +1386,7 @@ async def test_create_export_assets_excludes_deleted_standalone_insight(team, us
         )
 
     assert result.status == ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS
+    assert result.failure_context["reason"] == NoExportableInsightsReason.INSIGHT_DELETED
 
 
 @patch("ee.tasks.subscriptions.get_metric_meter")

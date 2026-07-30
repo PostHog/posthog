@@ -65,7 +65,9 @@ def get_subscription_failure_metric(
 SUPPORTED_TARGET_TYPES = frozenset(["email", "slack"])
 
 
-def _capture_delivery_failed_event(subscription: Subscription, e: Exception) -> None:
+def _capture_delivery_failed_event(
+    subscription: Subscription, e: Exception, properties: dict[str, int | str] | None = None
+) -> None:
     distinct_id = (subscription.created_by.distinct_id if subscription.created_by else None) or subscription.team_id
     posthoganalytics.capture(
         distinct_id=str(distinct_id),
@@ -76,5 +78,6 @@ def _capture_delivery_failed_event(subscription: Subscription, e: Exception) -> 
             "target_type": subscription.target_type,
             "exception": str(e),
             "exception_type": type(e).__name__,
+            **(properties or {}),
         },
     )

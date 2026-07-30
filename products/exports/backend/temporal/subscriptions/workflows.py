@@ -201,7 +201,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
         total_assets = 0
         asset_errors: list[ExportError] = []
         caught_error: BaseException | None = None
-        delivery_error: dict[str, str] | None = None
+        delivery_error: dict[str, str | int] | None = None
 
         # Delivery record tracking
         delivery_id: uuid.UUID | None = None
@@ -270,6 +270,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     delivery_error = {
                         "message": NO_EXPORTABLE_INSIGHTS_MESSAGE,
                         "type": ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS,
+                        **prepare_result.failure_context,
                     }
                     final_status = DeliveryStatus.FAILED
                     temporalio.workflow.logger.warning(
@@ -278,6 +279,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                             "subscription_id": inputs.subscription_id,
                             "trigger_type": inputs.trigger_type,
                             "error_type": ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS,
+                            **prepare_result.failure_context,
                         },
                     )
                     if inputs.slo:
@@ -286,6 +288,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                                 "error_type": ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS,
                                 "error_message": delivery_error["message"],
                                 "failure_type": "configuration",
+                                **prepare_result.failure_context,
                             }
                         )
                 return
