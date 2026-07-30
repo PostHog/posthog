@@ -1049,19 +1049,20 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     validated_password = self._validate_share_password(resource, request.data["password"])
 
                 if not validated_password:
-                    _log_share_password_attempt(resource, request, success=False)
-
                     # Charged only on a wrong guess, so a correct password always succeeds even
                     # if an attacker has driven this link's wrong-guess budget to its cap -
                     # SharePasswordVolumeThrottle bounds the total POST rate this depends on.
                     wrong_password_throttle = SharePasswordThrottle()
                     if not wrong_password_throttle.allow_request(request, self):
+                        # Logged only below the cap, not here: logging every throttled guess too would
+                        # write activity-log rows at SharePasswordVolumeThrottle's rate instead of this one's.
                         throttle_response = response.Response(
                             {"error": "Too many attempts on this link. Wait a minute and try again."}, status=429
                         )
                         throttle_response["Retry-After"] = str(int(wrong_password_throttle.wait()))
                         return throttle_response
 
+                    _log_share_password_attempt(resource, request, success=False)
                     return response.Response({"error": "Incorrect password"}, status=401)
 
                 _log_share_password_attempt(resource, request, success=True, validated_password=validated_password)

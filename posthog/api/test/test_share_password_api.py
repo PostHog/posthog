@@ -12,6 +12,7 @@ from rest_framework.test import APIRequestFactory
 from posthog.api.test.test_sharing import mock_exporter_template
 from posthog.constants import AvailableFeature
 from posthog.models import SharePassword, SharingConfiguration
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.rate_limit import SharePasswordThrottle, SharePasswordVolumeThrottle
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -188,6 +189,7 @@ class TestSharePasswordAPI(APIBaseTest):
         )
 
         statuses = []
+        throttled_response = None
         for attempt in range(25):
             # Each guess comes from a different address, so the budget has to follow the share link
             source_ip = f"10.0.0.{attempt}"
@@ -200,10 +202,20 @@ class TestSharePasswordAPI(APIBaseTest):
             )
             statuses.append(response.status_code)
             if response.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
+                throttled_response = response
                 break
 
         self.assertEqual(statuses[0], status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(statuses[-1], status.HTTP_429_TOO_MANY_REQUESTS)
+        assert throttled_response is not None
+        self.assertEqual(throttled_response["Retry-After"], "60")
+
+        # A throttled guess never reaches password validation, so it must not log an attempt -
+        # otherwise a flood logs at the volume throttle's rate instead of the wrong-guess one.
+        failed_attempt_logs = ActivityLog.objects.filter(
+            activity="share_login_failed", item_id=str(self.dashboard.id)
+        ).count()
+        self.assertEqual(failed_attempt_logs, statuses.count(status.HTTP_401_UNAUTHORIZED))
 
     def test_attempts_are_counted_atomically(self):
         # Submissions that arrive together must each consume budget. A read-modify-write throttle
