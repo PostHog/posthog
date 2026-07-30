@@ -10,7 +10,17 @@ from products.workflows.backend.services.ses_tenant_state import sync_ses_tenant
 logger = get_logger(__name__)
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.DEFAULT.value,
+    # The sync hits the SES API; transient throttling/outages should retry with backoff instead
+    # of dropping the event (the daily sweep would catch it, but a day late).
+    autoretry_for=(Exception,),
+    retry_backoff=60,
+    retry_backoff_max=600,
+    max_retries=5,
+    retry_jitter=True,
+)
 def sync_ses_tenant_state_task(team_id: int) -> None:
     """Webhook-triggered: an EventBridge event said this team's tenant changed — fetch and apply."""
     sync_ses_tenant_state(team_id)
