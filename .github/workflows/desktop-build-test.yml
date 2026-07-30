@@ -1,0 +1,324 @@
+name: Desktop Build Test
+
+# Full build + code signing + verification of apps/code on every push to this
+# branch (and on demand), producing downloadable artifacts for inspection.
+#
+# This intentionally does NOT create or publish any GitHub release — it exists
+# to prove the packaging pipeline works end to end before merge. The real
+# release pipeline lives in code-release.yml and runs only on v* tags.
+#
+# Temporary: retarget or delete the branch trigger once this branch is merged.
+
+on:
+    push:
+        branches:
+            - refactor/electron-vite
+        paths:
+            - 'products/desktop/**'
+            - '.github/workflows/desktop-build-test.yml'
+    workflow_dispatch:
+
+concurrency:
+    group: desktop-build-test-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    build-macos:
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - arch: arm64
+                      runner: macos-15
+                    - arch: x64
+                      runner: macos-15-intel
+        runs-on: ${{ matrix.runner }}
+        timeout-minutes: 60
+        permissions:
+            id-token: write
+            contents: read
+        defaults:
+            run:
+                working-directory: products/desktop
+        env:
+            NODE_OPTIONS: '--max-old-space-size=8192'
+            NODE_ENV: production
+            npm_config_arch: ${{ matrix.arch }}
+            npm_config_platform: darwin
+            VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
+            POSTHOG_SOURCEMAP_API_KEY: ${{ secrets.POSTHOG_SOURCEMAP_API_KEY }}
+            POSTHOG_ENV_ID: ${{ secrets.POSTHOG_ENV_ID }}
+            POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
+            CSC_LINK: ${{ secrets.APPLE_CODESIGN_CERT_BASE64 }}
+            CSC_KEY_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
+            APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+            # Sign but do not notarize. This build-test verifies the packaging pipeline,
+            # not Gatekeeper distribution; the runner can launch a signed-but-unnotarized
+            # app for the smoke test. Notarization runs only in the tag release
+            # (code-release.yml), where Apple's notary service and agreements apply.
+            SKIP_NOTARIZE: '1'
+        steps:
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  filter: blob:none
+                  persist-credentials: false
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              with:
+                  package_json_file: products/desktop/package.json
+
+            - name: Setup Node.js
+              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version: 22
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
+              with:
+                  role-to-assume: ${{ secrets.AWS_TWIG_APP_ASSETS_ROLE_ARN }}
+                  aws-region: ${{ secrets.AWS_TWIG_APP_ASSETS_REGION }}
+                  mask-aws-account-id: true
+                  unset-current-credentials: true
+
+            - name: Download BerkeleyMono fonts from S3
+              run: aws s3 cp s3://${{ secrets.AWS_TWIG_APP_ASSETS_BUCKET }}/fonts/BerkeleyMono/ apps/code/assets/fonts/BerkeleyMono/ --recursive
+
+            - name: Build workspace packages
+              run: |
+                  pnpm --filter @posthog/electron-trpc run build
+                  pnpm --filter @posthog/platform run build
+                  pnpm --filter @posthog/shared run build
+                  pnpm --filter @posthog/git run build
+                  pnpm --filter @posthog/enricher run build
+                  pnpm --filter @posthog/harness run build
+                  pnpm --filter @posthog/agent run build
+
+            # build/Assets.car is gitignored; regenerate it so the packaged app ships
+            # the liquid-glass icon (the script falls back to .icns if actool fails).
+            - name: Compile macOS liquid-glass icon
+              working-directory: products/desktop/apps/code
+              run: bash scripts/compile-glass-icon.sh
+
+            - name: Build app
+              env:
+                  MATRIX_ARCH: ${{ matrix.arch }}
+              working-directory: products/desktop/apps/code
+              run: |
+                  pnpm exec electron-vite build
+                  if [[ "$MATRIX_ARCH" == "arm64" ]]; then
+                    pnpm exec electron-builder build --mac --arm64 --publish never --config electron-builder.ts
+                  else
+                    pnpm exec electron-builder build --mac --x64 --publish never --config electron-builder.ts
+                  fi
+
+            - name: Verify package
+              env:
+                  MATRIX_ARCH: ${{ matrix.arch }}
+              run: |
+                  if [[ "$MATRIX_ARCH" == "arm64" ]]; then
+                    APP_BUNDLE="apps/code/out/mac-arm64/PostHog.app"
+                  else
+                    APP_BUNDLE="apps/code/out/mac/PostHog.app"
+                  fi
+                  RESOURCES="$APP_BUNDLE/Contents/Resources"
+                  UNPACKED="$RESOURCES/app.asar.unpacked/node_modules"
+
+                  if [[ ! -f "$RESOURCES/app-update.yml" ]]; then
+                    echo "FAIL: app-update.yml missing at $RESOURCES/app-update.yml"
+                    exit 1
+                  fi
+                  echo "OK: app-update.yml"
+
+                  for mod in node-pty better-sqlite3 "@parcel/watcher"; do
+                    if [[ ! -d "$UNPACKED/$mod" ]]; then
+                      echo "FAIL: $mod missing in app.asar.unpacked/node_modules"
+                      exit 1
+                    fi
+                    echo "OK: $mod"
+                  done
+
+                  for bin in claude-cli codex-acp; do
+                    if [[ ! -d "$RESOURCES/app.asar.unpacked/.vite/build/$bin" ]]; then
+                      echo "FAIL: $bin missing in bundled binaries"
+                      exit 1
+                    fi
+                    echo "OK: $bin"
+                  done
+
+            - name: Install Playwright
+              run: pnpm --filter code exec playwright install
+
+            - name: Smoke test packaged app
+              env:
+                  CI: true
+                  E2E_APP_ARCH: ${{ matrix.arch }}
+              run: pnpm --filter code exec playwright test --config=tests/e2e/playwright.config.ts tests/e2e/tests/smoke.spec.ts
+
+            - name: Upload Playwright report
+              if: failure()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: build-test-playwright-macos-${{ matrix.arch }}
+                  path: products/desktop/apps/code/playwright-report/
+                  retention-days: 7
+
+            - name: Upload artifacts
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: code-macos-${{ matrix.arch }}
+                  path: |
+                      products/desktop/apps/code/out/*.dmg
+                      products/desktop/apps/code/out/*-mac.zip
+                      products/desktop/apps/code/out/*.blockmap
+                      products/desktop/apps/code/out/latest-mac.yml
+                  retention-days: 7
+
+    build-windows:
+        runs-on: windows-2022
+        timeout-minutes: 60
+        permissions:
+            contents: read
+        defaults:
+            run:
+                working-directory: products/desktop
+        env:
+            NODE_OPTIONS: '--max-old-space-size=8192'
+            NODE_ENV: production
+            VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
+        steps:
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  filter: blob:none
+                  persist-credentials: false
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              with:
+                  package_json_file: products/desktop/package.json
+
+            - name: Setup Node.js
+              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version: 22
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Build workspace packages
+              run: |
+                  pnpm --filter @posthog/electron-trpc run build
+                  pnpm --filter @posthog/platform run build
+                  pnpm --filter @posthog/shared run build
+                  pnpm --filter @posthog/git run build
+                  pnpm --filter @posthog/enricher run build
+                  pnpm --filter @posthog/harness run build
+                  pnpm --filter @posthog/agent run build
+
+            - name: Build app
+              working-directory: products/desktop/apps/code
+              run: |
+                  pnpm exec electron-vite build
+                  pnpm exec electron-builder build --win --x64 --publish never --config electron-builder.ts
+
+            - name: Upload artifacts
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: code-windows
+                  path: |
+                      products/desktop/apps/code/out/*.exe
+                      products/desktop/apps/code/out/latest.yml
+                      products/desktop/apps/code/out/*.blockmap
+                      products/desktop/apps/code/out/squirrel-windows/**
+                  retention-days: 7
+                  if-no-files-found: ignore
+
+    build-linux:
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - runner: ubuntu-24.04
+                      arch: x64
+                    - runner: ubuntu-24.04-arm
+                      arch: arm64
+        runs-on: ${{ matrix.runner }}
+        timeout-minutes: 60
+        permissions:
+            contents: read
+        defaults:
+            run:
+                working-directory: products/desktop
+        env:
+            NODE_OPTIONS: '--max-old-space-size=8192'
+            NODE_ENV: production
+            VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
+        steps:
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  filter: blob:none
+                  persist-credentials: false
+
+            - name: Install Linux packaging tooling
+              # squashfs-tools/zsync/libfuse2t64: AppImage. fakeroot: deb. rpm: rpmbuild.
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y --no-install-recommends \
+                    squashfs-tools zsync libfuse2t64 fakeroot rpm
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              with:
+                  package_json_file: products/desktop/package.json
+
+            - name: Setup Node.js
+              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version: 22
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Build workspace packages
+              run: |
+                  pnpm --filter @posthog/electron-trpc run build
+                  pnpm --filter @posthog/platform run build
+                  pnpm --filter @posthog/shared run build
+                  pnpm --filter @posthog/git run build
+                  pnpm --filter @posthog/enricher run build
+                  pnpm --filter @posthog/harness run build
+                  pnpm --filter @posthog/agent run build
+
+            - name: Build app
+              env:
+                  MATRIX_ARCH: ${{ matrix.arch }}
+              working-directory: products/desktop/apps/code
+              run: |
+                  pnpm exec electron-vite build
+                  if [[ "$MATRIX_ARCH" == "arm64" ]]; then
+                    pnpm exec electron-builder build --linux --arm64 --publish never --config electron-builder.ts
+                  else
+                    pnpm exec electron-builder build --linux --x64 --publish never --config electron-builder.ts
+                  fi
+
+            - name: Upload artifacts
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: code-linux-${{ matrix.arch }}
+                  path: |
+                      products/desktop/apps/code/out/*.AppImage
+                      products/desktop/apps/code/out/*.deb
+                      products/desktop/apps/code/out/*.rpm
+                  retention-days: 7
