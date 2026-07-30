@@ -565,7 +565,9 @@ class TestRecentReviewsAPI(APIBaseTest):
         # finalize, so a run that crashed before finalize stays ACTIVE forever and the staleness
         # window is the only thing that retires its spinner. Counting the sweep's write as liveness
         # would restart that window and show a live row for a report with nothing running.
-        report = self._report(pr_number=7, acting_user=self.user, completed=False, run_count=0)
+        # ACTIVE with a completed turn behind it (the dormant re-review shape): a first-turn ACTIVE
+        # report is listed only while it is in progress, so it could not show the difference.
+        report = self._report(pr_number=7, acting_user=self.user, status=ReviewReport.Status.ACTIVE)
         ReviewReport.objects.for_team(self.team.id).filter(id=report.id).update(
             updated_at=timezone.now() - IN_PROGRESS_STALE_AFTER - timedelta(minutes=5)
         )
