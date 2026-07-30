@@ -750,6 +750,11 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "sync_type_config",
         "latest_error",
         "last_synced_at",
+        # Pipeline-assigned, not user intent. Diffing it resolves the FK through
+        # DataWarehouseTable.objects, whose manager adds two joins and a prefetch on every
+        # schema save (even ones that don't touch this field) — the extra queries have
+        # deadlocked with concurrent DDL in production.
+        "table",
     ],
     "Evaluation": [
         # Reverse relations — auto-managed by FK creates, not user intent.
