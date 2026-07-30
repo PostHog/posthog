@@ -193,7 +193,7 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
         ],
     }),
 
-    loaders(({ values }) => {
+    loaders(({ values, props }) => {
         const fetchFacet = async (facet: FacetConfig): Promise<_LogFacetValueApi[]> => {
             if (!values.currentTeamId) {
                 return []
@@ -220,11 +220,15 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
             return response.results
         }
 
+        // The facet rail (and this logic) unmounts when the user collapses it. `breakpoint()`
+        // only cancels a call superseded by a newer one of the *same* action — it does not
+        // reliably catch this logic having unmounted entirely while a request was in flight.
+        // Reading `values.*` post-unmount throws kea's "Can not find path ... in the store"
+        // error, so guard every post-await own-value read with an explicit mount check too.
+        const isMounted = (): boolean => facetCountsLogic(props).isMounted()
+
         // Fetch each facet independently and merge into the existing record. allSettled (not all) so
         // one facet's failed request leaves the others' counts intact instead of wiping the batch.
-        // Takes the caller's breakpoint so it can bail out right after the network round-trip: the
-        // facet rail (and this logic) unmounts when the user collapses it, and reading `values.facetValues`
-        // once unmounted throws "Can not find path ... in the store" instead of just discarding the result.
         const mergeFetched = async (
             facets: FacetConfig[],
             breakpoint: BreakPointFunction
@@ -233,6 +237,9 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
                 facets.map(async (facet) => [facet.key, await fetchFacet(facet)] as const)
             )
             breakpoint()
+            if (!isMounted()) {
+                return {}
+            }
             const fetched = settled
                 .filter(
                     (s): s is PromiseFulfilledResult<readonly [string, _LogFacetValueApi[]]> => s.status === 'fulfilled'
@@ -248,6 +255,9 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
                     // Refetch all facets (null) or a subset — used when filters change.
                     loadFacetValues: async (facetKeys: string[] | null, breakpoint) => {
                         await breakpoint(300)
+                        if (!isMounted()) {
+                            return {}
+                        }
                         const facets = facetKeys
                             ? values.visibleFacets.filter((f) => facetKeys.includes(f.key))
                             : values.visibleFacets
@@ -257,6 +267,9 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
                     // typing in one facet's search must not cancel a still-debouncing full reload.
                     loadFacetValuesForKey: async (facetKey: string, breakpoint) => {
                         await breakpoint(300)
+                        if (!isMounted()) {
+                            return {}
+                        }
                         const facet = FACETS.find((f) => f.key === facetKey)
                         if (!facet) {
                             return values.facetValues
