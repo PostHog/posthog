@@ -51,6 +51,7 @@ from ee.tasks.subscriptions.auto_disable import (
 )
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
 from ee.tasks.subscriptions.slack_subscriptions import send_slack_message_with_integration_async
+from ee.tasks.subscriptions.subscription_utils import MAX_DASHBOARD_INSIGHTS
 
 LOGGER = get_logger(__name__)
 
@@ -170,7 +171,8 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         subscription_id=inputs.subscription_id,
     )
 
-    if inputs.max_asset_count <= 0:
+    max_asset_count = inputs.max_asset_count if inputs.max_asset_count is not None else MAX_DASHBOARD_INSIGHTS
+    if max_asset_count <= 0:
         raise ApplicationError("max_asset_count must be greater than zero", non_retryable=True)
 
     subscription = await database_sync_to_async(
@@ -263,7 +265,7 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             failure_context=failure_context,
         )
 
-    export_pairs = tile_insight_pairs[: inputs.max_asset_count]
+    export_pairs = tile_insight_pairs[:max_asset_count]
 
     expiry = ExportedAsset.compute_expires_after(ExportedAsset.ExportFormat.PNG)
     assets = [

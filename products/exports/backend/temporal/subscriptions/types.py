@@ -98,7 +98,7 @@ class FetchDueSubscriptionsActivityInputs:
 @dataclasses.dataclass
 class CreateExportAssetsInputs:
     subscription_id: int
-    max_asset_count: int = 6
+    max_asset_count: int | None = None
     previous_value: typing.Optional[str] = None
     # When set, the activity persists the per-insight snapshot directly onto
     # SubscriptionDelivery.content_snapshot. Keeps multi-MB query_results off
