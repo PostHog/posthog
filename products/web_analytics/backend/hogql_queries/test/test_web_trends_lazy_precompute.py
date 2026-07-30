@@ -230,6 +230,22 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                 {"trendsFilter": TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH, formula="A / B")},
             ),
             ("minute_interval", {"interval": IntervalType.MINUTE}),
+            (
+                # The live path multiplies before averaging; buckets store raw
+                # states, so a multiplier would be silently dropped.
+                "math_multiplier",
+                {
+                    "series": [
+                        EventsNode(
+                            event="$pageview",
+                            math="avg",
+                            math_property="$session_duration",
+                            math_property_type="session_properties",
+                            math_multiplier=0.001,
+                        )
+                    ]
+                },
+            ),
         ]
     )
     def test_unservable_shapes_are_rejected(self, _name: str, overrides: dict) -> None:
@@ -323,6 +339,22 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         with self._enable_lazy(), self._enable_trends_flag():
             series_filtered = WebTrendsQueryRunner(team=self.team, query=series_query).calculate()
         assert series_filtered.results[0]["data"] == precomputed.results[0]["data"]
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_distinct_id_aggregation_falls_back(self) -> None:
+        # Vanilla trends counts distinct_ids for these teams while the buckets
+        # store person-id uniq states — genuinely different numbers.
+        self._seed()
+        self.team.modifiers = {
+            "personsOnEventsMode": self.team.modifiers.get("personsOnEventsMode") if self.team.modifiers else None
+        }
+        with (
+            self._enable_lazy(),
+            self._enable_trends_flag(),
+            patch.object(type(self.team), "aggregate_users_by_distinct_id", property(lambda self: True)),
+        ):
+            WebTrendsQueryRunner(team=self.team, query=self._build_query()).calculate()
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_stale_buckets_are_served_and_revalidated_via_overview_family(self) -> None:

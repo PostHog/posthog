@@ -98,9 +98,19 @@ _SUPPORTED_EVENTS = ("$pageview", "$screen")
 
 def is_trends_precompute_enabled_for_team(team: Team) -> bool:
     """Independent ramp for the trends path, on top of the shared precompute
-    enrollment the inner gate still enforces. Fails closed on flag errors."""
-    if team.id in settings.WEB_ANALYTICS_TRENDS_PRECOMPUTE_TEAM_IDS:
-        return True
+    enrollment the inner gate still enforces. Must never raise — it runs in
+    dispatch and in cache-key generation, where an exception would fail the
+    request instead of falling back. Fails closed on any error."""
+    try:
+        if team.id in settings.WEB_ANALYTICS_TRENDS_PRECOMPUTE_TEAM_IDS:
+            return True
+        return _flag_enabled(team)
+    except Exception:
+        logger.exception("web_trends_precompute_flag_check_failed", team_id=team.pk)
+        return False
+
+
+def _flag_enabled(team: Team) -> bool:
     return bool(
         posthoganalytics.feature_enabled(
             TRENDS_PRECOMPUTE_FLAG_KEY,
@@ -173,6 +183,10 @@ def trends_precompute_metric(query: TrendsQuery) -> Optional[WebTrendsMetric]:
         return WebTrendsMetric.VIEWS
     if math == "unique_session":
         return WebTrendsMetric.UNIQUE_SESSIONS
+    # The live path multiplies the property before averaging; the buckets
+    # store the raw aggregate state, so a multiplier would be silently ignored.
+    if getattr(series, "math_multiplier", None) is not None:
+        return None
     # Session-property averages only: an avg over an event-property with the
     # same name aggregates per event, not per deduped session, and the live
     # path treats those differently — the buckets can't reproduce that.
@@ -333,13 +347,25 @@ def execute_lazy_precomputed_trends(runner: "WebTrendsQueryRunner") -> Optional[
         if not can_use_web_trends_precompute(runner, inner_runner):
             return None
 
+        # Vanilla trends counts distinct_ids for these teams; the buckets store
+        # person-id uniq states — the counts genuinely differ, so fall back.
+        if runner.team.aggregate_users_by_distinct_id:
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="distinct_id_aggregation").inc()
+            return None
+
         interval = (runner.query.interval or IntervalType.DAY).value
 
         # A DST transition inside an hour-interval range makes two local
         # wall-clock hours collide on one bucket key (fall-back) or produces a
         # nonexistent one (spring-forward); the live path emits 25/23 points
-        # there. Fall back rather than serve a silently different axis.
-        if interval == "hour" and _tz_offset_changes(runner.query_date_range):
+        # there. Applies to the compare range too, which can cross a transition
+        # the current range doesn't. Fall back rather than serve a silently
+        # different axis.
+        has_compare_for_dst = runner.query.compareFilter is not None and bool(runner.query.compareFilter.compare)
+        if interval == "hour" and (
+            _tz_offset_changes(runner.query_date_range)
+            or (has_compare_for_dst and _tz_offset_changes(runner.query_previous_date_range))
+        ):
             WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="dst_transition").inc()
             return None
 
