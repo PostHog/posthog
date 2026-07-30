@@ -3,7 +3,7 @@ import { Message } from 'node-rdkafka'
 import { createEvent } from '~/ingestion/common/steps/event-processing/create-event'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { EventHeaders, Person, PreIngestionEvent } from '~/types'
+import { EventHeaders, Person, PreIngestionEvent, Team } from '~/types'
 
 import { EventToEmit } from './emit-event-step'
 
@@ -14,6 +14,7 @@ export interface CreateEventStepInput {
     historicalMigration: boolean
     headers: EventHeaders
     message: Message
+    team?: Pick<Team, 'organization_id'>
 }
 
 export interface CreateEventStepResult<O extends string> {
@@ -21,6 +22,7 @@ export interface CreateEventStepResult<O extends string> {
     teamId: number
     headers: EventHeaders
     message: Message
+    orgId: string
 }
 
 export function createCreateEventStep<O extends string, T extends CreateEventStepInput>(
@@ -36,6 +38,7 @@ export function createCreateEventStep<O extends string, T extends CreateEventSte
             teamId: preparedEvent.teamId,
             headers,
             message,
+            orgId: input.team?.organization_id ?? '',
         }
 
         return Promise.resolve(ok(result, []))

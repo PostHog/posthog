@@ -4,6 +4,7 @@ import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { AppMetricsOutput, DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { FinopsUsageMeter } from '~/common/services/finops-usage-meter'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
@@ -84,6 +85,8 @@ export interface JoinedIngestionPipelineConfig {
      * (`ingestion_api_batch_capacity_rejections_total`).
      */
     concurrentBatches: number
+    finopsUsageMeter?: FinopsUsageMeter
+    outputTopics?: Partial<Record<string, string>>
 }
 
 export interface JoinedIngestionPipelineDeps {
@@ -132,6 +135,8 @@ export function createJoinedIngestionPipeline<
         outputs,
         perDistinctIdOptions,
         concurrentBatches,
+        finopsUsageMeter,
+        outputTopics,
     } = config
 
     const {
@@ -180,6 +185,8 @@ export function createJoinedIngestionPipeline<
         groupTypeManager,
         hogTransformer,
         topHog: topHogWrapper,
+        finopsUsageMeter,
+        outputTopics,
     }
 
     const mergeFoldPlanningStep = createMergeFoldPlanningStep<PerDistinctIdPipelineInput>(perDistinctIdOptions)

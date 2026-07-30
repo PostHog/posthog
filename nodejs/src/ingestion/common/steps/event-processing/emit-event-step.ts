@@ -3,6 +3,7 @@ import { Message } from 'node-rdkafka'
 
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { FinopsUsageMeter } from '~/common/services/finops-usage-meter'
 import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { safeClickhouseString } from '~/common/utils/db/utils'
 import { castTimestampOrNow, castTimestampToClickhouseFormat } from '~/common/utils/utils'
@@ -19,6 +20,8 @@ export interface EventToEmit<O extends string> {
 
 export interface EmitEventStepConfig<O extends string> {
     outputs: IngestionOutputs<O | IngestionWarningsOutput>
+    finopsUsageMeter?: FinopsUsageMeter
+    outputTopics?: Partial<Record<string, string>>
 }
 
 export interface EmitEventStepInput<O extends string> {
@@ -26,6 +29,7 @@ export interface EmitEventStepInput<O extends string> {
     teamId: number
     headers: EventHeaders
     message: Message
+    orgId?: string
 }
 
 /**
@@ -57,7 +61,7 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
 ): ProcessingStep<T, EmitEventStepOutput> {
     return function emitEventStep(input) {
         const { eventsToEmit, headers, message } = input
-        const { outputs } = config
+        const { outputs, finopsUsageMeter, outputTopics } = config
 
         const ingestedInfo: IngestedEventInfo = {
             capturedAt: headers.now,
@@ -69,6 +73,7 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
 
         for (const { event, output } of eventsToEmit) {
             const serialized = serializeEvent(event)
+            const serializedValue = Buffer.from(JSON.stringify(serialized))
 
             // TODO: It's not great that we put the produce outcome in side effects, we should probably await it here
             //       but it might slow the pipeline down. Historically, it has always been like that.
@@ -76,12 +81,21 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
             const emitPromise = outputs
                 .produce(output, {
                     key: serialized.uuid,
-                    value: Buffer.from(JSON.stringify(serialized)),
+                    value: serializedValue,
                     headers: { productTrack: productTrackHeader(event) },
                     teamId: serialized.team_id,
                 })
                 .then(() => {
                     eventProcessedAndIngestedCounter.inc()
+                    if (output === 'events' || output === 'ai_events') {
+                        finopsUsageMeter?.queueEventOutput({
+                            output: output as 'events' | 'ai_events',
+                            teamId: serialized.team_id,
+                            orgId: input.orgId ?? '',
+                            byteLength: serializedValue.byteLength,
+                            resourceId: outputTopics?.[output] ?? output,
+                        })
+                    }
                     return ingestedInfo
                 })
                 .catch(async (error) => {

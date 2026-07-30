@@ -4,6 +4,7 @@ import { Message } from 'node-rdkafka'
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { EVENTS_OUTPUT, EventOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { FinopsUsageMeter } from '~/common/services/finops-usage-meter'
 import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { eventProcessedAndIngestedCounter } from '~/ingestion/common/metrics'
@@ -41,6 +42,7 @@ describe('emit-event-step', () => {
     let mockProcessedEvent: ProcessedEvent
     let mockHeaders: EventHeaders
     let mockMessage: Message
+    let queueEventOutput: jest.Mock
 
     beforeEach(() => {
         mockHeaders = createTestEventHeaders()
@@ -48,9 +50,12 @@ describe('emit-event-step', () => {
         jest.clearAllMocks()
 
         mockOutputs = createMockIngestionOutputs<EventOutput | IngestionWarningsOutput>()
+        queueEventOutput = jest.fn()
 
         config = {
             outputs: mockOutputs,
+            finopsUsageMeter: { queueEventOutput } as unknown as FinopsUsageMeter,
+            outputTopics: { events: 'clickhouse_events_json' },
         }
 
         mockProcessedEvent = {
@@ -77,6 +82,7 @@ describe('emit-event-step', () => {
             teamId: event.team_id,
             headers: mockHeaders,
             message: mockMessage,
+            orgId: 'org-1',
         }
     }
 
@@ -109,6 +115,13 @@ describe('emit-event-step', () => {
                     partition: mockMessage.partition,
                 })
                 expect(mockEventProcessedAndIngestedCounter.inc).toHaveBeenCalledTimes(1)
+                expect(queueEventOutput).toHaveBeenCalledWith({
+                    output: 'events',
+                    teamId: 1,
+                    orgId: 'org-1',
+                    byteLength: Buffer.byteLength(JSON.stringify(serializeEvent(mockProcessedEvent))),
+                    resourceId: 'clickhouse_events_json',
+                })
             } finally {
                 jest.useRealTimers()
             }
@@ -140,6 +153,7 @@ describe('emit-event-step', () => {
             })
             // Metric should not be incremented when there's an error
             expect(mockEventProcessedAndIngestedCounter.inc).not.toHaveBeenCalled()
+            expect(queueEventOutput).not.toHaveBeenCalled()
         })
 
         it('should re-throw non-MessageSizeTooLarge errors', async () => {

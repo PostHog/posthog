@@ -4,6 +4,7 @@ import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { FinopsUsageMeter } from '~/common/services/finops-usage-meter'
 import { TeamManager } from '~/common/utils/team-manager'
 import { WithMergeFoldDecision } from '~/ingestion/common/persons/person-merge-fold'
 import { EmitEventStepOutput } from '~/ingestion/common/steps/event-processing/emit-event-step'
@@ -44,6 +45,8 @@ export interface PerDistinctIdPipelineConfig {
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformer
     topHog: TopHogWrapper
+    finopsUsageMeter?: FinopsUsageMeter
+    outputTopics?: Partial<Record<string, string>>
 }
 
 export interface PerDistinctIdPipelineContext {
@@ -70,7 +73,17 @@ export function createPerDistinctIdPipeline<
     builder: StartPipelineBuilder<TInput, TContext>,
     config: PerDistinctIdPipelineConfig
 ): PipelineBuilder<TInput, EmitEventStepOutput, TContext, AsyncOutput> {
-    const { options, outputs, aiSubpipelineFactory, teamManager, groupTypeManager, hogTransformer, topHog } = config
+    const {
+        options,
+        outputs,
+        aiSubpipelineFactory,
+        teamManager,
+        groupTypeManager,
+        hogTransformer,
+        topHog,
+        finopsUsageMeter,
+        outputTopics,
+    } = config
 
     // Retry is applied per step inside each branch's subpipeline (on the I/O
     // steps that can throw transient errors), rather than around the whole chain.
@@ -94,6 +107,8 @@ export function createPerDistinctIdPipeline<
                     groupTypeManager,
                     hogTransformer,
                     topHog,
+                    finopsUsageMeter,
+                    outputTopics,
                 })
             )
     )

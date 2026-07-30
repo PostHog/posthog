@@ -124,6 +124,34 @@ describe('FinopsUsageMeter', () => {
     })
 
     it.each([
+        ['events', 'shared', 'events', 'ingestion'],
+        ['ai_events', 'ai_observability', 'llm_events', 'ai-observability'],
+    ] as const)('maps the %s output to its FinOps dimensions and customer', async (output, product, unit, team) => {
+        const meter = new FinopsUsageMeter(outputs, { enabled: true })
+        meter.queueEventOutput({
+            output,
+            teamId: 42,
+            orgId: 'org-42',
+            byteLength: 1234,
+            resourceId: `topic-${output}`,
+        })
+        await meter.flush()
+
+        expect(getRows()[0]).toMatchObject({
+            product,
+            billable_unit: unit,
+            team,
+            team_id: 42,
+            org_id: 'org-42',
+            quantity: 1,
+            cost_unit: 'bytes',
+            cost_quantity: 1234,
+            workload: `emit:${output}`,
+            resource_id: `topic-${output}`,
+        })
+    })
+
+    it.each([
         ['product', { product: 'cdp' }],
         ['billableUnit', { billableUnit: 'invocations' }],
         ['teamId', { teamId: 7 }],

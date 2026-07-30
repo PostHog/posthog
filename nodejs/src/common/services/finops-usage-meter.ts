@@ -56,6 +56,14 @@ export interface FinopsUsageMeterInput {
     traceId?: string
 }
 
+export interface FinopsEventOutputMeterInput {
+    output: 'events' | 'ai_events'
+    teamId: number
+    orgId: string
+    byteLength: number
+    resourceId: string
+}
+
 export interface FinopsUsageMeterOptions {
     /** When false (the default) queue() and flush() are no-ops — the emitter is opt-in per consumer, env-controlled. */
     enabled?: boolean
@@ -140,6 +148,26 @@ export class FinopsUsageMeter {
             finopsUsageMeterErrorsCounter.inc({ operation: 'queue' })
             captureException(error)
         }
+    }
+
+    queueEventOutput(event: FinopsEventOutputMeterInput): void {
+        const dimensions =
+            event.output === 'ai_events'
+                ? { product: 'ai_observability', billableUnit: 'llm_events', team: 'ai-observability' }
+                : { product: 'shared', billableUnit: 'events', team: 'ingestion' }
+
+        this.queue({
+            ...dimensions,
+            teamId: event.teamId,
+            orgId: event.orgId,
+            quantity: 1,
+            costUnit: 'bytes',
+            costQuantity: event.byteLength,
+            costType: 'cogs',
+            system: 'warpstream',
+            workload: `emit:${event.output}`,
+            resourceId: event.resourceId,
+        })
     }
 
     async flush(): Promise<void> {

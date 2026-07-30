@@ -70,7 +70,12 @@ export type IngestionConsumerFullConfig = IngestionConsumerConfig &
     Pick<CommonConfig, 'KAFKA_CLIENT_RACK' | 'CDP_HOG_WATCHER_SAMPLE_RATE'> &
     // The general server builds the consumer from a config that includes IngestionOutputsConfig; the
     // merge-events gate reads the topic, so surface it here rather than relying on the runtime shape.
-    Pick<IngestionOutputsConfig, 'INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC'>
+    Pick<
+        IngestionOutputsConfig,
+        | 'INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC'
+        | 'INGESTION_OUTPUT_EVENTS_TOPIC'
+        | 'INGESTION_OUTPUT_AI_EVENTS_TOPIC'
+    >
 
 export interface IngestionConsumerDeps {
     postgres: PostgresRouter
@@ -304,6 +309,11 @@ export class IngestionConsumer {
                 FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: this.config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
             },
             concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
+            finopsUsageMeter: this.finopsUsageMeter,
+            outputTopics: {
+                events: this.config.INGESTION_OUTPUT_EVENTS_TOPIC,
+                ai_events: this.config.INGESTION_OUTPUT_AI_EVENTS_TOPIC,
+            },
         }
         const joinedPipelineDeps: JoinedIngestionPipelineDeps = {
             personsStore: this.personsStore,
@@ -449,7 +459,7 @@ export class IngestionConsumer {
                 team: 'ingestion',
                 costType: 'cogs',
                 system: 'warpstream',
-                workload: this.groupId,
+                workload: `consume:${this.groupId}`,
                 resourceId: this.topic,
             })
         }
@@ -457,14 +467,10 @@ export class IngestionConsumer {
         return {
             backgroundTask: this.runInstrumented('awaitScheduledWork', async () => {
                 const labels = { groupId: this.groupId }
-                // Drains scheduled produces and the hog transformer invocation results, which
-                // the pipeline's afterBatch flush step schedules as a side effect. The FinOps
-                // flush is independent of that drain, so run it in parallel rather than after it;
-                // it is internally fail-safe, so it can never reject this task.
-                await Promise.all([
-                    timedHistogram(backgroundTaskProducesDuration, labels, () => this.promiseScheduler.waitForAll()),
-                    this.finopsUsageMeter.flush(),
-                ])
+                // Output meters are queued only after Kafka acknowledges each write, so drain
+                // scheduled produces before flushing the meter buffer.
+                await timedHistogram(backgroundTaskProducesDuration, labels, () => this.promiseScheduler.waitForAll())
+                await this.finopsUsageMeter.flush()
             }),
         }
     }

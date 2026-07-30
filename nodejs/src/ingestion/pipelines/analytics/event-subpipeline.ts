@@ -4,6 +4,7 @@ import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { FinopsUsageMeter } from '~/common/services/finops-usage-meter'
 import { TeamManager } from '~/common/utils/team-manager'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
 import { WithMergeFoldDecision } from '~/ingestion/common/persons/person-merge-fold'
@@ -63,6 +64,8 @@ export interface EventSubpipelineConfig {
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformer
     topHog: TopHogWrapper
+    finopsUsageMeter?: FinopsUsageMeter
+    outputTopics?: Partial<Record<string, string>>
 }
 
 // The WithMergeFoldDecision constraint (not a field on EventSubpipelineInput) is deliberate: the
@@ -72,7 +75,8 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput & Wi
     builder: StartPipelineBuilder<TInput, TContext>,
     config: EventSubpipelineConfig
 ): PipelineBuilder<TInput, EmitEventStepOutput, TContext, AsyncOutput> {
-    const { options, outputs, teamManager, groupTypeManager, hogTransformer, topHog } = config
+    const { options, outputs, teamManager, groupTypeManager, hogTransformer, topHog, finopsUsageMeter, outputTopics } =
+        config
 
     return builder
         .pipe(createNormalizeProcessPersonFlagStep())
@@ -155,6 +159,8 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput & Wi
             topHog(
                 createEmitEventStep({
                     outputs,
+                    finopsUsageMeter,
+                    outputTopics,
                 }),
                 [
                     sum(
