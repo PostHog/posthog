@@ -355,9 +355,10 @@ def test_dwh_source_mixed_still_denies() -> None:
         pytest.param("posthog/test/__snapshots__/helper.py", True, id="snapshots-inside-test-dir-exempt"),
         pytest.param("frontend/src/generated/core/api.schemas.ts", True, id="generated-dir"),
         pytest.param("products/tasks/frontend/generated/api.ts", True, id="product-generated-dir"),
-        pytest.param("services/mcp/src/api/generated.ts", True, id="bare-generated-filename"),
-        # The filename form must stay anchored to a full path segment: unanchored,
-        # it would exempt hand-written code that merely starts or ends with the word.
+        pytest.param("services/mcp/src/api/generated.ts", True, id="mcp-client-generated-ts"),
+        # Pinned to the one path CI regenerates and diffs. A file merely named generated.ts
+        # elsewhere has no drift check behind it, so it stays reviewable.
+        pytest.param("products/growth/frontend/generated.ts", False, id="generated-ts-off-the-checked-path"),
         pytest.param("frontend/src/scenes/generatedReport.ts", False, id="generated-prefix-counted"),
         pytest.param("services/mcp/src/api/generated_helpers.ts", False, id="generated-underscore-counted"),
         pytest.param("frontend/src/queries/schema/schema-general.ts", True, id="queries-schema"),
