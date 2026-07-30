@@ -114,6 +114,20 @@ def reconcile_all_managed_warehouse_tables_task() -> None:
         schedule_managed_warehouse_tables_reconcile(team_id=row.team_id, organization_id=row.organization_id)
 
 
+@shared_task(
+    ignore_result=True,
+    name="products.data_warehouse.backend.tasks.mark_stale_managed_warehouse_publications_failed",
+)
+@skip_team_scope_audit
+def mark_stale_managed_warehouse_publications_failed_task() -> None:
+    # Celery imports this module before Django models are ready, so load the model-backed reaper when the task runs.
+    from products.data_warehouse.backend.logic.managed_warehouse_publish_reaper import (  # noqa: PLC0415
+        mark_stale_publications_failed,
+    )
+
+    mark_stale_publications_failed()
+
+
 def schedule_external_data_failure_digest(team_id: int, *, trigger: str = "inline") -> None:
     """Schedule the per-team failure digest email after the burst-collapse delay.
 

@@ -72,6 +72,10 @@ class PublishModeledTableRequestSerializer(serializers.Serializer):
 
 class PublishedTableSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Publication ID.")
+    table_id = serializers.UUIDField(
+        allow_null=True,
+        help_text="Data warehouse table ID, or null before the first successful publish.",
+    )
     name = serializers.CharField(help_text="Warehouse table name in PostHog.")
     source_schema_name = serializers.CharField(help_text="Duckgres schema of the source modeled table.")
     source_table_name = serializers.CharField(help_text="Duckgres table this publication copies.")
@@ -1227,6 +1231,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         responses={
             201: OpenApiResponse(response=PublishedTableSerializer, description="Publication created."),
             400: OpenApiResponse(description="The modeled table or publication name is invalid."),
+            503: OpenApiResponse(description="The publication workflow could not be started."),
         },
         summary="Publish a managed warehouse table",
         description="Copy a modeled Duckgres table into the ClickHouse-queryable PostHog data warehouse.",
@@ -1248,7 +1253,10 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except managed_warehouse_publish.PublishValidationError as error:
             raise serializers.ValidationError(str(error)) from error
 
-        managed_warehouse_publish.start_publish_workflow(publication)
+        try:
+            managed_warehouse_publish.start_new_publication(publication)
+        except managed_warehouse_publish.PublishSchedulingError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         return Response(PublishedTableSerializer(publication).data, status=status.HTTP_201_CREATED)
 
     @validated_request(
@@ -1260,6 +1268,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 response=PublishedTableConflictSerializer,
                 description="A publish is already running for this table.",
             ),
+            503: OpenApiResponse(description="The publication workflow could not be started."),
         },
         summary="Republish a managed warehouse table",
         description="Copy a fresh snapshot of an already-published modeled Duckgres table.",
@@ -1277,12 +1286,14 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             deleted=False,
         )
         try:
-            managed_warehouse_publish.start_publish_workflow(publication)
-        except WorkflowAlreadyStartedError:
+            publication = managed_warehouse_publish.republish_publication(publication)
+        except (managed_warehouse_publish.PublishAlreadyRunningError, WorkflowAlreadyStartedError):
             return Response(
                 {"detail": "A publish for this table is already running."},
                 status=status.HTTP_409_CONFLICT,
             )
+        except managed_warehouse_publish.PublishSchedulingError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         return Response(PublishedTableSerializer(publication).data)
 
     @validated_request(

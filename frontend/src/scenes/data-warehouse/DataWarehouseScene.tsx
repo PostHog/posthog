@@ -15,6 +15,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { DataModelingTab } from './scene/DataModelingTab'
 import { OverviewTab } from './scene/OverviewTab'
+import { PublishedTablesTab } from './scene/publishedTables/PublishedTablesTab'
 import { SettingsTab } from './scene/SettingsTab'
 
 export const scene: SceneExport = {
@@ -27,6 +28,7 @@ const TAB_LABELS: Record<DataWarehouseTab, string> = {
     [DataWarehouseTab.OVERVIEW]: 'Overview',
     [DataWarehouseTab.SETTINGS]: 'Settings',
     [DataWarehouseTab.MODELING]: 'Modeling',
+    [DataWarehouseTab.PUBLISHED_TABLES]: 'Published tables',
 }
 
 function tabContent(tab: DataWarehouseTab): JSX.Element {
@@ -37,6 +39,8 @@ function tabContent(tab: DataWarehouseTab): JSX.Element {
             return <SettingsTab />
         case DataWarehouseTab.MODELING:
             return <DataModelingTab />
+        case DataWarehouseTab.PUBLISHED_TABLES:
+            return <PublishedTablesTab />
     }
 }
 

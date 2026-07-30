@@ -264,6 +264,11 @@ export const PublishedTableStatusEnumApi = {
 export interface PublishedTableApi {
     /** Publication ID. */
     id: string
+    /**
+     * Data warehouse table ID, or null before the first successful publish.
+     * @nullable
+     */
+    table_id: string | null
     /** Warehouse table name in PostHog. */
     name: string
     /** Duckgres schema of the source modeled table. */

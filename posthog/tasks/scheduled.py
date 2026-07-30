@@ -80,6 +80,7 @@ from products.conversations.backend.tasks import (
 )
 from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
 from products.data_warehouse.backend.facade.tasks import (
+    mark_stale_managed_warehouse_publications_failed_task,
     reconcile_all_managed_warehouse_tables_task,
     send_external_data_failure_digest_catchup,
 )
@@ -534,6 +535,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         reconcile_all_managed_warehouse_tables_task.s(),
         name="reconcile managed warehouse SQL editor tables",
         expires=1800,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/15"),
+        mark_stale_managed_warehouse_publications_failed_task.s(),
+        name="mark stale managed warehouse publications failed",
     )
 
     # Every 30 minutes, send decide request counts to the main posthog instance

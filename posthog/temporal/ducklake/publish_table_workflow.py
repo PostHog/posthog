@@ -267,7 +267,6 @@ async def _prune_published_snapshot_best_effort(inputs: PrunePublishedSnapshotIn
 
 @temporalio.workflow.defn(name="duckgres-publish-table")
 class DuckgresPublishTableWorkflow(PostHogWorkflow):
-    # TODO: Reap publications left in PUBLISHING when Temporal terminates or cancels a workflow.
     @staticmethod
     def parse_inputs(inputs: list[str]) -> PublishTableInputs:
         loaded = json.loads(inputs[0])

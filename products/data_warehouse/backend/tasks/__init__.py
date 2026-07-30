@@ -1,5 +1,6 @@
 from products.data_warehouse.backend.tasks.tasks import *  # noqa: F401,F403
 from products.data_warehouse.backend.tasks.tasks import (  # noqa: F401
+    mark_stale_managed_warehouse_publications_failed_task,
     reconcile_all_managed_warehouse_tables_task,
     reconcile_managed_warehouse_tables_task,
     schedule_managed_warehouse_tables_reconcile,

@@ -6,9 +6,11 @@ from typing import Any, cast
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
 import psycopg
 from asgiref.sync import async_to_sync
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.ducklake.client import execute_ducklake_query
 from posthog.ducklake.common import (
@@ -17,8 +19,9 @@ from posthog.ducklake.common import (
     sanitize_ducklake_identifier,
     validate_duckgres_identifier,
 )
-from posthog.ducklake.models import DuckgresServerTeam, ManagedWarehousePublishedTable
-from posthog.ducklake.publish import ModeledTable, is_publishable_table, reserved_backfill_table_names
+from posthog.ducklake.models import ManagedWarehousePublishedTable
+from posthog.ducklake.publish import ModeledTable, is_publishable_table
+from posthog.ducklake.team_state import CPUnavailableError, resolve_events_persons_tables
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.temporal.common.client import sync_connect
@@ -49,21 +52,29 @@ class ModeledTableDiscoveryError(Exception):
     pass
 
 
+class PublishAlreadyRunningError(Exception):
+    pass
+
+
+class PublishSchedulingError(Exception):
+    pass
+
+
 def list_modeled_tables(team_id: int) -> list[ModeledTable]:
     if get_duckgres_server_by_team_org(team_id) is None and not is_dev_mode():
         return []
 
-    table_suffix = DuckgresServerTeam.objects.filter(team_id=team_id).values_list("table_suffix", flat=True).first()
-    reserved_table_names = reserved_backfill_table_names(table_suffix)
     try:
+        events_table, persons_table = resolve_events_persons_tables(team_id)
         result = execute_ducklake_query(
             team_id,
             sql=_MODELED_TABLES_SQL,
             connect_timeout_seconds=_DISCOVERY_CONNECT_TIMEOUT_SECONDS,
             statement_timeout_seconds=_DISCOVERY_STATEMENT_TIMEOUT_SECONDS,
         )
-    except psycopg.Error as error:
+    except (CPUnavailableError, psycopg.Error) as error:
         raise ModeledTableDiscoveryError("The managed warehouse is temporarily unavailable.") from error
+    reserved_table_names = frozenset({events_table, persons_table})
     return [
         ModeledTable(schema_name=str(row[0]), table_name=str(row[1]))
         for row in result.results
@@ -133,6 +144,56 @@ def _start_workflow(
 def start_publish_workflow(publication: ManagedWarehousePublishedTable) -> None:
     inputs = PublishTableInputs(team_id=publication.team_id, publication_id=str(publication.id))
     _start_workflow("duckgres-publish-table", f"duckgres-publish-{publication.id}", inputs)
+
+
+def start_new_publication(publication: ManagedWarehousePublishedTable) -> None:
+    try:
+        start_publish_workflow(publication)
+    except Exception as error:
+        _mark_scheduling_failed(publication, error)
+        raise PublishSchedulingError("The publish could not be started. Try again.") from error
+
+
+def republish_publication(publication: ManagedWarehousePublishedTable) -> ManagedWarehousePublishedTable:
+    updated = (
+        ManagedWarehousePublishedTable.objects.for_team(publication.team_id)
+        .filter(id=publication.id, deleted=False)
+        .exclude(
+            status__in=[
+                ManagedWarehousePublishedTable.Status.PENDING,
+                ManagedWarehousePublishedTable.Status.PUBLISHING,
+            ]
+        )
+        .update(
+            status=ManagedWarehousePublishedTable.Status.PENDING,
+            last_error=None,
+            updated_at=timezone.now(),
+        )
+    )
+    if updated == 0:
+        raise PublishAlreadyRunningError
+
+    try:
+        start_publish_workflow(publication)
+    except WorkflowAlreadyStartedError:
+        raise
+    except Exception as error:
+        _mark_scheduling_failed(publication, error)
+        raise PublishSchedulingError("The publish could not be started. Try again.") from error
+
+    publication.refresh_from_db()
+    return publication
+
+
+def _mark_scheduling_failed(publication: ManagedWarehousePublishedTable, error: Exception) -> None:
+    ManagedWarehousePublishedTable.objects.for_team(publication.team_id).filter(
+        id=publication.id,
+        status=ManagedWarehousePublishedTable.Status.PENDING,
+    ).update(
+        status=ManagedWarehousePublishedTable.Status.FAILED,
+        last_error=str(error)[:512],
+        updated_at=timezone.now(),
+    )
 
 
 def start_snapshot_prune_workflow(publication: ManagedWarehousePublishedTable) -> None:
