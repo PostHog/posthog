@@ -105,45 +105,43 @@ class TestDuckLakeModelRedirect:
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.MYSQL,
-            prefix="SalesEU",
+            source_type=ExternalDataSourceType.GOOGLEADS,
         )
         credential = DataWarehouseCredential.objects.create(team=team, access_key="key", access_secret="secret")
         warehouse_table = DataWarehouseTable.objects.create(
-            name="sales_eu_my_sql_customer_orders",
+            name="googleads_video",
             format="Parquet",
             team=team,
             external_data_source=source,
             external_data_source_id=source.id,
             credential=credential,
-            url_pattern="https://bucket.s3.amazonaws.com/mysql/customer-orders/*.parquet",
+            url_pattern="https://bucket.s3.amazonaws.com/googleads/video/*.parquet",
             columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
         )
         schema = ExternalDataSchema.objects.create(
             team=team,
-            name="CustomerOrders",
+            name="video",
             source=source,
             table=warehouse_table,
             should_sync=True,
         )
         DataWarehouseSavedQuery.objects.create(
             team=team,
-            name="customer_orders_view",
-            query={"query": "SELECT id FROM sales_eu_my_sql_customer_orders"},
+            name="google_ads_video_view",
+            query={"query": "SELECT id FROM googleads.video"},
             columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
             is_materialized=False,
             status=DataWarehouseSavedQuery.Status.COMPLETED,
         )
 
-        query = HogQLQuery(query="SELECT id FROM customer_orders_view")
+        query = HogQLQuery(query="SELECT id FROM google_ads_video_view")
         postgres_sql, _values, _hogql = compile_hogql_to_ducklake_sql(team.pk, query)
 
         # The duckgres path must read the DuckLake-copied source table, not the
         # ClickHouse s3() table function, which DuckDB cannot execute.
         assert "s3(" not in postgres_sql.lower()
-        assert duckgres_data_imports_schema(team.pk) in postgres_sql
-        assert duckgres_data_imports_table_name(schema) == "my_sql_sales_eu_customer_orders"
-        assert "my_sql_sales_eu_customer_orders" in postgres_sql
+        assert duckgres_data_imports_table_name(schema) == "google_ads_video"
+        assert f"{duckgres_data_imports_schema(team.pk)}.google_ads_video" in postgres_sql
 
     def test_events_and_persons_resolve_to_cluster_tables(self):
         from posthog.models import Organization, Team
