@@ -1125,39 +1125,6 @@ export interface eventUsageLogicActions {
         isPrimary: boolean
         metricUuid: string
     }
-    reportExperimentMetricFinished: (
-        experimentId: ExperimentIdType,
-        metric: ExperimentFunnelsQuery | ExperimentMetric | ExperimentTrendsQuery,
-        teamId?: number | null,
-        queryId?: string | null,
-        context?: {
-            duration_ms: number
-            execution_mode: 'async' | 'sync'
-            is_cached: boolean
-            is_primary: boolean
-            is_retry: boolean
-            metric_index: number
-            metric_kind: string
-            refresh_id: string
-        }
-    ) => {
-        context:
-            | {
-                  duration_ms: number
-                  execution_mode: 'async' | 'sync'
-                  is_cached: boolean
-                  is_primary: boolean
-                  is_retry: boolean
-                  metric_index: number
-                  metric_kind: string
-                  refresh_id: string
-              }
-            | undefined
-        experimentId: ExperimentIdType
-        metric: ExperimentFunnelsQuery | ExperimentMetricUnion | ExperimentTrendsQuery
-        queryId: string | null | undefined
-        teamId: number | null | undefined
-    }
     reportExperimentMetricErrored: (
         experimentId: ExperimentIdType,
         metric: ExperimentFunnelsQuery | ExperimentMetric | ExperimentTrendsQuery,
@@ -1190,6 +1157,39 @@ export interface eventUsageLogicActions {
                   metric_kind: string
                   refresh_id: string
                   status_code: number | null
+              }
+            | undefined
+        experimentId: ExperimentIdType
+        metric: ExperimentFunnelsQuery | ExperimentMetricUnion | ExperimentTrendsQuery
+        queryId: string | null | undefined
+        teamId: number | null | undefined
+    }
+    reportExperimentMetricFinished: (
+        experimentId: ExperimentIdType,
+        metric: ExperimentFunnelsQuery | ExperimentMetric | ExperimentTrendsQuery,
+        teamId?: number | null,
+        queryId?: string | null,
+        context?: {
+            duration_ms: number
+            execution_mode: 'async' | 'sync'
+            is_cached: boolean
+            is_primary: boolean
+            is_retry: boolean
+            metric_index: number
+            metric_kind: string
+            refresh_id: string
+        }
+    ) => {
+        context:
+            | {
+                  duration_ms: number
+                  execution_mode: 'async' | 'sync'
+                  is_cached: boolean
+                  is_primary: boolean
+                  is_retry: boolean
+                  metric_index: number
+                  metric_kind: string
+                  refresh_id: string
               }
             | undefined
         experimentId: ExperimentIdType
