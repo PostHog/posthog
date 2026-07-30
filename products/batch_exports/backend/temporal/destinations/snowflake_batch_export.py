@@ -995,7 +995,7 @@ class SnowflakeClient:
         self,
         file: BatchExportTemporaryFile | NamedBytesIO,
         table: SnowflakeTable,
-    ):
+    ) -> None:
         """Executes a PUT query using the provided cursor to the provided table_name.
 
         Sadly, Snowflake's execute_async does not work with PUT statements. So, we pass the execute
@@ -1454,7 +1454,7 @@ async def insert_into_snowflake_activity_from_stage(
             database=inputs.database,
             primary_key=merge_settings.primary_key if merge_settings else (),
             version_key=merge_settings.version_key if merge_settings else (),
-            stage_prefix=data_interval_end_str,
+            stage_prefix=f"{inputs.batch_export_id}/{data_interval_end_str}",
         )
         if "elements" in target_table:
             # `elements` is exported into a 'VARIANT' column, despite it being a
