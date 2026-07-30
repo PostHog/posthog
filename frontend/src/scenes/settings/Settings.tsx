@@ -494,6 +494,14 @@ function SettingsUnavailable({
         )
     }
 
+    if (unavailability === 'no-projects') {
+        return (
+            <LemonBanner type="info" action={{ children: 'Create a project', to: urls.projectCreateFirst() }}>
+                This organization doesn't have a project yet, so there are no project settings to show.
+            </LemonBanner>
+        )
+    }
+
     const isProject = unavailability === 'project-unavailable'
     return (
         <LemonBanner

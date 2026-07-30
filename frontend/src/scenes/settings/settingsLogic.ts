@@ -41,7 +41,12 @@ export interface SearchIndexEntry {
 }
 
 /** Why a section has no settings to show, when the reason isn't "it doesn't exist". */
-export type SettingsUnavailability = 'loading' | 'project-unavailable' | 'organization-unavailable' | null
+export type SettingsUnavailability =
+    | 'loading'
+    | 'no-projects'
+    | 'project-unavailable'
+    | 'organization-unavailable'
+    | null
 
 export interface SearchResult {
     settingId: SettingId
@@ -698,7 +703,12 @@ export const settingsLogic = kea<settingsLogicType>([
                     return currentOrganizationLoading ? 'loading' : 'organization-unavailable'
                 }
                 if (scope === 'project' && !currentTeam) {
-                    return currentTeamLoading ? 'loading' : 'project-unavailable'
+                    if (currentTeamLoading) {
+                        return 'loading'
+                    }
+                    // An organization with no projects has nothing to retry — sceneLogic lets
+                    // /settings through so an admin can still reach org and user settings.
+                    return currentOrganization.teams?.length ? 'project-unavailable' : 'no-projects'
                 }
                 return null
             },

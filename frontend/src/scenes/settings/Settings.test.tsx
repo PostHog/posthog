@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
@@ -36,12 +38,32 @@ describe('Settings', () => {
     })
 
     it('shows a loading state instead of "not found" while the project is still loading', async () => {
-        useMocks({ get: { 'api/environments/@current': () => new Promise(() => {}) as any } })
+        useMocks({
+            get: {
+                'api/environments/@current': async () => {
+                    // Long enough to assert against the in-flight render, but it still resolves so
+                    // the request doesn't outlive the test as a dangling handle.
+                    await new Promise((resolve) => setTimeout(resolve, 2000))
+                    return [200, MOCK_DEFAULT_TEAM]
+                },
+            },
+        })
         initKeaTests(true, null as any)
         renderSettingsScene()
 
         await waitFor(() => expect(document.querySelector('.Spinner')).toBeInTheDocument())
         expect(screen.queryByText(/not found/i)).not.toBeInTheDocument()
+    })
+
+    it('points an organization with no projects at project creation rather than a retry', async () => {
+        // sceneLogic lets /settings through for a user with no projects, so this state is reachable
+        // and a "try again" there would loop forever against a project that does not exist.
+        useMocks({ get: { 'api/environments/@current': () => [404, { detail: 'not found' }] } })
+        initKeaTests(true, null as any, undefined, { ...MOCK_DEFAULT_ORGANIZATION, teams: [] })
+        renderSettingsScene()
+
+        await waitFor(() => expect(screen.getByText(/doesn't have a project yet/i)).toBeInTheDocument())
+        expect(screen.queryByText(/try again/i)).not.toBeInTheDocument()
     })
 
     it('still shows "not found" for a section that does not exist', async () => {
