@@ -37,6 +37,7 @@ from products.cohorts.backend.models.util import (
     print_cohort_hogql_query,
     simplified_cohort_filter_properties,
     sort_cohorts_topologically,
+    validate_actors_query_for_cohort,
 )
 
 MISSING_COHORT_ID = 12345
@@ -431,6 +432,28 @@ class TestCohortUtils(BaseTest):
             self.assertNotIn("search", sanitized)
         else:
             self.assertEqual(sanitized["search"], expected_search)
+
+    @parameterized.expand(
+        [
+            ("time_series_trends_without_day", None, None, True),
+            ("time_series_trends_with_day", None, "2026-07-01", False),
+            ("total_value_trends_without_day", "BoldNumber", None, False),
+        ]
+    )
+    def test_validate_actors_query_for_cohort_requires_day(self, _name, display, day, should_raise):
+        insight: dict = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}
+        if display:
+            insight["trendsFilter"] = {"display": display}
+        source: dict = {"kind": "InsightActorsQuery", "source": insight}
+        if day:
+            source["day"] = day
+        query = {"kind": "ActorsQuery", "select": ["person"], "source": source}
+
+        if should_raise:
+            with self.assertRaises(DRFValidationError):
+                validate_actors_query_for_cohort(query)
+        else:
+            validate_actors_query_for_cohort(query)
 
     def test_insert_cohort_from_actors_query_preserves_persons_list_search(self):
         _create_person(

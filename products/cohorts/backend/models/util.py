@@ -37,6 +37,7 @@ from posthog.exceptions import (
     ClickHouseQueryTimeOut,
 )
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.models import Filter, Team
 from posthog.models.person.sql import (
     DELETE_PERSON_FROM_STATIC_COHORT,
@@ -45,7 +46,7 @@ from posthog.models.person.sql import (
     PERSON_STATIC_COHORT_TABLE,
 )
 from posthog.models.property import Property, PropertyGroup
-from posthog.schema_enums import PersonsOnEventsMode, ProductKey
+from posthog.schema_enums import ChartDisplayType, PersonsOnEventsMode, ProductKey
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.actions.backend.models.action import Action
@@ -322,6 +323,40 @@ def format_person_query(cohort: Cohort, index: int) -> tuple[str, dict[str, Any]
         cohort, team=cohort.team, bypass_warehouse_access_control=True
     )
     return _prefix_cohort_hogql_params(cohort_query, cohort_context.values, cohort=cohort, index=index)
+
+
+def validate_actors_query_for_cohort(query_dict: dict) -> None:
+    """Reject actor queries that would only fail once the populate task compiles them.
+
+    Pydantic validation is not enough here: `day` is optional on `InsightActorsQuery`, but a
+    time-series trends source cannot be compiled without it, so the cohort would save fine and
+    then raise for good in the background populate task.
+    """
+    if query_dict.get("kind") != "ActorsQuery":
+        return
+
+    source = query_dict.get("source")
+    if not isinstance(source, dict) or source.get("kind") != "InsightActorsQuery":
+        return
+
+    insight = source.get("source")
+    if not isinstance(insight, dict) or insight.get("kind") != "TrendsQuery":
+        return
+
+    trends_filter = insight.get("trendsFilter")
+    raw_display = trends_filter.get("display") if isinstance(trends_filter, dict) else None
+    try:
+        display = ChartDisplayType(raw_display) if raw_display else None
+    except ValueError:
+        return  # Pydantic validation owns unknown display types
+    if TrendsDisplay(display).is_total_value():
+        return
+
+    if source.get("day") is None:
+        raise ValidationError(
+            "This trends insight breaks results down over time, so a specific time period is required. "
+            "Open the insight, click the data point you want, and save the cohort from there."
+        )
 
 
 def _sanitize_query_for_cohort(query_dict: dict) -> dict:
