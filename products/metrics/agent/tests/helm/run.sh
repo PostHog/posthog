@@ -104,6 +104,68 @@ assert_contains sa-name-required 'serviceAccount.name is required' "$out"
 out=$(render --set posthog.apiKey=phc_test --set posthog.host=https://eu.i.posthog.com)
 assert_contains eu-host 'https://eu.i.posthog.com/i/v1/metrics' "$out"
 
+# --- ingest path override (proxies, test sinks) ---
+out=$(render --set posthog.apiKey=phc_test --set posthog.host=http://sink:4318 --set posthog.ingestPath=/v1/metrics)
+assert_contains ingest-path-override 'http://sink:4318/v1/metrics' "$out"
+
+# --- default: single instance, no sharding machinery ---
+out=$(render --set posthog.apiKey=phc_test)
+assert_contains default-is-deployment 'kind: Deployment' "$out"
+assert_not_contains default-no-statefulset 'kind: StatefulSet' "$out"
+assert_not_contains default-no-hashmod 'action: hashmod' "$out"
+
+# --- shards > 1: StatefulSet fleet partitioning targets via hashmod ---
+out=$(render --set posthog.apiKey=phc_test --set shards=3)
+assert_contains sharded-statefulset 'kind: StatefulSet' "$out"
+assert_not_contains sharded-no-deployment 'kind: Deployment' "$out"
+assert_contains sharded-replicas 'replicas: 3' "$out"
+assert_contains sharded-headless-service 'clusterIP: None' "$out"
+assert_contains sharded-modulus 'modulus: 3' "$out"
+assert_contains sharded-index-env "regex: '\${env:SHARD_INDEX}'" "$out"
+assert_contains sharded-hashmod 'action: hashmod' "$out"
+assert_contains sharded-count-env 'name: SHARD_COUNT' "$out"
+# Every chart-generated scrape job must be sharded, or a job would be
+# scraped by all shards (extraScrapeConfigs are verbatim: sharding those
+# is the author's responsibility, called out in values.yaml).
+static=$(render --set posthog.apiKey=phc_test --set shards=3 -f values/static-targets.yaml)
+assert_contains sharded-static-job-hashmod 'action: hashmod' "$static"
+
+# --- podEnv passthrough: extra agent env vars ---
+out=$(render --set posthog.apiKey=phc_test --set podEnv.POSTHOG_DEBUG=1 --set podEnv.SCRAPE_JOB_NAME=custom)
+assert_contains podenv-debug 'name: POSTHOG_DEBUG' "$out"
+assert_contains podenv-jobname 'name: SCRAPE_JOB_NAME' "$out"
+assert_contains podenv-jobname-value 'value: "custom"' "$out"
+
+# --- persistence: disk-backed delivery queue ---
+out=$(render --set posthog.apiKey=phc_test)
+assert_not_contains default-no-persist-env 'PERSIST_QUEUE' "$out"
+assert_not_contains default-no-pvc 'kind: PersistentVolumeClaim' "$out"
+
+out=$(render --set posthog.apiKey=phc_test --set persistence.enabled=true)
+assert_contains persist-env 'name: PERSIST_QUEUE' "$out"
+assert_contains persist-pvc 'kind: PersistentVolumeClaim' "$out"
+assert_contains persist-mount 'mountPath: /var/lib/posthog-agent' "$out"
+assert_contains persist-fsgroup 'fsGroup: 10001' "$out"
+assert_contains persist-size 'storage: 10Gi' "$out"
+# The mounted config itself must wire the queue: the chart's full-config
+# override means an unreferenced PERSIST_QUEUE env would silently do nothing.
+assert_contains persist-config-queue 'storage: file_storage' "$out"
+assert_contains persist-config-extension 'file_storage:' "$out"
+
+# Default (no persistence) must not carry the queue wiring.
+out=$(render --set posthog.apiKey=phc_test)
+assert_not_contains default-no-queue 'sending_queue' "$out"
+assert_not_contains default-no-file-storage 'file_storage' "$out"
+
+# Self-telemetry endpoint is exposed for operator monitoring.
+assert_contains telemetry-config 'port: 8888' "$out"
+assert_contains telemetry-port 'containerPort: 8888' "$out"
+
+# Sharded + persistent: each pod gets its own queue via claim templates.
+out=$(render --set posthog.apiKey=phc_test --set persistence.enabled=true --set shards=3)
+assert_contains persist-sharded-claim-template 'volumeClaimTemplates:' "$out"
+assert_not_contains persist-sharded-no-standalone-pvc 'kind: PersistentVolumeClaim' "$out"
+
 # --- golden drift guard for the fully default render ---
 # Blank lines are stripped before comparing: helm 3 and 4 disagree on
 # blank-line placement between documents, and that isn't drift we care about.
