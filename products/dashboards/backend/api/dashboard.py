@@ -138,6 +138,7 @@ from products.dashboards.backend.widget_registry import (
     get_widget_registry_entry,
     validate_widget_config,
 )
+from products.exports.backend.subscription_reconciliation import reconcile_dashboard_subscriptions
 from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -1615,6 +1616,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         instance = super().update(instance, validated_data)
 
+        if being_deleted:
+            reconcile_dashboard_subscriptions(
+                dashboard_id=instance.id,
+                removed_insight_ids=set(),
+                dashboard_deleted=True,
+            )
+
         user = cast(User, self.context["request"].user)
         tiles = initial_data.pop("tiles", [])
         for tile_data in tiles:
@@ -1982,6 +1990,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
             # The dashboard UI soft-deletes tiles through this PATCH path rather than the
             # delete_tile endpoint, so removal analytics must fire here too.
             if became_deleted and updated_tile is not None:
+                if updated_tile.insight_id is not None:
+                    reconcile_dashboard_subscriptions(
+                        dashboard_id=instance.id,
+                        removed_insight_ids={updated_tile.insight_id},
+                    )
                 _report_dashboard_tile_removed(
                     user=user,
                     dashboard=instance,
@@ -2618,6 +2631,12 @@ class DashboardsViewSet(
             logger.exception("validation_error_while_moving_dashboard_tile")
             raise exceptions.ValidationError("Invalid request data for moving tile.")
 
+        if tile.insight_id is not None:
+            reconcile_dashboard_subscriptions(
+                dashboard_id=from_dashboard.id,
+                removed_insight_ids={tile.insight_id},
+            )
+
         serializer = DashboardSerializer(
             from_dashboard,
             context=self.get_serializer_context(),
@@ -2873,6 +2892,12 @@ class DashboardsViewSet(
                     [remaining_tile for remaining_tile in remaining if remaining_tile.id in changed_ids],
                     ["layouts"],
                 )
+
+        if tile.insight_id is not None:
+            reconcile_dashboard_subscriptions(
+                dashboard_id=dashboard.id,
+                removed_insight_ids={tile.insight_id},
+            )
 
         _report_dashboard_tile_removed(
             user=cast(User, request.user),
