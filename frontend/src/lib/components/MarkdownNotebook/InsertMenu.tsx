@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { ReactNode, type CSSProperties, useEffect, useRef } from 'react'
 
 import {
+    IconChevronRight,
     IconCode,
     IconCursor,
     IconDatabase,
@@ -50,6 +51,9 @@ export function getInsertMenuOptionDomId(menuId: string, commandKey: string): st
 /** Exported so a caller whose registry supersedes the built-in SQL command can hide it by key
  * without hard-coding the string, which would silently stop matching if the key were renamed. */
 export const QUERY_SQL_INSERT_COMMAND_KEY = 'query-sql'
+
+/** Exported so a caller can gate sections behind a flag by key rather than hard-coding the string. */
+export const SECTION_INSERT_COMMAND_KEY = 'text-section'
 
 /** The menu's top group. Exported so a registry component can place its insert command here
  * without hard-coding the label, which would split into a second group if this were renamed. */
@@ -225,6 +229,9 @@ export function buildInsertCommands(
     focusInsertedText: (nodeId: string) => void,
     focusInsertedTable: (nodeId: string) => void,
     focusInsertedCode: (nodeId: string) => void,
+    /** Wraps the target block in a new section rather than replacing it — a section is a pair of
+     * marker blocks around content, not a block of its own. */
+    insertSection: (nodeId: string) => void,
     openAIPrompt?: (nodeId: string) => void,
     isAskAIDisabled?: boolean,
     extraCommands: InsertCommand[] = []
@@ -607,6 +614,15 @@ export function buildInsertCommands(
                     level: 3,
                     children: [],
                 }),
+        },
+        {
+            key: SECTION_INSERT_COMMAND_KEY,
+            label: 'Section',
+            category: 'Text',
+            description: 'Group blocks under a title you can collapse',
+            aliases: ['group', 'collapse', 'fold'],
+            icon: <IconChevronRight />,
+            run: insertSection,
         },
     ]
 

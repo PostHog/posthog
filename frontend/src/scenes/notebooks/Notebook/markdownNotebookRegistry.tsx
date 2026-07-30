@@ -41,6 +41,7 @@ import { LemonButton, LemonInput, LemonTextArea, lemonToast } from '@posthog/lem
 import {
     COMMON_INSERT_COMMAND_CATEGORY,
     QUERY_SQL_INSERT_COMMAND_KEY,
+    SECTION_INSERT_COMMAND_KEY,
     createMarkdownNotebookRegistry,
 } from 'lib/components/MarkdownNotebook'
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
@@ -296,10 +297,16 @@ export function getMarkdownRegistryForFeatureFlags(featureFlags: FeatureFlagsSet
 // The editor's built-in insert commands live outside the registry, so hiding a node's tag is not
 // enough to keep it out of the menu: a built-in that inserts the same tag has to be dropped by key.
 export function getHiddenInsertCommandKeysForFeatureFlags(featureFlags: FeatureFlagsSet): string[] {
+    if (!featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]) {
+        // Sections ship with the revamped notebooks. Only insertion is gated — a notebook that
+        // already has sections keeps rendering them, so turning the flag off never hides content.
+        return [SECTION_INSERT_COMMAND_KEY]
+    }
+
     // The built-in SQL command inserts a legacy `<Query>` HogQL cell, which SQLV2 replaces: it runs
     // through the sandbox, names a dataframe other cells can reference, and keeps run history.
     // Offering both would put two entries labeled "SQL" in the menu.
-    return featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS] ? [QUERY_SQL_INSERT_COMMAND_KEY] : []
+    return [QUERY_SQL_INSERT_COMMAND_KEY]
 }
 
 export function getMarkdownNotebookNodeTitle(

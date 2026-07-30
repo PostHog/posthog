@@ -16,6 +16,7 @@ describe('buildInsertCommands', () => {
             noop,
             noop,
             noop,
+            noop,
             undefined,
             undefined,
             extraCommands

@@ -39,6 +39,19 @@ A block carrying `startsGroup` breaks out of the run above it and starts its own
 Because it belongs to the slot rather than the content, `withPreservedGroupStart` carries it across a replacement (an insert-menu command swapping a real node in for the placeholder) and keeps it on the first half only when Enter splits a block.
 It also stays out of `getNodeFingerprint`, since folding it in would churn the content-derived node id every time a card splits, so both layers that compare nodes by fingerprint handle it explicitly: `diffNotebookDocuments` emits a `set_group_start` operation (what makes a card boundary undoable, and what rebases it past concurrent edits), and `mergeNotebookMarkdownChanges` merges it on its own three-way rule.
 
+## Sections
+
+A section groups a run of blocks under a title that collapses them, the way Databricks and Jupyter fold a run of cells.
+It is stored as a pair of ordinary component tags — `<Section title="Setup" collapsed />` opens it, `<SectionEnd />` closes it — so the parser, serializer, three-way merge, and undo history need no special case.
+Only rendering does: `getMarkdownNotebookSections` derives the spans and `getMarkdownNotebookSectionRows` folds the cards into them (both in `documentModel.ts`), and the markers themselves render as the section's header rather than as blocks.
+
+That choice is what keeps the flat document model intact.
+Sections do not nest, and nothing about them lives outside the two tags, so — unlike `startsGroup` — they need no handling in `getNodeFingerprint`, `diffNotebookDocuments`, or `mergeNotebookMarkdownChanges`.
+The cost is that markers can arrive unbalanced (a hand-edited document, a merge that kept one side's marker, someone deleting half a pair), so the derivation is total: an unclosed section runs to the next section marker or to the end of the document, a second `<Section>` closes the one above it instead of nesting, and a `<SectionEnd />` with nothing open renders as nothing at all.
+
+Collapsed state persists because markdown is the only storage — the `collapsed` prop is written only when true, the same way the component shell writes `hideFilters`/`hideResults` only when a panel is hidden.
+Blocks move in and out of a section by being dragged past its markers, which needs no extra plumbing: the drop boundary is an index into the same flat list.
+
 Code blocks render a non-editable line-number gutter next to the editable `<pre>`. Gutter numbers are absolutely positioned at line tops measured from the DOM (wrapped lines hang without numbers), so the gutter never participates in selection, copy, or text offsets. A trailing `<br>` sentinel keeps trailing blank lines visible; it contributes nothing to `textContent`, which keeps offsets stable.
 
 ## Event architecture: one editing host

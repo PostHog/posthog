@@ -46,6 +46,11 @@ const IMAGE_BLOCK_REGEX = /^!\[((?:\\.|[^\]\\])*)\]\(((?:\\.|[^)\\])*)\)$/
 const DIVIDER_BLOCK_REGEX = /^(?:-{3,}|\*{3,}|_{3,})$/
 export const DIVIDER_COMPONENT_TAG = 'Divider'
 export const COMMENT_COMPONENT_TAG = 'Comment'
+/** Opens a collapsible section; `<SectionEnd />` closes it. Both are ordinary component tags, so
+ * the parser, serializer, three-way merge, and undo history need no special case — only rendering
+ * does (`getMarkdownNotebookSections` in `documentModel.ts`). */
+export const SECTION_COMPONENT_TAG = 'Section'
+export const SECTION_END_COMPONENT_TAG = 'SectionEnd'
 
 /**
  * The `Comment` tag has two flavors: an authorial note (`text` prop, stored as a markdown

@@ -45,6 +45,7 @@ import {
 } from './componentPanels'
 import {
     MarkdownNotebookTextSurface,
+    MarkdownNotebookVisualGroup,
     areNotebookDocumentsEqual,
     ensureEditableNotebookDocument,
     getAskAIInlineNotebookQuery,
@@ -52,8 +53,12 @@ import {
     getClipboardMarkdown,
     getHistoryRestoreSelection,
     getInlineInsertMenuQuery,
+    getMarkdownNotebookSectionRows,
+    getMarkdownNotebookSections,
     getMarkdownNotebookVisualGroups,
     getNotebookStringProp,
+    makeNotebookSectionMarkerNodes,
+    removeNotebookSection,
     getPromptSource,
     getSlashCommandQuery,
     getTaskItemShortcut,
@@ -186,6 +191,7 @@ import {
     serializeMarkdownNotebook,
 } from './markdown'
 import { NOTEBOOK_AI_WRITING_PLACEHOLDER } from './notebookAI'
+import { NotebookSectionHeader } from './NotebookSection'
 import {
     NotebookOperation,
     applyNotebookOperations,
@@ -2684,6 +2690,63 @@ function MarkdownNotebookEditor({
         [commitDocument]
     )
 
+    // `collapsed` is omitted rather than written as false, matching how the shell persists
+    // `hideFilters`/`hideResults`: a prop only appears once it deviates from the default.
+    const toggleSection = useCallback(
+        (sectionNodeId: string): void => {
+            updateNode(sectionNodeId, (node) => {
+                if (node.type !== 'component') {
+                    return node
+                }
+                const { collapsed: _wasCollapsed, ...restProps } = node.props
+                return { ...node, props: node.props.collapsed === true ? restProps : { ...restProps, collapsed: true } }
+            })
+        },
+        [updateNode]
+    )
+
+    const setSectionTitle = useCallback(
+        (sectionNodeId: string, title: string): void => {
+            updateNode(sectionNodeId, (node) =>
+                node.type === 'component' ? { ...node, props: { ...node.props, title } } : node
+            )
+        },
+        [updateNode]
+    )
+
+    const removeSection = useCallback(
+        (sectionNodeId: string): void => {
+            const currentDocument = documentRef.current
+            const nodes = removeNotebookSection(currentDocument.nodes, sectionNodeId)
+            if (nodes === currentDocument.nodes) {
+                return
+            }
+            commitDocument({ ...currentDocument, nodes })
+        },
+        [commitDocument]
+    )
+
+    /** Wraps the block at the insertion point in a new section, so a section always starts with
+     * something in it and grows by dragging more blocks past its markers. */
+    const wrapNodeInSection = useCallback(
+        (nodeId: string): void => {
+            const currentDocument = documentRef.current
+            const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+            const nodeIndex = nodes.findIndex((node) => node.id === nodeId)
+            if (nodeIndex === -1) {
+                return
+            }
+
+            const { start, end } = makeNotebookSectionMarkerNodes(nodeId)
+            markNotebookNodeFreshlyInserted(start.id)
+            commitDocument({
+                ...currentDocument,
+                nodes: [...nodes.slice(0, nodeIndex), start, nodes[nodeIndex], end, ...nodes.slice(nodeIndex + 1)],
+            })
+        },
+        [commitDocument]
+    )
+
     const insertNodesAfterNode = useCallback(
         (nodeId: string, insertedNodes: NotebookBlockNode[]): void => {
             if (!insertedNodes.length) {
@@ -2873,6 +2936,7 @@ function MarkdownNotebookEditor({
                     (nodeId) => {
                         restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
                     },
+                    wrapNodeInSection,
                     onAskAI ? openAIPrompt : undefined,
                     false,
                     extraInsertCommands ? extraInsertCommands(insertMenuApi) : []
@@ -2883,6 +2947,7 @@ function MarkdownNotebookEditor({
             mergedRegistry,
             replaceNodeWithInsertedComponent,
             replaceNode,
+            wrapNodeInSection,
             onAskAI,
             openAIPrompt,
             extraInsertCommands,
@@ -5653,6 +5718,10 @@ function MarkdownNotebookEditor({
         insertMenu?.detached ? insertMenu.nodeId : undefined
     )
     const renderedNodeGroups = mode === 'edit' ? allNodeGroups : withoutLeadingEmptyTitleGroup(allNodeGroups)
+    const renderedSectionRows = getMarkdownNotebookSectionRows(
+        renderedNodeGroups,
+        getMarkdownNotebookSections(renderedNodes)
+    )
 
     // The insert menu never takes focus (typing keeps filtering), so the canvas points at the
     // selected option via aria-activedescendant.
@@ -5949,6 +6018,76 @@ function MarkdownNotebookEditor({
 
     const firstTextGroupKey = renderedNodeGroups.find((group) => group.type === 'text')?.key
 
+    const renderNodeGroup = (group: MarkdownNotebookVisualGroup): JSX.Element => {
+        if (group.type === 'text') {
+            const lastItem = group.items[group.items.length - 1]
+            const chunks: { surface: MarkdownNotebookTextSurface; items: typeof group.items }[] = []
+            for (const item of group.items) {
+                const lastChunk = chunks[chunks.length - 1]
+                // Code blocks never merge: each one is its own surface with its own line
+                // numbers and copy button.
+                if (lastChunk && lastChunk.surface === item.surface && item.surface !== 'code') {
+                    lastChunk.items.push(item)
+                } else {
+                    chunks.push({ surface: item.surface, items: [item] })
+                }
+            }
+
+            return (
+                <Fragment key={group.key}>
+                    <div
+                        className={clsx(
+                            'MarkdownNotebook__text-group',
+                            group.key === firstTextGroupKey &&
+                                showDebug &&
+                                'MarkdownNotebook__text-group--with-debug-toolbar'
+                        )}
+                    >
+                        {group.key === firstTextGroupKey ? renderDebugToolbar() : null}
+                        {chunks.map((chunk) => {
+                            const chunkLastIndex = chunk.items[chunk.items.length - 1].index
+                            const rows = chunk.items.map(({ node, index }) => (
+                                <Fragment key={node.id}>
+                                    {renderNotebookRow(node, index)}
+                                    {chunk.surface === 'text' && index < chunkLastIndex
+                                        ? renderInsertBoundaryButton(index + 1, {
+                                              isGapClickable: false,
+                                          })
+                                        : null}
+                                </Fragment>
+                            ))
+
+                            return (
+                                <Fragment key={chunk.items[0].node.id}>
+                                    {chunk.surface === 'quote' ? (
+                                        <div className="MarkdownNotebook__blockquote-group">{rows}</div>
+                                    ) : chunk.surface === 'code' ? (
+                                        <div className="MarkdownNotebook__code-group">{rows}</div>
+                                    ) : (
+                                        rows
+                                    )}
+                                    {chunkLastIndex < lastItem.index
+                                        ? renderInsertBoundaryButton(chunkLastIndex + 1, {
+                                              isGapClickable: false,
+                                          })
+                                        : null}
+                                </Fragment>
+                            )
+                        })}
+                    </div>
+                    {renderInsertBoundaryButton(lastItem.index + 1)}
+                </Fragment>
+            )
+        }
+
+        return (
+            <Fragment key={group.key}>
+                {renderNotebookRow(group.node, group.index)}
+                {renderInsertBoundaryButton(group.index + 1)}
+            </Fragment>
+        )
+    }
+
     return (
         <div
             className={clsx(
@@ -6002,76 +6141,31 @@ function MarkdownNotebookEditor({
                         onDragLeave={handleCanvasDragLeave}
                     >
                         {renderInsertBoundaryButton(0)}
-                        {renderedNodeGroups.map((group) => {
-                            if (group.type === 'text') {
-                                const lastItem = group.items[group.items.length - 1]
-                                const chunks: { surface: MarkdownNotebookTextSurface; items: typeof group.items }[] = []
-                                for (const item of group.items) {
-                                    const lastChunk = chunks[chunks.length - 1]
-                                    // Code blocks never merge: each one is its own surface with its own line
-                                    // numbers and copy button.
-                                    if (lastChunk && lastChunk.surface === item.surface && item.surface !== 'code') {
-                                        lastChunk.items.push(item)
-                                    } else {
-                                        chunks.push({ surface: item.surface, items: [item] })
-                                    }
-                                }
-
+                        {renderedSectionRows.map((row) => {
+                            if (row.kind === 'section') {
                                 return (
-                                    <Fragment key={group.key}>
+                                    <Fragment key={row.section.node.id}>
                                         <div
                                             className={clsx(
-                                                'MarkdownNotebook__text-group',
-                                                group.key === firstTextGroupKey &&
-                                                    showDebug &&
-                                                    'MarkdownNotebook__text-group--with-debug-toolbar'
+                                                'MarkdownNotebook__section',
+                                                row.section.collapsed && 'MarkdownNotebook__section--collapsed'
                                             )}
                                         >
-                                            {group.key === firstTextGroupKey ? renderDebugToolbar() : null}
-                                            {chunks.map((chunk) => {
-                                                const chunkLastIndex = chunk.items[chunk.items.length - 1].index
-                                                const rows = chunk.items.map(({ node, index }) => (
-                                                    <Fragment key={node.id}>
-                                                        {renderNotebookRow(node, index)}
-                                                        {chunk.surface === 'text' && index < chunkLastIndex
-                                                            ? renderInsertBoundaryButton(index + 1, {
-                                                                  isGapClickable: false,
-                                                              })
-                                                            : null}
-                                                    </Fragment>
-                                                ))
-
-                                                return (
-                                                    <Fragment key={chunk.items[0].node.id}>
-                                                        {chunk.surface === 'quote' ? (
-                                                            <div className="MarkdownNotebook__blockquote-group">
-                                                                {rows}
-                                                            </div>
-                                                        ) : chunk.surface === 'code' ? (
-                                                            <div className="MarkdownNotebook__code-group">{rows}</div>
-                                                        ) : (
-                                                            rows
-                                                        )}
-                                                        {chunkLastIndex < lastItem.index
-                                                            ? renderInsertBoundaryButton(chunkLastIndex + 1, {
-                                                                  isGapClickable: false,
-                                                              })
-                                                            : null}
-                                                    </Fragment>
-                                                )
-                                            })}
+                                            <NotebookSectionHeader
+                                                section={row.section}
+                                                mode={mode}
+                                                toggleSection={toggleSection}
+                                                setSectionTitle={setSectionTitle}
+                                                removeSection={removeSection}
+                                            />
+                                            {row.section.collapsed ? null : row.groups.map(renderNodeGroup)}
                                         </div>
-                                        {renderInsertBoundaryButton(lastItem.index + 1)}
+                                        {renderInsertBoundaryButton(row.section.memberEndIndex + 1)}
                                     </Fragment>
                                 )
                             }
 
-                            return (
-                                <Fragment key={group.key}>
-                                    {renderNotebookRow(group.node, group.index)}
-                                    {renderInsertBoundaryButton(group.index + 1)}
-                                </Fragment>
-                            )
+                            return renderNodeGroup(row.group)
                         })}
                     </div>
                     {adjustedRemoteCarets?.length ? (

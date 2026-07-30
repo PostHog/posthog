@@ -187,6 +187,7 @@ If the node type does not exist yet, create the notebook node first under `front
 
 Do not reuse the tags of the default registry (`registry.tsx`): `Query`, `Image`, `Divider`, `Embed`, `Latex`, `Python`, `DuckSQL`, `HogQLSQL`, `RecordingPlaylist`, `FeatureFlag`, `Experiment`, `Survey`, `Person`, `Group`, `Cohort`, `Map`.
 The internal AI tag `Prompt` is also reserved (registered by the notebooks scene).
+`Section` and `SectionEnd` are reserved too, and are not registry entries at all: they are structure rather than content, so the editor renders the pair as a collapsible section header and never as blocks (see [README.md](./README.md#sections)).
 `Image` and `Divider` are special: they serialize back to plain markdown (`![alt](src)` and `---`) rather than component-tag syntax.
 `Comment` is special too: its authorial-note flavor (`text` prop) serializes as a markdown `<!-- … -->` comment, while its discussion flavor (`ref` + `replies` props, a Google Docs-style thread anchored to an inline `<ref id="…">` highlight) serializes as a regular `<Comment … />` tag.
 The lowercase inline tags `<ref>` and `<mention>` are part of the inline grammar, not components — component tags must start with an uppercase letter.

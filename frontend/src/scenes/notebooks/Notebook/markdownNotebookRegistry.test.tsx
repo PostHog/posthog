@@ -38,6 +38,7 @@ function getInsertCommandsByLabel(featureFlags: FeatureFlagsSet, label: string):
             noop,
             noop,
             noop,
+            noop,
             noop
         ),
         getHiddenInsertCommandKeysForFeatureFlags(featureFlags)

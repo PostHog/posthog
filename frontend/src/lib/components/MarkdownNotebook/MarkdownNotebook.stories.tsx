@@ -30,6 +30,26 @@ ORDER BY pageview_count DESC
 
 [Open dashboard](/dashboard/123)`
 
+const sectionsNotebook = `# Activation deep dive
+
+<Section title="Setup" />
+
+Pull the raw events the rest of the notebook builds on.
+
+<DuckSQL title="Load events" code="select * from events" returnVariable="duck_df" />
+
+<SectionEnd />
+
+<Section title="Scratch work" collapsed />
+
+Kept around for reference, folded away by default.
+
+<Python title="Scratch" code="print('still here')" />
+
+<SectionEnd />
+
+Findings go here, outside any section.`
+
 const queryNotebook = `# Product analytics
 
 <Query query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[{"kind":"EventsNode","event":"$pageview","name":"Pageview"}]}}} />
@@ -218,6 +238,12 @@ export const ListsAndLinks: Story = {
   - [ ] Share findings with the team
 
 [Open PostHog](https://posthog.com)`,
+    },
+}
+
+export const Sections: Story = {
+    args: {
+        value: sectionsNotebook,
     },
 }
 

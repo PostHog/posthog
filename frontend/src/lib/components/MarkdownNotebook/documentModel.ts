@@ -7,6 +7,8 @@ import {
     makeEmptyParagraph,
     makeListItemId,
     parseMarkdownNotebook,
+    SECTION_COMPONENT_TAG,
+    SECTION_END_COMPONENT_TAG,
     serializeMarkdownNotebook,
 } from './markdown'
 import { getTableCellAtPosition, getTableEdgeCellPosition } from './tableModel'
@@ -229,6 +231,163 @@ export function collapseAdjacentEmptyPromptNodes(
 
 export function isDividerComponentNode(node: NotebookBlockNode): node is NotebookComponentBlockNode {
     return node.type === 'component' && node.tagName === DIVIDER_COMPONENT_TAG
+}
+
+export function isSectionStartNode(node: NotebookBlockNode): node is NotebookComponentBlockNode {
+    return node.type === 'component' && node.tagName === SECTION_COMPONENT_TAG
+}
+
+export function isSectionEndNode(node: NotebookBlockNode): node is NotebookComponentBlockNode {
+    return node.type === 'component' && node.tagName === SECTION_END_COMPONENT_TAG
+}
+
+/** Section markers are structure, not content: they render as the section's header and bottom
+ * edge rather than as blocks of their own. */
+export function isSectionMarkerNode(node: NotebookBlockNode): boolean {
+    return isSectionStartNode(node) || isSectionEndNode(node)
+}
+
+/** A run of blocks a `<Section>` marker groups together, as rendered. */
+export type MarkdownNotebookSection = {
+    /** The `<Section>` marker: it holds the title and the collapsed state. */
+    node: NotebookComponentBlockNode
+    startIndex: number
+    /** Index of the closing `<SectionEnd />`, or `null` when the section is closed by the next
+     * section marker or by the end of the document. */
+    endIndex: number | null
+    /** One past the section's last member — the end marker's index, or where it would be. */
+    memberEndIndex: number
+    title: string
+    collapsed: boolean
+}
+
+/**
+ * Derives the sections a flat node list describes. Markdown is the only storage, so any arrangement
+ * of markers can reach this function — a hand-edited document, a three-way merge that dropped one
+ * side's marker, a user deleting half a pair. It is therefore total, and every malformed case
+ * degrades to something renderable: an unclosed section runs to the next section marker or to the
+ * end of the document, a second `<Section>` closes the one above it rather than nesting (the
+ * document model is flat), and a `<SectionEnd />` with nothing open is ignored.
+ */
+export function getMarkdownNotebookSections(nodes: NotebookBlockNode[]): MarkdownNotebookSection[] {
+    const sections: MarkdownNotebookSection[] = []
+    let openNode: NotebookComponentBlockNode | null = null
+    let openStartIndex = 0
+
+    const closeOpenSection = (endIndex: number | null, memberEndIndex: number): void => {
+        if (!openNode) {
+            return
+        }
+        sections.push({
+            node: openNode,
+            startIndex: openStartIndex,
+            endIndex,
+            memberEndIndex,
+            title: getNotebookStringProp(openNode.props.title)?.trim() ?? '',
+            collapsed: openNode.props.collapsed === true,
+        })
+        openNode = null
+    }
+
+    nodes.forEach((node, index) => {
+        if (isSectionStartNode(node)) {
+            closeOpenSection(null, index)
+            openNode = node
+            openStartIndex = index
+            return
+        }
+        if (isSectionEndNode(node) && openNode) {
+            closeOpenSection(index, index)
+        }
+    })
+    closeOpenSection(null, nodes.length)
+
+    return sections
+}
+
+/** The blocks a section holds. Never contains markers: an end marker closes the section it lands in. */
+export function getMarkdownNotebookSectionMemberCount(section: MarkdownNotebookSection): number {
+    return Math.max(0, section.memberEndIndex - section.startIndex - 1)
+}
+
+export function makeNotebookSectionMarkerNodes(seed: string): {
+    start: NotebookComponentBlockNode
+    end: NotebookComponentBlockNode
+} {
+    return {
+        start: {
+            id: makeEmptyParagraph(`section-${seed}`).id,
+            type: 'component',
+            tagName: SECTION_COMPONENT_TAG,
+            props: { title: '' },
+        },
+        end: {
+            id: makeEmptyParagraph(`section-end-${seed}`).id,
+            type: 'component',
+            tagName: SECTION_END_COMPONENT_TAG,
+            props: {},
+        },
+    }
+}
+
+export type MarkdownNotebookSectionRow =
+    | { kind: 'group'; group: MarkdownNotebookVisualGroup }
+    | { kind: 'section'; section: MarkdownNotebookSection; groups: MarkdownNotebookVisualGroup[] }
+
+/**
+ * Folds the cards a document renders as into the sections that hold them. Section markers are
+ * components, so they always break a text group — a card can never straddle a section boundary,
+ * and every marker arrives here as a standalone block group that this drops in favor of the
+ * section header (an unmatched `<SectionEnd />` therefore renders as nothing at all).
+ */
+export function getMarkdownNotebookSectionRows(
+    groups: MarkdownNotebookVisualGroup[],
+    sections: MarkdownNotebookSection[]
+): MarkdownNotebookSectionRow[] {
+    if (!sections.length) {
+        return groups.map((group) => ({ kind: 'group', group }))
+    }
+
+    const sectionByStartIndex = new Map(sections.map((section) => [section.startIndex, section]))
+    const rows: MarkdownNotebookSectionRow[] = []
+    let openRow: Extract<MarkdownNotebookSectionRow, { kind: 'section' }> | null = null
+
+    for (const group of groups) {
+        const index = group.type === 'text' ? group.items[0].index : group.index
+
+        if (group.type === 'block' && isSectionStartNode(group.node)) {
+            const section = sectionByStartIndex.get(index)
+            openRow = section ? { kind: 'section', section, groups: [] } : null
+            if (openRow) {
+                rows.push(openRow)
+            }
+            continue
+        }
+        if (group.type === 'block' && isSectionEndNode(group.node)) {
+            openRow = null
+            continue
+        }
+        if (openRow && index < openRow.section.memberEndIndex) {
+            openRow.groups.push(group)
+            continue
+        }
+
+        openRow = null
+        rows.push({ kind: 'group', group })
+    }
+
+    return rows
+}
+
+/** Ungroups a section: both markers go, every block it held stays exactly where it was. */
+export function removeNotebookSection(nodes: NotebookBlockNode[], startNodeId: string): NotebookBlockNode[] {
+    const section = getMarkdownNotebookSections(nodes).find(({ node }) => node.id === startNodeId)
+    if (!section) {
+        return nodes
+    }
+
+    const removedIndices = new Set([section.startIndex, ...(section.endIndex === null ? [] : [section.endIndex])])
+    return nodes.filter((_, index) => !removedIndices.has(index))
 }
 
 /**
