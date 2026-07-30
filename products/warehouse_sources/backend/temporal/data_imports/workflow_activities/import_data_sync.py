@@ -304,7 +304,11 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
 def _get_models(
     job_id: str,
 ) -> tuple[ExternalDataJob, ExternalDataSchema, ExternalDataSource, DataWarehouseTable | None]:
-    job = ExternalDataJob.objects.select_related("schema", "schema__table").get(id=job_id)
+    # `schema__source` is prefetched so `job.folder_path()` (via `schema.source.source_type`, called
+    # repeatedly through the run by `DeltaTableHelper._get_delta_table_uri`) never triggers a lazy
+    # relation load later on a pooled connection the transaction pooler may have dropped mid-sync,
+    # which raises a transient `OperationalError`/DNS failure.
+    job = ExternalDataJob.objects.select_related("schema", "schema__table", "schema__source").get(id=job_id)
     schema: ExternalDataSchema | None = job.schema
     source: ExternalDataSource | None = job.pipeline
     if schema is None:
