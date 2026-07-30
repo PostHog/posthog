@@ -254,6 +254,7 @@ export const SUPPORT_EXTENSIONS = [
         // listItem/listKeymap: enabled - required by bulletList/orderedList
         // orderedList: enabled - Cmd+Shift+7
         strike: false,
+        underline: false, // Registered explicitly below
     }),
     Underline, // Cmd+U
     ImageExtension,
@@ -270,11 +271,11 @@ export const SUPPORT_PREVIEW_EXTENSIONS = [
         document: false,
         link: false, // We use our own Link extension
         codeBlock: false, // We use our own SupportCodeBlockExtension
+        underline: false, // Registered explicitly below
     }),
     Underline,
     ImageExtension,
     LinkExtension,
-    LinkOnPasteExtension,
     SupportCodeBlockExtension,
 ]
 
