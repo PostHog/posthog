@@ -887,6 +887,28 @@ export const supportLogic = kea<supportLogicType>([
             // Fallback path: conversations flag off, or the extension never loaded. Tag flag-on
             // fallbacks so the (rare) volume is visible while Zendesk is being retired.
             const conversationsFallback = values.conversationsFlagEnabled
+
+            // Flag was on but we're still routing to Zendesk — record why the conversations path was
+            // unavailable, so a fallback (blocked bundle, disabled project, still loading, declined
+            // send) is diagnosable instead of collapsing into one opaque "extension unavailable".
+            if (conversationsFallback) {
+                const conversations = posthog.conversations
+                const reason = !conversations
+                    ? 'addon_not_registered'
+                    : // getUnavailableReason() ships in a newer posthog-js; degrade to a coarse
+                      // send-declined-vs-unavailable signal until the running SDK exposes it.
+                      ((conversations as { getUnavailableReason?: () => string | null }).getUnavailableReason?.() ??
+                      (conversations.isAvailable() ? 'send_declined' : 'unknown'))
+                posthog.capture('support_conversations_unavailable', {
+                    reason,
+                    kind,
+                    target_area,
+                    severity_level,
+                    message_length: message?.length,
+                    current_url_length: window.location.href.length,
+                })
+            }
+
             const zendesk_ticket_uuid = uuid()
             const subject =
                 SUPPORT_KIND_TO_SUBJECT[kind ?? 'support'] +
