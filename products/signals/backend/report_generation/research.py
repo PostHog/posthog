@@ -794,6 +794,9 @@ clearly supported by evidence.
 {corrections_block}
 ## Rules
 
+- Decide from the evidence you already have. Do not run any further research or tool calls for \
+this decision — the candidates, the correction history, and what you observed during research are \
+the complete evidence base.
 - Never guess a login. Only name logins that appear in the ranked candidates, the correction \
 history above, or commit authorship you saw during research. A guessed, mis-cased, or display-name \
 handle routes to no one, and unverifiable logins are dropped.
@@ -927,12 +930,14 @@ async def run_multi_turn_research(
 ) -> ReportResearchOutput:
     """Orchestrate a multi-turn sandbox session that investigates each signal individually.
 
-    When ``suggest_reviewers`` is on, a dedicated reviewers turn runs after the assessments: the
-    agent picks the report's suggested reviewers itself, shown the deterministic
-    commit-authorship ranking (via ``rank_reviewer_candidates``, injected because this module
-    stays free of DB and GitHub access) and recent human reviewer corrections as evidence. The
-    turn is best-effort; a failure leaves ``suggested_reviewers`` empty and the caller falls back
-    to the deterministic ranking, so the new turn can never fail an otherwise-good research run.
+    When ``suggest_reviewers`` is on, a dedicated reviewers turn runs after the assessments (only
+    for actionable reports, like the priority turn — the inbox hides reviewers on not-actionable
+    reports, so the turn's cost would buy nothing there): the agent picks the report's suggested
+    reviewers itself, shown the deterministic commit-authorship ranking (via
+    ``rank_reviewer_candidates``, injected because this module stays free of DB and GitHub access)
+    and recent human reviewer corrections as evidence. The turn is best-effort; a failure leaves
+    ``suggested_reviewers`` empty and the caller falls back to the deterministic ranking, so the
+    new turn can never fail an otherwise-good research run.
     """
     from products.tasks.backend.facade import api as tasks_facade
     from products.tasks.backend.facade.agents import MultiTurnSession
@@ -1084,8 +1089,11 @@ async def run_multi_turn_research(
             if output_fn:
                 output_fn(f"Priority: {priority_result.priority.value}" + ("" if priority_is_new else " (unchanged)"))
 
+        # Reviewers turn (only when actionable, like priority): the inbox forces
+        # `is_suggested_reviewer` to false on not-actionable reports, so an agent pick there is
+        # invisible — skipping saves the turn's cost on every not-actionable report.
         proposed_reviewers: list[ProposedReviewer] = []
-        if suggest_reviewers:
+        if suggest_reviewers and actionability_result.actionability != ActionabilityChoice.NOT_ACTIONABLE:
             if output_fn:
                 output_fn("Suggesting reviewers...")
             # Same latest-per-signal collapse as `effective_findings()`, over this run's state.

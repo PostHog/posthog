@@ -845,3 +845,32 @@ async def test_run_multi_turn_research_reviewers_turn(reviewers_turn_result, exp
     assert result.title == "Report title"
     assert [reviewer.github_login for reviewer in result.suggested_reviewers] == expected_logins
     session.end.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_run_multi_turn_research_skips_reviewers_turn_when_not_actionable():
+    # The inbox hides reviewers on not-actionable reports, so the turn must not run (or cost
+    # anything) there — mirroring how the priority turn is skipped.
+    signals = _build_signals()[:1]
+
+    session = Mock()
+    session.task = Mock(id="task-1")
+    session.end = AsyncMock()
+    session.send_followup = AsyncMock(
+        side_effect=[
+            ActionabilityAssessment(
+                explanation="too vague", actionability=ActionabilityChoice.NOT_ACTIONABLE, already_addressed=False
+            ),
+            ReportPresentationOutput(title="Report title", summary="Report summary"),
+        ]
+    )
+    first_finding = SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True)
+
+    with patch(
+        "products.tasks.backend.facade.agents.MultiTurnSession.start",
+        AsyncMock(return_value=(session, first_finding)),
+    ):
+        result = await run_multi_turn_research(signals, Mock(), suggest_reviewers=True)
+
+    assert result.suggested_reviewers == []
+    assert session.send_followup.await_count == 2
