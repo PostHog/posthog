@@ -32,7 +32,7 @@ import type { BillingType, PreflightStatus } from '../../../types'
 import type { FeatureFlagsSet } from '../../logic/featureFlagLogic'
 import { parseExceptionEvent } from './exceptionUtils'
 import { openSupportModal } from './SupportModal'
-import { KNOWN_ENTERPRISE_ORG_IDS } from './supportResponseTime'
+import { KNOWN_ENTERPRISE_ORG_IDS, getActiveTrialTarget } from './supportResponseTime'
 
 export function getPublicSupportSnippet(
     cloudRegion: Region | null | undefined,
@@ -911,17 +911,15 @@ export const supportLogic = kea<supportLogicType>([
 
             const isNewOrganization = values.isCurrentOrganizationNew
 
-            const hasBoostTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'boost'
-            const hasScaleTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'scale'
-            const hasEnterpriseTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'enterprise'
+            const activeTrialTarget = getActiveTrialTarget(billing)
 
-            if (isKnownEnterpriseOrg || hasEnterpriseTrial || billingPlan === BillingPlan.Enterprise) {
+            if (isKnownEnterpriseOrg || activeTrialTarget === 'enterprise' || billingPlan === BillingPlan.Enterprise) {
                 planLevelTag = 'plan_enterprise'
             } else if (isNewOrganization) {
                 planLevelTag = 'plan_onboarding'
-            } else if (hasScaleTrial) {
+            } else if (activeTrialTarget === 'scale') {
                 planLevelTag = 'plan_scale'
-            } else if (hasBoostTrial) {
+            } else if (activeTrialTarget === 'boost') {
                 planLevelTag = 'plan_boost'
             } else if (billingPlan) {
                 switch (billingPlan) {

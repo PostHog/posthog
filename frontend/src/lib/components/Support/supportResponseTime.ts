@@ -7,6 +7,19 @@ export const KNOWN_ENTERPRISE_ORG_IDS = ['018713f3-8d56-0000-32fa-75ce97e6662f']
 
 export type CurrentSupportPlan = BillingPlan | 'boost_trial' | 'scale_trial'
 
+export type TrialTarget = NonNullable<BillingType['trial']>['target']
+
+const SUPPORT_TRIAL_TARGETS: TrialTarget[] = ['boost', 'scale', 'enterprise']
+
+export function getActiveTrialTarget(billing: BillingType | null | undefined): TrialTarget | null {
+    return billing?.trial?.status === 'active' ? billing.trial.target : null
+}
+
+export function hasActiveSupportTrial(billing: BillingType | null | undefined): boolean {
+    const target = getActiveTrialTarget(billing)
+    return target !== null && SUPPORT_TRIAL_TARGETS.includes(target)
+}
+
 export interface SupportPlanContext {
     billing?: BillingType | null
     billingPlan?: BillingPlan | null
@@ -19,7 +32,7 @@ export function getCurrentSupportPlan({
     billingPlan,
     organizationId,
 }: SupportPlanContext): CurrentSupportPlan {
-    const activeTrialTarget = billing?.trial?.status === 'active' ? billing.trial.target : null
+    const activeTrialTarget = getActiveTrialTarget(billing)
 
     if (
         KNOWN_ENTERPRISE_ORG_IDS.includes(organizationId || '') ||
@@ -53,8 +66,7 @@ export function getSupportResponseTimeFeature(
  * callers can leave the promise out entirely rather than fall back to a made-up one.
  */
 export function getSupportResponseTime(context: SupportPlanContext): string | null {
-    const activeTrialTarget = context.billing?.trial?.status === 'active' ? context.billing.trial.target : null
-    if (activeTrialTarget === 'boost' || activeTrialTarget === 'scale' || activeTrialTarget === 'enterprise') {
+    if (hasActiveSupportTrial(context.billing)) {
         return null
     }
 

@@ -16,7 +16,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { appendExceptionToMessage, supportLogic, warnIfMessageTooLong } from 'lib/components/Support/supportLogic'
-import { getSupportResponseTime } from 'lib/components/Support/supportResponseTime'
+import { getSupportResponseTime, hasActiveSupportTrial } from 'lib/components/Support/supportResponseTime'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { EMAIL_SUPPORT_BUTTON, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -368,9 +368,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         canCreateTicket: [
             (s) => [s.billing, s.isCurrentOrganizationNew, s.hasBillingExemption],
             (billing: BillingType | null, isCurrentOrganizationNew: boolean, hasBillingExemption: boolean): boolean => {
-                const hasSupportTrial =
-                    billing?.trial?.status === 'active' &&
-                    ['boost', 'scale', 'enterprise'].includes(billing.trial?.target ?? '')
+                const hasSupportTrial = hasActiveSupportTrial(billing)
                 return (
                     billing?.subscription_level === 'paid' ||
                     billing?.subscription_level === 'custom' ||

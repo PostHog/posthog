@@ -12,6 +12,7 @@ import {
     PAY_AS_YOU_GO_RESPONSE_TIME,
     getCurrentSupportPlan,
     getSupportResponseTimeFeature,
+    hasActiveSupportTrial,
 } from 'lib/components/Support/supportResponseTime'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -120,9 +121,7 @@ const SupportResponseTimesTable = ({
     const { supportPlans, billingPlan } = useValues(billingLogic)
     const { user } = useValues(userLogic)
 
-    const hasBoostTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'boost'
-    const hasScaleTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'scale'
-    const hasEnterpriseTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'enterprise'
+    const hasSupportTrial = hasActiveSupportTrial(billing)
 
     const hasExpiredTrial = billing?.trial?.status === 'expired'
     const expiredTrialDate = hasExpiredTrial ? dayjs(billing?.trial?.expires_at) : null
@@ -229,14 +228,14 @@ const SupportResponseTimesTable = ({
             })}
 
             {/* Display expired trial information */}
-            {!(hasBoostTrial || hasScaleTrial || hasEnterpriseTrial) && hasExpiredTrial && expiredTrialDate && (
+            {!hasSupportTrial && hasExpiredTrial && expiredTrialDate && (
                 <>
                     <div className="border-t text-muted col-span-2">Trial expired</div>
                 </>
             )}
 
             {/* Display active trial information integrated into the table */}
-            {(hasBoostTrial || hasScaleTrial || hasEnterpriseTrial) && (
+            {hasSupportTrial && (
                 <>
                     <div className="font-bold border-t">Your trial</div>
                     <div className="font-bold border-t text-right">{DEFAULT_PAID_RESPONSE_TIME}</div>
