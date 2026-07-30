@@ -10,6 +10,12 @@ describe('blur', () => {
     // which decoders user content can reach. TIFF is blocked in blur.ts; GIF is deliberately not,
     // because pages really do inline GIFs and blocking it would send every one of them to the
     // dead-letter topic.
+    //
+    // The native VIPS format (`VipsForeignLoadVips`, also blocked in blur.ts) has no row here: a
+    // real `.v`/`.vips` buffer, built with the `vips` CLI, fails to decode with the identical
+    // "unsupported image format" error whether or not the block is applied, so there is no buffer
+    // that can exercise that branch either way. Blocking it only guards a call path that loads
+    // from a file path, which nothing in this sidecar does today.
     it.each([
         ['tiff', true],
         ['gif', false],
