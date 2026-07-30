@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowRight, IconCopy, IconGear, IconGithub, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, LemonSwitch, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSearchableSelect, LemonSkeleton, LemonSwitch, Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -260,8 +260,10 @@ function AddRepoDropdown(): JSX.Element {
     const manageAccessUrl = githubManageAccessUrl ?? urls.settings('environment-integrations')
 
     return (
-        <LemonSelect
+        <LemonSearchableSelect
             placeholder="Add a repository..."
+            searchPlaceholder="Search repositories"
+            noResultsMessage="No repositories found"
             loading={saving}
             options={[
                 {

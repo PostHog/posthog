@@ -1,7 +1,9 @@
-use crate::properties::property_models::PropertyFilter;
+use crate::properties::property_models::{PropertyFilter, PropertyType};
 use crate::utils::json_size::estimate_json_size;
 use chrono::{DateTime, Utc};
+use serde::de::IgnoredAny;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::FromRow;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
@@ -50,14 +52,24 @@ pub struct Cohort {
     pub last_backfill_person_properties_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub last_backfill_events_at: Option<DateTime<Utc>>,
+    /// Flags describing which kinds of conditions the cohort's filters contain — see
+    /// `CohortConditionFlags` in products/cohorts/backend/models/cohort.py. Used to gate
+    /// `uses_realtime_membership()` on cohorts with a `behavioral`/`lifecycle` condition,
+    /// not just any Realtime/Behavioral `cohort_type`. `#[serde(default)]` so hypercache
+    /// entries written before this field existed deserialize as `None` (safe default).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub condition_type: Option<Value>,
 }
 
 impl Cohort {
     /// Returns true if this cohort's membership should be resolved via the
     /// realtime cohort_membership table rather than the static cohortpeople table.
-    /// Requires both a realtime/behavioral cohort type AND at least one populated
-    /// backfill timestamp, which indicates that the membership table has been written to.
-    /// Without any timestamp, the cohort falls through to dynamic filter evaluation.
+    /// Requires a realtime/behavioral cohort type, at least one populated backfill
+    /// timestamp (indicating the membership table has been written to), AND at least
+    /// one behavioral/lifecycle leaf condition. Cohorts made up only of person
+    /// properties never use the membership table, even when otherwise eligible —
+    /// there's no realtime signal to gain from it, so they fall through to dynamic
+    /// filter evaluation like any other property-only cohort.
     ///
     /// Note: Python's `Cohort.is_flag_compatible` gates on filter composition (person vs
     /// behavioral) and requires the matching timestamp(s) before a flag can reference the
@@ -69,6 +81,29 @@ impl Cohort {
             Some(CohortType::Realtime) | Some(CohortType::Behavioral)
         ) && (self.last_backfill_person_properties_at.is_some()
             || self.last_backfill_events_at.is_some())
+            && self.has_behavioral_condition()
+    }
+
+    /// Returns true if `condition_type` flags a `behavioral` or `lifecycle` leaf condition.
+    /// Missing or malformed `condition_type` (e.g. a hypercache entry written before this
+    /// field existed, or a cohort with no filters) defaults to `false` — the safe choice,
+    /// since it routes the cohort through legacy dynamic filter evaluation instead of the
+    /// realtime `cohort_membership` table.
+    fn has_behavioral_condition(&self) -> bool {
+        self.condition_type
+            .as_ref()
+            .and_then(|value| value.as_object())
+            .map(|flags| {
+                flags
+                    .get("behavioral")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                    || flags
+                        .get("lifecycle")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+            })
+            .unwrap_or(false)
     }
 
     /// Estimates the memory size of this cohort in bytes.
@@ -109,19 +144,19 @@ pub enum CohortPropertyType {
     OR,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct CohortProperty {
     pub properties: InnerCohortProperty,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct InnerCohortProperty {
     #[serde(rename = "type")]
     pub prop_type: CohortPropertyType,
     pub values: Vec<CohortValuesItem>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct CohortValues {
     #[serde(rename = "type")]
     pub prop_type: String,
@@ -137,11 +172,43 @@ pub struct CohortValues {
 /// `PropertyFilter` requires `key`, so a group (no `key`) falls through to `Group`,
 /// while an ambiguous object carrying both `key` and `values` is kept as the filter
 /// it most likely is rather than silently dropping its `key`/`value`/`operator`.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+///
+/// `MalformedKnownType` catches a leaf whose `type` names one of the supported
+/// `PropertyType`s (so it isn't genuinely unsupported) but is otherwise malformed for
+/// that type, e.g. a `cohort` filter missing the required `key` — a shape that could
+/// exist in storage from before cohort filters were validated on write. It's tried
+/// after `Filter`/`Group` (a well-formed leaf of a known type already matched one of
+/// those) and before `Unsupported`, so a malformed-but-known-type leaf still surfaces
+/// as a parsing error instead of silently degrading like a genuinely unrecognized type
+/// does.
+///
+/// `Unsupported` is the catch-all last variant: a leaf whose `type` this evaluator
+/// can't resolve from person/group properties — most commonly a `behavioral` filter,
+/// which needs event history over time. An unsupported leaf contributes no cohort
+/// dependency and is a non-match during evaluation, so the cohort's evaluable leaves
+/// still decide membership. The payload is discarded via `IgnoredAny` rather than kept
+/// as `serde_json::Value` since nothing reads it, avoiding materializing every
+/// unsupported leaf on each cohort parse. Because it deserializes any JSON, it must
+/// stay last so real filters and groups are tried first; this also means the whole
+/// type tree can no longer derive `Serialize` (`IgnoredAny` doesn't implement it) —
+/// nothing in the codebase serializes cohort filters back out, only the raw JSON on
+/// `Cohort::filters`.
+#[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum CohortValuesItem {
     Filter(PropertyFilter),
     Group(CohortValues),
+    MalformedKnownType(KnownTypeMarker),
+    Unsupported(IgnoredAny),
+}
+
+/// Matches only the `type` field of a leaf, so it succeeds whenever `type` names a
+/// supported `PropertyType` even if the rest of the leaf is malformed for that type.
+/// See `CohortValuesItem::MalformedKnownType`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct KnownTypeMarker {
+    #[serde(rename = "type")]
+    pub prop_type: PropertyType,
 }
 
 #[cfg(test)]
@@ -193,6 +260,7 @@ mod tests {
             cohort_type: None,
             last_backfill_person_properties_at: None,
             last_backfill_events_at: None,
+            condition_type: None,
         }
     }
 
@@ -321,44 +389,151 @@ mod tests {
     #[allow(clippy::type_complexity)]
     fn test_uses_realtime_membership() {
         let backfill_ts = Some(Utc::now());
+        let behavioral = Some(serde_json::json!({
+            "person_properties": false, "behavioral": true, "lifecycle": false, "cohorts": false
+        }));
+        let person_properties_only = Some(serde_json::json!({
+            "person_properties": true, "behavioral": false, "lifecycle": false, "cohorts": false
+        }));
 
-        // (cohort_type, person_props_ts, events_ts, expected)
+        // (cohort_type, person_props_ts, events_ts, condition_type, expected)
         let cases: Vec<(
             Option<CohortType>,
             Option<DateTime<Utc>>,
             Option<DateTime<Utc>>,
+            Option<Value>,
             bool,
         )> = vec![
-            (None, None, None, false),
-            (None, backfill_ts, None, false),
-            (None, None, backfill_ts, false),
-            (Some(CohortType::Static), None, None, false),
-            (Some(CohortType::Static), backfill_ts, None, false),
-            (Some(CohortType::PersonProperty), None, None, false),
-            (Some(CohortType::PersonProperty), backfill_ts, None, false),
-            (Some(CohortType::Analytical), None, None, false),
-            (Some(CohortType::Analytical), backfill_ts, None, false),
-            // Realtime: either timestamp enables realtime membership
-            (Some(CohortType::Realtime), None, None, false),
-            (Some(CohortType::Realtime), backfill_ts, None, true),
-            (Some(CohortType::Realtime), None, backfill_ts, true),
-            (Some(CohortType::Realtime), backfill_ts, backfill_ts, true),
-            // Behavioral: either timestamp enables realtime membership
-            (Some(CohortType::Behavioral), None, None, false),
-            (Some(CohortType::Behavioral), backfill_ts, None, true),
-            (Some(CohortType::Behavioral), None, backfill_ts, true),
-            (Some(CohortType::Behavioral), backfill_ts, backfill_ts, true),
+            (None, None, None, None, false),
+            (None, backfill_ts, None, None, false),
+            (None, None, backfill_ts, None, false),
+            (Some(CohortType::Static), None, None, None, false),
+            (
+                Some(CohortType::Static),
+                backfill_ts,
+                None,
+                behavioral.clone(),
+                false,
+            ),
+            (Some(CohortType::PersonProperty), None, None, None, false),
+            (
+                Some(CohortType::PersonProperty),
+                backfill_ts,
+                None,
+                behavioral.clone(),
+                false,
+            ),
+            (Some(CohortType::Analytical), None, None, None, false),
+            (
+                Some(CohortType::Analytical),
+                backfill_ts,
+                None,
+                behavioral.clone(),
+                false,
+            ),
+            // Realtime + behavioral condition: either timestamp enables realtime membership
+            (
+                Some(CohortType::Realtime),
+                None,
+                None,
+                behavioral.clone(),
+                false,
+            ),
+            (
+                Some(CohortType::Realtime),
+                backfill_ts,
+                None,
+                behavioral.clone(),
+                true,
+            ),
+            (
+                Some(CohortType::Realtime),
+                None,
+                backfill_ts,
+                behavioral.clone(),
+                true,
+            ),
+            (
+                Some(CohortType::Realtime),
+                backfill_ts,
+                backfill_ts,
+                behavioral.clone(),
+                true,
+            ),
+            // Behavioral + behavioral condition: either timestamp enables realtime membership
+            (
+                Some(CohortType::Behavioral),
+                None,
+                None,
+                behavioral.clone(),
+                false,
+            ),
+            (
+                Some(CohortType::Behavioral),
+                backfill_ts,
+                None,
+                behavioral.clone(),
+                true,
+            ),
+            (
+                Some(CohortType::Behavioral),
+                None,
+                backfill_ts,
+                behavioral.clone(),
+                true,
+            ),
+            (
+                Some(CohortType::Behavioral),
+                backfill_ts,
+                backfill_ts,
+                behavioral.clone(),
+                true,
+            ),
+            // Person-properties-only cohorts never use realtime membership, regardless of
+            // cohort_type or backfill timestamps — there's no behavioral/lifecycle
+            // condition to gain a realtime signal from.
+            (
+                Some(CohortType::Realtime),
+                backfill_ts,
+                None,
+                person_properties_only.clone(),
+                false,
+            ),
+            (
+                Some(CohortType::Realtime),
+                None,
+                backfill_ts,
+                person_properties_only.clone(),
+                false,
+            ),
+            (
+                Some(CohortType::Realtime),
+                backfill_ts,
+                backfill_ts,
+                person_properties_only.clone(),
+                false,
+            ),
+            // Missing condition_type (e.g. a hypercache entry written before this field
+            // existed) defaults to false — the safe choice.
+            (
+                Some(CohortType::Realtime),
+                backfill_ts,
+                backfill_ts,
+                None,
+                false,
+            ),
         ];
 
-        for (cohort_type, pp_ts, events_ts, expected) in cases {
+        for (cohort_type, pp_ts, events_ts, condition_type, expected) in cases {
             let mut cohort = create_test_cohort(None, None, serde_json::json!({}));
             cohort.cohort_type = cohort_type;
             cohort.last_backfill_person_properties_at = pp_ts;
             cohort.last_backfill_events_at = events_ts;
+            cohort.condition_type = condition_type.clone();
             assert_eq!(
                 cohort.uses_realtime_membership(),
                 expected,
-                "cohort_type={cohort_type:?}, pp_ts={}, events_ts={} should return {expected}",
+                "cohort_type={cohort_type:?}, pp_ts={}, events_ts={}, condition_type={condition_type:?} should return {expected}",
                 pp_ts.is_some(),
                 events_ts.is_some()
             );
@@ -368,27 +543,65 @@ mod tests {
     #[test]
     fn test_realtime_cohort_filtering_mirrors_flag_matching() {
         // Verifies that filtering cohorts by `uses_realtime_membership()` correctly
-        // selects only Realtime/Behavioral cohorts with a backfill timestamp, which
-        // is the same filter applied in flag_matching::prepare_flag_evaluation_data.
+        // selects only Realtime/Behavioral cohorts with a backfill timestamp AND a
+        // behavioral/lifecycle condition, which is the same filter applied in
+        // flag_matching::prepare_flag_evaluation_data.
         let backfill_ts = Some(Utc::now());
+        let behavioral = Some(serde_json::json!({
+            "person_properties": false, "behavioral": true, "lifecycle": false, "cohorts": false
+        }));
+        let person_properties_only = Some(serde_json::json!({
+            "person_properties": true, "behavioral": false, "lifecycle": false, "cohorts": false
+        }));
 
-        let make_cohort = |id: i32, cohort_type: Option<CohortType>, ts: Option<DateTime<Utc>>| {
+        let make_cohort = |id: i32,
+                           cohort_type: Option<CohortType>,
+                           ts: Option<DateTime<Utc>>,
+                           condition_type: Option<Value>| {
             let mut c = create_test_cohort(None, None, serde_json::json!({}));
             c.id = id;
             c.cohort_type = cohort_type;
             c.last_backfill_person_properties_at = ts;
+            c.condition_type = condition_type;
             c
         };
 
         let cohorts = [
-            make_cohort(1, Some(CohortType::Static), None),
-            make_cohort(2, Some(CohortType::PersonProperty), backfill_ts),
-            make_cohort(3, Some(CohortType::Realtime), None), // no backfill
-            make_cohort(4, Some(CohortType::Realtime), backfill_ts), // should be selected
-            make_cohort(5, Some(CohortType::Behavioral), None), // no backfill
-            make_cohort(6, Some(CohortType::Behavioral), backfill_ts), // should be selected
-            make_cohort(7, Some(CohortType::Analytical), backfill_ts),
-            make_cohort(8, None, backfill_ts),
+            make_cohort(1, Some(CohortType::Static), None, None),
+            make_cohort(
+                2,
+                Some(CohortType::PersonProperty),
+                backfill_ts,
+                person_properties_only.clone(),
+            ),
+            make_cohort(3, Some(CohortType::Realtime), None, behavioral.clone()), // no backfill
+            make_cohort(
+                4,
+                Some(CohortType::Realtime),
+                backfill_ts,
+                behavioral.clone(),
+            ), // should be selected
+            make_cohort(5, Some(CohortType::Behavioral), None, behavioral.clone()), // no backfill
+            make_cohort(
+                6,
+                Some(CohortType::Behavioral),
+                backfill_ts,
+                behavioral.clone(),
+            ), // should be selected
+            make_cohort(
+                7,
+                Some(CohortType::Analytical),
+                backfill_ts,
+                behavioral.clone(),
+            ),
+            make_cohort(8, None, backfill_ts, behavioral.clone()),
+            // Realtime + backfilled but person-properties-only: never selected
+            make_cohort(
+                9,
+                Some(CohortType::Realtime),
+                backfill_ts,
+                person_properties_only.clone(),
+            ),
         ];
 
         let realtime_ids: Vec<i32> = cohorts
@@ -421,6 +634,30 @@ mod tests {
             size > 1000,
             "Large JSON should have significant estimated size"
         );
+    }
+
+    #[test]
+    fn test_cohort_values_item_untagged_variant_ordering() {
+        // The untagged variant order must keep real filters and groups ahead of the
+        // catch-all: a leaf property filter stays a `Filter`, a group stays a `Group`,
+        // and only a leaf whose `type` we can't parse (e.g. `behavioral`) falls through
+        // to `Unsupported` instead of aborting the whole cohort parse.
+        let filter: CohortValuesItem = serde_json::from_value(serde_json::json!(
+            {"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}
+        ))
+        .unwrap();
+        assert!(matches!(filter, CohortValuesItem::Filter(_)));
+
+        let group: CohortValuesItem =
+            serde_json::from_value(serde_json::json!({"type": "AND", "values": []})).unwrap();
+        assert!(matches!(group, CohortValuesItem::Group(_)));
+
+        let behavioral: CohortValuesItem = serde_json::from_value(serde_json::json!(
+            {"key": "$pageview", "type": "behavioral", "value": "performed_event",
+             "negation": false, "event_type": "events", "time_value": "30", "time_interval": "day"}
+        ))
+        .unwrap();
+        assert!(matches!(behavioral, CohortValuesItem::Unsupported(_)));
     }
 }
 
@@ -467,6 +704,7 @@ mod skip_serializing_if_tests {
             "created_by_id",
             "cohort_type",
             "last_backfill_person_properties_at",
+            "condition_type",
         ] {
             assert_absent(&output, key);
         }
@@ -487,6 +725,9 @@ mod skip_serializing_if_tests {
             created_by_id: Some(9),
             cohort_type: Some(CohortType::Behavioral),
             last_backfill_person_properties_at: Some(Utc::now()),
+            condition_type: Some(serde_json::json!({
+                "person_properties": false, "behavioral": true, "lifecycle": false, "cohorts": false
+            })),
             groups: serde_json::json!({}),
             ..Default::default()
         };
@@ -501,5 +742,6 @@ mod skip_serializing_if_tests {
         assert_eq!(output["created_by_id"], 9);
         assert_eq!(output["cohort_type"], "behavioral");
         assert!(output["last_backfill_person_properties_at"].is_string());
+        assert_eq!(output["condition_type"]["behavioral"], true);
     }
 }

@@ -123,7 +123,7 @@ async def set_status_to_running_task(run_id: str | None) -> collections.abc.Asyn
 class JsonScalar(pa.ExtensionScalar):
     """Represents a JSON binary string."""
 
-    def as_py(self) -> dict | None:
+    def as_py(self, *, maps_as_pydicts: typing.Literal["lossy", "strict"] | None = None) -> dict | None:
         """Try to convert value to Python representation.
 
         We attempt to decode the value returned by `as_py` as JSON. However, to do so safely we must

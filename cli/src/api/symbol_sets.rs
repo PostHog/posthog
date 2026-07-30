@@ -1,8 +1,14 @@
 use anyhow::{anyhow, Context, Result};
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+use rayon::{
+    iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator},
+    ThreadPool, ThreadPoolBuilder,
+};
 use reqwest::blocking::multipart::{Form, Part};
+use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fmt::Debug, iter, thread::sleep, time::Duration};
+use std::{
+    collections::HashMap, fmt::Debug, iter, num::NonZeroUsize, thread::sleep, time::Duration,
+};
 use thiserror::Error;
 use tracing::{debug, info, warn};
 
@@ -11,9 +17,10 @@ use crate::{
     utils::{files::content_hash, raise_for_err},
 };
 
-const MAX_FILE_SIZE: usize = 100 * 1024 * 1024; // 100 MB
+pub(crate) const MAX_FILE_SIZE: usize = 100 * 1024 * 1024; // 100 MB
 const FINISH_UPLOAD_ERROR_MESSAGE: &str =
     "Failed to finalize symbol upload; maps were not attached";
+pub const DEFAULT_UPLOAD_CONCURRENCY: NonZeroUsize = NonZeroUsize::new(10).unwrap();
 
 #[derive(Error, Debug)]
 pub enum UploadError {
@@ -78,7 +85,38 @@ pub fn upload_with_retry(
     force: bool,
     skip_on_conflict: bool,
 ) -> Result<()> {
-    let res = upload_inner(&input_sets, batch_size, force, skip_on_conflict);
+    upload_with_retry_and_concurrency(
+        input_sets,
+        batch_size,
+        skip_release_on_fail,
+        force,
+        skip_on_conflict,
+        DEFAULT_UPLOAD_CONCURRENCY,
+    )
+}
+
+pub fn upload_with_retry_and_concurrency(
+    input_sets: Vec<SymbolSetUpload>,
+    batch_size: usize,
+    skip_release_on_fail: bool,
+    force: bool,
+    skip_on_conflict: bool,
+    concurrency: NonZeroUsize,
+) -> Result<()> {
+    let thread_pool = build_upload_thread_pool(concurrency)?;
+    // One client for the whole run: reusing its connection pool avoids paying a
+    // TCP + TLS handshake per uploaded chunk.
+    let s3_client = context()
+        .build_http_client()
+        .context("Failed to initialize upload HTTP client")?;
+    let res = upload_inner(
+        &input_sets,
+        batch_size,
+        force,
+        skip_on_conflict,
+        &thread_pool,
+        &s3_client,
+    );
     match res {
         Ok(()) => Ok(()),
         Err(UploadError::ReleaseIdMismatch) if skip_release_on_fail => {
@@ -91,11 +129,25 @@ pub fn upload_with_retry(
                     data: s.data,
                 })
                 .collect();
-            upload_inner(&sets_without_release, batch_size, force, skip_on_conflict)
-                .map_err(|e| e.into())
+            upload_inner(
+                &sets_without_release,
+                batch_size,
+                force,
+                skip_on_conflict,
+                &thread_pool,
+                &s3_client,
+            )
+            .map_err(|e| e.into())
         }
         Err(e) => Err(e.into()),
     }
+}
+
+fn build_upload_thread_pool(concurrency: NonZeroUsize) -> Result<ThreadPool> {
+    ThreadPoolBuilder::new()
+        .num_threads(concurrency.get())
+        .build()
+        .context("Failed to initialize symbol set upload thread pool")
 }
 
 fn upload_inner(
@@ -103,6 +155,8 @@ fn upload_inner(
     batch_size: usize,
     force: bool,
     skip_on_conflict: bool,
+    thread_pool: &ThreadPool,
+    s3_client: &Client,
 ) -> Result<(), UploadError> {
     let upload_requests: Vec<_> = input_sets
         .iter()
@@ -119,9 +173,17 @@ fn upload_inner(
 
     for (i, batch) in upload_requests.chunks(batch_size).enumerate() {
         info!("Starting upload of batch {i}, {} symbol sets", batch.len());
-        let start_response = start_upload(batch, force, skip_on_conflict)?;
+        // Hash each payload once, across the pool — the same hash is sent in the
+        // start request and used to confirm the upload when finishing.
+        let content_hashes: Vec<String> =
+            thread_pool.install(|| batch.par_iter().map(|u| content_hash([&u.data])).collect());
+        let start_response = start_upload(batch, &content_hashes, force, skip_on_conflict)?;
 
-        let id_map: HashMap<_, _> = batch.iter().map(|u| (u.chunk_id.as_str(), u)).collect();
+        let id_map: HashMap<_, _> = batch
+            .iter()
+            .zip(content_hashes.iter())
+            .map(|(u, hash)| (u.chunk_id.as_str(), (u, hash)))
+            .collect();
 
         info!(
             "Server returned {} upload keys ({} skipped as already present)",
@@ -129,20 +191,21 @@ fn upload_inner(
             batch.len() - start_response.id_map.len()
         );
 
-        let res: Result<HashMap<String, String>> = start_response
-            .id_map
-            .into_par_iter()
-            .map(|(chunk_id, data)| {
-                debug!("uploading chunk {}", chunk_id);
-                let upload = id_map.get(chunk_id.as_str()).ok_or(anyhow!(
-                    "Got a chunk ID back from posthog that we didn't expect!"
-                ))?;
+        let res: Result<HashMap<String, String>> = thread_pool.install(|| {
+            start_response
+                .id_map
+                .into_par_iter()
+                .map(|(chunk_id, data)| {
+                    debug!("uploading chunk {}", chunk_id);
+                    let (upload, content_hash) = id_map.get(chunk_id.as_str()).ok_or(anyhow!(
+                        "Got a chunk ID back from posthog that we didn't expect!"
+                    ))?;
 
-                let content_hash = content_hash([&upload.data]);
-                upload_to_s3(data.presigned_url.clone(), &upload.data)?;
-                Ok((data.symbol_set_id, content_hash))
-            })
-            .collect();
+                    upload_to_s3(s3_client, data.presigned_url.clone(), &upload.data)?;
+                    Ok((data.symbol_set_id, (*content_hash).clone()))
+                })
+                .collect()
+        });
 
         let content_hashes = res?;
 
@@ -154,6 +217,7 @@ fn upload_inner(
 
 fn start_upload(
     symbol_sets: &[&SymbolSetUpload],
+    content_hashes: &[String],
     force: bool,
     skip_on_conflict: bool,
 ) -> Result<BulkUploadStartResponse, UploadError> {
@@ -162,7 +226,12 @@ fn start_upload(
     let request = BulkUploadStartRequest {
         symbol_sets: symbol_sets
             .iter()
-            .map(|s| CreateSymbolSetRequest::new(s))
+            .zip(content_hashes.iter())
+            .map(|(s, hash)| CreateSymbolSetRequest {
+                chunk_id: s.chunk_id.clone(),
+                release_id: s.release_id.clone(),
+                content_hash: hash.clone(),
+            })
             .collect(),
         force,
         skip_on_conflict,
@@ -191,8 +260,7 @@ fn start_upload(
     }
 }
 
-fn upload_to_s3(presigned_url: PresignedUrl, data: &[u8]) -> Result<()> {
-    let client = &context().build_http_client()?;
+fn upload_to_s3(client: &Client, presigned_url: PresignedUrl, data: &[u8]) -> Result<()> {
     retry(retry_policy(500, 2, 3), |_| -> Result<()> {
         let mut form = Form::new();
         for (key, value) in &presigned_url.fields {
@@ -328,16 +396,6 @@ struct CreateSymbolSetRequest {
     content_hash: String,
 }
 
-impl CreateSymbolSetRequest {
-    pub fn new(inner: &SymbolSetUpload) -> Self {
-        Self {
-            chunk_id: inner.chunk_id.clone(),
-            release_id: inner.release_id.clone(),
-            content_hash: content_hash([&inner.data]),
-        }
-    }
-}
-
 fn retry_policy(duration: u64, factor: u64, max_attempts: usize) -> impl Iterator<Item = Duration> {
     iter::once((duration, factor))
         .cycle()
@@ -445,6 +503,13 @@ mod tests {
             .count();
 
         assert_eq!(retry_logs, 2);
+    }
+
+    #[test]
+    fn upload_thread_pool_uses_configured_concurrency() {
+        let thread_pool = build_upload_thread_pool(NonZeroUsize::new(3).unwrap()).unwrap();
+
+        assert_eq!(thread_pool.current_num_threads(), 3);
     }
 
     #[test]

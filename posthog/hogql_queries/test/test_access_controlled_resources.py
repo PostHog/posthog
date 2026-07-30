@@ -4,11 +4,15 @@ from parameterized import parameterized
 
 from posthog.schema import (
     DataWarehouseNode,
+    EntityType,
     EventsNode,
     FunnelsDataWarehouseNode,
     HogQLQuery,
     InsightActorsQuery,
     LifecycleDataWarehouseNode,
+    RetentionEntity,
+    RetentionFilter,
+    RetentionQuery,
     TrendsQuery,
 )
 
@@ -44,6 +48,16 @@ class TestQueriedAccessControlledResources(BaseTest):
             timestamp_field="timestamp",
         )
 
+    @staticmethod
+    def _dw_retention_entity() -> RetentionEntity:
+        return RetentionEntity(
+            id="some_dw_table",
+            type=EntityType.DATA_WAREHOUSE,
+            table_name="some_dw_table",
+            timestamp_field="timestamp",
+            aggregation_target_field="person_id",
+        )
+
     @parameterized.expand(
         [
             ("system_table", "select * from system.notebooks", {"notebook"}),
@@ -52,6 +66,37 @@ class TestQueriedAccessControlledResources(BaseTest):
             ("multiple", "select 1 from system.notebooks, system.surveys", {"notebook", "survey"}),
             ("no_access_controlled_table", "select 1", set()),
             ("events_table", "select * from events", set()),
+            # Catalog-enriched information_schema tables partition the cache by data_catalog access AND
+            # by warehouse object access (their rows are hidden per-object via _catalog_table_visible),
+            # so an allowed user's cached certification/confidence/reasoning/evidence rows can't leak to
+            # a user with less data_catalog OR warehouse access on a cache hit.
+            (
+                "information_schema_tables",
+                "select certification from system.information_schema.tables",
+                {"data_catalog", "warehouse_table", "warehouse_view"},
+            ),
+            (
+                "information_schema_relationships",
+                "select reasoning from system.information_schema.relationships",
+                {"data_catalog", "warehouse_table", "warehouse_view"},
+            ),
+            (
+                "information_schema_metrics",
+                "select name from system.information_schema.metrics",
+                {"data_catalog", "warehouse_table", "warehouse_view"},
+            ),
+            (
+                "information_schema_certifications",
+                "select notes from system.information_schema.certifications",
+                {"data_catalog", "warehouse_table", "warehouse_view"},
+            ),
+            (
+                "information_schema_relationship_proposals",
+                "select reasoning from system.information_schema.relationship_proposals",
+                {"data_catalog", "warehouse_table", "warehouse_view"},
+            ),
+            # The plain schema tables expose no catalog-gated data, so they don't partition on it.
+            ("information_schema_columns", "select * from system.information_schema.columns", set()),
         ]
     )
     def test_hogql_query_system_scopes(self, _name, sql, expected):
@@ -59,6 +104,13 @@ class TestQueriedAccessControlledResources(BaseTest):
 
     def test_unparseable_hogql_fails_closed(self):
         assert queried_access_controlled_resources(HogQLQuery(query="select from from"), self.team) is None
+
+    def test_connection_query_partitions_on_source_and_warehouse_scopes(self):
+        # A connection query reads virtual tables named by ExternalDataSchema.name, which the
+        # warehouse-table name lookup can't match — without these scopes a user denied the source
+        # (or its backing table) would replay an allowed user's cached upstream rows.
+        query = HogQLQuery(query="select * from public.users", connectionId="00000000-0000-0000-0000-000000000001")
+        assert queried_access_controlled_resources(query, self.team) == {"external_data_source", "warehouse_table"}
 
     def test_structured_query_reads_no_system_table(self):
         query = TrendsQuery(series=[EventsNode(event="$pageview")])
@@ -73,6 +125,22 @@ class TestQueriedAccessControlledResources(BaseTest):
         # series-only check would miss it; the recursive walk must catch it (else the cache leaks).
         query = InsightActorsQuery(source=TrendsQuery(series=[self._dw_node()]))
         assert queried_access_controlled_resources(query, self.team) == {"warehouse_table", "warehouse_view"}
+
+    @parameterized.expand(["targetEntity", "returningEntity"])
+    def test_retention_query_with_data_warehouse_entity(self, entity_field):
+        # Retention reads warehouse tables through RetentionEntity rather than a DataWarehouseNode; missing
+        # it here would serve an allowed user's cached warehouse rows to a denied user on a cache hit.
+        query = RetentionQuery(retentionFilter=RetentionFilter(**{entity_field: self._dw_retention_entity()}))
+        assert queried_access_controlled_resources(query, self.team) == {"warehouse_table", "warehouse_view"}
+
+    def test_retention_query_without_data_warehouse_entity(self):
+        query = RetentionQuery(
+            retentionFilter=RetentionFilter(
+                targetEntity=RetentionEntity(id="$pageview", type=EntityType.EVENTS),
+                returningEntity=RetentionEntity(id="$pageview", type=EntityType.EVENTS),
+            )
+        )
+        assert queried_access_controlled_resources(query, self.team) == set()
 
     def test_references_data_warehouse_covers_all_variants_and_nesting(self):
         variants = [

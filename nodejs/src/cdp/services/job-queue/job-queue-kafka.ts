@@ -143,6 +143,7 @@ export class CyclotronJobQueueKafka implements JobQueue {
     // Kafka jobs don't need explicit dequeue/cancel — they're just dropped
     public async dequeueInvocations(_invocations: CyclotronJobInvocation[]): Promise<void> {}
     public async cancelInvocations(_invocations: CyclotronJobInvocation[]): Promise<void> {}
+    public async heartbeatInvocations(_invocations: CyclotronJobInvocation[]): Promise<void> {}
 
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]) {
         // With kafka we are essentially re-queuing the work to the target topic if it isn't finished

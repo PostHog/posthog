@@ -16,6 +16,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
+from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import CacheOrigin, parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.query import execute_hogql_query
@@ -29,6 +30,8 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
 from products.warehouse_sources.backend.facade.models import get_direct_external_data_source_for_connection
+
+_INFORMATION_SCHEMA_PREFIX = "system.information_schema."
 
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
@@ -50,6 +53,19 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         if last_refresh is None:
             return None
         return last_refresh + staleness_threshold_map[ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT]["day"]
+
+    def requires_fresh_calculation(self) -> bool:
+        # system.information_schema.* mirrors mutable data-catalog state (metric approval, relationship
+        # acceptance, source certification). A cached row keeps reporting the pre-change status after a
+        # catalog write, so recompute these queries rather than trust the query cache. Cheap to detect:
+        # the schema metadata itself is fast to compute. External-connection queries never touch it.
+        if self.query.connectionId:
+            return False
+        try:
+            table_names = get_table_names(parse_select(self.query.query))
+        except Exception:
+            return False
+        return any(name.lower().startswith(_INFORMATION_SCHEMA_PREFIX) for name in table_names)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         values: Optional[dict[str, ast.Expr]] = (

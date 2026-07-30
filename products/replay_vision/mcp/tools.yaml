@@ -17,18 +17,86 @@ tools:
         enabled: false
     vision-actions-list:
         operation: vision_actions_list
-        enabled: false
+        enabled: true
+        scopes:
+            - vision_action:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List vision actions
+        description: >
+            List the vision actions (the "and then…" automations that run over a scanner's observations) for the current
+            project. A vision action in `mode: group_summary` produces the group summary shown on the "Summaries and
+            alerts" tab — one report synthesized from up to `max_observations` observations of its bound scanner; `mode:
+            alert` delivers only when its alert condition holds. Each row carries the bound `scanner`, `mode`,
+            `trigger_type`, cadence, and `is_scanner_digest` (the built-in daily digest). Pass `?scanner=<id>` to filter
+            to one scanner. To read a specific action's produced reports, list its runs with `vision-actions-runs-list`.
+        feature_flag: replay-vision
     vision-actions-partial-update:
         operation: vision_actions_partial_update
         enabled: false
     vision-actions-retrieve:
         operation: vision_actions_retrieve
+        enabled: true
+        scopes:
+            - vision_action:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a vision action
+        description: >
+            Get a single vision action by ID. Returns its configuration: the bound `scanner`, `mode`
+            (group_summary/alert), `selection` (the observation-targeting predicate — verdict/tags/score bounds/window),
+            `synthesis_config`, `alert_config`, cadence, and delivery targets. Use `vision-actions-runs-list` +
+            `vision-actions-runs-retrieve` to read the reports it has actually produced.
+        feature_flag: replay-vision
+    vision-actions-run-create:
+        operation: vision_actions_run_create
         enabled: false
     vision-actions-runs-list:
         operation: vision_actions_runs_list
-        enabled: false
+        enabled: true
+        scopes:
+            - vision_action:read
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List a vision action's runs
+        description: >
+            List the run history for one vision action (nested under the action). Each run is one execution that
+            produced a group summary or evaluated an alert. Rows are lightweight — `status`
+            (running/completed/failed/skipped), `scheduled_at`, `observation_count` (how many observations fed the
+            summary), `error_reason`, and `is_recovery` — without the report body. Fetch a completed run with
+            `vision-actions-runs-retrieve` to get the synthesized report and the observations it cited.
+        feature_flag: replay-vision
     vision-actions-runs-retrieve:
         operation: vision_actions_runs_retrieve
+        enabled: true
+        scopes:
+            - vision_action:read
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a vision action run's full group summary
+        description: >
+            Get one vision action run in full: `synthesized_markdown` (the group-summary report, which cites its source
+            observations inline with `[obs N]` markers) and `observations` — the recordings the run included, in summary
+            order, each carrying the 1-based `index` that the report's `[obs N]` markers reference plus that
+            observation's title and outcome. This is the tool for auditing a group summary: for each `[obs N]` in the
+            markdown, `observations[N-1]` is the observation it cites, so you can check whether the cited observation
+            actually supports the claim. Empty `synthesized_markdown`/`observations` means the run skipped, failed, or
+            predates observation tracking.
+        feature_flag: replay-vision
+    vision-observations-create-task-create:
+        operation: vision_observations_create_task_create
         enabled: false
     vision-observations-label-create:
         operation: vision_observations_label_create
@@ -124,6 +192,27 @@ tools:
             silently skipped until the next period. Pair with `vision-scanners-estimate-create` to size a new scanner
             against the remaining budget.
         feature_flag: replay-vision
+    vision-scanners-affected-cohort-create:
+        operation: vision_scanners_affected_cohort_create
+        enabled: true
+        scopes:
+            - replay_scanner:read
+            - cohort:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Save a scanner's affected users as a cohort
+        description: >
+            Create a static cohort of the users a scanner matched within the trailing window (default 30 days). Monitors
+            count verdict-yes observations and take no qualifiers; classifiers require `tag`; scorers require
+            `min_score` and/or `max_score`. The cohort is a dated snapshot and does not live-update; calling again
+            creates a new cohort. Use it anywhere cohorts work: funnel breakdowns, retention, survey targeting,
+            experiment exclusion. Fails when the window has no users or none resolve to a person profile.
+        feature_flag: replay-vision
+    vision-scanners-bulk-observe-create:
+        operation: vision_scanners_bulk_observe_create
+        enabled: false
     vision-scanners-create:
         operation: vision_scanners_create
         enabled: true
@@ -211,6 +300,22 @@ tools:
             operational fields like `enabled`, `sampling_rate`, `provider`, `model`, `emits_signals`, `scanner_version`,
             and `last_swept_at`.
         feature_flag: replay-vision
+    vision-scanners-impact-retrieve:
+        operation: vision_scanners_impact_retrieve
+        enabled: true
+        scopes:
+            - replay_scanner:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a scanner's impact counts
+        description: >
+            Affected sessions and users for a scanner over a trailing window, counted from its observations. Monitors
+            count verdict-yes observations and take no qualifiers; classifiers require `tag`; scorers require
+            `min_score` and/or `max_score`. `sessions_without_user` reports affected sessions that carried no distinct
+            ID, so the user count reads honestly against the session count.
+        feature_flag: replay-vision
     vision-scanners-list:
         operation: vision_scanners_list
         enabled: true
@@ -229,6 +334,9 @@ tools:
             rubric), or `summarizer` (free-text summary, optionally with facet embeddings for downstream search). Each
             scanner returns its current configuration, enabled state, sampling rate, and `last_swept_at` timestamp.
         feature_flag: replay-vision
+    vision-scanners-observations-create-task-create:
+        operation: vision_scanners_observations_create_task_create
+        enabled: false
     vision-scanners-observations-get:
         operation: vision_scanners_observations_retrieve
         enabled: true

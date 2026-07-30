@@ -51,15 +51,9 @@ const VERIFIED_DOMAIN_WITH_SAML_SCIM: OrganizationDomainType = {
     jit_provisioning_enabled: true,
     sso_enforcement: 'google-oauth2',
     has_saml: true,
-    saml_entity_id: 'https://idp.posthog.com',
-    saml_acs_url: 'https://idp.posthog.com/acs',
-    saml_x509_cert: 'cert',
-    scim_enabled: true,
+    has_scim: true,
     scim_base_url: 'https://posthog.com/scim/v2',
     has_id_jag: true,
-    id_jag_issuer_url: 'https://idp.posthog.com',
-    id_jag_jwks_url: null,
-    id_jag_allowed_clients: ['posthog-mcp'],
 }
 
 const VERIFIED_DOMAIN_NO_SAML_SCIM: OrganizationDomainType = {
@@ -71,14 +65,8 @@ const VERIFIED_DOMAIN_NO_SAML_SCIM: OrganizationDomainType = {
     jit_provisioning_enabled: false,
     sso_enforcement: '',
     has_saml: false,
-    saml_entity_id: '',
-    saml_acs_url: '',
-    saml_x509_cert: '',
-    scim_enabled: false,
+    has_scim: false,
     has_id_jag: false,
-    id_jag_issuer_url: null,
-    id_jag_jwks_url: null,
-    id_jag_allowed_clients: [],
 }
 
 const UNVERIFIED_DOMAIN: OrganizationDomainType = {
@@ -90,10 +78,7 @@ const UNVERIFIED_DOMAIN: OrganizationDomainType = {
     jit_provisioning_enabled: false,
     sso_enforcement: '',
     has_saml: false,
-    saml_entity_id: '',
-    saml_acs_url: '',
-    saml_x509_cert: '',
-    scim_enabled: false,
+    has_scim: false,
     has_id_jag: false,
 }
 

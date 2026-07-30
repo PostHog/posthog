@@ -13,13 +13,14 @@ import {
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { DISPLAYS_WITH_IN_CHART_LEGEND } from 'scenes/insights/insightVizDataLogic'
 import { BoxPlotLegend } from 'scenes/insights/views/BoxPlot/BoxPlotLegend'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
-import { isDataTableNode, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import { getDisplay, isDataTableNode, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, DataColorThemeModel, InsightLogicProps, InsightModel } from '~/types'
 
 export function ExportedInsight({
@@ -34,16 +35,9 @@ export function ExportedInsight({
     useMountedLogic(dataThemeLogic({ themes }))
 
     const insight = getQueryBasedInsightModel(legacyInsight)
-
-    if (
-        isInsightVizNode(insight.query) &&
-        isTrendsQuery(insight.query.source) &&
-        insight.query.source.trendsFilter &&
-        insight.query.source.trendsFilter.showLegend == true
-    ) {
-        // legend is always shown so don't show it alongside the insight
-        insight.query.source.trendsFilter.showLegend = false
-    }
+    // getQueryBasedInsightModel returns the caller's query object by reference — clone it so the
+    // export-only tweaks below (legend settings, table editing controls) can't leak into a shared model.
+    insight.query = insight.query ? structuredClone(insight.query) : insight.query
 
     if (isDataTableNode(insight.query)) {
         // don't show editing controls when exporting/sharing
@@ -61,15 +55,36 @@ export function ExportedInsight({
     const { short_id, query, name, derived_name, description } = insight
 
     const showWatermark = noHeader && !whitelabel
-    const trendsDisplay =
-        isInsightVizNode(query) && isTrendsQuery(query.source) ? query.source.trendsFilter?.display : undefined
+    // getDisplay rather than a raw trendsFilter read, so deprecated display aliases pick the same
+    // legend layout here as the chart they get normalized to.
+    const trendsDisplay = isInsightVizNode(query) && isTrendsQuery(query.source) ? getDisplay(query.source) : undefined
     const isBoxPlot = trendsDisplay === ChartDisplayType.BoxPlot
+    const isMetric = trendsDisplay === ChartDisplayType.Metric
     const showLegend =
         legend &&
         isInsightVizNode(query) &&
         isTrendsQuery(query.source) &&
         !SINGLE_SERIES_DISPLAY_TYPES.includes(trendsDisplay as ChartDisplayType) &&
         !DISPLAY_TYPES_WITHOUT_LEGEND.includes(trendsDisplay as ChartDisplayType)
+
+    // Displays covered by the quill in-chart legend draw the legend inside the chart itself.
+    const usesQuillInChartLegend =
+        !trendsDisplay || DISPLAYS_WITH_IN_CHART_LEGEND.includes(trendsDisplay as ChartDisplayType)
+
+    if (isInsightVizNode(insight.query) && isTrendsQuery(insight.query.source)) {
+        if (usesQuillInChartLegend) {
+            // The export `legend` option decides whether the chart shows its in-chart quill legend,
+            // pinned to the bottom to match the legacy exported layout (legend below the chart).
+            insight.query.source.trendsFilter = {
+                ...insight.query.source.trendsFilter,
+                showLegend: !!showLegend,
+                legendPosition: 'bottom',
+            }
+        } else if (insight.query.source.trendsFilter?.showLegend) {
+            // legend is rendered separately below so don't show it alongside the insight too
+            insight.query.source.trendsFilter.showLegend = false
+        }
+    }
 
     const showDetailedResultsTable =
         detailedResults &&
@@ -79,7 +94,7 @@ export function ExportedInsight({
 
     return (
         <BindLogic logic={insightLogic} props={insightLogicProps}>
-            <div className="ExportedInsight">
+            <div className={clsx('ExportedInsight', isMetric && 'ExportedInsight--metric')}>
                 {!noHeader && (
                     <div className="ExportedInsight__header">
                         <div>
@@ -114,7 +129,7 @@ export function ExportedInsight({
                         embedded
                         inSharedMode
                     />
-                    {showLegend && (
+                    {showLegend && !usesQuillInChartLegend && (
                         <div className="p-4">
                             {isBoxPlot ? <BoxPlotLegend horizontal /> : <InsightLegend horizontal readOnly />}
                         </div>

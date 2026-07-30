@@ -19,7 +19,10 @@ import MaxTool from 'scenes/max/MaxTool'
 import { groupsModel } from '~/models/groupsModel'
 import { AnyPropertyFilter, CyclotronJobFiltersType, EntityTypes, FilterType } from '~/types'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
+import { truncateHogFunctionContext } from '../hog-function-utils'
 import { HogFunctionFiltersInternal } from './HogFunctionFiltersInternal'
 
 const MASKING_HASH_ALL = 'all'
@@ -97,6 +100,16 @@ export function HogFunctionFilters({
         reportAIFiltersRejected,
         reportAIFiltersPromptOpen,
     } = useActions(hogFunctionConfigurationLogic)
+
+    useAttachedContext([
+        {
+            type: 'hog_function_filters',
+            value: truncateHogFunctionContext(
+                JSON.stringify({ filters: configuration?.filters ?? {}, function_type: type })
+            ),
+            label: 'Current filters',
+        },
+    ])
 
     const isTransformation = type === 'transformation'
     const isDataWarehouse = configuration?.filters?.source === 'data-warehouse-table'

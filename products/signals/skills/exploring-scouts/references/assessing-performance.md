@@ -7,12 +7,12 @@ Judge a scout across a window of runs along the dimensions below, and reach for 
 Pull the window first:
 
 ```json
-signals-scout-runs-list
+scout-runs-list
 { "date_from": "2026-05-01T00:00:00Z", "limit": 100 }
 ```
 
 Filter the result to the scout's `skill_name`, then reason across the dimensions, reading each run's `summary`.
-Learned memory comes from `signals-scout-scratchpad-search`.
+Learned memory comes from `scout-scratchpad-search`.
 Note up front: each run carries `emitted_report_ids` / `edited_report_ids` (and the list endpoint takes an `emitted` filter), so report volume is a clean metric off the runs themselves — and `inbox-reports-list { "source_product": "signals_scout" }` lists the reports the fleet surfaced.
 Read the two together: the runs tell you how often the scout wrote, the inbox filter what that output looks like to the user.
 
@@ -45,7 +45,7 @@ Of completed runs, what fraction wrote or edited a report vs. closed out empty?
 Read it straight off each run's `emitted_report_ids` / `edited_report_ids`, or split the window with `runs-list?emitted=true` / `?emitted=false` and compare counts (remembering an edit-only run reads as `emitted=false`).
 Judge it against the surface, not in the abstract — **most healthy scouts write rarely**, and on a quiet, mature project nearly every run legitimately closes out empty.
 
-- **Near-zero over a long window:** either the watched surface is genuinely quiet (confirm with `signals-scout-project-profile-get` — is the surface even in use?), or the scout's signal-vs-noise discriminator is too strict.
+- **Near-zero over a long window:** either the watched surface is genuinely quiet (confirm with `scout-project-profile-get` — is the surface even in use?), or the scout's signal-vs-noise discriminator is too strict.
   Read a few run summaries: if the scout keeps saying "saw X but below threshold", the bar may be too high.
 - **Near-100%:** the scout is too noisy — its discriminator isn't separating baseline from anomaly.
   Expect lots of suppressed or dismissed reports downstream (dimension 4).
@@ -74,4 +74,4 @@ A **healthy** scout looks like: runs landing on cadence, almost all completing c
 An **unhealthy** scout shows one of: frequent errors (broken — read the transcript), a flood of reports most of which get suppressed (too noisy — retune), dead silence on a surface the profile shows is active (too strict — retune), or no memory growth despite many runs (not learning).
 
 When the diagnosis points at the scout's instructions — discriminator, thresholds, disqualifiers, save-memory, schedule, or posture — that's where exploration ends and authoring begins.
-Hand off to the `authoring-scouts` skill, which covers the test loop and `signals-scout-config-update`.
+Hand off to the `authoring-scouts` skill, which covers the test loop and `scout-config-update`.

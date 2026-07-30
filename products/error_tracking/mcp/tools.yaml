@@ -158,6 +158,9 @@ tools:
     error-tracking-fingerprints-list:
         operation: error_tracking_fingerprints_list
         enabled: false
+    error-tracking-fingerprints-resolve-retrieve:
+        operation: error_tracking_fingerprints_resolve_retrieve
+        enabled: false
     error-tracking-fingerprints-retrieve:
         operation: error_tracking_fingerprints_retrieve
         enabled: false
@@ -583,7 +586,7 @@ tools:
         enrich_url: '{params.issueId}'
         title: Query error tracking issue events
         description_file: ./prompts/query-error-tracking-issue-events.md
-        system_prompt_hint: Error event samples, stack traces, and session IDs (error-tracking category)
+        system_prompt_hint: Error event samples, stack traces, code variables, and session IDs (error-tracking category)
         ui_app: error-details
     query-error-tracking-issues-list:
         operation: error_tracking_query_issues_list_create

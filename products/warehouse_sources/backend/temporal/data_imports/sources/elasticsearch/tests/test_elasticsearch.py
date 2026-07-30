@@ -8,7 +8,9 @@ import requests
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticsearch.elasticsearch import (
     PAGE_SIZE,
     ElasticsearchAuth,
+    coerce_float_fields,
     elasticsearch_source,
+    get_float_field_paths,
     get_rows,
     hostname_of,
     list_indices,
@@ -170,6 +172,121 @@ class TestGetRows:
         assert (
             list(get_rows("https://es.example.com", ElasticsearchAuth(api_key="k"), "orders", mock.MagicMock())) == []
         )
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_float_typed_fields_are_coerced_across_rows(self, mock_session):
+        # A float-typed field whose docs mix whole (40) and fractional (40.5) values must all
+        # arrive as floats so the column infers a single Arrow type; the long id stays an int.
+        mock_session.return_value.headers = {}
+        mock_session.return_value.get.return_value = _response(
+            {"orders": {"mappings": {"properties": {"amount": {"type": "float"}, "id": {"type": "long"}}}}}
+        )
+        mock_session.return_value.post.return_value = _response(
+            _scroll_page(
+                [
+                    {"_id": "1", "_source": {"amount": 40, "id": 100}},
+                    {"_id": "2", "_source": {"amount": 40.5, "id": 200}},
+                ]
+            )
+        )
+
+        batches = list(get_rows("https://es.example.com", ElasticsearchAuth(api_key="k"), "orders", mock.MagicMock()))
+
+        assert batches == [
+            [
+                {"amount": 40.0, "id": 100, "_id": "1"},
+                {"amount": 40.5, "id": 200, "_id": "2"},
+            ]
+        ]
+        assert [type(row["amount"]) for row in batches[0]] == [float, float]
+        assert [type(row["id"]) for row in batches[0]] == [int, int]
+
+
+class TestFloatFieldPaths:
+    @pytest.mark.parametrize(
+        "mappings, expected",
+        [
+            # Scalar float types are collected; integer/keyword types are not.
+            (
+                {
+                    "properties": {
+                        "threshold_amount": {"type": "float"},
+                        "total_hours_worked": {"type": "double"},
+                        "ratio": {"type": "half_float"},
+                        "price": {"type": "scaled_float", "scaling_factor": 100},
+                        "id": {"type": "long"},
+                        "count": {"type": "integer"},
+                        "name": {"type": "keyword"},
+                    }
+                },
+                {"threshold_amount", "total_hours_worked", "ratio", "price"},
+            ),
+            # Nested object properties are walked and reported as dotted paths.
+            (
+                {
+                    "properties": {
+                        "payroll": {
+                            "properties": {
+                                "rate": {"type": "double"},
+                                "employee_id": {"type": "long"},
+                            }
+                        }
+                    }
+                },
+                {"payroll.rate"},
+            ),
+            ({"properties": {}}, set()),
+            ({}, set()),
+        ],
+    )
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_collects_float_typed_paths(self, mock_session, mappings, expected):
+        mock_session.return_value.headers = {}
+        session = mock_session.return_value
+        session.get.return_value = _response({"orders": {"mappings": mappings}})
+
+        assert get_float_field_paths(session, "https://es.example.com", "orders") == expected
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_unreadable_mapping_yields_no_paths(self, mock_session):
+        mock_session.return_value.headers = {}
+        session = mock_session.return_value
+        session.get.side_effect = requests.exceptions.ConnectionError("boom")
+
+        assert get_float_field_paths(session, "https://es.example.com", "orders") == set()
+
+
+class TestCoerceFloatFields:
+    @pytest.mark.parametrize(
+        "doc, float_paths, expected",
+        [
+            # Whole numbers under float fields become floats; ints under non-float fields stay ints.
+            (
+                {"amount": 40, "id": 12345678901234567, "name": "x"},
+                {"amount"},
+                {"amount": 40.0, "id": 12345678901234567, "name": "x"},
+            ),
+            # Already-float values are untouched, missing paths are ignored.
+            ({"amount": 40.5}, {"amount", "missing"}, {"amount": 40.5}),
+            # Nested and array-of-scalar float fields are coerced element-wise.
+            (
+                {"payroll": {"rate": 20}, "readings": [1, 2, 3]},
+                {"payroll.rate", "readings"},
+                {"payroll": {"rate": 20.0}, "readings": [1.0, 2.0, 3.0]},
+            ),
+            # Arrays of nested objects are traversed.
+            (
+                {"lines": [{"cost": 5}, {"cost": 6}]},
+                {"lines.cost"},
+                {"lines": [{"cost": 5.0}, {"cost": 6.0}]},
+            ),
+            # Booleans are ints in Python but must not be coerced to float.
+            ({"flag": True}, {"flag"}, {"flag": True}),
+        ],
+    )
+    def test_coercion(self, doc, float_paths, expected):
+        coerce_float_fields(doc, float_paths)
+        assert doc == expected
 
 
 class TestElasticsearchSourceResponse:

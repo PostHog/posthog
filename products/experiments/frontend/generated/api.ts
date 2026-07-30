@@ -9,18 +9,23 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ActivityLogPaginatedResponseApi,
     ArchiveExperimentApi,
     CopyExperimentToProjectApi,
     CreateFromPromptInputApi,
     EndExperimentApi,
     ExperimentApi,
+    ExperimentFlagCleanupTaskApi,
     ExperimentHoldoutApi,
     ExperimentHoldoutsListParams,
     ExperimentMetricsRecalculationApi,
     ExperimentSavedMetricApi,
     ExperimentSavedMetricsListParams,
     ExperimentSessionContextResponseApi,
+    ExperimentSessionContextsRequestApi,
+    ExperimentSessionContextsResponseApi,
     ExperimentWriteApi,
+    ExperimentsActivityRetrieveParams,
     ExperimentsListParams,
     ExperimentsPromptTemplatesRetrieve200Item,
     ExperimentsSessionContextRetrieveParams,
@@ -402,6 +407,45 @@ export const experimentsDestroy = async (projectId: string, id: number, options?
     })
 }
 
+export const getExperimentsActivityRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: ExperimentsActivityRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/experiments/${id}/activity/?${stringifiedParams}`
+        : `/api/projects/${projectId}/experiments/${id}/activity/`
+}
+
+/**
+ * Change history for this experiment.
+ *
+ * Returns a paginated audit trail of changes to the experiment and its holdouts
+ * and shared metrics: who made each change, what changed (field-level before/after
+ * values), and when. Ordered newest first.
+ */
+export const experimentsActivityRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: ExperimentsActivityRetrieveParams,
+    options?: RequestInit
+): Promise<ActivityLogPaginatedResponseApi> => {
+    return apiMutator<ActivityLogPaginatedResponseApi>(getExperimentsActivityRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getExperimentsArchiveCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/archive/`
 }
@@ -542,6 +586,29 @@ export const experimentsEndCreate = async (
     })
 }
 
+export const getExperimentsFlagCleanupTaskRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/flag_cleanup_task/`
+}
+
+/**
+ * Status of the flag-cleanup Desktop task opened for this experiment.
+ *
+ * When an experiment was ended or shipped with open_cleanup_pr=true, a Desktop task
+ * removes the experiment's feature-flag code and opens a draft pull request. This
+ * returns that task's latest run status and the PR URL once one is opened. Poll
+ * until is_terminal is true. Returns 404 when no cleanup task was opened.
+ */
+export const experimentsFlagCleanupTaskRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentFlagCleanupTaskApi> => {
+    return apiMutator<ExperimentFlagCleanupTaskApi>(getExperimentsFlagCleanupTaskRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getExperimentsFreezeExposureCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/freeze_exposure/`
 }
@@ -580,7 +647,7 @@ export const getExperimentsLaunchCreateUrl = (projectId: string, id: number) => 
  * Validates the experiment is in draft state, activates its linked feature flag,
  * sets start_date to the current server time, and transitions the experiment to running.
  * Returns 400 if the experiment has already been launched or if the feature flag
- * configuration is invalid (e.g. missing "control" variant or fewer than 2 variants).
+ * configuration is invalid (e.g. fewer than 2 variants).
  */
 export const experimentsLaunchCreate = async (
     projectId: string,
@@ -731,8 +798,9 @@ export const getExperimentsResetCreateUrl = (projectId: string, id: number) => {
 /**
  * Reset an experiment back to draft state.
  *
- * Clears start/end dates, conclusion, and archived flag. The feature
- * flag is left unchanged — users continue to see their assigned variants.
+ * Clears start/end dates, conclusion, archived flag, and any flag-cleanup
+ * task pointer. The feature flag is left unchanged — users continue to see
+ * their assigned variants.
  *
  * Previously collected events still exist but won't be included in
  * results unless the start date is manually adjusted after re-launch.
@@ -948,37 +1016,6 @@ export const experimentsCreateFromPromptCreate = async (
     })
 }
 
-export const getExperimentsEligibleFeatureFlagsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/experiments/eligible_feature_flags/`
-}
-
-/**
- * Returns a paginated list of feature flags eligible for use in experiments.
- *
- * Eligible flags must:
- * - Be multivariate with at least 2 variants
- * - Have "control" as the first variant key
- *
- * Query parameters:
- * - search: Filter by flag key or name (case insensitive)
- * - limit: Number of results per page (default: 20)
- * - offset: Pagination offset (default: 0)
- * - active: Filter by active status ("true" or "false")
- * - created_by_id: Filter by creator user ID
- * - order: Sort order field
- * - evaluation_runtime: Filter by evaluation runtime
- * - has_evaluation_contexts: Filter by presence of evaluation contexts ("true" or "false")
- */
-export const experimentsEligibleFeatureFlagsRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExperimentsEligibleFeatureFlagsRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getExperimentsPromptTemplatesRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/experiments/prompt_templates/`
 }
@@ -1029,6 +1066,36 @@ export const experimentsSessionContextRetrieve = async (
     return apiMutator<ExperimentSessionContextResponseApi>(getExperimentsSessionContextRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getExperimentsSessionContextsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/experiments/session_contexts/`
+}
+
+/**
+ * Resolve experiment context for a batch of session recordings.
+ *
+ * Batch variant of `session_context`, used to prefetch the replay player's experiments
+ * box for a whole recordings list in one request. POST because the id list doesn't fit a
+ * query string; the endpoint only reads. Already-computed sessions are served from (and
+ * cold ones written to) the same short-lived per-viewer cache the single-session endpoint
+ * uses, so opening any prefetched recording renders its context instantly. Sessions whose
+ * recording metadata doesn't exist yet are omitted from the response, as are recordings
+ * the caller can't access and sessions beyond the batch's recording-day budget (each
+ * distinct recording day costs its own set of ClickHouse scans, so only the most recent
+ * days are computed per request).
+ */
+export const experimentsSessionContextsCreate = async (
+    projectId: string,
+    experimentSessionContextsRequestApi: ExperimentSessionContextsRequestApi,
+    options?: RequestInit
+): Promise<ExperimentSessionContextsResponseApi> => {
+    return apiMutator<ExperimentSessionContextsResponseApi>(getExperimentsSessionContextsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(experimentSessionContextsRequestApi),
     })
 }
 

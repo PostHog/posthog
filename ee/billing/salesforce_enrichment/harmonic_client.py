@@ -100,6 +100,49 @@ class AsyncHarmonicClient:
 
         return None
 
+    async def enrich_company_by_domain_strict(self, domain: str) -> Optional[dict[str, Any]]:
+        """Like enrich_company_by_domain, but distinguishes not-found from operational failure.
+
+        Returns None only for a genuine not-found (every domain variation returned a clean
+        GraphQL response with companyFound false). Operational failures (network errors, non-2xx
+        status, JSON decode, GraphQL errors) are re-raised so callers can retry and alert instead
+        of mistaking an outage for a missing company. Does not capture_exception — the caller owns
+        error handling.
+        """
+        await asyncio.sleep(0.2)
+        domain = self._clean_domain(domain)
+        domain_variations = [f"{prefix}{domain}" if prefix else domain for prefix in HARMONIC_DOMAIN_VARIATIONS]
+
+        last_error: Optional[Exception] = None
+        for domain_variation in domain_variations:
+            try:
+                variables = {"identifiers": {"websiteUrl": f"https://{domain_variation}"}}
+
+                if self.session is None:
+                    raise RuntimeError("HTTP session not initialized. Use async context manager.")
+                async with self.session.post(
+                    f"{HARMONIC_BASE_URL}/graphql",
+                    params={"apikey": self.api_key},
+                    json={"query": HARMONIC_COMPANY_ENRICHMENT_QUERY, "variables": variables},
+                    headers={"Content-Type": "application/json"},
+                ) as response:
+                    response.raise_for_status()
+                    data = await response.json()
+
+                    if "errors" in data:
+                        raise RuntimeError(f"Harmonic GraphQL errors for {domain_variation}: {data['errors']}")
+
+                    result = data.get("data", {}).get("enrichCompanyByIdentifiers", {})
+                    if result.get("companyFound"):
+                        return result.get("company")
+            except Exception as e:
+                last_error = e
+                continue
+
+        if last_error is not None:
+            raise last_error
+        return None
+
     async def enrich_companies_batch(self, domains: list[str]) -> list[dict[str, Any] | None]:
         """Enrich multiple domains concurrently.
 

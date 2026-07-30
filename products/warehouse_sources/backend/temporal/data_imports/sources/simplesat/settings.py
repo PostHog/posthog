@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 
+from products.warehouse_sources.backend.types import IncrementalField
+
 
 @dataclass
 class SimplesatEndpointConfig:
@@ -30,4 +32,4 @@ SIMPLESAT_ENDPOINTS: dict[str, SimplesatEndpointConfig] = {
 
 ENDPOINTS = tuple(SIMPLESAT_ENDPOINTS.keys())
 
-INCREMENTAL_FIELDS: dict[str, list[dict[str, str]]] = {}
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

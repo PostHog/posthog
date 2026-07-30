@@ -3,10 +3,27 @@ import {
     objectClean,
     objectCleanWithEmpty,
     objectDiffShallow,
+    objectsEqual,
     reconcileById,
 } from 'lib/utils/objects'
 
 describe('objects utils', () => {
+    describe('objectsEqual()', () => {
+        it.each([
+            [
+                'toString shadowed by a string',
+                { toString: 'not a function', a: 1 },
+                { toString: 'not a function', a: 1 },
+                true,
+            ],
+            ['valueOf shadowed by a number', { valueOf: 5, a: 1 }, { valueOf: 5, a: 1 }, true],
+            ['toString callable only on the left', { toString: (): string => 'x' }, { toString: 'x' }, false],
+            ['valueOf callable only on the right', { valueOf: 5 }, { valueOf: (): number => 5 }, false],
+        ])('compares objects with %s without throwing', (_name, a, b, expected) => {
+            expect(objectsEqual(a, b)).toBe(expected)
+        })
+    })
+
     describe('areObjectValuesEmpty()', () => {
         it('returns correct value for objects with empty values', () => {
             expect(areObjectValuesEmpty({ a: '', b: null, c: undefined })).toEqual(true)

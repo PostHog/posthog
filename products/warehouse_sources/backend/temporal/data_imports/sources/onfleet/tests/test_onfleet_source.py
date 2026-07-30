@@ -4,7 +4,9 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OnfleetSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onfleet import (
+    OnfleetSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.onfleet.onfleet import OnfleetResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.onfleet.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.onfleet.source import OnfleetSource
@@ -30,7 +32,6 @@ class TestOnfleetSource:
         assert config.name.value == "Onfleet"
         assert config.label == "Onfleet"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/onfleet"
 
     def test_api_key_field_is_secret_password(self):

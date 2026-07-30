@@ -27,10 +27,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     incremental_type_to_initial_value,
     incremental_type_to_operator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import log_connection_open
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     AnsiIdentifierQuoter,
@@ -50,7 +46,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     normalize_namespace,
     resolve_source_location,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snowflake import (
+    SnowflakeSourceConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 __all__ = [
@@ -518,8 +517,32 @@ class SnowflakeImplementation(
         fully qualified `database.schema.table` reference, so this method
         takes `database` in addition to schema/table_name — the only
         driver to do so.
+
+        Permission- and session-sensitive, like the schema-level
+        `get_primary_keys`: some roles can't see PK metadata and the `SHOW`
+        can transiently fail or return nothing. Swallow a failing `SHOW` and
+        return None so the pipeline falls back to a persisted or `id`-column
+        primary key instead of crashing an incremental merge. A missing
+        `column_name` still raises — that's a driver shape change, not a
+        transient issue, and it's worth surfacing.
         """
-        cursor.execute("SHOW PRIMARY KEYS IN IDENTIFIER(%s)", (f"{database}.{schema}.{table_name}",))
+        try:
+            cursor.execute("SHOW PRIMARY KEYS IN IDENTIFIER(%s)", (f"{database}.{schema}.{table_name}",))
+        except Exception as e:
+            structlog.get_logger().warning(
+                "Failed to detect primary key for Snowflake table",
+                database=database,
+                schema=schema,
+                table_name=table_name,
+                exc_info=e,
+            )
+            # The table/schema was dropped, renamed, or its grant revoked after discovery —
+            # `SnowflakeSource.get_non_retryable_errors` already treats this exact phrase as
+            # user/upstream and non-actionable. Reporting it here would just be noise, since the
+            # pipeline already recovers via the None fallback above.
+            if "does not exist or not authorized" not in str(e):
+                capture_exception(e)
+            return None
 
         column_index = next((i for i, row in enumerate(cursor.description) if row.name == "column_name"), -1)
 

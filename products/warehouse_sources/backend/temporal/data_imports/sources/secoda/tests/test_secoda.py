@@ -1,224 +1,216 @@
-from collections.abc import Mapping
-from typing import Any, Optional
+import json
+from collections.abc import Iterable
+from typing import Any, Optional, cast
 
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest import mock
 
-import requests
 from parameterized import parameterized
+from requests import Response
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.secoda import secoda
 from products.warehouse_sources.backend.temporal.data_imports.sources.secoda.secoda import (
     SECODA_BASE_URL,
     SecodaResumeConfig,
-    SecodaRetryableError,
-    check_access,
-    get_rows,
     secoda_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.secoda.settings import ENDPOINTS, SECODA_ENDPOINTS
 
-# Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
-_fetch_page_unwrapped = secoda._fetch_page.__wrapped__  # type: ignore[attr-defined]
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the secoda module.
+SECODA_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.secoda.secoda.make_tracked_session"
+)
+# The client retries transient failures via tenacity; patch its sleep so retry tests don't wait.
+SLEEP_PATCH = "tenacity.nap.time.sleep"
+
+TABLES_URL = f"{SECODA_BASE_URL}/api/v1/table/tables"
 
 
-class _FakeResumableManager:
-    def __init__(self, state: SecodaResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[SecodaResumeConfig] = []
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> SecodaResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: SecodaResumeConfig) -> None:
-        self.saved.append(data)
+def _json_response(body: Any, status: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status
+    resp._content = json.dumps(body).encode()
+    return resp
 
 
-class TestGetRows:
-    @staticmethod
-    def _collect(
-        manager: _FakeResumableManager,
-        monkeypatch: Any,
-        pages: Mapping[str, tuple[list[dict], Optional[str]]],
-        endpoint: str = "tables",
-    ) -> list[dict]:
-        def fake_fetch(session: Any, url: str, logger: Any) -> tuple[list[dict], Optional[str]]:
-            return pages[url]
+def _page(results: list[dict], *, links_next: Optional[str] = None, top_level_next: Optional[str] = None) -> Response:
+    # DRF cursor endpoints nest the follow link under links.next; a few endpoints instead expose it
+    # top-level under next (with no links envelope). Build one shape or the other, never both.
+    if top_level_next is not None:
+        return _json_response({"results": results, "next": top_level_next})
+    return _json_response({"results": results, "links": {"next": links_next, "previous": None}})
 
-        monkeypatch.setattr(secoda, "_fetch_page", fake_fetch)
-        monkeypatch.setattr(secoda, "make_tracked_session", lambda **kwargs: MagicMock())
 
-        rows: list[dict] = []
-        for batch in get_rows(
-            api_key="sk-key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-        ):
-            rows.extend(batch)
-        return rows
+def _make_manager(resume_state: SecodaResumeConfig | None = None) -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = resume_state is not None
+    manager.load_state.return_value = resume_state
+    return manager
 
-    def test_single_page_yields_and_stops(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        first = f"{SECODA_BASE_URL}/api/v1/table/tables"
-        rows = self._collect(manager, monkeypatch, {first: ([{"id": "a"}, {"id": "b"}], None)})
+
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[str]:
+    """Wire a mock session and return a list capturing each request's URL AT SEND TIME.
+
+    ``prepare_request`` receives the fully-built ``Request``; snapshot its URL so we can assert the
+    cursor progression (the next-page URL is self-contained and replaces the base path each page).
+    """
+    session.headers = {}
+    url_snapshots: list[str] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        url_snapshots.append(request.url)
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return url_snapshots
+
+
+def _run(manager: mock.MagicMock, endpoint: str = "tables") -> list[dict[str, Any]]:
+    source_response = secoda_source("sk-key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
+    return [row for page in cast("Iterable[Any]", source_response.items()) for row in page]
+
+
+class TestPagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_single_page_yields_and_stops(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_page([{"id": "a"}, {"id": "b"}], links_next=None)])
+
+        manager = _make_manager()
+        rows = _run(manager)
+
         assert rows == [{"id": "a"}, {"id": "b"}]
+        assert session.send.call_count == 1
         # A null next link ends the sync without persisting resume state.
-        assert manager.saved == []
+        manager.save_state.assert_not_called()
 
-    def test_follows_next_url_cursor_until_null(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        first = f"{SECODA_BASE_URL}/api/v1/table/tables"
-        second = f"{SECODA_BASE_URL}/api/v1/table/tables?page=2"
-        pages = {first: ([{"id": "a"}], second), second: ([{"id": "b"}], None)}
-        rows = self._collect(manager, monkeypatch, pages)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_follows_links_next_cursor_until_null(self, MockSession) -> None:
+        session = MockSession.return_value
+        second = f"{TABLES_URL}?page=2"
+        urls = _wire(session, [_page([{"id": "a"}], links_next=second), _page([{"id": "b"}], links_next=None)])
+
+        manager = _make_manager()
+        rows = _run(manager)
+
         assert rows == [{"id": "a"}, {"id": "b"}]
+        # First request hits the base path; the second follows the self-contained cursor URL verbatim.
+        assert urls[0] == TABLES_URL
+        assert urls[1] == second
         # State is saved once — after the first page, pointing at the next cursor — then we stop.
-        assert [s.next_url for s in manager.saved] == [second]
+        manager.save_state.assert_called_once_with(SecodaResumeConfig(next_url=second))
 
-    def test_resumes_from_saved_cursor(self, monkeypatch: Any) -> None:
-        second = f"{SECODA_BASE_URL}/api/v1/table/tables?page=2"
-        manager = _FakeResumableManager(SecodaResumeConfig(next_url=second))
-        # The first page URL must never be fetched on resume.
-        pages = {second: ([{"id": "b"}], None)}
-        rows = self._collect(manager, monkeypatch, pages)
-        assert rows == [{"id": "b"}]
-
-    def test_empty_first_page_yields_nothing(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        first = f"{SECODA_BASE_URL}/api/v1/table/tables"
-        rows = self._collect(manager, monkeypatch, {first: ([], None)})
-        assert rows == []
-        assert manager.saved == []
-
-
-class TestFetchPage:
-    def _session_returning(self, status_code: int, body: Any = None) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        response.ok = status_code < 400
-        response.json.return_value = body if body is not None else {"results": [], "links": {"next": None}}
-        response.text = ""
-        response.raise_for_status.side_effect = (
-            requests.HTTPError(f"{status_code} error", response=response) if status_code >= 400 else None
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_top_level_next_is_followed(self, MockSession) -> None:
+        session = MockSession.return_value
+        second = f"{SECODA_BASE_URL}/api/v1/tag?page=2"
+        # Endpoints that expose the follow link top-level (no links.next) must still paginate.
+        urls = _wire(
+            session,
+            [_page([{"id": "a"}], links_next=None, top_level_next=second), _page([{"id": "b"}], links_next=None)],
         )
-        session = MagicMock()
-        session.get.return_value = response
-        return session
+
+        manager = _make_manager()
+        rows = _run(manager, endpoint="tags")
+
+        assert rows == [{"id": "a"}, {"id": "b"}]
+        assert urls[1] == second
+        manager.save_state.assert_called_once_with(SecodaResumeConfig(next_url=second))
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_cursor(self, MockSession) -> None:
+        session = MockSession.return_value
+        second = f"{TABLES_URL}?page=2"
+        urls = _wire(session, [_page([{"id": "b"}], links_next=None)])
+
+        manager = _make_manager(SecodaResumeConfig(next_url=second))
+        rows = _run(manager)
+
+        assert rows == [{"id": "b"}]
+        # The first page URL must never be fetched on resume — we start at the saved cursor.
+        assert session.send.call_count == 1
+        assert urls[0] == second
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_first_page_yields_nothing(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_page([], links_next=None)])
+
+        manager = _make_manager()
+        rows = _run(manager)
+
+        assert rows == []
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
+
+
+class TestTransientResponsesRetried:
+    @parameterized.expand(
+        [
+            ("bare_list_body", [{"id": "x"}]),
+            ("missing_results_key", {"count": 1}),
+            ("results_not_a_list", {"results": {"nope": 1}}),
+        ]
+    )
+    @mock.patch(SLEEP_PATCH, return_value=None)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_unexpected_200_body_is_reissued(self, _name: str, bad_body: Any, MockSession, _sleep) -> None:
+        session = MockSession.return_value
+        # A 200 whose body isn't the expected {"results": [...]} shape is transient — the framework
+        # reissues it; a well-formed follow-up succeeds.
+        _wire(session, [_json_response(bad_body), _page([{"id": "a"}], links_next=None)])
+
+        rows = _run(_make_manager())
+
+        assert rows == [{"id": "a"}]
+        assert session.send.call_count == 2
 
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
-    def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(SecodaRetryableError):
-            _fetch_page_unwrapped(session, f"{SECODA_BASE_URL}/api/v1/table/tables", MagicMock())
+    @mock.patch(SLEEP_PATCH, return_value=None)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retryable_status_is_reissued(self, _name: str, status: int, MockSession, _sleep) -> None:
+        session = MockSession.return_value
+        # 429/5xx are retried by the client itself; the retried request then succeeds.
+        _wire(session, [_json_response({}, status=status), _page([{"id": "a"}], links_next=None)])
 
-    @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
-    def test_client_errors_raise_for_status(self, _name: str, status: int) -> None:
-        session = self._session_returning(status)
-        with pytest.raises(requests.HTTPError):
-            _fetch_page_unwrapped(session, f"{SECODA_BASE_URL}/api/v1/table/tables", MagicMock())
+        rows = _run(_make_manager())
 
-    def test_success_returns_results_and_links_next(self) -> None:
-        next_url = f"{SECODA_BASE_URL}/api/v1/table/tables?page=2"
-        body = {"results": [{"id": "a"}], "links": {"next": next_url}, "count": 5}
-        session = self._session_returning(200, body)
-        rows, returned_next = _fetch_page_unwrapped(session, f"{SECODA_BASE_URL}/api/v1/table/tables", MagicMock())
         assert rows == [{"id": "a"}]
-        assert returned_next == next_url
-
-    def test_top_level_next_is_accepted(self) -> None:
-        next_url = f"{SECODA_BASE_URL}/api/v1/tag?page=2"
-        body = {"results": [{"id": "a"}], "next": next_url}
-        session = self._session_returning(200, body)
-        _, returned_next = _fetch_page_unwrapped(session, f"{SECODA_BASE_URL}/api/v1/tag", MagicMock())
-        assert returned_next == next_url
-
-    def test_null_next_returns_none(self) -> None:
-        body = {"results": [{"id": "a"}], "links": {"next": None, "previous": None}}
-        session = self._session_returning(200, body)
-        _, returned_next = _fetch_page_unwrapped(session, f"{SECODA_BASE_URL}/api/v1/user", MagicMock())
-        assert returned_next is None
-
-    @parameterized.expand([("bare_list", [{"id": "a"}]), ("missing_results", {"count": 1})])
-    def test_unexpected_payload_is_retryable(self, _name: str, body: Any) -> None:
-        session = self._session_returning(200, body)
-        with pytest.raises(SecodaRetryableError):
-            _fetch_page_unwrapped(session, f"{SECODA_BASE_URL}/api/v1/user", MagicMock())
-
-    def test_request_uses_absolute_url_without_params(self) -> None:
-        session = self._session_returning(200, {"results": [], "links": {"next": None}})
-        url = f"{SECODA_BASE_URL}/api/v1/table/columns?page=3"
-        _fetch_page_unwrapped(session, url, MagicMock())
-        args, kwargs = session.get.call_args
-        assert args[0] == url
-        # The cursor URL already carries paging; we must not re-send page params.
-        assert "params" not in kwargs
+        assert session.send.call_count == 2
 
 
-class TestCheckAccess:
-    def _session(self, response: Any) -> MagicMock:
-        session = MagicMock()
-        if isinstance(response, Exception):
-            session.get.side_effect = response
-        else:
-            session.get.return_value = response
-        return session
+class TestValidateCredentials:
+    @mock.patch(SECODA_SESSION_PATCH)
+    def test_ok(self, mock_session) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
+        assert validate_credentials("sk-key") == (True, None)
 
     @parameterized.expand(
         [
-            ("ok", 200, True, 200, None),
-            ("unauthorized", 401, False, 401, None),
-            ("forbidden", 403, False, 403, None),
-            ("server_error", 500, False, 500, "Secoda returned HTTP 500"),
+            ("unauthorized", 401, "Invalid Secoda API key"),
+            ("forbidden", 403, "Invalid Secoda API key"),
+            ("server_error", 500, "Secoda returned HTTP 500"),
         ]
     )
-    def test_status_mapping(
-        self, _name: str, status: int, ok: bool, expected_status: int, expected_message: str | None
-    ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = ok
-        with patch.object(secoda, "make_tracked_session", return_value=self._session(response)):
-            assert check_access("sk-key") == (expected_status, expected_message)
+    @mock.patch(SECODA_SESSION_PATCH)
+    def test_status_mapping(self, _name: str, status: int, expected_message: str, mock_session) -> None:
+        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
+        assert validate_credentials("sk-key") == (False, expected_message)
 
-    def test_connection_error_maps_to_zero(self) -> None:
-        session = self._session(requests.ConnectionError("boom"))
-        with patch.object(secoda, "make_tracked_session", return_value=session):
-            status, message = check_access("sk-key")
-        assert status == 0
-        assert message is not None and "boom" in message
-
-    @parameterized.expand(
-        [
-            ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Secoda API key"),
-            ("forbidden", 403, False, "Invalid Secoda API key"),
-            ("server_error", 500, False, "Secoda returned HTTP 500"),
-        ]
-    )
-    def test_validate_credentials(
-        self, _name: str, status: int, expected_valid: bool, expected_message: str | None
-    ) -> None:
-        response = MagicMock()
-        response.status_code = status
-        response.ok = status < 400
-        with patch.object(secoda, "make_tracked_session", return_value=self._session(response)):
-            assert validate_credentials("sk-key") == (expected_valid, expected_message)
+    @mock.patch(SECODA_SESSION_PATCH)
+    def test_connection_error_maps_to_generic_message(self, mock_session) -> None:
+        # validate_via_probe swallows transport errors and reports status None.
+        mock_session.return_value.get.side_effect = Exception("boom")
+        assert validate_credentials("sk-key") == (False, "Could not validate Secoda API key")
 
 
 class TestSecodaSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = secoda_source(
-            api_key="sk-key",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        # Construction does no I/O (items is a lazy generator), so no session patch is needed.
+        response = secoda_source("sk-key", endpoint, team_id=1, job_id="j", resumable_source_manager=mock.MagicMock())
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
         # No stable creation timestamp is guaranteed across every object, so we don't partition.

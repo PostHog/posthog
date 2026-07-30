@@ -9,7 +9,7 @@ import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 import { BillingProductV2Type } from '~/types'
 
 import { PayGateMiniLogicProps, payGateMiniLogic } from './payGateMiniLogic'
-import { payGateMiniLogicType } from './payGateMiniLogicType'
+import type { payGateMiniLogicType } from './payGateMiniLogic'
 
 type UsePayGateButtonReturn = Pick<
     payGateMiniLogicType['values'],

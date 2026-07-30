@@ -23,17 +23,18 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade import upgrade
 
-from ..facade.enums import MARKDOWN_DEFINITION_KIND
+from ..facade.enums import HOGQL_DEFINITION_KIND, MARKDOWN_DEFINITION_KIND
 
-# Query kinds a metric definition may take. Node kinds are the RFC's "event with filters"
-# single series; insight kinds are the classic viz shapes. Kept small on purpose.
+# Query kinds a metric definition may take (the facade enums are the public split). Node kinds are
+# the RFC's "event with filters" single series; insight kinds are the classic viz shapes. Kept
+# small on purpose.
 _NODE_MODELS: dict[str, type[BaseModel]] = {
     "EventsNode": EventsNode,
     "ActionsNode": ActionsNode,
     "DataWarehouseNode": DataWarehouseNode,
 }
 _INSIGHT_MODELS: dict[str, type[BaseModel]] = {"TrendsQuery": TrendsQuery, "FunnelsQuery": FunnelsQuery}
-_SUPPORTED_KINDS = {"HogQLQuery", *_NODE_MODELS, *_INSIGHT_MODELS}
+_SUPPORTED_KINDS = {HOGQL_DEFINITION_KIND, *_NODE_MODELS, *_INSIGHT_MODELS}
 
 # A markdown definition is a bounded blob; keep it small so it stays a definition, not a document.
 MAX_MARKDOWN_DEFINITION_LENGTH = 20_000
@@ -56,13 +57,16 @@ class _TableReferenceCollector(TraversingVisitor):
 
 
 def _fail(error: str, hint: str) -> NoReturn:
-    raise ValidationError({"field": "definition", "error": error, "hint": hint})
+    # Keyed by the offending field with a single string message: the exceptions_hog handler
+    # renders that as attr="definition" + the full text; any richer dict shape strips the
+    # message (or 500s) on its way through the HTTP envelope.
+    raise ValidationError({"definition": f"{error} {hint}"})
 
 
 def validate_metric_definition(definition: dict, team: Team, user: Optional[User] = None) -> tuple[dict, list[str]]:
     """Validate a metric definition and return ``(canonical_definition, referenced_table_names)``.
 
-    Raises :class:`ValidationError` with a structured ``{field, error, hint}`` body on any problem.
+    Raises :class:`ValidationError` keyed by the ``definition`` field on any problem.
     """
     if not isinstance(definition, dict) or not definition.get("kind"):
         _fail("A definition must be a query object with a 'kind'.", "Provide a HogQLQuery, TrendsQuery, or event node.")

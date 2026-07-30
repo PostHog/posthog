@@ -7,6 +7,7 @@ import { LemonCheckbox, LemonInput, LemonTextArea, Link } from '@posthog/lemon-u
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { UsageLimitPaywall } from 'lib/components/PayGateMini/UsageLimitPaywall'
+import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -34,7 +35,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
-import { AvailableFeature, DashboardType, InsightShortId, SubscriptionResourceTypes, SubscriptionType } from '~/types'
+import { AvailableFeature, DashboardType, InsightShortId, SubscriptionResourceTypes } from '~/types'
 
 import type { AIWindowConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
@@ -46,7 +47,6 @@ import {
     bysetposOptions,
     frequencyOptionsPlural,
     frequencyOptionsSingular,
-    formatNextDeliveryDate,
     getAiSubscriptionGate,
     getNextDeliveryDate,
     intervalOptions,
@@ -308,12 +308,10 @@ function AiPromptFields({
 
 function DashboardInsightsField({
     dashboard,
-    subscription,
-    onResetSubscription,
+    onDefaultsApplied,
 }: {
     dashboard: DashboardType<any>
-    subscription: SubscriptionType
-    onResetSubscription: (subscription: SubscriptionType) => void
+    onDefaultsApplied: (selectedIds: number[]) => void
 }): JSX.Element {
     return (
         <LemonField name="dashboard_export_insights" label="Insights to include">
@@ -322,11 +320,9 @@ function DashboardInsightsField({
                     tiles={dashboard.tiles}
                     selectedInsightIds={value ?? []}
                     onChange={onChange}
-                    // Reset the form's "changed" state after auto-selecting defaults so it doesn't trip the
-                    // unsaved-changes warning; merge the IDs into the subscription to preserve them.
-                    onDefaultsApplied={(selectedIds) =>
-                        onResetSubscription({ ...subscription, dashboard_export_insights: selectedIds })
-                    }
+                    // The logic decides whether the auto-selection resets the form to a clean state
+                    // or joins a prefill's baseline — see applyDefaultSelectedInsights.
+                    onDefaultsApplied={onDefaultsApplied}
                 />
             )}
         </LemonField>
@@ -345,6 +341,7 @@ function EditSubscriptionForm({
         id,
         insightShortId,
         dashboardId,
+        dashboardName: dashboard?.name,
     }
     const logic = subscriptionLogic(logicProps)
     const subscriptionslogic = subscriptionsLogic({
@@ -356,7 +353,7 @@ function EditSubscriptionForm({
     const { subscription, subscriptionLoading, isSubscriptionSubmitting, subscriptionChanged, summaryQuota } =
         useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
-    const { resetSubscription, generatePreview } = useActions(logic)
+    const { applyDefaultSelectedInsights, generatePreview } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
@@ -515,8 +512,7 @@ function EditSubscriptionForm({
                         {dashboard?.tiles && selectionReady && !isAiPrompt && (
                             <DashboardInsightsField
                                 dashboard={dashboard}
-                                subscription={subscription}
-                                onResetSubscription={resetSubscription}
+                                onDefaultsApplied={applyDefaultSelectedInsights}
                             />
                         )}
 
@@ -742,7 +738,13 @@ function EditSubscriptionForm({
                             </div>
                             {nextDeliveryDate && (
                                 <div className="text-xs text-secondary mt-1">
-                                    Next delivery: {formatNextDeliveryDate(nextDeliveryDate)}
+                                    Next delivery:{' '}
+                                    <TZLabel
+                                        time={dayjs(nextDeliveryDate)}
+                                        formatDate="ddd, MMM D"
+                                        formatTime="HH:mm"
+                                        timestampStyle="absolute"
+                                    />
                                 </div>
                             )}
                         </div>
@@ -826,7 +828,19 @@ function EditSubscriptionForm({
                                 <p className="text-xs text-secondary mt-1 mb-0">
                                     On save we send this report once to the destination above, so you can confirm it
                                     looks right. Turn this off to wait for the next scheduled delivery
-                                    {nextDeliveryDate ? ` (${formatNextDeliveryDate(nextDeliveryDate)})` : ''}.
+                                    {nextDeliveryDate && (
+                                        <>
+                                            {' ('}
+                                            <TZLabel
+                                                time={dayjs(nextDeliveryDate)}
+                                                formatDate="ddd, MMM D"
+                                                formatTime="HH:mm"
+                                                timestampStyle="absolute"
+                                            />
+                                            )
+                                        </>
+                                    )}
+                                    .
                                 </p>
                             </div>
                         </div>

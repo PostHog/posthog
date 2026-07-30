@@ -36,106 +36,23 @@ before running anything - reads included - requires typing the authenticated use
 email, so acting on behalf of an impersonated user is always a conscious choice.
 """
 
-# ruff: noqa: T201 allow print statements in this CLI script
-
 import os
 import sys
 import json
-import time
 import argparse
+from collections import Counter
 from collections.abc import Iterator
 from typing import Any, Optional
 from urllib.parse import urlencode
 
 import requests
+from lib.console import confirm, format_status_counts, log, printable
+from lib.errors import PostHogScriptError
+from lib.posthog_api import MAX_RETRIES, request_with_retries, resolve_host, setup_session_auth
 
-MAX_RETRIES = 5
-BACKOFF_BASE_SECONDS = 2.0
-REGION_HOSTS = {"us": "https://us.posthog.com", "eu": "https://eu.posthog.com"}
-
-
-def resolve_host(value: str) -> str:
-    """Map a region shorthand ('us'/'eu', any case) to its Cloud host; pass explicit hosts through."""
-    return REGION_HOSTS.get(value.strip().lower(), value).rstrip("/")
-
-
-class ScrubError(Exception):
-    pass
-
-
-def log(message: str) -> None:
-    print(message, file=sys.stderr)
-
-
-def request_with_retries(
-    session: requests.Session, method: str, url: str, max_retries: int = MAX_RETRIES, **kwargs: Any
-) -> requests.Response:
-    """Issue a request, retrying on 429 (honoring Retry-After) and 5xx with backoff."""
-    last_error = ""
-    for attempt in range(max_retries):
-        try:
-            response = session.request(method, url, timeout=60, **kwargs)
-        except requests.RequestException as err:
-            last_error = str(err)
-            time.sleep(BACKOFF_BASE_SECONDS * 2**attempt)
-            continue
-        if response.status_code == 429:
-            retry_after = float(response.headers.get("Retry-After", BACKOFF_BASE_SECONDS * 2**attempt))
-            log(f"  rate limited, retrying in {retry_after:.0f}s...")
-            time.sleep(retry_after)
-            continue
-        if response.status_code >= 500:
-            last_error = f"HTTP {response.status_code}: {response.text[:200]}"
-            time.sleep(BACKOFF_BASE_SECONDS * 2**attempt)
-            continue
-        return response
-    raise ScrubError(f"{method} {url} failed after {max_retries} attempts: {last_error}")
-
-
-def confirm_acting_user(email: str) -> None:
-    """Make the operator type the session's email so the acting-as identity is conscious, not assumed."""
-    log("Session auth acts as the browser session's logged-in user - including for read queries.")
-    try:
-        entered = input("Enter that user's email to confirm you know who you're acting as: ")
-    except EOFError as err:
-        raise ScrubError(
-            "Session auth requires interactively confirming the authenticated user; "
-            "use a personal API key for non-interactive runs."
-        ) from err
-    if entered.strip().lower() != email.strip().lower():
-        raise ScrubError(
-            "That does not match the session's authenticated user - check whose session this is "
-            "(e.g. the impersonated user in your browser) and rerun."
-        )
-
-
-def setup_session_auth(session: requests.Session, host: str, session_id: str) -> None:
-    """Authenticate with a browser session cookie (works for impersonated staff sessions).
-
-    Django session auth requires a CSRF token on unsafe methods, so fetch the CSRF cookie
-    from the login page and mirror it into the X-CSRFToken header, with the host as Referer.
-    Before anything runs - reads included - the operator must type the authenticated user's
-    email to confirm they know who the session acts as.
-    """
-    session.cookies.set("sessionid", session_id)
-    request_with_retries(session, "GET", f"{host}/login")
-    csrf_token = session.cookies.get("posthog_csrftoken")
-    if not csrf_token:
-        raise ScrubError(f"Could not obtain a CSRF cookie from {host}/login - is this a PostHog instance?")
-    session.headers["X-CSRFToken"] = csrf_token
-    session.headers["Referer"] = f"{host}/"
-
-    me = request_with_retries(session, "GET", f"{host}/api/users/@me/")
-    if me.status_code != 200:
-        raise ScrubError(
-            f"Session auth failed (HTTP {me.status_code}) - is the sessionid cookie value current? "
-            "Impersonated sessions expire when the impersonation ends or times out."
-        )
-    email = me.json().get("email")
-    if not email:
-        raise ScrubError("Could not determine the session's authenticated user")
-    confirm_acting_user(email)
-    log(f"Authenticated via session as {email}")
+# api mode has no bulk endpoint, so it deletes one (person, property) pair per request;
+# report a status-code histogram every this many so a long run shows steady progress.
+API_REPORT_EVERY = 50
 
 
 def run_hogql_query(
@@ -150,7 +67,7 @@ def run_hogql_query(
         json={"query": {"kind": "HogQLQuery", "query": query}},
     )
     if response.status_code != 200:
-        raise ScrubError(f"HogQL query failed (HTTP {response.status_code}): {response.text[:500]}")
+        raise PostHogScriptError(f"HogQL query failed (HTTP {response.status_code}): {response.text[:500]}")
     return response.json()["results"]
 
 
@@ -169,7 +86,7 @@ def iter_persons(
     while url:
         response = request_with_retries(session, "GET", url)
         if response.status_code != 200:
-            raise ScrubError(f"Persons query failed (HTTP {response.status_code}): {response.text[:500]}")
+            raise PostHogScriptError(f"Persons query failed (HTTP {response.status_code}): {response.text[:500]}")
         data = response.json()
         page += 1
         log(f"  page {page}: {len(data['results'])} persons")
@@ -267,8 +184,8 @@ def find_affected_persons(
     """Return affected persons keyed by uuid, each annotated with the target properties it has."""
     try:
         return find_affected_persons_hogql(session, host, project_id, properties, page_size)
-    except ScrubError as err:
-        log(f"WARNING: JSONHas scan via the query API failed: {err}")
+    except PostHogScriptError as err:
+        log(f"WARNING: JSONHas scan via the query API failed: {printable(str(err))}")
         log(
             "Falling back to per-property is_set scans via the persons API. "
             "Persons whose only target properties hold null values may be missed."
@@ -303,7 +220,7 @@ def scrub_via_events(
             session, "POST", f"{host}/batch/", json={"api_key": project_api_key, "batch": chunk}
         )
         if response.status_code >= 400:
-            raise ScrubError(f"Batch capture failed (HTTP {response.status_code}): {response.text[:500]}")
+            raise PostHogScriptError(f"Batch capture failed (HTTP {response.status_code}): {response.text[:500]}")
         sent += len(chunk)
         request_count += 1
         log(f"  sent {sent}/{len(events)} scrub events ({request_count} batch requests)")
@@ -312,25 +229,41 @@ def scrub_via_events(
 
 def scrub_via_api(
     session: requests.Session, host: str, project_id: str, affected: list[dict[str, Any]]
-) -> tuple[int, list[str]]:
-    """Call delete_property per (person, property). Returns (pairs_attempted, failures)."""
+) -> tuple[Counter[str], list[str]]:
+    """Call delete_property per (person, property), one request each (there is no bulk endpoint).
+
+    Returns (status_counts, failures). status_counts is keyed by HTTP status code (as a string),
+    plus an "error" bucket for requests that never got a response; only a 2xx counts as a scrubbed
+    value. A read-only key returns 403, and field-level access control can make some deletes 403
+    while others succeed, so outcomes are reported as a status-code histogram, not assumed uniform.
+    """
+    status_counts: Counter[str] = Counter()
     failures: list[str] = []
-    attempted = 0
     total_pairs = sum(len(p["matched_properties"]) for p in affected)
+    batch_counts: Counter[str] = Counter()
+    batch_start = 1
+    index = 0
     for person in affected:
         for prop in person["matched_properties"]:
+            index += 1
             url = f"{host}/api/projects/{project_id}/persons/{person['uuid']}/delete_property/"
-            attempted += 1
             try:
                 response = request_with_retries(session, "POST", url, json={"$unset": prop})
-            except ScrubError as err:
+            except PostHogScriptError as err:
+                status_counts["error"] += 1
+                batch_counts["error"] += 1
                 failures.append(f"{person['uuid']} / {prop}: {err}")
             else:
-                if response.status_code >= 400:
-                    failures.append(f"{person['uuid']} / {prop}: HTTP {response.status_code} {response.text[:200]}")
-            if attempted % 50 == 0 or attempted == total_pairs:
-                log(f"  {attempted}/{total_pairs} delete_property requests done")
-    return attempted, failures
+                code = response.status_code
+                status_counts[str(code)] += 1
+                batch_counts[str(code)] += 1
+                if not 200 <= code < 300:
+                    failures.append(f"{person['uuid']} / {prop}: HTTP {code} {response.text[:200]}")
+            if index % API_REPORT_EVERY == 0 or index == total_pairs:
+                log(f"  deletes {batch_start}-{index} of {total_pairs}: {format_status_counts(batch_counts)}")
+                batch_counts = Counter()
+                batch_start = index + 1
+    return status_counts, failures
 
 
 def parse_args() -> argparse.Namespace:
@@ -385,6 +318,10 @@ def parse_args() -> argparse.Namespace:
     args.session_id = args.session_id or os.environ.get("POSTHOG_SESSION_ID")
     if not args.project_id:
         parser.error("--project-id (or POSTHOG_PROJECT_ID) is required")
+    if args.batch_size <= 0:
+        parser.error("--batch-size must be greater than zero")
+    if args.page_size <= 0:
+        parser.error("--page-size must be greater than zero")
     if not args.personal_api_key and not args.session_id:
         parser.error(
             "either --personal-api-key (POSTHOG_PERSONAL_API_KEY) or --session-id (POSTHOG_SESSION_ID) is required"
@@ -423,12 +360,14 @@ def main() -> int:
         log("Nothing to scrub.")
         return 0
 
+    pair_count = sum(len(p["matched_properties"]) for p in affected)
+
     preview = affected[:10]
     log("")
     log("Sample of affected persons:")
     for person in preview:
         distinct_id = person["distinct_ids"][0] if person["distinct_ids"] else "<no distinct_id>"
-        log(f"  {person['uuid']}  {distinct_id}  -> would unset: {', '.join(person['matched_properties'])}")
+        log(f"  {person['uuid']}  {printable(distinct_id)}  -> would unset: {', '.join(person['matched_properties'])}")
     if len(affected) > len(preview):
         log(f"  ... and {len(affected) - len(preview)} more (use --output to save the full list)")
 
@@ -438,12 +377,13 @@ def main() -> int:
         return 0
 
     if not args.yes:
-        pair_count = sum(len(p["matched_properties"]) for p in affected)
         prompt = (
             f"\nAbout to permanently scrub {pair_count} property values "
             f"from {len(affected)} persons via {args.mode} mode. Type 'scrub' to continue: "
         )
-        if input(prompt).strip().lower() != "scrub":
+        if not confirm(
+            prompt, "scrub", eof_message="Confirmation requires interactive input; pass --yes for non-interactive runs."
+        ):
             log("Aborted.")
             return 1
 
@@ -453,11 +393,22 @@ def main() -> int:
         log(f"Done: sent {sent} scrub events in {request_count} batch requests.")
         log("Ingestion is asynchronous - properties disappear once the events are processed.")
     else:
-        attempted, failures = scrub_via_api(session, args.host, args.project_id, affected)
+        status_counts, failures = scrub_via_api(session, args.host, args.project_id, affected)
+        scrubbed = sum(n for code, n in status_counts.items() if code.isdigit() and 200 <= int(code) < 300)
         log("")
-        log(f"Done: attempted {attempted} delete_property requests, {len(failures)} failures.")
+        log(
+            f"Done: {scrubbed}/{pair_count} property values deleted. Status breakdown: {format_status_counts(status_counts)}"
+        )
+        forbidden = status_counts.get("403", 0)
+        if forbidden:
+            log(
+                f"  {forbidden} forbidden (HTTP 403): the credential can't delete these - a read-only "
+                "key, or field-level access control on restricted persons/properties."
+            )
         for failure in failures[:20]:
-            log(f"  FAILED: {failure}")
+            log(f"  FAILED: {printable(failure)}")
+        if len(failures) > 20:
+            log(f"  ... and {len(failures) - 20} more failures")
         if failures:
             return 1
     return 0
@@ -466,8 +417,8 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         sys.exit(main())
-    except ScrubError as err:
-        log(f"Error: {err}")
+    except PostHogScriptError as err:
+        log(f"Error: {printable(str(err))}")
         sys.exit(1)
     except KeyboardInterrupt:
         log("\nInterrupted.")

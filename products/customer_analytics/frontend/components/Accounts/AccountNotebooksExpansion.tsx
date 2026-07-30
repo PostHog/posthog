@@ -15,13 +15,16 @@ import {
 } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconSlack } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { fullName } from 'lib/utils/strings'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { urls } from 'scenes/urls'
 
 import type { AccountNotebookApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { AccountEventStreamToggle } from '../EventStream/AccountEventStreamToggle'
 import { AccountBillingExpansion } from './AccountBillingExpansion'
 import { accountBillingLogic } from './accountBillingLogic'
 import { accountLinksLogic } from './accountLinksLogic'
@@ -33,6 +36,10 @@ import { accountRelatedUsersLogic } from './accountRelatedUsersLogic'
 import { AccountRelationshipsExpansion } from './AccountRelationshipsExpansion'
 import { accountRelationshipsLogic } from './accountRelationshipsLogic'
 import { accountsExpansionLogic } from './accountsExpansionLogic'
+import { AccountSummariesExpansion } from './AccountSummariesExpansion'
+import { accountSummariesLogic } from './accountSummariesLogic'
+import { AccountSupportTicketsExpansion } from './AccountSupportTicketsExpansion'
+import { accountSupportTicketsLogic } from './accountSupportTicketsLogic'
 import { AccountsEvents } from './constants'
 import { EditAccountLinksButton } from './EditAccountLinksButton'
 
@@ -140,7 +147,10 @@ export function AccountNotebooksExpansion({
     useMountedLogic(accountBillingLogic({ accountId, externalId, kind: 'usage' }))
     useMountedLogic(accountBillingLogic({ accountId, externalId, kind: 'spend' }))
     useMountedLogic(accountOpportunitiesLogic({ accountId }))
+    useMountedLogic(accountSummariesLogic({ accountId }))
+    useMountedLogic(accountSupportTicketsLogic({ accountId }))
     const { setSearchTerm, setSorting, createNote } = useActions(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { activeTabFor } = useValues(accountsExpansionLogic)
     const { setActiveTab } = useActions(accountsExpansionLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
@@ -304,6 +314,22 @@ export function AccountNotebooksExpansion({
                                 key: 'opportunities',
                                 label: 'Opportunities',
                                 content: <AccountOpportunitiesExpansion accountId={accountId} />,
+                            },
+                            {
+                                key: 'summaries',
+                                label: 'Summaries',
+                                content: <AccountSummariesExpansion accountId={accountId} />,
+                            },
+                            {
+                                key: 'support_tickets',
+                                label: 'Support tickets',
+                                content: <AccountSupportTicketsExpansion accountId={accountId} />,
+                            },
+                            // Flag-gated here (not just inside the component) so the tab label hides too.
+                            !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP] && {
+                                key: 'event_stream' as const,
+                                label: 'Event stream',
+                                content: <AccountEventStreamToggle accountId={accountId} externalId={externalId} />,
                             },
                         ]}
                     />

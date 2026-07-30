@@ -11,6 +11,9 @@ from products.growth.dags.github_sdk_versions import (
     fetch_flutter_sdk_data,
     fetch_go_sdk_data,
     fetch_ios_sdk_data,
+    fetch_java_sdk_data,
+    fetch_java_server_sdk_data,
+    fetch_kmp_sdk_data,
     fetch_node_sdk_data,
     fetch_php_sdk_data,
     fetch_python_sdk_data,
@@ -188,6 +191,30 @@ class TestFetchFlutterSdkData(TestFetchSdkDataBase):
         assert not any(version.startswith("v") for version in result["releaseDates"].keys())
 
 
+class TestFetchKmpSdkData(TestFetchSdkDataBase):
+    @patch("posthog.egress.transport.transport.requests.request")
+    def test_fetch_kmp_sdk_data_success(self, mock_get: MagicMock) -> None:
+        self.setup_ok_json_mock(
+            mock_get,
+            [
+                {
+                    "tag_name": "v0.0.1",
+                    "created_at": "2026-07-14T18:03:29Z",
+                    "draft": False,
+                    "prerelease": False,
+                }
+            ],
+        )
+
+        result = fetch_kmp_sdk_data()
+
+        assert result == {
+            "latestVersion": "0.0.1",
+            "releaseDates": {"0.0.1": "2026-07-14T18:03:29Z"},
+        }
+        assert "/repos/PostHog/posthog-kmp/releases" in mock_get.call_args_list[0].args[1]
+
+
 class TestFetchIosSdkData(TestFetchSdkDataBase):
     @patch("posthog.egress.transport.transport.requests.request")
     def test_fetch_ios_sdk_data_success(self, mock_get):
@@ -218,6 +245,49 @@ class TestFetchAndroidSdkData(TestFetchSdkDataBase):
         assert "3.26.0" in result["releaseDates"]
         assert result["releaseDates"]["3.26.0"] == "2025-11-05T20:29:02Z"
         assert mock_get.call_count == 2  # Assert that it attempted to paginate
+
+
+class TestFetchJavaSdkData(TestFetchSdkDataBase):
+    @patch("posthog.egress.transport.transport.requests.request")
+    def test_fetches_releases_from_archived_java_repo(self, mock_get):
+        self.setup_ok_json_mock(
+            mock_get,
+            [
+                {
+                    "tag_name": "1.2.0",
+                    "created_at": "2025-01-29T20:23:43Z",
+                    "draft": False,
+                    "prerelease": False,
+                },
+                {
+                    "tag_name": "1.1.0",
+                    "created_at": "2023-03-17T15:33:22Z",
+                    "draft": False,
+                    "prerelease": False,
+                },
+            ],
+        )
+
+        result = fetch_java_sdk_data()
+
+        assert result["latestVersion"] == "1.2.0"
+        assert result["releaseDates"]["1.1.0"] == "2023-03-17T15:33:22Z"
+        assert "/repos/PostHog/posthog-java/releases" in mock_get.call_args_list[0].args[1]
+
+
+class TestFetchJavaServerSdkData(TestFetchSdkDataBase):
+    @patch("posthog.egress.transport.transport.requests.request")
+    def test_fetches_only_server_releases_from_android_monorepo(self, mock_get):
+        releases_data = self.load_releases("posthog_android_releases.json")
+        self.setup_ok_json_mock(mock_get, releases_data)
+
+        result = fetch_java_server_sdk_data()
+
+        assert result["latestVersion"] == "2.0.1"
+        assert result["releaseDates"] == {
+            "2.0.1": "2025-11-25T17:55:17Z",
+            "2.0.0": "2025-11-06T20:11:49Z",
+        }
 
 
 class TestFetchGoSdkData(TestFetchSdkDataBase):

@@ -1,6 +1,9 @@
+import re
 import json
 import time
+import random
 import datetime
+import unicodedata
 from typing import Any, TypedDict, cast
 from urllib.parse import urlencode
 from uuid import uuid4
@@ -453,19 +456,89 @@ DEV_LOGIN_KNOWN_EMAIL_LABELS = {
     "test@posthog.com": "Default test user",
 }
 
+# Name pools for dev-login fresh account creation, so test accounts are easy to
+# tell apart in the login tools list.
+DEV_ACCOUNT_FIRST_NAMES = [
+    "Ada",
+    "Byron",
+    "Cleo",
+    "Dorian",
+    "Edith",
+    "Felix",
+    "Greta",
+    "Hugo",
+    "Iris",
+    "Jonas",
+    "Kira",
+    "Linus",
+    "Mira",
+    "Nico",
+    "Opal",
+    "Pablo",
+    "Quinn",
+    "Rosa",
+    "Silas",
+    "Tessa",
+]
+
+DEV_ACCOUNT_ORGANIZATION_NAMES = [
+    "Acme Analytics",
+    "Bluebird Labs",
+    "Cindercone Systems",
+    "Driftwood Data",
+    "Ember Metrics",
+    "Ferrous Works",
+    "Glimmer Grove",
+    "Halcyon House",
+    "Ironwood Insights",
+    "Juniper Junction",
+    "Kestrel Kollective",
+    "Lumen Loft",
+    "Marble & Moss",
+    "Northlight Co.",
+    "Obsidian Oak",
+    "Pinnacle Patch",
+    "Quartz Quarry",
+    "Riverstone Research",
+    "Solstice Software",
+    "Timberline Tools",
+]
+
 
 class DevLoginSerializer(serializers.Serializer):
     email = serializers.EmailField(
+        required=False,
         write_only=True,
         help_text="Email of the active user to log in as. Only honored when dev login is allowed (DEBUG and ALLOW_DEV_LOGIN).",
+    )
+    create_fresh_account = serializers.BooleanField(
+        required=False,
+        default=False,
+        write_only=True,
+        help_text="Create a fresh account/org with random names (password: 12345678) and log in directly, without signup. Only honored when dev login is allowed.",
     )
 
     def to_representation(self, instance: Any) -> dict[str, Any]:
         return {"success": True}
 
-    def create(self, validated_data: dict[str, str]) -> Any:
+    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
+        # Gate first, before any field-level validation: when dev login is disabled the
+        # endpoint must look nonexistent (404) regardless of the request body, so a
+        # missing-email 400 can't leak that the route exists.
         if not is_dev_login_allowed():
             raise Http404()
+        if not data.get("create_fresh_account") and not data.get("email"):
+            raise serializers.ValidationError(
+                {"email": serializers.ErrorDetail("This field is required.", code="required")}
+            )
+        return data
+
+    def create(self, validated_data: dict[str, Any]) -> Any:
+        if not is_dev_login_allowed():
+            raise Http404()
+
+        if validated_data.get("create_fresh_account"):
+            return self._create_fresh_account()
 
         request = self.context["request"]
         try:
@@ -473,6 +546,27 @@ class DevLoginSerializer(serializers.Serializer):
         except User.DoesNotExist:
             raise serializers.ValidationError("User not found", code="user_not_found")
 
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        request.session["reauth"] = "false"
+        request.session.save()
+        report_user_logged_in(user, social_provider="")
+        return user
+
+    def _create_fresh_account(self) -> Any:
+        first_name = random.choice(DEV_ACCOUNT_FIRST_NAMES)
+        email = f"{first_name.lower()}-{uuid4().hex[:8]}@posthog.dev"
+        organization_name = random.choice(DEV_ACCOUNT_ORGANIZATION_NAMES)
+
+        with transaction.atomic():
+            _, _, user = User.objects.bootstrap(
+                organization_name=organization_name,
+                email=email,
+                password="12345678",
+                first_name=first_name,
+                is_email_verified=True,
+            )
+
+        request = self.context["request"]
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         request.session["reauth"] = "false"
         request.session.save()
@@ -807,12 +901,31 @@ class TwoFactorPasskeyViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         return Response(json.loads(options_to_json(options)))
 
 
+# Characters an email client or manual entry can inject around/within the code without the
+# user seeing them: whitespace, the zero-width family, word joiner, BOM, soft hyphen, and the
+# hyphen someone types when grouping the code as "123-456".
+_CODE_NOISE_RE = re.compile(r"[\s\u200b-\u200d\u2060\ufeff\u00ad-]")
+
+
 class CodeBasedVerificationSerializer(serializers.Serializer):
-    code = serializers.CharField(help_text="The 6-digit verification code emailed to the user.")
+    code = serializers.CharField(
+        help_text="The 6-digit verification code emailed to the user. Whitespace, invisible characters, "
+        "and grouping hyphens are removed and compatibility digits (e.g. fullwidth) are folded to ASCII, "
+        "so a copy-pasted code still verifies; anything that isn't then exactly 6 digits is rejected."
+    )
     email = serializers.EmailField(
         required=False,
         help_text="Email the code was sent to. Informational; the pending login session identifies the user.",
     )
+
+    def validate_code(self, value: str) -> str:
+        # Fold compatibility forms (fullwidth digits become ASCII) then drop the noise an email client
+        # or manual grouping injects. Require exactly 6 digits so malformed input is rejected outright
+        # rather than mining digits out of arbitrary text.
+        cleaned = _CODE_NOISE_RE.sub("", unicodedata.normalize("NFKC", value or ""))
+        if not re.fullmatch(r"\d{6}", cleaned):
+            raise serializers.ValidationError("Enter the 6-digit code from your email.")
+        return cleaned
 
 
 class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
@@ -851,7 +964,9 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
                 code="too_many_attempts",
             )
 
-        code = request.data.get("code")
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        code = serializer.validated_data.get("code")
         user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
         try:
             user = User.objects.get(pk=user_id, is_active=True)

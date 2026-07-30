@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.hogql.direct_sql.redshift_adapter import ensure_read_only_raw_redshift_statement
+from posthog.hogql.direct_sql.redshift_adapter import RedshiftAdapter, ensure_read_only_raw_redshift_statement
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.query import HogQLQueryExecutor
 
@@ -172,6 +172,43 @@ class TestDirectRedshiftQuery(APIBaseTest):
                 with patch.object(HogQLQueryExecutor, "_capture_send_raw_query_translation_error"):
                     with self.assertRaisesRegex(ExposedHogQLError, "Add a LIMIT clause"):
                         executor.execute()
+
+    @parameterized.expand(
+        [
+            ("synced_with_toggle_on", True, True),
+            ("synced_with_toggle_off", False, False),
+        ]
+    )
+    def test_validate_source_config_gates_on_capability(
+        self, _name: str, direct_query_enabled: bool, expect_valid: bool
+    ):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid4()),
+            connection_id=str(uuid4()),
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Redshift",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=direct_query_enabled,
+            prefix="synced",
+            job_inputs={
+                "host": "localhost",
+                "port": 5439,
+                "database": "dev",
+                "user": "awsuser",
+                "password": "redshift",
+                "schema": "public",
+            },
+        )
+
+        adapter = RedshiftAdapter()
+        if expect_valid:
+            implementation, config = adapter.validate_source_config(source, self.team)
+            self.assertIsNotNone(implementation)
+            self.assertEqual(config.host, "localhost")
+        else:
+            with self.assertRaisesRegex(ExposedHogQLError, "Invalid direct Redshift connection."):
+                adapter.validate_source_config(source, self.team)
 
 
 class TestEnsureReadOnlyRawRedshiftStatement(unittest.TestCase):

@@ -366,17 +366,14 @@ describe('createQueryWrapper filterTestAccounts project default', () => {
         expect(runQuery.mock.calls[0]![0].query.filterTestAccounts).toBe(expected)
     })
 
-    it.each(['false', 'true'])(
-        'rejects the string %j rather than coercing it to a boolean',
-        (stringValue) => {
-            const tool = createQueryWrapper({ name: 'test', schema: makeSchema(false), kind: 'TrendsQuery' })()
+    it.each(['false', 'true'])('rejects the string %j rather than coercing it to a boolean', (stringValue) => {
+        const tool = createQueryWrapper({ name: 'test', schema: makeSchema(false), kind: 'TrendsQuery' })()
 
-            // The generated schemas use z.coerce.boolean(), which would turn "false"
-            // into true; the stripped replacement must be a strict boolean so a
-            // malformed value is rejected instead of silently flipping filtering.
-            expect(tool.schema.safeParse({ series, filterTestAccounts: stringValue }).success).toBe(false)
-        }
-    )
+        // The generated schemas use z.coerce.boolean(), which would turn "false"
+        // into true; the stripped replacement must be a strict boolean so a
+        // malformed value is rejected instead of silently flipping filtering.
+        expect(tool.schema.safeParse({ series, filterTestAccounts: stringValue }).success).toBe(false)
+    })
 
     it('does not inject the field into schemas that lack it', async () => {
         const runQuery = vi.fn().mockResolvedValue({ results: [] })
@@ -389,6 +386,41 @@ describe('createQueryWrapper filterTestAccounts project default', () => {
         await tool.handler(context, tool.schema.parse({ series }))
 
         expect(runQuery.mock.calls[0]![0].query).not.toHaveProperty('filterTestAccounts')
+    })
+})
+
+describe('createQueryWrapper trace compaction', () => {
+    const schema = z.object({ kind: z.string() })
+
+    function contextWithResults(results: unknown): Context {
+        return {
+            api: {
+                query: vi.fn().mockReturnValue({ runQuery: vi.fn().mockResolvedValue({ results }) }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+        } as unknown as Context
+    }
+
+    const oversizedTrace = {
+        id: 'trace-1',
+        events: [{ properties: { $ai_input: 'x'.repeat(20_000) } }],
+    }
+
+    it('compacts oversized string values for TraceQuery results', async () => {
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'TraceQuery' })()
+
+        const result = (await tool.handler(contextWithResults([oversizedTrace]), { kind: 'TraceQuery' })) as any
+
+        expect(result.results[0].events[0].properties.$ai_input).toContain('truncated')
+    })
+
+    it('leaves non-trace query results untouched', async () => {
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'HogQLQuery' })()
+
+        const result = (await tool.handler(contextWithResults([oversizedTrace]), { kind: 'HogQLQuery' })) as any
+
+        expect(result.results[0].events[0].properties.$ai_input).toBe('x'.repeat(20_000))
     })
 })
 

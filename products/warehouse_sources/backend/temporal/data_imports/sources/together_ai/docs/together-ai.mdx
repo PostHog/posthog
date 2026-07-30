@@ -1,0 +1,73 @@
+---
+title: Linking Together AI as a source
+sidebar: Docs
+showTitle: true
+availability: { free: full, selfServe: full, enterprise: full }
+sourceId: TogetherAI
+beta: true
+---
+
+<!--
+This is the user-facing posthog.com source doc. It lives here only because no posthog.com
+checkout was available when the source was implemented. Move it to
+`posthog.com/contents/docs/cdp/sources/together-ai.mdx` and delete this copy, then run
+`python manage.py audit_source_docs --docs-dir <posthog.com>/contents/docs/cdp/sources`.
+-->
+
+import SourceSetupIntro from '../_snippets/source-setup-intro.mdx'
+import SyncModes from '../_snippets/sync-modes.mdx'
+import SourceParameters from '../_snippets/source-parameters.mdx'
+import SourceTables from '../_snippets/source-tables.mdx'
+import TroubleshootingLink from '../_snippets/dw-troubleshooting-link.mdx'
+import AlphaRelease from '../_snippets/alpha-release.mdx'
+
+<AlphaRelease />
+
+[Together AI](https://www.together.ai) is an AI-native cloud for open-source model inference,
+fine-tuning, and GPU clusters. Linking it as a source syncs your platform data — fine-tuning jobs,
+batch inference jobs, uploaded files, deployed endpoints, and evaluations — into the PostHog Data
+warehouse, so you can join it with your product data (for example, correlating fine-tuning runs or
+model endpoints with in-product usage).
+
+## Prerequisites
+
+To connect Together AI, you need:
+
+- A Together AI account.
+- An API key generated from your Together AI account settings (used as a bearer token). The key is
+  account-wide, so no extra scopes are required.
+
+## Adding a data source
+
+<SourceSetupIntro />
+
+1. Open Together AI and go to your [API keys settings](https://api.together.xyz/settings/api-keys).
+2. Create a new API key and copy it.
+3. Paste the key into the **API key** field in PostHog.
+
+## Sync modes
+
+<SyncModes />
+
+Together AI's list endpoints have no pagination and no server-side "updated since" filter, so every
+table syncs as a **full refresh** — each sync re-reads the resource and merges on the primary key.
+These collections are small per account, so a full refresh is cheap. Schedule syncs at a cadence that
+fits how often your Together AI activity changes.
+
+## Configuration
+
+<SourceParameters />
+
+## Supported tables
+
+<SourceTables />
+
+The `models` table is Together AI's global model catalog. It's the same for every account and fairly
+large, so deselect it during setup if you don't need the catalog in your warehouse.
+
+## Troubleshooting
+
+- **"Invalid Together AI API key"** when connecting: the key is wrong or has been revoked. Generate a
+  new key in your Together AI API keys settings and re-enter it.
+
+<TroubleshootingLink />

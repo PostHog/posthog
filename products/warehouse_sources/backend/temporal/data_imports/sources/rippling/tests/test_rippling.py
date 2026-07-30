@@ -1,9 +1,12 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import pytest
 from unittest import mock
+
+from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.rippling import (
     PAGE_SIZE,
@@ -12,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.r
     _build_params,
     _build_url,
     _format_filter_timestamp,
-    get_rows,
     rippling_source,
     validate_credentials,
 )
@@ -20,6 +22,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.s
     ENDPOINTS,
     RIPPLING_ENDPOINTS,
 )
+
+# RESTClient builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+# validate_credentials builds its own tracked session in the rippling module.
+RIPPLING_SESSION_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.rippling.rippling.make_tracked_session"
+)
+
+
+def _response(items: list[dict[str, Any]], next_link: str | None = None) -> Response:
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps({"results": items, "next_link": next_link}).encode()
+    return resp
 
 
 def _make_manager(resume_state: RipplingResumeConfig | None = None) -> mock.MagicMock:
@@ -29,12 +45,26 @@ def _make_manager(resume_state: RipplingResumeConfig | None = None) -> mock.Magi
     return manager
 
 
-def _response(items: list[dict[str, Any]], next_link: str | None = None) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.json.return_value = {"results": items, "next_link": next_link}
-    resp.status_code = 200
-    resp.ok = True
-    return resp
+def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
+    """Wire a mock session and capture each request's URL + params AT SEND TIME.
+
+    ``request.params`` / ``request.url`` are mutated in place across pages (the paginator
+    rewrites ``url`` to the next-page link), so snapshot a copy when each request is prepared.
+    """
+    session.headers = {}
+    snapshots: list[dict[str, Any]] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        snapshots.append({"url": request.url, "params": dict(request.params or {})})
+        return mock.MagicMock()
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return snapshots
+
+
+def _rows(source_response) -> list[dict[str, Any]]:
+    return [row for page in source_response.items() for row in page]
 
 
 class TestFormatFilterTimestamp:
@@ -141,9 +171,7 @@ class TestValidateCredentials:
             (401, False),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.rippling.rippling.make_tracked_session"
-    )
+    @mock.patch(RIPPLING_SESSION_PATCH)
     def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
         response = mock.MagicMock()
         response.status_code = status_code
@@ -151,103 +179,104 @@ class TestValidateCredentials:
 
         assert validate_credentials("token") is expected
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.rippling.rippling.make_tracked_session"
-    )
+    @mock.patch(RIPPLING_SESSION_PATCH)
     def test_validate_credentials_swallows_exceptions(self, mock_session):
         mock_session.return_value.get.side_effect = Exception("boom")
         assert validate_credentials("token") is False
 
 
 class TestGetRows:
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.rippling.rippling.make_tracked_session"
-    )
-    def test_paginates_via_next_link_and_absolutizes_relative_urls(self, mock_session):
-        mock_session.return_value.get.side_effect = [
-            _response([{"id": "1"}], next_link="/workers?limit=100&cursor=abc"),
-            _response([{"id": "2"}]),
-        ]
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_paginates_via_next_link_and_absolutizes_relative_urls(self, MockSession):
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"id": "1"}], next_link="/workers?limit=100&cursor=abc"),
+                _response([{"id": "2"}]),
+            ],
+        )
 
         manager = _make_manager()
-        batches = list(get_rows("token", "workers", mock.MagicMock(), manager))
+        rows = _rows(rippling_source("token", "workers", team_id=1, job_id="j", resumable_source_manager=manager))
 
-        assert [item["id"] for batch in batches for item in batch] == ["1", "2"]
-        manager.save_state.assert_called_once()
-        saved_url = manager.save_state.call_args.args[0].next_url
-        assert saved_url == "https://rest.ripplingapis.com/workers?limit=100&cursor=abc"
-        assert mock_session.return_value.get.call_args_list[1].args[0] == saved_url
+        assert [row["id"] for row in rows] == ["1", "2"]
+        # The relative next_link is absolutized against the API host before the second request.
+        absolutized = "https://rest.ripplingapis.com/workers?limit=100&cursor=abc"
+        assert snapshots[1]["url"] == absolutized
+        # Checkpoint saved once, after the first page, pointing at the absolutized next URL.
+        manager.save_state.assert_called_once_with(RipplingResumeConfig(next_url=absolutized))
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.rippling.rippling.make_tracked_session"
-    )
-    def test_absolute_next_link_used_as_is(self, mock_session):
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_absolute_next_link_used_as_is(self, MockSession):
+        session = MockSession.return_value
         absolute = "https://rest.ripplingapis.com/workers?cursor=xyz"
-        mock_session.return_value.get.side_effect = [
-            _response([{"id": "1"}], next_link=absolute),
-            _response([]),
-        ]
+        snapshots = _wire(session, [_response([{"id": "1"}], next_link=absolute), _response([])])
 
-        manager = _make_manager()
-        list(get_rows("token", "workers", mock.MagicMock(), manager))
+        _rows(rippling_source("token", "workers", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
 
-        assert mock_session.return_value.get.call_args_list[1].args[0] == absolute
+        assert snapshots[1]["url"] == absolute
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.rippling.rippling.make_tracked_session"
-    )
-    def test_resumes_from_saved_state(self, mock_session):
-        mock_session.return_value.get.return_value = _response([{"id": "9"}])
-
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_state(self, MockSession):
+        session = MockSession.return_value
         resume_url = "https://rest.ripplingapis.com/workers?cursor=resume"
+        snapshots = _wire(session, [_response([{"id": "9"}])])
+
         manager = _make_manager(RipplingResumeConfig(next_url=resume_url))
+        _rows(rippling_source("token", "workers", team_id=1, job_id="j", resumable_source_manager=manager))
 
-        list(get_rows("token", "workers", mock.MagicMock(), manager))
+        assert snapshots[0]["url"] == resume_url
 
-        assert mock_session.return_value.get.call_args_list[0].args[0] == resume_url
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.rippling.rippling.make_tracked_session"
-    )
-    def test_incremental_request_includes_filter(self, mock_session):
-        mock_session.return_value.get.return_value = _response([])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_incremental_request_includes_filter(self, MockSession):
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response([])])
 
         manager = _make_manager()
-        list(
-            get_rows(
+        _rows(
+            rippling_source(
                 "token",
                 "workers",
-                mock.MagicMock(),
-                manager,
+                team_id=1,
+                job_id="j",
+                resumable_source_manager=manager,
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=datetime(2024, 10, 1, tzinfo=UTC),
                 incremental_field="updated_at",
             )
         )
 
-        url = mock_session.return_value.get.call_args.args[0]
-        query = parse_qs(urlparse(url).query)
-        assert query["filter"] == ["updated_at ge 2024-10-01T00:00:00"]
-        assert query["order_by"] == ["updated_at"]
+        assert snapshots[0]["params"]["filter"] == "updated_at ge 2024-10-01T00:00:00"
+        assert snapshots[0]["params"]["order_by"] == "updated_at"
+        assert snapshots[0]["params"]["limit"] == PAGE_SIZE
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.rippling.rippling.make_tracked_session"
-    )
-    def test_empty_response_stops_without_saving_state(self, mock_session):
-        mock_session.return_value.get.return_value = _response([])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_response_stops_without_saving_state(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_response([])])
 
         manager = _make_manager()
-        batches = list(get_rows("token", "workers", mock.MagicMock(), manager))
+        rows = _rows(rippling_source("token", "workers", team_id=1, job_id="j", resumable_source_manager=manager))
 
-        assert batches == []
+        assert rows == []
+        assert session.send.call_count == 1
         manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_off_domain_next_link_raises(self, MockSession):
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": "1"}], next_link="https://attacker.example/workers")])
+
+        with pytest.raises(ValueError, match="off-domain"):
+            _rows(rippling_source("token", "workers", team_id=1, job_id="j", resumable_source_manager=_make_manager()))
 
 
 class TestRipplingSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint):
         config = RIPPLING_ENDPOINTS[endpoint]
-        response = rippling_source("token", endpoint, mock.MagicMock(), _make_manager())
+        response = rippling_source("token", endpoint, team_id=1, job_id="j", resumable_source_manager=_make_manager())
 
         assert response.name == endpoint
         assert response.primary_keys == [config.primary_key]

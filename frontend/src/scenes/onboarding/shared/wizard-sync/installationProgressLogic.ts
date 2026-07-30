@@ -1,4 +1,17 @@
-import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 
 import { elapsedSecondsFrom } from 'lib/utils/datetime'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -6,9 +19,11 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
 import { wizardSessionStreamLogic } from 'products/wizard/frontend/wizardSessionStreamLogic'
 
+import type { WizardConnectionStatus } from '../../../../../../products/wizard/frontend/wizardSessionStreamLogic'
 import { activeCloudRunLogic } from './activeCloudRunLogic'
+import type { CloudRunHandle } from './activeCloudRunLogic'
 import { finishedLocalRunLogic, FinishedLocalRunHandle } from './finishedLocalRunLogic'
-import type { installationProgressLogicType } from './installationProgressLogicType'
+import { startedByFromSession } from './helpers'
 import {
     taskRunPrMerged,
     taskRunPrUrl,
@@ -16,6 +31,7 @@ import {
     TaskRunProgressStep,
     TaskRunStreamState,
 } from './taskRunStreamLogic'
+import type { TaskRunConnectionStatus } from './taskRunStreamLogic'
 import { isSessionActive, wizardActiveSessionDetectorLogic } from './wizardActiveSessionDetectorLogic'
 import { wizardDashboardLogic } from './wizardDashboardLogic'
 
@@ -31,6 +47,29 @@ const SESSION_CURRENT_THRESHOLD_MS = 10 * 60 * 1000
 export function isSessionFresh(session: WizardSessionDTOApi, now: number): boolean {
     const updatedAt = new Date(session.updated_at).getTime()
     return !Number.isNaN(updatedAt) && now - updatedAt < SESSION_CURRENT_THRESHOLD_MS
+}
+
+// A dead wizard can't clear its own prompt (the clearing push never arrives), so the attention state
+// must go quiet with the session: gated on the server's staleness verdict and a live (running) phase.
+export function pendingInputFromSession(session: WizardSessionDTOApi | null): WizardPendingInput | null {
+    if (!session || session.is_stale || session.run_phase !== 'running') {
+        return null
+    }
+    const raw = session.pending_input
+    if (!raw?.id) {
+        return null
+    }
+    // The prompt text goes straight into JSX, and the type is the serializer's promise rather than a
+    // runtime guarantee, so keep non-strings out: a row written before the field was typed would
+    // otherwise crash the render of an app-wide widget.
+    const prompts = Array.isArray(raw.prompts) ? raw.prompts.filter((p): p is string => typeof p === 'string') : []
+    return {
+        id: raw.id,
+        askedAt: raw.asked_at ?? session.updated_at,
+        questionCount: raw.question_count ?? 1,
+        sensitive: raw.sensitive === true,
+        prompts: raw.sensitive === true ? [] : prompts,
+    }
 }
 
 // Per-session telemetry guards, deliberately module-scoped rather than on the kea `cache`: the logic
@@ -82,6 +121,16 @@ export interface InstallationStep {
     source?: 'wizard'
 }
 
+/** The wizard's in-flight `wizard_ask` prompt, published on the session row while the CLI is
+ * blocked on the user. Sensitive asks (secrets) carry no prompt text by design. */
+export interface WizardPendingInput {
+    id: string
+    askedAt: string
+    questionCount: number
+    sensitive: boolean
+    prompts: string[]
+}
+
 export interface InstallationProgress {
     phase: InstallationPhase
     steps: InstallationStep[]
@@ -90,6 +139,11 @@ export interface InstallationProgress {
     /** The bound PR was merged (webhook-recorded on the run's output). */
     prMerged: boolean
     isCurrent: boolean
+    /** Set while the wizard is waiting on the user in the terminal — the widget's attention state.
+     * Cleared by the next session push without the field (answered, cancelled, or timed out). */
+    pendingInput: WizardPendingInput | null
+    /** Who started the run (null when unknown). `email` is for the "is this me?" check. */
+    startedBy: { name: string; email: string } | null
 }
 
 export interface InstallationProgressLogicProps {
@@ -133,7 +187,17 @@ export function cloudProgress(
 ): InstallationProgress {
     let phase: InstallationPhase
     let stalledError: { title: string; detail: string | null } | null = null
-    if (!taskRunState) {
+    if (!taskRunState && isStalled) {
+        // The stream never delivered any run state (deleted or access-revoked run, a stream that
+        // stayed silent past taskRunStreamLogic's no-state window). `idle` renders as a spinner with
+        // no way out, so surface the dead end: the error phase carries the retry CTAs and the
+        // dismiss control.
+        phase = 'error'
+        stalledError = {
+            title: 'Setup lost contact',
+            detail: 'We stopped hearing back from this run. Run the wizard yourself, or dismiss it and start over.',
+        }
+    } else if (!taskRunState) {
         phase = taskConnectionStatus === 'connecting' ? 'connecting' : 'idle'
     } else if (taskRunState.status === 'queued' && isStalled) {
         // The run never left the queue (see taskRunStreamLogic's stall timer) — nothing is actually
@@ -252,7 +316,9 @@ export function cloudProgress(
     const error =
         phase === 'error'
             ? (stalledError ?? {
-                  title: 'Installation failed',
+                  // A cancelled run is a deliberate stop (Cancel button or closing the setup PR),
+                  // not a broken installation — presenting it as a failure reads as a bug.
+                  title: taskRunState?.status === 'cancelled' ? 'Run cancelled' : 'Installation failed',
                   detail:
                       taskRunState?.error_message ?? (session?.error as { message?: string } | null)?.message ?? null,
               })
@@ -265,6 +331,8 @@ export function cloudProgress(
         prUrl,
         prMerged,
         isCurrent: phase !== 'idle',
+        pendingInput: phase === 'running' ? pendingInputFromSession(session) : null,
+        startedBy: startedByFromSession(session),
     }
 }
 
@@ -286,6 +354,8 @@ export function localProgress(
             prUrl: null,
             prMerged: false,
             isCurrent: false,
+            pendingInput: null,
+            startedBy: null,
         }
     }
 
@@ -315,7 +385,16 @@ export function localProgress(
               }
             : null
 
-    return { phase, steps, error, prUrl: null, prMerged: false, isCurrent: sessionIsCurrent && !dismissed }
+    return {
+        phase,
+        steps,
+        error,
+        prUrl: null,
+        prMerged: false,
+        isCurrent: sessionIsCurrent && !dismissed,
+        pendingInput: phase === 'running' && !dismissed ? pendingInputFromSession(latestSession) : null,
+        startedBy: startedByFromSession(latestSession),
+    }
 }
 
 // A finished local run rendered from its persisted snapshot, after the live session stream has
@@ -331,8 +410,110 @@ export function progressFromFinishedLocalRun(handle: FinishedLocalRunHandle): In
         prUrl: null,
         prMerged: false,
         isCurrent: true,
+        pendingInput: null,
+        startedBy: handle.startedBy ?? null,
     }
 }
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface installationProgressLogicValues {
+    activeCloudRun: CloudRunHandle | null // activeCloudRunLogic
+    dismissedSessionId: string | null // finishedLocalRunLogic
+    isStalled: boolean // taskRunStreamLogic
+    lastActivityAt: number | null // taskRunStreamLogic
+    progressSteps: TaskRunProgressStep[] // taskRunStreamLogic
+    taskConnectionStatus: TaskRunConnectionStatus // taskRunStreamLogic
+    taskRunState: TaskRunStreamState | null // taskRunStreamLogic
+    latestSession: WizardSessionDTOApi | null // wizardSessionStreamLogic
+    sessionConnectionStatus: WizardConnectionStatus // wizardSessionStreamLogic
+    installationProgress: InstallationProgress
+    sessionIsCurrent: boolean
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface installationProgressLogicActions {
+    reportWizardSyncSessionDetected: (props: {
+        runPhase: string
+        skillId: string
+        taskCount: number
+        workflowId: string
+    }) => {
+        runPhase: string
+        skillId: string
+        taskCount: number
+        workflowId: string
+    } // eventUsageLogic
+    reportWizardSyncSessionFinished: (props: {
+        completedTaskCount: number
+        elapsedSeconds: number
+        outcome: string
+        skillId: string
+        taskCount: number
+        workflowId: string
+    }) => {
+        completedTaskCount: number
+        elapsedSeconds: number
+        outcome: string
+        skillId: string
+        taskCount: number
+        workflowId: string
+    } // eventUsageLogic
+    recordFinishedLocalRun: (session: WizardSessionDTOApi) => {
+        session: WizardSessionDTOApi
+    } // finishedLocalRunLogic
+    supersedeFinishedLocalRun: (sessionId: string) => {
+        sessionId: string
+    } // finishedLocalRunLogic
+    connectTaskRun: () => {
+        value: true
+    } // taskRunStreamLogic
+    disconnectTaskRun: () => {
+        value: true
+    } // taskRunStreamLogic
+    taskRunStreamCompleted: () => {
+        value: true
+    } // taskRunStreamLogic
+    detectWizardDashboard: (args_0: { startedAt: string }) => {
+        startedAt: string
+    } // wizardDashboardLogic
+    connectSession: () => {
+        value: true
+    } // wizardSessionStreamLogic
+    disconnectSession: () => {
+        value: true
+    } // wizardSessionStreamLogic
+    sessionUpdated: (session: WizardSessionDTOApi) => {
+        session: WizardSessionDTOApi
+    } // wizardSessionStreamLogic
+    markSessionCurrent: () => {
+        value: true
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface installationProgressLogicMeta {
+    key: string
+    __keaTypeGenInternalSelectorTypes: {
+        installationProgress: (
+            taskRunState: TaskRunStreamState | null,
+            progressSteps: TaskRunProgressStep[],
+            taskConnectionStatus: TaskRunConnectionStatus,
+            latestSession: WizardSessionDTOApi | null,
+            sessionConnectionStatus: WizardConnectionStatus,
+            sessionIsCurrent: boolean,
+            isStalled: boolean,
+            dismissedSessionId: string | null,
+            arg: any
+        ) => InstallationProgress
+    }
+}
+
+export type installationProgressLogicType = MakeLogicType<
+    installationProgressLogicValues,
+    installationProgressLogicActions,
+    InstallationProgressLogicProps,
+    installationProgressLogicMeta
+>
 
 /**
  * The Installation layer: one normalized `InstallationProgress` the UI renders, hiding which underlying
@@ -351,7 +532,13 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
     connect((props: InstallationProgressLogicProps) => ({
         values: [
             taskRunStreamLogic({ runId: props.runId ?? '', taskId: props.taskId ?? '' }),
-            ['taskRunState', 'progressSteps', 'connectionStatus as taskConnectionStatus', 'isStalled'],
+            [
+                'taskRunState',
+                'progressSteps',
+                'connectionStatus as taskConnectionStatus',
+                'isStalled',
+                'lastActivityAt',
+            ],
             wizardSessionStreamLogic({ workflowId: WORKFLOW_ID }),
             ['latestSession', 'connectionStatus as sessionConnectionStatus'],
             finishedLocalRunLogic,
@@ -403,14 +590,14 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
                 (_, props) => props.mode,
             ],
             (
-                taskRunState,
-                progressSteps,
-                taskConnectionStatus,
-                latestSession,
-                sessionConnectionStatus,
-                sessionIsCurrent,
-                isStalled,
-                dismissedSessionId,
+                taskRunState: TaskRunStreamState | null,
+                progressSteps: TaskRunProgressStep[],
+                taskConnectionStatus: import('./taskRunStreamLogic').TaskRunConnectionStatus,
+                latestSession: WizardSessionDTOApi | null,
+                sessionConnectionStatus: import('products/wizard/frontend/wizardSessionStreamLogic').WizardConnectionStatus,
+                sessionIsCurrent: boolean,
+                isStalled: boolean,
+                dismissedSessionId: string | null,
                 mode
             ): InstallationProgress =>
                 mode === 'cloud'

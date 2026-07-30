@@ -467,7 +467,7 @@ class Subscription(ModelActivityMixin, models.Model):
         """
         Returns serialized information about the object for analytics reporting.
         """
-        return {
+        metadata: dict[str, Any] = {
             "id": self.id,
             "resource_type": self.resource_type,
             "target_type": self.target_type,
@@ -479,6 +479,12 @@ class Subscription(ModelActivityMixin, models.Model):
             "prompt_length": len(self.prompt or ""),
             "ai_window_mode": self.ai_window_mode if self.resource_type == self.ResourceType.AI_PROMPT else None,
         }
+        # For insight subscriptions, attribute the subscribed insight's query type (e.g. TrendsQuery,
+        # FunnelsQuery) using the same keys as the "insight created/updated" events, so subscriptions
+        # can be sliced by which kinds of insights people subscribe to.
+        if self.resource_type == self.ResourceType.INSIGHT and self.insight:
+            metadata.update(self.insight.get_analytics_query_kinds())
+        return metadata
 
 
 @receiver(post_save, sender=Subscription, dispatch_uid="hook-subscription-saved")

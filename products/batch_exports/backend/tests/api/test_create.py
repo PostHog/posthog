@@ -372,6 +372,11 @@ def test_cannot_create_a_batch_export_for_another_organization(client: HttpClien
             Integration.IntegrationKind.DATABRICKS,
             {"http_path": "p", "catalog": "c", "schema": "s", "table_name": "t"},
         ),
+        (
+            "Snowflake",
+            Integration.IntegrationKind.SNOWFLAKE,
+            {"database": "d", "warehouse": "w", "schema": "s"},
+        ),
     ],
 )
 def test_cannot_create_batch_export_with_integration_from_another_team(
@@ -538,7 +543,12 @@ def test_create_batch_export_with_custom_schema(
     }
 
     assert batch_export.schema == expected_schema
-    assert args["batch_export_model"] == {"filters": None, "name": "events", "schema": expected_schema}
+    assert args["batch_export_model"] == {
+        "filters": None,
+        "name": "events",
+        "schema": expected_schema,
+        "hogql_query": None,
+    }
 
 
 @pytest.mark.parametrize(

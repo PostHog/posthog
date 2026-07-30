@@ -53,6 +53,9 @@ def handle_hog_flow_batch_job_created(sender, instance, created, **kwargs):
                 hog_flow_id=instance.hog_flow.id,
                 batch_job_id=instance.id,
                 max_audience_size=get_hogflow_batch_trigger_limit(instance.team.id),
+                # The audience snapshot the confirm check validated - the resolver dispatches from
+                # this, not the live trigger, so a trigger edit racing the dispatch can't widen it.
+                filters=instance.filters,
             )
         except Exception as e:
             logger.exception(
