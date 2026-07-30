@@ -4,8 +4,8 @@ import { useMemo } from 'react'
 import { getColorVar } from 'lib/colors'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
-import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 
+import { WorkflowMetricCard } from './WorkflowMetricCard'
 import {
     EMAIL_METRIC_INVOCATION_FILTERS,
     EmailMetric,
@@ -49,7 +49,7 @@ export function EmailMetricsSummary({
                     const metric = WORKFLOW_EMAIL_METRICS[key]
                     const canDrillDown = !!onMetricClick && !!EMAIL_METRIC_INVOCATION_FILTERS[key]
                     return (
-                        <AppMetricSummary
+                        <WorkflowMetricCard
                             key={key}
                             name={metric.name}
                             description={metric.description}
