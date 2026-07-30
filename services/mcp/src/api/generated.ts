@@ -33003,6 +33003,20 @@ export namespace Schemas {
       readonly remediation: HealthIssueRemediation | null;
     }
 
+    export interface HealthIssueRefreshRequest {
+      /** Only re-run these check kinds (e.g. ['no_live_events']). Omit to re-run every check registered for the project. Each distinct set of kinds gets its own rate-limit budget, so a narrow re-run of one check isn't blocked by a recent full refresh. */
+      kinds?: string[];
+    }
+
+    export interface HealthIssueRefreshResponse {
+      /** Check kinds whose re-evaluation was successfully scheduled. */
+      scheduled_kinds: string[];
+      /** Check kinds that could not be scheduled. Their existing issues are left untouched. */
+      kinds_failed: string[];
+      /** Project the checks were scheduled for. */
+      team_id: number;
+    }
+
     /**
      * Count of active, non-dismissed issues keyed by severity ('critical', 'warning', 'info').
      */
