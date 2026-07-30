@@ -8,6 +8,7 @@ from django.conf import settings
 
 from slack_sdk.errors import SlackApiError
 
+from posthog.helpers.slack_subscription_explore import build_explore_hint
 from posthog.models.integration import Integration, SlackIntegration
 
 from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
@@ -36,6 +37,9 @@ _PERMANENT_SLACK_ERROR_CODES = frozenset(
 )
 
 ScoutSlackOutputType = Literal["finding", "report"]
+
+# Only powers the "set up the bot" fallback link; the ready-bot line is static.
+_EXPLORE_HINT_UTM_TAGS = "utm_source=posthog&utm_campaign=signals_scout&utm_medium=slack"
 
 
 @dataclass(frozen=True)
@@ -71,6 +75,15 @@ def slack_api_error_code(exc: SlackApiError) -> str | None:
     return error_code if isinstance(error_code, str) else None
 
 
+def _append_explore_hint(blocks: list[dict], integration: Integration | None) -> None:
+    """Nudge the channel to @PostHog this scout output, mirroring the subscriptions delivery."""
+    if integration is None:
+        return
+    ai_enabled = bool(integration.team.organization.is_ai_data_processing_approved)
+    if explore_hint := build_explore_hint(integration, utm_tags=_EXPLORE_HINT_UTM_TAGS, ai_enabled=ai_enabled):
+        blocks.append(explore_hint)
+
+
 def _prettify_scout_name(skill_name: str) -> str:
     cleaned = skill_name.removeprefix("signals-scout-").replace("-", " ").replace("_", " ").strip()
     return cleaned[:1].upper() + cleaned[1:] if cleaned else "Scout"
@@ -100,7 +113,9 @@ def _slack_channel_id(channel: str) -> str:
     return channel_id
 
 
-def build_scout_slack_message(emission: SignalScoutEmission) -> tuple[list[dict], str]:
+def build_scout_slack_message(
+    emission: SignalScoutEmission, *, integration: Integration | None = None
+) -> tuple[list[dict], str]:
     """Render a direct scout finding with the same safe Markdown conversion as inbox signals."""
     scout_name = _prettify_scout_name(emission.scout_run.skill_name)
     blocks: list[dict] = [
@@ -141,6 +156,8 @@ def build_scout_slack_message(emission: SignalScoutEmission) -> tuple[list[dict]
         }
     )
 
+    _append_explore_hint(blocks, integration)
+
     first_line = emission.description.strip().splitlines()[0] if emission.description.strip() else "New finding"
     fallback = f"Scout · {escape_slack_mrkdwn(scout_name)}: {escape_slack_mrkdwn(first_line[:200])}"
     return blocks, fallback
@@ -158,7 +175,7 @@ def post_scout_emission_to_slack(
     )
     channel_id = _slack_channel_id(channel)
 
-    blocks, fallback = build_scout_slack_message(emission)
+    blocks, fallback = build_scout_slack_message(emission, integration=integration)
     try:
         SlackIntegration(integration).client.chat_postMessage(
             channel=channel_id,
@@ -178,7 +195,9 @@ def post_scout_emission_to_slack(
         raise
 
 
-def build_scout_report_slack_message(report: SignalReport, run: SignalScoutRun) -> tuple[list[dict], str]:
+def build_scout_report_slack_message(
+    report: SignalReport, run: SignalScoutRun, *, integration: Integration | None = None
+) -> tuple[list[dict], str]:
     scout_name = _prettify_scout_name(run.skill_name)
     title = " ".join((report.title or "").split()) or "New scout report"
     header = title if len(title) <= 150 else title[:147].rstrip() + "..."
@@ -208,6 +227,8 @@ def build_scout_report_slack_message(report: SignalReport, run: SignalScoutRun) 
             ],
         }
     )
+    _append_explore_hint(blocks, integration)
+
     fallback = f"Scout · {escape_slack_mrkdwn(scout_name)}: {escape_slack_mrkdwn(title[:200])}"
     return blocks, fallback
 
@@ -231,7 +252,7 @@ def post_scout_report_to_slack(
         project_id=report.team.project_id,
     )
     channel_id = _slack_channel_id(channel)
-    blocks, fallback = build_scout_report_slack_message(report, run)
+    blocks, fallback = build_scout_report_slack_message(report, run, integration=integration)
     try:
         SlackIntegration(integration).client.chat_postMessage(
             channel=channel_id,

@@ -14,6 +14,7 @@ from posthog.models.integration import Integration
 from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.scout_harness.slack_delivery import (
     ScoutSlackPermanentDeliveryError,
+    build_scout_report_slack_message,
     post_scout_emission_to_slack,
 )
 from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
@@ -85,9 +86,13 @@ class TestScoutSlackDelivery(BaseTest):
         assert "<!channel>" not in section
         assert "<!here>" not in section
         assert "&lt;!channel&gt;" in section
-        assert call["blocks"][-1]["elements"][0]["url"] == (
+        actions_block = next(block for block in call["blocks"] if block["type"] == "actions")
+        assert actions_block["elements"][0]["url"] == (
             f"{settings.SITE_URL}/project/{self.team.id}/inbox/scouts/signals-scout-error-tracking/checkout%2F500s"
         )
+        # The @PostHog follow-up nudge trails the message, mirroring the subscriptions delivery.
+        assert call["blocks"][-1]["type"] == "context"
+        assert "@PostHog" in call["blocks"][-1]["elements"][0]["text"]
 
     def test_posts_report_with_safe_markdown_and_delivery_id(self) -> None:
         emission = self._make_emission()
@@ -121,9 +126,46 @@ class TestScoutSlackDelivery(BaseTest):
         assert "<!channel>" not in section
         assert "&lt;!channel&gt;" in section
         assert "<https://example.com/trace|trace>" in section
-        assert call["blocks"][-1]["elements"][0]["url"] == (
+        actions_block = next(block for block in call["blocks"] if block["type"] == "actions")
+        assert actions_block["elements"][0]["url"] == (
             f"{settings.SITE_URL}/project/{self.team.id}/inbox/reports/{report.id}"
         )
+
+    def test_report_message_ends_with_ask_posthog_nudge_when_bot_is_ready(self) -> None:
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Checkout failed",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+
+        with patch("posthog.helpers.slack_subscription_explore.bot_is_ready", return_value=True):
+            blocks, _ = build_scout_report_slack_message(report, emission.scout_run, integration=integration)
+
+        hint = blocks[-1]
+        assert hint["type"] == "context"
+        assert (
+            hint["elements"][0]["text"]
+            == "💬 Reply in this thread and mention *@PostHog* with a question to dig into this report."
+        )
+
+    def test_report_message_omits_nudge_when_ai_not_approved(self) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Checkout failed",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+
+        blocks, _ = build_scout_report_slack_message(report, emission.scout_run, integration=integration)
+
+        assert not any(block["type"] == "context" and "@PostHog" in block["elements"][0]["text"] for block in blocks)
 
     def test_task_skips_report_suppressed_before_delivery(self) -> None:
         emission = self._make_emission()
