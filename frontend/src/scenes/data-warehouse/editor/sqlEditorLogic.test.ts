@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
@@ -23,7 +25,7 @@ import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import { editorSceneLogic } from './editorSceneLogic'
-import { OutputTab } from './outputPaneLogic'
+import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { activeTabMatchesUrlTarget, getDisplayTypeToSaveInsight, sqlEditorLogic } from './sqlEditorLogic'
 
 // endpointLogic uses permanentlyMount() with a keyed logic, which crashes in
@@ -110,6 +112,24 @@ const MOCK_INSIGHT: QueryBasedInsightModel = {
     user_access_level: 'none',
 } as QueryBasedInsightModel
 
+// An AI-created insight: no explicit name, only a derived one (the API returns name: null
+// even though the frontend type declares it as string)
+const MOCK_DERIVED_NAME_INSIGHT: QueryBasedInsightModel = {
+    ...MOCK_INSIGHT,
+    id: 3,
+    short_id: 'drv123' as InsightShortId,
+    name: null,
+    derived_name: 'Derived daily events',
+} as unknown as QueryBasedInsightModel
+
+// An insight saved before connectionId moved into source: the legacy key sits on the node itself
+const MOCK_LEGACY_CONNECTION_INSIGHT: QueryBasedInsightModel = {
+    ...MOCK_INSIGHT,
+    id: 4,
+    short_id: 'leg123' as InsightShortId,
+    query: { ...MOCK_INSIGHT_QUERY, connectionId: 'legacy-connection' } as QueryBasedInsightModel['query'],
+} as QueryBasedInsightModel
+
 const MOCK_VIEW = {
     id: 'test-view',
     name: 'Test view',
@@ -185,6 +205,12 @@ describe('sqlEditorLogic', () => {
                     }
                     if (shortId === MOCK_DATA_TABLE_INSIGHT_SHORT_ID) {
                         return [200, { results: [MOCK_DATA_TABLE_INSIGHT] }]
+                    }
+                    if (shortId === MOCK_DERIVED_NAME_INSIGHT.short_id) {
+                        return [200, { results: [MOCK_DERIVED_NAME_INSIGHT] }]
+                    }
+                    if (shortId === MOCK_LEGACY_CONNECTION_INSIGHT.short_id) {
+                        return [200, { results: [MOCK_LEGACY_CONNECTION_INSIGHT] }]
                     }
                     return [200, { results: [] }]
                 },
@@ -989,6 +1015,230 @@ describe('sqlEditorLogic', () => {
 
             expect(logic.values.activeTab?.name).toEqual('Untitled')
             expect(logic.values.activeTab?.description).toEqual('')
+        })
+    })
+
+    describe('opening a saved insight', () => {
+        function openInsightByUrl(shortId: string): void {
+            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic.mount()
+            router.actions.push(urls.sqlEditor(), { open_insight: shortId })
+        }
+
+        it('switches to the Visualization tab only after the insight is fully in place', async () => {
+            // Mounting the canvas mid-load proved racy in practice — the tab must flip after
+            // editInsight, never while the fetch is still pending
+            let resolveInsight: (insight: QueryBasedInsightModel) => void = () => {}
+            const fetchSpy = jest.spyOn(insightsApi, 'getByShortId').mockReturnValueOnce(
+                new Promise((resolve) => {
+                    resolveInsight = resolve
+                })
+            )
+            logic = sqlEditorLogic({ tabId: TAB_ID })
+            logic.mount()
+            openInsightByUrl(MOCK_INSIGHT_SHORT_ID)
+
+            await expectLogic(logic).toDispatchActions(['setInsightLoading'])
+            expect(outputPaneLogic({ tabId: TAB_ID }).values.activeTab).toEqual(OutputTab.Results)
+
+            resolveInsight(MOCK_INSIGHT)
+            await expectLogic(logic).toDispatchActions(['editInsight']).toFinishAllListeners()
+            expect(outputPaneLogic({ tabId: TAB_ID }).values.activeTab).toEqual(OutputTab.Visualization)
+            fetchSpy.mockRestore()
+        })
+
+        it('keeps the insight identity when Monaco has not mounted', async () => {
+            // The builder opens insights fullscreen (query pane hidden), so Monaco may never mount.
+            // The tab must still adopt the insight — otherwise the title reads "New SQL query" and
+            // the only save path forks a duplicate.
+            logic = sqlEditorLogic({ tabId: TAB_ID })
+            logic.mount()
+            openInsightByUrl(MOCK_INSIGHT_SHORT_ID)
+
+            await expectLogic(logic)
+                .toDispatchActions(['editInsight', 'createTab', 'updateTab'])
+                .toMatchValues({ editingInsight: partial({ short_id: MOCK_INSIGHT_SHORT_ID }) })
+                .toFinishAllListeners()
+
+            expect(logic.values.activeTab?.name).toEqual(MOCK_INSIGHT.name)
+            expect(logic.values.queryInput).toEqual(MOCK_INSIGHT_QUERY.source.query)
+            expect(editorRootLogic!.values.titleSectionProps).toMatchObject({ name: MOCK_INSIGHT.name })
+            // The URL rewrite must keep a reference to the insight so a reload restores it
+            expect(router.values.hashParams.insight).toEqual(MOCK_INSIGHT_SHORT_ID)
+        })
+
+        it('opens a derived-name insight clean and never writes the fallback name back', async () => {
+            const updateSpy = jest.spyOn(insightsApi, 'update').mockResolvedValue(MOCK_DERIVED_NAME_INSIGHT)
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            openInsightByUrl(MOCK_DERIVED_NAME_INSIGHT.short_id)
+
+            await expectLogic(logic).toDispatchActions(['editInsight', 'createTab', 'updateTab']).toFinishAllListeners()
+
+            expect(logic.values.activeTab?.name).toEqual('Derived daily events')
+            expect(editorRootLogic!.values.updateInsightButtonEnabled).toEqual(false)
+
+            logic.actions.updateInsight()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // A query-only update must not materialize the derived/fallback text as the name
+            expect(updateSpy).toHaveBeenCalledTimes(1)
+            const [, updatePayload] = updateSpy.mock.calls[0]
+            expect('name' in updatePayload).toEqual(false)
+        })
+
+        it('does not read a legacy top-level connectionId as an unsaved change', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            openInsightByUrl(MOCK_LEGACY_CONNECTION_INSIGHT.short_id)
+
+            await expectLogic(logic).toDispatchActions(['editInsight', 'createTab', 'updateTab']).toFinishAllListeners()
+
+            expect(editorRootLogic!.values.updateInsightButtonEnabled).toEqual(false)
+        })
+
+        it('runs the new query when switching to a different insight despite a cached response', async () => {
+            // The previous insight's rows would otherwise stay on screen under the new
+            // insight's chart config, rendering a blank chart
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            openInsightByUrl(MOCK_INSIGHT_SHORT_ID)
+            await expectLogic(logic).toDispatchActions(['editInsight', 'runQuery']).toFinishAllListeners()
+
+            // Simulate the first insight's response having landed in the shared data node
+            const dataNode = dataNodeLogic({ key: logic.values.dataLogicKey, query: MOCK_INSIGHT_QUERY.source })
+            dataNode.mount()
+            dataNode.actions.setResponse({ columns: ['count'], results: [[1]] })
+
+            await expectLogic(logic, () => {
+                router.actions.push(urls.sqlEditor(), { open_insight: MOCK_DATA_TABLE_INSIGHT_SHORT_ID })
+            })
+                .toDispatchActions(['editInsight', 'runQuery'])
+                .toFinishAllListeners()
+        })
+
+        it('does not re-run when reopening the same insight with its response cached', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            openInsightByUrl(MOCK_INSIGHT_SHORT_ID)
+            await expectLogic(logic).toDispatchActions(['editInsight', 'runQuery']).toFinishAllListeners()
+
+            const dataNode = dataNodeLogic({ key: logic.values.dataLogicKey, query: MOCK_INSIGHT_QUERY.source })
+            dataNode.mount()
+            dataNode.actions.setResponse({ columns: ['count'], results: [[1]] })
+
+            await expectLogic(logic, () => {
+                router.actions.push(urls.sqlEditor(), { open_insight: MOCK_INSIGHT_SHORT_ID })
+            })
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['runQuery'])
+        })
+
+        it('runs the compiled query, not the base buffer, when the builder owns the tab', async () => {
+            // Running the buffer (the base query) would replace the compiled SQL on the node and
+            // orphan the chart, whose settings reference compiled aliases
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.BI_SQL_INSIGHT_EDITOR], {
+                [FEATURE_FLAGS.BI_SQL_INSIGHT_EDITOR]: true,
+            })
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            logic.actions.createTab('')
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            const compiled = 'SELECT plan AS plan, count() AS count_star FROM (SELECT * FROM payments) GROUP BY plan'
+            logic.actions.setSourceQuery({
+                kind: NodeKind.DataVisualizationNode,
+                source: { kind: NodeKind.HogQLQuery, query: compiled },
+                display: ChartDisplayType.ActionsBar,
+                builder: {
+                    enabled: true,
+                    baseQuery: 'SELECT * FROM payments',
+                    rows: [],
+                    columns: [{ column: 'plan' }],
+                    values: [{ column: '*', aggregation: 'count' }],
+                },
+            })
+            logic.actions.setQueryInput('SELECT * FROM payments')
+
+            logic.actions.runQuery()
+
+            expect(logic.values.lastRunQuery?.source.query).toEqual(compiled)
+            expect(logic.values.sourceQuery.source.query).toEqual(compiled)
+
+            // Selecting the whole buffer and running (Cmd+Enter) means "run the insight" too
+            logic.actions.runQuery('SELECT * FROM payments')
+
+            expect(logic.values.lastRunQuery?.source.query).toEqual(compiled)
+            expect(logic.values.sourceQuery.source.query).toEqual(compiled)
+
+            // A partial selection is an ad-hoc run: it executes, but must not overwrite the
+            // compiled SQL on the node — a save right after would persist the ad-hoc text
+            logic.actions.runQuery('SELECT plan FROM payments')
+
+            expect(logic.values.lastRunQuery?.source.query).toEqual('SELECT plan FROM payments')
+            expect(logic.values.sourceQuery.source.query).toEqual(compiled)
+        })
+
+        it('treats a builder insight as a plain SQL tab when the builder flag is off', async () => {
+            // A builder insight edited with the flag off: the buffer holds the compiled SQL and
+            // is the source of truth — runs must execute the edited buffer and write it into the
+            // node, or edits never take effect and "Update insight" sees no changes.
+            // Flags leak across tests through posthog-js module state, so reset explicitly.
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            logic.actions.createTab('')
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+            const compiled = 'SELECT plan AS plan, count() AS count_star FROM (SELECT * FROM payments) GROUP BY plan'
+            logic.actions.setSourceQuery({
+                kind: NodeKind.DataVisualizationNode,
+                source: { kind: NodeKind.HogQLQuery, query: compiled },
+                display: ChartDisplayType.ActionsBar,
+                builder: {
+                    enabled: true,
+                    baseQuery: 'SELECT * FROM payments',
+                    rows: [],
+                    columns: [{ column: 'plan' }],
+                    values: [{ column: '*', aggregation: 'count' }],
+                },
+            })
+            const edited =
+                'SELECT plan AS plan, count() AS count_star FROM (SELECT * FROM payments) GROUP BY plan LIMIT 5'
+            logic.actions.setQueryInput(edited)
+
+            logic.actions.runQuery()
+
+            expect(logic.values.lastRunQuery?.source.query).toEqual(edited)
+            expect(logic.values.sourceQuery.source.query).toEqual(edited)
+            expect(logic.values.isSourceQueryLastRun).toEqual(true)
         })
     })
 

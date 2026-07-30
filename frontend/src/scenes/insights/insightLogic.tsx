@@ -1150,7 +1150,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 },
                 content: (
                     <LemonField name="name">
-                        <LemonInput data-attr="insight-name" placeholder="Please enter the new name" autoFocus />
+                        <LemonInput data-attr="insight-name" placeholder="Name this insight" autoFocus />
                     </LemonField>
                 ),
                 errors: {

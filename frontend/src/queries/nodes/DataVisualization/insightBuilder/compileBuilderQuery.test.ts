@@ -2,6 +2,7 @@ import { InsightBuilderConfig } from '~/queries/schema/schema-general'
 
 import {
     BuilderCompileError,
+    baseLimitCap,
     compileBuilderQuery,
     detectSelectAllTarget,
     dimensionExpr,
@@ -179,6 +180,12 @@ describe('compileBuilderQuery', () => {
             ['%%%', 'field'],
             ['from', 'from_'],
             ['ORDER', 'order_'],
+            // Literals and the injected tenant guard would compile but break at runtime
+            ['inf', 'inf_'],
+            ['NaN', 'nan_'],
+            ['true', 'true_'],
+            ['false', 'false_'],
+            ['team_id', 'team_id_'],
         ])('sanitizes %s to %s', (raw, expected) => {
             expect(sanitizeAlias(raw, new Set())).toEqual(expected)
         })
@@ -259,6 +266,25 @@ describe('compileBuilderQuery', () => {
             ['SELECT * FROM payments LIMIT 100 OFFSET 5', null],
         ])('detects %s → %s', (base, expected) => {
             expect(detectSelectAllTarget(base)).toEqual(expected)
+        })
+    })
+
+    describe('baseLimitCap', () => {
+        it.each([
+            // A bare trailing LIMIT silently caps everything the builder aggregates
+            ['SELECT id FROM events LIMIT 100', undefined, 100],
+            ['SELECT id FROM events LIMIT 100;', undefined, 100],
+            ['select id from events limit 50', undefined, 50],
+            // An ordered LIMIT is a deliberate top-N input, not an accident
+            ['SELECT id FROM events ORDER BY id DESC LIMIT 10', undefined, null],
+            ['SELECT id FROM events', undefined, null],
+            // Only a trailing LIMIT caps the whole base; inner ones don't match
+            ['SELECT * FROM (SELECT id FROM events LIMIT 5)', undefined, null],
+            ['SELECT 1; SELECT 2 LIMIT 5', undefined, null],
+            // Compiling against an object by name drops the preview LIMIT entirely
+            ['SELECT * FROM payments LIMIT 100', 'payments', null],
+        ])('%s (baseView %s) → %s', (base, baseView, expected) => {
+            expect(baseLimitCap(base, baseView)).toEqual(expected)
         })
     })
 

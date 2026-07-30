@@ -1,10 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { useMocks } from '~/mocks/jest'
 import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
+import { OutputTab } from '../outputPaneLogic'
 import { sqlEditorLogic } from '../sqlEditorLogic'
 import { insightBuilderLogic } from './insightBuilderLogic'
 
@@ -17,13 +20,15 @@ jest.mock('lib/utils/kea-logic-builders', () => ({
 const TAB_ID = 'builder-test'
 const BASE_QUERY = 'SELECT event, amount FROM events'
 
+// A self-consistent saved node: its SQL is (modulo whitespace) what its builder config compiles
+// to for its chart type — line charts keep the Rows breakdown, so `plan` survives compilation
 const BUILDER_NODE: DataVisualizationNode = {
     kind: NodeKind.DataVisualizationNode,
     source: {
         kind: NodeKind.HogQLQuery,
         query: 'SELECT plan AS plan, sum(amount) AS sum_amount FROM (SELECT * FROM payments) GROUP BY plan ORDER BY plan ASC',
     },
-    display: ChartDisplayType.ActionsBar,
+    display: ChartDisplayType.ActionsLineGraph,
     builder: {
         enabled: true,
         baseQuery: 'SELECT * FROM payments',
@@ -78,7 +83,11 @@ describe('insightBuilderLogic', () => {
             .toDispatchActions(sqlLogic, ['setSourceQuery'])
             // Our own compiled node must not bounce back into hydration (that would loop)
             .toNotHaveDispatchedActions(['hydrateFromNode'])
-            .toDispatchActions(sqlLogic, ['runQuery'])
+            // Builder recompiles run 'async' so they can hit the query cache — only the explicit
+            // Run button forces fresh execution
+            .toDispatchActions(sqlLogic, [
+                (action) => action.type === sqlLogic.actionTypes.runQuery && action.payload.refreshMode === 'async',
+            ])
 
         const node = sqlLogic.values.sourceQuery
         expect(node.builder).toEqual({
@@ -104,7 +113,7 @@ describe('insightBuilderLogic', () => {
             .toMatchValues({
                 rows: [{ column: 'plan' }],
                 measures: [{ column: 'amount', aggregation: 'sum' }],
-                builderDisplay: ChartDisplayType.ActionsBar,
+                builderDisplay: ChartDisplayType.ActionsLineGraph,
                 baseQuery: 'SELECT * FROM payments',
             })
             .delay(400)
@@ -176,6 +185,94 @@ describe('insightBuilderLogic', () => {
         expect(node.source.query).not.toContain('LIMIT 100')
     })
 
+    it('rejects an add to a well the chart does not use, with feedback instead of silence', async () => {
+        const toastSpy = jest.spyOn(lemonToast, 'info')
+        sqlLogic.actions.setQueryInput(BASE_QUERY)
+        builderLogic.actions.setBaseSnapshot(BASE_QUERY, null)
+        builderLogic.actions.setBuilderDisplay(ChartDisplayType.ActionsBar)
+
+        await expectLogic(builderLogic, () => {
+            builderLogic.actions.addField('rows', 'event')
+        }).toMatchValues({ rows: [] })
+
+        expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining("doesn't use Breakdown"))
+    })
+
+    it('keeps stashed fields when rejecting an add to a well the chart does not use', async () => {
+        await expectLogic(builderLogic, () => {
+            sqlLogic.actions.setSourceQuery(BUILDER_NODE)
+        }).toDispatchActions(['hydrateFromNode'])
+        // Bar charts don't use Breakdown, so the hydrated `plan` row becomes a stash — it comes
+        // back when the chart type changes back. A rejected add must undo only itself, not eat it.
+        builderLogic.actions.setBuilderDisplay(ChartDisplayType.ActionsBar)
+
+        await expectLogic(builderLogic, () => {
+            builderLogic.actions.addField('rows', 'event')
+        }).toMatchValues({ rows: [{ column: 'plan' }] })
+    })
+
+    it('pins the builder display onto the node while wells are empty, without claiming builder', async () => {
+        // With `display: Auto` the FORMAT panel's identity would be derived from the response
+        // (flipping between table settings and axis pickers); the pin keeps the builder's chart
+        // type authoritative from the first render. No `builder` key and no query run: an
+        // empty-well session saved as an insight must stay a plain SQL insight.
+        sqlLogic.actions.setQueryInput(BASE_QUERY)
+        builderLogic.actions.setBaseSnapshot(BASE_QUERY, null)
+
+        await expectLogic(builderLogic, () => {
+            builderLogic.actions.applyWells()
+        }).delay(400)
+
+        expect(sqlLogic.values.sourceQuery.display).toEqual(ChartDisplayType.ActionsTable)
+        expect(sqlLogic.values.sourceQuery.builder).toBeUndefined()
+
+        await expectLogic(builderLogic, () => {
+            builderLogic.actions.setBuilderDisplay(ChartDisplayType.ActionsLineGraph)
+        })
+            .delay(400)
+            .toNotHaveDispatchedActions(sqlLogic, ['runQuery'])
+
+        expect(sqlLogic.values.sourceQuery.display).toEqual(ChartDisplayType.ActionsLineGraph)
+        expect(sqlLogic.values.sourceQuery.builder).toBeUndefined()
+    })
+
+    it('does not re-snapshot an edited buffer when reopening Visualization with fields placed', async () => {
+        await expectLogic(builderLogic, () => {
+            sqlLogic.actions.setSourceQuery(BUILDER_NODE)
+        }).toDispatchActions(['hydrateFromNode'])
+
+        // A half-edited buffer must not silently replace the base the wells were built on —
+        // the explicit "Base query changed" banner is the only refresh path once fields exist
+        sqlLogic.actions.setQueryInput('SELECT * FROM payments WHERE amount >')
+
+        await expectLogic(builderLogic, () => {
+            builderLogic.actions.setActiveTab(OutputTab.Visualization)
+        }).toNotHaveDispatchedActions(['refreshBase'])
+
+        expect(builderLogic.values.baseQuery).toEqual('SELECT * FROM payments')
+        expect(builderLogic.values.baseOutOfSync).toEqual(true)
+    })
+
+    it('hydrates when the builder mounts after the node already landed', async () => {
+        // Opening an insight races the canvas mount (lazy chunk, tab restore) against the
+        // insight arriving — whichever wins, the wells and chart type must hydrate. This covers
+        // node-first: delivered while the builder logic was unmounted, picked up on mount by
+        // the sourceQuery value subscription.
+        builderLogic.unmount()
+        sqlLogic.actions.setSourceQuery(BUILDER_NODE)
+
+        builderLogic = insightBuilderLogic({ tabId: TAB_ID })
+        await expectLogic(builderLogic, () => {
+            builderLogic.mount()
+        })
+            .toDispatchActions(['hydrateFromNode'])
+            .toMatchValues({
+                rows: [{ column: 'plan' }],
+                baseQuery: 'SELECT * FROM payments',
+                builderDisplay: ChartDisplayType.ActionsLineGraph,
+            })
+    })
+
     it('does not hydrate again when an identical node round-trips through setSourceQuery', async () => {
         await expectLogic(builderLogic, () => {
             sqlLogic.actions.setSourceQuery(BUILDER_NODE)
@@ -184,5 +281,47 @@ describe('insightBuilderLogic', () => {
         await expectLogic(builderLogic, () => {
             sqlLogic.actions.setSourceQuery({ ...BUILDER_NODE })
         }).toNotHaveDispatchedActions(['hydrateFromNode'])
+    })
+
+    describe('builder/SQL conflicts', () => {
+        // The SQL no longer matches what the builder config compiles to — e.g. it was edited in
+        // the plain SQL editor while the builder feature flag was off, then saved
+        const CONFLICTED_NODE: DataVisualizationNode = {
+            ...BUILDER_NODE,
+            source: { ...BUILDER_NODE.source, query: 'SELECT edited_elsewhere FROM payments' },
+        }
+
+        it('flags the conflict instead of silently hydrating the wells', async () => {
+            await expectLogic(builderLogic, () => {
+                sqlLogic.actions.setSourceQuery(CONFLICTED_NODE)
+            })
+                .toNotHaveDispatchedActions(['hydrateFromNode'])
+                .toMatchValues({ builderConflict: true, rows: [] })
+        })
+
+        it('keeping the SQL strips the builder config and hands the SQL to the editor', async () => {
+            sqlLogic.actions.setSourceQuery(CONFLICTED_NODE)
+
+            await expectLogic(builderLogic, () => {
+                builderLogic.actions.resolveBuilderConflict('sql')
+            }).toMatchValues({ builderConflict: false })
+
+            expect(sqlLogic.values.sourceQuery.builder).toBeUndefined()
+            expect(sqlLogic.values.queryInput).toEqual('SELECT edited_elsewhere FROM payments')
+        })
+
+        it('restoring the visual setup hydrates the wells and regenerates the SQL from them', async () => {
+            sqlLogic.actions.setSourceQuery(CONFLICTED_NODE)
+
+            await expectLogic(builderLogic, () => {
+                builderLogic.actions.resolveBuilderConflict('builder')
+            })
+                .toDispatchActions(['hydrateFromNode', 'applyWells'])
+                .toMatchValues({ builderConflict: false, rows: [{ column: 'plan' }] })
+                .delay(400)
+
+            expect(sqlLogic.values.sourceQuery.source.query).toContain('sum(amount) AS sum_amount')
+            expect(sqlLogic.values.sourceQuery.source.query).not.toContain('edited_elsewhere')
+        })
     })
 })

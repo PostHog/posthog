@@ -8,10 +8,9 @@ import { LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { LemonMenuItem, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -43,8 +42,8 @@ import { editorSceneLogic } from './editorSceneLogic'
 import { editorSizingLogic } from './editorSizingLogic'
 import { applyExecuteSqlToolOutput, getExecuteSqlToolContext } from './maxSqlTool'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
-import { OutputPane } from './OutputPane'
-import { outputPaneLogic } from './outputPaneLogic'
+import { BuilderSceneTabs, OutputPane } from './OutputPane'
+import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryWindow } from './QueryWindow'
 import { sqlEditorLogic } from './sqlEditorLogic'
@@ -105,17 +104,7 @@ export function SQLEditor({
     const databaseTreeRef = useRef(null)
     const [hasShownDatabaseTree, setHasShownDatabaseTree] = useState(defaultShowDatabaseTree)
 
-    const insightBuilderEnabled = useFeatureFlag('BI_SQL_INSIGHT_EDITOR')
-    const { fullscreen: outputFullscreen } = useValues(outputPaneLogic({ tabId: tabId || '' }))
-    // Builder fullscreen gives the output pane the whole scene: the query pane and database tree collapse
-    const builderFullscreen = insightBuilderEnabled && outputFullscreen
-
-    const shouldShowDatabaseTree = showDatabaseTree ?? hasShownDatabaseTree
-    const showQueryPanel = panel !== SQLEditorPanel.Output && !builderFullscreen
-    const showOutputPanel = panel !== SQLEditorPanel.Query
-    const showSceneTitle = panel === SQLEditorPanel.Full && mode === SQLEditorMode.FullScene
-    const showDatabaseTreePanel = showQueryPanel && shouldShowDatabaseTree
-    const showFullSceneModals = mode === SQLEditorMode.FullScene
+    const { activeTab: outputActiveTab } = useValues(outputPaneLogic({ tabId: tabId || '' }))
 
     const editorSizingLogicProps = useMemo(
         () => ({
@@ -168,10 +157,23 @@ export function SQLEditor({
         editor,
     })
 
-    const { sourceQuery, dataLogicKey } = useValues(logic)
+    const { sourceQuery, dataLogicKey, insightBuilderHosted } = useValues(logic)
     const { setSourceQuery } = useActions(logic)
     const sourceQueryRef = useRef(sourceQuery)
     sourceQueryRef.current = sourceQuery
+
+    // On builder-hosted tabs the top-level tabs split the scene: Source owns the query pane,
+    // database tree, and raw results; Visualization gives the builder canvas the whole scene.
+    // Gated on the builder actually hosting the visualization, so a legacy (non-builder) insight
+    // never loses its query pane.
+    const builderCanvasActive = insightBuilderHosted && outputActiveTab === OutputTab.Visualization
+
+    const shouldShowDatabaseTree = showDatabaseTree ?? hasShownDatabaseTree
+    const showQueryPanel = panel !== SQLEditorPanel.Output && !builderCanvasActive
+    const showOutputPanel = panel !== SQLEditorPanel.Query
+    const showSceneTitle = panel === SQLEditorPanel.Full && mode === SQLEditorMode.FullScene
+    const showDatabaseTreePanel = showQueryPanel && shouldShowDatabaseTree
+    const showFullSceneModals = mode === SQLEditorMode.FullScene
 
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
         key: dataLogicKey,
@@ -182,6 +184,7 @@ export function SQLEditor({
         loadPriority: undefined,
         cachedResults: undefined,
         variablesOverride: undefined,
+        insightBuilderHosted,
         setQuery: (setter) => applyDataVisualizationQueryUpdate(sourceQueryRef, setter, setSourceQuery),
     }
 
@@ -233,6 +236,7 @@ export function SQLEditor({
                                     {showQueryPanel ? <VariablesQuerySync /> : null}
                                     {panel === SQLEditorPanel.Output ? (
                                         <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                                            {insightBuilderHosted ? <BuilderSceneTabs /> : null}
                                             <OutputPane
                                                 tabId={tabId || ''}
                                                 showToolbar={showOutputToolbar}
@@ -243,6 +247,7 @@ export function SQLEditor({
                                         <BindLogic logic={editorSizingLogic} props={editorSizingLogicProps}>
                                             <div className="flex h-full min-h-0 flex-col overflow-hidden">
                                                 {showSceneTitle ? <SQLEditorSceneTitle /> : null}
+                                                {insightBuilderHosted ? <BuilderSceneTabs /> : null}
                                                 <div className="flex min-h-0 flex-1">
                                                     {showDatabaseTreePanel && (
                                                         <DatabaseTree
@@ -409,31 +414,58 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         AccessControlLevel.Editor
     )
 
-    const secondarySaveMenuItems = useMemo(
+    const saveAsDisabledReason = useMemo(() => {
+        if (insightLoading) {
+            return 'Loading insight...'
+        }
+
+        if (!isSourceQueryLastRun) {
+            return 'Run latest query changes before saving'
+        }
+
+        if (responseLoading) {
+            return 'Running query...'
+        }
+
+        if (responseError || !response) {
+            return 'Run query successfully before saving'
+        }
+
+        return undefined
+    }, [insightLoading, isSourceQueryLastRun, responseLoading, responseError, response])
+
+    // Built as clean LemonMenuItems — unknown keys on the item objects get spread onto the
+    // underlying <button> by LemonMenu and warn as unrecognized DOM props
+    const secondarySaveMenuItems: LemonMenuItem[] = useMemo(
         () =>
-            saveAsMenuItems.secondary.map((item) => ({
-                ...item,
-                onClick: () => {
-                    if (item.action === 'insight') {
-                        saveAsInsight()
-                        return
-                    }
-
-                    if (item.action === 'endpoint') {
-                        saveAsEndpoint()
-                        return
-                    }
-
-                    saveAsView()
-                },
-                accessDisabledReason:
-                    item.action === 'view'
+            saveAsMenuItems.secondary.map(({ action, label, dataAttr }) => {
+                const accessDisabledReason =
+                    action === 'view'
                         ? saveAsViewAccessDisabledReason
-                        : item.action === 'endpoint'
+                        : action === 'endpoint'
                           ? saveAsEndpointAccessDisabledReason
-                          : undefined,
-            })),
+                          : undefined
+                return {
+                    label,
+                    'data-attr': dataAttr,
+                    disabledReason: saveAsDisabledReason ?? accessDisabledReason ?? undefined,
+                    onClick: () => {
+                        if (action === 'insight') {
+                            saveAsInsight()
+                            return
+                        }
+
+                        if (action === 'endpoint') {
+                            saveAsEndpoint()
+                            return
+                        }
+
+                        saveAsView()
+                    },
+                }
+            }),
         [
+            saveAsDisabledReason,
             saveAsEndpoint,
             saveAsInsight,
             saveAsMenuItems.secondary,
@@ -456,26 +488,6 @@ function SQLEditorSceneTitle(): JSX.Element | null {
 
         saveAsInsight()
     }
-
-    const saveAsDisabledReason = useMemo(() => {
-        if (insightLoading) {
-            return 'Loading insight...'
-        }
-
-        if (!isSourceQueryLastRun) {
-            return 'Run latest query changes before saving'
-        }
-
-        if (responseLoading) {
-            return 'Running query...'
-        }
-
-        if (responseError || !response) {
-            return 'Run query successfully before saving'
-        }
-
-        return undefined
-    }, [insightLoading, isSourceQueryLastRun, responseLoading, responseError, response])
 
     const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
         if (updatingDataWarehouseSavedQuery) {
@@ -733,14 +745,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                     'data-attr': 'sql-editor-save-options-button',
                                     dropdown: {
                                         placement: 'bottom-end',
-                                        overlay: (
-                                            <LemonMenuOverlay
-                                                items={secondarySaveMenuItems.map((item) => ({
-                                                    ...item,
-                                                    disabledReason: saveAsDisabledReason ?? item.accessDisabledReason,
-                                                }))}
-                                            />
-                                        ),
+                                        overlay: <LemonMenuOverlay items={secondarySaveMenuItems} />,
                                     },
                                 }}
                             >

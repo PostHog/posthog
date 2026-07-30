@@ -36,11 +36,21 @@ const normalizeNumberInput = (value: string | number): number => {
 }
 
 export const HeatmapSeriesTab = (): JSX.Element => {
-    const { columns, numericalColumns, responseLoading, chartSettings } = useValues(dataVisualizationLogic)
+    const { columns, numericalColumns, responseLoading, chartSettings, isBuilderOwnedQuery } =
+        useValues(dataVisualizationLogic)
     const { updateChartSettings } = useActions(dataVisualizationLogic)
 
     const heatmapSettings = chartSettings.heatmap ?? ({} as HeatmapSettings)
     const gradientStops = heatmapSettings.gradient ?? defaultGradientStops
+
+    // On builder-owned queries the wells choose the heatmap's columns — changing them here would
+    // desync the chart from the Setup column. Labels, nulls, and the gradient stay editable.
+    const columnPickerDisabledReason = (wellName: string): string | undefined => {
+        if (isBuilderOwnedQuery) {
+            return `Set from the ${wellName} well in Setup`
+        }
+        return responseLoading ? 'Query loading...' : undefined
+    }
 
     const updateHeatmapSettings = (partial: Partial<HeatmapSettings>): void => {
         updateChartSettings({
@@ -87,7 +97,7 @@ export const HeatmapSeriesTab = (): JSX.Element => {
                     className="w-full"
                     value={heatmapSettings.xAxisColumn ?? 'None'}
                     options={columnOptions}
-                    disabledReason={responseLoading ? 'Query loading...' : undefined}
+                    disabledReason={columnPickerDisabledReason('Columns')}
                     onChange={(value) => updateHeatmapSettings({ xAxisColumn: value ?? undefined })}
                 />
                 <LemonLabel className="mt-2 mb-1">X-axis label</LemonLabel>
@@ -104,7 +114,7 @@ export const HeatmapSeriesTab = (): JSX.Element => {
                     className="w-full"
                     value={heatmapSettings.yAxisColumn ?? 'None'}
                     options={columnOptions}
-                    disabledReason={responseLoading ? 'Query loading...' : undefined}
+                    disabledReason={columnPickerDisabledReason('Rows')}
                     onChange={(value) => updateHeatmapSettings({ yAxisColumn: value ?? undefined })}
                 />
                 <LemonLabel className="mt-2 mb-1">Y-axis label</LemonLabel>
@@ -121,7 +131,7 @@ export const HeatmapSeriesTab = (): JSX.Element => {
                     className="w-full"
                     value={heatmapSettings.valueColumn ?? 'None'}
                     options={numericalOptions}
-                    disabledReason={responseLoading ? 'Query loading...' : undefined}
+                    disabledReason={columnPickerDisabledReason('Value')}
                     onChange={(value) => updateHeatmapSettings({ valueColumn: value ?? undefined })}
                 />
                 <LemonLabel className="mt-2 mb-1">Label for null</LemonLabel>

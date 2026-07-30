@@ -2,13 +2,12 @@ import './DataGrid.scss'
 import 'react-data-grid/lib/styles.css'
 
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { Suspense, lazy, useCallback, useMemo, useRef, useState } from 'react'
 import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
 
 import {
     IconCode,
-    IconCollapse45,
     IconColumns,
     IconCopy,
     IconDownload,
@@ -30,7 +29,6 @@ import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
@@ -41,7 +39,7 @@ import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
@@ -167,6 +165,21 @@ const outputTabs: OutputTabConfig[] = [
         key: OutputTab.Results,
         label: 'Results',
         icon: <IconTableChart />,
+    },
+    {
+        key: OutputTab.Visualization,
+        label: 'Visualization',
+        icon: <IconGraph />,
+    },
+]
+
+// Builder tabs split the scene at the top level: Source holds the SQL editor, data sources, and
+// the base query's raw rows; Visualization holds the insight builder canvas
+const builderOutputTabs: OutputTabConfig[] = [
+    {
+        key: OutputTab.Results,
+        label: 'Source',
+        icon: <IconCode />,
     },
     {
         key: OutputTab.Visualization,
@@ -342,6 +355,32 @@ function RowDetailsModal({ isOpen, onClose, row, columns, columnKeys }: RowDetai
                 />
             </div>
         </LemonModal>
+    )
+}
+
+/**
+ * Top-of-scene Source | Visualization switcher for builder-hosted tabs, rendered by SQLEditor
+ * above the whole editor/canvas so it stays put no matter which side is showing. Reads the
+ * outputPaneLogic bound by SQLEditor.
+ */
+export function BuilderSceneTabs(): JSX.Element {
+    const { activeTab } = useValues(outputPaneLogic)
+    const { setActiveTab } = useActions(outputPaneLogic)
+    const effectiveTab = activeTab === OutputTab.Both ? OutputTab.Visualization : activeTab
+
+    return (
+        <div className="flex min-h-[41px] shrink-0 items-center border-b px-2" data-attr="sql-builder-scene-tabs">
+            <div className="flex items-center gap-2">
+                {builderOutputTabs.map((tab) => (
+                    <OutputTabLabel
+                        key={tab.key}
+                        tab={tab}
+                        active={tab.key === effectiveTab}
+                        onClick={() => setActiveTab(tab.key)}
+                    />
+                ))}
+            </div>
+        </div>
     )
 }
 
@@ -597,8 +636,17 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
 
-    const { sourceQuery, exportContext, insightLoading, hasQueryInput, isEmbeddedMode, editingInsight } =
-        useValues(sqlEditorLogic)
+    const {
+        sourceQuery,
+        exportContext,
+        insightLoading,
+        hasQueryInput,
+        isEmbeddedMode,
+        insightBuilderHosted,
+        baseDataLogicKey,
+        basePreviewSource,
+        baseExportContext,
+    } = useValues(sqlEditorLogic)
     const { setSourceQuery } = useActions(sqlEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
@@ -610,17 +658,57 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
     } = useValues(dataNodeLogic)
     const { queryCancelled, isChartSettingsPanelOpen } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
-    const insightBuilderEnabled = useFeatureFlag('BI_SQL_INSIGHT_EDITOR')
-    const { fullscreen } = useValues(outputPaneLogic)
-    const { toggleFullscreen } = useActions(outputPaneLogic)
 
     // The Visualization tab hosts the builder canvas when the flag is on. Legacy SQL insights
     // (saved without a builder config) keep the classic Visualization panel so their chart still renders.
-    const builderLayout = insightBuilderEnabled && !isEmbeddedMode && !(editingInsight && !sourceQuery.builder?.enabled)
+    const builderLayout = insightBuilderHosted
     // The builder canvas replaces the split view; force a single active tab there.
     const effectiveTab = builderLayout && activeTab === OutputTab.Both ? OutputTab.Visualization : activeTab
 
-    const response = dataNodeResponse as HogQLQueryResponse | undefined
+    // Builder tabs keep the *base* query's raw rows in a second data node so the Source tab shows
+    // source data while the shared node holds the compiled query's results for the chart. Inert on
+    // non-builder panes: autoLoad is off and nothing dispatches a load for it.
+    const baseNodeProps: DataNodeLogicProps = useMemo(
+        () => ({
+            key: baseDataLogicKey,
+            query: basePreviewSource ?? { kind: NodeKind.HogQLQuery, query: '' },
+            autoLoad: false,
+            dataNodeCollectionId: baseDataLogicKey,
+        }),
+        [baseDataLogicKey, basePreviewSource]
+    )
+    const {
+        response: baseResponse,
+        responseLoading: baseResponseLoading,
+        responseError: baseResponseError,
+        queryId: baseQueryId,
+        pollResponse: basePollResponse,
+    } = useValues(dataNodeLogic(baseNodeProps))
+
+    const baseGridActive = builderLayout && !!sourceQuery.builder?.enabled
+    // What the results grid (and its actions/footer) show: base data on builder tabs, the shared
+    // node otherwise. The chart always reads the shared node directly.
+    const resultsData = baseGridActive
+        ? {
+              response: baseResponse as HogQLQueryResponse | undefined,
+              responseLoading: baseResponseLoading,
+              responseError: baseResponseError,
+              queryId: baseQueryId,
+              pollResponse: basePollResponse,
+              queryCancelled: false,
+              exportContext: baseExportContext,
+          }
+        : {
+              response: dataNodeResponse as HogQLQueryResponse | undefined,
+              responseLoading,
+              responseError,
+              queryId,
+              pollResponse,
+              queryCancelled,
+              exportContext,
+          }
+
+    const response = resultsData.response
     const splitPaneRef = useRef<HTMLDivElement>(null)
     const splitView = effectiveTab === OutputTab.Both
     const splitResizerProps = useMemo<ResizerLogicProps>(
@@ -797,22 +885,16 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
         />
     )
     const sharedContentProps = {
-        responseError,
-        responseLoading,
-        response,
+        ...resultsData,
         insightLoading,
         sourceQuery,
-        queryCancelled,
         columns,
         rows,
         isDarkModeOn,
         vizKey,
         setSourceQuery,
-        exportContext,
-        queryId,
-        pollResponse,
         setProgress,
-        progress: queryId ? progressCache[queryId] : undefined,
+        progress: resultsData.queryId ? progressCache[resultsData.queryId] : undefined,
         showVisualizationSettings: showToolbar && isChartSettingsPanelOpen,
         isEmbeddedMode,
         builderLayout,
@@ -822,7 +904,7 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
         response,
         rows,
         hasColumns,
-        exportContext,
+        exportContext: resultsData.exportContext,
         hasQueryInput,
         isEmbeddedMode,
         settingsOpen: isChartSettingsPanelOpen,
@@ -873,29 +955,29 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
         </div>
     ) : (
         <>
-            {showToolbar ? (
+            {/* Builder tabs switch scenes from BuilderSceneTabs up top; the Visualization side
+                needs no toolbar row at all, and the Source side's row is a plain "Results" header */}
+            {showToolbar && !(builderLayout && effectiveTab === OutputTab.Visualization) ? (
                 <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto">
                     <div className="flex min-h-[41px] items-center gap-2 ml-2">
                         {builderLayout ? (
-                            <LemonButton
-                                size="small"
-                                type="tertiary"
-                                icon={fullscreen ? <IconCollapse45 /> : <IconExpand45 />}
-                                onClick={() => toggleFullscreen()}
-                                tooltip={fullscreen ? 'Exit fullscreen' : 'Expand to fullscreen'}
-                                data-attr="sql-editor-output-fullscreen"
-                            />
+                            <div className="flex items-center gap-1 px-2 font-semibold">
+                                <IconTableChart />
+                                Results
+                            </div>
                         ) : (
-                            splitToggle
+                            <>
+                                {splitToggle}
+                                {outputTabs.map((tab) => (
+                                    <OutputTabLabel
+                                        key={tab.key}
+                                        tab={tab}
+                                        active={tab.key === effectiveTab}
+                                        onClick={() => setActiveTab(tab.key)}
+                                    />
+                                ))}
+                            </>
                         )}
-                        {outputTabs.map((tab) => (
-                            <OutputTabLabel
-                                key={tab.key}
-                                tab={tab}
-                                active={tab.key === effectiveTab}
-                                onClick={() => setActiveTab(tab.key)}
-                            />
-                        ))}
                     </div>
                     <div className="flex gap-2 py-1 px-4 flex-shrink-0">
                         <OutputActions activeTab={effectiveTab} {...sharedActionsProps} />
@@ -908,15 +990,33 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
         </>
     )
 
+    // On a builder tab's Source view the footer describes the base query's rows/run, so its
+    // consumers (LoadPreviewText, ElapsedTime, QueryExecutionDetails) rebind to the base node;
+    // everywhere else it keeps describing the shared node (the chart's compiled query)
+    const footerUsesBase = baseGridActive && effectiveTab === OutputTab.Results
+    const footerResponse = footerUsesBase ? resultsData.response : (dataNodeResponse as HogQLQueryResponse | undefined)
+    const footerError = footerUsesBase ? resultsData.responseError : responseError
+    const footerContent = (
+        <>
+            <div>{footerResponse && !footerError ? <LoadPreviewText localResponse={footerResponse} /> : <></>}</div>
+            <div className="flex items-center gap-4">
+                <ElapsedTime />
+                <QueryExecutionDetails />
+            </div>
+        </>
+    )
+
     return (
         <div className="OutputPane flex flex-col w-full flex-1 min-h-0 bg-white dark:bg-black">
             {outputContent}
             <div className="flex justify-between px-2 border-t">
-                <div>{response && !responseError ? <LoadPreviewText localResponse={response} /> : <></>}</div>
-                <div className="flex items-center gap-4">
-                    <ElapsedTime />
-                    <QueryExecutionDetails />
-                </div>
+                {footerUsesBase ? (
+                    <BindLogic logic={dataNodeLogic} props={baseNodeProps}>
+                        {footerContent}
+                    </BindLogic>
+                ) : (
+                    footerContent
+                )}
             </div>
             <RowDetailsModal
                 isOpen={!!selectedRow}

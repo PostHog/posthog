@@ -112,6 +112,9 @@ export interface DataVisualizationLogicProps {
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
     limitContext?: 'posthog_ai'
+    /** True when the SQL editor's insight builder hosts this visualization — the builder's wells
+     * own axis/series config even before any well is filled (i.e. before `query.builder` exists). */
+    insightBuilderHosted?: boolean
 }
 
 export interface SelectedYAxis {
@@ -444,6 +447,7 @@ export interface dataVisualizationLogicValues {
     effectiveVisualizationType: ChartDisplayType
     hasDateTimeColumns: boolean
     hasSortedTable: boolean
+    isBuilderOwnedQuery: boolean
     isChartSettingsPanelOpen: boolean
     isColumnPinned: (columnName: string) => boolean
     isPinningEnabled: boolean
@@ -624,6 +628,7 @@ export interface dataVisualizationLogicMeta {
         numericalColumns: (columns: Column[]) => Column[]
         hasDateTimeColumns: (columns: Column[]) => boolean
         dashboardId: (arg: any) => any
+        isBuilderOwnedQuery: (query: DataVisualizationNode, arg: boolean | undefined) => boolean
         showEditingUI: (arg: boolean | undefined, dashboardId: any) => boolean
         showResultControls: (arg: boolean | undefined, dashboardId: any) => boolean
         presetChartHeight: (key: string, dashboardId: any, activeSceneId: string | null) => boolean
@@ -1205,6 +1210,18 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             (columns: Column[]): boolean => columns.some((column) => ['DATE', 'DATETIME'].includes(column.type.name)),
         ],
         dashboardId: [() => [(_, props) => props.dashboardId], (dashboardId) => dashboardId ?? null],
+        // The insight builder's wells own axis/series config: true for saved builder queries anywhere
+        // (query carries the config) and for builder-hosted editor sessions even before a well is filled.
+        isBuilderOwnedQuery: [
+            (s) => [s.query, (_, props: DataVisualizationLogicProps) => props.insightBuilderHosted],
+            (query: DataVisualizationNode, insightBuilderHosted: boolean | undefined): boolean =>
+                // The SQL editor states ownership explicitly — false means the builder no longer
+                // hosts the tab (flag off, embedded, legacy insight), even when the query still
+                // carries a builder config, so the classic Series tab and axis recovery come back.
+                // Surfaces that don't pass the prop (insight scene, dashboards) infer it from the
+                // saved node so its compiled chart config stays authoritative.
+                insightBuilderHosted ?? !!query?.builder?.enabled,
+        ],
         showEditingUI: [
             (s) => [(_, props: DataVisualizationLogicProps) => props.editMode, s.dashboardId],
             (editMode: boolean | undefined, dashboardId) => {
@@ -1832,7 +1849,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             // every change, and every change also produces new SQL (new columns). Clearing here
             // would wipe the just-written settings the moment the response lands — skip the classic
             // "new columns → reset chart config" heuristic entirely.
-            const isBuilderQuery = !!values.query?.builder?.enabled
+            const isBuilderQuery = values.isBuilderOwnedQuery
 
             const currentColumnNames = new Set(value.map((column) => column.name))
             const hasInvalidSelectedXAxis =
@@ -1869,8 +1886,9 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 })
             }
 
-            // Set up chart series
-            if (values.response && values.selectedXAxis === null && values.selectedYAxis === null) {
+            // Set up chart series — never for builder queries: guessed axes would surface in the UI
+            // as if the user picked them, and axesChanged would persist them into the query
+            if (!isBuilderQuery && values.response && values.selectedXAxis === null && values.selectedYAxis === null) {
                 const xAxisTypes = value.find((n) => n.type.name.indexOf('DATE') !== -1)
                 const yAxisTypes = value.filter((n) => n.type.isNumerical)
 

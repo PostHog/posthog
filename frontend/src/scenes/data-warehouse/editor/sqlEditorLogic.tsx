@@ -227,8 +227,16 @@ function clearQueryOutlineOverlay(
 
 export const NEW_QUERY = 'Untitled'
 
+// The tab title for an insight. AI-created insights often have only a derived_name — falling
+// back to NEW_QUERY would surface as "Untitled" and, worse, get written back as the insight's
+// name on the next update. An explicit empty-string name is preserved (`??`, not `||`).
+export function insightTabName(insight: QueryBasedInsightModel): string {
+    return insight.name ?? insight.derived_name ?? NEW_QUERY
+}
+
 export interface QueryTab {
-    uri: Uri
+    /** The tab's Monaco model URI — absent until Monaco mounts (see createTab / initialize). */
+    uri?: Uri
     view?: DataWarehouseSavedQuery
     name: string
     description?: string
@@ -316,7 +324,7 @@ export function normalizeRawQuerySource(source: HogQLQuery): HogQLQuery {
     }
 }
 
-function sanitizeSourceQuery(sourceQuery: DataVisualizationNode): DataVisualizationNode {
+export function sanitizeSourceQuery(sourceQuery: DataVisualizationNode): DataVisualizationNode {
     const { connectionId: _ignoredConnectionId, ...sanitizedSourceQuery } = sourceQuery as LegacyDataVisualizationNode
 
     return {
@@ -494,6 +502,9 @@ export interface sqlEditorLogicValues {
     diffShowRunButton: boolean | undefined
     editingAccessControlObject: DataWarehouseAccessControlModalProps | null
     editingInsight: QueryBasedInsightModel | null
+    baseDataLogicKey: string
+    baseExportContext: ExportContext | undefined
+    basePreviewSource: HogQLQuery | null
     editingView: DataWarehouseSavedQuery | undefined
     editorKey: string
     editorSource: SqlEditorSource
@@ -506,6 +517,7 @@ export interface sqlEditorLogicValues {
     hoveredNode: string | null
     inProgressDraftEdits: Record<string, string>
     inProgressViewEdits: Record<string, string>
+    insightBuilderHosted: boolean
     insightLoading: boolean
     isDraft: boolean
     isEditingMaterializedView: boolean
@@ -720,11 +732,11 @@ export interface sqlEditorLogicActions {
     setActiveTab: (tab: OutputTab) => {
         tab: OutputTab
     } // outputPaneLogic
-    setFullscreen: (fullscreen: boolean) => {
-        fullscreen: boolean
-    } // outputPaneLogic
     _setSuggestionPayload: (payload: SuggestionPayload | null) => {
         payload: SuggestionPayload | null
+    }
+    ensureBasePreview: (force?: boolean) => {
+        force: boolean | undefined
     }
     closeAccessControlModal: () => {
         value: true
@@ -828,9 +840,11 @@ export interface sqlEditorLogicActions {
     }
     runQuery: (
         queryOverride?: string,
-        switchTab?: boolean
+        switchTab?: boolean,
+        refreshMode?: 'async' | 'force_async'
     ) => {
         queryOverride: string | undefined
+        refreshMode: 'async' | 'force_async' | undefined
         switchTab: boolean | undefined
     }
     runSubquery: () => {
@@ -1033,6 +1047,9 @@ export interface sqlEditorLogicMeta {
         editingView: (activeTab: QueryTab | null) => DataWarehouseSavedQuery | undefined
         changesToSave: (editingView: DataWarehouseSavedQuery | undefined, queryInput: string | null) => boolean
         exportContext: (sourceQuery: DataVisualizationNode) => ExportContext
+        baseDataLogicKey: (dataLogicKey: string) => string
+        basePreviewSource: (sourceQuery: DataVisualizationNode) => HogQLQuery | null
+        baseExportContext: (basePreviewSource: HogQLQuery | null) => ExportContext | undefined
         selectedConnectionId: (sourceQuery: DataVisualizationNode) => string | undefined
         selectedDirectSource: (
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
@@ -1050,11 +1067,18 @@ export interface sqlEditorLogicMeta {
             queryInput: string | null,
             lastRunQuery: DataVisualizationNode | null,
             sourceQuery: DataVisualizationNode,
-            splitQueryRanges: QueryRange[]
+            splitQueryRanges: QueryRange[],
+            insightBuilderHosted: boolean
         ) => boolean
         hasFiltersPlaceholder: (queryInput: string | null) => boolean
         hasQueryInput: (queryInput: string | null) => boolean
         isEmbeddedMode: (arg: SQLEditorMode | undefined) => boolean
+        insightBuilderHosted: (
+            featureFlags: FeatureFlagsSet,
+            isEmbeddedMode: boolean,
+            editingInsight: QueryBasedInsightModel<Node<Record<string, any>>> | null,
+            sourceQuery: DataVisualizationNode
+        ) => boolean
         dataLogicKey: (tabId: string) => string
         isDraft: (activeTab: QueryTab | null) => boolean
         currentDraft: (activeTab: QueryTab | null) => DataWarehouseSavedQueryDraft | null | undefined
@@ -1110,7 +1134,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 'updateDataWarehouseSavedQuery',
             ],
             outputPaneLogic({ tabId: props.tabId }),
-            ['setActiveTab', 'setFullscreen'],
+            ['setActiveTab'],
             fixSQLErrorsLogic,
             ['fixErrors', 'fixErrorsSuccess', 'fixErrorsFailure'],
             draftsLogic,
@@ -1130,10 +1154,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             activeQueryText,
             activeQueryOffset,
         }),
-        runQuery: (queryOverride?: string, switchTab?: boolean) => ({
+        runQuery: (queryOverride?: string, switchTab?: boolean, refreshMode?: 'async' | 'force_async') => ({
             queryOverride,
             switchTab,
+            refreshMode,
         }),
+        // Load the builder base query's raw rows into the Source tab's own data node
+        ensureBasePreview: (force?: boolean) => ({ force }),
         createTab: (
             query?: string,
             view?: DataWarehouseSavedQuery,
@@ -1693,15 +1720,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
             createTab: async ({ query = '', view, insight, draft }) => {
                 // Use tabId to ensure each browser tab has its own unique Monaco model
-                const tabName = insight ? (insight.name ?? NEW_QUERY) : draft?.name || view?.name || NEW_QUERY
+                const tabName = insight ? insightTabName(insight) : draft?.name || view?.name || NEW_QUERY
                 const tabDescription = insight?.description ?? ''
                 const rawInsightVisualizationQuery = toDataVisualizationNode(insight?.query)
                 const insightVisualizationQuery = rawInsightVisualizationQuery
                     ? sanitizeSourceQuery(rawInsightVisualizationQuery)
                     : undefined
 
+                // The Monaco model is a pre-creation optimization (the editor also creates it from
+                // its `path` binding on mount), but the tab's identity — insight, view, name — must
+                // never depend on Monaco being mounted, or opening an insight before the editor
+                // loads silently drops it and the save flow forks a duplicate.
+                let uri: Uri | undefined
                 if (props.monaco) {
-                    const uri = props.monaco.Uri.parse(tabModelPath(props.tabId))
+                    uri = props.monaco.Uri.parse(tabModelPath(props.tabId))
                     let model = props.monaco.editor.getModel(uri)
                     if (!model) {
                         model = props.monaco.editor.createModel(query, 'hogQL', uri)
@@ -1717,17 +1749,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             })
                         )
                     }
-
-                    actions.updateTab({
-                        uri,
-                        view,
-                        insight,
-                        name: tabName,
-                        description: tabDescription,
-                        sourceQuery: insightVisualizationQuery,
-                        draft: draft,
-                    })
                 }
+
+                actions.updateTab({
+                    uri,
+                    view,
+                    insight,
+                    name: tabName,
+                    description: tabDescription,
+                    sourceQuery: insightVisualizationQuery,
+                    draft: draft,
+                })
                 if (insightVisualizationQuery) {
                     actions.setLastRunQuery(insightVisualizationQuery)
                 }
@@ -1738,8 +1770,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 } else if (view) {
                     actions.setQueryInput(view.query?.query ?? '')
                 } else if (insightVisualizationQuery) {
+                    // Mirror the open_insight gate: the buffer holds the base SQL only while the
+                    // builder flag is on — with it off the compiled SQL is what the user edits
                     actions.setQueryInput(
-                        insightVisualizationQuery.builder?.enabled
+                        values.featureFlags[FEATURE_FLAGS.BI_SQL_INSIGHT_EDITOR] &&
+                            insightVisualizationQuery.builder?.enabled
                             ? insightVisualizationQuery.builder.baseQuery
                             : insightVisualizationQuery.source.query || ''
                     )
@@ -1761,6 +1796,48 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         sourceQuery: nextSourceQuery,
                     })
                 }
+                actions.ensureBasePreview()
+            },
+            // Opening the Source tab on a builder tab shows the base query's raw rows
+            setActiveTab: ({ tab }) => {
+                if (tab === OutputTab.Results) {
+                    actions.ensureBasePreview()
+                }
+            },
+            ensureBasePreview: async ({ force }, breakpoint) => {
+                if (!values.insightBuilderHosted) {
+                    return
+                }
+                // Let a forced tab switch from the insight-open flow land before deciding
+                await breakpoint(10)
+                if (values.outputActiveTab !== OutputTab.Results) {
+                    return
+                }
+                const baseSource = values.basePreviewSource
+                if (!baseSource) {
+                    return
+                }
+                // Tag only the executed query so saved insights never pick tags up
+                const executedSource: HogQLQuery = {
+                    ...baseSource,
+                    tags: { ...baseSource.tags, productKey: 'sql_editor' },
+                }
+                const baseNodeLogic = dataNodeLogic({
+                    key: values.baseDataLogicKey,
+                    query: executedSource,
+                    // autoLoad defaults to true with a blocking load on mount — this node loads
+                    // only through the explicit loadData below
+                    autoLoad: false,
+                    dataNodeCollectionId: values.baseDataLogicKey,
+                })
+                if (!cache.umountBaseDataNode) {
+                    cache.umountBaseDataNode = baseNodeLogic.mount()
+                }
+                if (!force && cache.lastBasePreviewText === baseSource.query && baseNodeLogic.values.response) {
+                    return
+                }
+                cache.lastBasePreviewText = baseSource.query
+                baseNodeLogic.actions.loadData(force ? 'force_async' : 'async', undefined, executedSource)
             },
             setSendRawQuery: ({ sendRawQuery }) => {
                 const currentSourceQuery = values.sourceQuery
@@ -1845,6 +1922,29 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             },
             initialize: async () => {
                 actions.setFinishedLoading(false)
+
+                // Backfill the tab's Monaco model URI when Monaco arrives after the tab was
+                // created (e.g. an insight opened while the query pane was hidden). The editor's
+                // `path` binding may have created the model already — reuse it, and only track
+                // models this logic created so the disposal contract holds.
+                if (props.monaco && values.activeTab && !values.activeTab.uri) {
+                    const uri = props.monaco.Uri.parse(tabModelPath(props.tabId))
+                    let model = props.monaco.editor.getModel(uri)
+                    if (!model) {
+                        model = props.monaco.editor.createModel(values.queryInput ?? '', 'hogQL', uri)
+                        cache.createdModels = cache.createdModels || []
+                        cache.createdModels.push(model)
+                        initModel(
+                            model,
+                            codeEditorLogic({
+                                key: `hogql-editor-${props.tabId}`,
+                                query: values.sourceQuery?.source.query ?? '',
+                                language: 'hogQL',
+                            })
+                        )
+                    }
+                    actions.updateTab({ ...values.activeTab, uri })
+                }
             },
             setQueryInput: async ({ queryInput }, breakpoint) => {
                 // Keep suggestion payload active - let user make edits and then decide to approve/reject
@@ -1883,11 +1983,26 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     draft: draft,
                 })
             },
-            runQuery: ({ queryOverride, switchTab }) => {
+            runQuery: ({ queryOverride, switchTab, refreshMode }) => {
+                // A tab is builder-owned only while the builder actually hosts it. A saved builder
+                // insight opened with the feature flag off is a plain SQL tab: the buffer holds the
+                // compiled SQL and runs must execute (and save) the buffer, not the stored text.
+                const builderOwned = values.insightBuilderHosted && !!values.sourceQuery.builder?.enabled
                 let query: string
                 if (queryOverride) {
-                    // Explicit override (e.g. user selected text and pressed Cmd+Enter)
-                    query = queryOverride
+                    // Explicit override (e.g. user selected text and pressed Cmd+Enter). On a
+                    // builder tab, selecting the whole buffer and running means "run the insight",
+                    // exactly like the Run button — only a partial selection is an ad-hoc run.
+                    query =
+                        builderOwned && queryOverride.trim() === (values.queryInput ?? '').trim()
+                            ? values.sourceQuery.source.query
+                            : queryOverride
+                } else if (builderOwned) {
+                    // The builder owns execution while enabled: the Monaco buffer holds the *base*
+                    // query, and running it would replace the compiled SQL and orphan the chart
+                    // (its settings reference compiled aliases). Run the compiled text — an edited
+                    // base flows in through the Data column's "Refresh fields" / tab-open refresh.
+                    query = values.sourceQuery.source.query
                 } else {
                     // No override — find the query under the cursor
                     const fullText = values.queryInput ?? ''
@@ -1919,10 +2034,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     tags: { ...newSource.tags, productKey: 'sql_editor' },
                 }
 
-                actions.setSourceQuery({
-                    ...values.sourceQuery,
-                    source: newSource,
-                })
+                // Builder tabs: source.query is the compiled SQL owned by applyWells — an ad-hoc
+                // run (a selection, a subquery) must not overwrite it, or the chart orphans and a
+                // subsequent save persists the ad-hoc text as the insight's query. lastRunQuery
+                // still records what actually ran, so staleness surfaces and saving stays gated
+                // until the insight's own query has run.
+                if (!builderOwned || query === values.sourceQuery.source.query) {
+                    actions.setSourceQuery({
+                        ...values.sourceQuery,
+                        source: newSource,
+                    })
+                }
                 actions.setLastRunQuery({
                     ...values.sourceQuery,
                     source: newSource,
@@ -1934,10 +2056,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     }).mount()
                 }
 
+                // 'async' respects the backend query cache; user-initiated runs force a fresh
+                // execution, while programmatic reruns (builder recompiles, tab switches) don't
                 dataNodeLogic({
                     key: values.dataLogicKey,
                     query: executedSource,
-                }).actions.loadData(!switchTab ? 'force_async' : 'async', undefined, executedSource)
+                }).actions.loadData(refreshMode ?? (!switchTab ? 'force_async' : 'async'), undefined, executedSource)
+
+                // An explicit Run on a builder tab also refreshes the Source tab's raw grid
+                if (builderOwned && values.outputActiveTab === OutputTab.Results) {
+                    actions.ensureBasePreview(true)
+                }
 
                 // Mark the first query task as complete when the query is run
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunFirstQuery)
@@ -2261,8 +2390,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })?.values.effectiveVisualizationType
 
                 // Builder insights: display comes from the builder's chart picker, and the save
-                // candidates (derived from the Monaco base SQL) must not replace the compiled SQL
-                const isBuilderInsight = !!currentVisualizationQuery.builder?.enabled
+                // candidates (derived from the Monaco base SQL) must not replace the compiled SQL.
+                // With the builder flag off the tab is a plain SQL tab and saves like one.
+                const isBuilderInsight = values.insightBuilderHosted && !!currentVisualizationQuery.builder?.enabled
 
                 const defaultDisplay = isBuilderInsight
                     ? (currentVisualizationQuery.display ?? ChartDisplayType.ActionsTable)
@@ -2304,11 +2434,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     content: (
                         <>
                             <LemonField name="name">
-                                <LemonInput
-                                    data-attr="insight-name"
-                                    placeholder="Please enter the new name"
-                                    autoFocus
-                                />
+                                <LemonInput data-attr="insight-name" placeholder="Name this insight" autoFocus />
                             </LemonField>
                             {isBuilderInsight ? (
                                 insightPreview(currentVisualizationQuery.source.query)
@@ -2340,7 +2466,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })?.values.effectiveVisualizationType
 
                 // A save-candidate override would replace the compiled SQL with the base SQL
-                const isBuilderInsight = !!currentVisualizationQuery.builder?.enabled
+                const isBuilderInsight = values.insightBuilderHosted && !!currentVisualizationQuery.builder?.enabled
                 const effectiveQueryOverride = isBuilderInsight ? undefined : queryOverride
 
                 const display = isBuilderInsight
@@ -2353,6 +2479,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 const sourceQueryToSave: DataVisualizationNode = {
                     ...currentVisualizationQuery,
+                    // A new insight saved from the plain SQL editor must not inherit a visual
+                    // setup that doesn't describe its query (flag-off save of a builder tab)
+                    ...(isBuilderInsight ? {} : { builder: undefined }),
                     source: {
                         ...currentVisualizationQuery.source,
                         query: effectiveQueryOverride ?? currentVisualizationQuery.source.query,
@@ -2478,9 +2607,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const currentVisualizationQuery = getCurrentVisualizationQuery(values.dataLogicKey, values.sourceQuery)
 
                 const insightRequest: Partial<QueryBasedInsightModel> = {
-                    name: insightName ?? values.editingInsight.name,
                     description: insightDescription ?? values.editingInsight.description ?? '',
                     query: currentVisualizationQuery,
+                }
+                // Only send `name` on an actual rename — the tab name falls back to derived_name
+                // (or "Untitled"), and writing that back would materialize it as the insight's name
+                if (insightName && insightName !== insightTabName(values.editingInsight)) {
+                    insightRequest.name = insightName
                 }
 
                 // When saving from a dashboard flow, attach the tile server-side without
@@ -2871,6 +3004,29 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 } as ExportContext
             },
         ],
+        // A second data node keyed off the main one holds the *base* query's raw rows on builder
+        // tabs, so the Source tab can show source data while the chart keeps its compiled results
+        baseDataLogicKey: [(s) => [s.dataLogicKey], (dataLogicKey: string) => `${dataLogicKey}-base`],
+        basePreviewSource: [
+            (s) => [s.sourceQuery],
+            (sourceQuery: DataVisualizationNode): HogQLQuery | null => {
+                const baseQuery = sourceQuery.builder?.enabled ? sourceQuery.builder.baseQuery : ''
+                if (!baseQuery.trim()) {
+                    return null
+                }
+                return { ...sourceQuery.source, query: baseQuery }
+            },
+        ],
+        baseExportContext: [
+            (s) => [s.basePreviewSource],
+            (basePreviewSource: HogQLQuery | null): ExportContext | undefined =>
+                basePreviewSource
+                    ? ({
+                          ...queryExportContext(basePreviewSource, undefined, undefined),
+                          filename: 'export',
+                      } as ExportContext)
+                    : undefined,
+        ],
         selectedConnectionId: [
             (s) => [s.sourceQuery],
             (sourceQuery: DataVisualizationNode) => {
@@ -2919,16 +3075,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         ],
         isMultiQuery: [(s) => [s.splitQueryRanges], (ranges: QueryRange[]): boolean => ranges.length > 1],
         isSourceQueryLastRun: [
-            (s) => [s.queryInput, s.lastRunQuery, s.sourceQuery, s.splitQueryRanges],
+            (s) => [s.queryInput, s.lastRunQuery, s.sourceQuery, s.splitQueryRanges, s.insightBuilderHosted],
             (
                 queryInput: string | null,
                 lastRunQuery: DataVisualizationNode | null,
                 sourceQuery: DataVisualizationNode,
-                splitRanges: QueryRange[]
+                splitRanges: QueryRange[],
+                insightBuilderHosted: boolean
             ) => {
-                // Builder insights: queryInput holds the base SQL while source.query holds the
-                // compiled SQL, so compare the compiled texts instead of the Monaco buffer
-                if (sourceQuery.builder?.enabled) {
+                // Builder-hosted tabs: queryInput holds the base SQL while source.query holds the
+                // compiled SQL, so compare the compiled texts instead of the Monaco buffer. With
+                // the builder flag off the buffer is the source of truth like any plain SQL tab.
+                if (insightBuilderHosted && sourceQuery.builder?.enabled) {
                     return (lastRunQuery?.source.query ?? '').trim() === (sourceQuery.source.query ?? '').trim()
                 }
                 const lastRunQueryText = (lastRunQuery?.source.query ?? sourceQuery.source.query ?? '').trim()
@@ -2950,6 +3108,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         isEmbeddedMode: [
             () => [(_, p: SqlEditorLogicProps) => p.mode],
             (mode: SQLEditorMode | undefined) => isEmbeddedSQLEditorMode(mode ?? SQLEditorMode.FullScene),
+        ],
+        // Whether the insight builder canvas hosts this tab's visualization. Legacy saved SQL
+        // insights (no builder config) keep the classic visualization panel.
+        insightBuilderHosted: [
+            (s) => [s.featureFlags, s.isEmbeddedMode, s.editingInsight, s.sourceQuery],
+            (
+                featureFlags: FeatureFlagsSet,
+                isEmbeddedMode: boolean,
+                editingInsight: QueryBasedInsightModel | null,
+                sourceQuery: DataVisualizationNode
+            ): boolean =>
+                !!featureFlags[FEATURE_FLAGS.BI_SQL_INSIGHT_EDITOR] &&
+                !isEmbeddedMode &&
+                !(editingInsight && !sourceQuery.builder?.enabled),
         ],
         dataLogicKey: [(_, p) => [p.tabId], (tabId: string) => `data-warehouse-editor-data-node-${tabId}`],
         isDraft: [(s) => [s.activeTab], (activeTab: QueryTab | null) => (activeTab ? !!activeTab.draft?.id : false)],
@@ -3087,8 +3259,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })
             }
 
-            let tabAdded = false
-
             const createQueryTab = async (): Promise<void> => {
                 if (outputTabFromUrl && values.outputActiveTab !== outputTabFromUrl) {
                     actions.setActiveTab(outputTabFromUrl)
@@ -3167,7 +3337,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     }
                     actions.setViewLoading(false)
                     actions.setViewQueryLoading(false)
-                    tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
                 } else if (
                     insightShortIdFromUrl &&
@@ -3189,7 +3358,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     if (shortId === 'new') {
                         // Add new blank tab
                         actions.createTab()
-                        tabAdded = true
                         router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
                         return
                     }
@@ -3213,6 +3381,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     const insightVisualizationQuery = toDataVisualizationNode(insight.query)
                     const query = insightVisualizationQuery?.source.query ?? ''
 
+                    // Captured before editInsight/createTab, which reset lastRunQuery to the
+                    // incoming insight's query — this is the text the current response answers
+                    const previousRunText = values.lastRunQuery?.source.query?.trim()
+
                     // Builder insights hold compiled SQL in source.query — the Monaco buffer gets
                     // the base query, and runs go through the compiled text explicitly
                     const isBuilderInsight =
@@ -3229,31 +3401,30 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         actions.setSourceQuery(applyFiltersFromUrl(insightVisualizationQuery))
                     }
                     actions.editInsight(queryToOpen, insight)
-                    if (isBuilderInsight) {
-                        // Editing an existing builder insight opens straight into the expanded
-                        // canvas (query pane and tree collapsed) rather than the split editor
-                        actions.setFullscreen(true)
-                    }
+                    // Flip only after the insight is fully in place: the canvas mounting mid-load
+                    // proved racy in practice, and the brief Source flash is the safer trade
                     if (!outputTabFromUrl) {
                         actions.setActiveTab(OutputTab.Visualization)
                     }
 
-                    // Only run the query if the results aren't already cached locally and we're not using the open_query search param
+                    // Only skip the run when the cached (or in-flight) response actually answers
+                    // this insight's query — switching between insights in the same tab otherwise
+                    // keeps the previous insight's rows on screen under the new chart config
                     if (insightVisualizationQuery && !searchParams.open_query) {
                         const mountedDataLogic = dataNodeLogic.findMounted({
                             key: values.dataLogicKey,
                         })
                         const response = mountedDataLogic?.values.response
                         const responseLoading = mountedDataLogic?.values.responseLoading ?? false
+                        const answersThisInsight = previousRunText === query.trim() && (responseLoading || !!response)
 
-                        if (!responseLoading && !response) {
+                        if (!answersThisInsight) {
                             actions.runQuery(builderRunOverride)
                         }
                     } else {
                         actions.runQuery(builderRunOverride)
                     }
 
-                    tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
                 } else if (searchParams.open_query) {
                     // kea-router decodes JSON-shaped URL values to objects — a node here carries
@@ -3277,7 +3448,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             typeof searchParams.open_query === 'object' ? '' : String(searchParams.open_query)
                         )
                     }
-                    tabAdded = true
                 } else if (
                     hashParams.q &&
                     !draftIdFromUrl &&
@@ -3289,43 +3459,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 ) {
                     // kea-router decodes numeric/JSON-shaped URL values to non-strings; coerce so queryInput stays a string
                     actions.createTab(String(hashParams.q))
-                    tabAdded = true
                 } else if (values.queryInput === null) {
                     actions.createTab('')
-                    tabAdded = true
                 }
             }
 
-            if (props.monaco) {
-                await createQueryTab()
-            } else {
-                const waitUntilMonaco = async (): Promise<void> => {
-                    return await new Promise((resolve, reject) => {
-                        let intervalCount = 0
-                        const interval = setInterval(() => {
-                            intervalCount++
-
-                            if (props.monaco && !tabAdded) {
-                                clearInterval(interval)
-                                resolve()
-                            } else if (intervalCount >= 10_000 / 300) {
-                                clearInterval(interval)
-                                reject()
-                            }
-                        }, 300)
-                    })
-                }
-
-                try {
-                    await waitUntilMonaco()
-                    await createQueryTab()
-                } catch {
-                    // Monaco timed out - still try to create tab if monaco loaded late
-                    if (props.monaco) {
-                        await createQueryTab()
-                    }
-                }
-            }
+            // No waiting on Monaco: createTab records the tab's identity without it and the
+            // editor content flows through queryInput/`path`; the model URI is backfilled by
+            // `initialize` when Monaco mounts.
+            await createQueryTab()
 
             if (connectionIdFromHash === undefined && shouldSyncDatabaseConnection && !values.databaseLoading) {
                 actions.setConnection(expectedDatabaseConnectionId)
@@ -3542,6 +3684,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         clearQueryOutlineOverlay(cache, props.editor)
         cache.umountDataNode?.()
         cache.umountDataNode = null
+        cache.umountBaseDataNode?.()
+        cache.umountBaseDataNode = null
 
         // Drop any pending decoration work so late callbacks don't touch a disposed editor.
         if (cache.activeQueryDecorationDebounceTimeout) {

@@ -2,10 +2,13 @@ import { ChartDisplayType } from '~/types'
 
 import {
     BuilderWells,
+    addToWellDisabledReason,
     bestDisplayForWells,
+    bestWellForField,
     effectiveWells,
     isWellEnabled,
     validateWellsForDisplay,
+    wellLabel,
 } from './chartCapabilities'
 
 const wells = (rows: number, columns: number, values: number): BuilderWells => ({
@@ -94,6 +97,100 @@ describe('chartCapabilities', () => {
             ['filters' as const, ChartDisplayType.ActionsPie, true],
         ])('%s on %s → enabled: %s', (well, display, enabled) => {
             expect(isWellEnabled(well, display)).toEqual(enabled)
+        })
+    })
+
+    describe('addToWellDisabledReason', () => {
+        it.each([
+            // [well, display, reason] — the menu gates on this so adds never silently no-op;
+            // the well is named in the chart's own language
+            ['rows' as const, ChartDisplayType.ActionsTable, "Table doesn't use Rows"],
+            ['rows' as const, ChartDisplayType.ActionsBar, "Bar chart doesn't use Breakdown"],
+            ['rows' as const, ChartDisplayType.ActionsPie, "Pie chart doesn't use Breakdown"],
+            ['columns' as const, ChartDisplayType.BoldNumber, "Big number doesn't use Columns"],
+            ['rows' as const, ChartDisplayType.ActionsLineGraph, null],
+            ['columns' as const, ChartDisplayType.ActionsBar, null],
+            ['values' as const, ChartDisplayType.BoldNumber, null],
+            ['filters' as const, ChartDisplayType.BoldNumber, null],
+        ])('%s on %s → %s', (well, display, reason) => {
+            expect(addToWellDisabledReason(well, display)).toEqual(reason)
+        })
+    })
+
+    describe('wellLabel', () => {
+        it.each([
+            // [well, display, label] — charts speak the user's language, not pivot vocabulary
+            ['columns' as const, ChartDisplayType.ActionsBar, 'X-axis'],
+            ['columns' as const, ChartDisplayType.ActionsLineGraph, 'X-axis'],
+            ['columns' as const, ChartDisplayType.ActionsPie, 'Slices'],
+            ['rows' as const, ChartDisplayType.ActionsLineGraph, 'Breakdown'],
+            ['rows' as const, ChartDisplayType.ActionsStackedBar, 'Breakdown'],
+            ['values' as const, ChartDisplayType.BoldNumber, 'Value'],
+            ['values' as const, ChartDisplayType.ActionsLineGraph, 'Values'],
+            // Table and heatmap keep the literal names
+            ['columns' as const, ChartDisplayType.ActionsTable, 'Columns'],
+            ['rows' as const, ChartDisplayType.TwoDimensionalHeatmap, 'Rows'],
+            ['filters' as const, ChartDisplayType.ActionsBar, 'Filters'],
+        ])('%s on %s → %s', (well, display, label) => {
+            expect(wellLabel(well, display)).toEqual(label)
+        })
+    })
+
+    describe('bestWellForField', () => {
+        const dimension = { isNumerical: false }
+        const measure = { isNumerical: true }
+
+        it.each([
+            // [name, field, rows, columns, values, display, expected]
+            ['measures always go to Values', measure, 0, 0, 0, ChartDisplayType.ActionsBar, 'values'],
+            ['dimension lands on the empty primary axis', dimension, 0, 0, 0, ChartDisplayType.ActionsBar, 'columns'],
+            [
+                'dimension falls back to Rows once Columns is full',
+                dimension,
+                0,
+                1,
+                1,
+                ChartDisplayType.ActionsLineGraph,
+                'rows',
+            ],
+            [
+                'dimension replaces Columns when every dimension well is full',
+                dimension,
+                1,
+                1,
+                1,
+                ChartDisplayType.ActionsLineGraph,
+                'columns',
+            ],
+            [
+                'dimension replaces Columns on bar (Rows disabled)',
+                dimension,
+                0,
+                1,
+                1,
+                ChartDisplayType.ActionsBar,
+                'columns',
+            ],
+            [
+                'dimension becomes a measure on Big number (no dimension wells)',
+                dimension,
+                0,
+                0,
+                1,
+                ChartDisplayType.BoldNumber,
+                'values',
+            ],
+            [
+                'dimension on a table goes to Columns (unlimited)',
+                dimension,
+                0,
+                3,
+                0,
+                ChartDisplayType.ActionsTable,
+                'columns',
+            ],
+        ])('%s', (_name, field, rows, columns, values, display, expected) => {
+            expect(bestWellForField(field, wells(rows, columns, values), display)).toEqual(expected)
         })
     })
 

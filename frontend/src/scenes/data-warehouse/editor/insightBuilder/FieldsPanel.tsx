@@ -1,5 +1,6 @@
 import { useDraggable } from '@dnd-kit/core'
 import { useActions, useValues } from 'kea'
+import { useRef } from 'react'
 
 import { IconCalendar, IconEllipsis } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
@@ -21,13 +22,24 @@ import { cn } from 'lib/utils/css-classes'
 import {
     AGGREGATION_LABELS,
     DATE_GRAIN_LABELS,
-    DATE_GRAIN_OPTIONS,
     NON_NUMERIC_AGGREGATIONS,
     NUMERIC_AGGREGATIONS,
+    dateGrainOptionsForField,
 } from '~/queries/nodes/DataVisualization/insightBuilder/builderLabels'
+import {
+    addToWellDisabledReason,
+    bestWellForField,
+    wellLabel,
+} from '~/queries/nodes/DataVisualization/insightBuilder/chartCapabilities'
 import { InsightBuilderAggregation } from '~/queries/schema/schema-general'
 
-import { BuilderField, COUNT_STAR_COLUMN, DEFAULT_DATE_GRAIN, insightBuilderLogic } from './insightBuilderLogic'
+import {
+    BuilderField,
+    COUNT_STAR_COLUMN,
+    DEFAULT_DATE_GRAIN,
+    defaultAggregationForField,
+    insightBuilderLogic,
+} from './insightBuilderLogic'
 
 export const COUNT_OF_ROWS_FIELD: BuilderField = {
     name: COUNT_STAR_COLUMN,
@@ -48,16 +60,69 @@ function FieldTypeIcon({ field }: { field: BuilderField }): JSX.Element {
 
 function FieldRow({ tabId, field }: { tabId: string; field: BuilderField }): JSX.Element {
     const { addField } = useActions(insightBuilderLogic({ tabId }))
+    const { builderDisplay, wells } = useValues(insightBuilderLogic({ tabId }))
     const isCountOfRows = field.name === COUNT_STAR_COLUMN
+    const fieldLabel = isCountOfRows ? 'Count of rows' : field.name
 
     const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
         id: `field:${field.name}`,
         data: { type: 'field', field },
     })
+    const pointerDownPosition = useRef<{ x: number; y: number } | null>(null)
 
     const aggregations: InsightBuilderAggregation[] = field.isNumerical
         ? NUMERIC_AGGREGATIONS
         : NON_NUMERIC_AGGREGATIONS
+
+    // Click-to-add mirrors the drag path's well/option mapping; the target well comes from the
+    // current chart's capabilities so the field always lands somewhere visible
+    const addFieldOnClick = (): void => {
+        if (isCountOfRows) {
+            addField('values', COUNT_STAR_COLUMN, { aggregation: 'count' })
+            return
+        }
+        const well = bestWellForField(field, wells, builderDisplay)
+        if (well === 'values') {
+            addField('values', field.name, { aggregation: defaultAggregationForField(field) })
+        } else {
+            addField(well, field.name, field.isDate ? { dateGrain: DEFAULT_DATE_GRAIN } : undefined)
+        }
+    }
+
+    // Dimension items speak the current chart's language ("Add to X-axis"), disabled with the
+    // reason when the chart doesn't use the well; date fields get a grain submenu on whichever
+    // dimension wells are enabled
+    const renderDimensionItem = (well: 'rows' | 'columns'): JSX.Element => {
+        const label = `Add to ${wellLabel(well, builderDisplay)}`
+        const reason = addToWellDisabledReason(well, builderDisplay)
+        if (reason) {
+            return (
+                <DropdownMenuItem disabled>
+                    <span>{label}</span>
+                    <span className="ml-auto pl-2 text-tertiary">{reason}</span>
+                </DropdownMenuItem>
+            )
+        }
+        if (field.isDate) {
+            return (
+                <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>{label}</DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                        {dateGrainOptionsForField(field).map((grain) => (
+                            <DropdownMenuItem
+                                key={grain}
+                                onClick={() => addField(well, field.name, { dateGrain: grain })}
+                            >
+                                By {DATE_GRAIN_LABELS[grain].toLowerCase()}
+                            </DropdownMenuItem>
+                        ))}
+                        <DropdownMenuItem onClick={() => addField(well, field.name)}>Exact value</DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                </DropdownMenuSub>
+            )
+        }
+        return <DropdownMenuItem onClick={() => addField(well, field.name)}>{label}</DropdownMenuItem>
+    }
 
     return (
         <div
@@ -70,8 +135,27 @@ function FieldRow({ tabId, field }: { tabId: string; field: BuilderField }): JSX
             )}
             data-attr="sql-builder-field-row"
         >
-            <FieldTypeIcon field={field} />
-            <span className="min-w-0 flex-1 truncate">{isCountOfRows ? 'Count of rows' : field.name}</span>
+            <button
+                type="button"
+                className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
+                onPointerDown={(e) => {
+                    pointerDownPosition.current = { x: e.clientX, y: e.clientY }
+                }}
+                onClick={(e) => {
+                    // A drag that ends back over the panel still fires a click — ignore anything
+                    // that moved beyond the drag sensor's activation distance
+                    const start = pointerDownPosition.current
+                    if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 4) {
+                        return
+                    }
+                    addFieldOnClick()
+                }}
+                aria-label={`Add ${fieldLabel} to the chart`}
+                data-attr="sql-builder-field-click-add"
+            >
+                <FieldTypeIcon field={field} />
+                <span className="min-w-0 flex-1 truncate">{fieldLabel}</span>
+            </button>
             <DropdownMenu>
                 <DropdownMenuTrigger
                     render={
@@ -79,7 +163,7 @@ function FieldRow({ tabId, field }: { tabId: string; field: BuilderField }): JSX
                             type="button"
                             // Revealed on row hover/focus so the row itself stays a clean drag handle
                             className="shrink-0 cursor-pointer rounded p-0.5 text-tertiary opacity-0 hover:bg-surface-primary hover:text-primary focus-visible:opacity-100 group-hover:opacity-100 data-[popup-open]:opacity-100"
-                            aria-label={`Add ${isCountOfRows ? 'count of rows' : field.name} to the chart`}
+                            aria-label={`Choose where to add ${fieldLabel}`}
                             // Bubble phase (not capture): let the trigger open first, then stop the
                             // event before the row's drag listeners see it
                             onPointerDown={(e) => e.stopPropagation()}
@@ -94,45 +178,16 @@ function FieldRow({ tabId, field }: { tabId: string; field: BuilderField }): JSX
                         <DropdownMenuItem
                             onClick={() => addField('values', COUNT_STAR_COLUMN, { aggregation: 'count' })}
                         >
-                            Add to Values
+                            Add to {wellLabel('values', builderDisplay)}
                         </DropdownMenuItem>
                     ) : (
                         <>
-                            {field.isDate ? (
-                                <DropdownMenuSub>
-                                    <DropdownMenuSubTrigger>Add to Rows</DropdownMenuSubTrigger>
-                                    <DropdownMenuSubContent>
-                                        {DATE_GRAIN_OPTIONS.map((grain) => (
-                                            <DropdownMenuItem
-                                                key={grain}
-                                                onClick={() => addField('rows', field.name, { dateGrain: grain })}
-                                            >
-                                                By {DATE_GRAIN_LABELS[grain].toLowerCase()}
-                                            </DropdownMenuItem>
-                                        ))}
-                                        <DropdownMenuItem onClick={() => addField('rows', field.name)}>
-                                            Exact value
-                                        </DropdownMenuItem>
-                                    </DropdownMenuSubContent>
-                                </DropdownMenuSub>
-                            ) : (
-                                <DropdownMenuItem onClick={() => addField('rows', field.name)}>
-                                    Add to Rows
-                                </DropdownMenuItem>
-                            )}
-                            <DropdownMenuItem
-                                onClick={() =>
-                                    addField(
-                                        'columns',
-                                        field.name,
-                                        field.isDate ? { dateGrain: DEFAULT_DATE_GRAIN } : undefined
-                                    )
-                                }
-                            >
-                                Add to Columns
-                            </DropdownMenuItem>
+                            {renderDimensionItem('rows')}
+                            {renderDimensionItem('columns')}
                             <DropdownMenuSub>
-                                <DropdownMenuSubTrigger>Add to Values</DropdownMenuSubTrigger>
+                                <DropdownMenuSubTrigger>
+                                    Add to {wellLabel('values', builderDisplay)}
+                                </DropdownMenuSubTrigger>
                                 <DropdownMenuSubContent>
                                     {aggregations.map((aggregation) => (
                                         <DropdownMenuItem
@@ -181,7 +236,7 @@ export function FieldsPanel({ tabId }: { tabId: string }): JSX.Element {
                 </div>
             ) : baseFields.length === 0 ? (
                 <div className="flex flex-col gap-2 p-2 text-sm text-secondary">
-                    <span>No fields yet. Run a query, then refresh.</span>
+                    <span>No fields yet. Write a query in the Source tab, then refresh.</span>
                     <LemonButton size="small" type="secondary" onClick={() => refreshBase()}>
                         Refresh fields
                     </LemonButton>

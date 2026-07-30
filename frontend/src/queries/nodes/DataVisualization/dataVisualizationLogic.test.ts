@@ -136,6 +136,96 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    // Guessed axes would surface in the FORMAT panel as if the user picked them and get
+    // persisted into the query via axesChanged — the builder's wells are the only axis source.
+    test.each([
+        ['a builder-hosted editor session', { insightBuilderHosted: true }, defaultQuery],
+        [
+            'a saved builder query',
+            {},
+            {
+                ...defaultQuery,
+                builder: { enabled: true, baseQuery: 'select 1', rows: [], columns: [], values: [] },
+            } as DataVisualizationNode,
+        ],
+    ])('never auto-seeds axes for %s', async (_name, extraProps, query) => {
+        const key = 'test-builder-owned-no-axis-guess'
+        const builderLogic = dataVisualizationLogic({
+            key,
+            query,
+            dataNodeCollectionId,
+            ...extraProps,
+        } as DataVisualizationLogicProps)
+        builderLogic.mount()
+
+        // The exact response shape that triggers the x/y guess on the legacy path above
+        dataNodeLogic({ key, query: query.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['fruit', 'count'],
+            types: [
+                ['fruit', 'String'],
+                ['count', 'Int64'],
+            ],
+            results: [
+                ['banana', 1],
+                ['pineapple', 2],
+            ],
+        })
+
+        await expectLogic(builderLogic).toMatchValues({
+            selectedXAxis: null,
+            selectedYAxis: null,
+        })
+
+        builderLogic.unmount()
+    })
+
+    it('auto-seeds axes for a builder query in the editor once the builder flag is off', async () => {
+        // A builder insight edited with the flag off is a plain SQL tab: the editor passes
+        // insightBuilderHosted=false, which must win over the query's builder config — otherwise
+        // renaming a column leaves the chart empty with the axis recovery and Series tab disabled
+        const key = 'test-builder-flag-off-axis-guess'
+        const query = {
+            ...defaultQuery,
+            builder: { enabled: true, baseQuery: 'select 1', rows: [], columns: [], values: [] },
+        } as DataVisualizationNode
+        const flagOffLogic = dataVisualizationLogic({
+            key,
+            query,
+            dataNodeCollectionId,
+            insightBuilderHosted: false,
+        } as DataVisualizationLogicProps)
+        flagOffLogic.mount()
+
+        dataNodeLogic({ key, query: query.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['fruit', 'count'],
+            types: [
+                ['fruit', 'String'],
+                ['count', 'Int64'],
+            ],
+            results: [
+                ['banana', 1],
+                ['pineapple', 2],
+            ],
+        })
+
+        await expectLogic(flagOffLogic).toMatchValues({
+            selectedXAxis: 'fruit',
+            selectedYAxis: [
+                {
+                    name: 'count',
+                    settings: {
+                        formatting: {
+                            prefix: '',
+                            suffix: '',
+                        },
+                    },
+                },
+            ],
+        })
+
+        flagOffLogic.unmount()
+    })
+
     it('resets axes when y-axis columns are no longer numerical', async () => {
         const dataNode = dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId })
 

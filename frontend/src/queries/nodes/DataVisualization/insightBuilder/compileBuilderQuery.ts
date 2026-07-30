@@ -49,9 +49,15 @@ const QUANTILE_AGGREGATION_LEVELS: Partial<Record<InsightBuilderAggregation, num
 }
 
 // Aliases are emitted bare (never quoted) so response column names match them byte-for-byte;
-// keywords must therefore be kept out of the alias namespace entirely.
+// keywords must therefore be kept out of the alias namespace entirely. inf/nan/true/false are
+// literals, and team_id collides with the tenant guard injected around warehouse queries.
 const RESERVED_ALIASES = new Set([
     'all',
+    'false',
+    'inf',
+    'nan',
+    'team_id',
+    'true',
     'and',
     'anti',
     'any',
@@ -263,7 +269,7 @@ function buildFromClause(config: InsightBuilderConfig): string {
 
     const statements = splitQueries(config.baseQuery)
     if (statements.length === 0) {
-        throw new BuilderCompileError('Write a base query in the Data tab first')
+        throw new BuilderCompileError('Write a base query in the Source tab first')
     }
     if (statements.length > 1) {
         throw new BuilderCompileError('Build mode needs a single SELECT statement as its base')
@@ -274,6 +280,31 @@ function buildFromClause(config: InsightBuilderConfig): string {
 /** True when the base can serve as the builder's FROM clause: exactly one statement. */
 export function isCompilableBase(baseQuery: string): boolean {
     return splitQueries(baseQuery).length === 1
+}
+
+const TRAILING_LIMIT_REGEX = /\bLIMIT\s+(\d+)\s*;?\s*$/i
+const ORDER_BY_REGEX = /\border\s+by\b/i
+
+/**
+ * The row cap the base query imposes on everything the builder aggregates, or null. Only flags a
+ * trailing LIMIT with no ORDER BY — an ordered LIMIT is a deliberate top-N input, while a bare one
+ * (e.g. a preview seeded from the catalog) silently computes aggregates over arbitrary rows.
+ * Bases compiled against an object by name (baseView) drop their LIMIT entirely, so no warning.
+ */
+export function baseLimitCap(baseQuery: string, baseView?: string | null): number | null {
+    if (baseView) {
+        return null
+    }
+    const statements = splitQueries(baseQuery)
+    if (statements.length !== 1) {
+        return null
+    }
+    const statement = statements[0].query
+    if (ORDER_BY_REGEX.test(statement)) {
+        return null
+    }
+    const match = TRAILING_LIMIT_REGEX.exec(statement)
+    return match ? parseInt(match[1], 10) : null
 }
 
 const SELECT_ALL_TARGET_REGEX =

@@ -15,6 +15,9 @@
     }
 
     &.HogQL {
+        // Fill the wrapper (a plain block container) so the flex centering actually centers
+        // vertically instead of parking the number at the top of the canvas
+        height: 100%;
         padding: 5rem;
     }
 

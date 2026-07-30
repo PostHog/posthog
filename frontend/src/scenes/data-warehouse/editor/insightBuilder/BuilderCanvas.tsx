@@ -10,10 +10,14 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
 import { measureLabel } from '~/queries/nodes/DataVisualization/insightBuilder/builderLabels'
-import { BuilderWell, isWellEnabled } from '~/queries/nodes/DataVisualization/insightBuilder/chartCapabilities'
+import {
+    BuilderWell,
+    addToWellDisabledReason,
+    isWellEnabled,
+} from '~/queries/nodes/DataVisualization/insightBuilder/chartCapabilities'
 import { InsightBuilderDimension, InsightBuilderFilter, InsightBuilderMeasure } from '~/queries/schema/schema-general'
 
-import { outputPaneLogic } from '../outputPaneLogic'
+import { OutputTab, outputPaneLogic } from '../outputPaneLogic'
 import { BuilderColumnShell } from './BuilderColumnShell'
 import { BuilderPreview } from './BuilderPreview'
 import { ChartTypePicker } from './ChartTypePicker'
@@ -47,8 +51,7 @@ export function BuilderCanvas({ tabId }: { tabId: string }): JSX.Element {
     const logic = insightBuilderLogic({ tabId })
     const { wells, filterItems, baseFields, builderDisplay, collapsedColumns } = useValues(logic)
     const { addField, removeField, moveField, toggleColumnCollapsed } = useActions(logic)
-    const { fullscreen } = useValues(outputPaneLogic({ tabId }))
-    const { setFullscreen } = useActions(outputPaneLogic({ tabId }))
+    const { setActiveTab } = useActions(outputPaneLogic({ tabId }))
     const [activeDragLabel, setActiveDragLabel] = useState<string | null>(null)
 
     // The 4px activation distance keeps plain clicks (menus, close buttons) from starting a drag
@@ -64,18 +67,20 @@ export function BuilderCanvas({ tabId }: { tabId: string }): JSX.Element {
         return parsePillId(overId)?.well ?? null
     }
 
+    /** Returns whether the field was actually added — a rejected drop must not count as one. */
     const addToWell = (
         targetWell: BuilderWell,
         column: string,
         source: Partial<BuilderField>,
         options?: {
             dateGrain?: InsightBuilderDimension['dateGrain']
+            numericBinWidth?: InsightBuilderDimension['numericBinWidth']
             aggregation?: InsightBuilderMeasure['aggregation']
         }
-    ): void => {
+    ): boolean => {
         if (column === COUNT_STAR_COLUMN && targetWell !== 'values') {
             lemonToast.info('Count of rows can only go in Values')
-            return
+            return false
         }
         if (targetWell === 'values') {
             addField('values', column, {
@@ -90,8 +95,10 @@ export function BuilderCanvas({ tabId }: { tabId: string }): JSX.Element {
         } else {
             addField(targetWell, column, {
                 dateGrain: options?.dateGrain ?? (source.isDate ? DEFAULT_DATE_GRAIN : undefined),
+                numericBinWidth: options?.numericBinWidth,
             })
         }
+        return true
     }
 
     const onDragStart = (event: DragStartEvent): void => {
@@ -109,8 +116,9 @@ export function BuilderCanvas({ tabId }: { tabId: string }): JSX.Element {
         }
 
         // Chart type is primary: reject drops onto a well the current chart doesn't use
+        // (unreachable via the UI now that unused wells aren't rendered, but kept as a guard)
         if (!isWellEnabled(targetWell, builderDisplay)) {
-            lemonToast.info(`This chart type doesn't use ${targetWell}`)
+            lemonToast.info(addToWellDisabledReason(targetWell, builderDisplay) ?? "This chart type doesn't use that")
             return
         }
 
@@ -130,11 +138,17 @@ export function BuilderCanvas({ tabId }: { tabId: string }): JSX.Element {
 
         const column = data.item.column
         const field = baseFields.find((candidate) => candidate.name === column)
-        removeField(data.well, data.index)
-        addToWell(targetWell, column, field ?? {}, {
+        // Add to the target before removing from the source so a rejected drop can't destroy
+        // the pill. The wells differ here (same-well drops reorder above), so the source index
+        // is unaffected by the add.
+        const added = addToWell(targetWell, column, field ?? {}, {
             dateGrain: 'dateGrain' in data.item ? data.item.dateGrain : undefined,
+            numericBinWidth: 'numericBinWidth' in data.item ? data.item.numericBinWidth : undefined,
             aggregation: 'aggregation' in data.item ? data.item.aggregation : undefined,
         })
+        if (added) {
+            removeField(data.well, data.index)
+        }
     }
 
     return (
@@ -154,17 +168,15 @@ export function BuilderCanvas({ tabId }: { tabId: string }): JSX.Element {
                     collapsed={!!collapsedColumns.data}
                     onToggle={() => toggleColumnCollapsed('data')}
                     headerExtra={
-                        fullscreen ? (
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                onClick={() => setFullscreen(false)}
-                                tooltip="Exit fullscreen to edit the SQL"
-                                data-attr="sql-builder-edit-sql"
-                            >
-                                Edit SQL
-                            </LemonButton>
-                        ) : undefined
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            onClick={() => setActiveTab(OutputTab.Results)}
+                            tooltip="Open the Source tab to edit the SQL"
+                            data-attr="sql-builder-edit-sql"
+                        >
+                            Edit SQL
+                        </LemonButton>
                     }
                 >
                     <FieldsPanel tabId={tabId} />

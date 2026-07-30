@@ -119,6 +119,9 @@ interface HeaderDefinition {
     headerProps: LemonButtonProps
 }
 
+/** Must match the `transition: height` duration in LemonCollapse.scss. */
+const COLLAPSE_TRANSITION_MS = 200
+
 function LemonCollapsePanel({
     header,
     content,
@@ -131,7 +134,28 @@ function LemonCollapsePanel({
     onHeaderClick,
 }: LemonCollapsePanelProps): JSX.Element {
     const { height: contentHeight, ref: contentRef } = useResizeObserver({ box: 'border-box' })
-    const { rendered, shown } = useAnimatedPresence(isExpanded, 200)
+    // The measured height is only trustworthy as a transition endpoint: ResizeObserver
+    // notifications can be dropped (e.g. layout feedback loops in narrow panes), and pinning an
+    // open panel to a stale measurement clips its content with no way to recover. So the panel
+    // "settles" to height auto once the expand transition finishes, and only returns to numeric
+    // heights for the animation frames themselves.
+    const [settled, setSettled] = useState(isExpanded)
+    const [presenceIn, setPresenceIn] = useState(isExpanded)
+
+    useEffect(() => {
+        if (isExpanded) {
+            setPresenceIn(true)
+            const timer = window.setTimeout(() => setSettled(true), COLLAPSE_TRANSITION_MS + 50)
+            return () => window.clearTimeout(timer)
+        }
+        // Collapse in two steps: first repaint at a numeric height (CSS can't transition from
+        // `auto`), then flip the presence input so the height → 0 transition actually runs
+        setSettled(false)
+        const raf = window.requestAnimationFrame(() => setPresenceIn(false))
+        return () => window.cancelAnimationFrame(raf)
+    }, [isExpanded])
+
+    const { rendered, shown } = useAnimatedPresence(presenceIn, COLLAPSE_TRANSITION_MS)
 
     const { headerChildren, headerProps } = useMemo((): HeaderDefinition => {
         if (header && typeof header === 'object' && 'children' in header) {
@@ -176,7 +200,7 @@ function LemonCollapsePanel({
                 <div
                     className="LemonCollapsePanel__body"
                     // eslint-disable-next-line react/forbid-dom-props
-                    style={{ height: shown ? contentHeight : 0 }}
+                    style={{ height: shown ? (settled ? 'auto' : contentHeight) : 0 }}
                     aria-busy={rendered !== shown}
                 >
                     <div className={clsx('LemonCollapsePanel__content', className)} ref={contentRef}>

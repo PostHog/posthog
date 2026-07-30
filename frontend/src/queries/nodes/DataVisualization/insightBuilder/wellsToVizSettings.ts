@@ -31,9 +31,12 @@ export function mapWellsToChartSettings(
     const yAxis: ChartAxis[] = compiled.valueAliases.map((alias, index) => {
         const previous = prevYAxisByColumn[alias]
         // Label the series the way the well reads (e.g. "Count of rows", "Sum of amount") rather
-        // than exposing the machine alias like count_rows
+        // than exposing the machine alias like count_rows. A label the user set wins over the
+        // injected one, so gear-edited names survive recompiles. (Changing a measure's aggregation
+        // changes its alias, which orphans custom labels/formatting — a known limitation.)
         const measure = config.values[index]
-        const label = measure?.label ?? (measure ? measureLabel(measure) : undefined)
+        const label =
+            previous?.settings?.display?.label ?? measure?.label ?? (measure ? measureLabel(measure) : undefined)
         const settings = {
             ...previous?.settings,
             ...(label ? { display: { ...previous?.settings?.display, label } } : {}),

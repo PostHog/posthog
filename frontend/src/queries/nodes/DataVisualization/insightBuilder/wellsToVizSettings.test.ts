@@ -53,4 +53,13 @@ describe('mapWellsToChartSettings', () => {
             settings: { formatting: { prefix: '$' }, display: { label: 'Sum of amount' } },
         })
     })
+
+    it('keeps a user-set series label over the injected well label across recompiles', () => {
+        const prev = {
+            yAxis: [{ column: 'sum_amount', settings: { display: { label: 'Revenue' } } }],
+        }
+        const settings = mapWellsToChartSettings(prev, compiled, ChartDisplayType.ActionsBar, config)
+
+        expect(settings.yAxis?.[0]?.settings?.display?.label).toEqual('Revenue')
+    })
 })

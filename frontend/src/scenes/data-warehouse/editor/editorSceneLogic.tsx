@@ -14,7 +14,13 @@ import { Breadcrumb } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { DataWarehouseSavedQuery, LinkBreadcrumb, QueryBasedInsightModel } from '../../../types'
-import { normalizeFiltersForUrl, sqlEditorLogic, toDataVisualizationNode } from './sqlEditorLogic'
+import {
+    insightTabName,
+    normalizeFiltersForUrl,
+    sanitizeSourceQuery,
+    sqlEditorLogic,
+    toDataVisualizationNode,
+} from './sqlEditorLogic'
 import type { QueryTab, SqlEditorSource } from './sqlEditorLogic'
 
 export interface SaveAsMenuItem {
@@ -450,11 +456,17 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                     return false
                 }
 
-                const updatedName = activeTab?.name !== editingInsight.name
+                // Compare against the same baseline createTab seeds the tab name from, so an
+                // insight with only a derived_name isn't dirty the moment it loads
+                const updatedName =
+                    (activeTab?.name ?? insightTabName(editingInsight)) !== insightTabName(editingInsight)
                 const updatedDescription = (activeTab?.description ?? '') !== (editingInsight.description ?? '')
                 const sourceQueryWithoutUndefinedAndNullKeys = removeUndefinedAndNull(sourceQuery)
                 // Normalize so DataTableNode-based insights don't look "changed" immediately after load.
-                const editingInsightQuery = toDataVisualizationNode(editingInsight.query) ?? editingInsight.query
+                // sourceQuery went through sanitizeSourceQuery on load, so the saved query must too —
+                // otherwise a legacy top-level connectionId reads as an immediate change.
+                const savedNode = toDataVisualizationNode(editingInsight.query)
+                const editingInsightQuery = savedNode ? sanitizeSourceQuery(savedNode) : editingInsight.query
 
                 return (
                     updatedName ||

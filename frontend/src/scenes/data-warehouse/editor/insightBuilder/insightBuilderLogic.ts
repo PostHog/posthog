@@ -1,15 +1,20 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { objectsEqual } from 'lib/utils/objects'
 import { splitQueries } from 'scenes/data-warehouse/editor/multiQueryUtils'
 
 import { isNumericalType, toFriendlyClickhouseTypeName } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
+import { builderConfigMatchesQuery } from '~/queries/nodes/DataVisualization/insightBuilder/builderNodeConsistency'
 import {
     BuilderWell,
     BuilderWells,
+    addToWellDisabledReason,
     bestDisplayForWells,
     effectiveWells,
     getChartCapability,
@@ -56,6 +61,9 @@ export const DEFAULT_DATE_GRAIN: InsightBuilderDateGrain = 'month'
 /** Collapsible columns in the builder canvas (the Visualization column is always shown). */
 export type BuilderColumn = 'data' | 'setup' | 'format'
 
+/** What the builder's center column shows: the chart, its result table, or the generated SQL. */
+export type BuilderPreviewView = 'chart' | 'table' | 'sql'
+
 /** The synthetic "count of rows" measure — aggregates across all rows instead of a column. */
 export const COUNT_STAR_COLUMN = '*'
 
@@ -77,6 +85,8 @@ export interface insightBuilderLogicValues {
     baseOutOfSync: boolean
     baseQuery: string
     baseViewName: string | null
+    builderConflict: boolean
+    builderView: BuilderPreviewView
     buildModeDisabledReason: string | null
     builderConfig: InsightBuilderConfig
     builderDisplay: ChartDisplayType
@@ -96,11 +106,16 @@ export interface insightBuilderLogicActions {
     setActiveTab: (tab: OutputTab) => {
         tab: OutputTab
     } // outputPaneLogic
+    setQueryInput: (queryInput: string | null) => {
+        queryInput: string | null
+    } // sqlEditorLogic
     runQuery: (
         queryOverride?: string | undefined,
-        switchTab?: boolean | undefined
+        switchTab?: boolean | undefined,
+        refreshMode?: ('async' | 'force_async') | undefined
     ) => {
         queryOverride: string | undefined
+        refreshMode: 'async' | 'force_async' | undefined
         switchTab: boolean | undefined
     } // sqlEditorLogic
     setSourceQuery: (sourceQuery: DataVisualizationNode) => {
@@ -124,6 +139,9 @@ export interface insightBuilderLogicActions {
               }
             | undefined
         well: BuilderWell
+    }
+    adoptNodeDisplay: () => {
+        value: true
     }
     applyWells: () => {
         value: true
@@ -185,6 +203,9 @@ export interface insightBuilderLogicActions {
         index: number
         well: BuilderWell
     }
+    seedBuilderDisplay: (display: ChartDisplayType) => {
+        display: ChartDisplayType
+    }
     setAggregation: (
         index: number,
         aggregation: InsightBuilderAggregation
@@ -198,6 +219,15 @@ export interface insightBuilderLogicActions {
     ) => {
         baseQuery: string
         baseViewName: string | null
+    }
+    setBuilderConflict: (conflict: boolean) => {
+        conflict: boolean
+    }
+    resolveBuilderConflict: (choice: 'sql' | 'builder') => {
+        choice: 'sql' | 'builder'
+    }
+    setBuilderView: (view: BuilderPreviewView) => {
+        view: BuilderPreviewView
     }
     setBuilderDisplay: (display: ChartDisplayType) => {
         display: ChartDisplayType
@@ -289,7 +319,7 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
         ],
         actions: [
             sqlEditorLogic({ tabId: props.tabId }),
-            ['setSourceQuery', 'runQuery'],
+            ['setSourceQuery', 'runQuery', 'setQueryInput'],
             outputPaneLogic({ tabId: props.tabId }),
             ['setActiveTab'],
         ],
@@ -320,8 +350,17 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
         updateFilter: (index: number, patch: Partial<InsightBuilderFilter>) => ({ index, patch }),
         toggleColumnCollapsed: (column: BuilderColumn) => ({ column }),
         setBuilderDisplay: (display: ChartDisplayType) => ({ display }),
+        // Adopt a chart type chosen outside the builder (a pre-builder tab's display) without
+        // firing the chart-changed analytics that setBuilderDisplay carries
+        seedBuilderDisplay: (display: ChartDisplayType) => ({ display }),
         hydrateFromNode: (builder: InsightBuilderConfig, display?: ChartDisplayType) => ({ builder, display }),
         setBaseSnapshot: (baseQuery: string, baseViewName: string | null) => ({ baseQuery, baseViewName }),
+        setBuilderConflict: (conflict: boolean) => ({ conflict }),
+        // 'sql' keeps the (externally edited) SQL and drops the visual setup; 'builder' restores
+        // the visual setup and regenerates the SQL from it
+        resolveBuilderConflict: (choice: 'sql' | 'builder') => ({ choice }),
+        setBuilderView: (view: BuilderPreviewView) => ({ view }),
+        adoptNodeDisplay: true,
         applyWells: true,
         loadBaseColumns: true,
         refreshBase: true,
@@ -487,6 +526,7 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
             ChartDisplayType.ActionsTable as ChartDisplayType,
             {
                 setBuilderDisplay: (_, { display }) => display,
+                seedBuilderDisplay: (_, { display }) => display,
                 hydrateFromNode: (state, { display }) =>
                     display && display !== ChartDisplayType.Auto ? display : state,
             },
@@ -503,6 +543,20 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
             {
                 setBaseSnapshot: (_, { baseViewName }) => baseViewName,
                 hydrateFromNode: (_, { builder }) => builder.baseView ?? null,
+            },
+        ],
+        // The node's SQL was edited outside the builder (its builder config no longer compiles to
+        // it) — hydration is held until the user picks a side via resolveBuilderConflict
+        builderConflict: [
+            false,
+            {
+                setBuilderConflict: (_, { conflict }) => conflict,
+            },
+        ],
+        builderView: [
+            'chart' as BuilderPreviewView,
+            {
+                setBuilderView: (_, { view }) => view,
             },
         ],
     }),
@@ -552,10 +606,10 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
                     return "The insight builder isn't available for raw SQL queries"
                 }
                 if (isMultiQuery) {
-                    return 'The insight builder needs a single SELECT statement — remove extra statements in the Data tab'
+                    return 'The insight builder needs a single SELECT statement — remove extra statements in the Source tab'
                 }
                 if (!queryInput?.trim() && !sourceQuery.builder?.enabled) {
-                    return 'Write and run a query in the Data tab first'
+                    return 'Write and run a query in the Source tab first'
                 }
                 return null
             },
@@ -587,8 +641,19 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
                 const max = getChartCapability(values.builderDisplay)?.[well].max
                 const items = well === 'rows' ? values.rows : well === 'columns' ? values.columnDims : values.measures
                 if (typeof max === 'number' && items.length > max) {
-                    for (let i = 0; i < items.length - max; i++) {
-                        actions.removeField(well, 0)
+                    if (max === 0) {
+                        // The chart doesn't use this well at all: undo the add itself (last index),
+                        // keeping any stashed fields that reappear when the chart type changes back.
+                        // Silence here reads as breakage, so explain why nothing was added.
+                        lemonToast.info(
+                            addToWellDisabledReason(well, values.builderDisplay) ?? "This chart type doesn't use that"
+                        )
+                        actions.removeField(well, items.length - 1)
+                    } else {
+                        // Replace-on-full: drop the oldest so the just-added field wins
+                        for (let i = 0; i < items.length - max; i++) {
+                            actions.removeField(well, 0)
+                        }
                     }
                 }
             }
@@ -605,10 +670,20 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
             posthog.capture('sql-editor-builder-chart-changed', { display })
             actions.applyWells()
         },
+        setBuilderView: ({ view }) => {
+            posthog.capture('sql-editor-builder-view-changed', { view })
+        },
+        seedBuilderDisplay: () => actions.applyWells(),
         applyWells: async (_, breakpoint) => {
             await breakpoint(300)
 
             if (!values.canCompile) {
+                // Even with empty wells the builder owns the chart type. Pin it (display only — an
+                // empty-well session must not carry a `builder` key) so the visualization and FORMAT
+                // panel never fall back to response-derived `Auto` behavior.
+                if (values.sourceQuery.display !== values.builderDisplay) {
+                    actions.setSourceQuery({ ...values.sourceQuery, display: values.builderDisplay })
+                }
                 return
             }
 
@@ -650,18 +725,29 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
             // that is still incomplete recompiles to identical SQL)
             const alreadyRan = values.lastRunQuery?.source.query === compiled.sql
             if (values.wellProblems.length === 0 && !alreadyRan) {
-                actions.runQuery(compiled.sql)
+                // 'async' lets recompiles hit the query cache — only explicit Run forces fresh data
+                actions.runQuery(compiled.sql, undefined, 'async')
             }
         },
-        // Hydrate wells whenever a builder-carrying node lands in the editor (e.g. opening a saved
-        // insight). Deep-equality is the loop guard: nodes produced by applyWells round-trip as an
-        // identical config, so our own updates no-op here.
-        setSourceQuery: ({ sourceQuery }) => {
-            const builder = sourceQuery.builder
-            if (builder?.enabled && !objectsEqual(builder, values.builderConfig)) {
-                actions.hydrateFromNode(builder, sourceQuery.display)
-                actions.loadBaseColumns()
+        resolveBuilderConflict: ({ choice }) => {
+            const node = values.sourceQuery
+            actions.setBuilderConflict(false)
+            if (choice === 'sql') {
+                // The SQL wins: degrade to a plain SQL insight. The buffer holds the stale base
+                // query on builder tabs, so hand it the SQL and jump to the Source tab to show it.
+                actions.setSourceQuery({ ...node, builder: undefined })
+                actions.setQueryInput(node.source.query)
+                actions.setActiveTab(OutputTab.Results)
+                actions.refreshBase()
+                return
             }
+            if (!node.builder?.enabled) {
+                return
+            }
+            // The visual setup wins: hydrate the wells and regenerate the SQL from them
+            actions.hydrateFromNode(node.builder, node.display)
+            actions.loadBaseColumns()
+            actions.applyWells()
         },
         // Snapshot the Data tab as the builder's base. When the base is a bare select-all from a
         // catalog object (view click, table click) or an unmodified saved view, compile against the
@@ -684,6 +770,17 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
                 actions.applyWells()
             }
         },
+        // A non-builder node landing in the builder: keep a chart type picked before the builder
+        // took over (a pre-builder tab's display), then let applyWells pin the display so the
+        // visualization never runs in response-derived `Auto` mode while the builder hosts it.
+        adoptNodeDisplay: () => {
+            const display = values.sourceQuery.display
+            if (display && display !== ChartDisplayType.Auto && display !== values.builderDisplay) {
+                actions.seedBuilderDisplay(display)
+            } else {
+                actions.applyWells()
+            }
+        },
         // Opening the Visualization tab (the builder) snapshots the current base and loads its
         // fields, mirroring what entering the old Build mode used to do.
         setActiveTab: ({ tab }) => {
@@ -694,28 +791,58 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
 
             const node = values.sourceQuery
             if (node.builder?.enabled && !objectsEqual(node.builder, values.builderConfig)) {
+                if (!builderConfigMatchesQuery(node)) {
+                    actions.setBuilderConflict(true)
+                    return
+                }
                 actions.hydrateFromNode(node.builder, node.display)
+            } else if (!node.builder?.enabled) {
+                actions.adoptNodeDisplay()
             }
 
-            if (values.baseQuery !== (values.queryInput ?? '') && (values.queryInput ?? '').trim() !== '') {
+            // Auto-snapshot the buffer only while nothing is built on the base (first open, or
+            // empty wells). Once fields are placed, re-snapshotting is explicit via the "Base
+            // query changed" banner — otherwise a half-edited buffer silently replaces the base
+            // (and drops its view binding) behind the wells.
+            const bufferDiffers =
+                values.baseQuery !== (values.queryInput ?? '') && (values.queryInput ?? '').trim() !== ''
+            if (bufferDiffers && (values.baseQuery === '' || !values.hasAnyField)) {
                 actions.refreshBase()
             } else if (values.baseFields.length === 0 && !values.baseFieldsLoading) {
                 actions.loadBaseColumns()
             }
         },
     })),
+    // Hydrate wells whenever a builder-carrying node lands in the editor. Subscribed to the value
+    // rather than any one action: saved nodes reach the tab via setSourceQuery, createTab/updateTab,
+    // and tab restore, and every path must hydrate — an action listener misses all but the first.
+    // Deep-equality is the loop guard: nodes produced by applyWells round-trip as an identical
+    // config, so our own updates no-op here.
+    subscriptions(({ actions, values }) => ({
+        sourceQuery: (sourceQuery: DataVisualizationNode | undefined) => {
+            const builder = sourceQuery?.builder
+            if (sourceQuery && builder?.enabled && !objectsEqual(builder, values.builderConfig)) {
+                if (!builderConfigMatchesQuery(sourceQuery)) {
+                    actions.setBuilderConflict(true)
+                    return
+                }
+                actions.hydrateFromNode(builder, sourceQuery.display)
+                actions.loadBaseColumns()
+            }
+        },
+    })),
     afterMount(({ actions, values }) => {
-        const builder = values.sourceQuery.builder
-        if (builder?.enabled && !objectsEqual(builder, values.builderConfig)) {
-            // Existing builder insight: hydrate wells and load its base fields
-            actions.hydrateFromNode(builder, values.sourceQuery.display)
-            actions.loadBaseColumns()
-        } else if ((values.queryInput ?? '').trim() !== '') {
-            // Fresh query: this logic mounts only when the Visualization tab opens (after the
-            // setActiveTab that would have triggered loading), so snapshot the editor query and
-            // load its columns here. refreshBase reads queryInput; loadBaseColumns alone would
-            // read the still-empty baseQuery snapshot and find nothing.
-            actions.refreshBase()
+        // Builder-carrying nodes hydrate through the sourceQuery subscription above (it also
+        // fires on mount) — this only seeds fresh, non-builder tabs.
+        if (!values.sourceQuery.builder?.enabled) {
+            actions.adoptNodeDisplay()
+            if ((values.queryInput ?? '').trim() !== '') {
+                // Fresh query: this logic mounts only when the Visualization tab opens (after the
+                // setActiveTab that would have triggered loading), so snapshot the editor query and
+                // load its columns here. refreshBase reads queryInput; loadBaseColumns alone would
+                // read the still-empty baseQuery snapshot and find nothing.
+                actions.refreshBase()
+            }
         }
     }),
 ])

@@ -6155,8 +6155,16 @@ const api = {
         async delete(id: QueryTabState['id']): Promise<void> {
             await new ApiRequest().queryTabStateDetail(id).delete()
         },
-        async user(userId: UserType['uuid']): Promise<QueryTabState> {
-            return await new ApiRequest().queryTabStateUser().withQueryString({ user_id: userId }).get()
+        async user(userId: UserType['uuid']): Promise<QueryTabState | null> {
+            try {
+                return await new ApiRequest().queryTabStateUser().withQueryString({ user_id: userId }).get()
+            } catch (error: any) {
+                // 404 = no tab state saved yet — a normal first-load condition, not an error
+                if (error?.status === 404) {
+                    return null
+                }
+                throw error
+            }
         },
     },
     insightVariables: {

@@ -22,13 +22,11 @@ const TABS_TO_CONTENT: Record<SideBarTab, TabContent> = {
     [SideBarTab.Series]: {
         label: 'Series',
         content: <SeriesTab />,
-        // The builder's wells own axis/series selection, so the Series tab is redundant for cartesian
-        // charts. Keep it for the heatmap (gradient + labels) and the table (per-column formatting),
-        // where it's formatting-only with nothing for the wells to conflict with.
+        // The builder's Setup column owns field selection and per-field formatting, so the Series
+        // tab (which lists and edits columns) would wrongly imply columns can be changed from the
+        // Format panel. Keep it only for the heatmap's gradient + label config.
         shouldShow: (displayType: ChartDisplayType, isBuilderQuery: boolean): boolean =>
-            !isBuilderQuery ||
-            displayType === ChartDisplayType.TwoDimensionalHeatmap ||
-            displayType === ChartDisplayType.ActionsTable,
+            !isBuilderQuery || displayType === ChartDisplayType.TwoDimensionalHeatmap,
     },
     [SideBarTab.ConditionalFormatting]: {
         label: 'Conditional formatting',
@@ -47,20 +45,18 @@ const TABS_TO_CONTENT: Record<SideBarTab, TabContent> = {
 
 /** `className` lets callers override the default fixed width (e.g. the builder's Format column fills its shell). */
 export const SideBar = ({ className }: { className?: string } = {}): JSX.Element => {
-    const { activeSideBarTab, effectiveVisualizationType, query } = useValues(dataVisualizationLogic)
+    const { activeSideBarTab, effectiveVisualizationType, isBuilderOwnedQuery } = useValues(dataVisualizationLogic)
     const { setSideBarTab } = useActions(dataVisualizationLogic)
-
-    const isBuilderQuery = !!query.builder?.enabled
 
     const tabs: LemonTab<string>[] = useMemo(
         () =>
             Object.entries(TABS_TO_CONTENT)
-                .filter(([_, tab]) => tab.shouldShow(effectiveVisualizationType, isBuilderQuery))
+                .filter(([_, tab]) => tab.shouldShow(effectiveVisualizationType, isBuilderOwnedQuery))
                 .map(([key, tab]) => ({
                     label: tab.label,
                     key,
                 })),
-        [effectiveVisualizationType, isBuilderQuery]
+        [effectiveVisualizationType, isBuilderOwnedQuery]
     )
 
     // The stored tab can be hidden for the current chart/query (e.g. Series for builder insights)
@@ -71,7 +67,11 @@ export const SideBar = ({ className }: { className?: string } = {}): JSX.Element
     if (!visibleActiveTab) {
         return (
             <div className={cn('bg-surface-primary w-[18rem] flex flex-col p-4', className)}>
-                <span className="text-sm text-secondary">No format options for this chart type.</span>
+                <span className="text-sm text-secondary">
+                    {isBuilderOwnedQuery && effectiveVisualizationType === ChartDisplayType.BoldNumber
+                        ? 'Format this number from the gear on its field in Values.'
+                        : 'No format options for this chart type.'}
+                </span>
             </div>
         )
     }

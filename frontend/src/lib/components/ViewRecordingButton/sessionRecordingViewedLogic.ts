@@ -31,16 +31,10 @@ export interface sessionRecordingViewedLogicActions {
         errorObject?: any
     }
     loadRecordingViewedSuccess: (
-        recordingViewed: {
-            otherViewers: number
-            viewed: boolean
-        },
+        recordingViewed: SessionRecordingViewedResult,
         payload?: any
     ) => {
-        recordingViewed: {
-            otherViewers: number
-            viewed: boolean
-        }
+        recordingViewed: SessionRecordingViewedResult
         payload?: any
     }
     userClickedThrough: () => any

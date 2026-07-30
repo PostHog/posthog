@@ -34,15 +34,23 @@ export interface ChartCapability {
     /** Shown in the chart picker and preview empty states */
     requirementHint: string
     tip?: string
+    /**
+     * What each well is called for this chart. Charts speak the user's language — X-axis /
+     * Breakdown / Slices — instead of pivot-table Rows/Columns; the table and heatmap keep the
+     * literal names. Missing entries fall back to the generic Rows/Columns/Values.
+     */
+    wellLabels?: Partial<Record<CapabilityWell, string>>
 }
 
 // Line and area share a shape: one x-axis Column, an optional Rows breakdown, one-or-more Values
-const LINE_AREA_WELLS: Pick<ChartCapability, 'rows' | 'columns' | 'values' | 'maxValuesWithBreakdown'> = {
-    columns: { min: 1, max: 1 },
-    rows: { min: 0, max: 1 },
-    values: { min: 1, max: null },
-    maxValuesWithBreakdown: 1,
-}
+const LINE_AREA_WELLS: Pick<ChartCapability, 'rows' | 'columns' | 'values' | 'maxValuesWithBreakdown' | 'wellLabels'> =
+    {
+        columns: { min: 1, max: 1 },
+        rows: { min: 0, max: 1 },
+        values: { min: 1, max: null },
+        maxValuesWithBreakdown: 1,
+        wellLabels: { columns: 'X-axis', rows: 'Breakdown' },
+    }
 
 export const CHART_CAPABILITIES: ChartCapability[] = [
     {
@@ -62,13 +70,14 @@ export const CHART_CAPABILITIES: ChartCapability[] = [
         columns: { min: 0, max: 0 },
         values: { min: 1, max: 1 },
         requirementHint: 'Needs exactly 1 Value',
+        wellLabels: { values: 'Value' },
     },
     {
         display: ChartDisplayType.ActionsLineGraph,
         label: 'Line chart',
         ...LINE_AREA_WELLS,
-        requirementHint: 'Needs 1 Column (x-axis) and at least 1 Value',
-        tip: 'Add a Row to break the line into multiple series; a date column on the x-axis works best',
+        requirementHint: 'Needs an X-axis field and at least 1 Value',
+        tip: 'Add a Breakdown to split the line into multiple series; a date column on the x-axis works best',
     },
     {
         display: ChartDisplayType.ActionsBar,
@@ -76,7 +85,8 @@ export const CHART_CAPABILITIES: ChartCapability[] = [
         columns: { min: 1, max: 1 },
         rows: { min: 0, max: 0 },
         values: { min: 1, max: null },
-        requirementHint: 'Needs 1 Column (x-axis) and at least 1 Value',
+        requirementHint: 'Needs an X-axis field and at least 1 Value',
+        wellLabels: { columns: 'X-axis', rows: 'Breakdown' },
     },
     {
         display: ChartDisplayType.ActionsStackedBar,
@@ -84,14 +94,15 @@ export const CHART_CAPABILITIES: ChartCapability[] = [
         columns: { min: 1, max: 1 },
         rows: { min: 1, max: 1 },
         values: { min: 1, max: 1 },
-        requirementHint: 'Needs 1 Column (x-axis), 1 Row (stacked breakdown), and 1 Value',
+        requirementHint: 'Needs an X-axis field, a Breakdown, and exactly 1 Value',
+        wellLabels: { columns: 'X-axis', rows: 'Breakdown', values: 'Value' },
     },
     {
         display: ChartDisplayType.ActionsAreaGraph,
         label: 'Area chart',
         ...LINE_AREA_WELLS,
-        requirementHint: 'Needs 1 Column (x-axis) and at least 1 Value',
-        tip: 'Add a Row to break the area into multiple series; a date column on the x-axis works best',
+        requirementHint: 'Needs an X-axis field and at least 1 Value',
+        tip: 'Add a Breakdown to split the area into multiple series; a date column on the x-axis works best',
     },
     {
         display: ChartDisplayType.ActionsPie,
@@ -99,7 +110,8 @@ export const CHART_CAPABILITIES: ChartCapability[] = [
         columns: { min: 1, max: 1 },
         rows: { min: 0, max: 0 },
         values: { min: 1, max: 1 },
-        requirementHint: 'Needs 1 Column (the slices) and exactly 1 Value',
+        requirementHint: 'Needs a Slices field and exactly 1 Value',
+        wellLabels: { columns: 'Slices', rows: 'Breakdown', values: 'Value' },
     },
     {
         display: ChartDisplayType.TwoDimensionalHeatmap,
@@ -108,6 +120,7 @@ export const CHART_CAPABILITIES: ChartCapability[] = [
         rows: { min: 1, max: 1 },
         values: { min: 1, max: 1 },
         requirementHint: 'Needs 1 Column (x-axis), 1 Row (y-axis), and exactly 1 Value',
+        wellLabels: { values: 'Value' },
     },
 ]
 
@@ -117,12 +130,19 @@ const WELL_LABELS: Record<CapabilityWell, string> = {
     values: 'Values',
 }
 
+/** What a well is called for the given chart type (e.g. Columns → "X-axis" on a bar chart). */
+export function wellLabel(well: BuilderWell, display: ChartDisplayType): string {
+    if (well === 'filters') {
+        return 'Filters'
+    }
+    return getChartCapability(display)?.wellLabels?.[well] ?? WELL_LABELS[well]
+}
+
 export function getChartCapability(display: ChartDisplayType): ChartCapability | undefined {
     return CHART_CAPABILITIES.find((capability) => capability.display === display)
 }
 
-function missingWellProblem(well: CapabilityWell, count: number, requirement: WellRequirement): string | null {
-    const label = WELL_LABELS[well]
+function missingWellProblem(label: string, count: number, requirement: WellRequirement): string | null {
     if (count < requirement.min) {
         return requirement.min === 1 ? `Add a field to ${label}` : `Add at least ${requirement.min} fields to ${label}`
     }
@@ -141,9 +161,9 @@ export function validateWellsForDisplay(wells: BuilderWells, display: ChartDispl
     }
 
     const problems = [
-        missingWellProblem('rows', wells.rows.length, capability.rows),
-        missingWellProblem('columns', wells.columns.length, capability.columns),
-        missingWellProblem('values', wells.values.length, capability.values),
+        missingWellProblem(wellLabel('rows', display), wells.rows.length, capability.rows),
+        missingWellProblem(wellLabel('columns', display), wells.columns.length, capability.columns),
+        missingWellProblem(wellLabel('values', display), wells.values.length, capability.values),
     ].filter((problem): problem is string => problem !== null)
 
     if (capability.requiresAnyField && wells.rows.length + wells.columns.length + wells.values.length === 0) {
@@ -188,6 +208,38 @@ export function isWellEnabled(well: BuilderWell, display: ChartDisplayType): boo
         return true
     }
     return capability[well].max !== 0
+}
+
+/** Why a field can't be added to this well for the current chart, or null if it can. */
+export function addToWellDisabledReason(well: BuilderWell, display: ChartDisplayType): string | null {
+    if (well === 'filters' || isWellEnabled(well, display)) {
+        return null
+    }
+    const capability = getChartCapability(display)
+    return `${capability?.label ?? 'This chart'} doesn't use ${wellLabel(well, display)}`
+}
+
+/**
+ * Where a clicked field should land for the current chart: measures go to Values; dimensions go
+ * to the first enabled dimension well with room (Columns is the primary axis), falling back to
+ * the first enabled dimension well (replace-on-full applies, matching drag), then Values
+ * (e.g. Big number, where a clicked dimension becomes a count-distinct measure).
+ */
+export function bestWellForField(
+    field: { isNumerical: boolean },
+    wells: BuilderWells,
+    display: ChartDisplayType
+): CapabilityWell {
+    if (field.isNumerical) {
+        return 'values'
+    }
+    const capability = getChartCapability(display)
+    const enabledDimensionWells = (['columns', 'rows'] as const).filter((well) => isWellEnabled(well, display))
+    const withRoom = enabledDimensionWells.find((well) => {
+        const max = capability?.[well].max
+        return max === undefined || max === null || wells[well].length < max
+    })
+    return withRoom ?? enabledDimensionWells[0] ?? 'values'
 }
 
 /** Pick a sensible chart type for the current wells (used when the user hasn't chosen one explicitly). */

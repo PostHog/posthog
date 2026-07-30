@@ -44,6 +44,18 @@ export const DATE_GRAIN_LABELS: Record<InsightBuilderDateGrain, string> = {
 
 export const DATE_GRAIN_OPTIONS: InsightBuilderDateGrain[] = ['hour', 'day', 'week', 'month', 'quarter', 'year']
 
+/**
+ * Grains that make sense for a column's type — a DATE column has no time component, so bucketing
+ * it by hour is a no-op. Unknown types (e.g. a pill whose field is no longer in the base query)
+ * keep every option.
+ */
+export function dateGrainOptionsForField(field?: { typeName?: string }): InsightBuilderDateGrain[] {
+    if (field?.typeName === 'DATE') {
+        return DATE_GRAIN_OPTIONS.filter((grain) => grain !== 'hour')
+    }
+    return DATE_GRAIN_OPTIONS
+}
+
 export const FILTER_OPERATOR_LABELS: Record<InsightBuilderFilterOperator, string> = {
     eq: '=',
     neq: '≠',
