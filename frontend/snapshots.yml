@@ -1260,6 +1260,10 @@ snapshots:
         hash: v1.k794b7964.9462b3e1e5303a27a5ba68940abb6a6b53c3ca6a6e7b7f6f3ebf80ba4c18eaeb.aqQJOmyCIGUyTzQ1NQS9dmQXWEu_G7YOxSCCvR-YS6M
     components-markdown-notebook--query-block--light:
         hash: v1.k794b7964.c7d938594b2adf78b1cb2b6b06502edd842701026e8e3b0014e6bd2571701ae5._HYTts0_d2ety-dJS140Adz40WvojQghhEJg-T4JwBI
+    components-markdown-notebook--sections--dark:
+        hash: v1.k794b7964.13636dabbdcece0ee0eb786f98791c437b0ec36985213f22d4254a361c012ce6.lZdV1kmwc486gbh54dVj9SZ5ThjHEYl6jt9AArBu5do
+    components-markdown-notebook--sections--light:
+        hash: v1.k794b7964.b04762c2b9ba2d8340f4e3dccd413e9c01aa66282e128a39154c576c71b53669.nhEVQYVlxEs3Qrb36a97ciHKgQIdRdsy_NYXtD87gec
     components-markdown-notebook--selection-toolbar-state--dark:
         hash: v1.k794b7964.3ae4e75244d0227c7e592b7937380ee3ff8e94a5cafa2b05cb49c5ef9cad727a.j7qvSpyDubygwc7VsU2sbliJbjCKR9EwWvoay5j5e2c
     components-markdown-notebook--selection-toolbar-state--light:
