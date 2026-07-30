@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import uuid
 import base64
+import itertools
 import contextlib
 import collections
 from collections.abc import Callable, Iterator
@@ -17,23 +18,23 @@ from bson.codec_options import DatetimeConversion
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.database import Database
-from pymongo.errors import PyMongoError
+from pymongo.errors import OperationFailure, PyMongoError
 from pymongo.server_description import ServerDescription
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     _is_host_safe,
     log_connection_open,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mongodb import (
     MongoDBSourceConfig,
 )
@@ -560,6 +561,12 @@ def _get_rows_to_sync(collection: Collection, query: dict[str, Any], logger: Fil
         return 0
 
 
+# Some Atlas tiers (e.g. free/shared) reject no_cursor_timeout outright with OperationFailure
+# code 8000 ("noTimeout cursors are disallowed in this atlas tier"). Matched as a substring since
+# the full error also carries the volatile clusterTime/signature payload.
+_NO_TIMEOUT_CURSORS_DISALLOWED = "noTimeout cursors are disallowed"
+
+
 def mongo_source(
     connection_string: str,
     collection_name: str,
@@ -614,30 +621,57 @@ def mongo_source(
                 db_incremental_field_last_value,
             )
 
-            cursor = read_collection.find(query, batch_size=chunk_size)
+            # Between chunks, the pipeline writes/merges the accumulated Arrow table before pulling
+            # more rows, which can pause consumption of this cursor well past MongoDB's default
+            # 10-minute idle-cursor timeout — the server then kills it, and the next getMore raises
+            # CursorNotFound. no_cursor_timeout disables that server-side expiry; we close the cursor
+            # explicitly in the finally block below so it doesn't linger on the server instead.
+            cursor = read_collection.find(query, batch_size=chunk_size, no_cursor_timeout=True)
 
-            for doc in cursor:
-                # Convert BSON types (ObjectId, Binary, UUID, DatetimeMS) to SQL-safe
-                # values. _process_doc_with_field_logging logs the offending field name
-                # before re-raising, so any exception here fails the sync with precise
-                # diagnostic context rather than silently dropping rows.
-                processed_doc = _process_doc_with_field_logging(doc, collection_name, logger)
+            try:
+                doc_iter: Iterator[dict[str, Any]] = iter(cursor)
+                try:
+                    first_doc = next(doc_iter)
+                    doc_iter = itertools.chain([first_doc], doc_iter)
+                except StopIteration:
+                    pass
+                except OperationFailure as e:
+                    if _NO_TIMEOUT_CURSORS_DISALLOWED not in str(e):
+                        raise
+                    # Fails on the very first read before any document is yielded, so it's safe to
+                    # retry without no_cursor_timeout — the tradeoff is the CursorNotFound risk that
+                    # option guards against (see the comment above cursor creation).
+                    logger.debug(
+                        f"MongoDB: no_cursor_timeout disallowed for collection={collection_name}; retrying without it"
+                    )
+                    cursor.close()
+                    cursor = read_collection.find(query, batch_size=chunk_size)
+                    doc_iter = iter(cursor)
 
-                # Stringify _id so it's always a scalar string downstream,
-                # regardless of BSON type (ObjectId, UUID Binary, numeric, etc.).
-                result: dict[str, Any] = {
-                    "_id": str(processed_doc["_id"]),
-                }
-                # extract incremental field from the document if it exists
-                if incremental_field:
-                    incremental_value = processed_doc.get(incremental_field, None)
-                    if incremental_value is None:
-                        continue
-                    result[incremental_field] = incremental_value
+                for doc in doc_iter:
+                    # Convert BSON types (ObjectId, Binary, UUID, DatetimeMS) to SQL-safe
+                    # values. _process_doc_with_field_logging logs the offending field name
+                    # before re-raising, so any exception here fails the sync with precise
+                    # diagnostic context rather than silently dropping rows.
+                    processed_doc = _process_doc_with_field_logging(doc, collection_name, logger)
 
-                result["data"] = processed_doc
+                    # Stringify _id so it's always a scalar string downstream,
+                    # regardless of BSON type (ObjectId, UUID Binary, numeric, etc.).
+                    result: dict[str, Any] = {
+                        "_id": str(processed_doc["_id"]),
+                    }
+                    # extract incremental field from the document if it exists
+                    if incremental_field:
+                        incremental_value = processed_doc.get(incremental_field, None)
+                        if incremental_value is None:
+                            continue
+                        result[incremental_field] = incremental_value
 
-                yield result
+                    result["data"] = processed_doc
+
+                    yield result
+            finally:
+                cursor.close()
 
     name = NamingConvention.normalize_identifier(collection_name)
 

@@ -333,8 +333,8 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
     @patch("ee.hogai.utils.conversation_summarizer.AnthropicConversationSummarizer.summarize")
     async def test_conversation_summarization_flow(self, mock_summarize, mock_calculate_tokens, mock_model):
         """Test that conversation is summarized when it gets too long"""
-        # Return a token count higher than CONVERSATION_WINDOW_SIZE (100,000)
-        mock_calculate_tokens.return_value = 150_000
+        # Return a token count higher than CONVERSATION_WINDOW_SIZE
+        mock_calculate_tokens.return_value = 450_000
         mock_summarize.return_value = "This is a summary of the conversation so far."
 
         mock_model_instance = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response after summary")])
@@ -369,8 +369,8 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
     @patch("ee.hogai.utils.conversation_summarizer.AnthropicConversationSummarizer.summarize")
     async def test_conversation_summarization_on_first_turn(self, mock_summarize, mock_calculate_tokens, mock_model):
         """Test that on first turn, the last message is excluded from summarization"""
-        # Return a token count higher than CONVERSATION_WINDOW_SIZE (100,000)
-        mock_calculate_tokens.return_value = 150_000
+        # Return a token count higher than CONVERSATION_WINDOW_SIZE
+        mock_calculate_tokens.return_value = 450_000
         mock_summarize.return_value = "Summary without last message"
 
         mock_model_instance = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
@@ -401,7 +401,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         self, mock_summarize, mock_calculate_tokens, mock_model
     ):
         """Test that mode reminder is inserted after summary when modes feature flag is enabled"""
-        mock_calculate_tokens.return_value = 150_000
+        mock_calculate_tokens.return_value = 450_000
         mock_summarize.return_value = "Summary of conversation"
 
         mock_model_instance = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
@@ -658,7 +658,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         from ee.hogai.utils.types.base import ReplaceMessages
 
         # Trigger summarization flow which returns ReplaceMessages
-        mock_calculate_tokens.return_value = 150_000
+        mock_calculate_tokens.return_value = 450_000
         mock_summarize.return_value = "Conversation summary"
         mock_model.return_value = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
 

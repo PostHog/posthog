@@ -93,6 +93,7 @@ describe('EmailService', () => {
                 sesEndpoint: hub.SES_ENDPOINT,
                 sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
                 sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                sesTenantAttributionEnabled: hub.EMAIL_SES_TENANT_ATTRIBUTION_ENABLED,
             },
             hub.integrationManager,
             new TeamWorkflowsConfigService(hub.postgres),
@@ -117,6 +118,7 @@ describe('EmailService', () => {
                     sesEndpoint: '',
                     sesTrackedConfigurationSet: 'posthog-messaging',
                     sesUntrackedConfigurationSet: '',
+                    sesTenantAttributionEnabled: false,
                 },
                 hub.integrationManager,
                 new TeamWorkflowsConfigService(hub.postgres),
@@ -504,6 +506,40 @@ describe('EmailService', () => {
             })
         })
 
+        describe('SES tenant attribution', () => {
+            it('attributes the send to the team tenant when enabled', async () => {
+                service['sesConfig'].sesTenantAttributionEnabled = true
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.TenantName).toEqual(`team-${team.id}`)
+            })
+
+            it('omits TenantName by default (flag off)', async () => {
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.TenantName).toBeUndefined()
+            })
+
+            it('attributes test-panel sends too — they are real SES sends', async () => {
+                service['sesConfig'].sesTenantAttributionEnabled = true
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                const result = await service.executeSendEmail(invocation, true)
+
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.TenantName).toEqual(`team-${team.id}`)
+            })
+        })
+
         it('should include cc addresses in SES destination', async () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.queueParameters = createEmailParams({
@@ -725,6 +761,17 @@ describe('EmailService', () => {
                 const testSend = await service.executeSendEmail(invocation, true)
                 expect(testSend.metrics).toEqual([])
             })
+
+            it('marks the captured send event as untracked so customer-built engagement rates can exclude it', async () => {
+                jest.spyOn(
+                    (service as any).teamWorkflowsConfigService,
+                    'shouldCaptureEngagementEvents'
+                ).mockResolvedValue(true)
+                const result = await service.executeSendEmail(invocation)
+                expect(result.capturedPostHogEvents[0].properties).toMatchObject({
+                    $email_tracking_enabled: false,
+                })
+            })
         })
 
         describe('recipient tracking consent', () => {
@@ -879,6 +926,7 @@ describe('EmailService', () => {
                     $workflow_action_id: invocation.state.actionId,
                     $email_to: 'test@example.com',
                     $email_subject: 'Test Subject',
+                    $email_tracking_enabled: true,
                 },
             })
         })
