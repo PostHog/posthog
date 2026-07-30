@@ -472,6 +472,34 @@ class TestSentrySourceValidation:
         assert row["issue_id"] == "100"
         assert "_issues_id" not in row
 
+    @parameterized.expand(
+        [
+            ("issue_events", "issues"),
+            ("project_events", "projects"),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
+    )
+    def test_event_fanout_requests_full_event_bodies(self, endpoint, parent_name, mock_rest_api_resources) -> None:
+        mock_rest_api_resources.return_value = [
+            _FakeDltResource(parent_name, []),
+            _FakeDltResource(endpoint, []),
+        ]
+
+        sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint=endpoint,
+            team_id=123,
+            job_id="job-id",
+        )
+
+        config = mock_rest_api_resources.call_args.args[0]
+        child_resource = next(r for r in config["resources"] if r["name"] == endpoint)
+        assert child_resource["endpoint"]["params"]["full"] == "true"
+
     # ----- Issue fan-out: custom iterator (issue_tag_values) -----
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
