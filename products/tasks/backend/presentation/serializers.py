@@ -653,13 +653,6 @@ class TaskWriteSerializer(serializers.Serializer):
                 {"signal_report": "Signal report attribution must use the signal report task endpoint."}
             )
 
-        if (
-            attrs.get("origin_product") == tasks_facade.TaskOriginProduct.SIGNAL_REPORT
-            and attrs.get("github_user_integration") is not None
-        ):
-            raise serializers.ValidationError(
-                {"github_user_integration": "Signal report tasks use the team GitHub integration."}
-            )
         return attrs
 
 
@@ -698,6 +691,14 @@ class SignalReportTaskCreateSerializer(TaskCreateSerializer):
         required=True,
         help_text="Whether the task implements or discusses the report.",
     )
+
+    def validate(self, attrs: dict) -> dict:
+        attrs = super().validate(attrs)
+        if attrs.get("github_user_integration") is not None:
+            raise serializers.ValidationError(
+                {"github_user_integration": "Signal report tasks use the team GitHub integration."}
+            )
+        return attrs
 
 
 class TaskRunSetOutputRequestSerializer(serializers.Serializer):

@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from rest_framework import serializers
 
 from products.tasks.backend.presentation.serializers import (
     SignalReportTaskCreateSerializer,
@@ -37,6 +38,19 @@ class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
     def test_signal_report_serializer_assigns_origin(self) -> None:
         serializer = SignalReportTaskCreateSerializer()
         assert serializer.fields["origin_product"].default == "signal_report"
+
+    def test_signal_report_serializer_rejects_user_integration(self) -> None:
+        serializer = SignalReportTaskCreateSerializer(data={})
+        with self.assertRaises(serializers.ValidationError) as error:
+            serializer.validate(
+                {
+                    "origin_product": "signal_report",
+                    "signal_report": object(),
+                    "signal_report_task_relationship": "implementation",
+                    "github_user_integration": object(),
+                }
+            )
+        assert "github_user_integration" in error.exception.detail
 
 
 class TestTaskWriteTelemetry(SimpleTestCase):
