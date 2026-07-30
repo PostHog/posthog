@@ -29,6 +29,7 @@ from products.mcp_analytics.backend.intent_clustering import (
     DEFAULT_DISTANCE_THRESHOLD,
     EMBEDDING_MODEL,
     MAX_INTENT_TEXT_LENGTH,
+    MAX_RECURRING_INTENTS,
     NO_INTENT_RECORDED_FALLBACK,
     IntentRecord,
     RecurringIntent,
@@ -275,6 +276,21 @@ class TestBuildSnapshot:
             }
         ]
 
+    def test_recurring_entries_are_capped_for_display(self) -> None:
+        # The exclusion set is fetched wider than the display cap, so the blob has to
+        # truncate or the whole exclusion list ships to the client.
+        recurring = [
+            RecurringIntent(intent_text=f"bot intent {i}", session_count=3, call_count=3, error_count=0)
+            for i in range(MAX_RECURRING_INTENTS + 25)
+        ]
+
+        snapshot = build_snapshot(
+            [], np.array([], dtype=np.int64), np.zeros((0, 4), dtype=np.float32), recurring=recurring
+        )
+
+        assert len(snapshot["recurring"]) == MAX_RECURRING_INTENTS
+        assert snapshot["recurring"][0]["intent_text"] == "bot intent 0"
+
     def test_sample_intents_capped_and_sorted_by_frequency(self) -> None:
         records = [
             IntentRecord(intent_text=f"intent_{i}", frequency=10 - i, tool_counts={"tool_a": 10 - i}) for i in range(5)
@@ -453,6 +469,21 @@ class TestFetchIntentCorpus(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixi
 
         assert {r.intent_text for r in records} == {"unique human question"}
         assert set(intent_by_session) == {"human-1"}
+
+    def test_exclude_texts_drops_recurring_sessions_that_also_have_an_llm_summary(self) -> None:
+        # The summary overlay replaces a session's event intent, so matching only on the
+        # final text lets an automated session back into the semantic corpus under its
+        # summary — exactly what the recurring split exists to prevent.
+        self._seed_tool_call("cron-1", "execute-sql", intent="recurring bot intent")
+        self._seed_tool_call("cron-2", "execute-sql", intent="recurring bot intent")
+        self._seed_tool_call("human-1", "query-trends", intent="unique human question")
+        flush_persons_and_events()
+        self._seed_session("cron-1", "Summarised nightly rollup run")
+
+        records, intent_by_session = fetch_intent_corpus(self.team, exclude_texts={"recurring bot intent"})
+
+        assert set(intent_by_session) == {"human-1"}
+        assert {r.intent_text for r in records} == {"unique human question"}
 
     def test_builds_corpus_from_event_intents_without_session_rows(self) -> None:
         # Two intents in one session: the chronologically first one represents it.

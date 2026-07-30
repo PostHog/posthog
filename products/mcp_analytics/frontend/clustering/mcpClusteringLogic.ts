@@ -14,6 +14,8 @@ const EMPTY_SNAPSHOT: MCPIntentClusterSnapshotApi = {
     last_computed_at: null,
     last_computed_by_email: '',
     clusters: [],
+    long_tail: null,
+    recurring: [],
     computed_with: null,
 }
 

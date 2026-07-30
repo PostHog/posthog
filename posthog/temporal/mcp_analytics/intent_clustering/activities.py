@@ -114,8 +114,12 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                 # out of the semantic corpus so automation can't dominate the
                 # clusters (the top production clusters were all scout/cron
                 # boilerplate before this split).
+                # Fetched wider than the display cap: every recurring text has to reach
+                # exclude_texts below, and the blob truncates to the display cap itself.
                 recurring = await database_sync_to_async(intent_clustering.fetch_recurring_intents)(
-                    team, lookback_days=inputs.lookback_days
+                    team,
+                    lookback_days=inputs.lookback_days,
+                    limit=intent_clustering.MAX_RECURRING_EXCLUSIONS,
                 )
                 activity.heartbeat("fetched recurring intents")
 

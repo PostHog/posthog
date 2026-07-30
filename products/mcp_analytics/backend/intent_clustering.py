@@ -70,6 +70,12 @@ MAX_LONG_TAIL_SAMPLES = 10
 RECURRING_MIN_SESSIONS = 3
 MAX_RECURRING_INTENTS = 50
 
+# The same list both renders and feeds fetch_intent_corpus(exclude_texts=...), and those
+# want different bounds: 50 rows is a readable table, but a team with more than 50
+# recurring texts would leak the tail straight back into the semantic corpus. Fetch the
+# exclusion set this much wider and let the blob truncate to the display cap.
+MAX_RECURRING_EXCLUSIONS = 500
+
 # Placeholder previously written by the (now-removed) summariser job for sessions with no
 # recordable tool-call intents. Still filtered out of the corpus so it doesn't form a
 # meaningless pseudo-cluster of "empty" sessions.
@@ -244,6 +250,13 @@ def fetch_intent_corpus(
             continue
         intent_by_session[session_id] = text
 
+    # A session whose opening intent recurs is automation no matter how the summary
+    # overlay later describes it, so settle exclusion against the event text before the
+    # overlay replaces it — matching only on the final text lets those sessions back in.
+    recurring_sessions = (
+        {sid for sid, text in intent_by_session.items() if text in exclude_texts} if exclude_texts else set()
+    )
+
     # Overlay LLM-generated session summaries, and include summarised sessions
     # the event sample missed (e.g. generated for a session whose events sit
     # just outside the sampled set).
@@ -258,7 +271,11 @@ def fetch_intent_corpus(
         intent_by_session[session_id] = text
 
     if exclude_texts:
-        intent_by_session = {sid: text for sid, text in intent_by_session.items() if text not in exclude_texts}
+        intent_by_session = {
+            sid: text
+            for sid, text in intent_by_session.items()
+            if sid not in recurring_sessions and text not in exclude_texts
+        }
 
     if not intent_by_session:
         return [], {}
@@ -815,7 +832,7 @@ def _serialize_recurring(recurring: list[RecurringIntent] | None) -> list[dict[s
             "error_count": r.error_count,
             "error_rate_pct": round(100.0 * r.error_count / r.call_count, 1) if r.call_count else 0.0,
         }
-        for r in recurring or []
+        for r in (recurring or [])[:MAX_RECURRING_INTENTS]
     ]
 
 
