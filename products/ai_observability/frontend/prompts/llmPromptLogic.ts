@@ -117,6 +117,10 @@ const DEFAULT_PROMPT_FORM_VALUES: PromptFormValues = {
     config: '',
 }
 
+// Seeded into the empty editor when "Add configuration" is clicked, so users see the
+// expected shape instead of a blank JSON editor.
+const STARTER_PROMPT_CONFIG = '{\n  "model": "gpt-4o",\n  "temperature": 0.7\n}'
+
 const PROMPT_FETCHED_EVENT = '$llm_prompt_fetched'
 const PROMPT_VERSIONS_LIMIT = 50
 const DEFAULT_PROMPT_ANALYTICS_DATE_FROM = '-1d'
@@ -1238,6 +1242,12 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             }
             lemonToast.info(`Label ${labelName} removed`)
             llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
+        },
+
+        showConfigEditor: () => {
+            if (!values.promptForm.config.trim()) {
+                actions.setPromptFormValue('config', STARTER_PROMPT_CONFIG)
+            }
         },
 
         requestPublish: () => {

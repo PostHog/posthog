@@ -849,33 +849,35 @@ function PromptConfigEditField(): JSX.Element | null {
     }
 
     return (
-        <LemonField
-            name="config"
-            label="Configuration"
-            help={
-                'Optional JSON object with model parameters or other settings for your app, for example {"model": "gpt-4o", "temperature": 0}. ' +
-                'Stored with this version and returned when you fetch the prompt. Clear the text to remove it. ' +
-                "Don't store secrets here."
-            }
-        >
-            {({ value, onChange }) => (
-                <div className="overflow-hidden rounded border" data-attr="llma-prompt-config-editor">
-                    <CodeEditor
-                        language="json"
-                        value={value ?? ''}
-                        onChange={(newValue) => onChange(newValue ?? '')}
-                        height={200}
-                        options={{
-                            minimap: { enabled: false },
-                            lineNumbers: 'off',
-                            scrollBeyondLastLine: false,
-                            wordWrap: 'on',
-                            folding: false,
-                        }}
-                    />
-                </div>
-            )}
-        </LemonField>
+        <div className="pb-4">
+            <LemonField
+                name="config"
+                label="Configuration"
+                help={
+                    'Optional JSON object with model parameters or other settings for your app, for example {"model": "gpt-4o", "temperature": 0}. ' +
+                    'Stored with this version and returned when you fetch the prompt. Clear the text to remove it. ' +
+                    "Don't store secrets here."
+                }
+            >
+                {({ value, onChange }) => (
+                    <div className="overflow-hidden rounded border" data-attr="llma-prompt-config-editor">
+                        <CodeEditor
+                            language="json"
+                            value={value ?? ''}
+                            onChange={(newValue) => onChange(newValue ?? '')}
+                            height={200}
+                            options={{
+                                minimap: { enabled: false },
+                                lineNumbers: 'off',
+                                scrollBeyondLastLine: false,
+                                wordWrap: 'on',
+                                folding: false,
+                            }}
+                        />
+                    </div>
+                )}
+            </LemonField>
+        </div>
     )
 }
 
