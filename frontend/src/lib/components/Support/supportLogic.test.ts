@@ -6,15 +6,26 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { initKeaTests } from '~/test/init'
-import { OrganizationBasicType, Region, SidePanelTab, TeamPublicType } from '~/types'
+import {
+    BillingPlan,
+    BillingType,
+    OrganizationBasicType,
+    Region,
+    SidePanelTab,
+    StartupProgramLabel,
+    TeamPublicType,
+} from '~/types'
 
 import {
     CONVERSATIONS_MESSAGE_MAX_LENGTH,
+    getPlanLevelTag,
     getPublicSupportSnippet,
+    PlanLevelTagContext,
     SupportFormFields,
     supportLogic,
 } from './supportLogic'
 import * as SupportModal from './SupportModal'
+import { KNOWN_ENTERPRISE_ORG_IDS } from './supportResponseTime'
 
 // supportLogic and SupportModal import each other, so jest.mock('./SupportModal') leaves supportLogic
 // bound to the real openSupportModal — spy on the live module export instead so the call is intercepted.
@@ -47,6 +58,84 @@ describe('supportLogic', () => {
             mockedGetReplayUrl.mockReturnValue(undefined)
             const snippet = getPublicSupportSnippet(Region.US, organization, team, false)
             expect(snippet).toContain('Admin (internal): http://go/adminOrg')
+        })
+    })
+
+    describe('getPlanLevelTag', () => {
+        const billingWith = (billing: Partial<BillingType>): BillingType => billing as BillingType
+        const activeTrial = (target: string): BillingType =>
+            billingWith({ trial: { status: 'active', target } } as Partial<BillingType>)
+
+        it.each([
+            [
+                'a known enterprise org id, whatever its plan',
+                { organizationId: KNOWN_ENTERPRISE_ORG_IDS[0] },
+                'plan_enterprise',
+            ],
+            ['the enterprise plan', { billingPlan: BillingPlan.Enterprise }, 'plan_enterprise'],
+            ['an active enterprise trial', { billing: activeTrial('enterprise') }, 'plan_enterprise'],
+            ['an active scale trial', { billing: activeTrial('scale') }, 'plan_scale'],
+            ['an active boost trial', { billing: activeTrial('boost') }, 'plan_boost'],
+            ['the scale plan', { billingPlan: BillingPlan.Scale }, 'plan_scale'],
+            ['the boost plan', { billingPlan: BillingPlan.Boost }, 'plan_boost'],
+            ['the legacy teams plan', { billingPlan: BillingPlan.Teams }, 'plan_teams_legacy'],
+            ['the free plan', { billingPlan: BillingPlan.Free }, 'plan_free'],
+            ['no billing plan at all', {}, 'plan_free'],
+            ['a new organization', { isNewOrganization: true }, 'plan_onboarding'],
+            [
+                'a new organization on the enterprise plan, which outranks onboarding',
+                { billingPlan: BillingPlan.Enterprise, isNewOrganization: true },
+                'plan_enterprise',
+            ],
+            [
+                'a new organization on an active scale trial, where onboarding outranks the trial',
+                { billing: activeTrial('scale'), isNewOrganization: true },
+                'plan_onboarding',
+            ],
+            [
+                'pay-as-you-go projecting nothing',
+                { billingPlan: BillingPlan.Paid, billing: billingWith({ projected_total_amount_usd_with_limit: '0' }) },
+                'plan_pay-as-you-go_free',
+            ],
+            [
+                'pay-as-you-go projecting a spend',
+                {
+                    billingPlan: BillingPlan.Paid,
+                    billing: billingWith({ projected_total_amount_usd_with_limit: '250.50' }),
+                },
+                'plan_pay-as-you-go_paying',
+            ],
+            [
+                'an expired trial, which falls back to the billing plan',
+                {
+                    billingPlan: BillingPlan.Free,
+                    billing: billingWith({ trial: { status: 'expired', target: 'scale' } } as Partial<BillingType>),
+                },
+                'plan_free',
+            ],
+            [
+                'an active trial on a target that carries no support',
+                { billingPlan: BillingPlan.Free, billing: activeTrial('teams') },
+                'plan_free',
+            ],
+            [
+                'the YC label, which outranks the plan',
+                {
+                    billingPlan: BillingPlan.Enterprise,
+                    billing: billingWith({ startup_program_label: StartupProgramLabel.YC }),
+                },
+                'plan_yc',
+            ],
+            [
+                'the startup label, which outranks the plan',
+                {
+                    billingPlan: BillingPlan.Scale,
+                    billing: billingWith({ startup_program_label: StartupProgramLabel.Startup }),
+                },
+                'plan_startup',
+            ],
+        ])('tags %s as %s', (_case, context: PlanLevelTagContext, expected) => {
+            expect(getPlanLevelTag(context)).toEqual(expected)
         })
     })
 

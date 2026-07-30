@@ -100,6 +100,65 @@ function getErrorTrackingLink(uuid?: string): string {
     return `\nExceptions: https://us.posthog.com/project/2/error_tracking?filterGroup=${filterGroup}`
 }
 
+export interface PlanLevelTagContext {
+    billing?: BillingType | null
+    billingPlan?: BillingPlan | null
+    organizationId?: string | null
+    isNewOrganization?: boolean
+}
+
+export function getPlanLevelTag({
+    billing,
+    billingPlan,
+    organizationId,
+    isNewOrganization,
+}: PlanLevelTagContext): string {
+    let planLevelTag = 'plan_free'
+
+    const isKnownEnterpriseOrg = KNOWN_ENTERPRISE_ORG_IDS.includes(organizationId || '')
+    const activeTrialTarget = getActiveTrialTarget(billing)
+
+    if (isKnownEnterpriseOrg || activeTrialTarget === 'enterprise' || billingPlan === BillingPlan.Enterprise) {
+        planLevelTag = 'plan_enterprise'
+    } else if (isNewOrganization) {
+        planLevelTag = 'plan_onboarding'
+    } else if (activeTrialTarget === 'scale') {
+        planLevelTag = 'plan_scale'
+    } else if (activeTrialTarget === 'boost') {
+        planLevelTag = 'plan_boost'
+    } else if (billingPlan) {
+        switch (billingPlan) {
+            case BillingPlan.Scale:
+                planLevelTag = 'plan_scale'
+                break
+            case BillingPlan.Boost:
+                planLevelTag = 'plan_boost'
+                break
+            case BillingPlan.Teams:
+                planLevelTag = 'plan_teams_legacy'
+                break
+            case BillingPlan.Paid:
+                const projectedAmount = parseFloat(billing?.projected_total_amount_usd_with_limit || '0')
+                const shouldMarkAsFree = projectedAmount === 0
+
+                planLevelTag = shouldMarkAsFree ? 'plan_pay-as-you-go_free' : 'plan_pay-as-you-go_paying'
+                break
+            case BillingPlan.Free:
+                planLevelTag = 'plan_free'
+                break
+        }
+    }
+
+    const startupProgramLabel = billing?.startup_program_label
+    if (startupProgramLabel === StartupProgramLabel.YC) {
+        planLevelTag = 'plan_yc'
+    } else if (startupProgramLabel === StartupProgramLabel.Startup) {
+        planLevelTag = 'plan_startup'
+    }
+
+    return planLevelTag
+}
+
 function getDjangoAdminLink(
     user: UserType | null,
     cloudRegion: Region | null | undefined,
@@ -903,53 +962,12 @@ export const supportLogic = kea<supportLogicType>([
             const billing = billingLogic.values.billing
             const billingPlan = billingLogic.values.billingPlan
 
-            let planLevelTag = 'plan_free'
-
-            const isKnownEnterpriseOrg = KNOWN_ENTERPRISE_ORG_IDS.includes(
-                userLogic?.values?.user?.organization?.id || ''
-            )
-
-            const isNewOrganization = values.isCurrentOrganizationNew
-
-            const activeTrialTarget = getActiveTrialTarget(billing)
-
-            if (isKnownEnterpriseOrg || activeTrialTarget === 'enterprise' || billingPlan === BillingPlan.Enterprise) {
-                planLevelTag = 'plan_enterprise'
-            } else if (isNewOrganization) {
-                planLevelTag = 'plan_onboarding'
-            } else if (activeTrialTarget === 'scale') {
-                planLevelTag = 'plan_scale'
-            } else if (activeTrialTarget === 'boost') {
-                planLevelTag = 'plan_boost'
-            } else if (billingPlan) {
-                switch (billingPlan) {
-                    case BillingPlan.Scale:
-                        planLevelTag = 'plan_scale'
-                        break
-                    case BillingPlan.Boost:
-                        planLevelTag = 'plan_boost'
-                        break
-                    case BillingPlan.Teams:
-                        planLevelTag = 'plan_teams_legacy'
-                        break
-                    case BillingPlan.Paid:
-                        const projectedAmount = parseFloat(billing?.projected_total_amount_usd_with_limit || '0')
-                        const shouldMarkAsFree = projectedAmount === 0
-
-                        planLevelTag = shouldMarkAsFree ? 'plan_pay-as-you-go_free' : 'plan_pay-as-you-go_paying'
-                        break
-                    case BillingPlan.Free:
-                        planLevelTag = 'plan_free'
-                        break
-                }
-            }
-
-            const startupProgramLabel = billing?.startup_program_label
-            if (startupProgramLabel === StartupProgramLabel.YC) {
-                planLevelTag = 'plan_yc'
-            } else if (startupProgramLabel === StartupProgramLabel.Startup) {
-                planLevelTag = 'plan_startup'
-            }
+            const planLevelTag = getPlanLevelTag({
+                billing,
+                billingPlan,
+                organizationId: userLogic?.values?.user?.organization?.id,
+                isNewOrganization: values.isCurrentOrganizationNew,
+            })
 
             const { accountOwner } = billingLogic.values
 
