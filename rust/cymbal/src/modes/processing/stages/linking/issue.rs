@@ -3,7 +3,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use common_types::format::parse_datetime_assuming_utc;
 use sqlx::{Acquire, PgConnection};
-use tracing::warn;
+use tracing::debug;
 use uuid::Uuid;
 
 use crate::{
@@ -42,8 +42,9 @@ impl IssueLinker {
             .map(str::to_string)
             .unwrap_or_else(|| input.exception_list()[0].exception_message.clone());
 
+        // Debug: a bad client timestamp is SDK/user data quality, handled by falling back.
         let event_timestamp = parse_datetime_assuming_utc(input.timestamp()).unwrap_or_else(|e| {
-            warn!(
+            debug!(
                 event = input.uuid().to_string(),
                 "Failed to get event timestamp, using current time, error: {:?}", e
             );
@@ -195,7 +196,7 @@ async fn load_and_maybe_reopen(
     // Reopened — mirror the side effects from `resolve_issue`'s fast-path reopen branch.
     let event_timestamp =
         parse_datetime_assuming_utc(event_properties.timestamp()).unwrap_or_else(|e| {
-            warn!(
+            debug!(
                 event = event_properties.uuid().to_string(),
                 "Failed to get event timestamp, using current time, error: {:?}", e
             );

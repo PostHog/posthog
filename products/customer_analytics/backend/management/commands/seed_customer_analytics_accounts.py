@@ -28,6 +28,7 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
 from posthog.persons_db import persons_db_connection
 
+from products.customer_analytics.backend.facade.api import create_account
 from products.customer_analytics.backend.models.account import Account, AccountAssignment, AccountProperties
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
 from products.notebooks.backend.facade import api as notebooks
@@ -164,7 +165,7 @@ class Command(BaseCommand):
             for index, (group_key, props) in enumerate(groups):
                 account = existing.get(group_key)
                 if account is None:
-                    account = Account.objects.create_account(
+                    account = create_account(
                         team=team,
                         name=props.get("name") or group_key,
                         external_id=group_key,
