@@ -28,13 +28,6 @@ use crate::{
 const V2_BATCH_MAX_RETRY_ATTEMPTS: u64 = 3;
 const V2_BATCH_RETRY_DELAY_MS: u64 = 50;
 
-// Postgres SQLSTATE 23503: the batch references a missing FK target, e.g. a deleted
-// team still sending events. Such a write can never succeed, no matter how often
-// it's retried.
-fn is_fk_violation(e: &sqlx::Error) -> bool {
-    matches!(e, sqlx::Error::Database(db) if db.code().as_deref() == Some("23503"))
-}
-
 // Derived hash since these are keyed on all fields in the DB
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventPropertiesBatch {
@@ -409,21 +402,6 @@ async fn write_event_properties_batch(
 
         match result {
             Err(e) => {
-                // A batch referencing a deleted team/project can never be written, so don't
-                // burn retries on it — and skip the cache eviction below: evicting a doomed
-                // batch re-issues the same failing write on every future event from the
-                // dead tenant. Same Err return as the exhausted-retries path.
-                if is_fk_violation(&e) {
-                    metrics::counter!(V2_EVENT_PROPS_BATCH_ATTEMPT, &[("result", "failed_fk")])
-                        .increment(1);
-                    total_time.fin();
-                    error!(
-                        "Batch write to posthog_eventproperty dropped on FK violation: {:?}",
-                        &e
-                    );
-                    return Err(e);
-                }
-
                 if tries == V2_BATCH_MAX_RETRY_ATTEMPTS {
                     metrics::counter!(V2_EVENT_PROPS_BATCH_ATTEMPT, &[("result", "failed")])
                         .increment(1);
@@ -535,22 +513,6 @@ async fn write_property_definitions_batch(
 
         match result {
             Err(e) => {
-                // A batch referencing a deleted team/project can never be written, so don't
-                // burn retries on it — and skip the cache eviction below: evicting a doomed
-                // batch re-issues the same failing write on every future event from the
-                // dead tenant. Same Err return as the exhausted-retries path.
-                if is_fk_violation(&e) {
-                    metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "failed_fk")])
-                        .increment(1);
-                    total_time.fin();
-                    error!(
-                        "Batch write to posthog_propertydefinition dropped on FK violation: {:?}",
-                        &e
-                    );
-                    batch.uncache_dropped(&cache);
-                    return Err(e);
-                }
-
                 if tries == V2_BATCH_MAX_RETRY_ATTEMPTS {
                     metrics::counter!(V2_PROP_DEFS_BATCH_ATTEMPT, &[("result", "failed")])
                         .increment(1);
@@ -656,21 +618,6 @@ async fn write_event_definitions_batch(
 
         match result {
             Err(e) => {
-                // A batch referencing a deleted team/project can never be written, so don't
-                // burn retries on it — and skip the cache eviction below: evicting a doomed
-                // batch re-issues the same failing write on every future event from the
-                // dead tenant. Same Err return as the exhausted-retries path.
-                if is_fk_violation(&e) {
-                    metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "failed_fk")])
-                        .increment(1);
-                    total_time.fin();
-                    error!(
-                        "Batch write to posthog_eventdefinition dropped on FK violation: {:?}",
-                        &e
-                    );
-                    return Err(e);
-                }
-
                 if tries == V2_BATCH_MAX_RETRY_ATTEMPTS {
                     metrics::counter!(V2_EVENT_DEFS_BATCH_ATTEMPT, &[("result", "failed")])
                         .increment(1);
