@@ -127,28 +127,35 @@ def _fail_evaluation(suggestion_id: UUID) -> bool:
     return True
 
 
-async def _reap_observations(temporal: Client, rows: list[dict[str, Any]]) -> int:
-    activity.heartbeat({"phase": "observations_listed", "scanned": len(rows)})
+async def _describe_openness(temporal: Client, workflow_ids: list[str]) -> list[bool | None]:
+    """Per-id: True still open, False provably closed or absent, None Temporal couldn't say. An empty id
+    never had a workflow, so it is closed by definition."""
     describe_sem = asyncio.Semaphore(_DESCRIBE_CONCURRENCY)
 
-    async def _still_open(row: dict[str, Any]) -> bool | None:
-        if not row["workflow_id"]:
+    async def _one(workflow_id: str) -> bool | None:
+        if not workflow_id:
             return False
         async with describe_sem:
-            return await _workflow_is_open(temporal, row["workflow_id"])
+            return await _workflow_is_open(temporal, workflow_id)
 
-    openness = await asyncio.gather(*(_still_open(row) for row in rows))
+    return await asyncio.gather(*(_one(workflow_id) for workflow_id in workflow_ids))
+
+
+async def _reap_observations(temporal: Client, rows: list[dict[str, Any]]) -> int:
+    activity.heartbeat({"phase": "observations_listed", "scanned": len(rows)})
+    openness = await _describe_openness(temporal, [row["workflow_id"] for row in rows])
     activity.heartbeat({"phase": "observations_described", "described": len(openness)})
 
     reaped = 0
     skipped_open = 0
     skipped_temporal_error = 0
     for row, is_open in zip(rows, openness):
-        if is_open:
+        # Only settle rows whose workflow is provably gone; anything else waits for the next tick.
+        if is_open is True:
             skipped_open += 1
             continue
         if is_open is None:
-            skipped_temporal_error += 1  # Can't prove it's closed — leave it for the next tick.
+            skipped_temporal_error += 1
             continue
         snapshot = row["scanner_snapshot"] or {}
         scanner_type = snapshot.get("scanner_type") or "unknown"
@@ -166,13 +173,9 @@ async def _reap_observations(temporal: Client, rows: list[dict[str, Any]]) -> in
 
 async def _reap_evaluations(temporal: Client, suggestion_ids: list[UUID]) -> int:
     activity.heartbeat({"phase": "evaluations_listed", "scanned": len(suggestion_ids)})
-    describe_sem = asyncio.Semaphore(_DESCRIBE_CONCURRENCY)
-
-    async def _still_open(suggestion_id: UUID) -> bool | None:
-        async with describe_sem:
-            return await _workflow_is_open(temporal, build_evaluate_prompt_suggestion_workflow_id(suggestion_id))
-
-    openness = await asyncio.gather(*(_still_open(sid) for sid in suggestion_ids))
+    openness = await _describe_openness(
+        temporal, [build_evaluate_prompt_suggestion_workflow_id(sid) for sid in suggestion_ids]
+    )
     reaped = 0
     for suggestion_id, is_open in zip(suggestion_ids, openness):
         # Only settle rows whose workflow is provably gone; a slow-but-live run keeps reporting progress.
@@ -197,5 +200,5 @@ async def reap_orphaned_observations_activity() -> int:
     if not rows and not suggestion_ids:
         return 0
     temporal = await async_connect()
-    reaped = await _reap_observations(temporal, rows) if rows else 0
-    return reaped + (await _reap_evaluations(temporal, suggestion_ids) if suggestion_ids else 0)
+    # Independent passes, and the tick has a 3-minute budget to cover both.
+    return sum(await asyncio.gather(_reap_observations(temporal, rows), _reap_evaluations(temporal, suggestion_ids)))

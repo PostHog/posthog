@@ -93,13 +93,9 @@ def claim_apply_scanner_slot(
     team_in_flight_rows: int | None = None,
     scanner_in_flight_rows: int | None = None,
 ) -> tuple[str, bool]:
-    """Claim the enqueue slot for one (scanner, session) ahead of the workflow start.
-
-    Callers that must mutate rows before starting (retry deletes the failed observation to free the
-    UNIQUE(scanner, session_id) slot) claim first, so a capped attempt never touches the row. On success
-    the caller owns the claim and must pass `slot_already_claimed=True` to `start_apply_scanner_workflow`,
-    or release it if it gives up.
-    """
+    """Claim the enqueue slot for one (scanner, session) ahead of the workflow start; on success the
+    caller owns the claim and must either pass `slot_already_claimed=True` to
+    `start_apply_scanner_workflow` or release it."""
     workflow_id = build_apply_scanner_workflow_id(scanner.id, session_id)
     if team_in_flight_rows is None:
         team_in_flight_rows = ReplayObservation.in_flight_for_team(scanner.team_id).count()
@@ -133,8 +129,9 @@ def start_apply_scanner_workflow(
 ) -> tuple[str, WorkflowStartOutcome]:
     """Start the deterministic apply-scanner workflow for one (scanner, session); never raises.
     An atomic enqueue-slot claim guards the in-flight caps; pass row counts to save two queries."""
-    workflow_id = build_apply_scanner_workflow_id(scanner.id, session_id)
-    if not slot_already_claimed:
+    if slot_already_claimed:
+        workflow_id = build_apply_scanner_workflow_id(scanner.id, session_id)
+    else:
         workflow_id, claimed = claim_apply_scanner_slot(
             scanner,
             session_id,

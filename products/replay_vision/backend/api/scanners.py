@@ -1305,13 +1305,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         )
         snapshot = compute_quota_snapshot(self.team.organization_id)
         cost = observation_credits_for_model(scanner.model)
-        # Uncapped org (remaining None) → quota never binds; otherwise how many of THIS model's cost fit.
-        # A free model spends nothing, so it can't be the binding limit either (unreachable today: every
-        # model costs credits).
-        if snapshot.remaining is None or cost <= 0:
-            quota_limit = in_flight_limit
-        else:
-            quota_limit = snapshot.remaining // cost
+        # Uncapped org, or a free model that spends nothing: quota can't bind. Otherwise, how many of
+        # THIS model's cost fit.
+        quota_limit = in_flight_limit if snapshot.remaining is None or cost <= 0 else snapshot.remaining // cost
         # Report quota as the reason only when it's the strictly tighter limit.
         if quota_limit < in_flight_limit:
             return quota_limit, "skipped_quota", team_in_flight, scanner_in_flight

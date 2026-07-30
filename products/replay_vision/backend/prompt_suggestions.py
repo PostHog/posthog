@@ -56,7 +56,7 @@ _MAX_DISMISSED_EXAMPLES = 3
 _MAX_DISMISSED_PROMPT_CHARS = 600
 # `feedback` is an unbounded TextField, so one pasted log dump would otherwise balloon every future
 # briefing for that scanner (and the per-session tool payload).
-_MAX_FEEDBACK_CHARS = 600
+_MAX_BRIEFING_FEEDBACK_CHARS = 600
 _MAX_TOOL_FEEDBACK_CHARS = 2000
 _MAX_TOOL_ROUNDS = 6
 _MAX_SUMMARIES_PER_RUN = 2
@@ -126,13 +126,12 @@ def _describe_reasoning(observation: ReplayObservation) -> str:
     reasoning = output.get("reasoning")
     if not isinstance(reasoning, str) or not reasoning:
         return ""
-    return reasoning[:_MAX_REASONING_CHARS] + ("…" if len(reasoning) > _MAX_REASONING_CHARS else "")
+    return _clip(reasoning, _MAX_REASONING_CHARS)
 
 
 def _defuse_fence(text: str) -> str:
-    """Neutralize the triple-quote fence inside fenced content. These bodies are LLM-written prompts that a
-    later run reads back, so a rewrite containing \"\"\" would close the fence early and have its remainder read
-    as briefing instructions."""
+    """A rewrite containing \"\"\" would close its own fence early and have the remainder read as briefing
+    instructions."""
     return text.replace('"""', "'''")
 
 
@@ -149,7 +148,7 @@ def _example_line(observation: ReplayObservation) -> str:
     label = _label(observation)
     parts = [f"- Session {observation.session_id}. Scanner output: {_describe_outcome(observation)}"]
     if label.feedback:
-        feedback = _clip(label.feedback, _MAX_FEEDBACK_CHARS)
+        feedback = _clip(label.feedback, _MAX_BRIEFING_FEEDBACK_CHARS)
         parts.append(f"{'What it should be' if not label.is_correct else 'Note'}: {feedback}")
     reasoning = _describe_reasoning(observation)
     if reasoning:

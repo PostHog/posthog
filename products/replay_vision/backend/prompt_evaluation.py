@@ -82,7 +82,7 @@ def primary_outcome(model_output: dict[str, Any] | None) -> str | None:
     # Freeform tags are part of a classifier's output, so a rewrite that only changes them must not read as
     # "no change". Matches `describe_output`, which merges both lists.
     raw_tags = [*(output.get("tags") or []), *(output.get("tags_freeform") or [])]
-    tags = sorted({slugify_tag(t) for t in raw_tags if isinstance(t, str) and slugify_tag(t)})
+    tags = sorted({slug for t in raw_tags if isinstance(t, str) and (slug := slugify_tag(t))})
     if tags:
         return f"Tags: {', '.join(tags)}"
     # Preview types have no discrete outcome, so show the raw output the reviewer compares by eye.

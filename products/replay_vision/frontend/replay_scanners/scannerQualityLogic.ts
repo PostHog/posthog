@@ -581,7 +581,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
         loadLabelStats: async (_, breakpoint) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
-                actions.loadLabelStatsFailure() // Clear the loading flag; a bare return spins forever.
+                actions.loadLabelStatsFailure()
                 return
             }
             let response
@@ -600,7 +600,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
         loadCurrentSuggestion: async (_, breakpoint) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
-                actions.loadCurrentSuggestionFailure() // Clear the loading flag; a bare return spins forever.
+                actions.loadCurrentSuggestionFailure()
                 return
             }
             const epoch = cache.suggestionEpoch ?? 0

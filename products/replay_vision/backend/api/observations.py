@@ -894,21 +894,25 @@ class ReplayObservationViewSet(
         session_id = observation.session_id
         original_pk = observation.pk
         original_created_at = observation.created_at
-        # Lock the row so two concurrent retries can't both pass the status check and both delete it.
-        # The enqueue slot is claimed before the delete, so a capped attempt never touches the row (and
-        # never cascades away the observation's shared label for a request that changes nothing).
+        if observation.status != ObservationStatus.FAILED:
+            raise ValidationError("Only failed observations can be retried.")
+        # Advisory, and deliberately outside the lock below: the atomic claim is the authoritative gate,
+        # and these two read enough to be worth keeping off a held row lock.
+        check_observation_quota(self.team.organization_id, observation_credits_for_model(scanner.model))
+        check_team_in_flight_capacity(self.team.id)
+        # Locked so two concurrent retries can't both pass the status check and both delete the row.
         with transaction.atomic():
             locked = ReplayObservation.objects.select_for_update().get(pk=original_pk)
             if locked.status != ObservationStatus.FAILED:
                 raise ValidationError("Only failed observations can be retried.")
-            check_observation_quota(self.team.organization_id, observation_credits_for_model(scanner.model))
-            check_team_in_flight_capacity(self.team.id)
+            # Claimed before the delete so a capped retry never touches the row, and so never cascades
+            # away the observation's shared label for a request that changes nothing.
             workflow_id, claimed = claim_apply_scanner_slot(scanner, session_id)
             if not claimed:
                 raise Throttled(detail="This team is at its in-flight observation limit. Try again in a few minutes.")
             try:
-                # Free the UNIQUE(scanner, session_id) slot; the usage ledger is immutable, so the failed
-                # attempt stays counted.
+                # Free the UNIQUE(scanner, session_id) slot; the ledger is immutable, so the failed attempt
+                # stays counted.
                 locked.delete()
             except Exception:
                 release_enqueue_claim(
@@ -988,7 +992,8 @@ class ReplayObservationViewSet(
         # Lock the parent row so two concurrent first-time ratings serialize: unlocked, both see no label,
         # both insert, and the loser hits the OneToOne constraint as a 500.
         with transaction.atomic():
-            ReplayObservation.objects.select_for_update().filter(pk=observation.pk).first()
+            # `only("pk")`: the lock is the point, and the full row drags its JSONB columns along.
+            ReplayObservation.objects.select_for_update().only("pk").filter(pk=observation.pk).first()
             # team_id in the lookup keeps the query team-scoped.
             label, _ = ReplayObservationLabel.objects.update_or_create(
                 observation=observation,

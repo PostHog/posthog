@@ -97,8 +97,7 @@ def emit_observation_signal_activity(inputs: EmitObservationSignalInputs) -> int
                     },
                 )
                 emitted += 1
-                # Findings go out one network call at a time; the beat is what tells Temporal the
-                # activity is progressing rather than wedged.
+                # Findings go out one network call at a time, so beat between them.
                 activity.heartbeat({"emitted": emitted, "index": index})
             except Exception:
                 # One bad finding never blocks the rest; signals are advisory.

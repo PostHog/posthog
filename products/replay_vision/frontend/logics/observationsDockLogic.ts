@@ -202,8 +202,8 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
         }
         return {
             loadObservations: async (_, breakpoint) => {
-                // Poll, observe, retry, and the SSE completion hook all call this. Without the breakpoint a
-                // slow earlier response can land last and resurrect a card that has already settled.
+                // Poll, observe, retry, and the SSE hook all call this; without it a slow earlier response
+                // lands last and resurrects a settled card.
                 await breakpoint(1)
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
@@ -225,41 +225,38 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             loadObservationsFailure: reschedulePoll,
 
             observe: async ({ scannerId }) => {
-                // The picker rows disable while observing, but a double-click can land both events before
-                // React re-renders. A cache flag, not `values.observing`: the `observe` reducer has already
-                // flipped that to true by the time this listener runs, so it would reject every call.
+                // A cache flag, not `values.observing`: the reducer has already flipped that to true by the
+                // time this listener runs, so it would reject every call.
                 if (cache.observeInFlight) {
+                    return
+                }
+                actions.setScannerPickerOpen(false)
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    actions.observeFailure()
+                    return
+                }
+                // Backend keys the workflow id on (scanner, session); re-triggering the same pair silently no-ops.
+                if (values.observations.some((o) => o.scanner_id === scannerId)) {
+                    lemonToast.info('This scanner has already been run on this recording.')
+                    actions.observeFailure()
+                    actions.setDockOpen(true)
                     return
                 }
                 cache.observeInFlight = true
                 try {
-                    actions.setScannerPickerOpen(false)
-                    const teamId = teamLogic.values.currentTeamId
-                    if (!teamId) {
-                        actions.observeFailure()
-                        return
-                    }
-                    // Backend keys the workflow id on (scanner, session); re-triggering the same pair silently no-ops.
-                    if (values.observations.some((o) => o.scanner_id === scannerId)) {
-                        lemonToast.info('This scanner has already been run on this recording.')
-                        actions.observeFailure()
-                        actions.setDockOpen(true)
-                        return
-                    }
-                    try {
-                        await visionScannersObserveCreate(String(teamId), scannerId, { session_id: props.sessionId })
-                        lemonToast.success('Observation started')
-                        actions.observeSuccess()
-                        actions.setDockOpen(true)
-                        actions.loadObservations()
-                        refreshVisionQuota()
-                    } catch (error: any) {
-                        // Counted here rather than on observeFailure, which also fires for benign
-                        // paths (scanner already run, no team) that would pollute the failure rate.
-                        metricCount('replay_vision_frontend_observe_failures')
-                        lemonToast.error(`Failed to start observation${error.detail ? `: ${error.detail}` : ''}`)
-                        actions.observeFailure()
-                    }
+                    await visionScannersObserveCreate(String(teamId), scannerId, { session_id: props.sessionId })
+                    lemonToast.success('Observation started')
+                    actions.observeSuccess()
+                    actions.setDockOpen(true)
+                    actions.loadObservations()
+                    refreshVisionQuota()
+                } catch (error: any) {
+                    // Counted here rather than on observeFailure, which also fires for benign
+                    // paths (scanner already run, no team) that would pollute the failure rate.
+                    metricCount('replay_vision_frontend_observe_failures')
+                    lemonToast.error(`Failed to start observation${error.detail ? `: ${error.detail}` : ''}`)
+                    actions.observeFailure()
                 } finally {
                     cache.observeInFlight = false
                 }

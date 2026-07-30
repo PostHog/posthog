@@ -127,7 +127,8 @@ export const observationLabelLogic = kea<observationLabelLogicType>([
         },
 
         rate: async ({ isCorrect, feedback }) => {
-            const epoch = (cache.labelEpoch = (cache.labelEpoch ?? 0) + 1)
+            cache.labelEpoch = (cache.labelEpoch ?? 0) + 1
+            const epoch = cache.labelEpoch
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 return
@@ -152,7 +153,8 @@ export const observationLabelLogic = kea<observationLabelLogicType>([
         },
 
         clearRating: async () => {
-            const epoch = (cache.labelEpoch = (cache.labelEpoch ?? 0) + 1)
+            cache.labelEpoch = (cache.labelEpoch ?? 0) + 1
+            const epoch = cache.labelEpoch
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 return

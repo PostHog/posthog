@@ -263,9 +263,8 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
                 }
                 try {
                     // Ordering pinned: the newest-wins mapping below depends on it, not on the API default.
-                    // The limit is generous rather than one-per-row because retries stack extra observations
-                    // per session; without any limit the server's default page truncates the tail and those
-                    // sessions read as "Not scanned" when they have been.
+                    // Without a limit the server's default page truncates the tail and those sessions read
+                    // as "Not scanned" when they have been.
                     const response = await visionScannersObservationsList(String(teamId), props.scannerId, {
                         session_id: sessionIds.join(','),
                         order_by: '-created_at',

@@ -71,9 +71,8 @@ describe('scannerRunTabLogic', () => {
         // The connected replayScannerLogic fires its own paged list load; ours is the session_id lookup.
         const lookupUrl = requestedUrls.find((url) => url.includes('session_id='))
         expect(lookupUrl).not.toBeUndefined()
-        // Explicit and generous: on the server's default page size the tail of a long list is dropped and
-        // those sessions render "Not scanned"; one-per-row would drop them as soon as a retry stacks a
-        // second observation onto a session.
+        // On the server's default page size the tail is dropped and those sessions render "Not scanned";
+        // one-per-row would drop them as soon as a retry stacks a second observation onto a session.
         expect(lookupUrl).toContain('limit=12')
     })
 
