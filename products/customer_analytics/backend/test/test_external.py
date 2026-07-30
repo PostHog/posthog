@@ -427,11 +427,11 @@ class TestExternalAccountAPI(APIBaseTest):
             team=self.team, definition=definition, saved_query=view, source_column="mrr", key_column="org_id"
         )
 
-    def test_post_returns_warehouse_custom_properties_synced_on_create(self):
+    def test_post_from_workflow_returns_warehouse_custom_properties_synced_on_create(self):
         self._create_warehouse_backed_property()
         # selected columns are sorted: mrr, org_id
         with patch(_SYNC_EXECUTE, return_value=_SyncResponse([(100.0, "new-1")])):
-            response = self._post({"external_id": "new-1"})
+            response = self._post({"external_id": "new-1"}, HTTP_X_POSTHOG_HOG_FLOW_ID=str(uuid4()))
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["custom_properties"]["MRR"], 100.0)
@@ -439,15 +439,23 @@ class TestExternalAccountAPI(APIBaseTest):
     def test_post_succeeds_when_property_sync_fails(self):
         self._create_warehouse_backed_property()
         with patch(_SYNC_EXECUTE, side_effect=Exception("clickhouse down")):
-            response = self._post({"external_id": "new-1"})
+            response = self._post({"external_id": "new-1"}, HTTP_X_POSTHOG_HOG_FLOW_ID=str(uuid4()))
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertIsNone(response.json()["custom_properties"]["MRR"])
 
+    def test_post_without_workflow_header_does_not_sync(self):
+        self._create_warehouse_backed_property()
+        with patch(_SYNC_EXECUTE) as execute:
+            response = self._post({"external_id": "new-1"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        execute.assert_not_called()
+
     def test_post_existing_account_does_not_sync(self):
         self._create_warehouse_backed_property()
         with patch(_SYNC_EXECUTE) as execute:
-            response = self._post({"external_id": "acme-1"})  # created in setUp
+            response = self._post({"external_id": "acme-1"}, HTTP_X_POSTHOG_HOG_FLOW_ID=str(uuid4()))
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         execute.assert_not_called()

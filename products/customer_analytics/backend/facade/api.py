@@ -409,8 +409,8 @@ def create_external_account(
     whether it was created; an existing account is returned untouched. The name comes from the
     matching group's ``name`` property (fallback: the external id). Attribution goes to the
     originating workflow (activity-log trigger) — there is no acting user on this path.
-    Warehouse-backed custom properties are synced inline (best-effort) so the response already
-    carries them.
+    On workflow-originated creates, warehouse-backed custom properties are synced inline
+    (best-effort) so the response already carries them.
     Raises ``AccountPropertiesValidationError`` / ``AccountConflictError`` (concurrent create)."""
     existing = _get_external_account_by_external_id(team.pk, external_id)
     if existing is not None:
@@ -419,9 +419,11 @@ def create_external_account(
     account = create_account(
         team=team, name=_account_name_from_group(team, external_id), external_id=external_id, trigger=trigger
     )
-    # Synchronous so a workflow that creates the account can read the values in its next step;
-    # best-effort inside — a sync failure never fails the creation.
-    sync_custom_properties_for_account(team_id=team.pk, external_id=external_id)
+    if workflow_id is not None:
+        # Synchronous so the workflow can read the values in its next step; best-effort inside —
+        # a sync failure never fails the creation. Workflow-only to keep the per-request warehouse
+        # fan-out off the general create path.
+        sync_custom_properties_for_account(team_id=team.pk, external_id=external_id)
     return _to_external_account(account), True
 
 

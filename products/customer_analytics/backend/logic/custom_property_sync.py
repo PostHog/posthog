@@ -259,15 +259,20 @@ def sync_custom_properties_for_account(*, team_id: int, external_id: str) -> Non
     query inside the request. No sync outcome is recorded: failure streaks, auto-disable and
     last_synced_at belong to the scheduled full sync.
     """
-    saved_query_ids = (
-        CustomPropertySource.objects.for_team(team_id)
-        .filter(is_enabled=True, source_column__isnull=False, saved_query__table__isnull=False)
-        .exclude(saved_query__deleted=True)
-        .values_list("saved_query_id", flat=True)
-        .distinct()
-    )
-    for saved_query_id in saved_query_ids:
-        try:
-            sync_custom_property_values(team_id=team_id, saved_query_id=saved_query_id, external_id=external_id)
-        except Exception as e:
-            capture_exception(e)  # enrichment must never break account creation
+    # enrichment must never break account creation — the outer try also covers source discovery,
+    # which the queryset's laziness would otherwise let escape
+    try:
+        saved_query_ids = (
+            CustomPropertySource.objects.for_team(team_id)
+            .filter(is_enabled=True, source_column__isnull=False, saved_query__table__isnull=False)
+            .exclude(saved_query__deleted=True)
+            .values_list("saved_query_id", flat=True)
+            .distinct()
+        )
+        for saved_query_id in saved_query_ids:
+            try:
+                sync_custom_property_values(team_id=team_id, saved_query_id=saved_query_id, external_id=external_id)
+            except Exception as e:
+                capture_exception(e)
+    except Exception as e:
+        capture_exception(e)

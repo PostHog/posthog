@@ -213,6 +213,12 @@ class SyncCustomPropertiesForAccountTest(TeamScopedTestMixin, BaseTest):
 
         execute.assert_not_called()
 
+    def test_swallows_source_discovery_errors(self):
+        discovery = "products.customer_analytics.backend.logic.custom_property_sync.CustomPropertySource"
+        with patch(discovery) as source_model:
+            source_model.objects.for_team.side_effect = Exception("db down")
+            sync_custom_properties_for_account(team_id=self.team.id, external_id="acme")
+
     def test_swallows_errors_and_records_no_sync_outcome(self):
         with patch(_EXECUTE, side_effect=Exception("clickhouse down")):
             sync_custom_properties_for_account(team_id=self.team.id, external_id="acme")
