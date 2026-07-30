@@ -1,10 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconApps, IconPlus } from '@posthog/icons'
+import { IconApps, IconChevronDown, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '@posthog/quill'
 
-import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
+import { BulkUpdateTagsModal } from 'lib/components/BulkActions/BulkUpdateTagsModal'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TagSelect } from 'lib/components/TagSelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -47,6 +54,7 @@ export function EventDefinitionsTable(): JSX.Element {
     const { loadEventDefinitions, setFilters, applyBulkTagUpdates, bulkUpdateVerified } =
         useActions(eventDefinitionsTableLogic)
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+    const [isBulkTagsModalOpen, setIsBulkTagsModalOpen] = useState(false)
 
     const columns: LemonTableColumns<EventDefinition> = [
         {
@@ -263,42 +271,69 @@ export function EventDefinitionsTable(): JSX.Element {
                     noun: ['event', 'events'],
                     renderActions: (ctx) => (
                         <>
-                            <BulkUpdateTagsButton
+                            <DropdownMenu>
+                                <DropdownMenuTrigger
+                                    disabled={bulkVerifiedResultLoading}
+                                    render={
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            sideIcon={<IconChevronDown />}
+                                            disabledReason={bulkVerifiedResultLoading ? 'Updating…' : undefined}
+                                            data-attr="event-definitions-bulk-edit"
+                                        />
+                                    }
+                                >
+                                    Bulk edit
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="min-w-fit">
+                                    <DropdownMenuItem
+                                        onClick={() => setIsBulkTagsModalOpen(true)}
+                                        data-attr="event-definitions-bulk-edit-update-tags"
+                                    >
+                                        Update tags
+                                    </DropdownMenuItem>
+                                    {showVerifiedFilter && (
+                                        <>
+                                            <DropdownMenuSeparator />
+                                            <DropdownMenuItem
+                                                onClick={() =>
+                                                    bulkUpdateVerified({
+                                                        ids: [...ctx.selectedKeys],
+                                                        verified: true,
+                                                        onSuccess: ctx.clearSelection,
+                                                    })
+                                                }
+                                                data-attr="event-definitions-bulk-edit-verify"
+                                            >
+                                                Verify
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem
+                                                onClick={() =>
+                                                    bulkUpdateVerified({
+                                                        ids: [...ctx.selectedKeys],
+                                                        verified: false,
+                                                        onSuccess: ctx.clearSelection,
+                                                    })
+                                                }
+                                                data-attr="event-definitions-bulk-edit-unverify"
+                                            >
+                                                Unverify
+                                            </DropdownMenuItem>
+                                        </>
+                                    )}
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                            <BulkUpdateTagsModal
                                 resource="event_definitions"
                                 selectedIds={ctx.selectedKeys}
+                                isOpen={isBulkTagsModalOpen}
+                                onClose={() => setIsBulkTagsModalOpen(false)}
                                 onSuccess={(result) => {
                                     applyBulkTagUpdates(result.updated)
                                     ctx.clearSelection()
                                 }}
                             />
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                disabledReason={bulkVerifiedResultLoading ? 'Updating…' : undefined}
-                                onClick={() =>
-                                    bulkUpdateVerified({
-                                        ids: [...ctx.selectedKeys],
-                                        verified: true,
-                                        onSuccess: ctx.clearSelection,
-                                    })
-                                }
-                            >
-                                Verify
-                            </LemonButton>
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                disabledReason={bulkVerifiedResultLoading ? 'Updating…' : undefined}
-                                onClick={() =>
-                                    bulkUpdateVerified({
-                                        ids: [...ctx.selectedKeys],
-                                        verified: false,
-                                        onSuccess: ctx.clearSelection,
-                                    })
-                                }
-                            >
-                                Unverify
-                            </LemonButton>
                         </>
                     ),
                 }}

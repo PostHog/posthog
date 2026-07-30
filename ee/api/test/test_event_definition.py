@@ -467,6 +467,53 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert first.verified is False
         assert second.verified is False
 
+    def test_bulk_update_verified_requires_enterprise_build(self):
+        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="bulk_verify_foss", verified=False)
+
+        # Without the gate, the FOSS build would 500 on the ee import instead of rejecting cleanly.
+        with patch("posthog.api.event_definition.EE_AVAILABLE", False):
+            response = self.client.post(
+                f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_verified/",
+                {"ids": [str(event.id)], "verified": True},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        event.refresh_from_db()
+        assert event.verified is False
+
+    def test_bulk_update_verified_survives_concurrent_promotion(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        base = EventDefinition.objects.create(team=self.demo_team, name="bulk_verify_race")
+        # The competing request's promotion of the same base row, mirroring _get_event_definition.
+        competing = EnterpriseEventDefinition(eventdefinition_ptr_id=base.id, description="")
+        competing.__dict__.update(base.__dict__)
+        competing.save()
+
+        real_filter = EnterpriseEventDefinition.objects.filter
+
+        def hide_from_existence_check(*args, **kwargs):
+            # Only the promotion path's existence check filters on a single id. Hiding the row
+            # there recreates the interleaving where the competing promotion lands between the
+            # check and the save, so the save hits the real unique constraint.
+            if "id" in kwargs:
+                return EnterpriseEventDefinition.objects.none()
+            return real_filter(*args, **kwargs)
+
+        with patch.object(EnterpriseEventDefinition.objects, "filter", side_effect=hide_from_existence_check):
+            response = self.client.post(
+                f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_verified/",
+                {"ids": [str(base.id)], "verified": True},
+            )
+
+        # Losing the promotion race must fall back to the competitor's row, not fail the request.
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["updated"] == [{"id": str(base.id), "verified": True}]
+        promoted = EnterpriseEventDefinition.objects.get(id=base.id)
+        assert promoted.verified is True
+        assert promoted.verified_by_id == self.user.id
+
     def test_verify_then_verify_again_no_change(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
