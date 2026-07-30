@@ -48,7 +48,6 @@ import {
     EventsQueryResponse,
     GroupsQuery,
     GroupsQueryResponse,
-    HogQLQuery,
     HogQLQueryModifiers,
     HogQLQueryResponse,
     HogQLVariable,
@@ -144,6 +143,24 @@ const concurrencyController = new ConcurrencyController(1)
 const webAnalyticsConcurrencyController = new ConcurrencyController(6)
 const webAnalyticsPreAggConcurrencyController = new ConcurrencyController(6)
 const marketingAnalyticsConcurrencyController = new ConcurrencyController(6)
+
+function extractCount(response: Record<string, any> | undefined | null): number | null {
+    const value = response?.results?.[0]?.[0]
+    return typeof value === 'number' ? value : null
+}
+
+/**
+ * Count queries are plain aggregations that can't be polled asynchronously, so map the scene's refresh
+ * policy onto the blocking equivalent, and keep honoring a force refresh so counts don't stay cached
+ * while the rows are re-read.
+ */
+function countRefreshType(cache: Record<string, any>, props: DataNodeLogicProps): RefreshType {
+    const refresh: RefreshType = cache.lastRefreshType ?? props.refresh ?? 'blocking'
+    if (refresh === 'force_async' || refresh === 'force_blocking') {
+        return 'force_blocking'
+    }
+    return 'blocking'
+}
 
 function getConcurrencyController(query: DataNode, currentTeam: TeamType): ConcurrencyController {
     const mountedSceneLogic = sceneLogic.findMounted()
@@ -1348,20 +1365,21 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
         shouldCalculateCount: [false, { loadTotalCount: () => true, loadFilteredCount: () => true }],
     })),
-    lazyLoaders(({ values }) => ({
+    lazyLoaders(({ values, props, cache }) => ({
         totalCount: [
             null as number | null,
             {
-                loadTotalCount: async () => {
+                loadTotalCount: async (_, breakpoint) => {
+                    await breakpoint(300)
                     const query = values.totalCountQuery
                     if (!query) {
                         return null
                     }
 
                     try {
-                        const response = await performQuery(query)
-                        // Extract count from first row, first column
-                        return response?.results?.[0]?.[0] || 0
+                        const response = await performQuery(query, undefined, countRefreshType(cache, props))
+                        breakpoint()
+                        return extractCount(response)
                     } catch (error) {
                         posthog.captureException(error, { action: 'load total count in dataNodeLogic' })
                         return null
@@ -1380,9 +1398,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     try {
-                        const response = await performQuery(query)
+                        const response = await performQuery(query, undefined, countRefreshType(cache, props))
                         breakpoint()
-                        return response?.results?.[0]?.[0] || 0
+                        return extractCount(response)
                     } catch (error) {
                         posthog.captureException(error, { action: 'load filtered count in dataNodeLogic' })
                         return null
@@ -1829,10 +1847,19 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (query: DataNode): DataNode | null => {
                 // Create a simplified version of the query for counting
                 if (isActorsQuery(query)) {
+                    // Count through the same ActorsQuery pipeline as the rows, only without the filters,
+                    // so the total can never disagree with the filtered count
                     return {
-                        kind: NodeKind.HogQLQuery,
-                        query: 'SELECT count(*) from persons',
-                    } as HogQLQuery
+                        kind: query.kind,
+                        source: query.source,
+                        select: ['count(DISTINCT id)'],
+                        search: undefined,
+                        properties: undefined,
+                        fixedProperties: undefined,
+                        orderBy: undefined,
+                        limit: undefined,
+                        offset: undefined,
+                    } as ActorsQuery
                 }
 
                 if (isEventsQuery(query)) {
@@ -1956,9 +1983,15 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.abortAnyRunningQuery()
             actions.resetLoadingTimer()
         },
-        loadData: () => {
+        loadData: ({ refresh }) => {
             actions.collectionNodeLoadData(props.key)
             actions.resetLoadingTimer()
+            cache.lastRefreshType = refresh
+            // Keep the counts in step with the rows, otherwise they'd stay served from the query cache forever
+            if (values.shouldCalculateCount) {
+                actions.loadTotalCount()
+                actions.loadFilteredCount()
+            }
         },
         loadDataSuccess: ({ response }) => {
             props.onData?.(response as Record<string, unknown> | null | undefined)
@@ -2017,6 +2050,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         filteredCountQuery: () => {
             if (values.shouldCalculateCount) {
                 actions.loadFilteredCount()
+            }
+        },
+        totalCountQuery: () => {
+            if (values.shouldCalculateCount) {
+                actions.loadTotalCount()
             }
         },
     })),

@@ -29,6 +29,8 @@ describe('dataNodeLogic', () => {
     let logic: ReturnType<typeof dataNodeLogic.build>
 
     beforeEach(async () => {
+        // one of the tests below opts into fake timers, don't leak them into the next test
+        jest.useRealTimers()
         initKeaTests()
     })
     afterEach(() => logic?.unmount())
@@ -662,5 +664,53 @@ describe('dataNodeLogic', () => {
             false,
             'posthog_ai'
         )
+    })
+
+    it('counts actors through the same query pipeline as the rows, minus the filters', async () => {
+        const query = setLatestVersionsOnQuery({
+            kind: NodeKind.ActorsQuery,
+            select: ['person'],
+            search: 'marius',
+        })
+
+        mockedQuery.mockResolvedValue({ results: [] })
+        logic = dataNodeLogic({ key: 'key', query })
+        logic.mount()
+
+        expect(logic.values.totalCountQuery).toEqual(
+            expect.objectContaining({
+                kind: NodeKind.ActorsQuery,
+                select: ['count(DISTINCT id)'],
+                search: undefined,
+                properties: undefined,
+                fixedProperties: undefined,
+            })
+        )
+        expect(logic.values.filteredCountQuery).toEqual(
+            expect.objectContaining({
+                kind: NodeKind.ActorsQuery,
+                select: ['count(DISTINCT id)'],
+                search: 'marius',
+            })
+        )
+    })
+
+    it('runs the count queries with a refresh so they are not served from the query cache', async () => {
+        const query = setLatestVersionsOnQuery({
+            kind: NodeKind.ActorsQuery,
+            select: ['person'],
+            search: 'marius',
+        })
+
+        mockedQuery.mockResolvedValue({ results: [] })
+        logic = dataNodeLogic({ key: 'key', query })
+        logic.mount()
+
+        mockedQuery.mockResolvedValue({ results: [[12]] })
+        logic.actions.loadTotalCount()
+        await new Promise((resolve) => setTimeout(resolve, 400))
+
+        expect(logic.values.totalCount).toEqual(12)
+        expect(performQuery).toHaveBeenCalledWith(logic.values.totalCountQuery, undefined, 'blocking')
     })
 })
