@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonLabel, LemonModal, LemonSelect, LemonTag } from '@posthog/lemon-ui'
-import { LemonButton, LemonColorPicker, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonColorPicker, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import stringWithWBR from 'lib/utils/stringWithWBR'
+import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { dataColorThemesLogic } from 'scenes/settings/environment/dataColorThemesLogic'
 
@@ -18,9 +18,9 @@ import {
     BreakdownColorConfig,
     BreakdownValueAndType,
     COHORT_BREAKDOWN_PROPERTY_KEY,
-    breakdownPropertyKeyParts,
     denormalizeBreakdownValue,
     findBreakdownColorConfig,
+    parseBreakdownPropertyKey,
 } from './dashboardBreakdownColors'
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardLogic } from './dashboardLogic'
@@ -30,20 +30,17 @@ type BreakdownColorRow = BreakdownColorConfig & { pinnedConfig?: BreakdownColorC
 function BreakdownPropertyGroupTitle({ breakdownProperty }: { breakdownProperty?: string }): JSX.Element {
     if (breakdownProperty == null) {
         // The property-less group holds entries that apply under every property, like the funnel baseline.
-        return <span>All properties</span>
+        return <LemonTag type="muted">All properties</LemonTag>
     }
     if (breakdownProperty === COHORT_BREAKDOWN_PROPERTY_KEY) {
-        return <span>Cohorts</span>
+        return <LemonTag type="muted">Cohorts</LemonTag>
     }
     return (
-        <span>
-            {breakdownPropertyKeyParts(breakdownProperty).map((part, index) => (
-                <span key={index}>
-                    {index > 0 ? <span className="text-muted-alt"> · </span> : null}
-                    <PropertyKeyInfo value={part} disablePopover disableIcon />
-                </span>
+        <div className="flex flex-wrap items-center gap-1">
+            {parseBreakdownPropertyKey(breakdownProperty).map((part, index) => (
+                <BreakdownTag key={index} breakdown={part.property} breakdownType={part.type} size="small" />
             ))}
-        </span>
+        </div>
     )
 }
 
@@ -102,7 +99,6 @@ export function DashboardInsightColorsModal(): JSX.Element {
         {
             title: 'Color',
             key: 'color',
-            width: 400,
             render: (_, { colorToken, source, pinnedConfig, ...config }) => {
                 return (
                     <div className="flex items-center gap-2">
@@ -152,7 +148,12 @@ export function DashboardInsightColorsModal(): JSX.Element {
     ]
 
     return (
-        <LemonModal title="Customize breakdown colors" isOpen={isOpen} onClose={hideInsightColorsModal}>
+        <LemonModal
+            title="Customize breakdown colors"
+            isOpen={isOpen}
+            onClose={hideInsightColorsModal}
+            maxWidth="42rem"
+        >
             <LemonLabel info="Select a color theme for all insights on this dashboard. If a theme is selected, it will be applied to all series and breakdowns.">
                 Color theme
             </LemonLabel>
@@ -169,12 +170,11 @@ export function DashboardInsightColorsModal(): JSX.Element {
             />
 
             <LemonLabel className="mt-4">Breakdown colors</LemonLabel>
-            <p className="text-muted-alt mb-4">
-                Breakdown values are grouped by the property they break down on. Within a property, values that appear
-                on multiple insights share one color across this dashboard, while different properties hand out colors
-                independently. Values on a single insight keep that insight's own colors. Pick a color to pin a value to
-                it.
-            </p>
+            <LemonBanner type="info" className="mt-2 mb-4">
+                Colors are grouped by breakdown property. A value shown on two or more insights gets one color across
+                the dashboard, and each property picks its colors on its own. Values on a single insight keep their own
+                colors. Pick a color to pin a value to it.
+            </LemonBanner>
             {breakdownValueGroups.length === 0 ? (
                 <LemonTable columns={columns} dataSource={[]} loading={insightTilesLoading || undefined} />
             ) : (
