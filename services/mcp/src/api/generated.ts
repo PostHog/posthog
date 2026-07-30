@@ -20984,7 +20984,7 @@ export namespace Schemas {
        * * `Typesense` - Typesense
        * * `FirstPromoter` - FirstPromoter
        * * `Zero` - Zero
-       * * `Inth` - Inth */
+       * * `Inth` - Inth
        * * `BCMS` - BCMS
        * * `Convonite` - Convonite
        * * `Hookdeck` - Hookdeck */
@@ -22702,7 +22702,7 @@ export namespace Schemas {
        * * `Typesense` - Typesense
        * * `FirstPromoter` - FirstPromoter
        * * `Zero` - Zero
-       * * `Inth` - Inth */
+       * * `Inth` - Inth
        * * `BCMS` - BCMS
        * * `Convonite` - Convonite
        * * `Hookdeck` - Hookdeck */
@@ -29948,7 +29948,7 @@ export namespace Schemas {
        * * `Typesense` - Typesense
        * * `FirstPromoter` - FirstPromoter
        * * `Zero` - Zero
-       * * `Inth` - Inth */
+       * * `Inth` - Inth
        * * `BCMS` - BCMS
        * * `Convonite` - Convonite
        * * `Hookdeck` - Hookdeck */
@@ -31250,7 +31250,7 @@ export namespace Schemas {
        * * `Typesense` - Typesense
        * * `FirstPromoter` - FirstPromoter
        * * `Zero` - Zero
-       * * `Inth` - Inth */
+       * * `Inth` - Inth
        * * `BCMS` - BCMS
        * * `Convonite` - Convonite
        * * `Hookdeck` - Hookdeck */
@@ -64435,7 +64435,7 @@ export namespace Schemas {
        * * `Typesense` - Typesense
        * * `FirstPromoter` - FirstPromoter
        * * `Zero` - Zero
-       * * `Inth` - Inth */
+       * * `Inth` - Inth
        * * `BCMS` - BCMS
        * * `Convonite` - Convonite
        * * `Hookdeck` - Hookdeck */
@@ -65745,7 +65745,7 @@ export namespace Schemas {
        * * `Typesense` - Typesense
        * * `FirstPromoter` - FirstPromoter
        * * `Zero` - Zero
-       * * `Inth` - Inth */
+       * * `Inth` - Inth
        * * `BCMS` - BCMS
        * * `Convonite` - Convonite
        * * `Hookdeck` - Hookdeck */
@@ -67047,7 +67047,7 @@ export namespace Schemas {
        * * `Typesense` - Typesense
        * * `FirstPromoter` - FirstPromoter
        * * `Zero` - Zero
-       * * `Inth` - Inth */
+       * * `Inth` - Inth
        * * `BCMS` - BCMS
        * * `Convonite` - Convonite
        * * `Hookdeck` - Hookdeck */
