@@ -231,8 +231,18 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
     @cached_property
     def _shared_hogql_context(self) -> HogQLContext:
         """HogQLContext carrying the prebuilt database, passed to execute_hogql_query so its
-        `_generate_hogql` reuses the database instead of building a second one."""
-        return HogQLContext(team_id=self.team.pk, database=self._shared_hogql_database)
+        `_generate_hogql` reuses the database instead of building a second one.
+
+        Carries the runner's team and user because supplying a context stops `execute_hogql_query` from
+        building a user-aware one, and the printer loads property-level access control off the context:
+        without the user it would see only the team's default restrictions, so a property denied to this
+        user specifically would print unmasked. That masking is what `ConversionGoalProcessor` skips the
+        precompute path to fall back onto, so it has to actually be in force here."""
+        return HogQLContext(
+            team=self.team,
+            database=self._shared_hogql_database,
+            user=self.user,
+        )
 
     def _factory(self, date_range: QueryDateRange):
         """Create factory instance for the given date range"""

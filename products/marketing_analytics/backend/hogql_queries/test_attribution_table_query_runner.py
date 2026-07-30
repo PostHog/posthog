@@ -1,4 +1,5 @@
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -16,12 +17,15 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.models.team.team_marketing_analytics_config import MAX_ATTRIBUTION_WINDOW_DAYS
 from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 
 from products.actions.backend.models.action import Action
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.marketing_analytics.backend.hogql_queries.attribution_table_query_runner import (
     MarketingAnalyticsAttributionQueryRunner,
 )
@@ -676,3 +680,71 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         )
         ctes = MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team).to_query().ctes or {}
         self.assertTrue(ctes["per_conversion"].materialized)
+
+    @parameterized.expand(
+        [
+            ("restricted_for_this_user", True),
+            ("not_restricted", False),
+        ]
+    )
+    def test_property_denied_to_this_user_is_never_read(self, _name: str, restricted: bool):
+        # The runner hands execute_hogql_query a prebuilt context, which stops it building a user-aware
+        # one, and the printer loads property-level access control off that context. A context without the
+        # user resolves only the team's default restrictions, so a property denied to this user alone was
+        # read unmasked. ConversionGoalProcessor skips precompute specifically to fall back on this
+        # masking, so it has to hold on the direct path.
+        config = self.team.marketing_analytics_config
+        config.conversion_goals = [
+            ConversionGoalFilter1(
+                kind="EventsNode",
+                event=CONVERSION_EVENT,
+                name="Pro purchases",
+                conversion_goal_id=GOAL_ID,
+                conversion_goal_name="Pro purchases",
+                schema_map={},
+                math=BaseMathType.TOTAL,
+                properties=[
+                    EventPropertyFilter(key="plan", operator=PropertyOperator.EXACT, value=["pro"], type="event")
+                ],
+            ).model_dump()
+        ]
+        config.save()
+
+        query = MarketingAnalyticsAttributionQuery(
+            dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
+            conversionGoalId=GOAL_ID,
+            properties=[],
+        )
+        runner = MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team, user=self.user)
+        context = runner._shared_hogql_context
+        # execute_hogql_query flips this on the context it is handed; do the same to print the real query.
+        context.enable_select_queries = True
+
+        # Mirrors the real lookup: userless callers get the team defaults only, which is why a context
+        # missing the user silently loses this user's own denial.
+        def restrictions_for(*, user, **_kwargs) -> set:
+            if user is None or not restricted:
+                return set()
+            return {("plan", PropertyDefinition.Type.EVENT)}
+
+        with patch(
+            "products.access_control.backend.property_access_control.get_restricted_properties_for_team",
+            side_effect=restrictions_for,
+        ):
+            prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
+
+        # The property only reaches ClickHouse as a parameter when the query actually extracts it.
+        self.assertEqual("plan" in str(context.values), not restricted)
+
+    @parameterized.expand([("zero", 0), ("negative", -1), ("over_the_ceiling", MAX_ATTRIBUTION_WINDOW_DAYS + 1)])
+    def test_lookback_override_outside_the_allowed_range_is_rejected(self, _name: str, days: int):
+        # The override widens the events scan and the schema types it as a plain integer, so without this
+        # a hand-built query could scan the team's entire event history.
+        query = MarketingAnalyticsAttributionQuery(
+            dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
+            conversionGoalId=GOAL_ID,
+            lookbackWindowDays=days,
+            properties=[],
+        )
+        with self.assertRaises(ValueError):
+            MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team).to_query()

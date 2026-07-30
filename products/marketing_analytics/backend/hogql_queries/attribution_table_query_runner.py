@@ -40,6 +40,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.team.team_marketing_analytics_config import MAX_ATTRIBUTION_WINDOW_DAYS, MIN_ATTRIBUTION_WINDOW_DAYS
 
 from .attribution_weights import (
     DAY_IN_SECONDS,
@@ -135,7 +136,20 @@ class MarketingAnalyticsAttributionQueryRunner(
 
     @property
     def lookback_window_days(self) -> int:
-        return self.query.lookbackWindowDays or self.config.attribution_window_days
+        """The window this query attributes over, bounded the same way the team setting is.
+
+        The override widens the events scan, and the schema types it as a plain integer, so an
+        out-of-range value from a hand-built query would scan the team's whole event history.
+        """
+        override = self.query.lookbackWindowDays
+        if override is None:
+            return self.config.attribution_window_days
+        if override < MIN_ATTRIBUTION_WINDOW_DAYS or override > MAX_ATTRIBUTION_WINDOW_DAYS:
+            raise ValueError(
+                f"The attribution window must be between {MIN_ATTRIBUTION_WINDOW_DAYS} and "
+                f"{MAX_ATTRIBUTION_WINDOW_DAYS} days."
+            )
+        return override
 
     @property
     def attribution_window_seconds(self) -> int:
