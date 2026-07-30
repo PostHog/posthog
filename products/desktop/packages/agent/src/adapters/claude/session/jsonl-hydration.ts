@@ -3,6 +3,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ContentBlock } from "@agentclientprotocol/sdk";
+import { LRUCache } from "lru-cache";
 import { DEFAULT_GATEWAY_MODEL } from "../../../gateway-models";
 import type { PostHogAPIClient } from "../../../posthog-api";
 import type { StoredEntry } from "../../../types";
@@ -604,22 +605,19 @@ interface HydrationLog {
 // Every reconnect re-runs sanitize, and the read + per-line parse of a large
 // transcript costs seconds. Files whose stat matches the last clean pass are
 // skipped; the SDK only ever appends, which changes size and mtime.
-const sanitizedFileStats = new Map<string, { mtimeMs: number; size: number }>();
-const SANITIZED_STATS_CAP = 256;
+const sanitizedFileStats = new LRUCache<
+  string,
+  { mtimeMs: number; size: number }
+>({ max: 256 });
 
 function recordSanitized(
   jsonlPath: string,
   stat: { mtimeMs: number; size: number },
 ): void {
-  sanitizedFileStats.delete(jsonlPath);
   sanitizedFileStats.set(jsonlPath, {
     mtimeMs: stat.mtimeMs,
     size: stat.size,
   });
-  for (const oldest of sanitizedFileStats.keys()) {
-    if (sanitizedFileStats.size <= SANITIZED_STATS_CAP) break;
-    sanitizedFileStats.delete(oldest);
-  }
 }
 
 // Heals a persisted transcript that would otherwise 400 on every resume:
