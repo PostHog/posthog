@@ -487,6 +487,18 @@ class TestGetRetryableErrors(SimpleTestCase):
             f"MongoDB DNS SRV resolution timeout should be classified retryable: {error_msg}"
         )
 
+    def test_connection_pool_paused_is_classified_retryable(self):
+        # Bare AutoReconnect raised on connection checkout while the pool is recovering from an
+        # earlier network blip — no "Topology Description:" suffix, so it must not be mistaken
+        # for the persistent server-selection failure classified non-retryable above.
+        error_msg = (
+            "cluster0.example.mongodb.net:27017: connection pool paused "
+            "(configured timeouts: connectTimeoutMS: 20000.0ms)"
+        )
+        assert any(pattern in error_msg for pattern in self.retryable), (
+            f"MongoDB connection pool paused should be classified retryable: {error_msg}"
+        )
+
 
 class TestGetRowsToSync(SimpleTestCase):
     """rows_to_sync is a best-effort progress estimate; a failed count must degrade to
