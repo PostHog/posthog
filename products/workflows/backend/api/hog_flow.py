@@ -145,6 +145,41 @@ DRAFT_CONTENT_FIELDS = (
 )
 
 
+# Compiled from the author's filters rather than written by them, and only present once a condition has
+# been through validation. Comparing them would make an unchanged condition look edited.
+_DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "source")
+
+
+def _authored_condition(condition: Optional[dict]) -> Optional[dict]:
+    """The parts of a wait condition a person actually wrote, with compiler output dropped."""
+    if not isinstance(condition, dict):
+        return condition
+    filters = condition.get("filters")
+    if not isinstance(filters, dict):
+        return condition
+    return {
+        **condition,
+        "filters": {key: value for key, value in filters.items() if key not in _DERIVED_FILTER_KEYS},
+    }
+
+
+def _wait_condition_already_stored(action: dict, context: dict) -> bool:
+    """
+    True when this wait's condition matches the one already persisted for the same action.
+
+    The gate exists to stop *new* clock-based waits, not to make an existing workflow un-editable.
+    Every strict save re-validates the whole actions array, so without this an unrelated edit (or
+    simply resuming a paused flow) would be refused over a condition that was already accepted.
+    """
+    stored = context.get("stored_wait_conditions")
+    if not stored:
+        return False
+    action_id = action.get("id")
+    if action_id not in stored:
+        return False
+    return _authored_condition(stored[action_id]) == _authored_condition((action.get("config") or {}).get("condition"))
+
+
 def _reject_clock_based_wait(config: dict, team: Team) -> None:
     """
     Refuse a wait whose condition depends on the clock rather than on something happening.
@@ -987,7 +1022,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                     else:
                         serializer.is_valid(raise_exception=True)
                         event_config["filters"] = serializer.validated_data
-            if strict:
+            if strict and not _wait_condition_already_stored(data, self.context):
                 _reject_clock_based_wait(data["config"], self.context["get_team"]())
 
         if data.get("type") == "delay":
@@ -1484,6 +1519,15 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # When used as a nested field (the `configuration` override on test invocations) DRF never
         # binds `self.instance`, so fall back to the flow passed in via context so recovery still works.
         instance = cast(Optional[HogFlow], self.instance) or self.context.get("instance")
+
+        # Wait conditions the live flow already carries, so per-action validation can tell a newly
+        # introduced clock condition from one we have been storing all along. Seeded here because
+        # nested action validation runs during field processing, before validate() is reached.
+        self.context["stored_wait_conditions"] = {
+            action["id"]: (action.get("config") or {}).get("condition")
+            for action in ((instance.actions if instance else None) or [])
+            if isinstance(action, dict) and action.get("id") and action.get("type") == "wait_until_condition"
+        }
 
         status = data.get("status")
         if status is None and instance:
