@@ -51,8 +51,6 @@ export const hogFlowsCreateBodyActionsItemNameMax = 400
 
 export const hogFlowsCreateBodyActionsItemDescriptionDefault = ``
 export const hogFlowsCreateBodyActionsItemFiltersOneSourceDefault = `events`
-export const hogFlowsCreateBodyActionsItemTypeMax = 100
-
 export const hogFlowsCreateBodyActionsItemConfigTwoConditionFiltersOneSourceDefault = `events`
 export const hogFlowsCreateBodyActionsItemConfigTwoEventsItemFiltersOneSourceDefault = `events`
 
@@ -233,10 +231,24 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                         .optional()
                         .describe('Property filters gating this action.'),
                     type: zod
-                        .string()
-                        .max(hogFlowsCreateBodyActionsItemTypeMax)
+                        .enum([
+                            'trigger',
+                            'conditional_branch',
+                            'random_cohort_branch',
+                            'delay',
+                            'wait_until_condition',
+                            'wait_until_time_window',
+                            'function',
+                            'function_email',
+                            'function_sms',
+                            'function_push',
+                            'exit',
+                        ])
                         .describe(
-                            'trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
+                            '\* `trigger` - trigger\n\* `conditional_branch` - conditional_branch\n\* `random_cohort_branch` - random_cohort_branch\n\* `delay` - delay\n\* `wait_until_condition` - wait_until_condition\n\* `wait_until_time_window` - wait_until_time_window\n\* `function` - function\n\* `function_email` - function_email\n\* `function_sms` - function_sms\n\* `function_push` - function_push\n\* `exit` - exit'
+                        )
+                        .describe(
+                            'trigger | conditional_branch | random_cohort_branch | delay | wait_until_condition | wait_until_time_window | function | function_email | function_sms | function_push | exit.\n\n\* `trigger` - trigger\n\* `conditional_branch` - conditional_branch\n\* `random_cohort_branch` - random_cohort_branch\n\* `delay` - delay\n\* `wait_until_condition` - wait_until_condition\n\* `wait_until_time_window` - wait_until_time_window\n\* `function` - function\n\* `function_email` - function_email\n\* `function_sms` - function_sms\n\* `function_push` - function_push\n\* `exit` - exit'
                         ),
                     config: zod
                         .union([
