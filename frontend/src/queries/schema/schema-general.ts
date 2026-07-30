@@ -8776,6 +8776,14 @@ export enum ProductIntentContext {
     SESSION_REPLAY_SET_FILTERS = 'session_replay_set_filters',
     SESSION_REPLAY_EXPERIMENT_LINK_CLICKED = 'session_replay_experiment_link_clicked',
 
+    // Replay Vision
+    // Shallow: dwelled on the scanner list long enough to have read it. Deliberately not a bare
+    // pageview — a mount-and-bounce must not start the activation clock for the team.
+    REPLAY_VISION_VIEWED = 'replay_vision_viewed',
+    // Deep, both registered server-side so agent/API callers count too, not just the app.
+    REPLAY_VISION_SCANNER_CREATED = 'replay_vision_scanner_created',
+    REPLAY_VISION_SCAN_TRIGGERED = 'replay_vision_scan_triggered',
+
     // Error Tracking
     ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED = 'error_tracking_exception_autocapture_enabled',
     ERROR_TRACKING_ISSUE_SORTING = 'error_tracking_issue_sorting',

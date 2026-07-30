@@ -1,18 +1,27 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { addProductIntent } from 'lib/utils/product-intents'
+import { urls } from 'scenes/urls'
+
 import { useMocks } from '~/mocks/jest'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { makeQuota as makeQuotaFixture } from '../utils/quotaTestUtils'
 import {
+    REPLAY_VISION_INTENT_DWELL_MS,
     buildScannerListParams,
     replayScannersLogic,
     resolveScannerOrderByKey,
     type ScannerOrderKey,
 } from './replayScannersLogic'
 import { ScannerConfig, ScannerType, ReplayScanner } from './types'
+
+jest.mock('lib/utils/product-intents', () => ({
+    addProductIntent: jest.fn().mockResolvedValue(null),
+}))
 
 const quotaFixture = makeQuotaFixture({
     credit_limit: 1000,
@@ -397,5 +406,56 @@ describe('replayScannersLogic', () => {
 
         expect(logic.values.filters.page).toBe(1)
         expect(logic.values.scanners).toHaveLength(1)
+    })
+
+    describe('shallow product intent', () => {
+        // The dwell gate is the whole point of this signal: there is one ProductIntent row per team
+        // and its created_at starts the 30-day activation clock, so a mount-and-bounce must not
+        // register. This is the bug that read Surveys' activation down from 10.5% to 2.8%.
+        beforeEach(() => {
+            jest.useFakeTimers()
+            ;(addProductIntent as jest.Mock).mockClear()
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it('does not register on mount alone', () => {
+            router.actions.push(urls.replayVision())
+            jest.advanceTimersByTime(REPLAY_VISION_INTENT_DWELL_MS - 1)
+
+            expect(addProductIntent).not.toHaveBeenCalled()
+        })
+
+        it('registers once the dwell threshold passes', () => {
+            router.actions.push(urls.replayVision())
+            jest.advanceTimersByTime(REPLAY_VISION_INTENT_DWELL_MS)
+
+            expect(addProductIntent).toHaveBeenCalledTimes(1)
+            expect(addProductIntent).toHaveBeenCalledWith({
+                product_type: ProductKey.REPLAY_VISION,
+                intent_context: ProductIntentContext.REPLAY_VISION_VIEWED,
+            })
+        })
+
+        it('registers once, not once per filter change', () => {
+            // urlToAction re-fires on every filter change, and each re-arm would be another write.
+            router.actions.push(urls.replayVision())
+            router.actions.push(`${urls.replayVision()}?search=checkout`)
+            router.actions.push(`${urls.replayVision()}?search=refund`)
+            jest.advanceTimersByTime(REPLAY_VISION_INTENT_DWELL_MS * 3)
+
+            expect(addProductIntent).toHaveBeenCalledTimes(1)
+        })
+
+        it('does not register after unmount', () => {
+            router.actions.push(urls.replayVision())
+            logic.unmount()
+            jest.advanceTimersByTime(REPLAY_VISION_INTENT_DWELL_MS * 2)
+
+            expect(addProductIntent).not.toHaveBeenCalled()
+            logic.mount()
+        })
     })
 })
