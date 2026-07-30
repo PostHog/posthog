@@ -1207,6 +1207,8 @@ export interface SummarizerStatsApi {
     keyword_ranked: FacetCountApi[]
     /** Succeeded observations that emitted at least one friction point or keyword. */
     total_with_facets: number
+    /** Succeeded observations that reported at least one friction point. */
+    total_with_friction: number
 }
 
 export interface ObservationStatsApi {
