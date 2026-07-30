@@ -35,15 +35,18 @@ message Sample {
 }
 
 message MetricMetadata {
+  // Values carry buf's required METRIC_TYPE_ prefix, which upstream omits; the
+  // numbers are what the wire format pins, and prost strips the prefix so the
+  // generated Rust variants are unchanged. Zero is upstream's UNKNOWN.
   enum MetricType {
-    UNKNOWN = 0;
-    COUNTER = 1;
-    GAUGE = 2;
-    HISTOGRAM = 3;
-    GAUGEHISTOGRAM = 4;
-    SUMMARY = 5;
-    INFO = 6;
-    STATESET = 7;
+    METRIC_TYPE_UNSPECIFIED = 0;
+    METRIC_TYPE_COUNTER = 1;
+    METRIC_TYPE_GAUGE = 2;
+    METRIC_TYPE_HISTOGRAM = 3;
+    METRIC_TYPE_GAUGEHISTOGRAM = 4;
+    METRIC_TYPE_SUMMARY = 5;
+    METRIC_TYPE_INFO = 6;
+    METRIC_TYPE_STATESET = 7;
   }
 
   MetricType type = 1;
