@@ -503,7 +503,9 @@ class MCPToolPivotClusterEntrySerializer(serializers.Serializer):
     cluster_id = serializers.IntegerField(
         read_only=True, help_text="Cluster this entry refers to, within the snapshot."
     )
-    label = serializers.CharField(read_only=True, help_text="The cluster's representative intent text.")
+    label = serializers.CharField(  # type: ignore[assignment]
+        read_only=True, help_text="The cluster's representative intent text."
+    )
     calls = serializers.IntegerField(read_only=True, help_text="Calls routed to this tool for this intent cluster.")
     capture_pct = serializers.FloatField(
         read_only=True,

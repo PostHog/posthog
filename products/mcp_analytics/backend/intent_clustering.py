@@ -867,14 +867,15 @@ def compute_tool_overlaps(
         distribution = cluster["tool_distribution"]
         for i in range(len(distribution)):
             for j in range(i + 1, len(distribution)):
-                pair = tuple(sorted((distribution[i]["tool"], distribution[j]["tool"])))
+                tool_i, tool_j = str(distribution[i]["tool"]), str(distribution[j]["tool"])
+                pair = (tool_i, tool_j) if tool_i <= tool_j else (tool_j, tool_i)
                 overlap = min(distribution[i]["count"], distribution[j]["count"])
                 if overlap <= 0:
                     continue
-                contested[pair] += overlap  # type: ignore[index]
-                best = top_cluster.get(pair)  # type: ignore[arg-type]
+                contested[pair] += overlap
+                best = top_cluster.get(pair)
                 if best is None or overlap > best[0]:
-                    top_cluster[pair] = (overlap, cluster["id"])  # type: ignore[index]
+                    top_cluster[pair] = (overlap, cluster["id"])
 
     session_tools = {
         session_id: {call.tool for call in calls if call.intent_text is not None}
