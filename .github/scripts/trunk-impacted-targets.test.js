@@ -221,6 +221,17 @@ test('a product that declares no contract surface cascades on any backend file',
     assert.equal(targets.includes('py:product:gamma'), true)
 })
 
+// Both declarations are read from the PR's own tree, so a change that narrows
+// the contract and edits a file it just removed would otherwise be gated
+// against the narrower version and never reach its dependents.
+test('editing the declarations that define the gate always cascades', () => {
+    const context = withContractSurface('alpha', ['backend/facade/**'])
+    for (const file of ['products/alpha/turbo.json', 'products/alpha/package.json']) {
+        const targets = computeTargets([file], context)
+        assert.equal(targets.includes('py:product:gamma'), true, file)
+    }
+})
+
 test('contract inputs honor negation and drop inputs outside the product', () => {
     const matcher = compileContractMatcher(['backend/**/*.py', '!backend/**/__pycache__/**', '../../uv.lock'])
     assert.equal(matcher('backend/api.py'), true)

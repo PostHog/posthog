@@ -310,12 +310,25 @@ function loadContractSurfaces(repoRoot, products) {
     return surfaces
 }
 
+// The files that define the gate for their own product: turbo.json holds the
+// contract inputs, package.json decides whether the product is isolated at all.
+// Neither is importable, so the surface test would call them internal, and both
+// are read from the PR's own tree. A change that drops a path from the contract
+// and edits a file under that path in the same commit would then be gated
+// against its own new, narrower contract and keep the lane to itself, which is
+// exactly when the dependents most need to be tested alongside it.
+const CONTRACT_DECLARATIONS = ['turbo.json', 'package.json']
+
 function touchesContractSurface(product, file, contractSurfaces) {
+    const relativePath = file.slice(`products/${product}/`.length)
+    if (CONTRACT_DECLARATIONS.includes(relativePath)) {
+        return true
+    }
     const matcher = contractSurfaces.get(product)
     if (!matcher) {
         return true
     }
-    return matcher(file.slice(`products/${product}/`.length))
+    return matcher(relativePath)
 }
 
 // --- Rust crate graph ---
