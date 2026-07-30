@@ -80,7 +80,8 @@
         color: rgb(86 156 214);
     }
 
-    .hljs-tag {
+    .hljs-tag,
+    .hljs-type {
         color: rgb(78 201 176);
     }
 
@@ -106,6 +107,7 @@
 
     .hljs-attr,
     .hljs-attribute,
+    .hljs-property,
     .hljs-variable,
     .hljs-template-variable {
         color: rgb(156 220 254);
