@@ -1,4 +1,6 @@
-from typing import TYPE_CHECKING, Optional, cast
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from clickhouse_connect.driver.exceptions import ClickHouseError, DatabaseError, OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
@@ -17,12 +19,10 @@ from posthog.schema import (
 
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import (
+    NOT_A_CLICKHOUSE_HTTP_RESPONSE,
     ClickHouseConnectionError,
+    _get_client,
     clickhouse_source,
     filter_clickhouse_incremental_fields,
     get_clickhouse_row_count,
@@ -34,18 +34,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
+    is_team_allowlisted_for_internal_hosts,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import (
     reconcile_source_schema_metadata,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clickhouse import (
     ClickHouseSourceConfig,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField
 
 if TYPE_CHECKING:
+    from clickhouse_connect.driver.client import Client as ClickHouseClient
+
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 # Shown when we can't map the failure to a specific cause. Names the usual
@@ -82,6 +86,9 @@ ClickHouseErrors: dict[str, str] = {
     # host/port (wrong port, a proxy, or a native-protocol port). Same wording
     # as the sync-time non-retryable handling.
     "returned response code 404": "We reached your ClickHouse host but it returned a 404, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+    # `_get_client` raises this when the host answers 2xx with a body that isn't a
+    # ClickHouse response (a proxy/LB page, or a different service on the host/port).
+    "did not return a valid clickhouse response": NOT_A_CLICKHOUSE_HTTP_RESPONSE,
     "returned response code 429": _TEMPORARILY_UNAVAILABLE,
     "returned response code 502": _TEMPORARILY_UNAVAILABLE,
     "returned response code 503": _TEMPORARILY_UNAVAILABLE,
@@ -220,6 +227,12 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # answers queries with 404, so retrying can't recover. We match only
             # 404, not transient gateway codes (502/503/504), which stay retryable.
             "returned response code 404": "We reached your ClickHouse host but it returned a 404, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+            # `_get_client` wraps the driver's construction-time probe failure ("too many
+            # values to unpack") into this message when the host answers 2xx with a body that
+            # isn't a ClickHouse response. The endpoint isn't serving the ClickHouse HTTP
+            # interface, so retrying replays the identical failure. We match the stable phrase
+            # from the wrapped message, not the volatile per-request URL or host.
+            "did not return a valid ClickHouse response": NOT_A_CLICKHOUSE_HTTP_RESPONSE,
             # MEMORY_LIMIT_EXCEEDED — the source ClickHouse server (per-query
             # `max_memory_usage` budget or a server-wide OvercommitTracker kill)
             # ran out of memory running our extraction query. We already stream
@@ -236,7 +249,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # something we can change our side, so retrying just re-loads an
             # already disk-pressured server.
             "Code: 243": "Your ClickHouse server ran out of disk space while we were reading a table (it couldn't reserve space for a temporary file). Try scaling up your ClickHouse service or freeing disk space, or sync a smaller table or use an incremental sync, then resume.",
-            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
+            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/core/arrow_utils.py`
             # when an integer column's source type was widened (e.g. `Int32` → `Int64`) after
             # the destination table was created with the narrower type. Delta Lake can't widen
             # an existing column in place, so retrying won't help — the table must be reset and
@@ -281,6 +294,40 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "returned response code 504",
         }
 
+    @contextmanager
+    def direct_query_client(
+        self,
+        config: ClickHouseSourceConfig,
+        team_id: int,
+        *,
+        query_timeout: int,
+        settings: dict[str, Any] | None = None,
+    ) -> Iterator["ClickHouseClient"]:
+        """Open a client against the source's ClickHouse for a single direct (HogQL) query.
+
+        Opens the SSH tunnel (if any) for the life of the query and yields a clickhouse-connect
+        client, closing both on exit. Client construction is an internal detail, so it stays in
+        the product — the direct-SQL adapter drives the query through this method rather than
+        importing the client factory.
+        """
+        with self.with_ssh_tunnel(config, team_id) as (host, port):
+            client = _get_client(
+                host=host,
+                port=port,
+                database=config.database,
+                user=config.user,
+                password=config.password,
+                secure=config.secure,
+                verify=config.verify,
+                query_timeout=query_timeout,
+                settings=settings,
+                bypass_env_proxy=is_team_allowlisted_for_internal_hosts(team_id),
+            )
+            try:
+                yield client
+            finally:
+                client.close()
+
     def get_schemas(
         self,
         config: ClickHouseSourceConfig,
@@ -292,6 +339,10 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     ) -> list[SourceSchema]:
         schemas: list[SourceSchema] = []
 
+        # Internal teams may point at PostHog-internal ClickHouse hosts, which the
+        # egress proxy would refuse — connect those directly.
+        bypass_env_proxy = is_team_allowlisted_for_internal_hosts(team_id)
+
         with self.with_ssh_tunnel(config, team_id) as (host, port):
             db_schemas = get_clickhouse_schemas(
                 host=host,
@@ -302,6 +353,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                 secure=config.secure,
                 verify=config.verify,
                 names=names,
+                bypass_env_proxy=bypass_env_proxy,
             )
 
             row_counts: dict[str, int] = {}
@@ -315,6 +367,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                     secure=config.secure,
                     verify=config.verify,
                     names=names,
+                    bypass_env_proxy=bypass_env_proxy,
                 )
 
             detected_pks = get_clickhouse_primary_keys_for_schemas(
@@ -326,6 +379,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                 secure=config.secure,
                 verify=config.verify,
                 table_names=list(db_schemas.keys()),
+                bypass_env_proxy=bypass_env_proxy,
             )
 
         for table_name, columns in db_schemas.items():
@@ -420,6 +474,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                 password=config.password,
                 secure=config.secure,
                 verify=config.verify,
+                bypass_env_proxy=is_team_allowlisted_for_internal_hosts(team_id),
             )
 
     def source_for_pipeline(self, config: ClickHouseSourceConfig, inputs: SourceInputs) -> SourceResponse:
@@ -445,6 +500,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             chunk_size_override=schema.chunk_size_override,
             row_filters=inputs.row_filters,
             enabled_columns=inputs.enabled_columns,
+            bypass_env_proxy=is_team_allowlisted_for_internal_hosts(inputs.team_id),
         )
 
     def reconcile_schema_metadata(

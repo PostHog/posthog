@@ -62,6 +62,10 @@ class QueryError(ExposedHogQLError):
 class TableAccessDeniedError(QueryError):
     """The user has no access to the table (raised by Database.get_table)."""
 
+    # Surfaces as the error code on API responses (see posthog/api/query.py), so clients can tell a
+    # denial from any other query error without matching on the message.
+    code_name = "table_access_denied"
+
     table_name: str
 
     def __init__(self, table_name: str):

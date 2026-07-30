@@ -64,6 +64,7 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
         shouldShowMeanPerBreakdown,
         showTrendLines,
         xAxisLabels,
+        getRetentionColor,
     } = useValues(retentionGraphLogic(insightProps))
     const { openModal } = useActions(retentionModalLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
@@ -80,8 +81,9 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
             buildRetentionSeries(filteredTrendSeries as RetentionTrendSeriesEntry[], {
                 incompletenessOffsetFromEnd,
                 isIntervalView,
+                getColor: (entry, index) => getRetentionColor(entry.rawBreakdownValue, index),
             }),
-        [filteredTrendSeries, incompletenessOffsetFromEnd, isIntervalView]
+        [filteredTrendSeries, incompletenessOffsetFromEnd, isIntervalView, getRetentionColor]
     )
 
     const groupTypeLabel = resolveGroupTypeLabel(labelGroupType, aggregationLabel)

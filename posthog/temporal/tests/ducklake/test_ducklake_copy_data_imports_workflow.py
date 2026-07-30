@@ -8,12 +8,14 @@ from unittest.mock import MagicMock
 from django.conf import settings
 from django.test import override_settings
 
+import deltalake
 import temporalio.worker
 import temporalio.converter
 from temporalio import activity as temporal_activity
 from temporalio.testing import WorkflowEnvironment
 
-from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam
+from posthog.ducklake import cp_teams
+from posthog.ducklake.models import DuckgresServer
 from posthog.ducklake.storage import compute_staging_uri
 from posthog.ducklake.verification import DuckLakeCopyVerificationParameter, DuckLakeCopyVerificationQuery
 from posthog.sync import database_sync_to_async
@@ -37,6 +39,18 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+
+
+@pytest.fixture(autouse=True)
+def _cp_no_rows():
+    # The data-imports schema resolves via the team's control-plane row; serve the
+    # no-row (legacy team-id schema) shape so these tests stay CP-independent.
+    from unittest.mock import patch
+
+    cp_teams.clear_cache()
+    with patch("posthog.ducklake.cp_teams._fetch_org_rows", return_value=[]):
+        yield
+    cp_teams.clear_cache()
 
 
 class _FakeColumn:
@@ -139,14 +153,20 @@ async def test_prepare_excludes_only_v3_sink_owned_schemas(ateam, monkeypatch):
         create_job_model, "is_pipeline_v3_enabled", lambda team_id, source_type: source_type == "Postgres"
     )
 
-    server = await database_sync_to_async(DuckgresServer.objects.create)(
+    await database_sync_to_async(DuckgresServer.objects.create)(
         organization_id=ateam.organization_id,
         host="h",
         username="root",
         password="x",
         bucket="bucket",
     )
-    membership = await database_sync_to_async(DuckgresServerTeam.objects.create)(server=server, team=ateam)
+    # Sink membership now lives in the duckgres control plane; toggle it at the seam the
+    # activity reads (membership resolution itself is covered in the enablement tests).
+    member = {"value": True}
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.is_duckgres_sink_team_member",
+        lambda team_id: member["value"],
+    )
 
     credential = await database_sync_to_async(DataWarehouseCredential.objects.create)(
         team=ateam, access_key="k", access_secret="s"
@@ -183,7 +203,7 @@ async def test_prepare_excludes_only_v3_sink_owned_schemas(ateam, monkeypatch):
     # v3 source dropped (sink owns it); non-v3 source still copied.
     assert [m.source_schema_id for m in result] == [str(non_v3_schema.id)]
 
-    await database_sync_to_async(membership.delete)()
+    member["value"] = False
     result_without_membership = await prepare_data_imports_ducklake_metadata_activity(inputs)
 
     assert {m.source_schema_id for m in result_without_membership} == {str(v3_schema.id), str(non_v3_schema.id)}
@@ -1392,3 +1412,92 @@ async def test_ducklake_copy_data_imports_workflow_calls_cleanup_after_verify(mo
     assert call_counts["copy"] == 1
     assert call_counts["verify"] == 1
     assert call_counts["cleanup"] == 1
+
+
+class _FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+@pytest.mark.parametrize(
+    "absent_error",
+    [
+        deltalake.exceptions.DeltaError("Generic delta kernel error: No files in log segment"),
+        deltalake.exceptions.TableNotFoundError("no log files"),
+    ],
+)
+def test_stage_waits_out_delta_rebuild_window(monkeypatch, absent_error):
+    # A v3 full-refresh sync purges the source Delta table and the loader rebuilds it
+    # asynchronously; the first stage attempts land in that window and must be retried,
+    # not treated as fatal.
+    clock = _FakeClock()
+    monkeypatch.setattr(ducklake_module, "time", clock)
+    attempts = {"count": 0}
+
+    def stage(**kwargs):
+        attempts["count"] += 1
+        if attempts["count"] <= 2:
+            raise absent_error
+
+    monkeypatch.setattr(ducklake_module, "stage_delta_table", stage)
+
+    ducklake_module._stage_delta_table_waiting_for_rebuild(
+        source_uri="s3://bucket/folder/table",
+        catalog_bucket="catalog",
+        organization_id="org",
+        logger=MagicMock(),
+    )
+
+    assert attempts["count"] == 3
+    assert clock.sleeps == [ducklake_module.DELTA_REBUILD_POLL_SECONDS] * 2
+
+
+def test_stage_raises_immediately_on_non_absent_errors(monkeypatch):
+    clock = _FakeClock()
+    monkeypatch.setattr(ducklake_module, "time", clock)
+    attempts = {"count": 0}
+
+    def stage(**kwargs):
+        attempts["count"] += 1
+        raise deltalake.exceptions.DeltaError("Generic error: something else broke")
+
+    monkeypatch.setattr(ducklake_module, "stage_delta_table", stage)
+
+    with pytest.raises(deltalake.exceptions.DeltaError):
+        ducklake_module._stage_delta_table_waiting_for_rebuild(
+            source_uri="s3://bucket/folder/table",
+            catalog_bucket="catalog",
+            organization_id="org",
+            logger=MagicMock(),
+        )
+
+    assert attempts["count"] == 1
+    assert clock.sleeps == []
+
+
+def test_stage_gives_up_after_rebuild_wait_budget(monkeypatch):
+    clock = _FakeClock()
+    monkeypatch.setattr(ducklake_module, "time", clock)
+
+    def stage(**kwargs):
+        raise deltalake.exceptions.DeltaError("Generic delta kernel error: No files in log segment")
+
+    monkeypatch.setattr(ducklake_module, "stage_delta_table", stage)
+
+    with pytest.raises(deltalake.exceptions.DeltaError):
+        ducklake_module._stage_delta_table_waiting_for_rebuild(
+            source_uri="s3://bucket/folder/table",
+            catalog_bucket="catalog",
+            organization_id="org",
+            logger=MagicMock(),
+        )
+
+    assert clock.now <= ducklake_module.DELTA_REBUILD_WAIT_SECONDS + ducklake_module.DELTA_REBUILD_POLL_SECONDS

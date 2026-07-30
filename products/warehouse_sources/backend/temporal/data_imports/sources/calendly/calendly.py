@@ -3,7 +3,6 @@ from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.calendly.settings import (
     CALENDLY_ENDPOINTS,
     CalendlyEndpointConfig,
@@ -18,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 CALENDLY_BASE_URL = "https://api.calendly.com"
 PAGE_SIZE = 100

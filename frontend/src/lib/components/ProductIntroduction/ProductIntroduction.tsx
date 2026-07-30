@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import * as construction2 from '@posthog/brand/hoggies/png/construction-2'
-import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass'
+import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import { IconOpenSidebar, IconPlus, IconX } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'

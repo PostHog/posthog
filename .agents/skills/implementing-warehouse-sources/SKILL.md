@@ -262,6 +262,29 @@ enum. Adding a **new** category means editing that array and rebuilding — don'
 alternate spelling a user might type (e.g. `["ga4", "ga"]`, `["sql server"]`, `["facebook ads"]`). Skip it when
 the name already obviously matches; don't add noise.
 
+## Self-driving Inbox candidacy (issues / tickets / conversations)
+
+Some sources are also candidates for the **Self-driving Inbox** — the feature that watches a synced
+table of _actionable records_ and emits findings into the PostHog Code Inbox. Shipped today: GitHub,
+Linear, Zendesk, pganalyze, and Jira.
+
+The signal is the **table you sync**, not the vendor: a source is an inbox candidate when one of its
+tables is a stream of records a human (or agent) triages one by one — an `issues`, `tickets`, or
+`conversations` table. These live under the support/helpdesk (`CUSTOMER_SUPPORT`), issue-tracker and
+monitoring (`ENGINEERING___MONITORING`), and some project-tool (`PRODUCTIVITY`) categories. Analytics,
+billing, ad-platform, CRM, and raw database sources are **not** inbox candidates — they sync facts to
+query, not a work queue to act on. If the source you're building has no such table, there's nothing to
+do here.
+
+Wiring a source into the inbox is a **separate, additive piece of work** with its own skill —
+`/adding-inbox-sources` — and it changes nothing in this skill's deliverable. It only becomes possible
+once the data-warehouse source exists (which is exactly what this skill produces), so build and ship the
+source first. That skill touches three surfaces: a server-side "signals scout" emitter plus a registry
+entry and `SignalSourceProduct` enum in this repo (`products/signals/backend/`), the inbox UI in the
+separate `posthog/code` repo, and the `npx @posthog/wizard self-driving` onboarding flow in
+`PostHog/context-mill`. Read `/adding-inbox-sources` before starting — none of that plumbing belongs in
+the source's own `products/warehouse_sources/` code.
+
 ## Vendor API version metadata
 
 Every source declares three class attributes (on the source class body, alongside `lists_tables_without_credentials`)
@@ -323,9 +346,9 @@ Return a `SourceResponse` directly. **Do not** use `dlt_source_to_source_respons
 
 Prefer yielding data in the shape the API returns it. No custom dataclasses, no heavy parsing. Yield either `dict`, `list[dict]` (preferred when possible), or a `pyarrow.Table`. The pipeline buffers and batches for you.
 
-**Default to yielding raw `dict` / `list[dict]` and let the pipeline batch for you.** The pipeline already runs a `Batcher` (`pipelines/pipeline/pipeline.py`) at 5000-row / 200 MiB thresholds, so the common case needs no batcher of its own. Reach for `pyarrow.Table` only when you already have arrow-shaped data (e.g. a ClickHouse adapter). A source _may_ instantiate its own `Batcher` with **smaller** thresholds (e.g. `chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024`, as klaviyo and ~70 other sources do) when it deliberately wants a tighter memory footprint for large/wide rows — that's a valid choice, not the default. What to avoid is a second _full-size_ batcher, which just double-buffers with no win.
+**Default to yielding raw `dict` / `list[dict]` and let the pipeline batch for you.** The pipeline already runs a `Batcher` (`pipelines/pipeline_v2/pipeline.py`) at 5000-row / 200 MiB thresholds, so the common case needs no batcher of its own. Reach for `pyarrow.Table` only when you already have arrow-shaped data (e.g. a ClickHouse adapter). A source _may_ instantiate its own `Batcher` with **smaller** thresholds (e.g. `chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024`, as klaviyo and ~70 other sources do) when it deliberately wants a tighter memory footprint for large/wide rows — that's a valid choice, not the default. What to avoid is a second _full-size_ batcher, which just double-buffers with no win.
 
-For pyarrow tables, cap in-memory rows at ~200 MiB or ~5000 rows. Use helpers like `table_from_iterator()` / `table_from_py_list()` from `products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline/utils.py`.
+For pyarrow tables, cap in-memory rows at ~200 MiB or ~5000 rows. Use helpers like `table_from_iterator()` / `table_from_py_list()` from `products/warehouse_sources/backend/temporal/data_imports/pipelines/core/arrow_utils.py`.
 
 **URL construction:** use `urllib.parse.urlencode` for query strings. Don't use `requests.Request(...).prepare().url` — `PreparedRequest.url` is typed `Optional[str]` and the typical workaround (`prepared.url or f"..."`) carries an unreachable fallback. `urlencode` is shorter, dependency-free, and produces identical output for ASCII-safe params.
 
@@ -754,6 +777,8 @@ Tests & handoff:
 - [ ] User-facing doc written/updated per /documenting-warehouse-sources (docsUrl matches filename; `audit_source_docs` passes)
 - [ ] `ruff check . --fix` and `ruff format .`
 - [ ] List any new env vars (OAuth client IDs/secrets, etc) in the PR / handoff
+- [ ] (Only if the source syncs an issues/tickets/conversations table) Note it as a Self-driving Inbox
+      candidate — that's a separate follow-up via /adding-inbox-sources, not part of shipping the source
 ```
 
 ## Validation and generation workflow

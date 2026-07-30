@@ -7,6 +7,7 @@ from posthog.hogql.database.models import SavedQuery as HogQLSavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 
+from products.data_modeling.backend.logic.node_suspension import clear_suspension_if_query_changed
 from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.edge import Edge
@@ -186,6 +187,9 @@ def sync_saved_query_to_dag(
 
     # name is included in update_fields because Node.save() auto-syncs it from saved_query
     target.save(update_fields=["name", "type", "properties"])
+    # After the save, so it reads fresh state under a row lock rather than riding along on the
+    # whole-blob write above.
+    clear_suspension_if_query_changed(target, saved_query.query)
     if reconcile:
         maybe_reconcile_dag(dag)
     return target

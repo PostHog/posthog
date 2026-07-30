@@ -27,7 +27,7 @@ from products.tasks.backend.temporal.constants import (
     STEERING_PROTOCOL_QUERY_TIMEOUT,
     STEERING_PROTOCOL_VERSION,
 )
-from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
+from products.tasks.backend.temporal.process_task.workflow import PendingFollowup, ProcessTaskInput
 from products.tasks.backend.temporal.slack_relay.activities import RelaySlackMessageInput
 
 if TYPE_CHECKING:
@@ -198,6 +198,7 @@ async def execute_task_processing_workflow_async(
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
     prewarmed: bool = False,
     workflow_id_prefix: Optional[str] = None,
+    initial_message: PendingFollowup | None = None,
 ) -> None:
     """
     Start the task processing workflow asynchronously. Fire-and-forget.
@@ -229,6 +230,7 @@ async def execute_task_processing_workflow_async(
             slack_thread_context=slack_context_dict,
             posthog_mcp_scopes=posthog_mcp_scopes,
             prewarmed=prewarmed,
+            initial_message=initial_message,
         )
 
         logger.info(
@@ -282,6 +284,7 @@ def execute_task_processing_workflow(
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
     prewarmed: bool = False,
     workflow_id_prefix: Optional[str] = None,
+    initial_message: PendingFollowup | None = None,
 ) -> None:
     """
     Start the task processing workflow synchronously. Fire-and-forget.
@@ -312,6 +315,7 @@ def execute_task_processing_workflow(
             slack_thread_context=slack_context_dict,
             posthog_mcp_scopes=posthog_mcp_scopes,
             prewarmed=prewarmed,
+            initial_message=initial_message,
         )
 
         logger.info(
@@ -449,6 +453,18 @@ def redispatch_orphaned_task_run(run_id: str) -> str:
         slack_thread_context=dispatch_params.get("slack_thread_context"),
         posthog_mcp_scopes=dispatch_params.get("posthog_mcp_scopes") or _resolve_mcp_scopes(task_run),
     )
+
+    # A loop run's skill bundles are seeded by the same on_commit callback whose loss
+    # this sweep recovers from, so dispatching without re-seeding would silently start
+    # the run with its skills missing. Idempotent for already-seeded runs. A failed seed
+    # is treated like any other transient recovery error: retried next sweep, with the
+    # 24h killer as the terminal backstop.
+    from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 — breaks the loop_runs -> temporal.client import cycle
+        ensure_loop_skill_bundles_seeded,
+    )
+
+    if not ensure_loop_skill_bundles_seeded(task_run):
+        return "error"
 
     observe_task_run_workflow_start(task_run, outcome="attempted", reason="reconcile")
     _capture_run_feature_flags(run_id)
