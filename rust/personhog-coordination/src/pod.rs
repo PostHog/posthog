@@ -118,6 +118,13 @@ pub trait HandoffHandler: Send + Sync {
     /// Called when this pod is `new_owner` and handoff phase reaches `Warming`.
     /// The HWM is guaranteed stable at this point — the old owner has drained
     /// and no router is producing for this partition.
+    ///
+    /// May be cancelled mid-flight (the coordination loop is dropped on
+    /// lease loss and shutdown) and re-invoked later for the same
+    /// partition. Implementations must therefore leave no observable
+    /// partial state on cancellation — buffer and install atomically, as
+    /// the leader's warm does — because a cancelled warm is never
+    /// released: the pod only tracks a warm once this returns.
     async fn warm_partition(&self, partition: u32) -> Result<()>;
 
     /// Old owner: release the partition from this pod's local state (drop cache,
@@ -168,7 +175,7 @@ pub struct PodConfig {
     pub reconcile_failure_budget: u32,
     /// How many consecutive coordination-attempt failures the run
     /// supervisor tolerates before giving up and letting the process
-    /// restart. A healthy attempt resets the count.
+    /// restart. An attempt that made real progress resets the count.
     pub run_retry_budget: u32,
     /// Base backoff between coordination attempts; doubles per
     /// consecutive failure up to a fixed cap.
@@ -252,6 +259,14 @@ impl PodHandle {
         handler: Arc<dyn HandoffHandler>,
         k8s_awareness: Option<Arc<K8sAwareness>>,
     ) -> Self {
+        let renewal_margin = Duration::from_secs(config.lease_ttl.max(0) as u64).mul_f64(2.0 / 3.0);
+        assert!(
+            config.heartbeat_interval < renewal_margin,
+            "heartbeat_interval ({:?}) must be well under the keepalive renewal margin \
+             (2/3 of lease_ttl = {renewal_margin:?}): the post-renewal sleep alone would \
+             exhaust the margin and the pod would fence-loop against healthy etcd",
+            config.heartbeat_interval,
+        );
         let warm_slots = Semaphore::new(config.warm_concurrency);
         Self {
             store,
@@ -297,15 +312,18 @@ impl PodHandle {
     /// stall every freeze quorum until the phase deadline.
     pub async fn run(&self, cancel: CancellationToken) -> Result<()> {
         let mut consecutive_failures: u32 = 0;
+        // Set by the coordination loop whenever it applies real work
+        // (a convergence completed); consumed by each failure note to
+        // decide crash-loop vs fresh failure.
+        let progress = AtomicBool::new(false);
         loop {
-            let session_started = Instant::now();
-            let lease_id = match self.begin_session().await {
-                Ok(lease_id) => lease_id,
+            let (lease_id, granted_at) = match self.begin_session().await {
+                Ok(session) => session,
                 Err(e) => {
                     if cancel.is_cancelled() {
                         return Ok(());
                     }
-                    if !self.note_run_failure(&mut consecutive_failures, session_started, &e) {
+                    if !self.note_run_failure(&mut consecutive_failures, &progress, &e) {
                         return Err(e);
                     }
                     if self.run_backoff(&cancel, consecutive_failures).await {
@@ -328,8 +346,10 @@ impl PodHandle {
                 let lease_ttl = self.config.lease_ttl;
                 let token = heartbeat_cancel.child_token();
                 tokio::spawn(async move {
-                    util::run_lease_keepalive(store, lease_id, interval, lease_ttl, "pod", token)
-                        .await
+                    util::run_lease_keepalive(
+                        store, lease_id, interval, lease_ttl, granted_at, "pod", token,
+                    )
+                    .await
                 })
             };
 
@@ -344,9 +364,8 @@ impl PodHandle {
             // that outlives its lease is a zombie, and lease loss must
             // end the session immediately.
             loop {
-                let attempt_started = Instant::now();
                 let result = tokio::select! {
-                    r = self.run_once(cancel.clone()) => r,
+                    r = self.run_once(cancel.clone(), &progress) => r,
                     r = &mut heartbeat_handle => {
                         let err = Self::heartbeat_exit_error(r);
                         tracing::error!(
@@ -366,7 +385,7 @@ impl PodHandle {
                     Ok(()) => break,
                     Err(e) => e,
                 };
-                if !self.note_run_failure(&mut consecutive_failures, attempt_started, &err) {
+                if !self.note_run_failure(&mut consecutive_failures, &progress, &err) {
                     fatal = Some(err);
                     break;
                 }
@@ -409,7 +428,7 @@ impl PodHandle {
             // rather than draining leaseless until the timeout.
             if cancel.is_cancelled() && lease_err.is_none() {
                 tokio::select! {
-                    r = self.drain(lease_id) => {
+                    r = self.drain(lease_id, &progress) => {
                         if let Err(e) = r {
                             tracing::warn!(pod = %self.config.pod_name, error = %e, "drain failed");
                         }
@@ -428,8 +447,39 @@ impl PodHandle {
             let lease_lost = lease_err.is_some();
 
             if !lease_lost {
-                // The heartbeat is still running; on lease loss it has
-                // already exited and its handle was consumed by the race.
+                // Fence before the registration disappears: revoking the
+                // lease deletes it instantly, and the dead-owner path the
+                // coordinator then runs has no fence of its own — its
+                // safety rests on a deregistered owner being unable to
+                // produce. This matters most on the budget-exhausted
+                // path, where the pod still holds and serves every
+                // partition; after a completed graceful drain it is a
+                // no-op. The heartbeat is still running here, so the
+                // fence has no lease-runway pressure — but on the
+                // shutdown path it does have a lifecycle budget: the
+                // graceful drain may already have spent its full
+                // timeout, and the process supervisor's window and the
+                // pod's termination grace period are sized around one
+                // drain timeout plus headroom, not two. Anything the
+                // drain could not quiesce in thirty seconds will not
+                // quiesce now; the fence's value here is stopping
+                // admissions (milliseconds) and giving stragglers a
+                // short grace, so its drain bound is a few seconds. The
+                // budget-exhausted path is not on the shutdown clock and
+                // keeps the full timeout.
+                let fence_bound = if cancel.is_cancelled() {
+                    Duration::from_secs(3).min(self.config.drain_timeout)
+                } else {
+                    self.config.drain_timeout
+                };
+                if let Err(e) = self.self_fence_locally(fence_bound).await {
+                    self.fence_poisoned.store(true, Ordering::SeqCst);
+                    tracing::error!(
+                        pod = %self.config.pod_name,
+                        error = %e,
+                        "pre-revoke self-fence failed; refusing in-place recovery"
+                    );
+                }
                 heartbeat_cancel.cancel();
                 drop(heartbeat_handle.await);
                 drop(self.store.revoke_lease(lease_id).await);
@@ -438,7 +488,17 @@ impl PodHandle {
                 // partition is released, dropping its cache and serving
                 // authority. Re-acquisition always re-warms, so nothing
                 // is lost but memory. A failed release poisons recovery.
-                if let Err(e) = self.self_fence_locally().await {
+                // The drain budget is the lease runway the keepalive
+                // margin reserved — a third of the TTL — not the full
+                // graceful drain timeout: the coordinator reassigns at
+                // expiry, and a fence still draining past it loses the
+                // race it exists to win. Overshoot poisons, and the
+                // process restart clears stragglers by death.
+                let runway = Duration::from_secs(self.config.lease_ttl.max(0) as u64) / 3;
+                if let Err(e) = self
+                    .self_fence_locally(runway.min(self.config.drain_timeout))
+                    .await
+                {
                     self.fence_poisoned.store(true, Ordering::SeqCst);
                     tracing::error!(
                         pod = %self.config.pod_name,
@@ -461,7 +521,7 @@ impl PodHandle {
                         // ownership; only a process restart clears it.
                         return Err(e);
                     }
-                    if !self.note_run_failure(&mut consecutive_failures, session_started, &e) {
+                    if !self.note_run_failure(&mut consecutive_failures, &progress, &e) {
                         return Err(e);
                     }
                     if self.run_backoff(&cancel, consecutive_failures).await {
@@ -487,38 +547,28 @@ impl PodHandle {
 
     /// Grant a fresh lease and register under it — the start of a
     /// coordination session.
-    async fn begin_session(&self) -> Result<i64> {
+    async fn begin_session(&self) -> Result<(i64, Instant)> {
+        // The server's TTL countdown starts at the grant; anchoring the
+        // keepalive's margin clock any later would overstate runway by
+        // however long registration took.
+        let granted_at = Instant::now();
         let lease_id = self.store.grant_lease(self.config.lease_ttl).await?;
         self.register(lease_id).await?;
         tracing::info!(pod = %self.config.pod_name, "registered with etcd");
-        Ok(lease_id)
+        Ok((lease_id, granted_at))
     }
 
-    /// Record one supervisor-level failure (a bootstrap, an attempt, or
-    /// a lost lease). Returns `false` when the consecutive budget is
-    /// exhausted; a run that was healthy for a while resets the count
-    /// first, so the budget bounds crash loops rather than lifetime
-    /// failures.
-    fn note_run_failure(&self, consecutive: &mut u32, started: Instant, err: &Error) -> bool {
-        const HEALTHY_ATTEMPT: Duration = Duration::from_secs(60);
-        if started.elapsed() >= HEALTHY_ATTEMPT {
-            *consecutive = 1;
-        } else {
-            *consecutive += 1;
-        }
-        counter!(
-            "personhog_coordination_run_restarts_total",
-            "component" => "pod"
+    /// See `util::note_run_failure` for the progress-based reset
+    /// semantics.
+    fn note_run_failure(&self, consecutive: &mut u32, progress: &AtomicBool, err: &Error) -> bool {
+        util::note_run_failure(
+            consecutive,
+            progress,
+            self.config.run_retry_budget,
+            "pod",
+            &self.config.pod_name,
+            err,
         )
-        .increment(1);
-        tracing::warn!(
-            pod = %self.config.pod_name,
-            error = %err,
-            consecutive = *consecutive,
-            budget = self.config.run_retry_budget,
-            "pod coordination failed; recovering in place"
-        );
-        *consecutive < self.config.run_retry_budget
     }
 
     /// Exponential backoff between recovery steps. Returns `true` when
@@ -545,13 +595,14 @@ impl PodHandle {
     /// re-warm, in-flight handoffs get their drain/warm/ack, completed
     /// ones release, and the watch anchors to the snapshot revision so
     /// nothing between snapshot and attach is lost.
-    async fn run_once(&self, cancel: CancellationToken) -> Result<()> {
+    async fn run_once(&self, cancel: CancellationToken, progress: &AtomicBool) -> Result<()> {
         let (initial, snapshot_revision) = self.involved_partitions().await?;
         let stream = self
             .store
             .watch_handoffs_from(snapshot_revision + 1)
             .await?;
-        self.watch_handoff_loop(stream, cancel, initial).await
+        self.watch_handoff_loop(stream, cancel, initial, progress)
+            .await
     }
 
     /// Fence, quiesce, and release every locally held partition —
@@ -573,7 +624,7 @@ impl PodHandle {
     /// even *detected* (up to one heartbeat tick) remains the
     /// documented zombie residual; this closes only the part the local
     /// fence itself controls.
-    async fn self_fence_locally(&self) -> Result<()> {
+    async fn self_fence_locally(&self, drain_bound: Duration) -> Result<()> {
         let held: HashSet<u32> = {
             let warmed = self.warmed_partitions.lock().await;
             let fenced = self.fenced_partitions.lock().await;
@@ -593,7 +644,7 @@ impl PodHandle {
         let mut drains = tokio::task::JoinSet::new();
         for &partition in &held {
             let handler = Arc::clone(&self.handler);
-            let timeout = self.config.drain_timeout;
+            let timeout = drain_bound;
             drains.spawn(async move {
                 tokio::time::timeout(timeout, handler.drain_partition_inflight(partition))
                     .await
@@ -617,6 +668,7 @@ impl PodHandle {
             self.warmed_partitions.lock().await.remove(&partition);
             self.fenced_partitions.lock().await.remove(&partition);
         }
+        gauge!("personhog_coordination_partitions_held").set(0.0);
         Ok(())
     }
 
@@ -653,7 +705,7 @@ impl PodHandle {
     ///
     /// For StatefulSet rollouts, the same pod name comes back with a new
     /// revision, so we skip the drain and exit immediately (ShutdownNow).
-    async fn drain(&self, lease_id: i64) -> Result<()> {
+    async fn drain(&self, lease_id: i64, progress: &AtomicBool) -> Result<()> {
         let reason = self.classify_departure().await;
 
         // StatefulSet rollout: same pod name returns, no need to drain
@@ -699,7 +751,7 @@ impl PodHandle {
             .await?;
 
         tokio::select! {
-            r = self.watch_handoff_loop(stream, drain_cancel.clone(), initial) => {
+            r = self.watch_handoff_loop(stream, drain_cancel.clone(), initial, progress) => {
                 r?;
             },
             _ = self.wait_for_drain() => {
@@ -788,7 +840,7 @@ impl PodHandle {
     /// convergence acts on observed durable state, never on remembered
     /// event payloads, so missed, reordered, or replayed events cannot
     /// corrupt local state.
-    async fn converge(&self, partition: u32) -> Result<()> {
+    async fn converge(&self, partition: u32) -> Result<bool> {
         let handoff = self.store.get_handoff(partition).await?;
         let assignment = self.store.get_assignment(partition).await?;
         self.apply(partition, assignment.as_ref(), handoff.as_ref())
@@ -810,14 +862,21 @@ impl PodHandle {
     /// runs at most one convergence per partition at a time, so no two
     /// applications for the same partition ever interleave — applications
     /// for different partitions may run concurrently.
+    ///
+    /// Returns whether the application changed local state (a warm, a
+    /// fence, a resume, a release). A convergence that merely confirms
+    /// the partition is already settled is a read, and the run budget's
+    /// progress signal must not count it — a pod whose coordination is
+    /// wedged still no-op-converges its settled partitions successfully.
     async fn apply(
         &self,
         partition: u32,
         assignment: Option<&PartitionAssignment>,
         handoff: Option<&HandoffState>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let pod = &self.config.pod_name;
         let desired = desired_state(pod, assignment, handoff);
+        let mut did_work = false;
 
         match desired {
             DesiredState::Serving => {
@@ -832,11 +891,21 @@ impl PodHandle {
                         .lock()
                         .await
                         .insert(partition, WarmProvenance::Serving);
-                } else if self.fenced_partitions.lock().await.contains(&partition) {
+                    did_work = true;
+                }
+                // Resume any local fence regardless of which branch ran:
+                // a crash-restart inside the TTL can leave a partition
+                // fenced but unwarmed (re-fenced through the Drained arm
+                // before the handoff was cancelled), and relying on the
+                // handler's warm to lift the fence would make write
+                // admission depend on an undocumented handler side
+                // effect. Resuming after a warm that already unfenced is
+                // an idempotent no-op.
+                if self.fenced_partitions.lock().await.remove(&partition) {
                     tracing::info!(pod, partition, "converging to Serving: resuming writes");
                     self.handler.resume_partition(partition).await?;
+                    did_work = true;
                 }
-                self.fenced_partitions.lock().await.remove(&partition);
             }
             DesiredState::Drained { ack } => {
                 // The coordinator only advances Freezing → Draining once
@@ -848,6 +917,7 @@ impl PodHandle {
                 let newly_fencing = !self.fenced_partitions.lock().await.contains(&partition);
                 if newly_fencing {
                     tracing::info!(pod, partition, "converging to Drained: fencing + draining");
+                    did_work = true;
                 }
                 let start = Instant::now();
                 self.handler.drain_partition_inflight(partition).await?;
@@ -913,6 +983,7 @@ impl PodHandle {
                         partition,
                         WarmProvenance::Handoff(handoff.handoff_id.clone()),
                     );
+                    did_work = true;
                 }
                 self.fenced_partitions.lock().await.remove(&partition);
                 self.store
@@ -938,6 +1009,7 @@ impl PodHandle {
                     self.handler.release_partition(partition).await?;
                     counter!("personhog_coordination_partition_releases_total").increment(1);
                     self.drain_notify.notify_one();
+                    did_work = true;
                 }
             }
         }
@@ -945,7 +1017,7 @@ impl PodHandle {
         gauge!("personhog_coordination_partitions_held")
             .set(self.held_partition_count().await as f64);
 
-        Ok(())
+        Ok(did_work)
     }
 
     async fn watch_handoff_loop(
@@ -953,6 +1025,7 @@ impl PodHandle {
         mut stream: WatchStream,
         cancel: CancellationToken,
         initial: HashSet<u32>,
+        progress: &AtomicBool,
     ) -> Result<()> {
         // The truth path: periodically re-derive the involved-partition
         // set from a fresh snapshot and re-dispatch each member,
@@ -963,6 +1036,7 @@ impl PodHandle {
             tokio::time::Instant::now() + self.config.reconcile_interval,
             self.config.reconcile_interval,
         );
+        reconcile_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         // Convergence is single-flight per partition: at most one
         // `converge` future per partition lives in `lanes` at a time,
@@ -975,7 +1049,7 @@ impl PodHandle {
         // absorbs any number of coalesced signals. Dropping this loop
         // future drops every in-flight convergence with it, so cancel
         // semantics are unchanged from converging inline.
-        let mut lanes: FuturesUnordered<BoxFuture<'_, (u32, Trigger, Result<()>)>> =
+        let mut lanes: FuturesUnordered<BoxFuture<'_, (u32, Trigger, Result<bool>)>> =
             FuturesUnordered::new();
         let mut in_flight: HashSet<u32> = HashSet::new();
         let mut pending: HashMap<u32, Trigger> = HashMap::new();
@@ -986,7 +1060,7 @@ impl PodHandle {
             trigger: Trigger,
             in_flight: &mut HashSet<u32>,
             pending: &mut HashMap<u32, Trigger>,
-            lanes: &mut FuturesUnordered<BoxFuture<'s, (u32, Trigger, Result<()>)>>,
+            lanes: &mut FuturesUnordered<BoxFuture<'s, (u32, Trigger, Result<bool>)>>,
         ) {
             if in_flight.contains(&partition) {
                 // Coalesce, keeping the stricter error disposition: a
@@ -1130,7 +1204,17 @@ impl PodHandle {
                 Some((partition, trigger, result)) = lanes.next(), if !lanes.is_empty() => {
                     in_flight.remove(&partition);
                     match result {
-                        Ok(()) => {
+                        Ok(did_work) => {
+                            // Progress means *applied* work — a handler
+                            // invoked, local serving state changed — never
+                            // a successful read. A no-op convergence of an
+                            // already-settled partition succeeds even on a
+                            // pod whose coordination is otherwise wedged,
+                            // and counting it would make the run budget
+                            // unreachable in exactly that wedge.
+                            if did_work {
+                                progress.store(true, Ordering::SeqCst);
+                            }
                             if trigger == Trigger::Reconcile {
                                 window_ok = true;
                             }

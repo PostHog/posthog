@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -20,6 +21,50 @@ pub fn new_handoff_id() -> String {
         .map(|d| d.as_millis())
         .unwrap_or(0);
     format!("{}-{}", millis, Uuid::new_v4())
+}
+
+/// Record one supervisor-level failure (a bootstrap, an attempt, or a
+/// lost lease) against the consecutive budget. Returns `false` when the
+/// budget is exhausted. A failure that follows real progress — applied
+/// work only: the pod on a completed convergence, the router on a
+/// completed reconcile pass or an applied handoff event; never a mere
+/// successful read, which stays available in wedges where convergence
+/// itself is what fails — resets the count first: the budget bounds crash
+/// loops, not the lifetime of a component that keeps doing useful work
+/// between failures. Progress is measured rather than inferred from
+/// elapsed time, because any fixed "healthy after N seconds" threshold
+/// silently exempts every failure detector slower than N — the
+/// reconcile failure budget and the participant stall watchdog both
+/// take a minute to fire, so a time threshold in that range would let
+/// exactly the wedged-but-slowly-failing states the budget exists for
+/// rebuild in place forever.
+pub(crate) fn note_run_failure(
+    consecutive: &mut u32,
+    progress: &AtomicBool,
+    budget: u32,
+    component: &'static str,
+    name: &str,
+    err: &Error,
+) -> bool {
+    if progress.swap(false, Ordering::SeqCst) {
+        *consecutive = 1;
+    } else {
+        *consecutive += 1;
+    }
+    counter!(
+        "personhog_coordination_run_restarts_total",
+        "component" => component
+    )
+    .increment(1);
+    tracing::warn!(
+        component,
+        name,
+        error = %err,
+        consecutive = *consecutive,
+        budget,
+        "coordination run failed; rebuilding in place while the data plane keeps serving"
+    );
+    *consecutive < budget
 }
 
 /// Maintain a lease keepalive until cancelled, treating connection
@@ -50,12 +95,20 @@ pub async fn run_lease_keepalive(
     lease_id: i64,
     interval: Duration,
     lease_ttl: i64,
+    granted_at: Instant,
     component: &'static str,
     cancel: CancellationToken,
 ) -> Result<()> {
     let renewal_margin = Duration::from_secs(lease_ttl.max(0) as u64).mul_f64(2.0 / 3.0);
-    let retry_pace = (interval / 4).clamp(Duration::from_millis(250), interval);
-    let mut last_renewed = Instant::now();
+    // `clamp` panics when min > max, and sub-250ms intervals are
+    // constructible from zero-valued env config; floor the pace instead.
+    let retry_pace = (interval / 4)
+        .max(Duration::from_millis(250))
+        .min(interval.max(Duration::from_millis(250)));
+    // Anchored at the grant, where the server's countdown started — not
+    // at task spawn, which would overstate the first window's runway by
+    // however long registration took.
+    let mut last_renewed = granted_at;
 
     let margin_exhausted = || {
         Error::invalid_state(format!(
@@ -94,9 +147,10 @@ pub async fn run_lease_keepalive(
                 margin = ?renewal_margin,
                 "keepalive stream failed; retrying within the lease margin"
             );
+            let pace = retry_pace.min(renewal_margin.saturating_sub(last_renewed.elapsed()));
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
-                _ = tokio::time::sleep(retry_pace) => {}
+                _ = tokio::time::sleep(pace) => {}
             }
         };
 
@@ -143,9 +197,11 @@ pub async fn run_lease_keepalive(
                         margin = ?renewal_margin,
                         "keepalive round failed; retrying within the lease margin"
                     );
+                    let pace =
+                        retry_pace.min(renewal_margin.saturating_sub(last_renewed.elapsed()));
                     tokio::select! {
                         _ = cancel.cancelled() => return Ok(()),
-                        _ = tokio::time::sleep(retry_pace) => {}
+                        _ = tokio::time::sleep(pace) => {}
                     }
                     continue 'stream;
                 }

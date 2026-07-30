@@ -11,7 +11,7 @@ mod common;
 
 use std::collections::HashMap;
 use std::future::pending;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -1935,7 +1935,8 @@ async fn the_reconcile_pass_reasserts_freeze_acks() {
 /// involve the lease.
 struct FlakyHandoffHandler {
     events: Arc<Mutex<Vec<HandoffEvent>>>,
-    fail_warm: Arc<std::sync::atomic::AtomicBool>,
+    fail_warm: Arc<AtomicBool>,
+    warm_failures: Arc<AtomicUsize>,
 }
 
 #[async_trait]
@@ -1949,7 +1950,8 @@ impl personhog_coordination::pod::HandoffHandler for FlakyHandoffHandler {
     }
 
     async fn warm_partition(&self, partition: u32) -> Result<()> {
-        if self.fail_warm.load(std::sync::atomic::Ordering::SeqCst) {
+        if self.fail_warm.load(Ordering::SeqCst) {
+            self.warm_failures.fetch_add(1, Ordering::SeqCst);
             return Err(personhog_coordination::error::Error::invalid_state(
                 "injected warm failure".to_string(),
             ));
@@ -1993,10 +1995,11 @@ async fn a_pod_attempt_failure_preserves_registration_and_partitions() {
     let cancel = CancellationToken::new();
 
     let events: Arc<Mutex<Vec<HandoffEvent>>> = Arc::new(Mutex::new(Vec::new()));
-    let fail_warm = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let fail_warm = Arc::new(AtomicBool::new(false));
     let handler = FlakyHandoffHandler {
         events: Arc::clone(&events),
         fail_warm: Arc::clone(&fail_warm),
+        warm_failures: Arc::new(AtomicUsize::new(0)),
     };
     let pod = personhog_coordination::pod::PodHandle::new(
         Arc::clone(&store),
@@ -2662,6 +2665,7 @@ async fn lease_loss_during_attempt_backoff_self_fences_promptly() {
     let handler = FlakyHandoffHandler {
         events: Arc::clone(&events),
         fail_warm: Arc::clone(&fail_warm),
+        warm_failures: Arc::new(AtomicUsize::new(0)),
     };
     let pod = personhog_coordination::pod::PodHandle::new(
         Arc::clone(&store),
@@ -2807,7 +2811,7 @@ async fn a_connection_blip_does_not_fence_the_pod() {
         Arc::clone(&pod_store),
         personhog_coordination::pod::PodConfig {
             pod_name: "blip-pod".to_string(),
-            lease_ttl: 6,
+            lease_ttl: 9,
             heartbeat_interval: Duration::from_secs(1),
             reconcile_interval: Duration::from_secs(86_400),
             ..Default::default()
@@ -2834,7 +2838,7 @@ async fn a_connection_blip_does_not_fence_the_pod() {
     // Well past the original TTL from the last pre-blip renewal: the
     // registration only survives if renewals resumed through the
     // rebuilt stream.
-    tokio::time::sleep(Duration::from_secs(6)).await;
+    tokio::time::sleep(Duration::from_secs(8)).await;
     assert!(
         !events.lock().await.contains(&HandoffEvent::Released(0)),
         "the pod must hold its partition through the blip"
@@ -2866,7 +2870,7 @@ async fn a_sustained_outage_fences_at_the_renewal_margin() {
         Arc::clone(&pod_store),
         personhog_coordination::pod::PodConfig {
             pod_name: "margin-pod".to_string(),
-            lease_ttl: 6,
+            lease_ttl: 9,
             heartbeat_interval: Duration::from_secs(1),
             reconcile_interval: Duration::from_secs(86_400),
             ..Default::default()
@@ -2894,11 +2898,134 @@ async fn a_sustained_outage_fences_at_the_renewal_margin() {
 
     // Margin exhausted: the self-fence must run, well before the pod
     // could be confused with one that never notices.
-    wait_for_condition(Duration::from_secs(5), POLL_INTERVAL, || {
+    wait_for_condition(Duration::from_secs(8), POLL_INTERVAL, || {
         let events = Arc::clone(&events);
         async move { events.lock().await.contains(&HandoffEvent::Released(0)) }
     })
     .await;
 
     cancel.cancel();
+}
+
+/// The run budget bounds crash loops, not lifetime failures: an attempt
+/// that did real work before failing resets the consecutive count. The
+/// reset is keyed on measured progress, not elapsed time — a time
+/// threshold silently exempts every failure detector slower than it
+/// (the reconcile budget and the stall watchdog both take a minute),
+/// letting wedged components rebuild in place forever. Here a pod
+/// alternates real work and one fast failure more times than its
+/// budget; each failure follows progress, so the run must stay alive
+/// throughout.
+#[tokio::test]
+async fn progress_between_failures_keeps_the_run_alive() {
+    let store = test_store("pod-progress-reset").await;
+    let cancel = CancellationToken::new();
+
+    let events: Arc<Mutex<Vec<HandoffEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let fail_warm = Arc::new(AtomicBool::new(false));
+    let warm_failures = Arc::new(AtomicUsize::new(0));
+    let handler = FlakyHandoffHandler {
+        events: Arc::clone(&events),
+        fail_warm: Arc::clone(&fail_warm),
+        warm_failures: Arc::clone(&warm_failures),
+    };
+    let pod = personhog_coordination::pod::PodHandle::new(
+        Arc::clone(&store),
+        personhog_coordination::pod::PodConfig {
+            pod_name: "progress-pod".to_string(),
+            lease_ttl: 10,
+            heartbeat_interval: Duration::from_secs(3),
+            reconcile_interval: Duration::from_secs(86_400),
+            run_retry_budget: 3,
+            // Long enough that each cycle's injected failure is observed
+            // and cleared before the rebuild retries — exactly one
+            // no-progress failure per cycle.
+            run_retry_backoff: Duration::from_secs(2),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+    );
+    let token = cancel.child_token();
+    tokio::spawn(async move { pod.run(token).await });
+
+    // Five work-then-fail cycles against a budget of three: only the
+    // progress reset keeps the run alive past the third.
+    for i in 0..5u32 {
+        fail_warm.store(true, Ordering::SeqCst);
+        put_handoff(&store, i, None, "progress-pod", HandoffPhase::Warming).await;
+        let observed = Arc::clone(&warm_failures);
+        let target = (i + 1) as usize;
+        wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, move || {
+            let observed = Arc::clone(&observed);
+            async move { observed.load(Ordering::SeqCst) >= target }
+        })
+        .await;
+        fail_warm.store(false, Ordering::SeqCst);
+        // The rebuilt attempt re-converges the same handoff and warms it
+        // — the progress that must reset the budget.
+        wait_for_event(&events, HandoffEvent::Warmed(i)).await;
+    }
+
+    cancel.cancel();
+}
+
+/// Exhausting the run budget must fence before the registration
+/// disappears, and no-op convergences must not reset the budget on the
+/// way there. The pod holds partition 0 settled while every attempt
+/// dies on a poisoned partition-1 warm with no applied work in between:
+/// the budget must actually exhaust (settled partition 0's successful
+/// no-op re-convergence on every attempt is a read, not progress), and
+/// the exit must release partition 0 before the teardown revokes the
+/// lease — revocation deregisters instantly, and the dead-owner path it
+/// triggers has no fence of its own.
+#[tokio::test]
+async fn budget_exhaustion_fences_before_deregistering() {
+    let store = test_store("pod-fatal-fence").await;
+    let cancel = CancellationToken::new();
+
+    let events: Arc<Mutex<Vec<HandoffEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let fail_warm = Arc::new(AtomicBool::new(false));
+    let handler = FlakyHandoffHandler {
+        events: Arc::clone(&events),
+        fail_warm: Arc::clone(&fail_warm),
+        warm_failures: Arc::new(AtomicUsize::new(0)),
+    };
+    let pod = personhog_coordination::pod::PodHandle::new(
+        Arc::clone(&store),
+        personhog_coordination::pod::PodConfig {
+            pod_name: "fatal-fence-pod".to_string(),
+            lease_ttl: 10,
+            heartbeat_interval: Duration::from_secs(3),
+            reconcile_interval: Duration::from_secs(86_400),
+            run_retry_budget: 3,
+            run_retry_backoff: Duration::from_millis(50),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+    );
+    let token = cancel.child_token();
+    let join = tokio::spawn(async move { pod.run(token).await });
+
+    put_handoff(&store, 0, None, "fatal-fence-pod", HandoffPhase::Warming).await;
+    wait_for_event(&events, HandoffEvent::Warmed(0)).await;
+
+    fail_warm.store(true, Ordering::SeqCst);
+    put_handoff(&store, 1, None, "fatal-fence-pod", HandoffPhase::Warming).await;
+
+    let result = tokio::time::timeout(Duration::from_secs(15), join)
+        .await
+        .expect("the budget must exhaust — no-op convergences must not keep resetting it")
+        .expect("run task");
+    assert!(result.is_err(), "budget exhaustion must surface the error");
+    assert!(
+        events.lock().await.contains(&HandoffEvent::Released(0)),
+        "the held partition must be fenced and released before the lease is revoked"
+    );
+    let pods = store.list_pods().await.expect("list pods");
+    assert!(
+        !pods.iter().any(|p| p.pod_name == "fatal-fence-pod"),
+        "the teardown must deregister on the way out"
+    );
 }
