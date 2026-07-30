@@ -457,9 +457,8 @@ jobs:
             # After the base build the tree is on the BASE branch, so guard for the scripts'
             # absence (also covers branches predating a check). Budgets are surfaced
             # warn-only further down.
-            # Comment steps skip trunk-merge/** branches: the merge queue's draft PRs are
-            # ephemeral and unread, and each section write costs 3+ GITHUB_TOKEN calls
-            # against the shared per-repo bucket.
+            # Comment steps skip trunk-merge/**: merge-queue draft PRs are ephemeral and
+            # unread, and each section write spends shared GITHUB_TOKEN budget.
             - name: Clean up legacy per-check CI comments
               if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:

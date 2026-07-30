@@ -65,13 +65,11 @@ jobs:
                       .github/scripts/ci-alerts-devex.js
                   sparse-checkout-cone-mode: false
 
-            # Each tick lists runs for every gating workflow (a dozen calls, up to ~166
-            # with pagination and stale-retries), and ticks fire exactly when master push
-            # volume peaks. Read through the posthog-tests App bucket (which has the
-            # actions:read this needs; ci-backend-update-test-timing lists runs with it)
-            # so this never competes with CI jobs for the shared per-repo GITHUB_TOKEN
-            # budget; a failed mint degrades to github.token instead of skipping the
-            # reconcile.
+            # Ticks list runs for every gating workflow (a dozen calls, ~166 worst case)
+            # exactly when master push volume peaks, so read through the posthog-tests App
+            # bucket (it has actions:read; ci-backend-update-test-timing lists runs with
+            # it) instead of the shared per-repo GITHUB_TOKEN. A failed mint falls back
+            # to github.token rather than skipping the reconcile.
             - name: Mint posthog-tests GitHub token
               id: app-token
               continue-on-error: true
