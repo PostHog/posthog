@@ -3,6 +3,7 @@ import type { Page } from 'puppeteer'
 import { PLAYER_CONFIG_KEY, PLAYER_EMIT_FN, PLAYER_START_EVENT } from '@posthog/replay-headless/protocol'
 import type { InactivityPeriod, PlayerConfig, PlayerMessage } from '@posthog/replay-headless/protocol'
 
+import { config } from '~/session-replay/recording-rasterizer/config'
 import { RasterizationError, toRasterizationErrorCode } from '~/session-replay/recording-rasterizer/errors'
 import { type Logger, createLogger } from '~/session-replay/recording-rasterizer/logger'
 
@@ -190,7 +191,7 @@ export class PlayerController {
      * Wait for the player to finish loading and signal started.
      * Times out if no loading_progress arrives within `staleMs`.
      */
-    async waitForStart(playerConfig: PlayerConfig, staleMs = 15000): Promise<void> {
+    async waitForStart(playerConfig: PlayerConfig, staleMs = config.playerStartStaleMs): Promise<void> {
         const startedPromise = new Promise<void>((resolve) => {
             this.startedResolve = resolve
         })

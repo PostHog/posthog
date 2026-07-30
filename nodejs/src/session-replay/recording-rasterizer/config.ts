@@ -22,6 +22,12 @@ export const config = {
     disableBrowserSecurity: process.env.DISABLE_BROWSER_SECURITY === '1',
     captureBrowserLogs: process.env.CAPTURE_BROWSER_LOGS === '1',
     screenshotFormat: (process.env.SCREENSHOT_FORMAT || 'jpeg') as 'png' | 'jpeg',
+    // Two separate stall budgets, deliberately not the same number. `playerStartStaleMs`
+    // covers loading (and resets on every loading_progress), `beginFrameTimeoutMs` covers a
+    // single compositor frame during capture. Keeping them distinct means a slow-but-
+    // progressing recording can't be mistaken for a compositor deadlock.
+    playerStartStaleMs: parseInt(process.env.PLAYER_START_STALE_MS || '15000', 10),
+    beginFrameTimeoutMs: parseInt(process.env.BEGIN_FRAME_TIMEOUT_MS || '20000', 10),
     screenshotJpegQuality: parseInt(process.env.SCREENSHOT_JPEG_QUALITY || '80', 10),
     metricsPort: parseInt(process.env.METRICS_PORT || '6738', 10),
 

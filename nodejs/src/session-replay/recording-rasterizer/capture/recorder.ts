@@ -120,6 +120,14 @@ export async function rasterizeRecording(
         }
     } finally {
         player?.dispose()
-        await pool.releasePage(rawPage)
+        // A compositor deadlock tears the CDP session off the page and leaves the browser
+        // wedged, so a plain retry against the same Chrome process would deadlock again.
+        // Burn the browser instead — the failure stays retryable, but the retry is honest.
+        if (player?.fatalError?.code === 'BEGINFRAME_DEADLOCK') {
+            log.warn('compositor deadlock — discarding browser so the retry gets a fresh one')
+            await pool.releasePage(rawPage, { discardBrowser: true })
+        } else {
+            await pool.releasePage(rawPage)
+        }
     }
 }

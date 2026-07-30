@@ -113,6 +113,11 @@ export class RasterizationMetrics {
         help: 'Total number of browser instances recycled due to usage limit',
     })
 
+    private static readonly browserDiscardsTotal = new Counter({
+        name: 'recording_rasterizer_browser_discards_total',
+        help: 'Total number of browser instances discarded after an unrecoverable capture failure',
+    })
+
     private static readonly browserCrashesTotal = new Counter({
         name: 'recording_rasterizer_browser_crashes_total',
         help: 'Total number of browser instances that disconnected unexpectedly',
@@ -166,6 +171,10 @@ export class RasterizationMetrics {
 
     public static browserRecycled(): void {
         this.browserRecyclesTotal.inc()
+    }
+
+    public static browserDiscarded(): void {
+        this.browserDiscardsTotal.inc()
     }
 
     public static browserCrashed(): void {

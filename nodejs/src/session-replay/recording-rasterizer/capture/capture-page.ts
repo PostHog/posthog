@@ -141,13 +141,14 @@ export class CapturePage {
 
                     await waitForRequestsSettled()
 
+                    const timeoutMs = defaultConfig.beginFrameTimeoutMs
                     let timedOut = false
                     let timeoutHandle: ReturnType<typeof setTimeout>
                     const timeout = new Promise<never>((_, reject) => {
                         timeoutHandle = setTimeout(() => {
                             timedOut = true
-                            reject(new Error('beginFrame timeout (15s)'))
-                        }, 15_000)
+                            reject(new Error(`beginFrame timeout (${timeoutMs / 1000}s)`))
+                        }, timeoutMs)
                     })
                     try {
                         const result = await Promise.race([originalSend(method as any, params), timeout])
@@ -156,7 +157,7 @@ export class CapturePage {
                     } catch (err) {
                         if (timedOut) {
                             this.fatalError = new RasterizationError(
-                                'beginFrame timeout (15s) — compositor deadlock',
+                                `beginFrame timeout (${timeoutMs / 1000}s) — compositor deadlock`,
                                 true,
                                 'BEGINFRAME_DEADLOCK'
                             )

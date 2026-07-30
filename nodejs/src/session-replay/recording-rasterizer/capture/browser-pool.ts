@@ -131,7 +131,13 @@ export class BrowserPool {
         return page
     }
 
-    async releasePage(page: Page): Promise<void> {
+    /**
+     * Return a page to the pool. Pass `discardBrowser` when the capture left the
+     * browser in a state a fresh page can't recover from (a wedged compositor, a
+     * detached CDP session) — the whole browser is closed instead of going back
+     * on the idle list, so the next attempt starts from a new Chrome process.
+     */
+    async releasePage(page: Page, { discardBrowser = false }: { discardBrowser?: boolean } = {}): Promise<void> {
         const slot = this.slots.get(page)
         this.slots.delete(page)
 
@@ -142,6 +148,14 @@ export class BrowserPool {
         }
 
         if (!slot) {
+            return
+        }
+
+        if (discardBrowser) {
+            log.warn({ usage_count: slot.usageCount }, 'discarding browser after unrecoverable capture failure')
+            RasterizationMetrics.browserDiscarded()
+            await this.closeBrowser(slot)
+            RasterizationMetrics.setBrowserCounts(this.slots.size, this.idle.length)
             return
         }
 

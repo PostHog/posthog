@@ -143,6 +143,22 @@ describe('BrowserPool', () => {
         expect(puppeteerCapture.launch).toHaveBeenCalledTimes(2)
     })
 
+    it('does not re-idle a browser released with discardBrowser', async () => {
+        const browser1 = mockBrowser()
+        const browser2 = mockBrowser()
+        browser1.newPage.mockResolvedValue(mockPage())
+        browser2.newPage.mockResolvedValue(mockPage())
+        puppeteerCapture.launch.mockResolvedValueOnce(browser1).mockResolvedValueOnce(browser2)
+
+        pool = new BrowserPool(100)
+        const p1 = await pool.getPage()
+        await pool.releasePage(p1, { discardBrowser: true })
+
+        expect(browser1.close).toHaveBeenCalled()
+        await pool.getPage()
+        expect(puppeteerCapture.launch).toHaveBeenCalledTimes(2)
+    })
+
     it('recycles browser when usage hits recycleAfter', async () => {
         const browser1 = mockBrowser()
         const browser2 = mockBrowser()

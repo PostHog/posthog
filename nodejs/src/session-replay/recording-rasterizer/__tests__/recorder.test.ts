@@ -4,6 +4,7 @@ import { capturePlayback } from '~/session-replay/recording-rasterizer/capture/c
 import { CapturePage } from '~/session-replay/recording-rasterizer/capture/capture-page'
 import { PlayerController } from '~/session-replay/recording-rasterizer/capture/player'
 import { rasterizeRecording } from '~/session-replay/recording-rasterizer/capture/recorder'
+import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
 import { RasterizeRecordingInput } from '~/session-replay/recording-rasterizer/types'
 
 jest.mock('~/session-replay/recording-rasterizer/capture/capture')
@@ -130,6 +131,18 @@ describe('rasterizeRecording', () => {
 
         expect(mockPlayer.dispose).toHaveBeenCalled()
         expect(mockPool.releasePage).toHaveBeenCalledWith(mockPage)
+    })
+
+    it('discards the browser when a compositor deadlock wedged it', async () => {
+        const deadlock = new RasterizationError('beginFrame timeout', true, 'BEGINFRAME_DEADLOCK')
+        ;(mockPlayer as any).fatalError = deadlock
+        mockedCapturePlayback.mockRejectedValue(deadlock)
+
+        await expect(
+            rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', jest.fn(), null, cfg)
+        ).rejects.toThrow('beginFrame timeout')
+
+        expect(mockPool.releasePage).toHaveBeenCalledWith(mockPage, { discardBrowser: true })
     })
 
     it('releases page when player.load throws (before player is assigned)', async () => {

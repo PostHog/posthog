@@ -274,7 +274,7 @@ describe('capturePlayback', () => {
         {
             name: 'attributes an unexpected stop to fatalError when set',
             fatal: new RasterizationError(
-                'beginFrame timeout (15s) — compositor deadlock',
+                'beginFrame timeout (20s) — compositor deadlock',
                 true,
                 'BEGINFRAME_DEADLOCK'
             ),
