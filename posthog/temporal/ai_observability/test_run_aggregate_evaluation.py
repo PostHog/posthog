@@ -387,6 +387,7 @@ class TestCheckTraceSettledActivity:
         assert "trace active" in err.value.message
 
 
+@freeze_time("2026-07-23T12:00:00Z")
 class TestCheckSessionSettledActivity:
     @pytest.mark.django_db(transaction=True)
     def test_settled_when_quiet_beyond_margin(self, setup_data):
