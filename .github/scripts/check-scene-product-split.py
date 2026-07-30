@@ -204,7 +204,7 @@ def main() -> int:
             continue
         was = baseline[name].scene_files
         if d.scene_files > was:
-            (grew_enforced if d.mode == "enforce" else grew_observed).append((d, was))
+            (grew_enforced if baseline[name].mode == "enforce" else grew_observed).append((d, was))
         elif d.scene_files < was:
             shrank.append((d, was))
 
