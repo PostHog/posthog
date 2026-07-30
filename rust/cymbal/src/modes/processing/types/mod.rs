@@ -1,6 +1,6 @@
 use common_types::error_tracking::RawFrameId;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{error::Category, Value};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
@@ -11,7 +11,7 @@ use crate::fingerprinting::{FingerprintRecordPart, FingerprintVersion};
 use crate::frames::releases::{ReleaseInfo, ReleaseRecord};
 use crate::frames::{Frame, RawFrame};
 use crate::langs::native::DebugImage;
-use crate::metric_consts::{EXCEPTION_LIST_ENTRY_DROPPED, POSTHOG_SDK_EXCEPTION_RESOLVED};
+use crate::metric_consts::{EXCEPTION_LIST_ENTRIES_DROPPED, POSTHOG_SDK_EXCEPTION_RESOLVED};
 
 pub mod batch;
 pub mod event;
@@ -23,6 +23,10 @@ pub mod stage;
 // processing event model can keep referring to `crate::types::*`.
 pub use crate::core::types::{Exception, Mechanism, Stacktrace};
 
+/// Chained exception lists are single digits in practice. The cap bounds the
+/// deserialization work a single runaway or hostile payload can ask for.
+pub const MAX_EXCEPTION_LIST_ENTRIES: usize = 128;
+
 #[derive(Debug, Default, Clone, Serialize)]
 #[serde(transparent)]
 pub struct ExceptionList(pub Vec<Exception>);
@@ -32,16 +36,45 @@ pub struct ExceptionList(pub Vec<Exception>);
 impl<'de> Deserialize<'de> for ExceptionList {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let entries = Vec::<Value>::deserialize(deserializer)?;
-        let mut exceptions = Vec::with_capacity(entries.len());
-        for entry in entries {
+        let over_limit = entries.len().saturating_sub(MAX_EXCEPTION_LIST_ENTRIES);
+        let considered = entries.len() - over_limit;
+
+        let mut exceptions = Vec::with_capacity(considered);
+        let mut rejected: usize = 0;
+        let mut first_category: Option<Category> = None;
+        for entry in entries.into_iter().take(MAX_EXCEPTION_LIST_ENTRIES) {
             match serde_json::from_value::<Exception>(entry) {
                 Ok(exception) => exceptions.push(exception),
                 Err(error) => {
-                    metrics::counter!(EXCEPTION_LIST_ENTRY_DROPPED).increment(1);
-                    warn!("Dropping malformed $exception_list entry: {error}");
+                    rejected += 1;
+                    first_category.get_or_insert_with(|| error.classify());
                 }
             }
         }
+
+        if rejected > 0 {
+            metrics::counter!(EXCEPTION_LIST_ENTRIES_DROPPED, "reason" => "malformed")
+                .increment(rejected as u64);
+            // One line per event, shapes and counts only: entry content and the
+            // serde message built from it are untrusted input.
+            warn!(
+                rejected,
+                considered,
+                category = ?first_category,
+                "Dropped malformed $exception_list entries"
+            );
+        }
+
+        if over_limit > 0 {
+            metrics::counter!(EXCEPTION_LIST_ENTRIES_DROPPED, "reason" => "over_limit")
+                .increment(over_limit as u64);
+            warn!(
+                over_limit,
+                limit = MAX_EXCEPTION_LIST_ENTRIES,
+                "Truncated an oversized $exception_list"
+            );
+        }
+
         Ok(ExceptionList(exceptions))
     }
 }
@@ -320,7 +353,10 @@ mod test {
 
     use crate::{frames::RawFrame, types::Stacktrace};
 
-    use super::{Exception, ExceptionList, ProcessedExceptionProperties, RawExceptionProperties};
+    use super::{
+        Exception, ExceptionList, ProcessedExceptionProperties, RawExceptionProperties,
+        MAX_EXCEPTION_LIST_ENTRIES,
+    };
 
     #[test]
     fn it_deserialises_error_props() {
@@ -425,6 +461,19 @@ mod test {
         assert_eq!(props.exception_list[0].exception_message, "");
         assert_eq!(props.exception_list[1].exception_type, "TypeError");
         assert!(props.exception_list[1].stack.is_some());
+    }
+
+    #[test]
+    fn it_caps_the_number_of_entries_it_processes() {
+        let entries: Vec<Value> = (0..MAX_EXCEPTION_LIST_ENTRIES + 20)
+            .map(|index| json!({"type": "Error", "value": format!("boom {index}")}))
+            .collect();
+        let raw = json!({"$exception_list": entries});
+
+        let props: RawExceptionProperties =
+            serde_json::from_value(raw).expect("An oversized list is truncated, not rejected");
+        assert_eq!(props.exception_list.len(), MAX_EXCEPTION_LIST_ENTRIES);
+        assert_eq!(props.exception_list[0].exception_message, "boom 0");
     }
 
     #[test]

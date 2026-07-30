@@ -94,7 +94,7 @@ pub const POSTHOG_SDK_EXCEPTION_RESOLVED: &str = "cymbal_posthog_sdk_exception_r
 pub const SUSPICIOUS_FRAMES_DETECTED: &str = "cymbal_suspicious_frames_detected";
 pub const LEGACY_JS_FRAME_RESOLVED: &str = "cymbal_legacy_js_frame_resolved";
 pub const JAVA_EXCEPTION_REMAP_FAILED: &str = "cymbal_java_exception_remap_failed";
-pub const EXCEPTION_LIST_ENTRY_DROPPED: &str = "cymbal_exception_list_entry_dropped";
+pub const EXCEPTION_LIST_ENTRIES_DROPPED: &str = "cymbal_exception_list_entries_dropped";
 
 // HTTP /process observability metrics
 pub const PROCESS_REQUESTS_TOTAL: &str = "cymbal_process_requests_total";
