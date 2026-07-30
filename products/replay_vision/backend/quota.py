@@ -205,6 +205,9 @@ def compute_scanner_budgets(
 
     Pass `period` to bill against a window the caller already resolved, so an org snapshot and the
     scanner budgets taken alongside it cannot straddle a period boundary.
+
+    A scanner with no limit set reports `credits_used=0`: nothing is drawn against a limit that does not
+    exist, and its spend is never read. Use `credits_used_by_scanner` for what an uncapped scanner spent.
     """
     # noqa comment below: prompt_evaluation pulls in the temporal package, whose activities import
     # this module. Deferring breaks the quota -> prompt_evaluation -> temporal -> quota cycle.
@@ -216,22 +219,6 @@ def compute_scanner_budgets(
         return {}
     if period is None:
         period = current_period_bounds(organization_id)
-    settled = {
-        row["scanner_id"]: row["total_credits"] or 0
-        for row in ReplayObservationUsage.objects.filter(
-            organization_id=organization_id,
-            scanner_id__in=scanner_ids,
-            observation_created_at__gte=period.start,
-            observation_created_at__lt=period.end,
-        )
-        .values("scanner_id")
-        .annotate(total_credits=Coalesce(Sum("credits"), Value(0), output_field=IntegerField()))
-    }
-    in_flight = _scanner_in_flight_credits(organization_id, scanner_ids, period)
-    # Evaluations write receipts directly and never create observation rows, so without this a running
-    # test would drain a scanner's cap invisibly to every gate that reads this budget. Not period-filtered:
-    # a run that is still alive will charge whichever period it settles in, exactly as the org snapshot treats it.
-    in_flight_evaluations = in_flight_evaluation_credits_by_scanner(organization_id, scanner_ids)
     # Read the limits here rather than taking them as a parameter: a caller that forgot to pass them
     # would get credit_limit=None, which reads as "uncapped" and would silently disable enforcement.
     # nosemgrep: idor-lookup-without-team (org-level aggregation, the pk__in list is co-filtered by team__organization_id, so a scanner id outside this org matches nothing)
@@ -239,6 +226,30 @@ def compute_scanner_budgets(
         "id", "credit_limit", "model"
     )
     configs = {scanner_id: (limit, model) for scanner_id, limit, model in scanner_rows}
+    # Nothing is drawn against a limit that does not exist, so an uncapped scanner's spend is never read.
+    # This is what keeps the scanner list endpoint at one query while no scanner in the org is capped,
+    # instead of three aggregates whose only consumer would be an uncapped budget.
+    capped_ids = [scanner_id for scanner_id, (limit, _) in configs.items() if limit is not None]
+    settled: dict[UUID, int] = {}
+    in_flight: dict[UUID, int] = {}
+    in_flight_evaluations: dict[UUID, int] = {}
+    if capped_ids:
+        settled = {
+            row["scanner_id"]: row["total_credits"] or 0
+            for row in ReplayObservationUsage.objects.filter(
+                organization_id=organization_id,
+                scanner_id__in=capped_ids,
+                observation_created_at__gte=period.start,
+                observation_created_at__lt=period.end,
+            )
+            .values("scanner_id")
+            .annotate(total_credits=Coalesce(Sum("credits"), Value(0), output_field=IntegerField()))
+        }
+        in_flight = _scanner_in_flight_credits(organization_id, capped_ids, period)
+        # Evaluations write receipts directly and never create observation rows, so without this a running
+        # test would drain a scanner's cap invisibly to every gate that reads this budget. Not period-filtered:
+        # a run that is still alive will charge whichever period it settles in, as the org snapshot treats it.
+        in_flight_evaluations = in_flight_evaluation_credits_by_scanner(organization_id, capped_ids)
     result: dict[UUID, ScannerBudget] = {}
     for scanner_id in scanner_ids:
         config = configs.get(scanner_id)

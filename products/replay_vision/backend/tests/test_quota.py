@@ -4,7 +4,9 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.exceptions import ValidationError
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -409,6 +411,23 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
         assert result[self.scanner.id].credits_used == 15
         assert result[unspent.id].credits_used == 0
 
+    def test_an_uncapped_scanner_draws_nothing_and_costs_no_spend_queries(self) -> None:
+        # Nothing is counted against a limit that does not exist. Skipping the spend aggregates keeps the
+        # scanner list endpoint at one query while no scanner in the org is capped.
+        self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
+        with CaptureQueriesContext(connection) as ctx:
+            result = compute_scanner_budgets(self.organization.id, [self.scanner.id])
+        assert result[self.scanner.id].credit_limit is None
+        assert result[self.scanner.id].credits_used == 0
+        usage_queries = [q for q in ctx.captured_queries if "replayobservationusage" in q["sql"].lower()]
+        assert usage_queries == []
+
+    def test_a_capped_scanner_still_draws_its_spend(self) -> None:
+        ReplayScanner.objects.filter(pk=self.scanner.pk).update(credit_limit=1000)
+        self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
+        result = compute_scanner_budgets(self.organization.id, [self.scanner.id])
+        assert result[self.scanner.id].credits_used == 15
+
     def test_reads_each_scanners_own_limit(self) -> None:
         capped = ReplayScanner.objects.create(
             team=self.team,
@@ -433,6 +452,17 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
             model=ScannerModel.GEMINI_3_6_FLASH,
         )
         ReplayScanner.objects.filter(pk=other_scanner.pk).update(credit_limit=1000)
+        # One of each spend source, so dropping the org filter from any single query fails this.
+        settled = ReplayObservation.objects.create(
+            scanner=other_scanner,
+            team=other_team,
+            session_id="other-settled",
+            status=ObservationStatus.SUCCEEDED,
+            scanner_snapshot=_snapshot_for(other_scanner),
+            triggered_by=ObservationTrigger.ON_DEMAND,
+            completed_at=timezone.now(),
+        )
+        self._make_receipt(settled)
         ReplayObservation.objects.create(
             scanner=other_scanner,
             team=other_team,
@@ -441,6 +471,7 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
             scanner_snapshot=_snapshot_for(other_scanner),
             triggered_by=ObservationTrigger.ON_DEMAND,
         )
+        self._make_running_evaluation(scanner=other_scanner, total=4)
         result = compute_scanner_budgets(self.organization.id, [other_scanner.id])
         assert result[other_scanner.id].credits_used == 0
         assert result[other_scanner.id].credit_limit is None
