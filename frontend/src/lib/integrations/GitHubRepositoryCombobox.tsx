@@ -12,6 +12,8 @@ import {
     ComboboxList,
     ComboboxListFooter,
     ComboboxTrigger,
+    InputGroupAddon,
+    InputGroupButton,
     Tooltip,
     TooltipContent,
     TooltipTrigger,
@@ -110,34 +112,37 @@ export function GitHubRepositoryCombobox({
                 }
             />
             <ComboboxContent anchor={triggerRef} side="bottom" sideOffset={6} className="min-w-[280px]">
-                <div className="flex min-w-0 items-center gap-1 pe-2">
-                    <div className="min-w-0 flex-1">
-                        <ComboboxInput placeholder="Search repositories..." />
-                    </div>
-                    <Tooltip>
-                        <TooltipTrigger
-                            render={
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    disabled={disabled || loading}
-                                    aria-label="Refresh repositories"
-                                    onMouseDown={(event: MouseEvent) => {
-                                        event.preventDefault()
-                                        event.stopPropagation()
-                                    }}
-                                    onClick={(event: MouseEvent) => {
-                                        event.preventDefault()
-                                        event.stopPropagation()
-                                        refresh()
-                                    }}
-                                >
-                                    <IconRefresh className={loading ? 'animate-spin' : undefined} />
-                                </Button>
-                            }
-                        />
-                        <TooltipContent>Refresh repositories</TooltipContent>
-                    </Tooltip>
+                {/* p-1 matches the list's own inset below, so the field lines up with the items.
+                    Refresh lives in the field's addon rather than beside it, which is what keeps the
+                    two the same height. The chevron is hidden because the popup is already open. */}
+                <div className="p-1">
+                    <ComboboxInput placeholder="Search repositories..." showTrigger={false} className="w-full">
+                        <InputGroupAddon align="inline-end">
+                            <Tooltip>
+                                <TooltipTrigger
+                                    render={
+                                        <InputGroupButton
+                                            size="icon-xs"
+                                            disabled={disabled || loading}
+                                            aria-label="Refresh repositories"
+                                            onMouseDown={(event: MouseEvent) => {
+                                                event.preventDefault()
+                                                event.stopPropagation()
+                                            }}
+                                            onClick={(event: MouseEvent) => {
+                                                event.preventDefault()
+                                                event.stopPropagation()
+                                                refresh()
+                                            }}
+                                        >
+                                            <IconRefresh className={loading ? 'animate-spin' : undefined} />
+                                        </InputGroupButton>
+                                    }
+                                />
+                                <TooltipContent>Refresh repositories</TooltipContent>
+                            </Tooltip>
+                        </InputGroupAddon>
+                    </ComboboxInput>
                 </div>
                 <ComboboxEmpty>
                     {showInlineLoadingState ? 'Loading repositories...' : error ? error : 'No repositories found.'}

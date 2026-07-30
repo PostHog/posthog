@@ -12,6 +12,8 @@ import {
     ComboboxList,
     ComboboxListFooter,
     ComboboxTrigger,
+    InputGroupAddon,
+    InputGroupButton,
     Tooltip,
     TooltipContent,
     TooltipTrigger,
@@ -28,6 +30,7 @@ export interface GitHubBranchComboboxProps {
     onChange: (value: string | null) => void
     disabled?: boolean
     placeholder?: string
+    allowCustomValues?: boolean
 }
 
 /** Sentinel item value for the "type a new branch name" action. */
@@ -47,9 +50,10 @@ export function GitHubBranchCombobox({
     onChange,
     disabled = false,
     placeholder = 'Select branch...',
+    allowCustomValues = true,
 }: GitHubBranchComboboxProps): JSX.Element {
     const logic = githubBranchSearchLogic({ integrationId, repo })
-    const { branches, defaultBranch, loading, hasMore, searchQuery } = useValues(logic)
+    const { branches, defaultBranch, loading, hasMore, searchQuery, error } = useValues(logic)
     const { setSearchQuery, loadMore, refresh } = useActions(logic)
 
     const triggerRef = useRef<HTMLButtonElement>(null)
@@ -68,7 +72,8 @@ export function GitHubBranchCombobox({
     // Offer "Use <typed> as branch name" when the search doesn't match an existing branch — lets the agent
     // work on a brand-new branch.
     const createSentinel = CREATE_BRANCH_PREFIX + trimmedSearchQuery
-    const showCreateItem = trimmedSearchQuery.length > 0 && !loading && !branches.includes(trimmedSearchQuery)
+    const showCreateItem =
+        allowCustomValues && trimmedSearchQuery.length > 0 && !loading && !branches.includes(trimmedSearchQuery)
     const items = showCreateItem ? [...branches, createSentinel] : branches
 
     return (
@@ -87,6 +92,9 @@ export function GitHubBranchCombobox({
             open={open}
             onOpenChange={(nextOpen: boolean) => {
                 setOpen(nextOpen)
+                if (nextOpen && branches.length === 0 && !loading) {
+                    refresh()
+                }
                 if (!nextOpen && trimmedSearchQuery.length > 0) {
                     setSearchQuery('')
                 }
@@ -104,36 +112,40 @@ export function GitHubBranchCombobox({
                 }
             />
             <ComboboxContent anchor={triggerRef} side="bottom" sideOffset={6} className="min-w-[280px]">
-                <div className="flex min-w-0 items-center gap-1 pe-2">
-                    <div className="min-w-0 flex-1">
-                        <ComboboxInput placeholder="Search branches..." />
-                    </div>
-                    <Tooltip>
-                        <TooltipTrigger
-                            render={
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    disabled={disabled || loading}
-                                    aria-label="Refresh branches"
-                                    onMouseDown={(event: MouseEvent) => {
-                                        event.preventDefault()
-                                        event.stopPropagation()
-                                    }}
-                                    onClick={(event: MouseEvent) => {
-                                        event.preventDefault()
-                                        event.stopPropagation()
-                                        refresh()
-                                    }}
-                                >
-                                    <IconRefresh className={loading ? 'animate-spin' : undefined} />
-                                </Button>
-                            }
-                        />
-                        <TooltipContent>Refresh branches</TooltipContent>
-                    </Tooltip>
+                {/* Matches GitHubRepositoryCombobox: field inset to the list's own padding, refresh in
+                    the field's addon so both share one chrome, chevron hidden while the popup is open. */}
+                <div className="p-1">
+                    <ComboboxInput placeholder="Search branches..." showTrigger={false} className="w-full">
+                        <InputGroupAddon align="inline-end">
+                            <Tooltip>
+                                <TooltipTrigger
+                                    render={
+                                        <InputGroupButton
+                                            size="icon-xs"
+                                            disabled={disabled || loading}
+                                            aria-label="Refresh branches"
+                                            onMouseDown={(event: MouseEvent) => {
+                                                event.preventDefault()
+                                                event.stopPropagation()
+                                            }}
+                                            onClick={(event: MouseEvent) => {
+                                                event.preventDefault()
+                                                event.stopPropagation()
+                                                refresh()
+                                            }}
+                                        >
+                                            <IconRefresh className={loading ? 'animate-spin' : undefined} />
+                                        </InputGroupButton>
+                                    }
+                                />
+                                <TooltipContent>Refresh branches</TooltipContent>
+                            </Tooltip>
+                        </InputGroupAddon>
+                    </ComboboxInput>
                 </div>
-                <ComboboxEmpty>{showInlineLoadingState ? 'Loading branches...' : 'No branches found.'}</ComboboxEmpty>
+                <ComboboxEmpty>
+                    {showInlineLoadingState ? 'Loading branches...' : error ? error : 'No branches found.'}
+                </ComboboxEmpty>
                 <ComboboxList>
                     {(item: string) =>
                         item.startsWith(CREATE_BRANCH_PREFIX) ? (
