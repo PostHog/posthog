@@ -12,7 +12,7 @@ from django.contrib.admin.sites import site as admin_site
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required as base_login_required
-from django.db import DEFAULT_DB_ALIAS, connections
+from django.db import DEFAULT_DB_ALIAS, ProgrammingError, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.db.models import Q
 from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, JsonResponse
@@ -99,7 +99,13 @@ def login_required(view):
         # (the SPA uses its bearer token). DEBUG-gated, so prod gating is unchanged.
         if settings.DEBUG and request.COOKIES.get("ph_oauth_mode"):
             return view(request, *args, **kwargs)
-        if not User.objects.exists():
+        try:
+            users_exist = User.objects.exists()
+        except ProgrammingError:
+            # No user table yet (pod serving before its migrations land) — that's the
+            # not-set-up state this redirect exists for, so don't 500 on it.
+            return redirect("/preflight")
+        if not users_exist:
             return redirect("/preflight")
         elif not request.user.is_authenticated and settings.AUTO_LOGIN:
             user = User.objects.filter(is_active=True).first()

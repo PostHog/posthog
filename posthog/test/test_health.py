@@ -34,6 +34,14 @@ def test_readyz_returns_200_if_everything_is_ok(client: Client):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("path", ["/_readyz/", "/_livez/"])
+def test_healthcheck_paths_are_served_with_a_trailing_slash(client: Client, path: str):
+    resp = client.get(path)
+    assert resp.status_code == 200, resp.content
+    assert isinstance(resp, JsonResponse)
+
+
+@pytest.mark.django_db
 def test_readyz_supports_excluding_checks(client: Client):
     with simulate_postgres_error():
         resp = get_readyz(client, exclude=["postgres", "postgres_flags", "postgres_migrations_uptodate"])

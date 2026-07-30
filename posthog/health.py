@@ -321,10 +321,15 @@ def healthcheck_middleware(get_response: Callable[[HttpRequest], HttpResponse]):
     """
 
     def middleware(request: HttpRequest) -> HttpResponse:
-        if request.path == "/_readyz":
+        # Tolerate a trailing slash, like the `opt_slash_path` routes for the sibling
+        # `_health`/`_stats`/`_preflight` endpoints do. Otherwise a probe hitting
+        # `/_readyz/` falls through to the catch-all URL and renders the whole app.
+        path = request.path.rstrip("/") or "/"
+
+        if path == "/_readyz":
             return readyz(request)
 
-        elif request.path == "/_livez":
+        elif path == "/_livez":
             return livez(request)
 
         return get_response(request)
