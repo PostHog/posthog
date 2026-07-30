@@ -25,8 +25,6 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 'api/projects/:team_id/error_tracking/issue/:id': () => [200, errorTrackingTypeIssue],
-                // Without this the scene renders its "no exceptions yet" onboarding instead of the list
-                'api/environments/:team_id/error_tracking/issues/exists': () => [200, { exists: true }],
             },
             post: {
                 '/api/environments/:team_id/query/ErrorTrackingQuery': () => [200, errorTrackingQueryResponse],
@@ -38,5 +36,16 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<{}>
-export const ListPage: Story = {}
+export const ListPage: Story = {
+    parameters: {
+        // Without this the scene renders its "no exceptions yet" onboarding instead of the issue list
+        msw: {
+            mocks: {
+                get: {
+                    'api/environments/:team_id/error_tracking/issues/exists': () => [200, { exists: true }],
+                },
+            },
+        },
+    },
+}
 export const GroupPage: Story = { parameters: { pageUrl: urls.errorTrackingIssue('id') } }
