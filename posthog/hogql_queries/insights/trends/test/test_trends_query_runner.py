@@ -454,6 +454,29 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual("$pageview", response.results[0]["label"])
 
+    @parameterized.expand(
+        [
+            ("custom_name set via rename modal", EventsNode(event="$pageview", custom_name="Renamed"), "Renamed"),
+            ("name set via query editor / API", EventsNode(event="$pageview", name="Renamed"), "Renamed"),
+            ("custom_name wins over name", EventsNode(event="$pageview", name="A", custom_name="B"), "B"),
+            ("name echoing the event is not a rename", EventsNode(event="$pageview", name="$pageview"), None),
+            ("no override", EventsNode(event="$pageview"), None),
+        ]
+    )
+    def test_trends_series_custom_name(self, _name, series, expected_custom_name):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            self.default_date_from,
+            self.default_date_to,
+            IntervalType.DAY,
+            [series],
+            None,
+            None,
+        )
+
+        self.assertEqual(expected_custom_name, response.results[0]["action"]["custom_name"])
+
     def test_trends_count(self):
         self._create_test_events()
 

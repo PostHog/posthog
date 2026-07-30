@@ -498,10 +498,10 @@ export const collectNotebookFrameNodes = (content?: JSONContent | null): Noteboo
         if (node.type === NotebookNodeType.SQLV2 || node.type === NotebookNodeType.PythonV2) {
             const attrs = node.attrs ?? {}
             const isSql = node.type === NotebookNodeType.SQLV2
-            // A missing SQL attribute predates the optional name (legacy 'sql_df' default);
+            // A missing attribute predates the optional name (legacy 'sql_df'/'df' defaults);
             // an explicit blank or invalid one binds no dataframe — nothing to browse.
             const rawReturnVariable =
-                typeof attrs.returnVariable === 'string' ? attrs.returnVariable : isSql ? 'sql_df' : ''
+                typeof attrs.returnVariable === 'string' ? attrs.returnVariable : isSql ? 'sql_df' : 'df'
             let name: string | null
             if (isSql) {
                 name = isReferenceableSqlV2FrameName(rawReturnVariable)
@@ -511,7 +511,7 @@ export const collectNotebookFrameNodes = (content?: JSONContent | null): Noteboo
                     usedReturnVariables.add(normalizeSqlIdentifier(name))
                 }
             } else {
-                name = rawReturnVariable.trim() || 'df'
+                name = rawReturnVariable.trim()
             }
             if (name) {
                 const result = attrs.result ?? null
@@ -546,8 +546,10 @@ export type PythonKernelNodeSummary = {
 // Kernel-run Python cells (revamped notebooks): each binds its result to `returnVariable` in
 // the kernel namespace. Unlike the SQL collectors the names are NOT disambiguated — they are
 // exactly the kernel variables, so a duplicated returnVariable means last-run-wins, matching
-// kernel semantics. Markdown-aware (unlike the legacy collectPythonNodes) because revamped
-// markdown notebooks store their cells as `<PythonV2 …/>` component tags.
+// kernel semantics. A blank name is a display-only cell that binds nothing (see the SQLV2
+// collector); only a missing attribute takes the legacy 'df' default. Markdown-aware (unlike
+// the legacy collectPythonNodes) because revamped markdown notebooks store their cells as
+// `<PythonV2 …/>` component tags.
 export const collectPythonKernelNodes = (content?: JSONContent | null): PythonKernelNodeSummary[] => {
     if (!content || typeof content !== 'object') {
         return []
@@ -561,10 +563,7 @@ export const collectPythonKernelNodes = (content?: JSONContent | null): PythonKe
         }
         if (node.type === NotebookNodeType.PythonV2) {
             const attrs = node.attrs ?? {}
-            const returnVariable =
-                typeof attrs.returnVariable === 'string' && attrs.returnVariable.trim()
-                    ? attrs.returnVariable.trim()
-                    : 'df'
+            const returnVariable = typeof attrs.returnVariable === 'string' ? attrs.returnVariable.trim() : 'df'
             nodes.push({ nodeId: attrs.nodeId ?? '', returnVariable })
         }
         if (node.type === NotebookNodeType.MarkdownNotebook) {
@@ -827,11 +826,8 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
             const attrs = node.attrs ?? {}
             pythonV2Index += 1
             // The returnVariable IS the kernel variable, never disambiguated — the same
-            // last-write-wins semantics as collectPythonKernelNodes.
-            const returnVariable =
-                typeof attrs.returnVariable === 'string' && attrs.returnVariable.trim()
-                    ? attrs.returnVariable.trim()
-                    : 'df'
+            // last-write-wins semantics as collectPythonKernelNodes. Blank = exports nothing.
+            const returnVariable = typeof attrs.returnVariable === 'string' ? attrs.returnVariable.trim() : 'df'
             const code = typeof attrs.code === 'string' ? attrs.code : ''
             nodes.push({
                 nodeId: attrs.nodeId ?? '',

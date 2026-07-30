@@ -29,7 +29,7 @@ def _is_flag_enabled(flag_key: str, user: User, team: "Team | None" = None) -> b
 
 def has_tasks_access(user: User) -> bool:
     """
-    User has access to PostHog Code if the `tasks` feature flag is enabled for them
+    User has access to PostHog Desktop if the `tasks` feature flag is enabled for them
     OR they have redeemed an invite code.
     """
     if not user or not user.is_authenticated:

@@ -9,7 +9,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { AggregatedSpanRow } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { tracingDataLogic } from './tracingDataLogic'
+import { NEW_QUERY_STARTED_ERROR_MESSAGE, tracingDataLogic } from './tracingDataLogic'
 import { tracingFiltersLogic } from './tracingFiltersLogic'
 import type { Span } from './types'
 
@@ -317,6 +317,54 @@ describe('tracingDataLogic', () => {
             expect(sparklineSpy).toHaveBeenCalledTimes(2)
             sparklineSpy.mockRestore()
         })
+    })
+
+    describe('loading state across superseded queries', () => {
+        let toastSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            silenceKeaLoadersErrors()
+            toastSpy = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
+        })
+
+        afterEach(() => {
+            toastSpy.mockRestore()
+        })
+
+        it.each([
+            {
+                name: 'spans',
+                apiMethod: 'listSpans' as const,
+                start: (l: typeof logic) => l.actions.fetchSpans(),
+                fail: (l: typeof logic, error: string) => l.actions.fetchSpansFailure(error),
+                loadingValue: (l: typeof logic) => l.values.spansLoading,
+            },
+            {
+                name: 'aggregation',
+                apiMethod: 'aggregate' as const,
+                start: (l: typeof logic) => l.actions.fetchAggregation(),
+                fail: (l: typeof logic, error: string) => l.actions.fetchAggregationFailure(error),
+                loadingValue: (l: typeof logic) => l.values.aggregationLoading,
+            },
+        ])(
+            'keeps $name loading on a superseded query but clears it on a real failure',
+            ({ apiMethod, start, fail, loadingValue }) => {
+                // Newer query in flight forever, so loading stays owned by it.
+                const apiSpy = jest.spyOn(api.tracing, apiMethod).mockReturnValue(new Promise(() => {}) as any)
+                logic = mountWithSpans([])
+                start(logic)
+                expect(loadingValue(logic)).toBe(true)
+
+                // The previous request's abort must NOT drop the flag mid-flight.
+                fail(logic, NEW_QUERY_STARTED_ERROR_MESSAGE)
+                expect(loadingValue(logic)).toBe(true)
+
+                // A genuine failure still resets it.
+                fail(logic, 'boom')
+                expect(loadingValue(logic)).toBe(false)
+                apiSpy.mockRestore()
+            }
+        )
     })
 
     describe('keyed instances', () => {

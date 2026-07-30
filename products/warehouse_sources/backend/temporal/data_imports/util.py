@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from django.conf import settings
 
+import botocore.exceptions
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions import capture_exception
@@ -14,6 +15,20 @@ from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+
+# A best-effort delete of old query folders can hit a transient S3 connectivity blip
+# (connect/read timeout, dropped connection). The folder is timestamped and simply gets
+# picked up by the age-based GC on a later sync, so these aren't worth an error-tracking
+# issue - unlike a real failure (permissions, missing bucket), which still gets captured.
+_TRANSIENT_S3_CONNECTION_EXCEPTIONS = (
+    botocore.exceptions.ConnectionError,  # covers ConnectTimeoutError, EndpointConnectionError
+    botocore.exceptions.ReadTimeoutError,
+    botocore.exceptions.ConnectionClosedError,
+)
+
+
+def _is_transient_s3_connection_error(error: BaseException) -> bool:
+    return isinstance(error, _TRANSIENT_S3_CONNECTION_EXCEPTIONS)
 
 
 class NonRetryableException(Exception):
@@ -24,6 +39,18 @@ class NonRetryableException(Exception):
         This is the same as ``Exception.__cause__``.
         """
         return self.__cause__
+
+
+class PostHogInternalDatabaseError(Exception):
+    """Raised when shared pipeline code fails to reach PostHog's own database.
+
+    A transient connectivity blip reaching our database (e.g. a DNS hiccup resolving our
+    host) stringifies with the same wording (e.g. "Name or service not known") a customer's
+    misconfigured source host would produce. Sources' `get_non_retryable_errors` match on
+    that wording to stop syncs against a permanently broken customer host, so this error's
+    message intentionally avoids those substrings to keep it retryable instead of being
+    misclassified as a permanent failure of the source being synced.
+    """
 
 
 # 10 mins buffer to avoid deleting files Clickhouse may be reading
@@ -148,7 +175,12 @@ async def prepare_s3_files_for_querying(
         async def copy_file(file: str) -> None:
             async with semaphore:
                 file_name = file.replace(f"{s3_folder_for_schema}/", "")
-                await s3._copy(file, f"{s3_path_for_querying}/{file_name}")
+                # _cp_file() copies a single known source to a known destination key directly.
+                # The generic _copy() also globs the source and probes whether the destination
+                # is a directory, each requiring its own S3 ListObjectsV2 call — with hundreds of
+                # files copied concurrently, that multiplies into enough LIST traffic to trigger
+                # S3's SlowDown rate limiting on the destination prefix.
+                await s3._cp_file(file, f"{s3_path_for_querying}/{file_name}")
 
         await asyncio.gather(*[copy_file(file) for file in file_uris])
 
@@ -162,7 +194,8 @@ async def prepare_s3_files_for_querying(
                         await s3._rm(file, recursive=True)
                     except Exception as e:
                         await _log(f"Error while deleting old query folder {file}: {e}", level="error")
-                        capture_exception(e)
+                        if not _is_transient_s3_connection_error(e):
+                            capture_exception(e)
 
             await asyncio.gather(*[delete_folder(file) for file in files_to_delete])
 

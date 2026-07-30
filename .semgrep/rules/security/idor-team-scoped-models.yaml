@@ -56,6 +56,7 @@ rules:
                           (?x)(
                               AccessControl
                               |Account
+                              |AccountChannelSummary
                               |AccountRelationship
                               |AccountRelationshipDefinition
                               |Action
@@ -80,6 +81,7 @@ rules:
                               |BatchExportBackfill
                               |BatchExportFileDownload
                               |BatchExportOnDemand
+                              |BatchExportSource
                               |BatchImport
                               |BriefConfig
                               |ButtonTile
@@ -130,6 +132,8 @@ rules:
                               |EnterpriseEventDefinition
                               |EnterprisePropertyDefinition
                               |EventFilterConfig
+                              |EventStream
+                              |EventStreamMember
                               |ErrorTrackingAssignmentRule
                               |ErrorTrackingBypassRule
                               |ErrorTrackingGroupingRule
@@ -189,6 +193,7 @@ rules:
                               |LogsAlertConfiguration
                               |LogsExclusionRule
                               |LogsMetricRule
+                              |LogsRetentionRule
                               |LogsView
                               |Loop
                               |LoopFire
@@ -281,10 +286,12 @@ rules:
                               |Tag
                               |Tagger
                               |Task
+                              |TaskActivity
                               |TaskArtifact
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
+                              |TaskSession
                               |TaskThreadMessage
                               |TaskThreadMessageMention
                               |Channel
@@ -374,6 +381,7 @@ rules:
                     (?x)(
                         AccessControl
                         |Account
+                        |AccountChannelSummary
                         |AccountRelationship
                         |AccountRelationshipDefinition
                         |Action
@@ -398,6 +406,7 @@ rules:
                         |BatchExportBackfill
                         |BatchExportFileDownload
                         |BatchExportOnDemand
+                        |BatchExportSource
                         |BatchImport
                         |BriefConfig
                         |ButtonTile
@@ -448,6 +457,8 @@ rules:
                         |EnterpriseEventDefinition
                         |EnterprisePropertyDefinition
                         |EventFilterConfig
+                        |EventStream
+                        |EventStreamMember
                         |ErrorTrackingAssignmentRule
                         |ErrorTrackingBypassRule
                         |ErrorTrackingGroupingRule
@@ -594,10 +605,12 @@ rules:
                         |Tag
                         |Tagger
                         |Task
+                        |TaskActivity
                         |TaskArtifact
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
+                        |TaskSession
                         |TaskThreadMessage
                         |TaskThreadMessageMention
                         |Channel
@@ -891,6 +904,7 @@ rules:
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
                               |SignalUserAutonomyConfig
+                              |TaskPin
                               |UserPushToken
                               |WebauthnCredential
                           )$
@@ -945,6 +959,7 @@ rules:
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
                         |SignalUserAutonomyConfig
+                        |TaskPin
                         |UserPushToken
                         |WebauthnCredential
                     )$
