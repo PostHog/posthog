@@ -9,7 +9,7 @@ export function ScoutOriginBadge({ origin }: { origin: ScoutOriginEnumApi }): JS
             title={
                 origin === 'canonical'
                     ? 'Part of the standard scout troop built and maintained by PostHog'
-                    : 'A scout your team created in this project'
+                    : 'A scout your team created as a signals-scout-* skill in this project'
             }
         >
             <LemonTag type={origin === 'canonical' ? 'muted' : 'highlight'} size="small">
