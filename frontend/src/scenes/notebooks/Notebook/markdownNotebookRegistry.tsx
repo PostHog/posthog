@@ -33,7 +33,15 @@ import '../Nodes/NotebookNodeZendeskTickets'
 import clsx from 'clsx'
 import { BindLogic, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { type CSSProperties, type PointerEvent as ReactPointerEvent, useCallback, useMemo, useRef } from 'react'
+import {
+    type CSSProperties,
+    type PointerEvent as ReactPointerEvent,
+    useCallback,
+    useContext,
+    useEffect,
+    useMemo,
+    useRef,
+} from 'react'
 
 import { IconComment, IconImage } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
@@ -43,6 +51,7 @@ import {
     QUERY_SQL_INSERT_COMMAND_KEY,
     createMarkdownNotebookRegistry,
 } from 'lib/components/MarkdownNotebook'
+import { NotebookComponentToolbarExtrasContext } from 'lib/components/MarkdownNotebook/componentToolbarExtras'
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
 import { isDiscussionCommentProps } from 'lib/components/MarkdownNotebook/markdown'
 import {
@@ -557,6 +566,24 @@ export function MountedRealNotebookNodeComponent({
     )
 
     const nodeLogic = useMountedLogic(notebookNodeLogic(logicProps))
+    const { actions: nodeActions, customMenuItems: nodeMenuItems } = useValues(nodeLogic)
+    const setToolbarExtras = useContext(NotebookComponentToolbarExtrasContext)
+
+    // The settings-panel instance (editOnly) shares the shell with the content instance;
+    // only the latter publishes, so a hidden panel doesn't clear the other's extras.
+    useEffect(() => {
+        if (editOnly || !setToolbarExtras) {
+            return
+        }
+        setToolbarExtras({ actions: nodeActions, menuItems: nodeMenuItems })
+    }, [editOnly, nodeActions, nodeMenuItems, setToolbarExtras])
+
+    useEffect(() => {
+        if (editOnly || !setToolbarExtras) {
+            return
+        }
+        return () => setToolbarExtras(null)
+    }, [editOnly, setToolbarExtras])
 
     const Component = options.Component
     const Settings = options.Settings

@@ -11,8 +11,18 @@ import {
     useState,
 } from 'react'
 
-import { IconDatabase, IconEye, IconGraph, IconHide, IconList, IconPencil, IconPeople, IconTrash } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import {
+    IconDatabase,
+    IconEllipsis,
+    IconEye,
+    IconGraph,
+    IconHide,
+    IconList,
+    IconPencil,
+    IconPeople,
+    IconTrash,
+} from '@posthog/icons'
+import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import { PostHogErrorBoundary } from '@posthog/react'
 
 import { ComponentPanelContext } from './componentPanelContext'
@@ -23,6 +33,7 @@ import {
     withPersistedComponentPanelProps,
 } from './componentPanels'
 import { useNotebookComponentRunStatus } from './componentRunStatus'
+import { NotebookComponentToolbarExtras, NotebookComponentToolbarExtrasContext } from './componentToolbarExtras'
 import { getNotebookObjectProp, getNotebookStringProp } from './documentModel'
 import { InsertMenuSelectionDirection } from './editorTypes'
 import { getMarkdownNotebookComponentDefinition } from './registry'
@@ -115,6 +126,9 @@ export function NotebookComponentShell({
         }),
         [componentPanels, showEditPanel, showViewPanel]
     )
+    const [toolbarExtras, setToolbarExtras] = useState<NotebookComponentToolbarExtras | null>(null)
+    const toolbarMenuItems = toolbarExtras?.menuItems?.some(Boolean) ? toolbarExtras.menuItems : null
+    const toolbarActions = mode === 'edit' && toolbarExtras?.actions.length ? toolbarExtras.actions : null
     const [titleDraft, setTitleDraft] = useState<string | null>(null)
     const [isEditingTitle, setIsEditingTitle] = useState(false)
     // A browser fires two `click`s before `dblclick`. Defer the title's collapse so a rename
@@ -382,58 +396,87 @@ export function NotebookComponentShell({
                         {resolvedTitle}
                     </div>
                 ) : null}
-                {mode === 'edit' ? (
+                {mode === 'edit' || toolbarMenuItems ? (
                     <div className="MarkdownNotebook__component-actions">
-                        <LemonButton
-                            aria-label="Delete component"
-                            size="xsmall"
-                            icon={<IconTrash />}
-                            tooltip="Delete"
-                            status="danger"
-                            onClick={deleteNode}
-                        />
+                        {toolbarMenuItems ? (
+                            <LemonMenu items={toolbarMenuItems} placement="bottom-end">
+                                <LemonButton
+                                    aria-label="More actions"
+                                    size="xsmall"
+                                    icon={<IconEllipsis />}
+                                    tooltip="More actions"
+                                />
+                            </LemonMenu>
+                        ) : null}
+                        {mode === 'edit' ? (
+                            <LemonButton
+                                aria-label="Delete component"
+                                size="xsmall"
+                                icon={<IconTrash />}
+                                tooltip="Delete"
+                                status="danger"
+                                onClick={deleteNode}
+                            />
+                        ) : null}
                     </div>
                 ) : null}
             </div>
-            <ComponentPanelContext.Provider value={componentPanelState}>
-                {errors.length ? (
-                    <div className="MarkdownNotebook__component-errors">
-                        {errors.map((error) => (
-                            <div key={error}>{error}</div>
-                        ))}
-                    </div>
-                ) : null}
-                {showEditPanel && EditComponent ? (
-                    <div className="MarkdownNotebook__component-panel">
-                        <NotebookComponentPanelErrorBoundary node={node} panel="filters">
-                            <EditComponent
-                                node={node}
-                                mode="edit"
-                                notebookMode={mode}
-                                updateProps={updateProps}
-                                deleteNode={deleteNode}
-                            />
-                        </NotebookComponentPanelErrorBoundary>
-                    </div>
-                ) : null}
-                {showViewPanel ? (
-                    <div className="MarkdownNotebook__component-panel">
-                        {ViewComponent ? (
-                            <NotebookComponentPanelErrorBoundary node={node} panel="results">
-                                <ViewComponent
+            <NotebookComponentToolbarExtrasContext.Provider value={setToolbarExtras}>
+                <ComponentPanelContext.Provider value={componentPanelState}>
+                    {errors.length ? (
+                        <div className="MarkdownNotebook__component-errors">
+                            {errors.map((error) => (
+                                <div key={error}>{error}</div>
+                            ))}
+                        </div>
+                    ) : null}
+                    {showEditPanel && EditComponent ? (
+                        <div className="MarkdownNotebook__component-panel">
+                            <NotebookComponentPanelErrorBoundary node={node} panel="filters">
+                                <EditComponent
                                     node={node}
-                                    mode="view"
+                                    mode="edit"
                                     notebookMode={mode}
                                     updateProps={updateProps}
                                     deleteNode={deleteNode}
                                 />
                             </NotebookComponentPanelErrorBoundary>
-                        ) : (
-                            <UnknownComponentView node={node} />
-                        )}
+                        </div>
+                    ) : null}
+                    {showViewPanel ? (
+                        <div className="MarkdownNotebook__component-panel">
+                            {ViewComponent ? (
+                                <NotebookComponentPanelErrorBoundary node={node} panel="results">
+                                    <ViewComponent
+                                        node={node}
+                                        mode="view"
+                                        notebookMode={mode}
+                                        updateProps={updateProps}
+                                        deleteNode={deleteNode}
+                                    />
+                                </NotebookComponentPanelErrorBoundary>
+                            ) : (
+                                <UnknownComponentView node={node} />
+                            )}
+                        </div>
+                    ) : null}
+                </ComponentPanelContext.Provider>
+                {toolbarActions ? (
+                    <div className="MarkdownNotebook__component-custom-actions">
+                        {toolbarActions.map((action, index) => (
+                            <LemonButton
+                                key={index}
+                                size="xsmall"
+                                type="secondary"
+                                icon={action.icon}
+                                onClick={action.onClick}
+                            >
+                                {action.text}
+                            </LemonButton>
+                        ))}
                     </div>
                 ) : null}
-            </ComponentPanelContext.Provider>
+            </NotebookComponentToolbarExtrasContext.Provider>
         </div>
     )
 }
