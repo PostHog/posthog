@@ -16,6 +16,13 @@ use property_defs_rs::{
     update_cache::Cache,
 };
 
+// process_batch beats a lifecycle heartbeat as chunk writes complete. Tests don't run
+// the lifecycle monitor, so report_healthy() is just an atomic store on this handle.
+fn test_lifecycle_handle() -> lifecycle::Handle {
+    let mut manager = lifecycle::Manager::builder("test").build();
+    manager.register("consumer", lifecycle::ComponentOptions::new())
+}
+
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn test_simple_batch_write(db: PgPool) {
     let config = Config::init_with_defaults().unwrap();
@@ -28,7 +35,7 @@ async fn test_simple_batch_write(db: PgPool) {
     // should decompose into 1 event def, 100 event props, 100 prop defs (of event type)
     assert_eq!(updates.len(), 201);
 
-    process_batch(&config, cache, &db, updates).await;
+    process_batch(&config, cache, &db, updates, &test_lifecycle_handle()).await;
 
     // fetch results and ensure they landed correctly
     let event_def_name: String = sqlx::query_scalar!(r#"SELECT name from posthog_eventdefinition"#)
@@ -96,7 +103,7 @@ async fn test_group_batch_write(db: PgPool) {
             }
         }
     });
-    process_batch(&config, cache, &db, updates).await;
+    process_batch(&config, cache, &db, updates, &test_lifecycle_handle()).await;
 
     // fetch results and ensure they landed correctly
     let event_def_name: String = sqlx::query_scalar!(r#"SELECT name from posthog_eventdefinition"#)
@@ -133,7 +140,7 @@ async fn test_person_batch_write(db: PgPool) {
     // should decompose into 1 event def, 0 event props, 100 prop defs (50 $set, 50 $set_once props)
     assert_eq!(updates.len(), 101);
 
-    process_batch(&config, cache, &db, updates).await;
+    process_batch(&config, cache, &db, updates, &test_lifecycle_handle()).await;
 
     // fetch results and ensure they landed correctly
     let event_def_name: String = sqlx::query_scalar!(r#"SELECT name from posthog_eventdefinition"#)
@@ -273,7 +280,14 @@ async fn test_property_definitions_conflict_update(db: PgPool) {
     };
 
     let initial_updates = vec![Update::Property(initial_prop)];
-    process_batch(&config, cache.clone(), &db, initial_updates).await;
+    process_batch(
+        &config,
+        cache.clone(),
+        &db,
+        initial_updates,
+        &test_lifecycle_handle(),
+    )
+    .await;
 
     // Verify initial state
     let initial_row = sqlx::query!(
@@ -301,7 +315,14 @@ async fn test_property_definitions_conflict_update(db: PgPool) {
     };
 
     let updated_updates = vec![Update::Property(updated_prop)];
-    process_batch(&config, cache, &db, updated_updates).await;
+    process_batch(
+        &config,
+        cache,
+        &db,
+        updated_updates,
+        &test_lifecycle_handle(),
+    )
+    .await;
 
     // Verify both fields were updated
     let updated_row = sqlx::query!(
@@ -381,7 +402,7 @@ async fn test_property_definitions_dedupe_within_batch(db: PgPool) {
         ),
         prop("current_page", None, false, PropertyParentType::Event),
     ];
-    process_batch(&config, cache, &db, batch).await;
+    process_batch(&config, cache, &db, batch, &test_lifecycle_handle()).await;
 
     let count: Option<i64> = sqlx::query_scalar!(
         r#"SELECT COUNT(*) FROM posthog_propertydefinition WHERE name IN ('brand', 'current_page')"#
@@ -429,7 +450,7 @@ async fn test_property_definitions_typed_row_wins_regardless_of_order(db: PgPool
             PropertyParentType::Event,
         ),
     ];
-    process_batch(&config, cache, &db, batch).await;
+    process_batch(&config, cache, &db, batch, &test_lifecycle_handle()).await;
 
     for name in ["rev_a", "rev_b"] {
         let row = sqlx::query!(
@@ -466,7 +487,7 @@ async fn test_property_definitions_keeps_rows_that_differ_on_conflict_key(db: Pg
         prop("shared", None, false, PropertyParentType::Event),
         prop("shared", None, false, PropertyParentType::Person),
     ];
-    process_batch(&config, cache, &db, batch).await;
+    process_batch(&config, cache, &db, batch, &test_lifecycle_handle()).await;
 
     let count: Option<i64> = sqlx::query_scalar!(
         r#"SELECT COUNT(*) FROM posthog_propertydefinition WHERE name = 'shared'"#
@@ -493,7 +514,7 @@ async fn test_event_definitions_dedupe_within_batch(db: PgPool) {
         evt("$pageview", now),
         evt("$autocapture", now),
     ];
-    process_batch(&config, cache, &db, batch).await;
+    process_batch(&config, cache, &db, batch, &test_lifecycle_handle()).await;
 
     let count: Option<i64> = sqlx::query_scalar!(
         r#"SELECT COUNT(*) FROM posthog_eventdefinition WHERE name IN ('$pageview', '$autocapture')"#

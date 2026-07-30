@@ -1,3 +1,4 @@
+import os
 import re
 import gzip
 import json
@@ -6,7 +7,7 @@ import zlib
 import random
 import threading
 import statistics
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Optional
 
@@ -619,6 +620,30 @@ WARMING_PROGRESS_LOG_INTERVAL_SECONDS = 120
 # identity churn re-warming old days, one team's pathological filters).
 WARMING_SLOW_SHAPE_SECONDS = 15
 
+# A ClickHouse node dying mid-pass can leave every worker thread blocked in a
+# socket read that never returns: no futures complete, the heartbeat (which
+# lives in the consumption loop) goes silent, and because pool threads are
+# non-daemon the process cannot even exit — the run wedges indefinitely,
+# mutual exclusion then blocks every subsequent scheduled tick, and the fleet
+# goes stale until a human terminates the run. If nothing has completed for
+# this long WHILE there is still queued work beyond the in-flight set (threads
+# should be turning over constantly), the pass is presumed wedged and the
+# process hard-exits so Dagster records a step failure and the next tick runs.
+# A quiet tail (pending <= concurrency, e.g. one slow deep-range straggler) is
+# legitimate and only logs.
+WARMING_STALL_TIMEOUT_SECONDS = 1800
+
+# A quiet tail (pending <= concurrency) gets this many consecutive stall
+# windows before it is also presumed wedged: a legitimately slow straggler is
+# bounded by ClickHouse-side execution timeouts at minutes, so zero completions
+# among only in-flight shapes for this long has no innocent explanation.
+WARMING_TAIL_STALL_WINDOWS = 3
+
+# After cancellation/crash, how long healthy in-flight shapes get to finish
+# before the process exits hard rather than hanging on a blocked thread join.
+WARMING_CANCEL_GRACE_SECONDS = 60
+
+
 # The warmer shares its per-user ClickHouse query budget with every other
 # Dagster job (the `dagster` CH user has a hard simultaneous-query cap on the
 # sessions cluster), so a co-tenant burst surfaces here as 202/AtCapacity even
@@ -912,16 +937,49 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
     started_at = time.monotonic()
     last_log_at = started_at
     context.log.info(f"Warming {total} shapes across {len(teams)} teams (mode={mode}, concurrency={concurrency})")
-    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+    # No `with` block: the context manager's exit calls shutdown(wait=True),
+    # which joins worker threads — on the exceptional paths below that would
+    # re-block on the very wedged threads this code exists to escape.
+    pool = ThreadPoolExecutor(max_workers=concurrency)
+    pending: set = set()
+    try:
         # Futures are consumed by completion, not input order: with pool.map one
         # slow early shape would block this loop — and the heartbeat — while later
         # workers finish thousands of shapes. Consuming on the op thread also keeps
         # context.log here safe, unlike the worker-thread logging inside _warm_one.
         futures = [pool.submit(_warm_one, query_info) for query_info in queries]
-        for future in as_completed(futures):
-            outcome = future.result()
-            outcomes[outcome] = outcomes.get(outcome, 0) + 1
-            processed += 1
+        pending = set(futures)
+        empty_waits = 0
+        while pending:
+            done, pending = wait(pending, timeout=WARMING_STALL_TIMEOUT_SECONDS, return_when=FIRST_COMPLETED)
+            if not done:
+                empty_waits += 1
+                # Queued work beyond the in-flight set means threads should be
+                # turning over constantly — one silent window is definitive. A
+                # quiet tail gets WARMING_TAIL_STALL_WINDOWS before the same
+                # verdict, so a single slow straggler isn't killed but a fully
+                # wedged tail cannot spin forever.
+                if len(pending) > concurrency or empty_waits >= WARMING_TAIL_STALL_WINDOWS:
+                    context.log.error(
+                        f"No shape completed in {empty_waits * WARMING_STALL_TIMEOUT_SECONDS}s with {len(pending)} "
+                        f"shapes pending — presuming worker threads wedged on dead connections; exiting so the "
+                        f"step fails and the next scheduled run takes over"
+                    )
+                    pool.shutdown(wait=False, cancel_futures=True)
+                    # Blocked pool threads are non-daemon: a raise would still hang
+                    # at interpreter shutdown joining them. Hard exit is the only
+                    # way out of a wedged process; Dagster records a step failure.
+                    os._exit(1)
+                context.log.warning(
+                    f"No shape completed in {WARMING_STALL_TIMEOUT_SECONDS}s with only {len(pending)} in flight "
+                    f"— slow tail (window {empty_waits}/{WARMING_TAIL_STALL_WINDOWS}), still waiting"
+                )
+                continue
+            empty_waits = 0
+            for future in done:
+                outcome = future.result()
+                outcomes[outcome] = outcomes.get(outcome, 0) + 1
+                processed += 1
             now = time.monotonic()
             if now - last_log_at >= WARMING_PROGRESS_LOG_INTERVAL_SECONDS:
                 elapsed = now - started_at
@@ -933,6 +991,26 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
                     f"at {rate:.0f}/s, ETA ~{eta_min:.0f}m — {breakdown}"
                 )
                 last_log_at = now
+        pool.shutdown(wait=False)
+    except BaseException:
+        # Cancellation or a crash must not drain the queued backlog (observed as
+        # a cancelled run that kept warming for hours), and must not block on a
+        # wedged in-flight thread either. Cancel the queue, give healthy
+        # in-flight shapes a bounded grace to finish, then exit hard if any
+        # remain — re-raising with blocked threads alive would just hang again
+        # at the interpreter's exit join.
+        pool.shutdown(wait=False, cancel_futures=True)
+        if pending:
+            _, still_pending = wait(pending, timeout=WARMING_CANCEL_GRACE_SECONDS)
+            if still_pending:
+                # Not log.exception: the interesting fact is the wedged threads,
+                # not the (expected) cancellation traceback.
+                context.log.error(  # noqa: TRY400
+                    f"{len(still_pending)} in-flight shapes still running {WARMING_CANCEL_GRACE_SECONDS}s "
+                    f"after cancellation — exiting hard instead of hanging on the thread join"
+                )
+                os._exit(1)
+        raise
 
     queries_warmed = outcomes.get("warmed", 0)
     queries_skipped = outcomes.get("skipped_fresh", 0)
