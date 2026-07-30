@@ -141,7 +141,11 @@ pub async fn run_traffic(
                     }
                     Err(e) => {
                         collector.writes.record_failure();
-                        traffic_metrics::record_write_failed(traffic_metrics::LANE_BLAST, &e);
+                        traffic_metrics::record_write_failed(
+                            traffic_metrics::LANE_BLAST,
+                            &e,
+                            stop.load(Ordering::Relaxed),
+                        );
                         // `{:#}` prints the full anyhow chain — the outer
                         // context alone hides the gRPC status underneath.
                         tracing::warn!(person_id, error = format!("{e:#}"), "write failed");

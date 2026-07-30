@@ -137,6 +137,7 @@ import {
     getInsightQueryError,
     getInsightWithRetry,
     isLayoutEditEventSource,
+    isRefreshRejectionStub,
     layoutsByTile,
     parseURLFilters,
     parseURLVariables,
@@ -3526,7 +3527,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     true
                 )
 
-                if (refreshedInsight) {
+                if (refreshedInsight && !isRefreshRejectionStub(refreshedInsight)) {
                     const queryError = getInsightQueryError(refreshedInsight)
                     if (queryError) {
                         actions.setRefreshError(insight.short_id, queryError)
@@ -3600,7 +3601,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     urlFilters,
                     urlVariables,
                     dashboardLoadData,
-                    dashboard,
                     lastDashboardRefresh,
                 } = values
 
@@ -3627,7 +3627,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             tile.filters_overrides
                         )
 
-                        if (refreshedInsight) {
+                        if (refreshedInsight && !isRefreshRejectionStub(refreshedInsight)) {
                             const queryError = getInsightQueryError(refreshedInsight)
                             if (queryError) {
                                 actions.setRefreshError(insight.short_id, queryError)
@@ -3639,7 +3639,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 if (refreshedInsight.is_cached) {
                                     tilesRefreshedCachedCount++
                                 }
-
                                 eventUsageLogic.actions.reportDashboardTileRefreshed(
                                     dashboardId,
                                     tile,
@@ -3697,7 +3696,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 eventUsageLogic.actions.reportDashboardRefreshed(
                     dashboardId,
-                    dashboard,
                     urlFilters,
                     urlVariables,
                     lastDashboardRefresh,

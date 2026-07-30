@@ -132,10 +132,9 @@ async fn setup_router_with_limits(
         None,
         quota_limiter,
         TokenDropper::default(),
-        None,  // event_restriction_service
-        false, // metrics
+        None, // event_restriction_service
+        None, // recorder_handle
         CaptureMode::Events,
-        String::from("capture"),
         None,               // concurrency_limit
         1024 * 1024,        // event_payload_size_limit
         false,              // enable_historical_rerouting
@@ -1189,9 +1188,8 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        false,
+        None, // recorder_handle
         CaptureMode::Events,
-        String::from("capture"),
         None,
         1024 * 1024,
         false,
@@ -1283,9 +1281,8 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        false,
+        None, // recorder_handle
         CaptureMode::Events,
-        String::from("capture"),
         None,
         1024 * 1024,
         false,
@@ -1381,9 +1378,8 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        false,
+        None, // recorder_handle
         CaptureMode::Events,
-        String::from("capture"),
         None,
         1024 * 1024,
         false,
@@ -1816,9 +1812,8 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        false,
+        None, // recorder_handle
         CaptureMode::Events,
-        String::from("capture"),
         None,
         1024 * 1024,
         false,

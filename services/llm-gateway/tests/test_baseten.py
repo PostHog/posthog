@@ -10,7 +10,7 @@ from llm_gateway.baseten import (
     make_baseten_responses_call,
 )
 from llm_gateway.config import Settings
-from llm_gateway.rate_limiting.cost_refresh import ALIAS_METRIC_LABELS
+from llm_gateway.rate_limiting.cost_refresh import normalize_metric_labels
 from llm_gateway.rate_limiting.model_cost_overrides import MODEL_COST_OVERRIDES
 
 GLM_MODEL = "@cf/zai-org/glm-5.2"
@@ -35,7 +35,7 @@ def test_inject_baseten_params_maps_model_and_pins_api_key() -> None:
     assert MODEL_COST_OVERRIDES[BASETEN_MODEL]["input_cost_per_token"] == 1.4e-06
     assert MODEL_COST_OVERRIDES[BASETEN_MODEL]["cache_read_input_token_cost"] == 1.4e-07
     assert MODEL_COST_OVERRIDES[BASETEN_MODEL]["output_cost_per_token"] == 4.4e-06
-    assert ALIAS_METRIC_LABELS[BASETEN_MODEL] == ("baseten", GLM_MODEL)
+    assert normalize_metric_labels(BASETEN_MODEL, "openai") == ("baseten", "baseten/zai-org/glm-5.2")
 
 
 def test_inject_baseten_params_forces_streaming_usage() -> None:
