@@ -36,13 +36,16 @@ pub struct PgTokenStore {
 }
 
 impl PgTokenStore {
-    pub async fn connect(database_url: &str) -> anyhow::Result<Self> {
-        // A tiny pool: lookups happen only on cache misses.
+    pub fn connect(database_url: &str) -> anyhow::Result<Self> {
+        // A tiny lazy pool: lookups happen only on cache misses, and no
+        // connection is made until the first one — a database that is slow or
+        // down at boot must not disable validation for the process lifetime.
+        // Per-lookup failures fail open in check() and self-heal when the
+        // database returns.
         let pool = PgPoolOptions::new()
             .max_connections(2)
             .acquire_timeout(Duration::from_secs(1))
-            .connect(database_url)
-            .await?;
+            .connect_lazy(database_url)?;
         Ok(Self { pool })
     }
 }
