@@ -1057,7 +1057,9 @@ and the client-controlled `attempt` label is capped at `6+`, so
 All error-related metrics use stable, low-cardinality tags derived from:
 
 - `error_code_tag()` — maps `RDKafkaErrorCode` variants to snake_case strings
-  (e.g. `queue_full`, `message_size_too_large`, `all_brokers_down`)
+  (e.g. `queue_full`, `message_size_too_large`, `all_brokers_down`). Defined in
+  `common_kafka::error` and re-exported from `kafka/types.rs`, so producers
+  outside the sink share the same vocabulary
 - `KafkaSinkError::as_tag()` — sink-level tags
   (e.g. `sink_unavailable`, `timeout`, `task_panicked`)
 - `ProduceError::as_tag()` — producer-level tags

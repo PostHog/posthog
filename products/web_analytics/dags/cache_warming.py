@@ -3,6 +3,7 @@ import gzip
 import json
 import time
 import zlib
+import random
 import threading
 import statistics
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -24,6 +25,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, reset_query_tags, tag_queries
 from posthog.dags.common import JobOwners
 from posthog.event_usage import EventSource
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner_or_none
 from posthog.models import Team
@@ -617,6 +619,17 @@ WARMING_PROGRESS_LOG_INTERVAL_SECONDS = 120
 # identity churn re-warming old days, one team's pathological filters).
 WARMING_SLOW_SHAPE_SECONDS = 15
 
+# The warmer shares its per-user ClickHouse query budget with every other
+# Dagster job (the `dagster` CH user has a hard simultaneous-query cap on the
+# sessions cluster), so a co-tenant burst surfaces here as 202/AtCapacity even
+# when the warmer itself is within budget. Those bursts are seconds-long;
+# failing the shape defers it a whole hour. A couple of jittered retries ride
+# them out, and sleeping in the worker thread throttles the pool exactly while
+# the cluster is saturated. Persistent saturation still fails fast: with the
+# cap sustained, each shape costs at most ~2 sleeps before reporting "failed".
+WARMING_CAPACITY_RETRIES = 2
+WARMING_CAPACITY_BACKOFF_RANGE_SECONDS = (5.0, 15.0)
+
 # The shape-level staleness threshold is a fixed wall-clock delta, so shapes
 # warmed together go stale together: any bulk pass (a cold drain, a deploy
 # rotating cache hashes) synchronizes the fleet and every later run inherits a
@@ -750,6 +763,7 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
                 date_from=date_range.get("date_from") if isinstance(date_range, dict) else None,
                 replay_date_from=query_info.get("_replay_date_from"),
                 was_cold=query_info.get("_was_cold"),
+                capacity_retries=query_info.get("_capacity_retries"),
                 normalized_query_hash=query_info.get("normalized_query_hash"),
             )
         except Exception:
@@ -845,10 +859,18 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
             # response and the early refresh — the whole point of the jitter —
             # would never happen. The warmer has already made the staleness
             # decision above; run() must not second-guess it.
-            runner.run(
-                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                analytics_props={"source": EventSource.CACHE_WARMING},
-            )
+            for attempt in range(WARMING_CAPACITY_RETRIES + 1):
+                try:
+                    runner.run(
+                        execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                        analytics_props={"source": EventSource.CACHE_WARMING},
+                    )
+                    break
+                except ClickHouseAtCapacity:
+                    query_info["_capacity_retries"] = attempt + 1
+                    if attempt == WARMING_CAPACITY_RETRIES:
+                        raise
+                    time.sleep(random.uniform(*WARMING_CAPACITY_BACKOFF_RANGE_SECONDS))
             WARMING_QUERIES_COUNTER.labels(outcome="warmed").inc()
             return "warmed"
         except Exception as e:
