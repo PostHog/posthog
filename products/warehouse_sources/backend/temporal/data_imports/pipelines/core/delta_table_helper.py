@@ -4,6 +4,7 @@ from collections.abc import Callable, Sequence
 from typing import Any, Literal
 
 from django.conf import settings
+from django.db import InterfaceError, OperationalError
 
 import numpy as np
 import pyarrow as pa
@@ -107,6 +108,20 @@ def is_transient_delta_maintenance_error(error: BaseException) -> bool:
 # _purge_s3_prefix is idempotent (every step is existence-gated), so retrying it whole after a brief
 # backoff is as safe as retrying a single failed call, and simpler.
 _PURGE_S3_PREFIX_MAX_ATTEMPTS = 4
+
+
+def is_transient_maintenance_error(error: BaseException) -> bool:
+    """Infra blips seen during pre-write maintenance that aren't a maintenance bug.
+
+    Covers S3/object-store hiccups reaching our own data-warehouse bucket (see
+    `is_transient_object_store_error` above), racy concurrent-maintenance DeltaErrors (see
+    `is_transient_delta_maintenance_error` above), and app-DB connection blips (DNS, pooler drops) hit
+    while resolving `job.folder_path()` on a pooled connection — the same `OperationalError`/`InterfaceError`
+    classification used for this failure class in `repartition_table.py`'s `_is_transient_infra_error`.
+    """
+    if isinstance(error, OperationalError | InterfaceError):
+        return True
+    return is_transient_object_store_error(error) or is_transient_delta_maintenance_error(error)
 
 
 def _delta_merge_spill_kwargs() -> dict[str, int]:
