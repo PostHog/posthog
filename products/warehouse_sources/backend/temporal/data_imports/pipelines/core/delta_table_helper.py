@@ -51,8 +51,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.con
 DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD = 200
 DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
 
-# Substrings of the `OSError`s raised talking to our own S3-backed data-warehouse bucket that are
-# transient and self-recovering, not a bug in our code or a customer credential problem:
+# Substrings of the object-store errors raised talking to our own S3-backed data-warehouse bucket
+# that are transient and self-recovering, not a bug in our code or a customer credential problem:
 # - the first three come from delta-rs's Rust `object_store` crate inside `DeltaTable.is_deltatable()`
 #   (IMDS/STS blips, dispatch timeouts)
 # - "Please reduce your request rate" is S3's SlowDown throttling response, surfaced by s3fs/aiobotocore
@@ -68,7 +68,16 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
 
 
 def is_transient_object_store_error(error: BaseException) -> bool:
-    return isinstance(error, OSError) and any(needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS)
+    """True for a transient object-store error, however delta-rs happened to surface it.
+
+    `DeltaTable.is_deltatable()` raises these as a plain `OSError`, but table-level operations
+    (e.g. `vacuum()`, `optimize.compact()`) wrap the identical underlying object-store error text in
+    `deltalake.exceptions.DeltaError` instead — same blip, different exception type depending on
+    which delta-rs entry point hit it.
+    """
+    return isinstance(error, OSError | deltalake.exceptions.DeltaError) and any(
+        needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS
+    )
 
 
 # Delta's conflict checker raises CommitFailedError the moment a concurrent commit invalidates what
