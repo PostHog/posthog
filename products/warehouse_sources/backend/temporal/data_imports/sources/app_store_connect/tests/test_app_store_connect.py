@@ -7,6 +7,7 @@ from freezegun import freeze_time
 from unittest.mock import MagicMock, patch
 
 import jwt
+import requests
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from parameterized import parameterized
@@ -258,6 +259,23 @@ class TestGet:
 
         with pytest.raises(Exception, match="401"):
             _get(session, f"{BASE_URL}/v1/apps", token_provider=_FakeTokenProvider(), logger=MagicMock())
+
+    def test_error_body_is_folded_into_the_raised_error(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _json_response(
+            {
+                "errors": [
+                    {
+                        "title": "A parameter has an invalid value",
+                        "detail": "The version '1_4' is not valid, use '1_3'.",
+                    }
+                ]
+            },
+            status_code=400,
+        )
+
+        with pytest.raises(requests.HTTPError, match="use '1_3'"):
+            _get(session, f"{BASE_URL}/v1/salesReports", token_provider=_FakeTokenProvider(), logger=MagicMock())
 
     def test_tolerated_status_is_returned_without_raising(self) -> None:
         session = MagicMock()
@@ -552,8 +570,9 @@ class TestSalesReports:
         assert params["filter[reportType]"] == "SUBSCRIPTION_EVENT"
         assert params["filter[reportSubType]"] == "SUMMARY"
         assert params["filter[frequency]"] == "DAILY"
-        assert params["filter[version]"] == "1_4"
         assert params["filter[vendorNumber]"] == "85234567"
+        # No `filter[version]`: a pinned version Apple has moved past is a hard 400 on every report day.
+        assert "filter[version]" not in params
 
     @freeze_time("2026-03-05 09:00:00")
     def test_first_sync_starts_one_retention_window_back(self) -> None:

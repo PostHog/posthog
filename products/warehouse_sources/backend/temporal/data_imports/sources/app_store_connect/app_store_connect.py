@@ -186,12 +186,35 @@ def _get(
         return response
 
     if not response.ok:
-        logger.error(
-            f"App Store Connect API error: status={response.status_code}, body={response.text[:500]}, url={url}"
+        detail = _error_detail(response)
+        logger.error(f"App Store Connect API error: status={response.status_code}, body={detail}, url={url}")
+        # Apple explains the rejection in the body (which filter is wrong, which version it wants), so
+        # fold it into the exception — `raise_for_status` alone leaves error tracking with just a URL.
+        raise requests.HTTPError(
+            f"App Store Connect API error: status={response.status_code}, url={url}, body={detail}",
+            response=response,
         )
-        response.raise_for_status()
 
     return response
+
+
+def _error_detail(response: requests.Response) -> str:
+    try:
+        errors = response.json().get("errors")
+    except ValueError:
+        errors = None
+
+    if isinstance(errors, list):
+        details = [
+            " ".join(part for part in (error.get("title"), error.get("detail")) if part)
+            for error in errors
+            if isinstance(error, dict)
+        ]
+        joined = "; ".join(detail for detail in details if detail)
+        if joined:
+            return joined[:500]
+
+    return response.text[:500]
 
 
 def _flatten_resource(resource: dict[str, Any]) -> dict[str, Any]:
@@ -393,9 +416,6 @@ def _fetch_report(
         "filter[reportSubType]": config.report_sub_type,
         "filter[vendorNumber]": vendor_number,
     }
-    if config.report_version:
-        params["filter[version]"] = config.report_version
-
     response = _get(
         session,
         f"{BASE_URL}/v1/salesReports",

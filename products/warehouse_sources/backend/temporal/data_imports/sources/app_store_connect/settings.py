@@ -47,9 +47,9 @@ class AppStoreConnectEndpointConfig:
     # `/v1/salesReports` filters, only meaningful for the "sales_report" kind.
     report_type: str = ""
     report_sub_type: str = ""
-    # Apple versions each report layout independently; these are the current documented versions for
-    # the DAILY/SUMMARY combination of each report type.
-    report_version: str = ""
+    # `filter[version]` is deliberately not sent: Apple versions each report layout independently and
+    # rejects any version that isn't current for the reportType/subType/frequency with a 400, so a pin
+    # here breaks the whole stream the moment Apple bumps it. Omitting it serves the current version.
     report_frequency: str = "DAILY"
 
 
@@ -123,7 +123,6 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
         primary_keys=["report_date", "_line"],
         report_type="SALES",
         report_sub_type="SUMMARY",
-        report_version="1_0",
         incremental_fields=[_REPORT_DATE_FIELD],
         partition_key="report_date",
         should_sync_default=False,
@@ -135,7 +134,6 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
         primary_keys=["report_date", "_line"],
         report_type="SUBSCRIPTION",
         report_sub_type="SUMMARY",
-        report_version="1_4",
         incremental_fields=[_REPORT_DATE_FIELD],
         partition_key="report_date",
         should_sync_default=False,
@@ -147,7 +145,6 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
         primary_keys=["report_date", "_line"],
         report_type="SUBSCRIPTION_EVENT",
         report_sub_type="SUMMARY",
-        report_version="1_4",
         incremental_fields=[_REPORT_DATE_FIELD],
         partition_key="report_date",
         should_sync_default=False,
