@@ -1,15 +1,5 @@
-import {
-    IconCheckCircle,
-    IconCloud,
-    IconDashboard,
-    IconExpand45,
-    IconLaptop,
-    IconPullRequest,
-    IconQuestion,
-    IconWarning,
-    IconX,
-} from '@posthog/icons'
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { IconCloud, IconDashboard, IconExpand45, IconLaptop, IconPullRequest, IconX } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
@@ -24,33 +14,13 @@ import {
     stepCounts,
     syncHeadline,
     toneTextClass,
+    localModeLabel,
 } from './helpers'
 import { InstallationProgress } from './installationProgressLogic'
+import { StatusGlyph } from './StatusGlyph'
 import { DetectedDashboard } from './wizardDashboardLogic'
 
 export type WizardSyncMode = 'cloud' | 'local'
-
-// Leading glyph for the prominent task line: it carries the run's tone (accent while working, green on
-// success, red on failure). Shared with the launcher and dialog.
-export function StatusGlyph({ progress }: { progress: InstallationProgress }): JSX.Element {
-    if (progress.phase === 'completed') {
-        return <IconCheckCircle className="text-success text-xl shrink-0" />
-    }
-    if (progress.phase === 'error') {
-        return <IconWarning className="text-danger text-xl shrink-0" />
-    }
-    if (progress.prMerged) {
-        return <IconPullRequest className="text-purple text-xl shrink-0" />
-    }
-    if (progress.pendingInput) {
-        return <IconQuestion className="text-warning text-xl shrink-0" />
-    }
-    return <Spinner className="text-xl shrink-0 text-accent" textColored />
-}
-
-export function localModeLabel(startedByLabel?: string | null): string {
-    return startedByLabel ? `On ${startedByLabel}'s machine` : 'On your machine'
-}
 
 // Tiny chip naming where the run is happening, so cloud and local runs read distinctly.
 function ModeChip({ mode, startedByLabel }: { mode: WizardSyncMode; startedByLabel?: string | null }): JSX.Element {

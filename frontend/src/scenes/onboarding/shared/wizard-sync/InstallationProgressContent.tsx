@@ -1,15 +1,7 @@
 import { type ReactNode } from 'react'
 
 import * as wizardPng from '@posthog/brand/hoggies/png/wizard-1'
-import {
-    IconCheckCircle,
-    IconDashboard,
-    IconPullRequest,
-    IconRocket,
-    IconSearch,
-    IconTerminal,
-    IconX,
-} from '@posthog/icons'
+import { IconDashboard, IconPullRequest, IconRocket, IconSearch, IconTerminal, IconX } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -19,32 +11,12 @@ import { urls } from 'scenes/urls'
 import { prNameLabel } from './helpers'
 import { useMergeCelebration } from './hooks'
 import { SELF_DRIVING_UPCOMING_STEPS, syncCopy, UPCOMING_STEPS } from './installationProgressCopy'
-import { InstallationMode, InstallationProgress, InstallationStepStatus } from './installationProgressLogic'
+import { InstallationMode, InstallationProgress } from './installationProgressLogic'
+import { StepIcon } from './StepIcon'
 import { DetectedDashboard } from './wizardDashboardLogic'
 import { resolveWorkflowId, SELF_DRIVING_WORKFLOW_ID } from './workflows'
 
 const HedgehogWizard = pngHoggie(wizardPng)
-
-// Timeline dot for a single step.
-function StepIcon({ status, prState }: { status: InstallationStepStatus; prState?: 'open' | 'merged' }): JSX.Element {
-    if (status === 'completed') {
-        // GitHub's PR color language: green while open, purple once merged.
-        if (prState === 'merged') {
-            return <IconPullRequest className="text-purple text-base" />
-        }
-        if (prState === 'open') {
-            return <IconPullRequest className="text-success text-base" />
-        }
-        return <IconCheckCircle className="text-success text-base" />
-    }
-    if (status === 'failed') {
-        return <IconX className="text-danger text-base" />
-    }
-    if (status === 'in_progress') {
-        return <Spinner className="text-base" textColored />
-    }
-    return <span className="w-4 h-4 rounded-full border-2 border-border" />
-}
 
 /**
  * Presentational renderer for an `InstallationProgress`: a text header, a connected step timeline, and

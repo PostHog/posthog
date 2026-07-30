@@ -2,11 +2,11 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
-import { elapsedLabel, syncHeadline, toneTextClass } from './helpers'
+import { elapsedLabel, localModeLabel, syncHeadline, toneTextClass } from './helpers'
 import { InstallationProgressContent } from './InstallationProgressContent'
 import { InstallationProgress } from './installationProgressLogic'
 import { DetectedDashboard } from './wizardDashboardLogic'
-import { localModeLabel, WizardSyncMode } from './WizardSyncCard'
+import { WizardSyncMode } from './WizardSyncCard'
 
 // The expanded "all the details" dialog: the full pipeline plus the terminal payoff or failure.
 // Rendered by the FAB and by the inbox rail's Installation card, which claims the run away from
