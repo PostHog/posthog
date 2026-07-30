@@ -256,10 +256,12 @@ class TestUserAuthSessionAPI(APIBaseTest):
         return_value={"latitude": 35.6, "longitude": 139.7, "country_code": "JP"},
     )
     def test_high_risk_request_redirects_and_flushes_through_middleware_stack(self, _geoip, _flags):
-        # End-to-end through the real middleware stack: a seeded NYC baseline plus a Tokyo geo on this
-        # request is impossible travel (HIGH); with session-end on, SessionRiskMiddleware flushes the
-        # session server-side and redirects. Only the geoip DB and flag service (true boundaries) are
-        # mocked — evaluate_session_risk, current_request_context, and evaluate_signals run for real.
+        # End-to-end through the real middleware stack: a seeded NYC/Chrome-on-mac baseline plus a Tokyo
+        # geo *and* a Firefox-on-Windows UA on this request is a corroborated anomaly (HIGH); with
+        # session-end on, SessionRiskMiddleware flushes the session server-side and redirects. Only the
+        # geoip DB and flag service (true boundaries) are mocked — evaluate_session_risk,
+        # current_request_context, and evaluate_signals run for real. The geo move on its own is only
+        # MEDIUM (see tier_for): a VPN hop must never end a session.
         key = self.client.session.session_key
         Session.objects.filter(session_key=key).update(
             latitude=40.7,
@@ -269,7 +271,10 @@ class TestUserAuthSessionAPI(APIBaseTest):
             baseline_at=timezone.now() - timedelta(minutes=30),
         )
 
-        response = self.client.get("/api/users/@me/")
+        response = self.client.get(
+            "/api/users/@me/",
+            HTTP_USER_AGENT="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0",
+        )
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.headers["Location"], "/login?reason=session_risk")

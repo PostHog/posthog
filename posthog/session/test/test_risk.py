@@ -72,13 +72,24 @@ class TestSignalsAndTiers(BaseTest):
         base.update(kw)
         return Context(**base)
 
-    def test_impossible_travel_fires_high(self):
+    def test_vpn_hop_detected_but_only_medium(self):
         b = self._baseline()
-        # Tokyo, 10 minutes later
+        # Tokyo, 10 minutes later — what turning on a VPN with a far-away exit node looks like: the geo
+        # signals both fire, but from one observation, so this must not reach the session-ending tier.
         ctx = self._ctx(latitude=35.6, longitude=139.7, country_code="JP")
         now = self.BASELINE_TIME + timedelta(minutes=10)
         signals = evaluate_signals(b, ctx, now=now)
-        self.assertIn(RiskSignal.IMPOSSIBLE_TRAVEL, signals)
+        self.assertEqual(signals, {RiskSignal.IMPOSSIBLE_TRAVEL, RiskSignal.NEW_COUNTRY})
+        self.assertEqual(tier_for(signals), RiskTier.MEDIUM)
+
+    def test_impossible_travel_alone_is_medium(self):
+        self.assertEqual(tier_for({RiskSignal.IMPOSSIBLE_TRAVEL}), RiskTier.MEDIUM)
+
+    def test_geo_change_with_new_device_is_high(self):
+        # UA_CHANGE is independent of the IP moving, so it corroborates the geo anomaly.
+        b = self._baseline()
+        ctx = self._ctx(latitude=35.6, longitude=139.7, country_code="JP", ua_signature="firefox|windows|pc")
+        signals = evaluate_signals(b, ctx, now=self.BASELINE_TIME + timedelta(minutes=10))
         self.assertEqual(tier_for(signals), RiskTier.HIGH)
 
     def test_short_hop_not_impossible(self):

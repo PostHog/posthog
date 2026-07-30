@@ -19,7 +19,12 @@ from posthog.session.middleware import SessionRiskMiddleware
 from posthog.session.models import Session
 from posthog.session.risk import Context, RiskFlags, RiskTier, evaluate_session_risk
 
-IMPOSSIBLE_TRAVEL_CTX = Context(latitude=35.6, longitude=139.7, country_code="JP", ua_signature="chrome|mac os x|pc")
+# A geo move corroborated by a different browser/OS — the shape a replayed session cookie has, and the
+# only shape that reaches HIGH.
+HIJACK_CTX = Context(latitude=35.6, longitude=139.7, country_code="JP", ua_signature="firefox|windows|pc")
+# The same geo move on the user's own machine: what turning on a VPN looks like. Trips both geo signals
+# from a single observation, so it caps at MEDIUM and never ends the session.
+VPN_HOP_CTX = Context(latitude=35.6, longitude=139.7, country_code="JP", ua_signature="chrome|mac os x|pc")
 UA_CHANGE_CTX = Context(latitude=40.7, longitude=-74.0, country_code="US", ua_signature="firefox|mac os x|pc")
 STABLE_CTX = Context(latitude=40.7, longitude=-74.0, country_code="US", ua_signature="chrome|mac os x|pc")
 NEARBY_CTX = Context(latitude=41.0, longitude=-74.5, country_code="US", ua_signature="chrome|mac os x|pc")
@@ -61,7 +66,7 @@ class TestEvaluateSessionRisk(BaseTest):
         self._seed_baseline(key)
         return self._request(user, key)
 
-    @patch("posthog.session.risk.current_request_context", return_value=IMPOSSIBLE_TRAVEL_CTX)
+    @patch("posthog.session.risk.current_request_context", return_value=HIJACK_CTX)
     @patch("posthog.session.risk.posthoganalytics.capture")
     @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(False, False, False))
     def test_detection_off_is_noop(self, _flags, mock_capture, _ctx):
@@ -71,7 +76,7 @@ class TestEvaluateSessionRisk(BaseTest):
         self.assertNotIn("step_up_required", request.session)
         mock_capture.assert_not_called()
 
-    @patch("posthog.session.risk.current_request_context", return_value=IMPOSSIBLE_TRAVEL_CTX)
+    @patch("posthog.session.risk.current_request_context", return_value=HIJACK_CTX)
     @patch("posthog.session.risk.posthoganalytics.capture")
     @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, False, False))
     def test_report_only_does_not_set_flag_or_end(self, _flags, mock_capture, _ctx):
@@ -87,7 +92,7 @@ class TestEvaluateSessionRisk(BaseTest):
         self.assertEqual(props["tier"], RiskTier.HIGH.name)
         self.assertIn("impossible_travel", props["signals"])
 
-    @patch("posthog.session.risk.current_request_context", return_value=IMPOSSIBLE_TRAVEL_CTX)
+    @patch("posthog.session.risk.current_request_context", return_value=HIJACK_CTX)
     @patch("posthog.session.risk.posthoganalytics.capture")
     @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, False, False))
     def test_telemetry_event_carries_no_pii(self, _flags, mock_capture, _ctx):
@@ -128,7 +133,7 @@ class TestEvaluateSessionRisk(BaseTest):
         reloaded = self.engine.SessionStore(session_key=request.session.session_key)
         self.assertTrue(reloaded.get("step_up_required"))
 
-    @patch("posthog.session.risk.current_request_context", return_value=IMPOSSIBLE_TRAVEL_CTX)
+    @patch("posthog.session.risk.current_request_context", return_value=HIJACK_CTX)
     @patch("posthog.session.risk.posthoganalytics.capture")
     @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, False, True))
     def test_high_effective_only_when_session_end_on(self, _flags, mock_capture, _ctx):
@@ -137,7 +142,30 @@ class TestEvaluateSessionRisk(BaseTest):
         self.assertEqual(evaluate_session_risk(request), RiskTier.HIGH)
         self.assertTrue(mock_capture.call_args.kwargs["properties"]["enforced"])
 
-    @patch("posthog.session.risk.current_request_context", return_value=IMPOSSIBLE_TRAVEL_CTX)
+    @patch("posthog.session.risk.current_request_context", return_value=VPN_HOP_CTX)
+    @patch("posthog.session.risk.posthoganalytics.capture")
+    @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, False, True))
+    def test_vpn_hop_never_ends_the_session(self, _flags, mock_capture, _ctx):
+        # Turning on a VPN relocates the exit IP and trips both geo signals at once. Even with
+        # session-end fully enabled that must not return HIGH — it is one observation, not corroboration.
+        request = self._authed_request_with_baseline(self._make_user())
+
+        self.assertEqual(evaluate_session_risk(request), RiskTier.NONE)
+        props = mock_capture.call_args.kwargs["properties"]
+        self.assertEqual(props["tier"], RiskTier.MEDIUM.name)
+        self.assertEqual(props["signals"], ["impossible_travel", "new_country"])
+
+    @patch("posthog.session.risk.current_request_context", return_value=VPN_HOP_CTX)
+    @patch("posthog.session.risk.posthoganalytics.capture")
+    @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, True, True))
+    def test_vpn_hop_degrades_to_step_up(self, _flags, _capture, _ctx):
+        # The user keeps their session and is asked to re-auth before sensitive actions instead.
+        request = self._authed_request_with_baseline(self._make_user())
+
+        self.assertEqual(evaluate_session_risk(request), RiskTier.NONE)
+        self.assertTrue(request.session.get("step_up_required"))
+
+    @patch("posthog.session.risk.current_request_context", return_value=HIJACK_CTX)
     @patch("posthog.session.risk.posthoganalytics.capture", side_effect=RuntimeError("telemetry down"))
     @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, False, True))
     def test_telemetry_failure_does_not_break_evaluation(self, _flags, _capture, _ctx):
@@ -146,7 +174,7 @@ class TestEvaluateSessionRisk(BaseTest):
 
         self.assertEqual(evaluate_session_risk(request), RiskTier.HIGH)
 
-    @patch("posthog.session.risk.current_request_context", return_value=IMPOSSIBLE_TRAVEL_CTX)
+    @patch("posthog.session.risk.current_request_context", return_value=HIJACK_CTX)
     @patch("posthog.session.risk.posthoganalytics.capture")
     @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, True, False))
     def test_high_degrades_to_step_up_when_session_end_off(self, _flags, mock_capture, _ctx):
@@ -178,11 +206,11 @@ class TestEvaluateSessionRisk(BaseTest):
         request = self._authed_request_with_baseline(self._make_user())
         with patch("posthog.session.risk.current_request_context", return_value=UA_CHANGE_CTX):
             evaluate_session_risk(request)
-        with patch("posthog.session.risk.current_request_context", return_value=IMPOSSIBLE_TRAVEL_CTX):
+        with patch("posthog.session.risk.current_request_context", return_value=HIJACK_CTX):
             evaluate_session_risk(request)
         self.assertEqual(mock_capture.call_count, 2)
 
-    @patch("posthog.session.risk.current_request_context", return_value=IMPOSSIBLE_TRAVEL_CTX)
+    @patch("posthog.session.risk.current_request_context", return_value=HIJACK_CTX)
     @patch("posthog.session.risk.posthoganalytics.capture")
     @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, False, True))
     def test_dedup_suppresses_telemetry_not_session_end(self, _flags, mock_capture, _ctx):
@@ -210,7 +238,7 @@ class TestEvaluateSessionRisk(BaseTest):
         self.assertTrue(request.session.get("step_up_required"))
         mock_capture.assert_called_once()  # telemetry stays deduped
 
-    @patch("posthog.session.risk.current_request_context", return_value=IMPOSSIBLE_TRAVEL_CTX)
+    @patch("posthog.session.risk.current_request_context", return_value=HIJACK_CTX)
     @patch("posthog.session.risk.posthoganalytics.capture")
     @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, True, True))
     def test_skips_impersonation(self, mock_flags, mock_capture, _ctx):
@@ -233,7 +261,7 @@ class TestEvaluateSessionRisk(BaseTest):
         self.assertEqual(evaluate_session_risk(request), RiskTier.NONE)
         mock_flags.assert_not_called()
 
-    @patch("posthog.session.risk.current_request_context", return_value=IMPOSSIBLE_TRAVEL_CTX)
+    @patch("posthog.session.risk.current_request_context", return_value=HIJACK_CTX)
     @patch("posthog.session.risk.posthoganalytics.capture")
     @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, True, True))
     def test_missing_baseline_row_returns_none(self, _flags, mock_capture, _ctx):
@@ -271,7 +299,7 @@ class TestEvaluateSessionRisk(BaseTest):
         self.assertEqual(row.latitude, 41.0)
         self.assertEqual(row.longitude, -74.5)
 
-    @patch("posthog.session.risk.current_request_context", return_value=IMPOSSIBLE_TRAVEL_CTX)
+    @patch("posthog.session.risk.current_request_context", return_value=HIJACK_CTX)
     @patch("posthog.session.risk.posthoganalytics.capture")
     @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, True, True))
     def test_suspicious_request_does_not_advance_baseline(self, _flags, _capture, _ctx):
@@ -284,7 +312,7 @@ class TestEvaluateSessionRisk(BaseTest):
         self.assertEqual(row.latitude, 40.7)  # still NYC, not poisoned to Tokyo
         self.assertEqual(row.country_code, "US")
 
-    @patch("posthog.session.risk.current_request_context", return_value=IMPOSSIBLE_TRAVEL_CTX)
+    @patch("posthog.session.risk.current_request_context", return_value=HIJACK_CTX)
     @patch("posthog.session.risk.posthoganalytics.capture")
     @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(True, False, True))
     def test_attacker_cannot_erase_detection_over_repeated_requests(self, _flags, _capture, _ctx):
@@ -431,4 +459,34 @@ class TestSessionRiskMiddleware(BaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(request.session.get("step_up_required"))
+        self.assertTrue(Session.objects.filter(session_key=key).exists())
+
+    @patch("posthog.session.risk.risk_flags", return_value=RiskFlags(detection=True, step_up=True, session_end=True))
+    @patch(
+        "posthog.session.risk.get_geoip_location",
+        return_value={"latitude": 35.6, "longitude": 139.7, "country_code": "JP"},
+    )
+    def test_vpn_user_is_not_logged_out(self, _geoip, _flags):
+        # End-to-end regression for the reported break: a user on a corporate VPN whose exit node
+        # geolocates to Tokyo keeps browsing. Same device, far-away IP — with session-end fully on this
+        # used to flush the session and bounce them to /login, which read as "PostHog won't let me in".
+        user = self._make_user()
+        key = self._login_session(user)
+        Session.objects.filter(session_key=key).update(
+            latitude=40.7,
+            longitude=-74.0,
+            country_code="US",
+            ua_signature="chrome|mac os x|pc",
+            baseline_at=timezone.now() - timedelta(minutes=2),  # short gap: elapsed hits the clamp floor
+        )
+        request = self._request(user, key)
+        request.META["HTTP_USER_AGENT"] = (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/135.0.0.0 Safari/537.36"
+        )
+
+        response = SessionRiskMiddleware(lambda _req: HttpResponse("ok"))(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"ok")
         self.assertTrue(Session.objects.filter(session_key=key).exists())

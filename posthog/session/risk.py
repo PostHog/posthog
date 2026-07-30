@@ -28,6 +28,11 @@ class RiskSignal(str, Enum):
     NEW_COUNTRY = "new_country"
 
 
+# Signals that are all derived from the same underlying observation — the request's IP moved — and so
+# cannot corroborate each other (see tier_for).
+GEO_SIGNALS = frozenset({RiskSignal.IMPOSSIBLE_TRAVEL, RiskSignal.NEW_COUNTRY})
+
+
 class RiskTier(IntEnum):
     NONE = 0
     MEDIUM = 1
@@ -113,11 +118,24 @@ def evaluate_signals(baseline: Baseline, ctx: Context, *, now: datetime) -> set[
 
 
 def tier_for(signals: set[RiskSignal]) -> RiskTier:
-    if RiskSignal.IMPOSSIBLE_TRAVEL in signals or len(signals) >= 2:
-        return RiskTier.HIGH
-    if signals:
-        return RiskTier.MEDIUM
-    return RiskTier.NONE
+    """Escalate to HIGH only on *corroborated* anomalies — two independent observations.
+
+    Every signal in GEO_SIGNALS comes from one observation (the IP moved), so they count once
+    together, not once each. Turning on a VPN or a corporate proxy relocates the exit IP and trips
+    NEW_COUNTRY and IMPOSSIBLE_TRAVEL simultaneously; treating that as two signals made a routine VPN
+    hop indistinguishable from a hijacked session, and HIGH ends the session outright. Impossible
+    travel alone had the same problem: with elapsed clamped to RISK_ELAPSED_FLOOR_S, any exit node
+    past RISK_DISTANCE_FLOOR_KM exceeds the velocity ceiling by construction.
+
+    So a geo-only anomaly caps at MEDIUM (step-up re-auth, session preserved) and HIGH needs
+    something a relocated IP does not explain — currently UA_CHANGE, i.e. a different
+    browser/OS/device family, which a session replayed by someone else generally shows and a VPN
+    toggle on the user's own machine never does.
+    """
+    if not signals:
+        return RiskTier.NONE
+    independent = len(signals - GEO_SIGNALS) + (1 if signals & GEO_SIGNALS else 0)
+    return RiskTier.HIGH if independent >= 2 else RiskTier.MEDIUM
 
 
 @dataclass
