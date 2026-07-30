@@ -528,7 +528,7 @@ describe('EmailService', () => {
                 expect(sentCommand.input.TenantName).toBeUndefined()
             })
 
-            it('omits TenantName for test-panel sends even when enabled', async () => {
+            it('attributes test-panel sends too — they are real SES sends', async () => {
                 service['sesConfig'].sesTenantAttributionEnabled = true
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
 
@@ -536,7 +536,7 @@ describe('EmailService', () => {
 
                 expect(result.error).toBeUndefined()
                 const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-                expect(sentCommand.input.TenantName).toBeUndefined()
+                expect(sentCommand.input.TenantName).toEqual(`team-${team.id}`)
             })
         })
 

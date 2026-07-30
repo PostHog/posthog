@@ -556,13 +556,17 @@ export class EmailService {
             FeedbackForwardingEmailAddress: from.email,
         }
 
-        if (this.sesConfig.sesTenantAttributionEnabled && !isTest) {
+        if (this.sesConfig.sesTenantAttributionEnabled) {
             // Attributes the send to the team's SES tenant so AWS tracks reputation per team and
             // its reputation policy can pause one tenant instead of the shared account. `team-<id>`
             // is the provisioning convention (products/workflows/backend/providers/ses.py and
-            // posthog/management/commands/migrate_ses_tenants.py). Test-panel sends are excluded
-            // like every other reputation signal in this class: they're disproportionately
-            // bounce-prone and shouldn't count against the team's tenant.
+            // posthog/management/commands/migrate_ses_tenants.py). Deliberately NOT gated on
+            // isTest: test-panel sends are real over-the-wire SES sends, so leaving them
+            // unattributed would (a) push their bounces onto the shared account's reputation and
+            // (b) let a paused tenant keep sending via "Run test". The isTest skips elsewhere in
+            // this class only shield our internal metrics, a separate concern from SES-side
+            // attribution; test volume is far below the representative volume AWS needs for a
+            // reputation finding.
             sendEmailParams.TenantName = `team-${result.invocation.teamId}`
         }
 
