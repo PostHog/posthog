@@ -52,6 +52,10 @@ export function NotebookNodeAttributeInput({
 
     const commitDebounced = useDebouncedCallback(commit, NOTEBOOK_NODE_ATTRIBUTE_COMMIT_DEBOUNCE_MS)
 
+    // Collapsing the node or closing the settings panel can unmount us without a blur, and the
+    // pending commit would go with it. Flush it so a typed value is never silently dropped.
+    useEffect(() => () => commitDebounced.flush(), [commitDebounced])
+
     const showUUIDHint = expectsUUID && !!draft.trim() && !isUUIDLike(draft.trim())
 
     return (

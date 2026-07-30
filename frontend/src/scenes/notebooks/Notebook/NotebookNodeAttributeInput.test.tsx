@@ -80,6 +80,15 @@ describe('NotebookNodeAttributeInput', () => {
         expect(onCommit).toHaveBeenCalledWith('acme')
     })
 
+    it('flushes a pending commit when unmounted without a blur', () => {
+        const { onCommit, type } = setup(false)
+
+        type('acme')
+        cleanup()
+
+        expect(onCommit).toHaveBeenCalledWith('acme')
+    })
+
     it('commits on blur without waiting for the debounce', () => {
         const { input, onCommit, type } = setup(false)
 
