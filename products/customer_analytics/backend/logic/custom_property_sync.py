@@ -249,3 +249,25 @@ def run_custom_property_sync(*, team_id: int, saved_query_id: str | UUID) -> Syn
         source_errors=len(result.source_errors),
     )
     return result
+
+
+def sync_custom_properties_for_account(*, team_id: int, external_id: str) -> None:
+    """Best-effort synchronous population of warehouse-backed custom properties for one account.
+
+    Runs on the external create path so a workflow that creates an account can read the values
+    in its next step. Only materialized views are read — an unmaterialized view would run its raw
+    query inside the request. No sync outcome is recorded: failure streaks, auto-disable and
+    last_synced_at belong to the scheduled full sync.
+    """
+    saved_query_ids = (
+        CustomPropertySource.objects.for_team(team_id)
+        .filter(is_enabled=True, source_column__isnull=False, saved_query__table__isnull=False)
+        .exclude(saved_query__deleted=True)
+        .values_list("saved_query_id", flat=True)
+        .distinct()
+    )
+    for saved_query_id in saved_query_ids:
+        try:
+            sync_custom_property_values(team_id=team_id, saved_query_id=saved_query_id, external_id=external_id)
+        except Exception as e:
+            capture_exception(e)  # enrichment must never break account creation
