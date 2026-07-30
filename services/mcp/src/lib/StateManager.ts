@@ -206,6 +206,17 @@ export class StateManager {
         return error instanceof PostHogApiError && error.status === 404
     }
 
+    /**
+     * A 400 or 404 on a context lookup means the client sent us an org/project
+     * id the backend can't resolve — a user misconfiguration (a non-numeric
+     * `POSTHOG_PROJECT_ID`, an org the key can't see), not a service bug. These
+     * must not open error tracking issues, and their bodies can echo back
+     * whatever the user pasted into the env var.
+     */
+    private _isClientConfigError(error: unknown): boolean {
+        return error instanceof PostHogApiError && (error.status === 400 || error.status === 404)
+    }
+
     private _reportException(error: unknown, context: string, extra: Record<string, unknown> = {}): void {
         try {
             getPostHogClient().captureException(error, undefined, { tag: 'mcp', team: 'posthog_ai', context, ...extra })
@@ -316,7 +327,11 @@ export class StateManager {
             ])
             return data as State[D]
         } catch (error) {
-            this._reportException(error, `get_or_fetch_${opts.name}`)
+            if (this._isClientConfigError(error)) {
+                console.warn(`[StateManager] ${opts.name} lookup rejected by the API: ${(error as Error).message}`)
+            } else {
+                this._reportException(error, `get_or_fetch_${opts.name}`)
+            }
             await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
             return cached
         }
