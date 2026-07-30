@@ -1,6 +1,6 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconBalance, IconPlus, IconX } from '@posthog/icons'
 
@@ -11,7 +11,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
-import { useDebouncedNameInputs } from './utils'
+import { normalizeCohortPercentages, useDebouncedNameInputs } from './utils'
 
 export function StepRandomCohortBranchConfiguration({
     node,
@@ -77,25 +77,45 @@ export function StepRandomCohortBranchConfiguration({
         setWorkflowActionEdges(action.id, [...newBranchEdges, ...nonBranchEdges])
     }
 
-    const updateCohortPercentage = (index: number, percentage: number): void => {
-        setCohorts(cohorts.map((cohort, i) => (i === index ? { ...cohort, percentage } : cohort)))
+    // While a percentage field is focused it displays the raw text being typed, keyed by cohort index.
+    // Feeding the parsed number straight back as the input's value would drop a trailing decimal
+    // point, so a fractional share could never be typed: "3." parses to 3 and the field re-renders
+    // without the dot, leaving "3.3" unreachable.
+    const [percentageDrafts, setPercentageDrafts] = useState<Record<number, string>>({})
+
+    const updateCohortPercentage = (index: number, value: string): void => {
+        setPercentageDrafts((drafts) => ({ ...drafts, [index]: value }))
+        const parsed = Number.parseFloat(value)
+        setCohorts(
+            cohorts.map((cohort, i) =>
+                i === index ? { ...cohort, percentage: Number.isFinite(parsed) ? parsed : 0 } : cohort
+            )
+        )
+    }
+
+    const clearPercentageDraft = (index: number): void => {
+        setPercentageDrafts((drafts) => {
+            const remaining = { ...drafts }
+            delete remaining[index]
+            return remaining
+        })
     }
 
     const normalizePercentages = (): void => {
-        const count = cohorts.length
-        if (count === 0) {
+        if (cohorts.length === 0) {
             return
         }
-        const base = Math.floor(100 / count)
-        const remainder = 100 - base * count
-        const normalized = cohorts.map((cohort, i) => {
-            // Distribute remainder to the first cohorts
-            return { ...cohort, percentage: base + (i < remainder ? 1 : 0) }
-        })
-        setCohorts(normalized)
+        const normalized = normalizeCohortPercentages(cohorts.length)
+        setCohorts(cohorts.map((cohort, i) => ({ ...cohort, percentage: normalized[i] })))
     }
 
     const totalPercentage = cohorts.reduce((sum, cohort) => sum + cohort.percentage, 0)
+    // Summing fractional shares in binary lands a hair off a round number (an even thirty-way split
+    // totals 99.99999999999997), so compare against a tolerance finer than the smallest share the
+    // field can express rather than against 100 exactly, which would warn on a correct split.
+    const displayTotal = Math.round(totalPercentage * 100) / 100
+    const isBalanced = Math.abs(totalPercentage - 100) < 0.005
+    const shortfall = Math.round((100 - totalPercentage) * 100) / 100
 
     return (
         <>
@@ -120,8 +140,10 @@ export function StepRandomCohortBranchConfiguration({
                             type="number"
                             min="0"
                             max="100"
-                            value={cohort.percentage}
-                            onChange={(e) => updateCohortPercentage(index, parseInt(e.target.value) || 0)}
+                            step="any"
+                            value={percentageDrafts[index] ?? String(cohort.percentage)}
+                            onChange={(e) => updateCohortPercentage(index, e.target.value)}
+                            onBlur={() => clearPercentageDraft(index)}
                             className="w-20 px-2 py-1 border rounded"
                         />
                         <span>%</span>
@@ -129,15 +151,19 @@ export function StepRandomCohortBranchConfiguration({
                 </div>
             ))}
 
-            {totalPercentage !== 100 && (
-                <div className="text-sm text-orange-600">Total percentage: {totalPercentage}% (should equal 100%)</div>
+            {!isBalanced && (
+                <div className="text-sm text-orange-600">
+                    {shortfall > 0
+                        ? `These add up to ${displayTotal}%. The remaining ${shortfall}% will go to the last cohort.`
+                        : `These add up to ${displayTotal}%. Later cohorts will get less than their share, and some may never be used.`}
+                </div>
             )}
 
             <div className="flex gap-2">
                 <LemonButton type="secondary" icon={<IconPlus />} onClick={() => addCohort()} className="flex-1">
                     Add cohort
                 </LemonButton>
-                <LemonButton type="secondary" onClick={normalizePercentages} tooltip="Normalize cohort percentages">
+                <LemonButton type="secondary" onClick={normalizePercentages} tooltip="Split evenly across all cohorts">
                     <IconBalance />
                 </LemonButton>
             </div>

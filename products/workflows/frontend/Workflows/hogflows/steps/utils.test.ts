@@ -1,5 +1,6 @@
 import {
     getBranchRemovalDisabledReason,
+    normalizeCohortPercentages,
     removeBranchEdge,
     updateItemWithOptionalName,
     updateOptionalName,
@@ -213,6 +214,39 @@ describe('utils', () => {
             const result = removeBranchEdge(edges, 1)
 
             expect(result).not.toBe(edges)
+        })
+    })
+
+    describe('normalizeCohortPercentages', () => {
+        it.each([
+            { name: 'splits evenly when the count divides 100', count: 4, expected: [25, 25, 25, 25] },
+            {
+                name: 'uses a fractional share when whole percents cannot divide 100',
+                count: 8,
+                expected: [12.5, 12.5, 12.5, 12.5, 12.5, 12.5, 12.5, 12.5],
+            },
+            {
+                name: 'spreads the leftover hundredths across the leading cohorts',
+                count: 3,
+                expected: [33.34, 33.33, 33.33],
+            },
+            { name: 'returns nothing when there are no cohorts', count: 0, expected: [] },
+        ])('$name', ({ count, expected }) => {
+            expect(normalizeCohortPercentages(count)).toEqual(expected)
+        })
+
+        // Allocating in whole percents summed to 100 too, but unevenly: 30 cohorts came out as ten
+        // shares of 4% and twenty of 3%, so a third of the branches took 33% more traffic than the
+        // rest. Asserting the total alone would not have caught that, hence the per-share bound.
+        it.each([2, 3, 7, 8, 30, 99])('gives %i cohorts an equal share totalling 100', (count) => {
+            const percentages = normalizeCohortPercentages(count)
+            const total = percentages.reduce((sum, percentage) => sum + percentage, 0)
+
+            expect(percentages).toHaveLength(count)
+            expect(total).toBeCloseTo(100, 6)
+            for (const percentage of percentages) {
+                expect(Math.abs(percentage - 100 / count)).toBeLessThanOrEqual(0.01)
+            }
         })
     })
 

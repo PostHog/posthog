@@ -30,6 +30,27 @@ export function removeBranchEdge(branchEdges: HogFlowEdge[], conditionIndex: num
     return branchEdges.filter((e) => e.index !== conditionIndex).map((edge, i) => ({ ...edge, index: i }))
 }
 
+/**
+ * Percentages for an even N-way cohort split, summing to exactly 100.
+ *
+ * Shares are allocated in hundredths of a percent rather than whole percents, because whole percents
+ * can't divide 100 evenly for most counts and the runtime routes any shortfall to the last cohort
+ * (see getRandomCohort). Allocating in whole percents therefore gave 30 cohorts ten shares of 4% and
+ * twenty of 3%, so a third of the branches carried 33% more than the rest. The leftover hundredths
+ * are spread one each across the leading cohorts, which keeps every share within 0.01 of its fair
+ * value.
+ */
+export function normalizeCohortPercentages(count: number): number[] {
+    if (count <= 0) {
+        return []
+    }
+    const hundredthsPerPercent = 100
+    const totalHundredths = 100 * hundredthsPerPercent
+    const base = Math.floor(totalHundredths / count)
+    const leftover = totalHundredths - base * count
+    return Array.from({ length: count }, (_, i) => (base + (i < leftover ? 1 : 0)) / hundredthsPerPercent)
+}
+
 export function updateOptionalName<T>(obj: T & { name?: string }, name: string | undefined): T & { name?: string } {
     const updated = { ...obj }
     if (name) {
