@@ -1,15 +1,4 @@
-import {
-    MakeLogicType,
-    actions,
-    afterMount,
-    beforeUnmount,
-    isBreakpoint,
-    kea,
-    listeners,
-    path,
-    reducers,
-    selectors,
-} from 'kea'
+import { MakeLogicType, actions, afterMount, isBreakpoint, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
@@ -598,14 +587,22 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             // Shallow product intent: reading the scanner list for a while is interest, and it's the
             // only signal the people who never create a scanner ever produce. Gated on dwell rather
             // than on the route firing, because urlToAction runs on mount and a bounce would then
-            // start the team's 30-day activation clock. Cleared in beforeUnmount.
-            if (!cache.dwellTimer) {
-                cache.dwellTimer = setTimeout(() => {
-                    void addProductIntent({
-                        product_type: ProductKey.REPLAY_VISION,
-                        intent_context: ProductIntentContext.REPLAY_VISION_VIEWED,
-                    })
-                }, REPLAY_VISION_INTENT_DWELL_MS)
+            // start the team's 30-day activation clock. Registered as a disposable so the clock
+            // pauses while the tab is hidden: a background tab is not dwell.
+            if (!cache.dwellIntentArmed) {
+                cache.dwellIntentArmed = true
+                cache.disposables.add(() => {
+                    const timer = setTimeout(() => {
+                        // Drop the disposable once fired, so a later hide/show cycle does not
+                        // re-arm the timer and register again.
+                        cache.disposables.dispose('replayVisionDwell')
+                        void addProductIntent({
+                            product_type: ProductKey.REPLAY_VISION,
+                            intent_context: ProductIntentContext.REPLAY_VISION_VIEWED,
+                        })
+                    }, REPLAY_VISION_INTENT_DWELL_MS)
+                    return () => clearTimeout(timer)
+                }, 'replayVisionDwell')
             }
             const pageRaw = Number(searchParams.page ?? 1)
             const parsed: ScannersFilters = {
@@ -630,10 +627,5 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
     afterMount(({ actions }) => {
         actions.loadCreators()
         actions.loadScannerStats()
-    }),
-
-    beforeUnmount(({ cache }) => {
-        clearTimeout(cache.dwellTimer)
-        cache.dwellTimer = undefined
     }),
 ])

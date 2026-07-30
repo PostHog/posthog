@@ -9,6 +9,7 @@ import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
+from loginas.utils import is_impersonated_session
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -22,6 +23,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.exceptions import QuotaLimitExceeded
+from posthog.exceptions_capture import capture_exception
 from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -131,13 +133,23 @@ def _register_replay_vision_intent(
 
     Call this at most once per request: `register()` writes the intent row every time, and a bulk scan
     can carry hundreds of session ids."""
-    ProductIntent.register(
-        team=team,
-        product_type=ProductKey.REPLAY_VISION,
-        context=context,
-        user=cast(User, request.user),
-        metadata={**get_request_analytics_properties(request), **metadata},
-    )
+    # Staff impersonating a customer is not the team's intent. The dedicated product-intent endpoints
+    # block this with @disallow_if_impersonated; here the intent rides on a real scan or create, so
+    # skip the intent rather than fail the request.
+    if is_impersonated_session(request):
+        return
+    # Best-effort: by the time this runs the scanner exists or the workflow has started, so a failure
+    # here must not 500 the request and invite a retry of work that already happened.
+    try:
+        ProductIntent.register(
+            team=team,
+            product_type=ProductKey.REPLAY_VISION,
+            context=context,
+            user=cast(User, request.user),
+            metadata={**get_request_analytics_properties(request), **metadata},
+        )
+    except Exception as e:
+        capture_exception(e)
 
 
 def _scanner_lifecycle_properties(scanner: ReplayScanner) -> dict[str, Any]:

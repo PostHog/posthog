@@ -2637,3 +2637,34 @@ class TestReplayVisionProductIntent(_VisionAPITestCase):
                 ProductIntentContext.REPLAY_VISION_SCANNER_CREATED: 1,
             },
         )
+
+    def test_impersonated_session_does_not_register_intent(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # Staff impersonating a customer would otherwise start that team's activation clock.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+
+        with patch("products.replay_vision.backend.api.scanners.is_impersonated_session", return_value=True):
+            resp = self.client.post(
+                self.observe_url(str(self.scanner.id)), data={"session_id": "sess-impersonated"}, format="json"
+            )
+
+        self.assertEqual(resp.status_code, 202, resp.json())
+        self.assertIsNone(self._intent())
+
+    def test_intent_failure_does_not_fail_the_request(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # Intent is registered after the workflow has started; a 500 here would make the caller
+        # retry a scan that already ran.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+
+        with patch.object(ProductIntent, "register", side_effect=Exception("intent backend down")):
+            resp = self.client.post(
+                self.observe_url(str(self.scanner.id)), data={"session_id": "sess-intent-down"}, format="json"
+            )
+
+        self.assertEqual(resp.status_code, 202, resp.json())
+        self.assertIsNone(self._intent())
