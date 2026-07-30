@@ -3,7 +3,7 @@ import decimal
 import hashlib
 import datetime
 from ipaddress import IPv4Address, IPv6Address
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -929,9 +929,13 @@ class TestEvolveSchemaFirstPass:
         assert values[1] == 3661.0
         assert values[2] is None
 
-    def test_nanosecond_timestamp_normalized_to_microseconds(self):
-        ns_ts = pa.array([1_000_000_000, 2_000_000_000], type=pa.timestamp("ns"))
-        arrow_table = pa.table({"ts": ns_ts})
+    @pytest.mark.parametrize("unit", ["ns", "ms", "s"])
+    def test_non_microsecond_timestamp_normalized_to_microseconds(self, unit: Literal["ns", "ms", "s"]):
+        # Delta only accepts microsecond-precision timestamps. "s"/"ms" reach here e.g. when
+        # a Snowflake batch returns zero rows: the connector's empty-table path ignores
+        # `force_microsecond_precision` and falls back to a second-precision schema.
+        ts = pa.array([1_000_000_000, 2_000_000_000], type=pa.timestamp(unit))
+        arrow_table = pa.table({"ts": ts})
         result = evolve_pyarrow_schema(arrow_table, None)
         assert result.schema.field("ts").type == pa.timestamp("us")
 
