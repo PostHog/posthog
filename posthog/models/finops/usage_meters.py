@@ -48,7 +48,13 @@ FINOPS_USAGE_METERS_COLUMNS = """
     resource_id String,
     duration_ms Float64,
     service_name LowCardinality(String),
-    count UInt64
+    count UInt64,
+    cost_unit LowCardinality(String),
+    cost_quantity Float64,
+    team LowCardinality(String),
+    cost_type LowCardinality(String),
+    user_id UInt64,
+    trace_id String
 """.strip()
 
 
@@ -137,6 +143,12 @@ AS SELECT
     resource_id,
     duration_ms,
     service_name,
-    count
+    count,
+    cost_unit,
+    cost_quantity,
+    team,
+    cost_type,
+    user_id,
+    trace_id
 FROM {KAFKA_FINOPS_USAGE_METERS_TABLE}
 """

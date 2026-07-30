@@ -40,7 +40,8 @@ def _wait_for_meter(team_id: int, timeout_seconds: int = 15) -> tuple:
         rows = sync_execute(
             f"""
             SELECT product, team_id, org_id, feature, environment, billable_unit,
-                   quantity, system, workload, resource_id, duration_ms, service_name, count
+                   quantity, system, workload, resource_id, duration_ms, service_name, count,
+                   cost_unit, cost_quantity, team, cost_type, user_id, trace_id
             FROM {FINOPS_USAGE_METERS_TABLE}
             WHERE team_id = %(team_id)s AND billable_unit = 'events'
             """,
@@ -77,7 +78,7 @@ class TestFinopsUsageMetersMV(ClickhouseTestMixin, BaseTest):
         producer = KafkaProducer(bootstrap_servers=settings.KAFKA_PROFILES["default"].hosts)
         meter = {
             "timestamp": TEST_TIMESTAMP,
-            "product": "ingestion",
+            "product": "shared",
             "team_id": TEST_TEAM_ID,
             "org_id": "01890000-0000-0000-0000-000000000000",
             "feature": "",
@@ -90,6 +91,12 @@ class TestFinopsUsageMetersMV(ClickhouseTestMixin, BaseTest):
             "duration_ms": 42.5,
             "service_name": "ingestion",
             "count": 3,
+            "cost_unit": "bytes",
+            "cost_quantity": 48000.0,
+            "team": "ingestion",
+            "cost_type": "cogs",
+            "user_id": 0,
+            "trace_id": "",
         }
         producer.send(topic=KAFKA_CLICKHOUSE_FINOPS_USAGE_METERS, value=json.dumps(meter).encode("utf-8"))
         producer.flush()
@@ -108,9 +115,15 @@ class TestFinopsUsageMetersMV(ClickhouseTestMixin, BaseTest):
             duration_ms,
             service_name,
             count,
+            cost_unit,
+            cost_quantity,
+            team,
+            cost_type,
+            user_id,
+            trace_id,
         ) = _wait_for_meter(TEST_TEAM_ID)
 
-        self.assertEqual(product, "ingestion")
+        self.assertEqual(product, "shared")
         self.assertEqual(team_id, TEST_TEAM_ID)
         self.assertEqual(org_id, "01890000-0000-0000-0000-000000000000")
         self.assertEqual(feature, "")
@@ -123,3 +136,9 @@ class TestFinopsUsageMetersMV(ClickhouseTestMixin, BaseTest):
         self.assertEqual(duration_ms, 42.5)
         self.assertEqual(service_name, "ingestion")
         self.assertEqual(count, 3)
+        self.assertEqual(cost_unit, "bytes")
+        self.assertEqual(cost_quantity, 48000.0)
+        self.assertEqual(team, "ingestion")
+        self.assertEqual(cost_type, "cogs")
+        self.assertEqual(user_id, 0)
+        self.assertEqual(trace_id, "")
