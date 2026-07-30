@@ -382,9 +382,9 @@ class TestRunTaggerWorkflow:
 
         event_data = create_mock_event_data(team.id, properties={})
 
-        with patch("posthog.temporal.ai_observability.run_tagger.Team.objects.get") as mock_team_get:
-            with patch("posthog.temporal.ai_observability.run_tagger.capture_internal") as mock_capture:
-                mock_team_get.return_value = team
+        with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token") as mock_team_get:
+            with patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture:
+                mock_team_get.return_value = team.api_token
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
                 await emit_tagger_event_activity(
@@ -449,8 +449,8 @@ class TestRunTaggerWorkflow:
             tagger=tagger, event_data=event_data, result=result, start_time=datetime(2024, 1, 1, 12, 0, 0)
         )
 
-        with patch("posthog.temporal.ai_observability.run_tagger.Team.objects.get", return_value=team):
-            with patch("posthog.temporal.ai_observability.run_tagger.capture_internal", return_value=capture_result):
+        with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token", return_value=team.api_token):
+            with patch("posthog.temporal.ai_observability.team_capture.capture_internal", return_value=capture_result):
                 if should_raise:
                     with pytest.raises(CaptureInternalError):
                         await emit_tagger_event_activity(inputs)
