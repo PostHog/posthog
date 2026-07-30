@@ -2,7 +2,7 @@ from uuid import uuid4
 
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import ArtifactMessage, AssistantMessage, AssistantToolCallMessage, FailureMessage
+from posthog.schema import ArtifactMessage, ArtifactSource, AssistantMessage, AssistantToolCallMessage, FailureMessage
 
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.context.insight.context import InsightContext
@@ -26,6 +26,7 @@ class QueryExecutorNode(AssistantNode):
         if not content:
             raise ValueError("Content must be a VisualizationArtifactContent")
 
+        is_saved_insight = artifact.source == ArtifactSource.INSIGHT
         try:
             context = InsightContext(
                 team=self._team,
@@ -33,7 +34,8 @@ class QueryExecutorNode(AssistantNode):
                 query=content.query,
                 name=content.name,
                 description=content.description,
-                insight_id=artifact.artifact_id,
+                artifact_id=None if is_saved_insight else artifact.artifact_id,
+                insight_short_id=artifact.artifact_id if is_saved_insight else None,
             )
             formatted_query_result = await context.execute_and_format()
         except MaxToolRetryableError as err:

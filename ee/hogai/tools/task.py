@@ -95,6 +95,8 @@ TASK_ARTIFACTS_PROMPT = """
 The following artifacts have been generated:
 
 {{{artifacts_list}}}
+
+Visualizations listed above are transient: they live only in this conversation, are not saved to the project, and have no URL. Never write a visualization ID as a link such as `/insights/<visualization ID>`, and never tell the user a visualization has been saved.
 """
 
 
@@ -186,7 +188,7 @@ class TaskTool(MaxTool):
                 viz_content = unwrap_visualization_artifact_content(message)
                 if viz_content:
                     artifacts_list_prompt.append(
-                        f"- Insight ID: {message.artifact_id}\nName: {viz_content.name}\nDescription: {viz_content.description}\nQuery: {viz_content.query}"
+                        f"- Visualization ID: {message.artifact_id}\nName: {viz_content.name}\nDescription: {viz_content.description}\nQuery: {viz_content.query}"
                     )
                     continue
                 notebook_content = unwrap_notebook_artifact_content(message)

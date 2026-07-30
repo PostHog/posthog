@@ -20,7 +20,7 @@ class TestInsightContext(BaseTest):
             user=self.user,
             name="Test Insight",
             description="Test Description",
-            insight_id="test_id",
+            artifact_id="test_id",
             insight_model_id=123,
             dashboard_filters={"date_from": "-7d"},
             filters_override={"date_to": "2025-01-01"},
@@ -31,7 +31,7 @@ class TestInsightContext(BaseTest):
         self.assertEqual(context.query, query)
         self.assertEqual(context.name, "Test Insight")
         self.assertEqual(context.description, "Test Description")
-        self.assertEqual(context.insight_id, "test_id")
+        self.assertEqual(context.artifact_id, "test_id")
         self.assertEqual(context.insight_model_id, 123)
         self.assertEqual(context.dashboard_filters, {"date_from": "-7d"})
         self.assertEqual(context.filters_override, {"date_to": "2025-01-01"})
@@ -45,7 +45,7 @@ class TestInsightContext(BaseTest):
         self.assertEqual(context.query, query)
         self.assertIsNone(context.name)
         self.assertIsNone(context.description)
-        self.assertIsNone(context.insight_id)
+        self.assertIsNone(context.artifact_id)
         self.assertIsNone(context.insight_model_id)
         self.assertIsNone(context.dashboard_filters)
         self.assertIsNone(context.filters_override)
@@ -93,7 +93,7 @@ class TestInsightContext(BaseTest):
             user=self.user,
             name="Test Insight",
             description="Test Description",
-            insight_id="test_id",
+            artifact_id="test_id",
             insight_model_id=123,
         )
 
@@ -163,7 +163,7 @@ class TestInsightContext(BaseTest):
             user=self.user,
             name="Test Insight",
             description="Test Description",
-            insight_id="test_id",
+            artifact_id="test_id",
         )
 
         result = await context.format_schema()
@@ -191,6 +191,7 @@ class TestInsightContext(BaseTest):
         result = await context.format_schema()
 
         self.assertNotIn("Insight ID:", result)
+        self.assertNotIn("Visualization ID:", result)
         self.assertNotIn("Description:", result)
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
@@ -269,36 +270,29 @@ class TestInsightContext(BaseTest):
 
         self.assertEqual(context.insight_url, f"/project/{self.team.id}/insights/abc123")
 
+    @parameterized.expand(
+        [
+            ("saved_insight", {"insight_short_id": "xyz789"}),
+            ("transient_artifact", {"artifact_id": "1v9A"}),
+        ]
+    )
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
-    async def test_execute_and_format_includes_insight_url(self, mock_execute):
+    async def test_execute_and_format_distinguishes_saved_insights_from_artifacts(self, _name, kwargs, mock_execute):
         mock_execute.return_value = "Test Results"
 
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
-        context = InsightContext(
-            team=self.team,
-            query=query,
-            user=self.user,
-            name="Test Insight",
-            insight_id="display-id",
-            insight_short_id="xyz789",
-        )
+        context = InsightContext(team=self.team, query=query, user=self.user, name="Test Insight", **kwargs)
 
         result = await context.execute_and_format()
 
-        self.assertIn(f"/project/{self.team.id}/insights/xyz789", result)
-
-    @patch("ee.hogai.context.insight.context.execute_and_format_query")
-    async def test_execute_and_format_shows_fallback_when_no_url(self, mock_execute):
-        mock_execute.return_value = "Test Results"
-
-        query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
-        context = InsightContext(
-            team=self.team,
-            query=query,
-            user=self.user,
-            name="Test Insight",
-        )
-
-        result = await context.execute_and_format()
-
-        self.assertIn("This insight cannot be accessed via a URL.", result)
+        if "insight_short_id" in kwargs:
+            self.assertIn("Insight ID: xyz789", result)
+            self.assertIn(f"Insight URL: /project/{self.team.id}/insights/xyz789", result)
+            self.assertNotIn("Visualization ID:", result)
+            self.assertNotIn("transient", result)
+        else:
+            self.assertIn("Visualization ID: 1v9A", result)
+            self.assertIn("has no URL", result)
+            self.assertIn("Never write it as a link", result)
+            self.assertNotIn("Insight ID:", result)
+            self.assertNotIn("Insight URL:", result)

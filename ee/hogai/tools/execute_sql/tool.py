@@ -151,7 +151,7 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
             query=artifact_query,
             name=viz_title,
             description=viz_description,
-            insight_id=artifact_message.artifact_id,
+            artifact_id=artifact_message.artifact_id,
             user=self._user,
         )
 

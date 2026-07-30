@@ -23,6 +23,10 @@ class InsightContext:
 
     Accepts insight data directly and provides methods to format schema or execute and format results.
     Supports optional dashboard filter/variable overrides before execution.
+
+    A visualization is either a saved insight (pass `insight_short_id`, which yields a linkable URL) or a
+    transient in-conversation artifact (pass `artifact_id`, which is rendered as explicitly not linkable).
+    Never pass an artifact ID as `insight_short_id`, because the URL it builds resolves to nothing.
     """
 
     def __init__(
@@ -33,7 +37,7 @@ class InsightContext:
         user: User,
         name: str | None = None,
         description: str | None = None,
-        insight_id: str | None = None,
+        artifact_id: str | None = None,
         insight_model_id: int | None = None,
         insight_short_id: str | None = None,
         # Optional dashboard filter handling
@@ -46,7 +50,7 @@ class InsightContext:
         self.query = query
         self.name = name
         self.description = description
-        self.insight_id = insight_id
+        self.artifact_id = artifact_id
         self.insight_model_id = insight_model_id
         self.insight_short_id = insight_short_id
         self.dashboard_filters = dashboard_filters
@@ -104,11 +108,11 @@ class InsightContext:
         return format_prompt_string(
             prompt_template,
             insight_name=self.name or "Insight",
-            insight_id=self.insight_id,
+            insight_short_id=self.insight_short_id,
+            artifact_id=self.artifact_id,
             insight_description=self.description,
             query_schema=query_schema,
             results=results,
-            include_url_reminder=self.insight_id is None,
             insight_url=self.insight_url,
         )
 
@@ -119,10 +123,10 @@ class InsightContext:
         return format_prompt_string(
             prompt_template,
             insight_name=self.name,
-            insight_id=self.insight_id,
+            insight_short_id=self.insight_short_id,
+            artifact_id=self.artifact_id,
             insight_description=self.description,
             query_schema=query_schema,
-            include_url_reminder=self.insight_id is None,
             insight_url=self.insight_url,
         )
 

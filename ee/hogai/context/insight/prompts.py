@@ -1,17 +1,20 @@
 INSIGHT_RESULT_TEMPLATE = """
 Name: {{{insight_name}}}
-{{#insight_id}}
-Insight ID: {{{insight_id}}}
-{{/insight_id}}
+{{#insight_short_id}}
+Insight ID: {{{insight_short_id}}}
+{{/insight_short_id}}
+{{#artifact_id}}
+Visualization ID: {{{artifact_id}}}
+{{/artifact_id}}
 {{#insight_description}}
 Description: {{{insight_description}}}
 {{/insight_description}}
 {{#insight_url}}
 Insight URL: {{{insight_url}}}
 {{/insight_url}}
-{{^insight_url}}
-This insight cannot be accessed via a URL.
-{{/insight_url}}
+{{#artifact_id}}
+This visualization is transient: it lives only in this conversation, is not saved to the project, and has no URL. Never write it as a link such as `/insights/{{{artifact_id}}}`, and never tell the user it has been saved. Pass the visualization ID to tools that accept one, such as alerts. If the user wants a permanent, linkable insight, tell them to use the "Open as new insight" icon below the chart.
+{{/artifact_id}}
 {{#query_schema}}
 
 Query schema:
@@ -46,8 +49,7 @@ The current date and time is {{{utc_datetime_display}}} UTC, which is {{{project
 Always add `LIMIT 100` to your queries. The maximum allowed limit is 500 rows. If you need more data, paginate using LIMIT and OFFSET in subsequent queries.
 {{/sql_query}}
 It's expected that the data point for the current period may show a drop in value, as data collection for it is still ongoing. Do not point this out.
-Do not copy the results table as the user sees it in the UI.{{#include_url_reminder}}
-{{/include_url_reminder}}
+Do not copy the results table as the user sees it in the UI.
 {{#has_truncated_values}}
 Some JSON/array values were truncated. You can write a more specific SQL query to explore individual properties or array elements if needed.
 {{/has_truncated_values}}
