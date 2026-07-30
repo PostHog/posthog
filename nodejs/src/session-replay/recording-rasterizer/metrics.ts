@@ -1,4 +1,4 @@
-import { Counter, Gauge, Summary } from 'prom-client'
+import { Counter, Gauge, Histogram, Summary } from 'prom-client'
 
 import { recordActivity, recordError } from './otel-metrics'
 
@@ -6,16 +6,30 @@ const QUANTILES = [0.5, 0.95, 0.99]
 const MAX_AGE_SECONDS = 600
 const AGE_BUCKETS = 5
 
+// Alerting reads errors_total by code; the player relays browser-supplied codes, so clamp
+// anything unexpected to OTHER to keep label cardinality bounded.
+const KNOWN_ERROR_CODES = new Set([
+    'UNKNOWN',
+    'TIMEOUT',
+    'CAPTURE_ABORTED',
+    'BEGINFRAME_DEADLOCK',
+    'INVALID_INPUT',
+    'BLOCK_LISTING_FAILED',
+    'S3_UPLOAD_UNDECODABLE_RESPONSE',
+    'NO_SNAPSHOTS',
+    'INIT_FAILED',
+])
+
 export class RasterizationMetrics {
     // --- Activity timing ---
 
-    private static readonly activityDuration = new Summary({
+    // Histogram, not Summary: the RasterizerHighActivityDuration alert aggregates
+    // _bucket series across pods with histogram_quantile.
+    private static readonly activityDuration = new Histogram({
         name: 'recording_rasterizer_activity_duration_seconds',
         help: 'Total time for the rasterization activity',
         labelNames: ['result'],
-        percentiles: QUANTILES,
-        maxAgeSeconds: MAX_AGE_SECONDS,
-        ageBuckets: AGE_BUCKETS,
+        buckets: [1, 5, 10, 30, 60, 120, 300, 600, 1200, 1800],
     })
 
     private static readonly setupDuration = new Summary({
@@ -112,6 +126,11 @@ export class RasterizationMetrics {
         help: 'Total number of browser instances recycled due to usage limit',
     })
 
+    private static readonly browserCrashesTotal = new Counter({
+        name: 'recording_rasterizer_browser_crashes_total',
+        help: 'Total number of browser instances that disconnected unexpectedly',
+    })
+
     // --- Concurrency ---
 
     private static readonly concurrentActivities = new Gauge({
@@ -150,8 +169,9 @@ export class RasterizationMetrics {
     }
 
     public static incrementError(code: string, retryable: boolean): void {
-        this.errorsTotal.labels({ code, retryable: String(retryable) }).inc()
-        recordError(code, retryable)
+        const clamped = KNOWN_ERROR_CODES.has(code) ? code : 'OTHER'
+        this.errorsTotal.labels({ code: clamped, retryable: String(retryable) }).inc()
+        recordError(clamped, retryable)
     }
 
     public static browserLaunched(): void {
@@ -160,6 +180,17 @@ export class RasterizationMetrics {
 
     public static browserRecycled(): void {
         this.browserRecyclesTotal.inc()
+    }
+
+    public static browserCrashed(): void {
+        this.browserCrashesTotal.inc()
+    }
+
+    // Labeled counters only expose series after the first increment; the
+    // RasterizerMetricsAbsent alert needs activities_total present from pod start.
+    public static initialize(): void {
+        this.activitiesTotal.labels({ result: 'success' }).inc(0)
+        this.activitiesTotal.labels({ result: 'error' }).inc(0)
     }
 
     public static setBrowserCounts(active: number, idle: number): void {

@@ -106,7 +106,8 @@ export async function capturePlayback(
             return
         }
         log.error({ stderr: ffmpegStderr.slice(-20), frames: frameCount }, 'capture stopped unexpectedly')
-        const err = new RasterizationError('capture stopped unexpectedly', true, 'CAPTURE_ABORTED')
+        const code = player.hadBeginFrameDeadlock ? 'BEGINFRAME_DEADLOCK' : 'CAPTURE_ABORTED'
+        const err = new RasterizationError('capture stopped unexpectedly', true, code)
         captureAborted = err
         captureAbortReject?.(err)
     }

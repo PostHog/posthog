@@ -18,6 +18,12 @@ with wf.unsafe.imports_passed_through():
         ["product", "task_queue"],
     )
 
+    RASTERIZATION_FAILED_COUNTER = Counter(
+        "posthog_rasterization_failed",
+        "Rasterization workflow failures by product and task queue",
+        ["product", "task_queue"],
+    )
+
 from .activities import (
     BumpStuckCounterInput,
     build_rasterization_input,
@@ -50,6 +56,8 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
         try:
             result = await self._run(inputs)
         except Exception:
+            if not wf.unsafe.is_replaying():
+                RASTERIZATION_FAILED_COUNTER.labels(product=inputs.product, task_queue=wf.info().task_queue).inc()
             await self._maybe_bump_stuck_counter()
             raise
         await self._maybe_clear_stuck_counter()

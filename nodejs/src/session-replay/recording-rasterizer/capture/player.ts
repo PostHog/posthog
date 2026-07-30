@@ -49,6 +49,10 @@ export class PlayerController {
         return this.capturePage.page
     }
 
+    get hadBeginFrameDeadlock(): boolean {
+        return this.capturePage.beginFrameDeadlock
+    }
+
     private toError(err: { code: string; message: string; retryable: boolean }): RasterizationError {
         return new RasterizationError(`[${err.code}] ${err.message}`, err.retryable, err.code)
     }

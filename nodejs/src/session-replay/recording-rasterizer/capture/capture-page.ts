@@ -33,6 +33,10 @@ export const playerHtmlCache = {
  * optional log forwarding, and frame filtering for puppeteer-capture.
  */
 export class CapturePage {
+    // Set when a beginFrame times out so the abort can be attributed to the
+    // compositor deadlock instead of the generic CAPTURE_ABORTED code.
+    beginFrameDeadlock = false
+
     private constructor(
         readonly page: Page,
         readonly playerUrl: string,
@@ -150,6 +154,7 @@ export class CapturePage {
                         return result
                     } catch (err) {
                         if (timedOut) {
+                            this.beginFrameDeadlock = true
                             log.error({ params }, 'beginFrame timed out, detaching CDP session')
                             try {
                                 await session.detach()
