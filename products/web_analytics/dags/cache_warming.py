@@ -2,10 +2,12 @@ import re
 import gzip
 import json
 import time
+import zlib
 import random
 import threading
 import statistics
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Optional
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -25,7 +27,7 @@ from posthog.dags.common import JobOwners
 from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.query_runner import get_query_runner_or_none
+from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner_or_none
 from posthog.models import Team
 from posthog.models.instance_setting import get_instance_setting
 from posthog.query_cache import QueryCache
@@ -628,6 +630,32 @@ WARMING_SLOW_SHAPE_SECONDS = 15
 WARMING_CAPACITY_RETRIES = 2
 WARMING_CAPACITY_BACKOFF_RANGE_SECONDS = (5.0, 15.0)
 
+# The shape-level staleness threshold is a fixed wall-clock delta, so shapes
+# warmed together go stale together: any bulk pass (a cold drain, a deploy
+# rotating cache hashes) synchronizes the fleet and every later run inherits a
+# multi-hour expiry storm that monopolizes the hourly cadence until phases
+# drift apart on their own. Evaluating staleness with the entry aged by a
+# bounded offset warms each shape a little early — never late, so served
+# freshness is untouched.
+#
+# The offset is seeded with (shape, last_refresh), not the shape alone: the
+# warmer only samples staleness at run ticks, and with a threshold that is a
+# whole number of ticks, every fixed offset below one tick collapses onto the
+# same tick — a synchronized cohort would march in formation forever. Seeding
+# with last_refresh keeps the offset stable between runs within a cycle (no
+# flapping) but re-draws it each time the shape warms, so every cycle each
+# shape independently lands one tick earlier or not — a synchronized cohort
+# decays geometrically instead of persisting. Mean cost is ~30min early on a
+# multi-hour cycle (~+10-15% warms), well inside the sharded pass's headroom.
+WARMING_STALENESS_JITTER_MAX_SECONDS = 3600
+
+
+def _staleness_jitter(normalized_query_hash: object, last_refresh: datetime) -> timedelta:
+    # crc32, not hash(): str hashing is salted per process, and the offset must
+    # be reproducible across runs or it re-randomizes each hour and shapes flap.
+    seed = f"{normalized_query_hash}:{last_refresh.isoformat()}".encode()
+    return timedelta(seconds=zlib.crc32(seed) % WARMING_STALENESS_JITTER_MAX_SECONDS)
+
 
 def _team_still_exists(team_id: int) -> bool:
     # Thin DB boundary so tests can pin the answer: pool worker threads hold their
@@ -815,14 +843,28 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
 
             if cached_data is not None:
                 last_refresh = parse_datetime(cached_data["last_refresh"])
-                if not runner._is_stale(last_refresh):
+                aged_refresh = (
+                    last_refresh - _staleness_jitter(query_info["normalized_query_hash"], last_refresh)
+                    if last_refresh
+                    else None
+                )
+                if not runner._is_stale(aged_refresh):
                     WARMING_QUERIES_COUNTER.labels(outcome="skipped_fresh").inc()
                     return "skipped_fresh"
 
             # TODO: We shouldn't try to run a query if it failed last run
+            # Blocking-always, not the stale-checking default: run() re-checks
+            # staleness internally against the entry's true last_refresh, so a
+            # jitter-early warm would silently return the still-fresh cached
+            # response and the early refresh — the whole point of the jitter —
+            # would never happen. The warmer has already made the staleness
+            # decision above; run() must not second-guess it.
             for attempt in range(WARMING_CAPACITY_RETRIES + 1):
                 try:
-                    runner.run(analytics_props={"source": EventSource.CACHE_WARMING})
+                    runner.run(
+                        execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                        analytics_props={"source": EventSource.CACHE_WARMING},
+                    )
                     break
                 except ClickHouseAtCapacity:
                     query_info["_capacity_retries"] = attempt + 1
