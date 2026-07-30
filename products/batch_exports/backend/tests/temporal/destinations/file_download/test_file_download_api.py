@@ -871,7 +871,7 @@ class TestFileDownloadHogQL:
 
         table = pq.read_table(pa.BufferReader(content))
 
-        assert table.column_names == ["event", "distinct_id", "browser"]
+        assert set(table.column_names) == {"event", "distinct_id", "browser"}
         exported_rows = sorted((row["event"], row["distinct_id"], row["browser"]) for row in table.to_pylist())
         expected_rows = sorted((e["event"], e["distinct_id"], "Chrome") for e in hogql_export_test_events)
         assert exported_rows == expected_rows

@@ -180,6 +180,8 @@ class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
         team = self.context["get_team"]()
         check_hogql_batch_exports_enabled(team)
 
+        # not sure if we need to be this strict but probably best to be explicit
+        # TODO: can remove this once we do support data_interval_start/end
         if data.get("data_interval_start") is not None or data.get("data_interval_end") is not None:
             raise ValidationError(
                 "'data_interval_start' and 'data_interval_end' are not supported when 'model' is 'hogql': "
@@ -212,9 +214,10 @@ class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
         source = None
         if model == "hogql":
             source = BatchExportSource(team_id=team_id, hogql_query=validated_data.pop("hogql_query"))
-            # Foe now, HogQL exports have no data interval: the query runs as of now, and a
-            # concrete now/now interval keeps everything downstream that formats the bounds
-            # (workflow ID, staging paths) working unchanged.
+            # For now, HogQL exports have no data interval: the query runs as of now.
+            # We set a concrete now/now interval to keep everything downstream (eg workflow ID,
+            # staging paths) working unchanged. We should perhaps make the data interval optional in
+            # future.
             data_interval_start = data_interval_end = dt.datetime.now(dt.UTC)
         else:
             data_interval_start = validated_data.pop("data_interval_start")
