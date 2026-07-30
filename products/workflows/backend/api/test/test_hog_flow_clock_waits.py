@@ -26,11 +26,12 @@ def wait_on(hogql: str) -> dict:
 
 
 class TestClockBasedWaitRejection(APIBaseTest):
-    def _post(self, wait: dict) -> object:
-        return self.client.post(
+    def _post(self, wait: dict) -> tuple[int, dict]:
+        response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows",
             {"name": "Test Flow", "status": "active", "actions": [TRIGGER, wait]},
         )
+        return response.status_code, response.json()
 
     @parameterized.expand(
         [
@@ -51,10 +52,10 @@ class TestClockBasedWaitRejection(APIBaseTest):
     def test_rejects_a_wait_that_depends_on_the_clock(self, _name: str, hogql: str):
         # Nothing notifies the matcher when time passes, so these can only advance on a re-check.
         # Each shape has to be caught wherever the clock call sits, not just at the top level.
-        response = self._post(wait_on(hogql))
+        status, body = self._post(wait_on(hogql))
 
-        assert response.status_code == 400, response.json()
-        assert "depends on the current time" in str(response.json())
+        assert status == 400, body
+        assert "depends on the current time" in str(body)
 
     @parameterized.expand(
         [
@@ -66,9 +67,9 @@ class TestClockBasedWaitRejection(APIBaseTest):
     def test_accepts_a_wait_a_stream_can_wake(self, _name: str, hogql: str):
         # The complement, and the part worth guarding: a date comparison is fine as long as both sides
         # are fixed. Rejecting those too would block ordinary conditions and push people off the feature.
-        response = self._post(wait_on(hogql))
+        status, body = self._post(wait_on(hogql))
 
-        assert response.status_code == 201, response.json()
+        assert status == 201, body
 
     def test_accepts_an_events_only_wait(self):
         # No condition to inspect: the wait is woken by its own events entry.
@@ -84,9 +85,9 @@ class TestClockBasedWaitRejection(APIBaseTest):
             },
         }
 
-        response = self._post(wait)
+        status, body = self._post(wait)
 
-        assert response.status_code == 201, response.json()
+        assert status == 201, body
 
     def test_a_draft_from_the_builder_can_still_be_saved(self):
         # Drafts from the web builder stay lenient so a half-built graph saves. The gate applies when
