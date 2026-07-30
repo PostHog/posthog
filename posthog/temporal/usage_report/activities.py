@@ -16,7 +16,9 @@ from django.conf import settings
 import structlog
 from asgiref.sync import sync_to_async
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
+from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.tasks.usage_report import get_instance_metadata
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -71,6 +73,47 @@ SQS_POINTER_VERSION = 2
 # side. Billing opts in by reading from this queue once it's ready.
 SQS_QUEUE_NAME = "usage_reports_v2"
 
+# Bounds for flattening a failed query's exception chain into a plain string.
+# Temporal's exception->failure converter walks `__cause__` recursively, so a
+# deep chain (or a `RecursionError` whose own traversal is already near the
+# limit) makes it die with "Failed building exception result: maximum recursion
+# depth exceeded" — destroying the original exception type, value and query
+# name. We flatten iteratively and re-raise a cause-less ApplicationError so
+# the diagnostic survives serialization.
+MAX_CAUSE_CHAIN_DEPTH = 10
+MAX_ERROR_MESSAGE_CHARS = 2_000
+
+
+def summarize_exception_chain(
+    err: BaseException,
+    *,
+    max_depth: int = MAX_CAUSE_CHAIN_DEPTH,
+    max_chars: int = MAX_ERROR_MESSAGE_CHARS,
+) -> str:
+    """Flatten an exception and its causes into one bounded, printable line.
+
+    Iterative (never recursive) and defensive about `str()` on the exception
+    itself, because the failures this exists for are exactly the ones where
+    recursing over the chain blows the stack.
+    """
+    parts: list[str] = []
+    seen: set[int] = set()
+    current: BaseException | None = err
+
+    while current is not None and id(current) not in seen:
+        if len(parts) >= max_depth:
+            parts.append("... (cause chain truncated)")
+            break
+        seen.add(id(current))
+        try:
+            value = str(current)
+        except Exception:
+            value = "<unprintable>"
+        parts.append(f"{type(current).__name__}: {value}")
+        current = current.__cause__ or current.__context__
+
+    return " | caused by ".join(parts)[:max_chars]
+
 
 @activity.defn(name="run-usage-report-query")
 async def run_query_to_s3(inputs: RunQueryToS3Inputs) -> RunQueryToS3Result:
@@ -80,6 +123,34 @@ async def run_query_to_s3(inputs: RunQueryToS3Inputs) -> RunQueryToS3Result:
     `s3_key` is the only thing that flows back into the workflow (so we stay
     well under Temporal's payload limits).
     """
+    try:
+        return await _run_query_to_s3(inputs)
+    except Exception as err:
+        detail = summarize_exception_chain(err)
+        await logger.aexception(
+            "usage_reports.query.failed",
+            query_name=inputs.query_name,
+            run_id=inputs.ctx.run_id,
+            error=detail,
+        )
+        try:
+            capture_exception(err, additional_properties={"usage_report_query_name": inputs.query_name})
+        except Exception:
+            # Capturing can hit the same recursive-traversal problem; the
+            # message we're about to raise is the diagnostic that matters.
+            pass
+        failure = ApplicationError(
+            f"Usage report query '{inputs.query_name}' failed: {detail}",
+            type="UsageReportQueryError",
+        )
+
+    # Raised outside the `except` block so the original exception isn't
+    # attached as `__context__` either — anything Temporal could recurse over
+    # is already flattened into the message above.
+    raise failure
+
+
+async def _run_query_to_s3(inputs: RunQueryToS3Inputs) -> RunQueryToS3Result:
     async with Heartbeater():
         with ExecutionTimeRecorder(
             USAGE_REPORTS_QUERY_LATENCY,

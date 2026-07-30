@@ -12,9 +12,11 @@ from datetime import datetime
 import pytest
 from unittest.mock import patch
 
+from temporalio.exceptions import ApplicationError
+
 from posthog.storage import object_storage
 from posthog.temporal.usage_report import storage
-from posthog.temporal.usage_report.activities import run_query_to_s3
+from posthog.temporal.usage_report.activities import run_query_to_s3, summarize_exception_chain
 from posthog.temporal.usage_report.queries import QuerySpec
 from posthog.temporal.usage_report.storage import queries_key
 from posthog.temporal.usage_report.types import RunQueryToS3Inputs, WorkflowContext
@@ -123,3 +125,82 @@ async def test_run_query_to_s3_propagates_query_failure(
             )
 
     mock_write.assert_not_called()
+
+
+def test_summarize_exception_chain_flattens_causes() -> None:
+    root = ValueError("root cause")
+    middle = RuntimeError("middle")
+    middle.__cause__ = root
+    top = OSError("top")
+    top.__cause__ = middle
+
+    summary = summarize_exception_chain(top)
+
+    assert summary == "OSError: top | caused by RuntimeError: middle | caused by ValueError: root cause"
+
+
+def test_summarize_exception_chain_bounds_depth_and_length() -> None:
+    """A chain deeper than the cap is truncated rather than walked to the end,
+    which is what makes this safe for the pathological chains that break
+    Temporal's recursive converter.
+    """
+    head = ValueError("level 0")
+    current = head
+    for level in range(1, 100):
+        nxt = ValueError(f"level {level}")
+        current.__cause__ = nxt
+        current = nxt
+
+    summary = summarize_exception_chain(head, max_depth=3)
+
+    assert summary.startswith("ValueError: level 0 | caused by ValueError: level 1")
+    assert "level 3" not in summary
+    assert summary.endswith("... (cause chain truncated)")
+
+    assert len(summarize_exception_chain(ValueError("x" * 5_000), max_chars=100)) == 100
+
+
+def test_summarize_exception_chain_survives_self_referential_chain() -> None:
+    a = ValueError("a")
+    b = ValueError("b")
+    a.__cause__ = b
+    b.__cause__ = a
+
+    assert summarize_exception_chain(a) == "ValueError: a | caused by ValueError: b"
+
+
+@pytest.mark.asyncio
+async def test_run_query_to_s3_failure_keeps_diagnostic_out_of_temporal_recursion(
+    minio_workflow_ctx: WorkflowContext, activity_environment
+) -> None:
+    """The failure the activity raises must carry the original type, value and
+    query name in its message, and must have no `__cause__`/`__context__` for
+    Temporal's converter to recurse over.
+    """
+
+    def boom(begin: datetime, end: datetime) -> None:
+        try:
+            raise RecursionError("maximum recursion depth exceeded")
+        except RecursionError as err:
+            raise RuntimeError("query wrapper failed") from err
+
+    fake_spec = QuerySpec(name="test_recursive_failure", fn=boom)
+
+    with patch.dict(
+        "posthog.temporal.usage_report.activities.QUERY_INDEX",
+        {"test_recursive_failure": fake_spec},
+        clear=False,
+    ):
+        with pytest.raises(ApplicationError) as exc_info:
+            await activity_environment.run(
+                run_query_to_s3,
+                RunQueryToS3Inputs(ctx=minio_workflow_ctx, query_name="test_recursive_failure"),
+            )
+
+    err = exc_info.value
+    message = str(err)
+    assert "test_recursive_failure" in message
+    assert "RuntimeError: query wrapper failed" in message
+    assert "RecursionError: maximum recursion depth exceeded" in message
+    assert err.__cause__ is None
+    assert err.__context__ is None
