@@ -12,6 +12,7 @@ from django.test import override_settings
 import pyarrow as pa
 import deltalake
 import pyarrow.compute as pc
+import botocore.exceptions
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -26,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     _first_per_pk_table,
     _realign_decimal_buffers,
     is_transient_delta_maintenance_error,
+    is_transient_object_store_error,
 )
 
 
@@ -1267,3 +1269,30 @@ class TestIsTransientDeltaMaintenanceError:
     )
     def test_matches_only_the_racy_optimize_scan_signature(self, _name: str, error: Exception, expected: bool):
         assert is_transient_delta_maintenance_error(error) is expected
+
+
+class TestIsTransientObjectStoreError:
+    @parameterized.expand(
+        [
+            (
+                "credential_provider_not_enabled_os_error",
+                OSError(
+                    "Operation not supported: the credential provider was not enabled: "
+                    "no providers in chain provided credentials"
+                ),
+                True,
+            ),
+            ("unrelated_os_error", OSError("Permission denied: bucket policy forbids this operation"), False),
+            (
+                # s3fs/aiobotocore's own credential resolution (distinct from delta-rs's Rust
+                # object_store crate) can raise this bare, unwrapped — same IMDS/STS blip
+                # hitting our own instance-role-authenticated bucket, different client library.
+                "bare_no_credentials_error",
+                botocore.exceptions.NoCredentialsError(),
+                True,
+            ),
+            ("unrelated_exception_type", ValueError("some other unrelated failure"), False),
+        ]
+    )
+    def test_classifies_transient_errors(self, _name: str, error: Exception, expected: bool):
+        assert is_transient_object_store_error(error) is expected
