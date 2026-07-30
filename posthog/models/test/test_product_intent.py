@@ -13,7 +13,6 @@ from posthog.schema import ProductIntentContext, ProductKey
 
 from posthog.models.file_system.user_product_list import UserProductList
 from posthog.models.product_intent.product_intent import (
-    MANAGED_WAREHOUSE_ACTIVATION_CPU_SECONDS,
     ProductIntent,
     _fetch_product_intents,
     _team_product_intents_cache_key,
@@ -40,9 +39,6 @@ class TestProductIntent(BaseTest):
         # Joining the org seeds the fixed default product set; these tests assert on
         # product-intent-driven rows, so start from a clean slate.
         UserProductList.objects.filter(user=self.user, team=self.team).delete()
-        # The managed warehouse activation check debounces via the cache; clear it so the
-        # per-team key from one test can't suppress the ClickHouse check in the next.
-        cache.clear()
         self.product_intent = ProductIntent.objects.create(team=self.team, product_type=ProductKey.DATA_WAREHOUSE)
 
     def test_str_representation(self):
@@ -380,12 +376,11 @@ class TestProductIntent(BaseTest):
         )
 
     @freeze_time("2024-01-01T12:00:00Z")
-    @patch("posthog.models.product_intent.product_intent.get_managed_warehouse_compute_usage", return_value=0.0)
     @patch("posthog.event_usage.report_user_action")
-    def test_register_managed_warehouse_intent(self, mock_report_user_action, mock_compute_usage):
+    def test_register_managed_warehouse_intent(self, mock_report_user_action):
         # Managed warehouse is a distinct product from data_warehouse imports. Provisioning is the
-        # intent; activation requires compute usage above a threshold within 30 days, which cannot
-        # be true at intent time (usage only accrues after provisioning), so it never auto-activates here.
+        # intent; there is no activation criterion yet (it depends on a per-org usage signal that
+        # isn't available in production), so registering intent never auto-activates.
         ProductIntent.register(
             team=self.team,
             product_type=ProductKey.MANAGED_WAREHOUSE,
@@ -413,62 +408,6 @@ class TestProductIntent(BaseTest):
             },
             team=self.team,
         )
-
-    @parameterized.expand(
-        [
-            ("zero", 0.0, False),
-            ("below_threshold", float(MANAGED_WAREHOUSE_ACTIVATION_CPU_SECONDS - 1), False),
-            ("at_threshold", float(MANAGED_WAREHOUSE_ACTIVATION_CPU_SECONDS), True),
-            ("above_threshold", float(MANAGED_WAREHOUSE_ACTIVATION_CPU_SECONDS * 2), True),
-        ]
-    )
-    @patch("posthog.models.product_intent.product_intent.get_managed_warehouse_compute_usage")
-    def test_has_activated_managed_warehouse(self, _name, usage, expected, mock_compute_usage):
-        mock_compute_usage.return_value = usage
-        EventDefinition.objects.create(team=self.team, name="managed warehouse compute usage")
-        intent = ProductIntent.objects.create(team=self.team, product_type=ProductKey.MANAGED_WAREHOUSE)
-        assert intent.has_activated_managed_warehouse() is expected
-
-    @freeze_time("2024-01-01T12:00:00Z")
-    @patch("posthog.models.product_intent.product_intent.get_managed_warehouse_compute_usage", return_value=0.0)
-    def test_managed_warehouse_activation_uses_30_day_window(self, mock_compute_usage):
-        # Usage is only counted within 30 days of the intent, so the compute lookup must be
-        # bounded to [created_at, created_at + 30 days).
-        EventDefinition.objects.create(team=self.team, name="managed warehouse compute usage")
-        intent = ProductIntent.objects.create(team=self.team, product_type=ProductKey.MANAGED_WAREHOUSE)
-        assert intent.has_activated_managed_warehouse() is False
-        mock_compute_usage.assert_called_once_with(
-            self.team.id,
-            datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
-            datetime(2024, 1, 31, 12, 0, 0, tzinfo=UTC),
-        )
-
-    @patch("posthog.models.product_intent.product_intent.get_managed_warehouse_compute_usage")
-    def test_managed_warehouse_activation_skips_clickhouse_without_usage_event(self, mock_compute_usage):
-        # A team that never emitted the compute-usage heartbeat must not trigger a ClickHouse query.
-        intent = ProductIntent.objects.create(team=self.team, product_type=ProductKey.MANAGED_WAREHOUSE)
-        assert intent.has_activated_managed_warehouse() is False
-        mock_compute_usage.assert_not_called()
-
-    @patch("posthog.models.product_intent.product_intent.get_managed_warehouse_compute_usage")
-    def test_managed_warehouse_activation_skips_clickhouse_after_window(self, mock_compute_usage):
-        # Once the 30-day window has closed, activation is impossible, so no ClickHouse query runs.
-        EventDefinition.objects.create(team=self.team, name="managed warehouse compute usage")
-        with freeze_time("2024-01-01T12:00:00Z"):
-            intent = ProductIntent.objects.create(team=self.team, product_type=ProductKey.MANAGED_WAREHOUSE)
-        with freeze_time("2024-03-01T12:00:00Z"):
-            assert intent.has_activated_managed_warehouse() is False
-        mock_compute_usage.assert_not_called()
-
-    @patch("posthog.models.product_intent.product_intent.get_managed_warehouse_compute_usage", return_value=0.0)
-    def test_managed_warehouse_activation_query_is_debounced(self, mock_compute_usage):
-        # register() runs this check synchronously on every intent PATCH, so repeated calls must
-        # not each hit ClickHouse — the per-team cache TTL collapses them to one query.
-        EventDefinition.objects.create(team=self.team, name="managed warehouse compute usage")
-        intent = ProductIntent.objects.create(team=self.team, product_type=ProductKey.MANAGED_WAREHOUSE)
-        assert intent.has_activated_managed_warehouse() is False
-        assert intent.has_activated_managed_warehouse() is False
-        mock_compute_usage.assert_called_once()
 
     def test_has_activated_product_analytics_with_all_criteria(self):
         self.product_intent.product_type = ProductKey.PRODUCT_ANALYTICS

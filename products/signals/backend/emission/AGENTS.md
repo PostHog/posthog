@@ -1,12 +1,10 @@
 # Signal emission pipeline
 
-Emits Signals from various sources — both external data imports (Zendesk tickets, GitHub issues, etc.)
-and internal products (Conversations tickets) — to surface actionable product feedback.
+Emits Signals from various sources — both external data imports (Zendesk tickets, GitHub issues, etc.) and internal products (Conversations tickets) — to surface actionable product feedback.
 
 ## How emitted signals are used
 
-Each emitted signal is sent to the Signals workflow (`products/signals/backend/api.py:emit_signal`)
-where its `description` is embedded for semantic search.
+Each emitted signal is sent to the Signals workflow (`products/signals/backend/api.py:emit_signal`) where its `description` is embedded for semantic search.
 Signals from different sources and types are then combined into signal groups and processed into signal reports to help users find issues with their products.
 
 This means the `description` field must be written for embedding quality:
@@ -29,8 +27,7 @@ The core signal pipeline (`products/signals/backend/emission/pipeline.py`) is so
 
 `products/signals/backend/emission/registry.py` maps `(source_type, schema_name)` pairs to their config.
 All emitters are auto-registered at module load time.
-The registry key is a plain string pair — external sources use `ExternalDataSourceType` values (e.g., `"Zendesk"`),
-internal sources use their own identifiers (e.g., `"conversations"`).
+The registry key is a plain string pair — external sources use `ExternalDataSourceType` values (e.g., `"Zendesk"`), internal sources use their own identifiers (e.g., `"conversations"`).
 
 ### Record fetchers
 
@@ -45,24 +42,19 @@ Each source defines how to fetch records via its `record_fetcher` on the config:
 
 Triggered by the data import workflow:
 
-1. **Parent workflow** (`products/warehouse_sources/backend/temporal/data_imports/external_data_job.py`) finishes importing data,
-   then spawns the emit-signals child workflow if emission is enabled for the source.
-2. **Child workflow** (`products/warehouse_sources/backend/temporal/data_imports/workflow_activities/emit_signals.py`) runs the activity that
-   calls `config.record_fetcher` then the shared pipeline.
+1. **Parent workflow** (`products/warehouse_sources/backend/temporal/data_imports/external_data_job.py`) finishes importing data, then spawns the emit-signals child workflow if emission is enabled for the source.
+2. **Child workflow** (`products/warehouse_sources/backend/temporal/data_imports/workflow_activities/emit_signals.py`) runs the activity that calls `config.record_fetcher` then the shared pipeline.
 
 ### Conversations source
 
 Triggered by a Temporal schedule (hourly):
 
-1. **Coordinator workflow** (`conversations_coordinator.py`) queries teams with conversations signals enabled
-   and spawns per-team child workflows (batched, ~50 concurrent).
-2. **Per-team workflow** runs the activity that fetches eligible tickets (>1 hour old, not resolved,
-   not yet emitted) with their full message threads, then runs the shared pipeline.
+1. **Coordinator workflow** (`conversations_coordinator.py`) queries teams with conversations signals enabled and spawns per-team child workflows (batched, ~50 concurrent).
+2. **Per-team workflow** runs the activity that fetches eligible tickets (>1 hour old, not resolved, not yet emitted) with their full message threads, then runs the shared pipeline.
 
 ### Gating
 
-All sources are gated behind AI consent (`organization.is_ai_data_processing_approved`)
-and a `SignalSourceConfig` row with `enabled=True` for the matching `source_product`/`source_type`.
+All sources are gated behind AI consent (`organization.is_ai_data_processing_approved`) and a `SignalSourceConfig` row with `enabled=True` for the matching `source_product`/`source_type`.
 Users enable sources via the Inbox Sources modal.
 
 ## Adding a new source
@@ -70,30 +62,21 @@ Users enable sources via the Inbox Sources modal.
 1. **Create the emitter module** — add a file in this directory (e.g., `jira_issues.py`).
    Follow existing emitters (`zendesk_tickets.py`, `github_issues.py`, `conversations_tickets.py`) for the pattern:
    define which fields to query,
-   write a pure emitter function that transforms a record dict into a signal output (or `None` if data is insufficient),
-   define a `record_fetcher` (use `data_warehouse_record_fetcher` for warehouse sources, or write a new fetcher for other sources),
-   optionally define an LLM actionability prompt and/or a summarization prompt with threshold,
-   and export the final config as a module-level constant.
-   **Avoid querying PII fields** (user IDs, email addresses, names, organization IDs, etc.)
-   unless they are strictly required to locate the entity in the source system later.
+   write a pure emitter function that transforms a record dict into a signal output (or `None` if data is insufficient), define a `record_fetcher` (use `data_warehouse_record_fetcher` for warehouse sources, or write a new fetcher for other sources), optionally define an LLM actionability prompt and/or a summarization prompt with threshold, and export the final config as a module-level constant.
+   **Avoid querying PII fields** (user IDs, email addresses, names, organization IDs, etc.) unless they are strictly required to locate the entity in the source system later.
    Prefer opaque record IDs and URLs over fields that identify people or organizations.
 2. **Register in `registry.py`** — import the config and add it inside `_register_all_emitters()`.
    For external sources, use the `ExternalDataSourceType` value as the source type.
    For internal sources, use a descriptive string identifier.
-3. **Write tests in `tests/`** — emitter tests (`test_<source>.py`) covering valid records,
-   missing/empty required fields (parameterized), and extra field extraction.
+3. **Write tests in `tests/`** — emitter tests (`test_<source>.py`) covering valid records, missing/empty required fields (parameterized), and extra field extraction.
    Add a realistic mock record and pytest fixture in `tests/conftest.py`.
 
 Run tests: `pytest products/signals/backend/emission/tests/`
 
 ## Local testing with fixtures
 
-To exercise the full pipeline (emitter → summarization → actionability → `emit_signal`)
-without running a real data import or populating a warehouse table,
-use the `emit_signals_from_fixture` management command.
-It loads sanitized fixture records from `products/signals/eval/fixtures/`
-and feeds them straight into `run_signal_pipeline`,
-bypassing `data_warehouse_record_fetcher` entirely.
+To exercise the full pipeline (emitter → summarization → actionability → `emit_signal`) without running a real data import or populating a warehouse table, use the `emit_signals_from_fixture` management command.
+It loads sanitized fixture records from `products/signals/eval/fixtures/` and feeds them straight into `run_signal_pipeline`, bypassing `data_warehouse_record_fetcher` entirely.
 
 ```bash
 # Smoke test with 1-2 records (cheap, ~1-2 LLM calls per record)
@@ -112,5 +95,4 @@ The command requires `DEBUG=True` and is intended for local iteration only.
 
 ## Maintaining this file
 
-If the pipeline architecture, registry pattern, or conventions change significantly,
-update this AGENTS.md to reflect the new reality.
+If the pipeline architecture, registry pattern, or conventions change significantly, update this AGENTS.md to reflect the new reality.

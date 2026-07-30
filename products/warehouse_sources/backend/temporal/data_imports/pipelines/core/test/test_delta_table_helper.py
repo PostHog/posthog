@@ -1,0 +1,1373 @@
+import json
+from datetime import UTC, datetime
+from decimal import Decimal
+from pathlib import Path
+from typing import Any, cast
+
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.test import override_settings
+
+import pyarrow as pa
+import deltalake
+import pyarrow.compute as pc
+import botocore.exceptions
+from parameterized import parameterized
+
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    SchemaColumnTypeChangedException,
+    evolve_pyarrow_schema,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
+    DELTA_MERGE_CONFLICT_RETRIES,
+    DeltaTableHelper,
+    _delta_merge_spill_kwargs,
+    _first_per_pk_table,
+    _merge_predicate_ops,
+    _realign_decimal_buffers,
+    is_transient_delta_maintenance_error,
+    is_transient_object_store_error,
+)
+
+
+def _decimal_array(values: list, *, precision: int = 10, scale: int = 2, misaligned: bool) -> pa.Array:
+    """Build a Decimal128 array. When `misaligned`, its data buffer is 8-byte but NOT
+    16-byte aligned — the exact FFI case delta-rs (arrow-rs) aborts the worker on.
+
+    pyarrow's allocator always returns 64-byte-aligned memory, so the only way to
+    reproduce the bad case is to over-allocate and slice off 8 bytes, mimicking what
+    arrives across the Arrow C Data Interface from polars / external producers.
+    """
+    aligned = pa.array(values, type=pa.decimal128(precision, scale))
+    if not misaligned:
+        return aligned
+
+    data_buffer = aligned.buffers()[1]
+    assert data_buffer is not None
+    padded = pa.allocate_buffer(data_buffer.size + 16)
+    memoryview(padded)[8 : 8 + data_buffer.size] = memoryview(data_buffer)
+    misaligned_buffer = padded.slice(8, data_buffer.size)
+    assert misaligned_buffer.address % 16 == 8
+    # The validity buffer is legitimately None here (no nulls).
+    buffers: list[pa.Buffer | None] = [None, misaligned_buffer]
+    return pa.Array.from_buffers(pa.decimal128(precision, scale), len(values), buffers)
+
+
+def _table_is_misaligned(table: pa.Table) -> bool:
+    return any(
+        pa.types.is_decimal(table.field(i).type)
+        and any((b := chunk.buffers()[1]) is not None and b.address % 16 for chunk in table.column(i).chunks)
+        for i in range(table.num_columns)
+    )
+
+
+def _make_logger():
+    logger = MagicMock()
+    logger.adebug = AsyncMock()
+    logger.ainfo = AsyncMock()
+    logger.awarning = AsyncMock()
+    logger.aerror = AsyncMock()
+    return logger
+
+
+@pytest.fixture
+def helper():
+    return DeltaTableHelper(resource_name="test_resource", job=MagicMock(), logger=_make_logger())
+
+
+_COMMIT_LAYOUT_CASES: list[tuple[str, list[dict], dict, bool]] = [
+    # nested dict layout (older delta-rs / fallback form)
+    (
+        "nested_dict_exact_match",
+        [{"userMetadata": {"run_uuid": "abc", "batch_index": "0"}}],
+        {"run_uuid": "abc", "batch_index": "0"},
+        True,
+    ),
+    # delta-rs 1.x flat layout: custom_metadata entries inlined onto the commit dict
+    (
+        "flat_inlined_exact_match",
+        [{"operation": "WRITE", "timestamp": 1, "run_uuid": "abc", "batch_index": "0", "version": 1}],
+        {"run_uuid": "abc", "batch_index": "0"},
+        True,
+    ),
+    (
+        "flat_missing_one_required_key",
+        [{"operation": "WRITE", "run_uuid": "abc", "version": 1}],
+        {"run_uuid": "abc", "batch_index": "0"},
+        False,
+    ),
+    # nested JSON-string layout (some delta-rs versions serialize userMetadata as JSON)
+    (
+        "nested_json_string_exact_match",
+        [{"userMetadata": json.dumps({"run_uuid": "abc", "batch_index": "0"})}],
+        {"run_uuid": "abc", "batch_index": "0"},
+        True,
+    ),
+    # match is a subset of the metadata — should still match
+    (
+        "match_is_subset",
+        [{"userMetadata": {"run_uuid": "abc", "batch_index": "0", "extra": "field"}}],
+        {"run_uuid": "abc"},
+        True,
+    ),
+    # multiple commits, none matching
+    (
+        "no_match_in_history",
+        [
+            {"userMetadata": {"run_uuid": "other", "batch_index": "9"}},
+            {"userMetadata": {"run_uuid": "abc", "batch_index": "1"}},
+        ],
+        {"run_uuid": "abc", "batch_index": "0"},
+        False,
+    ),
+    # commits without any custom metadata at all
+    (
+        "no_metadata_on_any_commit",
+        [{"operation": "WRITE"}, {}],
+        {"run_uuid": "abc"},
+        False,
+    ),
+    # one commit has invalid JSON userMetadata, the next is a valid match — still found
+    (
+        "invalid_json_string_skipped_then_match",
+        [
+            {"userMetadata": "not-valid-json{"},
+            {"userMetadata": {"run_uuid": "abc"}},
+        ],
+        {"run_uuid": "abc"},
+        True,
+    ),
+]
+
+
+class TestStorageOptionsCommitSafety:
+    # Re-adding AWS_S3_ALLOW_UNSAFE_RENAME unconditionally would silently restore
+    # the legacy rename backend, which has no commit-conflict detection.
+    @parameterized.expand(
+        [
+            ("production_default_safe", False, False),
+            ("production_rollback_escape_hatch", False, True),
+            ("local_default_safe", True, False),
+        ]
+    )
+    def test_conditional_put_on_unsafe_rename_gated(
+        self, _case: str, use_local_setup: bool, allow_unsafe: bool
+    ) -> None:
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+
+        with (
+            override_settings(
+                USE_LOCAL_SETUP=use_local_setup,
+                DATA_WAREHOUSE_DELTA_S3_ALLOW_UNSAFE_RENAME=allow_unsafe,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper.ensure_bucket_exists"
+            ),
+        ):
+            options = helper.get_storage_options()
+
+        assert options["conditional_put"] == "etag"
+        assert ("AWS_S3_ALLOW_UNSAFE_RENAME" in options) is allow_unsafe
+
+
+class TestDeltaMergeSpillKwargs:
+    # Guards the wiring from settings → delta-rs merge kwargs. A silent break here (renamed setting,
+    # dropped forwarding, or emitting a None kwarg) stops merges spilling to disk and OOMs return.
+    @parameterized.expand(
+        [
+            ("both_unset", None, None, {}),
+            ("only_spill", 6_442_450_944, None, {"max_spill_size": 6_442_450_944}),
+            ("only_temp_dir", None, 51_539_607_552, {"max_temp_directory_size": 51_539_607_552}),
+            (
+                "both_set",
+                6_442_450_944,
+                51_539_607_552,
+                {"max_spill_size": 6_442_450_944, "max_temp_directory_size": 51_539_607_552},
+            ),
+        ]
+    )
+    def test_kwargs_from_settings(
+        self, _case: str, spill: int | None, temp_dir: int | None, expected: dict[str, int]
+    ) -> None:
+        with override_settings(
+            DATA_WAREHOUSE_DELTA_MERGE_MAX_SPILL_SIZE_BYTES=spill,
+            DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES=temp_dir,
+        ):
+            assert _delta_merge_spill_kwargs() == expected
+
+
+class TestHasCommitWithMetadata:
+    @pytest.mark.asyncio
+    async def test_returns_false_when_no_delta_table(self, helper: DeltaTableHelper):
+        with patch.object(helper, "get_delta_table", AsyncMock(return_value=None)):
+            assert await helper.has_commit_with_metadata({"run_uuid": "abc", "batch_index": "0"}) is False
+
+    @parameterized.expand(
+        [(name, history, match, expected) for (name, history, match, expected) in _COMMIT_LAYOUT_CASES]
+    )
+    @pytest.mark.asyncio
+    async def test_layout(self, _name: str, history: list[dict], match: dict, expected: bool):
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        mock_delta = MagicMock()
+        mock_delta.history = MagicMock(return_value=history)
+
+        with patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)):
+            assert await helper.has_commit_with_metadata(match) is expected
+
+    @pytest.mark.asyncio
+    async def test_scan_limit_passed_to_history(self, helper: DeltaTableHelper):
+        mock_delta = MagicMock()
+        mock_delta.history = MagicMock(return_value=[])
+
+        with patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)):
+            await helper.has_commit_with_metadata({"k": "v"}, scan_limit=123)
+
+        mock_delta.history.assert_called_once_with(limit=123)
+
+
+class TestHasBatchBeenCommitted:
+    @parameterized.expand(
+        [
+            ("string_run_uuid_int_batch", "run-123", 5, True),
+            ("zero_batch_index", "run-1", 0, False),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_wraps_has_commit_with_metadata(
+        self, _name: str, run_uuid: str, batch_index: int, mocked_return: bool
+    ):
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        with patch.object(helper, "has_commit_with_metadata", AsyncMock(return_value=mocked_return)) as m:
+            result = await helper.has_batch_been_committed(run_uuid, batch_index)
+
+            assert result is mocked_return
+            m.assert_called_once_with({"run_uuid": run_uuid, "batch_index": str(batch_index)})
+
+
+class TestCompactIfFragmented:
+    """Pre-write defensive compaction fires on files-per-partition OR total-files threshold."""
+
+    @pytest.mark.asyncio
+    async def test_skips_when_no_delta_table(self, helper: DeltaTableHelper):
+        with patch.object(helper, "get_delta_table", AsyncMock(return_value=None)):
+            ran = await helper.compact_if_fragmented(partition_count=10)
+        assert ran is False
+
+    # (case_name, file_count, partition_count, threshold_kw, expected_ran)
+    # threshold_kw=None means "use default threshold" — exercises the prod path.
+    _THRESHOLD_CASES: list[tuple[str, int, int | None, int | None, bool]] = [
+        # 100 / 10 = 10 fpp, well below default 200 -> skip
+        ("below_default_threshold", 100, 10, None, False),
+        # 5,000 / 10 = 500 fpp, well above default 200 -> fire
+        ("above_default_threshold", 5_000, 10, None, True),
+        # partition_count=None on an unpartitioned layout derives 1 partition; 250 fpp >> 200 -> fire
+        ("unpartitioned_above_default", 250, None, None, True),
+        # Custom threshold: 100 / 10 = 10 fpp, threshold=5 -> fire
+        ("custom_threshold_fires", 100, 10, 5, True),
+        # Boundary: exactly at threshold -> `>` not `>=`, so skip
+        ("exactly_at_default_threshold", 2_000, 10, None, False),
+        # Total-files backstop: 6,000 / 100 = 60 fpp (under the per-partition bar) but
+        # total 6,000 > 5,000 default total threshold -> fire. Guards high-partition tables.
+        ("total_cap_fires_under_per_partition", 6_000, 100, None, True),
+        # Under both bars: 4,000 / 100 = 40 fpp and total 4,000 < 5,000 -> skip.
+        ("below_both_thresholds", 4_000, 100, None, False),
+    ]
+
+    @parameterized.expand(_THRESHOLD_CASES)
+    @pytest.mark.asyncio
+    async def test_threshold(
+        self,
+        _name: str,
+        file_count: int,
+        partition_count: int | None,
+        threshold_kw: int | None,
+        expected_ran: bool,
+    ):
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        file_uris = [f"s3://bucket/table/f{i}.parquet" for i in range(file_count)]
+        mock_delta = MagicMock()
+        mock_delta.file_uris = MagicMock(return_value=file_uris)
+        with (
+            patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)),
+            patch.object(helper, "_compact", AsyncMock()) as mock_compact,
+            patch.object(helper, "_vacuum", AsyncMock()) as mock_vacuum,
+        ):
+            kwargs: dict = {"partition_count": partition_count}
+            if threshold_kw is not None:
+                kwargs["threshold"] = threshold_kw
+            ran = await helper.compact_if_fragmented(**kwargs)
+
+        assert ran is expected_ran
+        if expected_ran:
+            mock_compact.assert_called_once_with(mock_delta)
+            mock_vacuum.assert_called_once_with(mock_delta)
+        else:
+            mock_compact.assert_not_called()
+            mock_vacuum.assert_not_called()
+
+    # (case_name, files_per_dir, dir_count, expected_ran)
+    _DERIVATION_CASES: list[tuple[str, int, int, bool]] = [
+        # 300 files / 3 derived partitions = 100 fpp < 200 and total < 5,000 -> skip.
+        # Before derivation, None meant 1 partition (300 fpp) and this healthy table
+        # compacted on every run.
+        ("healthy_partitioned_table_skips", 100, 3, False),
+        # Genuinely fragmented per partition: 750/3 = 250 fpp > 200 -> still fires.
+        ("fragmented_partitioned_table_fires", 250, 3, True),
+    ]
+
+    @parameterized.expand(_DERIVATION_CASES)
+    @pytest.mark.asyncio
+    async def test_partition_count_derived_from_layout(
+        self, _name: str, files_per_dir: int, dir_count: int, expected_ran: bool
+    ):
+        # Only md5 partitioning persists a partition_count; datetime/numerical schemas pass
+        # None. The count must come from the layout or every >200-file partitioned table
+        # would defensively compact at the start of every sync run.
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        file_uris = [
+            f"s3://bucket/table/_ph_partition_key={d}/f{i}.parquet"
+            for d in range(dir_count)
+            for i in range(files_per_dir)
+        ]
+        mock_delta = MagicMock()
+        mock_delta.file_uris = MagicMock(return_value=file_uris)
+        with (
+            patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)),
+            patch.object(helper, "_compact", AsyncMock()) as mock_compact,
+            patch.object(helper, "_vacuum", AsyncMock()) as mock_vacuum,
+        ):
+            ran = await helper.compact_if_fragmented(partition_count=None)
+
+        assert ran is expected_ran
+        if expected_ran:
+            mock_compact.assert_called_once_with(mock_delta)
+            mock_vacuum.assert_called_once_with(mock_delta)
+        else:
+            mock_compact.assert_not_called()
+            mock_vacuum.assert_not_called()
+
+
+class TestCompactTable:
+    @pytest.mark.asyncio
+    async def test_does_not_refetch_table_for_the_vacuum_step(self, helper: DeltaTableHelper):
+        # Regression: compact_table used to finish its own compact, then call vacuum_table(),
+        # which called get_delta_table() again instead of reusing the table already in hand.
+        # get_delta_table() is cached only opportunistically (a concurrent sync of a different
+        # table can evict this table's cache entry), so that second call could come back None
+        # and raise "Deltatable not found" right after a successful compact. Asserting a single
+        # get_delta_table() call locks in that the vacuum step reuses the resolved table instead
+        # of re-deriving it.
+        mock_delta = MagicMock()
+        mock_delta.optimize.compact = MagicMock(return_value={})
+        mock_delta.vacuum = MagicMock(return_value=[])
+        with patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)) as mock_get:
+            await helper.compact_table()
+
+        mock_get.assert_called_once()
+        mock_delta.optimize.compact.assert_called_once()
+        mock_delta.vacuum.assert_called_once()
+
+
+class TestGetDeltaTableUnrecoverableErrors:
+    # (case_name, error_message, expect_heal) — heal = wipe the table and fall back to first-sync mode
+    _ERROR_CASES: list[tuple[str, str, bool]] = [
+        (
+            "orphaned_delta_log",
+            "Kernel error: No table metadata or protocol found in delta log.",
+            True,
+        ),
+        ("bugged_decimal_data", "parse decimal overflow at column x", True),
+        ("other_errors_reraise", "Generic DeltaTable error: something else went wrong", False),
+    ]
+
+    @parameterized.expand(_ERROR_CASES)
+    @pytest.mark.asyncio
+    async def test_open_failure_handling(self, _name: str, error_message: str, expect_heal: bool):
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        delta_uri = "s3://bucket/team_id/job_id/t"
+
+        s3 = MagicMock()
+        s3._rm = AsyncMock()
+        s3_cm = MagicMock()
+        s3_cm.__aenter__ = AsyncMock(return_value=s3)
+        s3_cm.__aexit__ = AsyncMock(return_value=False)
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper"
+        with (
+            patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value=delta_uri)),
+            patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
+            patch(f"{module}.aget_s3_client", MagicMock(return_value=s3_cm)),
+            patch(f"{module}.capture_exception"),
+        ):
+            mock_delta_table.is_deltatable.return_value = True
+            mock_delta_table.side_effect = Exception(error_message)
+
+            if expect_heal:
+                result = await helper.get_delta_table()
+                assert result is None
+                assert helper.is_first_sync is True
+                s3._rm.assert_awaited_once_with(delta_uri, recursive=True)
+            else:
+                with pytest.raises(Exception, match="something else went wrong"):
+                    await helper.get_delta_table()
+                s3._rm.assert_not_awaited()
+                assert helper.is_first_sync is False
+
+    @pytest.mark.asyncio
+    async def test_is_deltatable_failure_is_captured_and_reraised(self):
+        """The `is_deltatable` existence check is a separate S3 call from the DeltaTable() open
+        handled above, and callers span best-effort maintenance to the main write path, so a
+        failure here can't be swallowed as "no table" (that would trip should_overwrite_table and
+        wipe an existing table) — it must be captured for visibility and reraised."""
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        delta_uri = "s3://bucket/team_id/job_id/t"
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper"
+        with (
+            patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value=delta_uri)),
+            patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
+            patch(f"{module}.capture_exception") as mock_capture,
+        ):
+            mock_delta_table.is_deltatable.side_effect = OSError("Access Denied: not authorized to list bucket")
+
+            with pytest.raises(OSError, match="Access Denied"):
+                await helper.get_delta_table()
+
+            mock_capture.assert_called_once()
+            assert helper.is_first_sync is False
+
+    @pytest.mark.asyncio
+    async def test_is_deltatable_transient_error_is_not_captured_but_still_reraised(self):
+        """A known-transient object-store blip (e.g. an S3 LIST request timing out) must not be
+        reported to error tracking as a defect — it's a self-recovering network hiccup, not a bug —
+        but it must still propagate so Temporal's activity retry policy retries the sync."""
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        delta_uri = "s3://bucket/team_id/job_id/t"
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper"
+        with (
+            patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value=delta_uri)),
+            patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
+            patch(f"{module}.capture_exception") as mock_capture,
+        ):
+            mock_delta_table.is_deltatable.side_effect = OSError(
+                "Generic S3 error\nError getting list response body\nHTTP error\n"
+                "request or response body error\noperation timed out"
+            )
+
+            with pytest.raises(OSError, match="operation timed out"):
+                await helper.get_delta_table()
+
+            mock_capture.assert_not_called()
+            cast(AsyncMock, helper._logger.awarning).assert_awaited_once()
+            assert helper.is_first_sync is False
+
+
+class TestWriteToDeltalakeCommitMetadataPassThrough:
+    """Covers that commit_metadata is forwarded to deltalake.write_deltalake as CommitProperties."""
+
+    @parameterized.expand(
+        [
+            ("no_metadata", None, None),
+            ("with_metadata", {"run_uuid": "abc", "batch_index": "2"}, {"run_uuid": "abc", "batch_index": "2"}),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_full_refresh_passes_commit_properties(
+        self,
+        _name: str,
+        commit_metadata: dict[str, str] | None,
+        expected_custom_metadata: dict[str, str] | None,
+    ):
+        import pyarrow as pa
+
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        data = pa.table({"id": [1, 2, 3]})
+        mock_delta = MagicMock()
+        mock_delta.schema = MagicMock(return_value=MagicMock(to_arrow=MagicMock(return_value=data.schema)))
+
+        with (
+            patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)),
+            patch.object(helper, "_evolve_delta_schema", AsyncMock(return_value=mock_delta)),
+            patch("deltalake.write_deltalake") as mock_write,
+        ):
+            await helper.write_to_deltalake(
+                data=data,
+                write_type="full_refresh",
+                should_overwrite_table=False,
+                primary_keys=None,
+                commit_metadata=commit_metadata,
+            )
+
+            assert mock_write.called
+            _, kwargs = mock_write.call_args
+            commit_properties = kwargs["commit_properties"]
+            if expected_custom_metadata is None:
+                assert commit_properties is None
+            else:
+                assert isinstance(commit_properties, deltalake.CommitProperties)
+                assert commit_properties.custom_metadata == expected_custom_metadata
+
+
+class TestExecuteWithConflictRetry:
+    """A committing operation's CommitFailedError means delta-rs's conflict checker rejected the
+    commit outright, without spending any of its own internal retry budget (see the comment on
+    DELTA_MERGE_CONFLICT_RETRIES). Regression coverage for the sync dying on the first such
+    conflict instead of refreshing the table and re-running the operation, as the error's own
+    "must be rerun" message calls for. Shared by merges and `compact_table`'s optimize.compact."""
+
+    def _helper(self) -> DeltaTableHelper:
+        return DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+
+    @pytest.mark.asyncio
+    async def test_succeeds_without_retry(self):
+        helper = self._helper()
+        table = MagicMock()
+        operation_fn = MagicMock(return_value={"num_output_rows": 1})
+
+        result = await helper._execute_with_conflict_retry(table, operation_fn, "op")
+
+        assert result == {"num_output_rows": 1}
+        operation_fn.assert_called_once()
+        table.update_incremental.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_retries_on_conflict_then_succeeds(self):
+        helper = self._helper()
+        table = MagicMock()
+        operation_fn = MagicMock(
+            side_effect=[
+                deltalake.exceptions.CommitFailedError("Commit failed: a concurrent transactions added new data."),
+                {"num_output_rows": 1},
+            ]
+        )
+
+        result = await helper._execute_with_conflict_retry(table, operation_fn, "op")
+
+        assert result == {"num_output_rows": 1}
+        assert operation_fn.call_count == 2
+        table.update_incremental.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_gives_up_after_exhausting_retries(self):
+        helper = self._helper()
+        table = MagicMock()
+        operation_fn = MagicMock(
+            side_effect=deltalake.exceptions.CommitFailedError(
+                "Commit failed: a concurrent transactions added new data."
+            )
+        )
+
+        with pytest.raises(deltalake.exceptions.CommitFailedError):
+            await helper._execute_with_conflict_retry(table, operation_fn, "op")
+
+        assert operation_fn.call_count == DELTA_MERGE_CONFLICT_RETRIES + 1
+        assert table.update_incremental.call_count == DELTA_MERGE_CONFLICT_RETRIES
+
+    @pytest.mark.asyncio
+    async def test_other_errors_propagate_without_retry(self):
+        helper = self._helper()
+        table = MagicMock()
+        operation_fn = MagicMock(side_effect=ValueError("not a commit conflict"))
+
+        with pytest.raises(ValueError):
+            await helper._execute_with_conflict_retry(table, operation_fn, "op")
+
+        operation_fn.assert_called_once()
+        table.update_incremental.assert_not_called()
+
+
+class TestCompactTableConflictRetry:
+    """compact_table's optimize.compact() commits a REMOVE+ADD when rewriting fragmented files —
+    the same commit-conflict shape as a merge (see TestExecuteWithConflictRetry). Regression
+    coverage for a CommitFailedError propagating straight out of compact_table on the first
+    conflict instead of retrying with a refreshed table, like write_to_deltalake's merges do."""
+
+    @pytest.mark.asyncio
+    async def test_retries_compact_on_commit_conflict_then_succeeds(self, helper: DeltaTableHelper):
+        mock_delta = MagicMock()
+        mock_delta.optimize.compact = MagicMock(
+            side_effect=[
+                deltalake.exceptions.CommitFailedError(
+                    "Commit failed: a concurrent transaction deleted data this operation read."
+                ),
+                {"numFilesAdded": 1},
+            ]
+        )
+        mock_delta.vacuum = MagicMock(return_value=[])
+
+        with patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)):
+            await helper.compact_table()
+
+        assert mock_delta.optimize.compact.call_count == 2
+        mock_delta.update_incremental.assert_called_once()
+
+
+def _create_legacy_delta_table(path: str, *, partitioned: bool = False) -> deltalake.DeltaTable:
+    """Seed a Delta table that mimics what the old dlt pipeline created:
+    business columns plus NOT NULL _dlt_id and _dlt_load_id."""
+    fields: list[pa.Field] = [
+        pa.field("id", pa.int64()),
+        pa.field("name", pa.string()),
+        pa.field("_dlt_id", pa.string(), nullable=False),
+        pa.field("_dlt_load_id", pa.string(), nullable=False),
+    ]
+    if partitioned:
+        fields.append(pa.field(PARTITION_KEY, pa.string()))
+
+    data_dict: dict[str, Any] = {
+        "id": pa.array([1, 2]),
+        "name": pa.array(["a", "b"]),
+        "_dlt_id": pa.array(["id1", "id2"]),
+        "_dlt_load_id": pa.array(["load1", "load1"]),
+    }
+    if partitioned:
+        data_dict[PARTITION_KEY] = pa.array(["p0", "p0"])
+
+    table = pa.table(data_dict, schema=pa.schema(fields))
+    deltalake.write_deltalake(path, table, partition_by=PARTITION_KEY if partitioned else None)
+    return deltalake.DeltaTable(path)
+
+
+def _v3_batch(*, partitioned: bool = False) -> pa.Table:
+    """Build an incoming batch the way pipeline_v3 does: no _dlt_* columns."""
+    data_dict: dict[str, Any] = {"id": pa.array([3, 4]), "name": pa.array(["c", "d"])}
+    if partitioned:
+        data_dict[PARTITION_KEY] = pa.array(["p0", "p0"])
+    return pa.table(data_dict)
+
+
+def _make_local_helper(delta_uri: str) -> DeltaTableHelper:
+    """DeltaTableHelper that reads/writes a local filesystem path instead of S3."""
+    helper = DeltaTableHelper(resource_name="test", job=MagicMock(), logger=_make_logger())
+    patch.object(helper, "_get_delta_table_uri", new=AsyncMock(return_value=delta_uri)).start()
+    patch.object(helper, "_get_credentials", new=MagicMock(return_value={})).start()
+    helper.get_delta_table.cache_clear()
+    return helper
+
+
+class TestLegacyDltTableReconciliation:
+    """Pipeline_v3 must handle dlt-created Delta tables with NOT NULL _dlt_* columns."""
+
+    def test_raw_merge_rejects_missing_non_nullable_columns(self, tmp_path: Path) -> None:
+        """Baseline: proves delta-rs rejects merges when non-nullable columns are absent
+        from the source batch. This is the root cause of the production failures."""
+        delta_path = str(tmp_path / "table")
+        _create_legacy_delta_table(delta_path)
+        batch = _v3_batch()
+        dt = deltalake.DeltaTable(delta_path)
+
+        with pytest.raises(Exception, match="(?i)(invalid data|non-nullable|validation|not found)"):
+            dt.merge(
+                source=batch,
+                source_alias="source",
+                target_alias="target",
+                predicate="source.id = target.id",
+            ).when_matched_update_all().when_not_matched_insert_all().execute()
+
+    @pytest.mark.parametrize("partitioned", [False, True], ids=["flat", "partitioned"])
+    @pytest.mark.asyncio
+    async def test_incremental_merge_into_legacy_table(self, partitioned: bool, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        dt = _create_legacy_delta_table(delta_path, partitioned=partitioned)
+
+        helper = _make_local_helper(delta_path)
+        batch = evolve_pyarrow_schema(_v3_batch(partitioned=partitioned), dt.schema())
+
+        result = await helper.write_to_deltalake(
+            data=batch,
+            write_type="incremental",
+            should_overwrite_table=False,
+            primary_keys=["id"],
+        )
+
+        final = result.to_pyarrow_table()
+        assert final.num_rows == 4
+        assert set(final.column("id").to_pylist()) == {1, 2, 3, 4}
+
+        new_rows = final.filter(pc.is_in(final.column("id"), value_set=pa.array([3, 4])))
+        assert all(v == "" for v in new_rows.column("_dlt_id").to_pylist())
+        assert all(v == "" for v in new_rows.column("_dlt_load_id").to_pylist())
+
+    @pytest.mark.asyncio
+    async def test_append_to_legacy_table(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        dt = _create_legacy_delta_table(delta_path)
+
+        helper = _make_local_helper(delta_path)
+        batch = evolve_pyarrow_schema(_v3_batch(), dt.schema())
+
+        result = await helper.write_to_deltalake(
+            data=batch,
+            write_type="append",
+            should_overwrite_table=False,
+            primary_keys=None,
+        )
+
+        final = result.to_pyarrow_table()
+        assert final.num_rows == 4
+        assert set(final.column("id").to_pylist()) == {1, 2, 3, 4}
+
+    @pytest.mark.asyncio
+    async def test_full_refresh_overwrite_on_legacy_table(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        dt = _create_legacy_delta_table(delta_path)
+
+        helper = _make_local_helper(delta_path)
+        batch = evolve_pyarrow_schema(_v3_batch(), dt.schema())
+
+        result = await helper.write_to_deltalake(
+            data=batch,
+            write_type="full_refresh",
+            should_overwrite_table=True,
+            primary_keys=None,
+        )
+
+        final = result.to_pyarrow_table()
+        assert final.num_rows == 2
+        assert all(v == "" for v in final.column("_dlt_id").to_pylist())
+        assert all(v == "" for v in final.column("_dlt_load_id").to_pylist())
+
+    @pytest.mark.asyncio
+    async def test_v3_native_table_still_merges(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        fields: list[pa.Field] = [pa.field("id", pa.int64()), pa.field("name", pa.string())]
+        schema = pa.schema(fields)
+        deltalake.write_deltalake(delta_path, pa.table({"id": [1, 2], "name": ["a", "b"]}, schema=schema))
+
+        helper = _make_local_helper(delta_path)
+        batch = pa.table({"id": [3], "name": ["c"]})
+
+        result = await helper.write_to_deltalake(
+            data=batch,
+            write_type="incremental",
+            should_overwrite_table=False,
+            primary_keys=["id"],
+        )
+
+        final = result.to_pyarrow_table()
+        assert final.num_rows == 3
+        assert set(final.column("id").to_pylist()) == {1, 2, 3}
+
+
+class TestAppendDecimalReconciliation:
+    """Appending a decimal column that outgrew decimal128 must reconcile to the stored type.
+
+    A batch whose numeric column exceeds decimal128 is promoted to decimal256, which
+    `evolve_pyarrow_schema` renders to text for the Delta write. Arrow emits scientific
+    notation for scale-heavy zeros (e.g. '0E-18'), which delta-rs can't parse back into
+    the stored decimal — an opaque, infinitely-retrying DeltaError on the append path.
+    """
+
+    def _seed_decimal_table(self, delta_path: str) -> deltalake.DeltaTable:
+        table = pa.table(
+            {"id": pa.array([1], type=pa.int64()), "amount": pa.array([Decimal("1.5")], type=pa.decimal128(38, 10))}
+        )
+        deltalake.write_deltalake(delta_path, table)
+        return deltalake.DeltaTable(delta_path)
+
+    @pytest.mark.asyncio
+    async def test_scale_heavy_batch_is_rounded_to_stored_type(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        dt = self._seed_decimal_table(delta_path)
+        helper = _make_local_helper(delta_path)
+
+        # Values fit decimal128's integer budget but carry more scale than the stored column,
+        # so they land as decimal256 and evolve renders them to text (the zero as '0E-18').
+        batch = evolve_pyarrow_schema(
+            pa.table(
+                {
+                    "id": pa.array([2, 3], type=pa.int64()),
+                    "amount": pa.array(
+                        [Decimal("0.12345678901234567890"), Decimal("0E-18")], type=pa.decimal256(76, 20)
+                    ),
+                }
+            ),
+            dt.schema(),
+        )
+        assert pa.types.is_string(batch.schema.field("amount").type)
+
+        result = await helper.write_to_deltalake(
+            data=batch, write_type="append", should_overwrite_table=False, primary_keys=None
+        )
+
+        final = result.to_pyarrow_table()
+        assert final.schema.field("amount").type == pa.decimal128(38, 10)
+        assert set(final.column("id").to_pylist()) == {1, 2, 3}
+        assert Decimal("0") in final.column("amount").to_pylist()
+
+    @pytest.mark.asyncio
+    async def test_integer_overflow_batch_raises_clean_non_retryable(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        dt = self._seed_decimal_table(delta_path)
+        helper = _make_local_helper(delta_path)
+
+        batch = evolve_pyarrow_schema(
+            pa.table(
+                {
+                    "id": pa.array([2, 3], type=pa.int64()),
+                    "amount": pa.array([Decimal("1" + "0" * 35 + ".5"), Decimal("0E-18")], type=pa.decimal256(76, 18)),
+                }
+            ),
+            dt.schema(),
+        )
+
+        with pytest.raises(SchemaColumnTypeChangedException):
+            await helper.write_to_deltalake(
+                data=batch, write_type="append", should_overwrite_table=False, primary_keys=None
+            )
+
+
+class TestSchemaEvolutionNullability:
+    """A column added mid-table-lifetime always predates its own addition: every file the
+    table already holds was written without it, so `optimize.compact()` must be able to
+    treat those rows as null for that column. If schema evolution adds the column as NOT
+    NULL — which happens whenever the batch that introduces it has no nulls, since delta-rs
+    takes the new field's nullability straight from the incoming Arrow field — compaction
+    later fails with "Non-nullable column '<name>' is missing from the physical schema"."""
+
+    @pytest.mark.asyncio
+    async def test_compact_survives_a_column_added_by_an_all_non_null_batch(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        deltalake.write_deltalake(delta_path, pa.table({"id": pa.array([1, 2], type=pa.int64())}))
+
+        helper = _make_local_helper(delta_path)
+
+        # The incoming field is non-nullable because every value in *this* batch is
+        # non-null — exactly how upstream Arrow construction infers it, unrelated to
+        # whether the column can appear in prior or future batches.
+        fields: list[pa.Field] = [pa.field("id", pa.int64()), pa.field("status", pa.string(), nullable=False)]
+        batch_schema = pa.schema(fields)
+        batch = pa.table(
+            {"id": pa.array([3, 4], type=pa.int64()), "status": pa.array(["ok", "ok"])}, schema=batch_schema
+        )
+
+        result = await helper.write_to_deltalake(
+            data=batch, write_type="append", should_overwrite_table=False, primary_keys=None
+        )
+        status_field = next(f for f in result.schema().fields if f.name == "status")
+        assert status_field.nullable is True
+
+        await helper.compact_table()
+
+        final = result.to_pyarrow_table()
+        by_id = dict(zip(final.column("id").to_pylist(), final.column("status").to_pylist()))
+        assert by_id == {1: None, 2: None, 3: "ok", 4: "ok"}
+
+
+class TestIncrementalBatchDeduplication:
+    """Duplicate PKs in a source batch must never reach the Delta write.
+
+    `when_not_matched_insert_all` inserts every unmatched source row, so a batch with a
+    repeated PK seeds duplicate rows in the table; every later merge then multi-matches
+    those rows and the join blows up (the OOM loop seen with sources whose primary keys
+    aren't actually unique).
+    """
+
+    @parameterized.expand(
+        [
+            ("keep_first", "first", ["a1", "b1"]),
+            ("keep_last", "last", ["a2", "b1"]),
+        ]
+    )
+    def test_first_per_pk_table_keep_modes(self, _name, keep, expected_names):
+        table = pa.table({"id": [1, 1, 2], "name": ["a1", "a2", "b1"]})
+
+        result = _first_per_pk_table(table, ["id"], keep=keep).sort_by("id")
+
+        assert result.column("id").to_pylist() == [1, 2]
+        assert result.column("name").to_pylist() == expected_names
+
+    @pytest.mark.asyncio
+    async def test_incremental_merge_dedupes_duplicate_source_rows(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        deltalake.write_deltalake(delta_path, pa.table({"id": [1], "name": ["old"]}))
+
+        helper = _make_local_helper(delta_path)
+        # id=2 appears twice in one batch — without dedup both copies get inserted.
+        batch = pa.table({"id": [1, 2, 2], "name": ["updated", "first_copy", "second_copy"]})
+
+        result = await helper.write_to_deltalake(
+            data=batch,
+            write_type="incremental",
+            should_overwrite_table=False,
+            primary_keys=["id"],
+        )
+
+        final = result.to_pyarrow_table().sort_by("id")
+        assert final.column("id").to_pylist() == [1, 2]
+        # The last occurrence of a duplicated key carries the freshest data.
+        assert final.column("name").to_pylist() == ["updated", "second_copy"]
+        cast(AsyncMock, helper._logger.awarning).assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_first_sync_append_dedupes_duplicate_source_rows(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+
+        helper = _make_local_helper(delta_path)
+        batch = pa.table({"id": [1, 1], "name": ["first_copy", "second_copy"]})
+
+        result = await helper.write_to_deltalake(
+            data=batch,
+            write_type="incremental",
+            should_overwrite_table=False,
+            primary_keys=["id"],
+        )
+
+        final = result.to_pyarrow_table()
+        assert final.column("id").to_pylist() == [1]
+        assert final.column("name").to_pylist() == ["second_copy"]
+
+
+class TestUnpartitionedTableWithPartitionKeyColumn:
+    """A Delta table can carry `_ph_partition_key` in its schema while its
+    partition_columns metadata is empty `[]` — e.g. the SchemaMismatchError fallback in
+    write_to_deltalake rewrites with partition_by=None while the column is still in the
+    data, or evolve_pyarrow_schema re-adds the column to a batch headed for an
+    unpartitioned table. write_to_deltalake derives partitioning from column *presence*,
+    so it then passes partition_by=_ph_partition_key against a table delta-rs considers
+    unpartitioned and raises:
+        "Specified table partitioning does not match table partitioning: expected: [], got: [_ph_partition_key]"
+    """
+
+    def _seed_unpartitioned_table_with_partition_column(self, delta_path: str) -> None:
+        # _ph_partition_key is a plain column; the table is NOT partitioned by it.
+        deltalake.write_deltalake(
+            delta_path,
+            pa.table({"id": pa.array([1, 2]), PARTITION_KEY: pa.array(["p0", "p0"])}),
+            partition_by=None,
+        )
+        dt = deltalake.DeltaTable(delta_path)
+        assert dt.metadata().partition_columns == []
+        assert PARTITION_KEY in dt.schema().to_arrow().names
+
+    @pytest.mark.parametrize(
+        "write_type,primary_keys,should_overwrite,expected_ids",
+        [
+            # append/incremental keep the existing rows; full_refresh overwrites them. Each
+            # routes through a distinct write branch, all of which previously raised against
+            # the unpartitioned-but-column-present table.
+            ("append", None, False, {1, 2, 3, 4}),
+            ("incremental", ["id"], False, {1, 2, 3, 4}),
+            ("full_refresh", None, True, {2, 3, 4}),
+        ],
+        ids=["append", "incremental_merge", "full_refresh_overwrite"],
+    )
+    @pytest.mark.asyncio
+    async def test_write_does_not_partition_unpartitioned_table(
+        self,
+        write_type: str,
+        primary_keys: list[str] | None,
+        should_overwrite: bool,
+        expected_ids: set[int],
+        tmp_path: Path,
+    ) -> None:
+        delta_path = str(tmp_path / "table")
+        self._seed_unpartitioned_table_with_partition_column(delta_path)
+
+        helper = _make_local_helper(delta_path)
+        # id=2 already exists (merge updates it); id=3,4 are new.
+        batch = pa.table({"id": pa.array([2, 3, 4]), PARTITION_KEY: pa.array(["p0", "p0", "p0"])})
+
+        result = await helper.write_to_deltalake(
+            data=batch,
+            write_type=write_type,  # type: ignore[arg-type]
+            should_overwrite_table=should_overwrite,
+            primary_keys=primary_keys,
+        )
+
+        final = result.to_pyarrow_table()
+        assert set(final.column("id").to_pylist()) == expected_ids
+        # The table stays unpartitioned — we don't fight its existing layout.
+        assert result.metadata().partition_columns == []
+
+
+class TestRealignDecimalBuffers:
+    """delta-rs aborts the worker on 8-byte-aligned Decimal128 buffers; we realign them
+    to pyarrow's 64-byte allocator before any Delta write. See delta-io/delta-rs#3884."""
+
+    def test_misaligned_decimal_is_realigned(self) -> None:
+        table = pa.table({"amount": _decimal_array([1, 2, 3, 4], misaligned=True), "id": pa.array([1, 2, 3, 4])})
+        assert _table_is_misaligned(table) is True
+
+        result = _realign_decimal_buffers(table)
+
+        assert _table_is_misaligned(result) is False
+        # Values and schema are preserved exactly
+        assert result.column("amount").to_pylist() == table.column("amount").to_pylist()
+        assert result.column("id").to_pylist() == [1, 2, 3, 4]
+        assert result.schema == table.schema
+
+    @pytest.mark.parametrize(
+        "table",
+        [
+            pa.table({"amount": _decimal_array([1, 2, 3], misaligned=False), "id": pa.array([1, 2, 3])}),
+            pa.table({"id": pa.array([1, 2, 3]), "name": pa.array(["a", "b", "c"])}),
+        ],
+        ids=["already_aligned_decimal", "no_decimal_columns"],
+    )
+    def test_unmisaligned_table_is_returned_unchanged(self, table: pa.Table) -> None:
+        assert _table_is_misaligned(table) is False
+
+        result = _realign_decimal_buffers(table)
+
+        # No misalignment found → identity return (no needless copy)
+        assert result is table
+
+    def test_only_misaligned_columns_are_rebuilt(self) -> None:
+        aligned_dec = _decimal_array([10, 20], misaligned=False)
+        misaligned_dec = _decimal_array([30, 40], misaligned=True)
+        table = pa.table({"good": aligned_dec, "bad": misaligned_dec, "id": pa.array([1, 2])})
+
+        result = _realign_decimal_buffers(table)
+
+        assert _table_is_misaligned(result) is False
+        assert result.column("good").to_pylist() == [10, 20]
+        assert result.column("bad").to_pylist() == [30, 40]
+        # The already-aligned column keeps its original buffer (rebuilt only what was broken)
+        good_buffer = result.column("good").chunks[0].buffers()[1]
+        orig_buffer = aligned_dec.buffers()[1]
+        assert good_buffer is not None and orig_buffer is not None
+        assert good_buffer.address == orig_buffer.address
+
+    def test_multi_chunk_misaligned_column(self) -> None:
+        # The arrays already carry decimal128(10, 2); an explicit type= doesn't match any
+        # pyarrow-stubs chunked_array overload for decimal types.
+        chunked = pa.chunked_array(
+            [_decimal_array([1, 2], misaligned=True), _decimal_array([3, 4], misaligned=True)],
+        )
+        table = pa.table({"amount": chunked, "id": pa.array([1, 2, 3, 4])})
+        assert _table_is_misaligned(table) is True
+
+        result = _realign_decimal_buffers(table)
+
+        assert _table_is_misaligned(result) is False
+        assert result.column("amount").to_pylist() == [1, 2, 3, 4]
+
+    def test_empty_decimal_table(self) -> None:
+        table = pa.table({"amount": pa.array([], type=pa.decimal128(10, 2)), "id": pa.array([], type=pa.int64())})
+
+        result = _realign_decimal_buffers(table)
+
+        assert result.num_rows == 0
+        assert result.schema == table.schema
+
+
+class TestWriteMisalignedDecimalEndToEnd:
+    """Writes a misaligned-decimal batch through the real delta-rs write path. Without the
+    realignment guard, delta-rs would abort the process; with it, the write succeeds."""
+
+    @pytest.mark.parametrize(
+        "write_type,should_overwrite",
+        [("full_refresh", True), ("append", False), ("incremental", False)],
+    )
+    @pytest.mark.asyncio
+    async def test_write_misaligned_decimal_to_local_delta(
+        self, write_type: str, should_overwrite: bool, tmp_path: Path
+    ) -> None:
+        delta_path = str(tmp_path / "table")
+        # Seed the table so incremental/append have an existing target to write into.
+        deltalake.write_deltalake(
+            delta_path,
+            pa.table({"id": pa.array([1, 2]), "amount": _decimal_array([5, 6], misaligned=False)}),
+        )
+
+        helper = _make_local_helper(delta_path)
+        batch = pa.table({"id": pa.array([3, 4]), "amount": _decimal_array([7, 8], misaligned=True)})
+        assert _table_is_misaligned(batch) is True
+
+        result = await helper.write_to_deltalake(
+            data=batch,
+            write_type=write_type,  # type: ignore[arg-type]
+            should_overwrite_table=should_overwrite,
+            primary_keys=["id"] if write_type == "incremental" else None,
+        )
+
+        final = result.to_pyarrow_table()
+        amounts = set(final.column("amount").to_pylist())
+        if should_overwrite:
+            assert set(final.column("id").to_pylist()) == {3, 4}
+        else:
+            assert {3, 4}.issubset(set(final.column("id").to_pylist()))
+            assert {7, 8}.issubset(amounts)
+
+    @pytest.mark.asyncio
+    async def test_write_scd2_misaligned_decimal_to_local_delta(self, tmp_path: Path) -> None:
+        # write_scd2_to_deltalake carries its own realignment guard; without it the
+        # close-existing merge would hand delta-rs a misaligned decimal and abort the worker.
+        delta_path = str(tmp_path / "scd2_table")
+        ts1 = datetime(2026, 1, 1, tzinfo=UTC)
+        ts2 = datetime(2026, 2, 1, tzinfo=UTC)
+        ts_type = pa.timestamp("us", tz="UTC")
+        # Seed a current (valid_to IS NULL) row for id=1 so the new batch closes it.
+        deltalake.write_deltalake(
+            delta_path,
+            pa.table(
+                {
+                    "id": pa.array([1]),
+                    "amount": _decimal_array([5], misaligned=False),
+                    "valid_from": pa.array([ts1], type=ts_type),
+                    "valid_to": pa.array([None], type=ts_type),
+                }
+            ),
+        )
+
+        helper = _make_local_helper(delta_path)
+        batch = pa.table(
+            {
+                "id": pa.array([1]),
+                "amount": _decimal_array([7], misaligned=True),
+                "valid_from": pa.array([ts2], type=ts_type),
+                "valid_to": pa.array([None], type=ts_type),
+            }
+        )
+        assert _table_is_misaligned(batch) is True
+
+        result = await helper.write_scd2_to_deltalake(data=batch, primary_keys=["id"])
+
+        final = result.to_pyarrow_table()
+        # The seeded row is closed (valid_to set) and the new misaligned row is appended.
+        assert final.num_rows == 2
+        assert set(final.column("amount").to_pylist()) == {5, 7}
+        closed = final.filter(pc.equal(final.column("amount"), pa.scalar(Decimal("5.00"), type=pa.decimal128(10, 2))))
+        assert closed.column("valid_to").to_pylist() == [ts2]
+
+
+class TestVacuumIfStale:
+    def _helper(self) -> DeltaTableHelper:
+        return DeltaTableHelper("t", MagicMock(), MagicMock(adebug=AsyncMock(), ainfo=AsyncMock()), False)
+
+    @parameterized.expand(
+        [
+            # (last_vacuum_version, expect_vacuum, expected_return) — current version=150, threshold=100.
+            # First encounter must seed the watermark WITHOUT vacuuming (else every existing table vacuums
+            # at once on deploy); below threshold must skip (else vacuum runs every sync); at/above threshold
+            # must vacuum (else tombstones accumulate forever on tables that never reach post-load compaction).
+            ("first_encounter_seeds_no_vacuum", None, False, 150),
+            ("below_threshold_skips", 100, False, None),
+            ("at_threshold_vacuums", 50, True, 150),
+            ("above_threshold_vacuums", 40, True, 150),
+            # A watermark above the current version means the table was reset/recreated (delta
+            # versions are monotonic within one incarnation) and no reset path clears the persisted
+            # watermark — it must reseed, not block the cadence until the version catches up.
+            ("stale_watermark_from_recreated_table_reseeds", 999, False, 150),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_vacuum_cadence(
+        self, _name: str, last_version: int | None, expect_vacuum: bool, expected_return: int | None
+    ):
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper"
+        helper = self._helper()
+        table = MagicMock()
+        table.version = MagicMock(return_value=150)
+        with (
+            patch.object(helper, "get_delta_table", new=AsyncMock(return_value=table)),
+            patch.object(helper, "_vacuum", new=AsyncMock()) as vacuum,
+            patch(f"{module}.posthoganalytics") as ph,
+        ):
+            result = await helper.vacuum_if_stale(last_version, 100)
+
+        assert result == expected_return
+        assert vacuum.await_count == (1 if expect_vacuum else 0)
+        if expect_vacuum:
+            vacuum.assert_awaited_once_with(table)
+        # The observability event fires exactly when a vacuum runs — not on seed/skip — so the cadence is measurable.
+        assert ph.capture.call_count == (1 if expect_vacuum else 0)
+        if expect_vacuum:
+            assert ph.capture.call_args.kwargs["event"] == "warehouse_delta_vacuumed"
+
+
+class TestRunMaintenance:
+    """run_maintenance is the single pre-write entry point: compaction supersedes the cadence vacuum."""
+
+    def _helper(self) -> DeltaTableHelper:
+        return DeltaTableHelper("t", MagicMock(), MagicMock(adebug=AsyncMock(), ainfo=AsyncMock()), False)
+
+    @pytest.mark.asyncio
+    async def test_compaction_supersedes_vacuum_and_advances_watermark(self):
+        # Fragmented table: compact runs (and vacuums as part of it), so the cadence vacuum is skipped —
+        # no double vacuum in one run — and the watermark advances to the post-compaction version.
+        helper = self._helper()
+        table = MagicMock(version=MagicMock(return_value=200))
+        with (
+            patch.object(helper, "compact_if_fragmented", new=AsyncMock(return_value=True)),
+            patch.object(helper, "get_delta_table", new=AsyncMock(return_value=table)),
+            patch.object(helper, "vacuum_if_stale", new=AsyncMock()) as vacuum_if_stale,
+        ):
+            result = await helper.run_maintenance(partition_count=10, last_vacuum_version=50, commit_threshold=100)
+
+        assert result == 200
+        vacuum_if_stale.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_falls_through_to_vacuum_when_not_fragmented(self):
+        # Not fragmented → no compaction; fall through to the commit-cadence vacuum and return its watermark.
+        helper = self._helper()
+        with (
+            patch.object(helper, "compact_if_fragmented", new=AsyncMock(return_value=False)),
+            patch.object(helper, "vacuum_if_stale", new=AsyncMock(return_value=150)) as vacuum_if_stale,
+        ):
+            result = await helper.run_maintenance(partition_count=10, last_vacuum_version=40, commit_threshold=100)
+
+        assert result == 150
+        vacuum_if_stale.assert_awaited_once_with(40, 100)
+
+
+class TestIsTableCorrupted:
+    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper"
+
+    def _helper(self) -> DeltaTableHelper:
+        return DeltaTableHelper("t", MagicMock(), MagicMock(adebug=AsyncMock()), False)
+
+    @parameterized.expand(
+        [
+            # (is_deltatable, open_exception, expected_corrupt) — only DeltaError/FileNotFoundError on a
+            # table whose _delta_log exists count as corrupt; a missing table or an unknown error must NOT,
+            # so we never trigger a destructive revive on a non-existent table or a transient failure.
+            ("not_a_delta_table", False, None, False),
+            ("opens_fine", True, None, False),
+            ("delta_error_is_corrupt", True, deltalake.exceptions.DeltaError("no protocol"), True),
+            ("file_not_found_is_corrupt", True, FileNotFoundError("missing data file"), True),
+            ("unknown_error_not_corrupt", True, ValueError("transient"), False),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_is_table_corrupted(self, _name: str, is_delta: bool, open_exc: Exception | None, expected: bool):
+        helper = self._helper()
+        with (
+            patch.object(helper, "_get_delta_table_uri", new=AsyncMock(return_value="s3://b/t")),
+            patch.object(helper, "_get_credentials", return_value={}),
+            patch(f"{self._MODULE}.deltalake.DeltaTable") as mock_dt,
+        ):
+            mock_dt.is_deltatable = MagicMock(return_value=is_delta)
+            if open_exc is not None:
+                mock_dt.side_effect = open_exc
+            result = await helper.is_table_corrupted()
+
+        assert result is expected
+
+
+class TestIsTransientDeltaMaintenanceError:
+    @parameterized.expand(
+        [
+            # A concurrent optimize/vacuum losing the race on a file scan: safe to skip and retry.
+            (
+                "optimize_scan_file_not_found",
+                deltalake.exceptions.DeltaError(
+                    "Failed to parse parquet: Optimize selected-file scan failed while scanning data: "
+                    "Object at location .../part-0.parquet not found: 404 Not Found"
+                ),
+                True,
+            ),
+            # Other DeltaErrors are real failures (e.g. a genuinely corrupt log) and must still be captured.
+            ("unrelated_delta_error", deltalake.exceptions.DeltaError("no protocol found in delta log"), False),
+            # Same message shape but not the DeltaError type delta-rs actually raises for it.
+            ("wrong_exception_type", RuntimeError("Optimize selected-file scan failed"), False),
+        ]
+    )
+    def test_matches_only_the_racy_optimize_scan_signature(self, _name: str, error: Exception, expected: bool):
+        assert is_transient_delta_maintenance_error(error) is expected
+
+
+class TestIsTransientObjectStoreError:
+    @parameterized.expand(
+        [
+            (
+                "credential_provider_not_enabled_os_error",
+                OSError(
+                    "Operation not supported: the credential provider was not enabled: "
+                    "no providers in chain provided credentials"
+                ),
+                True,
+            ),
+            ("unrelated_os_error", OSError("Permission denied: bucket policy forbids this operation"), False),
+            (
+                # s3fs/aiobotocore's own credential resolution (distinct from delta-rs's Rust
+                # object_store crate) can raise this bare, unwrapped — same IMDS/STS blip
+                # hitting our own instance-role-authenticated bucket, different client library.
+                "bare_no_credentials_error",
+                botocore.exceptions.NoCredentialsError(),
+                True,
+            ),
+            ("unrelated_exception_type", ValueError("some other unrelated failure"), False),
+        ]
+    )
+    def test_classifies_transient_errors(self, _name: str, error: Exception, expected: bool):
+        assert is_transient_object_store_error(error) is expected
+
+
+class TestNullSafeMergePredicate:
+    """The incremental-merge match must be NULL-safe.
+
+    Regression for the duplicate-accumulation bug found by the deltalite shadow canary: composite
+    keys with nullable columns (e.g. GoogleAds report resources keyed on `segments.*`) matched with
+    bare `source.c = target.c` never match on NULL (`NULL = NULL` is NULL), so the row is re-inserted
+    on every incremental sync and the table silently grows.
+    """
+
+    def test_predicate_ops_are_null_safe(self):
+        assert _merge_predicate_ops(["id", "seg"]) == [
+            "(source.id IS NOT DISTINCT FROM target.id)",
+            "(source.seg IS NOT DISTINCT FROM target.seg)",
+        ]
+
+    @staticmethod
+    def _seed_then_merge(path: Path, predicate_ops: list[str]) -> pa.Table:
+        # Seed one row whose composite key has a NULL component, then merge the same key with a new value.
+        seed = pa.table(
+            {
+                "id": pa.array([1], pa.int64()),
+                "seg": pa.array([None], pa.string()),
+                "val": pa.array(["a"], pa.string()),
+            }
+        )
+        deltalake.write_deltalake(str(path), seed, mode="overwrite")
+        source = pa.table(
+            {
+                "id": pa.array([1], pa.int64()),
+                "seg": pa.array([None], pa.string()),
+                "val": pa.array(["b"], pa.string()),
+            }
+        )
+        (
+            deltalake.DeltaTable(str(path))
+            .merge(source=source, source_alias="source", target_alias="target", predicate=" AND ".join(predicate_ops))
+            .when_matched_update_all()
+            .when_not_matched_insert_all()
+            .execute()
+        )
+        return deltalake.DeltaTable(str(path)).to_pyarrow_table()
+
+    def test_null_composite_key_row_matches_instead_of_duplicating(self, tmp_path):
+        result = self._seed_then_merge(tmp_path / "safe", _merge_predicate_ops(["id", "seg"]))
+        assert result.num_rows == 1
+        assert result.column("val").to_pylist() == ["b"]
+
+    def test_non_null_key_still_matches(self, tmp_path):
+        # The null-safe form must not change behaviour for ordinary (non-NULL) keys.
+        seed = pa.table({"id": pa.array([1], pa.int64()), "seg": pa.array(["MOBILE"]), "val": pa.array(["a"])})
+        deltalake.write_deltalake(str(tmp_path / "nn"), seed, mode="overwrite")
+        source = pa.table({"id": pa.array([1], pa.int64()), "seg": pa.array(["MOBILE"]), "val": pa.array(["b"])})
+        (
+            deltalake.DeltaTable(str(tmp_path / "nn"))
+            .merge(
+                source=source,
+                source_alias="source",
+                target_alias="target",
+                predicate=" AND ".join(_merge_predicate_ops(["id", "seg"])),
+            )
+            .when_matched_update_all()
+            .when_not_matched_insert_all()
+            .execute()
+        )
+        result = deltalake.DeltaTable(str(tmp_path / "nn")).to_pyarrow_table()
+        assert result.num_rows == 1
+        assert result.column("val").to_pylist() == ["b"]
+
+    def test_bare_equality_duplicates_null_key_row(self, tmp_path):
+        # Documents the pre-fix behaviour the null-safe predicate corrects.
+        result = self._seed_then_merge(tmp_path / "unsafe", ["source.id = target.id", "source.seg = target.seg"])
+        assert result.num_rows == 2

@@ -4,8 +4,8 @@ from django.core.cache import cache
 
 from parameterized import parameterized
 
+from ee.api.agentic_provisioning.constants import DEEP_LINK_CACHE_PREFIX
 from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
-from ee.api.agentic_provisioning.views import DEEP_LINK_CACHE_PREFIX
 
 
 class TestDeepLinks(ProvisioningTestBase):
@@ -33,7 +33,7 @@ class TestDeepLinks(ProvisioningTestBase):
         url = res.json()["url"]
         assert f"team_id={self.team.id}" in url
 
-    @patch("ee.api.agentic_provisioning.views._capture_provisioning_event")
+    @patch("ee.api.agentic_provisioning.views.deep_links.capture_provisioning_event")
     def test_deep_link_capture_attributes_client(self, mock_capture_event):
         token = self._get_bearer_token()
         res = self._post_with_bearer(
@@ -57,8 +57,7 @@ class TestDeepLinks(ProvisioningTestBase):
 
     def test_deep_link_denied_when_partner_not_allowed(self):
         token = self._get_bearer_token()
-        self.partner.provisioning_can_issue_deep_links = False
-        self.partner.save(update_fields=["provisioning_can_issue_deep_links"])
+        self.partner.update_provisioning(can_issue_deep_links=False)
         res = self._post_with_bearer(
             "/api/agentic/provisioning/deep_links",
             data={"purpose": "dashboard"},
@@ -67,10 +66,10 @@ class TestDeepLinks(ProvisioningTestBase):
         assert res.status_code == 403
         assert res.json()["error"]["code"] == "deep_links_not_enabled"
 
-    def test_outstanding_token_of_hmac_configured_partner_rejected(self):
+    def test_outstanding_token_of_unflagged_partner_rejected(self):
         token = self._get_bearer_token()
-        self.partner.provisioning_auth_method = "hmac"
-        self.partner.save(update_fields=["provisioning_auth_method"])
+        self.partner.is_provisioning_partner = False
+        self.partner.save(update_fields=["is_provisioning_partner"])
         res = self._post_with_bearer(
             "/api/agentic/provisioning/deep_links",
             data={"purpose": "dashboard"},

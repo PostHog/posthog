@@ -91,8 +91,9 @@ def generate_session_intent(team: Team, session_id: str, date_from: datetime | N
 def generate_intent_digest(team: Team) -> contracts.IntentDigest:
     """Generate (or return the cached) project-level digest of what agents are trying to do.
 
-    Powers the dashboard's low-volume activity stage. Content-addressed cache: only
-    regenerates when new intents arrive.
+    Powers the dashboard's activity tab: a one-sentence summary plus semantic themes. Cached
+    both by intent corpus and by recency, so a quiet project regenerates only when its intents
+    change and a busy one regenerates at a bounded rate.
     """
     return logic.generate_intent_digest(team)
 

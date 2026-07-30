@@ -5,6 +5,7 @@ from posthog.models.utils import UUIDModel
 
 from products.review_hog.backend.reviewer.artefact_content import (
     ArtefactContentValidationError,
+    FindingOutcomeArtefact,
     ReviewArtefactContent,
     ReviewIssueFinding,
     ReviewLogArtefactContent,
@@ -69,6 +70,25 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     # `head_sha`, what was reviewed). Publishing skips when this equals the current head, so an
     # activity retry / re-trigger can't double-post the review or the one-time alpha promo comment.
     published_head_sha = models.CharField(max_length=64, null=True, blank=True)
+    # The urgency threshold in force at each publish, keyed by the `run_index` that published, as
+    # `{"1": "consider", "2": "must_fix"}`. Outcome classification reconstructs the published finding
+    # set from this, since the user's live setting can change after publish. Keyed per turn rather
+    # than held as one scalar because a report republishes as new commits land and the acting user
+    # may change their threshold in between: each turn posts only its own findings, so a later
+    # tightened threshold must not retroactively hide what an earlier, looser turn already posted.
+    published_urgency_thresholds = models.JSONField(null=True, blank=True)
+    # The head each turn published at, keyed by `run_index` like the thresholds above, as
+    # `{"1": "abc123", "2": "def456"}`. Outcome classification compares a finding against the head its
+    # own turn was published at: a fix can land between two turns, and comparing every finding against
+    # only the latest published head hides those commits entirely, marking a finding that was fixed as
+    # ignored. Kept beside the thresholds rather than merged into one map because that one already
+    # shipped; both are written together at publish.
+    published_head_shas = models.JSONField(null=True, blank=True)
+    # Set once this report's finding-outcome events have been flushed to capture — the outcome
+    # sweep's completion marker. Distinct from the `finding_outcome` artefacts (the decided
+    # classification, persisted first): a crash between persist and flush leaves this NULL, so the
+    # next sweep re-emits from the stored artefacts instead of re-deciding the outcomes.
+    outcomes_emitted_at = models.DateTimeField(null=True, blank=True)
     last_seen_comment_id = models.BigIntegerField(null=True, blank=True)
     # The PR's live "review in progress" status comment (publish path only): the GitHub comment id we
     # edit in place, and the last-edit watermark that debounces refreshes across concurrent activities.
@@ -105,6 +125,19 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
             models.Index(fields=["team", "acting_user", "-last_run_at"], name="reviewhog_rpt_recent_idx"),
             # Same API's everyone scope: the whole project's reports, newest completed turn first.
             models.Index(fields=["team", "-last_run_at"], name="reviewhog_rpt_team_recent_idx"),
+            # The outcome sweep's backlog: published, PR-bound, not yet stamped emitted. The whole
+            # predicate lives in the condition, so the index holds only the working set and shrinks
+            # as reports are classified; `team` leads it because the cross-team discovery reads
+            # DISTINCT team_id off this index and the per-team read filters on team first.
+            # `-updated_at` trails it so the per-team read's newest-first slice is an index scan
+            # rather than a sort over every pending row.
+            models.Index(
+                fields=["team", "-updated_at"],
+                name="reviewhog_rpt_unclassified_idx",
+                condition=models.Q(
+                    published_head_sha__isnull=False, pr_number__isnull=False, outcomes_emitted_at__isnull=True
+                ),
+            ),
         ]
 
 
@@ -119,6 +152,9 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
     class ArtefactType(models.TextChoices):
         ISSUE_FINDING = "issue_finding"
         VALIDATION_VERDICT = "validation_verdict"
+        # The classified fate of a published finding, written by the outcome-telemetry batch after
+        # the PR merged (one per finding); its presence marks the finding already classified.
+        FINDING_OUTCOME = "finding_outcome"
         TASK_RUN = "task_run"
         COMMIT = "commit"
         CODE_REFERENCE = "code_reference"
@@ -215,6 +251,17 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         cls, *, team_id: int, report_id: str, content: ValidationVerdict, attribution: ArtefactAttribution
     ) -> "ReviewReportArtefact":
         """Append a `validation_verdict` (latest verdict per `issue_key` wins at read time)."""
+        return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
+
+    @classmethod
+    def add_finding_outcome(
+        cls, *, team_id: int, report_id: str, content: FindingOutcomeArtefact, attribution: ArtefactAttribution
+    ) -> "ReviewReportArtefact":
+        """Append a `finding_outcome` (one per published finding; the durable classification record).
+
+        Presence means the finding's outcome is decided and must never be re-decided; the report is
+        only *done* once `ReviewReport.outcomes_emitted_at` is stamped after its events flushed.
+        """
         return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
 
     @classmethod

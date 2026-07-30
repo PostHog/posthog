@@ -155,16 +155,15 @@ def _get_row_sample(saved_query: DataWarehouseSavedQuery) -> list[dict[str, str]
     Only call this for materialized views — running the raw view query for an unmaterialized view is
     unbounded cost. `saved_query.name` is validated to a strict identifier, so it's safe to interpolate.
     """
-    from posthog.api.services.query import process_query_dict  # noqa: PLC0415 — heavy HogQL/query stack
-    from posthog.clickhouse.query_tagging import Feature, Product, tags_context  # noqa: PLC0415
-    from posthog.hogql_queries.query_runner import ExecutionMode  # noqa: PLC0415
+    from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415 — heavy HogQL/query stack
 
-    query = {"kind": "HogQLQuery", "query": f"SELECT * FROM {saved_query.name} LIMIT {ROW_SAMPLE_LIMIT}"}
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context  # noqa: PLC0415
+
+    query = f"SELECT * FROM {saved_query.name} LIMIT {ROW_SAMPLE_LIMIT}"
     try:
         with tags_context(product=Product.WAREHOUSE, feature=Feature.DATA_MODELING):
-            response = process_query_dict(
-                saved_query.team, query, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
-            )
+            # Safe to bypass: it only samples a view the team owns, to generate column descriptions.
+            response = execute_hogql_query(query, team=saved_query.team, bypass_warehouse_access_control=True)
     except Exception as e:
         capture_exception(e)
         return []

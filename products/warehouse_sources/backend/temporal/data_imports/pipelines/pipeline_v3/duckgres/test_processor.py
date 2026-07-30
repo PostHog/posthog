@@ -23,8 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 
 @pytest.fixture(autouse=True)
 def _stub_schema_resolver():
-    # _duckgres_schema_name now resolves the team's table_suffix via the ORM;
-    # these are no-DB unit tests, so pin a deterministic schema name.
+    # These no-DB unit tests pin the control-plane-backed schema resolver.
     with patch(
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor.duckgres_data_imports_schema",
         return_value="posthog_data_imports_team_1",
