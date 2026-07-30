@@ -13,7 +13,7 @@ from parameterized import parameterized
 
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linkedinads import (
     LinkedinAdsSourceConfig,
 )

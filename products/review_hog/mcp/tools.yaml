@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: ReviewHog
 feature: review_hog
-url_prefix: /code_review
+url_prefix: /code-review
 ui_apps: {}
 tools:
     review-hog-blind-spots-list:

@@ -2840,6 +2840,9 @@ export const JsonrpcEnumApi = {
  * * `permission_response` - permission_response
  * * `set_config_option` - set_config_option
  * * `mcp_response` - mcp_response
+ * * `pi/rpc` - pi/rpc
+ * * `queue_get` - queue_get
+ * * `queue_clear` - queue_clear
  */
 export type MethodEnumApi = (typeof MethodEnumApi)[keyof typeof MethodEnumApi]
 
@@ -2850,6 +2853,9 @@ export const MethodEnumApi = {
     PermissionResponse: 'permission_response',
     SetConfigOption: 'set_config_option',
     McpResponse: 'mcp_response',
+    PiRpc: 'pi/rpc',
+    QueueGet: 'queue_get',
+    QueueClear: 'queue_clear',
 } as const
 
 /**
@@ -2867,18 +2873,16 @@ export interface TaskRunCommandRequestApi {
      * * `close` - close
      * * `permission_response` - permission_response
      * * `set_config_option` - set_config_option
-     * * `mcp_response` - mcp_response */
+     * * `mcp_response` - mcp_response
+     * * `pi/rpc` - pi/rpc
+     * * `queue_get` - queue_get
+     * * `queue_clear` - queue_clear */
     method: MethodEnumApi
     /** Parameters for the command */
     params?: TaskRunCommandRequestApiParams
     /** Optional JSON-RPC request ID (string or number) */
     id?: unknown
 }
-
-/**
- * Command result on success
- */
-export type TaskRunCommandResponseApiResult = { [key: string]: unknown }
 
 /**
  * Error details on failure
@@ -2894,7 +2898,7 @@ export interface TaskRunCommandResponseApi {
     /** Request ID echoed back (string or number) */
     id?: unknown
     /** Command result on success */
-    result?: TaskRunCommandResponseApiResult
+    result?: unknown
     /** Error details on failure */
     error?: TaskRunCommandResponseApiError
 }
@@ -2959,6 +2963,28 @@ export interface StreamReadTokenResponseApi {
      * @nullable
      */
     stream_base_url: string | null
+}
+
+export interface TaskSessionResponseApi {
+    /** Task session identifier */
+    id: string
+    /**
+     * Temporary URL for downloading the session
+     * @nullable
+     */
+    download_url: string | null
+    /**
+     * SHA-256 digest of the current session content
+     * @nullable
+     */
+    content_sha256: string | null
+}
+
+export interface TaskSessionSyncResponseApi {
+    /** Task session identifier */
+    id: string
+    /** SHA-256 digest of the uploaded session content */
+    content_sha256: string
 }
 
 /**

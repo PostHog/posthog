@@ -71,6 +71,7 @@ APIScopeObject = Literal[
     "llm_analytics",
     "ai_observability_clusters",
     "llm_gateway",
+    "llm_playground",
     "llm_prompt",
     "llm_provider_key",
     "llm_skill",

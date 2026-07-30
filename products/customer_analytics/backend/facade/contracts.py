@@ -95,6 +95,45 @@ class Account:
 
 
 @dataclass(frozen=True)
+class AccountDueForSlackSummary:
+    """An account whose bound Slack channel is due a periodic summary.
+
+    ``period_start``/``period_end`` are the UTC instants of the last closed calendar
+    window (yesterday, last ISO week, last month) in the account team's timezone.
+    """
+
+    team_id: int
+    account_id: str
+    account_name: str
+    slack_channel_id: str
+    cadence: str
+    period_start: datetime
+    period_end: datetime
+
+
+@dataclass(frozen=True)
+class AccountSlackSummaryBinding:
+    """An account's current summary opt-in: its cadence and bound Slack channel."""
+
+    cadence: str
+    slack_channel_id: str
+
+
+@dataclass(frozen=True)
+class AccountChannelSummaryView:
+    """A stored channel summary as returned by the account summaries endpoint."""
+
+    id: UUID
+    slack_channel_id: str
+    cadence: str
+    period_start: datetime
+    period_end: datetime
+    content: str
+    message_count: int
+    generated_at: datetime
+
+
+@dataclass(frozen=True)
 class AccountRef:
     """Lightweight account reference for search/list result rows.
 
@@ -275,6 +314,7 @@ class AccountView:
     properties: dict = field(default_factory=dict)
     tags: list[str] = field(default_factory=list)
     notebooks: list[str] = field(default_factory=list)
+    slack_summary_cadence: str | None = None
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None
@@ -467,6 +507,7 @@ class CreateAccountInput:
     external_id: str | None = None
     properties: dict = field(default_factory=dict)
     tags: list[str] | None = None
+    slack_summary_cadence: str | None = None
 
 
 @dataclass(frozen=True)
@@ -482,9 +523,11 @@ class UpdateAccountInput:
     external_id: str | None = None
     properties: dict | None = None
     tags: list[str] | None = None
+    slack_summary_cadence: str | None = None
     # Distinguishes "external_id omitted" from "external_id explicitly set to null".
     external_id_provided: bool = False
     properties_provided: bool = False
+    slack_summary_cadence_provided: bool = False
 
 
 @dataclass(frozen=True)

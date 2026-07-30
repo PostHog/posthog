@@ -13,7 +13,7 @@ from posthog.schema import HogQLQuery
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.team import Team
-from posthog.session_recordings.models.metadata import RecordingMetadata
+from posthog.session_recordings.models.metadata import ONGOING_SESSION_WINDOW_MINUTES, RecordingMetadata
 
 DEFAULT_EVENT_FIELDS = [
     "event",
@@ -442,7 +442,8 @@ class SessionReplayEvents:
                 groupArrayArray(block_urls) as block_urls,
                 max(retention_period_days) as retention_period_days,
                 dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time,
-                dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl
+                dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl,
+                max(_timestamp) >= toDateTime(%(python_now)s) - INTERVAL {ongoing_window_minutes} MINUTE as ongoing
             FROM
                 session_replay_events
             PREWHERE
@@ -462,6 +463,7 @@ class SessionReplayEvents:
                 "AND min_first_timestamp >= %(recording_start_time)s" if recording_start_time else ""
             ),
             optional_format_clause=(f"FORMAT {format}" if format else ""),
+            ongoing_window_minutes=ONGOING_SESSION_WINDOW_MINUTES,
         )
         return query
 
@@ -493,6 +495,7 @@ class SessionReplayEvents:
             retention_period_days=replay[18],
             expiry_time=replay[19],
             recording_ttl=replay[20],
+            ongoing=bool(replay[21]),
         )
 
     def get_metadata(
@@ -578,7 +581,8 @@ class SessionReplayEvents:
                 groupArrayArray(block_urls) as block_urls,
                 max(retention_period_days) as retention_period_days,
                 dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time,
-                dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl
+                dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl,
+                max(_timestamp) >= toDateTime(%(python_now)s) - INTERVAL {ONGOING_SESSION_WINDOW_MINUTES} MINUTE as ongoing
             FROM
                 session_replay_events
             PREWHERE

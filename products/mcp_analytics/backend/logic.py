@@ -23,7 +23,11 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import generate_cache_key
 
 from products.mcp_analytics.backend import intent_generation
-from products.mcp_analytics.backend.constants import MCP_MISSING_CAPABILITY_EVENT, MCP_TOOL_CALL_EVENT
+from products.mcp_analytics.backend.constants import (
+    MAX_SNAPSHOT_CLUSTERS,
+    MCP_MISSING_CAPABILITY_EVENT,
+    MCP_TOOL_CALL_EVENT,
+)
 from products.mcp_analytics.backend.facade import contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 
@@ -677,6 +681,16 @@ def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:
     blob = snapshot.clusters or {}
     clusters_raw = blob.get("clusters", []) if isinstance(blob, dict) else []
     meta_raw = blob.get("computed_with") if isinstance(blob, dict) else None
+
+    # Snapshots persisted before build_snapshot capped its output can hold
+    # hundreds of clusters — cap at read time too, keeping the highest-volume
+    # ones (the same ranking build_snapshot persists).
+    if len(clusters_raw) > MAX_SNAPSHOT_CLUSTERS:
+        clusters_raw = sorted(
+            (item for item in clusters_raw if isinstance(item, dict)),
+            key=lambda item: int(item.get("call_count", 0) or 0),
+            reverse=True,
+        )[:MAX_SNAPSHOT_CLUSTERS]
 
     return contracts.IntentClusterSnapshot(
         status=snapshot.status,
