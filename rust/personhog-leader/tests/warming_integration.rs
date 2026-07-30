@@ -549,3 +549,21 @@ async fn sequential_warms_reuse_pooled_clients() {
         "four offset queries must reuse one pooled offsets client"
     );
 }
+
+/// Prewarming must fill every slot with a distinct connected client —
+/// returning clients to the pool mid-loop would hand the same one back
+/// to each iteration, leaving all but one slot to be built cold on the
+/// handoff path.
+#[tokio::test]
+async fn warm_up_fills_every_slot() {
+    let (cluster, _producer) = create_test_kafka().await;
+    let (_cfg, pools) = warming_config_for("warmer-prewarm", &cluster);
+
+    pools.warming.warm_up(3).await;
+
+    assert_eq!(
+        pools.warming.created_count(),
+        3,
+        "prewarming three slots must create three distinct clients"
+    );
+}

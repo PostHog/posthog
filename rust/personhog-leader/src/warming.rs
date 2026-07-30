@@ -185,9 +185,20 @@ impl ConsumerPool {
 
     /// Return a client after a successful operation. The assignment is
     /// cleared so the next checkout starts from a clean slate; clearing
-    /// an unassigned client is a harmless no-op.
+    /// an unassigned client is a harmless no-op. A client whose
+    /// assignment cannot be cleared is dropped instead of pooled — the
+    /// pool's contract is that doubtful clients are never reused — with
+    /// the failure logged so a systematic cleanup problem surfaces as a
+    /// visible signal rather than silent churn.
     pub fn give_back(&self, consumer: StreamConsumer) {
-        drop(consumer.unassign());
+        if let Err(e) = consumer.unassign() {
+            tracing::warn!(
+                pool = self.label,
+                error = %e,
+                "unassign failed; dropping client instead of pooling it"
+            );
+            return;
+        }
         self.stack.lock().unwrap().push(consumer);
     }
 
@@ -203,20 +214,28 @@ impl ConsumerPool {
     /// only means the first operations pay the setup they would have
     /// paid anyway.
     pub async fn warm_up(&self, n: usize) {
+        // Hold every connected client outside the pool until the end:
+        // returning them as we go would make the next checkout pop the
+        // client we just returned, connecting one client n times and
+        // leaving the other n-1 slots to be built cold on the hot path.
+        let mut connected = Vec::with_capacity(n);
         for _ in 0..n {
             let Ok(consumer) = self.checkout() else {
-                return;
+                break;
             };
             let timeout = Duration::from_secs(5);
-            let connected = tokio::task::spawn_blocking(move || {
+            let outcome = tokio::task::spawn_blocking(move || {
                 let ok = consumer.fetch_metadata(None, timeout).is_ok();
                 (consumer, ok)
             })
             .await;
-            match connected {
-                Ok((consumer, true)) => self.give_back(consumer),
-                _ => return,
+            match outcome {
+                Ok((consumer, true)) => connected.push(consumer),
+                _ => break,
             }
+        }
+        for consumer in connected {
+            self.give_back(consumer);
         }
     }
 }
