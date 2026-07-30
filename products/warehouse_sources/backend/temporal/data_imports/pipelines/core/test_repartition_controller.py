@@ -570,7 +570,9 @@ class TestRepartitionActivity:
         # pathological — deferring a transient blip to the next sync runs that crawl first. The activity
         # must re-raise retryable so Temporal re-runs the rewrite in this run, while still emitting no
         # failure event and consuming no attempt (in-run retries must not exhaust the budget on infra
-        # noise).
+        # noise). ActivityEnvironment bypasses the worker interceptor chain, so this does NOT cover the
+        # error-tracking exemption for the re-raise — that lives in EXPECTED_CONTROL_FLOW_ERROR_TYPES
+        # (posthog_client.py), keyed on the ApplicationError's type string.
         schema = _make_schema(team, {})
         schema.set_repartition_pending(
             {

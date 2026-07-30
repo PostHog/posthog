@@ -334,23 +334,25 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         if _is_transient_infra_error(e):
             # Transient infra noise mid-repartition (app-DB pooler drop, S3 rate limit, credential
             # timeout) — not a repartition bug. The rewrite/swap is idempotent via the swap marker, so
-            # retrying is always safe. Don't consume an attempt or emit a failure event — capture for
-            # visibility.
-            capture_exception(e)
+            # retrying is always safe. Don't consume an attempt or emit a failure event.
             DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="transient").inc()
             if trigger_reason == "admin":
                 # An operator staged this rewrite precisely because syncing on the old layout is
                 # pathological (e.g. a badly over-partitioned table merging one commit per partition
                 # for hours). Deferring to the next sync would run that crawl first, so re-raise
                 # retryable and let the activity's retry policy re-run the rewrite now; the claim
-                # fencing handles any zombie, and if retries exhaust the workflow still swallows the
-                # failure and syncs on the old layout.
+                # fencing handles any zombie, and if attempts exhaust the workflow still swallows the
+                # failure and syncs on the old layout. No capture_exception here and the error type is
+                # exempted in EXPECTED_CONTROL_FLOW_ERROR_TYPES: retries are expected control flow,
+                # and error-tracking events here would spam (and can trigger automated remediation);
+                # the log line and the transient metric carry the visibility.
                 logger.warning("repartition: transient infra error, re-raising for activity retry", exc_info=True)
                 raise ApplicationError(
                     f"Transient infra error during admin-staged repartition: {e}",
                     type="TransientRepartitionError",
                 ) from e
             logger.warning("repartition: transient infra error, will retry on next sync", exc_info=True)
+            capture_exception(e)
             return
         failure_outcome = _handle_failure(inputs, schema, pending, trigger_reason, e, claim_token, logger)
         DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome=failure_outcome).inc()
