@@ -311,7 +311,11 @@ export function WithMalformedExceptionIngestionError(): JSX.Element {
     return (
         <ErrorDisplay
             eventProperties={errorProperties({
+                // The dead end a user hits: an ingestion error and nothing to show
+                // under it, so the Sentry fallback exception is cleared too
                 $exception_list: [],
+                $sentry_exception: undefined,
+                $sentry_event_id: undefined,
                 $cymbal_errors: [
                     'Invalid properties on event 0195e5e2-1234-7000-8000-abcdefabcdef, serde error: missing field `type` at line 5 column 13',
                 ],

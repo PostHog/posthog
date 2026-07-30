@@ -29,8 +29,11 @@ export function humanizeIngestionError(error: string): HumanizedIngestionError {
         if (missingField[1] === '$exception_list') {
             return { message: NO_EXCEPTION_DATA, docsLink: DOCS_LINK }
         }
+        // Deliberately doesn't say which object was missing the field. The same
+        // serde message covers the exception and its nested stacktrace, and
+        // naming the wrong one sends people looking in the wrong place.
         return {
-            message: `Your SDK sent an exception with no "${missingField[1]}" field, so PostHog couldn't read it. Updating to the latest SDK version usually fixes this.`,
+            message: `PostHog couldn't read this exception: your SDK left out a required "${missingField[1]}" field. Updating to the latest SDK version usually fixes this.`,
             docsLink: DOCS_LINK,
         }
     }
@@ -38,7 +41,7 @@ export function humanizeIngestionError(error: string): HumanizedIngestionError {
     const nullField = detail.match(NULL_FIELD)
     if (nullField) {
         return {
-            message: `Your SDK sent an empty value where a ${nullField[1]} was expected, so PostHog couldn't read this exception. Updating to the latest SDK version usually fixes this.`,
+            message: `PostHog couldn't read this exception: your SDK sent an empty value where a ${nullField[1]} was expected. Updating to the latest SDK version usually fixes this.`,
             docsLink: DOCS_LINK,
         }
     }

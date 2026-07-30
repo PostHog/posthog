@@ -6,8 +6,11 @@ describe('humanizeIngestionError', () => {
             'Invalid properties on event 0195e5e2-1234-7000-8000-abcdefabcdef, serde error: missing field `type` at line 5 column 13'
         )
         expect(message).toBe(
-            `Your SDK sent an exception with no "type" field, so PostHog couldn't read it. Updating to the latest SDK version usually fixes this.`
+            `PostHog couldn't read this exception: your SDK left out a required "type" field. Updating to the latest SDK version usually fixes this.`
         )
+        // The same serde message covers a missing stacktrace tag, so the copy must
+        // not claim the exception itself lacked a type
+        expect(message).not.toContain('an exception with no')
         expect(message).not.toContain('serde')
         expect(docsLink).toBeTruthy()
     })
@@ -17,7 +20,7 @@ describe('humanizeIngestionError', () => {
             humanizeIngestionError(
                 'Invalid properties on event 0195e5e2-1234-7000-8000-abcdefabcdef, serde error: invalid type: null, expected a string at line 1 column 20'
             ).message
-        ).toContain('empty value where a string was expected')
+        ).toContain('sent an empty value where a string was expected')
     })
 
     it.each([
