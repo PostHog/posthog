@@ -231,7 +231,7 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
                 no_exportable_reason = NoExportableInsightsReason.EMPTY_DASHBOARD
     elif subscription.insight:
         if subscription.insight.deleted:
-            no_exportable_reason = NoExportableInsightsReason.INSIGHT_DELETED
+            no_exportable_reason = NoExportableInsightsReason.MISSING_RESOURCE
         else:
             tile_insight_pairs = [(None, subscription.insight)]
             available_insight_count = 1

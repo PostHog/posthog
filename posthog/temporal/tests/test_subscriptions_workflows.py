@@ -1386,7 +1386,7 @@ async def test_create_export_assets_excludes_deleted_standalone_insight(team, us
         )
 
     assert result.status == ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS
-    assert result.failure_context["reason"] == NoExportableInsightsReason.INSIGHT_DELETED
+    assert result.failure_context["reason"] == NoExportableInsightsReason.MISSING_RESOURCE
 
 
 @patch("ee.tasks.subscriptions.get_metric_meter")

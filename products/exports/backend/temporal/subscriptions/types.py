@@ -28,7 +28,6 @@ class ExportAssetPreparationStatus:
 class NoExportableInsightsReason:
     DASHBOARD_DELETED = "dashboard_deleted"
     EMPTY_DASHBOARD = "empty_dashboard"
-    INSIGHT_DELETED = "insight_deleted"
     MISSING_RESOURCE = "missing_resource"
     SELECTED_INSIGHTS_NO_LONGER_AVAILABLE = "selected_insights_no_longer_available"
 
