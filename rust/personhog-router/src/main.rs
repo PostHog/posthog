@@ -67,7 +67,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let mut manager = Manager::builder("personhog-router")
-        .with_global_shutdown_timeout(Duration::from_secs(30))
+        // Below the pod's 30s termination grace so shutdown always
+        // concludes process-side — reaching the routing table's lease
+        // revoke — rather than racing the kubelet's SIGKILL.
+        .with_global_shutdown_timeout(Duration::from_secs(25))
         .build();
 
     // Shutdown order is the inverse of the leader's: the gRPC server
