@@ -16,6 +16,7 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
+from django.conf import settings
 from django.db.models import F, Q
 
 from rest_framework import serializers, status
@@ -49,7 +50,7 @@ from products.conversations.backend.cache import (
     set_cached_messages,
     set_cached_tickets,
 )
-from products.conversations.backend.models import Ticket, WidgetSubmissionFailure
+from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import ChannelDetail
 from products.conversations.backend.services.identity import verify_identity_hash
 
@@ -57,43 +58,25 @@ logger = logging.getLogger(__name__)
 
 
 def _bounded_text(value: object, max_length: int) -> str | None:
-    """Coerce an untrusted request value to a string within a column's limit, or None."""
+    """Coerce an untrusted request value to a bounded string, or None.
+
+    This endpoint is public and unauthenticated, and the failure path runs before validation
+    has established anything about the value, so cap it rather than trust its length.
+    """
     if not isinstance(value, str) or not value:
         return None
     return value[:max_length]
 
 
-def _parsed_uuid(value: object) -> str | None:
-    """Return an untrusted request value as a canonical UUID string, or None if it isn't one."""
-    if not isinstance(value, str) or not value:
-        return None
-    try:
-        return str(uuid.UUID(value))
-    except ValueError:
-        return None
+def _submitter_for_follow_up(team: Team, request_data: Mapping[str, Any]) -> str | None:
+    """Return the submitter's distinct_id when they're ours to follow up with, else None.
 
-
-def _record_failed_send(team: Team, request_data: Mapping[str, Any], error_fields: list[str]) -> str | None:
-    """Retain a rejected submission so its submitter can be followed up with.
-
-    Returns the record id, or None when the request identified nobody to follow up with.
-    The submitter is a customer's own end user, so their identifiers stay in the customer's
-    team-scoped data here rather than being copied into PostHog's internal analytics.
+    Only for tickets sent to PostHog itself. On a customer's own widget the submitter is that
+    customer's end user, and their identifier is not ours to copy into our internal analytics.
     """
-    distinct_id = _bounded_text(request_data.get("distinct_id") or request_data.get("identity_distinct_id"), 400)
-    widget_session_id = _parsed_uuid(request_data.get("widget_session_id"))
-    if not distinct_id and not widget_session_id:
+    if team.id != settings.CONVERSATIONS_INTERNAL_SUPPORT_TEAM_ID:
         return None
-
-    failure = WidgetSubmissionFailure.objects.for_team(team.id).create(
-        team=team,
-        distinct_id=distinct_id,
-        widget_session_id=widget_session_id,
-        ticket_id=_parsed_uuid(request_data.get("ticket_id")),
-        error_fields=error_fields,
-        identity_attempted=bool(request_data.get("identity_distinct_id") and request_data.get("identity_hash")),
-    )
-    return str(failure.id)
+    return _bounded_text(request_data.get("distinct_id") or request_data.get("identity_distinct_id"), 400)
 
 
 def _report_failed_send(team: Team, request_data: Mapping[str, Any], errors: Mapping[str, Any]) -> None:
@@ -112,26 +95,17 @@ def _report_failed_send(team: Team, request_data: Mapping[str, Any], errors: Map
             if isinstance(key, str) and isinstance(value, str):
                 session_context_field_lengths[key[:100]] = len(value)
 
-    error_fields = sorted(errors.keys())
-
-    # A failed record must not cost us the counter, so it's caught separately.
-    failure_id = None
-    try:
-        failure_id = _record_failed_send(team, request_data, error_fields)
-    except Exception as e:
-        capture_exception(e)
-
     report_team_action(
         team,
         "support ticket send failed",
         {
             "channel_source": "widget",
             "reason": "validation_error",
-            "error_fields": error_fields,
+            "error_fields": sorted(errors.keys()),
             "session_context_field_count": session_context_field_count,
             "session_context_field_lengths": session_context_field_lengths,
             "team_id": team.id,
-            "submission_failure_id": failure_id,
+            "submitted_distinct_id": _submitter_for_follow_up(team, request_data),
         },
     )
 

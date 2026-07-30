@@ -355,6 +355,11 @@ GROWTH_SIGNUP_ENRICHMENT_ENABLED = get_from_env("GROWTH_SIGNUP_ENRICHMENT_ENABLE
 # enrichment group properties are projected onto; env-overridable since that id differs across
 # cloud deployments.
 GROWTH_ENRICHMENT_INTERNAL_TEAM_ID = get_from_env("GROWTH_ENRICHMENT_INTERNAL_TEAM_ID", 2, type_cast=int)
+# The project that receives support tickets sent to PostHog itself, as opposed to a customer's own
+# widget embedded on their own site. Both go through the same public widget endpoint, so this is
+# what separates our own submitters (PostHog users, ours to follow up with) from a customer's end
+# users. Env-overridable since the id differs across cloud deployments.
+CONVERSATIONS_INTERNAL_SUPPORT_TEAM_ID = get_from_env("CONVERSATIONS_INTERNAL_SUPPORT_TEAM_ID", 2, type_cast=int)
 # Session keys for risk-based step-up (posthog/session/risk.py). Named so every reader/writer shares
 # one source of truth, like SESSION_COOKIE_CREATED_AT_KEY above.
 SESSION_STEP_UP_REQUIRED_KEY = get_from_env("SESSION_STEP_UP_REQUIRED_KEY", "step_up_required")

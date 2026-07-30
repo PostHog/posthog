@@ -76,7 +76,6 @@ from products.approvals.backend.tasks import expire_old_change_requests, validat
 from products.conversations.backend.tasks import (
     flush_pending_email_replies,
     poll_teams_shared_channels,
-    prune_widget_submission_failures,
     wake_snoozed_tickets,
 )
 from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
@@ -829,14 +828,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*"),
         wake_snoozed_tickets.s(),
         name="wake snoozed conversation tickets",
-    )
-
-    # Drop retained widget submission failures past their follow-up window - daily at 4 AM
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(hour="4", minute="0"),
-        prune_widget_submission_failures.s(),
-        name="prune widget submission failures",
     )
 
     # Re-drive queued outbound support email replies (survives a multi-day email provider outage)
