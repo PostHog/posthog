@@ -32,7 +32,7 @@ import type { BillingType, PreflightStatus } from '../../../types'
 import type { FeatureFlagsSet } from '../../logic/featureFlagLogic'
 import { parseExceptionEvent } from './exceptionUtils'
 import { openSupportModal } from './SupportModal'
-import { KNOWN_ENTERPRISE_ORG_IDS, getActiveTrialTarget } from './supportResponseTime'
+import { getCurrentSupportPlan } from './supportResponseTime'
 
 export function getPublicSupportSnippet(
     cloudRegion: Region | null | undefined,
@@ -113,50 +113,38 @@ export function getPlanLevelTag({
     organizationId,
     isNewOrganization,
 }: PlanLevelTagContext): string {
-    let planLevelTag = 'plan_free'
-
-    const isKnownEnterpriseOrg = KNOWN_ENTERPRISE_ORG_IDS.includes(organizationId || '')
-    const activeTrialTarget = getActiveTrialTarget(billing)
-
-    if (isKnownEnterpriseOrg || activeTrialTarget === 'enterprise' || billingPlan === BillingPlan.Enterprise) {
-        planLevelTag = 'plan_enterprise'
-    } else if (isNewOrganization) {
-        planLevelTag = 'plan_onboarding'
-    } else if (activeTrialTarget === 'scale') {
-        planLevelTag = 'plan_scale'
-    } else if (activeTrialTarget === 'boost') {
-        planLevelTag = 'plan_boost'
-    } else if (billingPlan) {
-        switch (billingPlan) {
-            case BillingPlan.Scale:
-                planLevelTag = 'plan_scale'
-                break
-            case BillingPlan.Boost:
-                planLevelTag = 'plan_boost'
-                break
-            case BillingPlan.Teams:
-                planLevelTag = 'plan_teams_legacy'
-                break
-            case BillingPlan.Paid:
-                const projectedAmount = parseFloat(billing?.projected_total_amount_usd_with_limit || '0')
-                const shouldMarkAsFree = projectedAmount === 0
-
-                planLevelTag = shouldMarkAsFree ? 'plan_pay-as-you-go_free' : 'plan_pay-as-you-go_paying'
-                break
-            case BillingPlan.Free:
-                planLevelTag = 'plan_free'
-                break
-        }
-    }
-
     const startupProgramLabel = billing?.startup_program_label
     if (startupProgramLabel === StartupProgramLabel.YC) {
-        planLevelTag = 'plan_yc'
-    } else if (startupProgramLabel === StartupProgramLabel.Startup) {
-        planLevelTag = 'plan_startup'
+        return 'plan_yc'
+    }
+    if (startupProgramLabel === StartupProgramLabel.Startup) {
+        return 'plan_startup'
     }
 
-    return planLevelTag
+    const supportPlan = getCurrentSupportPlan({ billing, billingPlan, organizationId })
+    if (supportPlan === BillingPlan.Enterprise) {
+        return 'plan_enterprise'
+    }
+    if (isNewOrganization) {
+        return 'plan_onboarding'
+    }
+
+    switch (supportPlan) {
+        case 'scale_trial':
+        case BillingPlan.Scale:
+            return 'plan_scale'
+        case 'boost_trial':
+        case BillingPlan.Boost:
+            return 'plan_boost'
+        case BillingPlan.Teams:
+            return 'plan_teams_legacy'
+        case BillingPlan.Paid:
+            return parseFloat(billing?.projected_total_amount_usd_with_limit || '0') === 0
+                ? 'plan_pay-as-you-go_free'
+                : 'plan_pay-as-you-go_paying'
+        case BillingPlan.Free:
+            return 'plan_free'
+    }
 }
 
 function getDjangoAdminLink(
