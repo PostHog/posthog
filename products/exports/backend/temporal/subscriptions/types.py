@@ -25,6 +25,12 @@ class ExportAssetPreparationStatus:
     NO_EXPORTABLE_INSIGHTS = "no_exportable_insights"
 
 
+NO_EXPORTABLE_INSIGHTS_MESSAGE = (
+    "This subscription has no available insights to export. Add insights to the dashboard or update the subscription's "
+    "insight selection."
+)
+
+
 # Mirrors Subscription.ResourceType.AI_PROMPT — a plain constant so the Temporal
 # workflow sandbox can route by resource type without importing the Django model.
 AI_PROMPT_RESOURCE_TYPE = "ai_prompt"

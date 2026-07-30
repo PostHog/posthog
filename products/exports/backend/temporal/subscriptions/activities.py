@@ -27,6 +27,7 @@ from products.exports.backend.temporal.subscriptions.insight_snapshot import (
     build_insight_delivery_snapshot,
 )
 from products.exports.backend.temporal.subscriptions.types import (
+    NO_EXPORTABLE_INSIGHTS_MESSAGE,
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     CreateExportAssetsResult,
@@ -55,6 +56,10 @@ LOGGER = get_logger(__name__)
 # Used only as the recipient_results error message — `no_assets` doesn't auto-disable
 # (it indicates a transient resolve failure that retries can recover from).
 NO_ASSETS_REASON = "No assets to deliver — likely a transient export pipeline failure; will retry on next schedule"
+
+
+class NoExportableInsightsError(Exception):
+    pass
 
 
 async def _persist_content_snapshot(
@@ -164,6 +169,9 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         subscription_id=inputs.subscription_id,
     )
 
+    if inputs.max_asset_count <= 0:
+        raise ApplicationError("max_asset_count must be greater than zero", non_retryable=True)
+
     subscription = await database_sync_to_async(
         Subscription.objects.select_related("created_by", "insight", "dashboard", "team").get,
         thread_sensitive=False,
@@ -180,7 +188,10 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         target_type=subscription.target_type,
     )
 
-    if dashboard:
+    selected_ids: set[int] | None = None
+    tile_insight_pairs: list[tuple[DashboardTile | None, Insight]] = []
+
+    if dashboard and not dashboard.deleted:
         tiles = await database_sync_to_async(
             lambda: list(
                 dashboard.tiles.select_related("insight").filter(insight__isnull=False, insight__deleted=False).all()
@@ -193,9 +204,7 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
                 (x.layouts or {}).get("sm", {}).get("x", 100),
             )
         )
-        tile_insight_pairs: list[tuple[DashboardTile | None, Insight]] = [
-            (tile, tile.insight) for tile in tiles if tile.insight
-        ]
+        tile_insight_pairs = [(tile, tile.insight) for tile in tiles if tile.insight]
 
         selected_ids = await database_sync_to_async(
             lambda: (
@@ -207,22 +216,20 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         )()
         if selected_ids:
             tile_insight_pairs = [(t, i) for t, i in tile_insight_pairs if i.id in selected_ids]
-    elif subscription.insight:
+    elif subscription.insight and not subscription.insight.deleted:
         tile_insight_pairs = [(None, subscription.insight)]
-    else:
-        raise Exception("There are no insights to be sent for this Subscription")
 
     total_insight_count = len(tile_insight_pairs)
-    export_pairs = tile_insight_pairs[: inputs.max_asset_count]
 
-    if not export_pairs:
+    if not tile_insight_pairs:
         await LOGGER.awarning(
             "create_export_assets.no_exportable_insights",
             subscription_id=inputs.subscription_id,
             dashboard_id=subscription.dashboard_id,
             insight_id=subscription.insight_id,
-            selected_insight_count=len(selected_ids) if dashboard and selected_ids else 0,
+            selected_insight_count=len(selected_ids) if selected_ids else 0,
         )
+        _capture_delivery_failed_event(subscription, NoExportableInsightsError(NO_EXPORTABLE_INSIGHTS_MESSAGE))
         return CreateExportAssetsResult(
             exported_asset_ids=[],
             total_insight_count=total_insight_count,
@@ -231,6 +238,8 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             target_type=subscription.target_type,
             status=ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS,
         )
+
+    export_pairs = tile_insight_pairs[: inputs.max_asset_count]
 
     expiry = ExportedAsset.compute_expires_after(ExportedAsset.ExportFormat.PNG)
     assets = [

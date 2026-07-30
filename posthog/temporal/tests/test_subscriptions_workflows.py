@@ -53,6 +53,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.activities 
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
 from products.exports.backend.temporal.subscriptions.types import (
+    NO_EXPORTABLE_INSIGHTS_MESSAGE,
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     DeliverSubscriptionInputs,
@@ -1220,9 +1221,11 @@ async def test_create_export_assets_does_not_skip_an_unchanged_destination(team,
 
 @patch("posthog.slo.events.posthoganalytics")
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
+@patch("products.exports.backend.temporal.subscriptions.activities._capture_delivery_failed_event")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_stale_dashboard_selection_fails_without_retrying(
+    mock_capture_delivery_failed: MagicMock,
     mock_send_email: MagicMock,
     mock_slo_analytics: MagicMock,
     team,
@@ -1251,14 +1254,14 @@ async def test_stale_dashboard_selection_fails_without_retrying(
                 TrackedSubscriptionInputs(
                     subscription_id=subscription.id,
                     team_id=subscription.team_id,
-                    distinct_id=str(subscription.created_by.distinct_id),
+                    distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
                     trigger_type=SubscriptionTriggerType.SCHEDULED,
                     slo=SloConfig(
                         operation=SloOperation.SUBSCRIPTION_DELIVERY,
                         area=SloArea.ANALYTIC_PLATFORM,
                         team_id=subscription.team_id,
                         resource_id=str(subscription.id),
-                        distinct_id=str(subscription.created_by.distinct_id),
+                        distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
                     ),
                 ),
                 id=str(uuid.uuid4()),
@@ -1268,10 +1271,11 @@ async def test_stale_dashboard_selection_fails_without_retrying(
     delivery = await sync_to_async(SubscriptionDelivery.objects.get)(subscription=subscription)
     assert delivery.status == SubscriptionDelivery.Status.FAILED
     assert delivery.error == {
-        "message": "This subscription has no available insights to export. Update its insight selection.",
+        "message": NO_EXPORTABLE_INSIGHTS_MESSAGE,
         "type": ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS,
     }
     mock_send_email.assert_not_called()
+    mock_capture_delivery_failed.assert_called_once()
 
     completed_calls = [
         call
@@ -1310,15 +1314,15 @@ async def test_create_export_assets_excludes_deleted_insights(team, user):
 
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
-async def test_create_export_assets_raises_on_missing_resource(team, user):
+async def test_create_export_assets_classifies_missing_resource(team, user):
     subscription = await sync_to_async(create_subscription)(team=team, created_by=user)
 
-    env = ActivityEnvironment()
-    with pytest.raises(Exception, match="There are no insights to be sent"):
-        await env.run(
-            create_export_assets,
-            CreateExportAssetsInputs(subscription_id=subscription.id),
+    with patch("products.exports.backend.temporal.subscriptions.activities._capture_delivery_failed_event"):
+        result = await ActivityEnvironment().run(
+            create_export_assets, CreateExportAssetsInputs(subscription_id=subscription.id)
         )
+
+    assert result.status == ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS
 
 
 @freeze_time("2022-02-02T08:55:00.000Z")
@@ -1347,14 +1351,28 @@ async def test_create_export_assets_empty_dashboard(team, user):
     dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="Empty", created_by=user)
     subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
 
-    env = ActivityEnvironment()
-    result = await env.run(
-        create_export_assets,
-        CreateExportAssetsInputs(subscription_id=subscription.id),
-    )
+    with patch("products.exports.backend.temporal.subscriptions.activities._capture_delivery_failed_event"):
+        result = await ActivityEnvironment().run(
+            create_export_assets, CreateExportAssetsInputs(subscription_id=subscription.id)
+        )
 
     assert result.exported_asset_ids == []
     assert result.total_insight_count == 0
+    assert result.status == ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS
+
+
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_create_export_assets_excludes_deleted_standalone_insight(team, user):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="deleted01", deleted=True)
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+
+    with patch("products.exports.backend.temporal.subscriptions.activities._capture_delivery_failed_event"):
+        result = await ActivityEnvironment().run(
+            create_export_assets, CreateExportAssetsInputs(subscription_id=subscription.id)
+        )
+
+    assert result.status == ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS
 
 
 @patch("ee.tasks.subscriptions.get_metric_meter")

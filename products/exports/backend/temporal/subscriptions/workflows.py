@@ -41,6 +41,7 @@ from products.exports.backend.temporal.subscriptions.retry_policy import (
 from products.exports.backend.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from products.exports.backend.temporal.subscriptions.types import (
     AI_PROMPT_RESOURCE_TYPE,
+    NO_EXPORTABLE_INSIGHTS_MESSAGE,
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     DeliverSubscriptionInputs,
@@ -267,7 +268,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             if not prepare_result.exported_asset_ids:
                 if prepare_result.status == ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS:
                     delivery_error = {
-                        "message": "This subscription has no available insights to export. Update its insight selection.",
+                        "message": NO_EXPORTABLE_INSIGHTS_MESSAGE,
                         "type": ExportAssetPreparationStatus.NO_EXPORTABLE_INSIGHTS,
                     }
                     final_status = DeliveryStatus.FAILED
