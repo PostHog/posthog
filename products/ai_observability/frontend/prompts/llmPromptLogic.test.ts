@@ -390,6 +390,27 @@ describe('llmPromptLogic', () => {
         logic.unmount()
     })
 
+    it('does not count a key reorder as a config change, matching jsonb storage', async () => {
+        const { versions, has_more, ...promptFields } = mockPrompt
+        mockResolve.mockResolvedValue({
+            prompt: { ...promptFields, config: { model: 'gpt-4o', temperature: 0.2 } },
+            versions,
+            has_more,
+        } as unknown as LLMPromptResolveResponseApi)
+
+        const logic = llmPromptLogic({ promptName: 'my-test-prompt' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPromptSuccess'])
+
+        logic.actions.setPromptFormValues({ config: '{"temperature": 0.2, "model": "gpt-4o"}' })
+        expect(logic.values.isConfigChanged).toBe(false)
+
+        logic.actions.setPromptFormValues({ config: '{"temperature": 0.9, "model": "gpt-4o"}' })
+        expect(logic.values.isConfigChanged).toBe(true)
+
+        logic.unmount()
+    })
+
     it('routes publish with invalid config through form errors instead of the review modal', async () => {
         const { versions, has_more, ...promptFields } = mockPrompt
         mockResolve.mockResolvedValue({

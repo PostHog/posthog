@@ -84,6 +84,23 @@ export function formatPromptConfig(config: LLMPrompt['config'] | undefined): str
     return config == null ? '' : JSON.stringify(config, null, 2)
 }
 
+// Sorted keys so comparisons match Postgres jsonb, which doesn't preserve key order:
+// a reordered-but-equal config must not be presented as a change the server won't store.
+function canonicalizeJson(value: unknown): unknown {
+    if (Array.isArray(value)) {
+        return value.map(canonicalizeJson)
+    }
+    if (typeof value === 'object' && value !== null) {
+        const record = value as Record<string, unknown>
+        return Object.fromEntries(
+            Object.keys(record)
+                .sort()
+                .map((key) => [key, canonicalizeJson(record[key])])
+        )
+    }
+    return value
+}
+
 export function parsePromptConfig(text: string): { config: Record<string, unknown> | null; error?: string } {
     const trimmed = text.trim()
     if (!trimmed) {
@@ -823,7 +840,10 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 if (parsed.error) {
                     return true
                 }
-                return JSON.stringify(parsed.config) !== JSON.stringify(prompt.config ?? null)
+                return (
+                    JSON.stringify(canonicalizeJson(parsed.config)) !==
+                    JSON.stringify(canonicalizeJson(prompt.config ?? null))
+                )
             },
         ],
 
