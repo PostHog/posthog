@@ -39,6 +39,7 @@ async def classify_stale_rows(
         async with semaphore:
             return await _workflow_is_open(temporal, row[workflow_id_key])
 
+    # No return_exceptions: _workflow_is_open maps every failure to None, so _check never raises.
     results = await asyncio.gather(*(_check(row) for row in rows))
     reapable: list[dict[str, Any]] = []
     skipped_open = 0

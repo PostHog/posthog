@@ -172,14 +172,14 @@ describe('PlayerController', () => {
 
         mp._emit({
             type: 'error',
-            code: 'PLAYBACK_ERROR',
+            code: 'SOME_FUTURE_CODE',
             message: 'rendering failed',
             retryable: true,
         })
 
         const err = controller.getError()
         expect(err).toBeInstanceOf(RasterizationError)
-        expect(err!.message).toBe('[PLAYBACK_ERROR] rendering failed')
+        expect(err!.message).toBe('[SOME_FUTURE_CODE] rendering failed')
         expect(err!.code).toBe('OTHER')
         expect(err!.retryable).toBe(true)
     })

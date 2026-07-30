@@ -254,7 +254,7 @@ class _ReconcileMocks:
         raise AssertionError(f"unexpected activity: {activity_fn!r}")
 
 
-async def _run_reconcile(mocks: _ReconcileMocks):
+async def _run_reconcile(mocks: _ReconcileMocks, patched: bool = True):
     # `workflow.logger` reaches into the workflow runtime, which isn't set up here.
     fake_logger = type(
         "Logger",
@@ -264,7 +264,7 @@ async def _run_reconcile(mocks: _ReconcileMocks):
     with (
         patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
         patch("temporalio.workflow.logger", fake_logger),
-        patch("temporalio.workflow.patched", return_value=True),
+        patch("temporalio.workflow.patched", return_value=patched),
     ):
         return await ReconcileScannerSchedulesWorkflow().run(ReconcileScannerSchedulesInputs())
 
@@ -385,6 +385,15 @@ async def test_reconcile_workflow(_name: str, build: Callable[[], tuple[_Reconci
         assert result.deleted == expected["deleted"]
     assert result.failed_upsert == expected.get("failed_upsert", [])
     assert result.failed_delete == expected.get("failed_delete", [])
+
+
+@pytest.mark.asyncio
+async def test_reconcile_workflow_pre_patch_skips_run_reaper() -> None:
+    # Replays of pre-patch executions must not see the new activity command.
+    mocks = _ReconcileMocks(enabled=_enabled(), existing=_existing())
+    await _run_reconcile(mocks, patched=False)
+    assert mocks.reap_calls == 1
+    assert mocks.reap_stuck_run_calls == 0
 
 
 @pytest.mark.asyncio
@@ -584,7 +593,10 @@ async def test_reap_stuck_vision_action_runs_activity(org_team) -> None:
         key: await sync_to_async(lambda r=run: VisionActionRun.all_teams.get(pk=r.pk))() for key, run in rows.items()
     }
     assert statuses["running_gone"].status == VisionActionRunStatus.FAILED
-    assert statuses["running_gone"].error == {"reaped": "The run stopped without recording an outcome."}
+    assert statuses["running_gone"].error == {
+        "reaped": "The run stopped without recording an outcome.",
+        "delivery_unknown": True,
+    }
     for key in ("running_open", "describe_error", "too_fresh", "already_completed"):
         assert statuses[key].status == rows[key].status, key
     assert set(temporal.described) == {"wf-gone-1", "wf-open", "wf-err"}

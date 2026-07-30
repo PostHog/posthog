@@ -1,7 +1,7 @@
 import { Counter, Gauge, Histogram, Summary } from 'prom-client'
 
-import { toRasterizationErrorCode } from './errors'
-import { recordActivity, recordError } from './otel-metrics'
+import { RasterizationErrorCode } from './errors'
+import { ACTIVITY_DURATION_BOUNDARIES, recordActivity, recordError } from './otel-metrics'
 
 const QUANTILES = [0.5, 0.95, 0.99]
 const MAX_AGE_SECONDS = 600
@@ -16,7 +16,7 @@ export class RasterizationMetrics {
         name: 'recording_rasterizer_activity_duration_seconds',
         help: 'Total time for the rasterization activity',
         labelNames: ['result'],
-        buckets: [1, 5, 10, 30, 60, 120, 300, 600, 1200, 1800],
+        buckets: ACTIVITY_DURATION_BOUNDARIES,
     })
 
     private static readonly setupDuration = new Summary({
@@ -155,11 +155,9 @@ export class RasterizationMetrics {
         this.recordingDuration.observe(seconds)
     }
 
-    public static incrementError(code: string, retryable: boolean): void {
-        // Clamp so label cardinality stays bounded even if an untyped code slips through.
-        const clamped = toRasterizationErrorCode(code)
-        this.errorsTotal.labels({ code: clamped, retryable: String(retryable) }).inc()
-        recordError(clamped, retryable)
+    public static incrementError(code: RasterizationErrorCode, retryable: boolean): void {
+        this.errorsTotal.labels({ code, retryable: String(retryable) }).inc()
+        recordError(code, retryable)
     }
 
     public static browserLaunched(): void {

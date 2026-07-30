@@ -166,7 +166,9 @@ export class CapturePage {
                             } catch {
                                 // session may already be disconnected
                             }
-                            throw new Error('beginFrame timeout (15s) — compositor deadlock')
+                            // Throw the typed error so this path classifies as BEGINFRAME_DEADLOCK even
+                            // when the rejection propagates via waitForTimeout instead of captureStopped.
+                            throw this.fatalError
                         }
                         throw err
                     }

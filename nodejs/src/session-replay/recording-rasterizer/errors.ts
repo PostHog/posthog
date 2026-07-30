@@ -1,6 +1,6 @@
-// Single source of truth for error codes: the metrics layer derives its label set from this
-// list, so a code missing here is reported as OTHER. Includes the codes the in-browser player
-// emits (NO_SNAPSHOTS, INIT_FAILED, DATA_LOAD_FAILED).
+// Single source of truth for error codes. Includes the codes the in-browser player emits
+// (NO_SNAPSHOTS, INIT_FAILED, DATA_LOAD_FAILED). UNKNOWN = a non-RasterizationError was
+// thrown; OTHER = a browser-supplied code string we don't recognize (clamped in player.ts).
 export const RASTERIZATION_ERROR_CODES = [
     'UNKNOWN',
     'OTHER',

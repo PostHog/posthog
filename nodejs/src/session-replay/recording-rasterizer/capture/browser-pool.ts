@@ -52,6 +52,7 @@ export class BrowserPool {
     private slots = new Map<Page, BrowserSlot>()
     private idle: BrowserSlot[] = []
     private proxyArgs = resolveProxyArgs()
+    private shuttingDown = false
 
     constructor(private recycleAfter: number = config.browserRecycleAfter) {}
 
@@ -83,7 +84,8 @@ export class BrowserPool {
     // A crashed browser must not be handed out again: evict it from the idle pool
     // and drop any page entries still pointing at it.
     private handleDisconnect(slot: BrowserSlot): void {
-        if (slot.closing) {
+        // During pod shutdown Chrome can die before closeBrowser marks the slot; don't count that as a crash.
+        if (slot.closing || this.shuttingDown) {
             return
         }
         const idleIdx = this.idle.indexOf(slot)
@@ -159,6 +161,7 @@ export class BrowserPool {
     }
 
     async shutdown(): Promise<void> {
+        this.shuttingDown = true
         await this.releaseAllPages()
         await Promise.all(this.idle.map((slot) => this.closeBrowser(slot)))
         this.idle = []

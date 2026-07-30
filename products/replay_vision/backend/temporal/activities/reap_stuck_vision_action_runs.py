@@ -20,7 +20,9 @@ from products.replay_vision.backend.temporal.metrics import record_vision_action
 
 logger = structlog.get_logger(__name__)
 
-_REAPED_ERROR = {"reaped": "The run stopped without recording an outcome."}
+# delivery_unknown: the documented stuck-RUNNING cause is the final bookkeeping update failing
+# after side effects (Slack/email) may already have gone out — we can't prove non-delivery.
+_REAPED_ERROR = {"reaped": "The run stopped without recording an outcome.", "delivery_unknown": True}
 
 
 def _list_stuck_runs() -> list[dict[str, Any]]:
@@ -36,9 +38,11 @@ def _list_stuck_runs() -> list[dict[str, Any]]:
 
 def _mark_reaped(run_ids: list[Any]) -> int:
     # Status guard keeps this idempotent against workflows that terminated between listing and now.
+    # `.update()` bypasses auto_now, so stamp updated_at explicitly.
     return VisionActionRun.all_teams.filter(id__in=run_ids, status=VisionActionRunStatus.RUNNING).update(
         status=VisionActionRunStatus.FAILED,
         error=_REAPED_ERROR,
+        updated_at=datetime.now(UTC),
     )
 
 

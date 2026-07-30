@@ -16,13 +16,9 @@ jest.mock('~/session-replay/recording-rasterizer/logger', () => {
     }
 })
 
-jest.mock(
-    'puppeteer-capture',
-    () => ({
-        launch: jest.fn(),
-    }),
-    { virtual: true }
-)
+jest.mock('puppeteer-capture', () => ({
+    launch: jest.fn(),
+}))
 
 const puppeteerCapture = require('puppeteer-capture')
 
@@ -129,6 +125,22 @@ describe('BrowserPool', () => {
 
         await pool.getPage()
         expect(puppeteerCapture.launch).toHaveBeenCalledTimes(2) // fresh launch, crashed one not reused
+    })
+
+    it('does not re-idle a browser that crashed while its page was checked out', async () => {
+        const browser1 = mockBrowser()
+        const browser2 = mockBrowser()
+        browser1.newPage.mockResolvedValue(mockPage())
+        browser2.newPage.mockResolvedValue(mockPage())
+        puppeteerCapture.launch.mockResolvedValueOnce(browser1).mockResolvedValueOnce(browser2)
+
+        pool = new BrowserPool(100)
+        const p1 = await pool.getPage()
+        ;(browser1 as any).emit('disconnected') // crash mid-capture
+        await pool.releasePage(p1)
+
+        await pool.getPage()
+        expect(puppeteerCapture.launch).toHaveBeenCalledTimes(2)
     })
 
     it('recycles browser when usage hits recycleAfter', async () => {
