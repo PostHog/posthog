@@ -89,9 +89,14 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
             except Exception:
-                # A zero-metric run genuinely completed; don't let run()'s except backstop mislabel it failed.
-                if temporalio.workflow.patched("recalc-terminal-fail-on-error-2026-07"):
+                # A zero-metric run genuinely completed; record that via the backstop rather than letting run()'s
+                # except mislabel it failed. If the backstop also fails (or the patch is off), re-raise so the
+                # workflow fails instead of reporting success on a non-terminal row.
+                recorded = temporalio.workflow.patched("recalc-terminal-fail-on-error-2026-07") and (
                     await self._best_effort_mark_terminal(recalculation_id, status="completed", succeeded=0, failed=0)
+                )
+                if not recorded:
+                    raise
 
             temporalio.workflow.logger.info(f"recalc {recalculation_id} had no metrics; completing immediately")
             increment_workflow_finished("completed")
@@ -168,10 +173,17 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
         except Exception:
-            if temporalio.workflow.patched("recalc-terminal-fail-on-error-2026-07"):
+            # The finalize write exhausted its retries. Record the real status/counts via the backstop so the
+            # row still goes terminal. If the backstop also fails (or the patch is disabled for a replaying
+            # older execution), re-raise: the workflow must fail rather than report success on a non-terminal
+            # row, and the interceptor + staleness TTL take over as before.
+            recorded = temporalio.workflow.patched("recalc-terminal-fail-on-error-2026-07") and (
                 await self._best_effort_mark_terminal(
                     recalculation_id, status=final_status, succeeded=succeeded, failed=failed
                 )
+            )
+            if not recorded:
+                raise
 
         temporalio.workflow.logger.info(
             f"recalc {recalculation_id} finished: {succeeded} succeeded, {failed} failed (status={final_status})"
@@ -181,7 +193,10 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
 
     async def _best_effort_mark_terminal(
         self, recalculation_id: str, *, status: str, succeeded: int | None = None, failed: int | None = None
-    ) -> None:
+    ) -> bool:
+        # Returns True if the terminal write landed, False if it too exhausted its retries. Callers that need
+        # the row to be terminal (the finalize-failure path) re-raise on False so the run still fails and the
+        # staleness TTL reaps it; the pre-finalize caller re-raises the original exception regardless.
         try:
             await temporalio.workflow.execute_activity(
                 update_recalculation_progress,
@@ -195,7 +210,9 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                 start_to_close_timeout=timedelta(seconds=RECALCULATION_PROGRESS_ACTIVITY_TIMEOUT_SECONDS),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+            return True
         except Exception:
             temporalio.workflow.logger.exception(
                 f"recalc {recalculation_id} failed to record terminal status; staleness TTL will reap it"
             )
+            return False

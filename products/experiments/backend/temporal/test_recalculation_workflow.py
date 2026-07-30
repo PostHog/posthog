@@ -373,3 +373,31 @@ class TestExperimentMetricsRecalculationWorkflow:
         assert terminal.status == "completed"
         assert terminal.succeeded_metrics == 1
         assert terminal.failed_metrics == 0
+
+    async def test_finalize_and_backstop_both_failing_fails_the_workflow(self):
+        # The finalize write AND the backstop write both exhaust their retries (every mark_completed throws).
+        # The workflow must FAIL, not swallow the error and report success on a non-terminal row; the row's
+        # terminality then falls to the interceptor + staleness TTL, as it did before the terminal-state wrapper.
+        @activity.defn(name="discover_experiment_metrics")
+        async def mock_discover(recalculation_id: str) -> list[ExperimentMetricToRecalculate]:
+            return [_metric("m1")]
+
+        @activity.defn(name="update_recalculation_progress")
+        async def mock_update_progress(update: RecalculationProgressUpdate) -> str | None:
+            # Every terminal write fails (finalize and its backstop), only mark_started succeeds.
+            if update.mark_completed:
+                raise ApplicationError("terminal write down", non_retryable=True)
+            return _START_QUERY_TO if update.mark_started else None
+
+        @activity.defn(name="calculate_experiment_metric_for_recalculation")
+        async def mock_calculate(
+            experiment_id: int,
+            metric_uuid: str,
+            recalculation_id: str,
+            query_to: str,
+            metric_type: str = "primary",
+        ) -> MetricRecalculationResult:
+            return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
+
+        with pytest.raises(WorkflowFailureError):
+            await _run_workflow([mock_discover, mock_update_progress, mock_calculate])
