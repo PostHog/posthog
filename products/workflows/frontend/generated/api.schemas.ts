@@ -1140,7 +1140,7 @@ export interface AwsTenantFindingApi {
      * * `LOW` - LOW
      * * `HIGH` - HIGH */
     readonly impact: ImpactEnumApi
-    /** AWS's description of the finding, including its remediation guidance. */
+    /** AWS's short description of the finding. Often a terse disambiguator (e.g. DKIM1) rather than full remediation prose — finding_type carries the remediation category. */
     readonly description: string
     /**
      * When AWS last updated this finding.
@@ -1153,7 +1153,7 @@ export interface AwsTenantFindingApi {
  * Authoritative reputation for this project's SES tenant, as judged and enforced by AWS.
  */
 export interface AwsTenantReputationApi {
-    /** Overall health derived from AWS's verdicts: healthy (no findings), warning (low-impact findings), critical (high-impact findings — sending may be paused), suspended (AWS or PostHog paused this project's sending).
+    /** Overall health derived from AWS's verdicts: healthy (no findings), warning (low-impact findings), critical (high-impact findings — sending may be paused), suspended (the SES tenant's sending is paused). Reflects AWS state only; PostHog-initiated suspensions are reported separately via email_sending_suspended.
      *
      * * `healthy` - healthy
      * * `warning` - warning
@@ -1199,7 +1199,7 @@ export interface WorkflowEmailSendingRatesApi {
 }
 
 export interface TeamEmailReputationResponseApi {
-    /** Sending health as judged and enforced by AWS SES for this project's tenant; null when no tenant is provisioned or AWS is unreachable. */
+    /** Sending health as judged and enforced by AWS SES for this project's tenant; null when the caller lacks project-wide workflow access, no tenant is provisioned, or AWS is unreachable. */
     readonly aws: AwsTenantReputationApi | null
     /** Project-wide rates across all workflow email in the last 30 days (including sends from since-deleted workflows); null when nothing was sent. */
     readonly reputation: EmailSendingRatesApi | null

@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -7,10 +8,18 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import Team
+from posthog.models.organization import OrganizationMembership
+from posthog.models.user import User
 
 from products.workflows.backend.models import HogFlow, HogFlowBatchJob
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+
+try:
+    from ee.models.rbac.access_control import AccessControl
+except ImportError:
+    pass
 
 
 class TestEmailReputationAPI(APIBaseTest):
@@ -222,3 +231,60 @@ class TestEmailReputationAPI(APIBaseTest):
         assert data["email_sending_suspended"] is True
         assert data["email_sending_suspended_at"] == suspended_at.isoformat().replace("+00:00", "Z")
         assert data["email_sending_suspension_reason"] == "critical bounce rate"
+
+
+@pytest.mark.ee
+class TestEmailReputationAccessControl(APIBaseTest):
+    """
+    The AWS tenant verdict and the project-wide rates aggregate both pool ALL workflows' email,
+    so members holding only object-level grants must get neither — just their own workflow rows.
+    """
+
+    def test_object_level_only_member_gets_rows_but_no_project_wide_state(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "obj-only@posthog.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Granted workflow",
+            status="active",
+            trigger={"type": "event"},
+            edges=[],
+            actions=[],
+            billable_action_types=["function_email"],
+        )
+        # Project-wide default of `none`; the member's only access is the one object grant.
+        AccessControl.objects.create(team=self.team, resource="hog_flow", resource_id=None, access_level="none")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="hog_flow",
+            resource_id=str(flow.id),
+            access_level="viewer",
+            organization_member=membership,
+        )
+        self.client.force_login(member)
+
+        provider = MagicMock()
+        provider.get_tenant_reputation.return_value = {
+            "sending_status": "DISABLED",
+            "reputation_impact": "HIGH",
+            "findings": [],
+        }
+        with (
+            patch(
+                "products.workflows.backend.api.hog_flow.fetch_app_metric_totals_by_source",
+                return_value={str(flow.id): {"email_sent": 100, "email_bounced_hard": 5}},
+            ),
+            patch("products.workflows.backend.api.hog_flow.SESProvider", return_value=provider),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["aws"] is None
+        assert data["reputation"] is None
+        assert [row["hog_flow_id"] for row in data["workflows"]] == [str(flow.id)]

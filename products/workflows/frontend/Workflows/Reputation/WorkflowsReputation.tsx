@@ -190,8 +190,9 @@ export function WorkflowsReputation(): JSX.Element {
         <div className="space-y-4" data-attr="workflows-reputation">
             {awsReputation?.sending_status === 'DISABLED' && (
                 <LemonBanner type="error" data-attr="workflows-reputation-disabled-banner">
-                    Email sending is paused for this project because of reputation problems. Fix the open findings
-                    below, then contact support to get sending re-enabled.
+                    {awsReputation.findings.length > 0
+                        ? 'Email sending is paused for this project because of reputation problems. Fix the open findings below, then contact support to get sending re-enabled.'
+                        : 'Email sending is paused for this project. Contact support to get sending re-enabled.'}
                 </LemonBanner>
             )}
             <LemonBanner type="info" data-attr="workflows-reputation-beta-banner">

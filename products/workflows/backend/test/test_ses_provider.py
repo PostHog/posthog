@@ -463,7 +463,10 @@ class TestGetTenantReputation(TestCase):
         self.mock_client.list_recommendations.side_effect = [
             {
                 "Recommendations": [
-                    {"Type": "BOUNCE", "Impact": "HIGH", "Description": "Bounce rate too high", "Status": "OPEN"}
+                    {"Type": "BOUNCE", "Impact": "HIGH", "Description": "Bounce rate too high", "Status": "OPEN"},
+                    # Resolved findings come back too (STATUS can't be combined with RESOURCE_ARN
+                    # in the AWS-side filter) and must be dropped locally
+                    {"Type": "SPF", "Impact": "LOW", "Description": "Fixed already", "Status": "FIXED"},
                 ],
                 "NextToken": "page-2",
             },
@@ -479,7 +482,7 @@ class TestGetTenantReputation(TestCase):
             ("BOUNCE", "HIGH", "Bounce rate too high"),
             ("DKIM", "LOW", "Set up DKIM"),
         ]
-        # Both pages were requested, only OPEN findings scoped to this tenant's ARN
+        # Both pages were requested, scoped to this tenant's ARN (OPEN is filtered locally)
         first_call, second_call = self.mock_client.list_recommendations.call_args_list
-        assert first_call.kwargs["Filter"] == {"RESOURCE_ARN": self.TENANT_ARN, "STATUS": "OPEN"}
+        assert first_call.kwargs["Filter"] == {"RESOURCE_ARN": self.TENANT_ARN}
         assert second_call.kwargs["NextToken"] == "page-2"

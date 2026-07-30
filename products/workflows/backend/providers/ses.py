@@ -81,7 +81,10 @@ class SESProvider:
             # The aggregate folds in both AWS-managed and customer-managed pauses.
             sending_status = entity.get("SendingStatusAggregate", sending_status)
 
-            finding_filter: dict[Any, str] = {"RESOURCE_ARN": tenant_arn, "STATUS": "OPEN"}
+            # RESOURCE_ARN is the only filter key AWS documents as usable on its own with this
+            # scoping; STATUS is filtered locally because the documented two-key combinations
+            # (STATUS+IMPACT, STATUS+TYPE) don't include RESOURCE_ARN.
+            finding_filter: dict[Any, str] = {"RESOURCE_ARN": tenant_arn}
             next_token: str | None = None
             while True:
                 if next_token:
@@ -96,6 +99,7 @@ class SESProvider:
                         "last_updated_at": recommendation.get("LastUpdatedTimestamp"),
                     }
                     for recommendation in page.get("Recommendations", [])
+                    if recommendation.get("Status") == "OPEN"
                 )
                 next_token = page.get("NextToken")
                 if not next_token:

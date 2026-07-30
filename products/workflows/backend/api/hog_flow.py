@@ -1247,7 +1247,10 @@ class AwsTenantFindingSerializer(serializers.Serializer):
     description = serializers.CharField(
         read_only=True,
         allow_blank=True,
-        help_text="AWS's description of the finding, including its remediation guidance.",
+        help_text=(
+            "AWS's short description of the finding. Often a terse disambiguator (e.g. DKIM1) rather "
+            "than full remediation prose — finding_type carries the remediation category."
+        ),
     )
     last_updated_at = serializers.DateTimeField(
         read_only=True, allow_null=True, help_text="When AWS last updated this finding."
@@ -1262,8 +1265,9 @@ class AwsTenantReputationSerializer(serializers.Serializer):
         read_only=True,
         help_text=(
             "Overall health derived from AWS's verdicts: healthy (no findings), warning (low-impact "
-            "findings), critical (high-impact findings — sending may be paused), suspended (AWS or "
-            "PostHog paused this project's sending)."
+            "findings), critical (high-impact findings — sending may be paused), suspended (the SES "
+            "tenant's sending is paused). Reflects AWS state only; PostHog-initiated suspensions are "
+            "reported separately via email_sending_suspended."
         ),
     )
     sending_status = serializers.ChoiceField(
@@ -1285,7 +1289,8 @@ class TeamEmailReputationResponseSerializer(serializers.Serializer):
         read_only=True,
         help_text=(
             "Sending health as judged and enforced by AWS SES for this project's tenant; null when "
-            "no tenant is provisioned or AWS is unreachable."
+            "the caller lacks project-wide workflow access, no tenant is provisioned, or AWS is "
+            "unreachable."
         ),
     )
     reputation = EmailSendingRatesSerializer(
@@ -3436,7 +3441,9 @@ class HogFlowViewSet(
         return Response(
             TeamEmailReputationResponseSerializer(
                 {
-                    "aws": _fetch_aws_tenant_reputation(self.team_id),
+                    # Same gate as `reputation`: the tenant verdict pools ALL workflows' email,
+                    # so members holding only object-level grants don't get it.
+                    "aws": _fetch_aws_tenant_reputation(self.team_id) if can_read_all_workflows else None,
                     "reputation": reputation,
                     "workflows": workflow_rows,
                     "email_sending_suspended": suspended_at is not None,
