@@ -1,6 +1,7 @@
 import {
     getDefaultDataWarehouseSourceSceneTab,
     isManagedSourceSceneId,
+    resolveManagedSourceActiveTab,
     shouldShowManagedSourceMetricsTab,
     shouldShowManagedSourceSyncsTab,
 } from 'products/data_warehouse/frontend/scenes/SourceScene/SourceScene'
@@ -34,5 +35,17 @@ describe('DataWarehouseSourceScene', () => {
         [{ access_method: 'warehouse' as const }, false, false],
     ])('hides the metrics tab for direct query sources (source %p, flag %p)', (source, flagEnabled, expected) => {
         expect(shouldShowManagedSourceMetricsTab(source, flagEnabled)).toEqual(expected)
+    })
+
+    it.each([
+        [['schemas', 'syncs', 'metrics', 'configuration', 'history'], 'metrics' as const, 'metrics'],
+        [['schemas', 'configuration', 'history'], 'configuration' as const, 'configuration'],
+        // A source-dependent tab is absent whenever the source is missing, including when its
+        // request failed and loading has already finished.
+        [['schemas', 'configuration', 'history'], 'metrics' as const, 'schemas'],
+        [['schemas', 'configuration', 'history'], 'syncs' as const, 'schemas'],
+        [['schemas', 'configuration', 'history'], 'webhook' as const, 'schemas'],
+    ])('falls back to schemas when the selected tab is not rendered (%p, %p)', (tabKeys, currentTab, expected) => {
+        expect(resolveManagedSourceActiveTab(tabKeys, currentTab)).toEqual(expected)
     })
 })
