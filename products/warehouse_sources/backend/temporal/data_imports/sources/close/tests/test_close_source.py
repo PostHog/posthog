@@ -11,7 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.close import CloseSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
-INCREMENTAL_ENDPOINTS = {"Opportunities", "Activities", "Tasks"}
+INCREMENTAL_ENDPOINTS = {"Leads", "Contacts", "Opportunities", "Activities", "Tasks"}
 
 
 class TestCloseSource:
@@ -130,6 +130,7 @@ class TestCloseSource:
             team_id=7,
             job_id="job-1",
             resumable_source_manager=manager,
+            logger=inputs.logger,
             should_use_incremental_field=True,
             incremental_field="date_updated",
             db_incremental_field_last_value="2024-01-01T00:00:00+00:00",
