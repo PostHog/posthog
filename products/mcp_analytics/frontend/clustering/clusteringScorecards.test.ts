@@ -62,14 +62,21 @@ describe('clustering scorecards', () => {
         expect(computeSpreadRoutes([concentrated, spread])).toBe(1)
     })
 
-    it('picks the top error route by traffic-weighted error rate among eligible clusters', () => {
-        const highRateLowVolume = cluster({ id: 1, error_rate_pct: 40, call_count: 10 })
-        const lowRateHighVolume = cluster({ id: 2, error_rate_pct: 10, call_count: 1000 })
+    it('picks the top error route by error count among eligible clusters', () => {
+        const highRateLowVolume = cluster({ id: 1, call_count: 10, error_count: 4, error_rate_pct: 40 })
+        const lowRateHighVolume = cluster({ id: 2, call_count: 1000, error_count: 100, error_rate_pct: 10 })
 
         expect(computeTopErrorRoute([highRateLowVolume, lowRateHighVolume])?.id).toBe(2)
     })
 
-    it('returns null top error route when no eligible cluster has errors', () => {
-        expect(computeTopErrorRoute([cluster({ error_rate_pct: 0 })])).toBeNull()
+    // The backend rounds error_rate_pct to one decimal, so a cluster with errors
+    // below 0.05% arrives as 0.0 and must still count as an error route.
+    it.each<[string, number, boolean]>([
+        ['has no errors at all', 0, false],
+        ['has errors that round down to 0.0%', 3, true],
+    ])('surfaces a cluster that %s', (_case, errorCount, isSurfaced) => {
+        const rounded = cluster({ call_count: 10000, error_count: errorCount, error_rate_pct: 0 })
+
+        expect(computeTopErrorRoute([rounded]) !== null).toBe(isSurfaced)
     })
 })

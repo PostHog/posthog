@@ -29,10 +29,13 @@ export function computeSpreadRoutes(clusters: readonly MCPIntentClusterApi[]): n
 }
 
 export function computeTopErrorRoute(clusters: readonly MCPIntentClusterApi[]): MCPIntentClusterApi | null {
-    const withErrors = kpiEligible(clusters).filter((c) => c.error_rate_pct > 0)
+    // error_count, not error_rate_pct: the backend rounds the rate to one
+    // decimal, so a cluster with real errors below 0.05% arrives as 0.0 and
+    // would otherwise read as error-free.
+    const withErrors = kpiEligible(clusters).filter((c) => c.error_count > 0)
     if (withErrors.length === 0) {
         return null
     }
-    // Highest traffic-weighted error count — the cluster that loses the most calls to errors.
-    return [...withErrors].sort((a, b) => b.call_count * b.error_rate_pct - a.call_count * a.error_rate_pct)[0]
+    // The cluster that loses the most calls to errors.
+    return [...withErrors].sort((a, b) => b.error_count - a.error_count)[0]
 }
