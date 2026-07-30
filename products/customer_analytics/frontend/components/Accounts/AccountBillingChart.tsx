@@ -26,8 +26,7 @@ import {
     buildComboChartConfig,
     buildLineChartConfig,
     buildSeries,
-    canRenderSqlBarGraph,
-    canRenderSqlComboGraph,
+    sqlChartKind,
 } from '~/queries/nodes/DataVisualization/Components/Charts/sqlLineGraphAdapter'
 import { AxisSeries, dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import {
@@ -120,13 +119,14 @@ function BillingChartByKind({
     chartProps: BillingChartProps
     hiddenKeys: string[]
 }): JSX.Element | null {
-    if (canRenderSqlComboGraph(chartProps)) {
-        return <BillingComboChart chartProps={chartProps} hiddenKeys={hiddenKeys} />
+    switch (sqlChartKind(chartProps)) {
+        case 'combo':
+            return <BillingComboChart chartProps={chartProps} hiddenKeys={hiddenKeys} />
+        case 'bar':
+            return <BillingBarChart chartProps={chartProps} hiddenKeys={hiddenKeys} />
+        case 'line':
+            return <BillingLineChart chartProps={chartProps} hiddenKeys={hiddenKeys} />
     }
-    if (canRenderSqlBarGraph(chartProps)) {
-        return <BillingBarChart chartProps={chartProps} hiddenKeys={hiddenKeys} />
-    }
-    return <BillingLineChart chartProps={chartProps} hiddenKeys={hiddenKeys} />
 }
 
 // One subcomponent per chart kind because useBillingChartModel's config type follows the builder it's given.
