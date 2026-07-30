@@ -3,7 +3,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -13,7 +13,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adjust.set
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
-BASE_URL = "https://automate.adjust.com/reports-service"
+ADJUST_API_HOST = "automate.adjust.com"
+BASE_URL = f"https://{ADJUST_API_HOST}/reports-service"
 REPORT_URL = f"{BASE_URL}/report"
 
 # Reports are pulled one date window at a time so a long backfill streams instead of asking Adjust
@@ -62,6 +63,9 @@ def _get_session(api_token: str) -> requests.Session:
     return make_tracked_session(
         headers={"Authorization": f"Bearer {api_token}", "Accept": "application/json"},
         redact_values=(api_token,),
+        # The Bearer token rides in every request's default headers, so pin the session off
+        # redirects — an upstream redirect must not carry the credential to another host.
+        allow_redirects=False,
     )
 
 
@@ -158,16 +162,25 @@ def extract_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
 def next_page_url(payload: dict[str, Any]) -> str | None:
     """Return the absolute next-page URL, if the response advertises one.
 
-    The `pagination` field is present but undocumented, so only an explicit http(s) link is
-    followed — anything else terminates the page loop rather than guessing an offset scheme.
+    The `pagination` field is present but undocumented, so only an explicit link is followed —
+    anything else terminates the page loop rather than guessing an offset scheme. The link is
+    pinned to HTTPS on the Adjust API host: `_request` fetches it with the session whose default
+    headers carry the customer's Bearer token, so a tampered upstream `next` must not be able to
+    point the credentialed request at an attacker-controlled or internal host.
     """
     pagination = payload.get("pagination")
     if not isinstance(pagination, dict):
         return None
     candidate = pagination.get("next") or pagination.get("next_url")
-    if isinstance(candidate, str) and candidate.startswith(("http://", "https://")):
-        return candidate
-    return None
+    if not isinstance(candidate, str) or not candidate:
+        return None
+    try:
+        parts = urlsplit(candidate)
+    except ValueError:
+        return None
+    if parts.scheme != "https" or parts.hostname != ADJUST_API_HOST:
+        return None
+    return candidate
 
 
 def _to_date(value: Any) -> date | None:

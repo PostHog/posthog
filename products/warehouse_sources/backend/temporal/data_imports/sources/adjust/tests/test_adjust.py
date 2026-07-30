@@ -235,13 +235,18 @@ class TestNextPageUrl:
             ("null_pagination", {"pagination": None}, False),
             ("missing_pagination", {}, False),
             ("empty_next", {"pagination": {"next": ""}}, False),
-            # The mechanism is undocumented, so anything that isn't an http(s) link terminates the
-            # loop instead of being guessed at.
+            # The mechanism is undocumented, so anything that isn't a link on the Adjust API host
+            # terminates the loop instead of being guessed at.
             ("relative_next", {"pagination": {"next": "/report?page=2"}}, False),
             ("numeric_next", {"pagination": {"next": 2}}, False),
+            # The credentialed session follows this URL, so an off-host or non-HTTPS link — which
+            # could exfiltrate the Bearer token or hit an internal host — is rejected.
+            ("off_host_next", {"pagination": {"next": "https://evil.example.com/x?page=2"}}, False),
+            ("subdomain_spoof_next", {"pagination": {"next": "https://automate.adjust.com.evil.com/x"}}, False),
+            ("http_scheme_next", {"pagination": {"next": "http://automate.adjust.com/x?page=2"}}, False),
         ]
     )
-    def test_only_absolute_links_are_followed(self, _name: str, payload: dict[str, Any], expected: bool) -> None:
+    def test_only_adjust_host_links_are_followed(self, _name: str, payload: dict[str, Any], expected: bool) -> None:
         assert (next_page_url(payload) is not None) is expected
 
 
