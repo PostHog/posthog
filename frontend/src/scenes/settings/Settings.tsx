@@ -6,7 +6,7 @@ import { router } from 'kea-router'
 import React from 'react'
 
 import { IconExternal, IconList } from '@posthog/icons'
-import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
@@ -40,7 +40,7 @@ import { urls } from 'scenes/urls'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
-import { SearchResult, settingsLogic } from './settingsLogic'
+import { SearchResult, SettingsUnavailability, settingsLogic } from './settingsLogic'
 import { SettingLevelId, SettingsLogicProps } from './types'
 
 export interface SettingOption {
@@ -414,7 +414,13 @@ export function Settings({
 }
 
 function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }): JSX.Element {
-    const { settings: allSettings, selectedLevel, selectedSectionId, selectedSetting } = useValues(settingsLogic(props))
+    const {
+        settings: allSettings,
+        selectedLevel,
+        selectedSectionId,
+        selectedSetting,
+        settingsUnavailability,
+    } = useValues(settingsLogic(props))
     const { selectSetting } = useActions(settingsLogic(props))
 
     const settingsInSidebar = !!selectedSetting && !!props.sectionId
@@ -460,10 +466,44 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
                         <ErrorBoundary>{x.component}</ErrorBoundary>
                     </div>
                 ))
+            ) : settingsUnavailability ? (
+                <SettingsUnavailable unavailability={settingsUnavailability} {...props} />
             ) : (
                 <NotFound object="setting" />
             )}
         </div>
+    )
+}
+
+/**
+ * A section whose project or organization hasn't loaded has no settings to render, which is not the
+ * same as the section not existing — a "not found" there reads as "this page is broken for my
+ * project", and it's what people saw right after switching projects or when the team request failed.
+ */
+function SettingsUnavailable({
+    unavailability,
+    ...props
+}: SettingsLogicProps & { unavailability: Exclude<SettingsUnavailability, null> }): JSX.Element {
+    const { loadCurrentTeam, loadCurrentOrganization } = useActions(settingsLogic(props))
+
+    if (unavailability === 'loading') {
+        return (
+            <div className="flex justify-center py-12">
+                <Spinner className="text-3xl" />
+            </div>
+        )
+    }
+
+    const isProject = unavailability === 'project-unavailable'
+    return (
+        <LemonBanner
+            type="warning"
+            action={{ children: 'Try again', onClick: isProject ? loadCurrentTeam : loadCurrentOrganization }}
+        >
+            {isProject
+                ? "We couldn't load this project, so its settings aren't available. Try again, or switch to another project."
+                : "We couldn't load your organization, so its settings aren't available. Try again, or reload the page."}
+        </LemonBanner>
     )
 }
 

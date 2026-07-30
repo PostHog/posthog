@@ -21,12 +21,42 @@ const WEB_ANALYTICS_SETTINGS_SECTION: SettingSectionId = 'project-web-analytics'
 const WEB_ANALYTICS_AUTHORIZED_URLS_SETTING: SettingId = 'web-analytics-authorized-urls'
 const LEGACY_TOOLBAR_AUTHORIZED_URLS_SETTING = 'authorized-urls'
 
+const REPLAY_SETTINGS_SECTION: SettingSectionId = 'project-replay'
+const GENERAL_SETTINGS_SECTION: SettingSectionId = 'project-details'
+
 const LEGACY_SETTINGS_SECTIONS: Record<string, SettingSectionId> = {
     'environment-llm-analytics': AI_OBSERVABILITY_SETTINGS_SECTION,
     'project-llm-analytics': AI_OBSERVABILITY_SETTINGS_SECTION,
     // The dedicated Toolbar section was removed; its authorized-URL config now lives under Web analytics.
     'environment-toolbar': WEB_ANALYTICS_SETTINGS_SECTION,
     'project-toolbar': WEB_ANALYTICS_SETTINGS_SECTION,
+    'environment-authorized-urls': WEB_ANALYTICS_SETTINGS_SECTION,
+    'project-authorized-urls': WEB_ANALYTICS_SETTINGS_SECTION,
+    // Session replay settings have been linked under several slugs over the years, and none of
+    // them is a section id — they used to fall through to a "setting not found" page.
+    replay: REPLAY_SETTINGS_SECTION,
+    'session-replay': REPLAY_SETTINGS_SECTION,
+    'session-recording': REPLAY_SETTINGS_SECTION,
+    'environment-session-replay': REPLAY_SETTINGS_SECTION,
+    'project-session-replay': REPLAY_SETTINGS_SECTION,
+    'environment-session-recording': REPLAY_SETTINGS_SECTION,
+    'project-session-recording': REPLAY_SETTINGS_SECTION,
+    // Only the project variants of General and Danger zone exist; the environment ones are dead ends
+    // that the `environment-` → `project-` rewrite below deliberately skips.
+    'environment-details': GENERAL_SETTINGS_SECTION,
+    'environment-danger-zone': 'project-danger-zone',
+    'environment-general': GENERAL_SETTINGS_SECTION,
+    'project-general': GENERAL_SETTINGS_SECTION,
+    'error-tracking': 'project-error-tracking',
+    integrations: 'project-integrations',
+    'activity-logs': 'project-activity-logs',
+    members: 'organization-members',
+    billing: 'organization-billing',
+    // Internal-user filtering used to have its own section; it now lives under Customization.
+    'environment-test-accounts': 'project-customization',
+    'project-test-accounts': 'project-customization',
+    'project-test-account-filters': 'project-customization',
+    'project-testaccount-filters': 'project-customization',
 }
 
 // Settings that moved to a different section, keyed by setting id. Deep links to the old
@@ -54,7 +84,11 @@ const sectionForMovedSetting = (section: string, hashParams: Params): SettingSec
     return null
 }
 
-const canonicalSettingsSection = (section: string): string => {
+const canonicalSettingsSection = (rawSection: string): string => {
+    // Links shared in chat and docs often arrive with the closing bracket or sentence punctuation
+    // glued on, e.g. `/settings/user-api-keys)`.
+    const section = rawSection.replace(/[).,\]]+$/, '')
+
     if (LEGACY_SETTINGS_SECTIONS[section]) {
         return LEGACY_SETTINGS_SECTIONS[section]
     }

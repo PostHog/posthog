@@ -4,7 +4,6 @@ import { useValues } from 'kea'
 
 import { LemonCard, LemonTable, LemonTableColumns, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -19,6 +18,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { ReplayVisionBeta } from '../components/ReplayVisionBeta'
 import type { RunObservationApi } from '../generated/api.schemas'
 import { visionActionRunSceneLogic } from './visionActionRunSceneLogic'
 import { RunStatusTag } from './visionActionRunStatus'
@@ -91,7 +91,7 @@ function VisionActionRunScene(): JSX.Element {
         if (!receivedFeatureFlags && !featureFlagsTimedOut) {
             return <SpinnerOverlay sceneLevel />
         }
-        return <NotFound object="page" />
+        return <ReplayVisionBeta />
     }
 
     if (runLoading) {

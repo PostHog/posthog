@@ -5,7 +5,6 @@ import { useMemo } from 'react'
 import { LemonButton, LemonInput, LemonInputSelect, LemonSegmentedButton, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
-import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
@@ -24,6 +23,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { ReplayVisionBeta } from '../components/ReplayVisionBeta'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import {
     AlertConfigFrequencyEnumApi,
@@ -645,7 +645,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
         if (!receivedFeatureFlags && !featureFlagsTimedOut) {
             return <SpinnerOverlay sceneLevel />
         }
-        return <NotFound object="page" />
+        return <ReplayVisionBeta />
     }
 
     if (!isNew && actionLoading && !loadedAction) {

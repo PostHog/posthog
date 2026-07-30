@@ -4,7 +4,6 @@ import type { ReactNode } from 'react'
 import { IconPencil, IconPlay } from '@posthog/icons'
 import { LemonButton, LemonCard, SpinnerOverlay } from '@posthog/lemon-ui'
 
-import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -16,6 +15,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { ReplayVisionBeta } from '../components/ReplayVisionBeta'
 import type { VisionActionApi } from '../generated/api.schemas'
 import { DeliveryTargetTypeEnumApi, VisionActionModeEnumApi } from '../generated/api.schemas'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
@@ -186,7 +186,7 @@ function VisionActionSceneComponent(): JSX.Element {
         if (!receivedFeatureFlags && !featureFlagsTimedOut) {
             return <SpinnerOverlay sceneLevel />
         }
-        return <NotFound object="page" />
+        return <ReplayVisionBeta />
     }
 
     if (!actionId) {

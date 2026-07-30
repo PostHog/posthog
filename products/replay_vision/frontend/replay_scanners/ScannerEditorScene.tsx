@@ -18,7 +18,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -32,6 +31,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { ReplayVisionBeta } from '../components/ReplayVisionBeta'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { ScannerTemplatePicker } from './components/ScannerTemplatePicker'
@@ -103,7 +103,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         if (!receivedFeatureFlags && !featureFlagsTimedOut) {
             return <SpinnerOverlay sceneLevel />
         }
-        return <NotFound object="page" />
+        return <ReplayVisionBeta />
     }
 
     if (step !== 'template' && (scannerLoading || !scanner)) {

@@ -51,9 +51,11 @@ export type SettingSectionId =
     // Project (backward compat – remove when Environments are rolled out)
     | 'project-details'
     | 'project-access-control'
+    | 'project-activity-logs'
     | 'project-ai-observability'
     | 'project-autocapture'
     | 'project-customization'
+    | 'project-error-tracking'
     | 'project-integrations'
     | 'project-product-analytics'
     | 'project-replay'

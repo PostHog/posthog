@@ -151,6 +151,26 @@ describe('settingsSceneLogic', () => {
         expect(router.values.hashParams).not.toHaveProperty('authorized-urls')
     })
 
+    it.each([
+        ['/settings/replay', 'project-replay'],
+        ['/settings/session-replay', 'project-replay'],
+        ['/settings/project-session-replay', 'project-replay'],
+        ['/settings/project-session-recording', 'project-replay'],
+        // Only the project variants of General and Danger zone exist as sections.
+        ['/settings/environment-details', 'project-details'],
+        ['/settings/environment-danger-zone', 'project-danger-zone'],
+        ['/settings/project-general', 'project-details'],
+        ['/settings/integrations', 'project-integrations'],
+        ['/settings/members', 'organization-members'],
+        // Links pasted from markdown keep the closing bracket glued on.
+        ['/settings/user-api-keys)', 'user-api-keys'],
+    ])('redirects the aliased URL %s to %s', async (url, expectedSectionId) => {
+        router.actions.push(url)
+
+        await expectLogic(logic).toMatchValues({ selectedSectionId: expectedSectionId })
+        expect(router.values.location.pathname).toContain(`/settings/${expectedSectionId}`)
+    })
+
     it('redirects level-only URLs to first section', async () => {
         // Each push switches to a different level, so no section at the target level is
         // selected yet and the redirect to the first section runs.

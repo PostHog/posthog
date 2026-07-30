@@ -17,7 +17,6 @@ import {
 } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonTag, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 
-import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -49,6 +48,7 @@ import {
     readResult,
 } from '../components/ObservationCard'
 import { ObservationProgressBar } from '../components/ObservationProgressBar'
+import { ReplayVisionBeta } from '../components/ReplayVisionBeta'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import { replayScannerLogic } from '../replay_scanners/replayScannerLogic'
@@ -139,7 +139,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
         if (!receivedFeatureFlags && !featureFlagsTimedOut) {
             return <SpinnerOverlay sceneLevel />
         }
-        return <NotFound object="page" />
+        return <ReplayVisionBeta />
     }
 
     if (observationLoading && !observation) {
