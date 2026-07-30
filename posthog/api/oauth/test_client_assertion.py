@@ -70,7 +70,6 @@ class TestClientAssertion(BaseTest):
             redirect_uris="https://partner.example.com/callback",
             algorithm="RS256",
             is_provisioning_partner=True,
-            provisioning_active=True,
         )
 
     def _claims(self, **overrides) -> dict:

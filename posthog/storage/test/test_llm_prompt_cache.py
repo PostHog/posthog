@@ -127,6 +127,7 @@ class TestLLMPromptCache(BaseTest):
                 "id",
                 "name",
                 "prompt",
+                "config",
                 "version",
                 "created_at",
                 "updated_at",

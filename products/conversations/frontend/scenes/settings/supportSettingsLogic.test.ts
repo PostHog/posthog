@@ -8,6 +8,7 @@ import { teamLogic } from '~/scenes/teamLogic'
 import { initKeaTests } from '~/test/init'
 import { TeamType } from '~/types'
 
+import { TicketGroup, TicketGroupFilter } from '../tickets/ticketGroups'
 import { aiAllChannelsForFeatureFlags, supportSettingsLogic } from './supportSettingsLogic'
 
 describe('supportSettingsLogic', () => {
@@ -336,6 +337,127 @@ describe('supportSettingsLogic', () => {
             } as unknown as TeamType)
 
             expect(logic.values.teamsChannelPairs).toEqual(updatedChannels)
+        })
+    })
+    describe('ticketGroupsError selector', () => {
+        const tagsFilter = (...tags: string[]): TicketGroupFilter => ({
+            type: 'ticket_tags',
+            operator: 'any_of',
+            value: tags,
+        })
+
+        const check = (draft: TicketGroup[] | null): string | null => {
+            logic = supportSettingsLogic()
+            logic.mount()
+            logic.actions.setTicketGroupsDraft(draft)
+            return logic.values.ticketGroupsError
+        }
+
+        it('accepts a well-formed draft, including filters overlapping across groups', () => {
+            expect(
+                check([
+                    { label: 'Urgent email', filters: [tagsFilter('urgent')] },
+                    {
+                        label: 'Everything urgent',
+                        filters: [
+                            tagsFilter('urgent', 'vip'),
+                            { type: 'ticket_property', key: 'channel_source', operator: 'in', value: ['email'] },
+                            { type: 'ticket_property', key: 'email_from', operator: 'icontains', value: '@x.com' },
+                            { type: 'ticket_property', key: 'sla_due_at', operator: 'is_set' },
+                            { type: 'ticket_property', key: 'created_at', operator: 'date_before', value: '-3d' },
+                        ],
+                    },
+                    { label: 'Placeholder', filters: [] },
+                ])
+            ).toBeNull()
+        })
+
+        it('accepts every form of the strict date grammar', () => {
+            for (const value of ['-3d', '-12h', '-2w', '-1mStart', '-1yEnd', '2026-07-01', '2026-07-01T09:30:00Z']) {
+                expect(
+                    check([
+                        {
+                            label: 'A',
+                            filters: [{ type: 'ticket_property', key: 'created_at', operator: 'date_after', value }],
+                        },
+                    ])
+                ).toBeNull()
+            }
+        })
+
+        it.each(['-3days', '3d ago', '3d', '+3d', '-3dstart', '-0d', '-1001d', '2026-1-1', 'garbage?!'])(
+            'flags the malformed date value %s before save',
+            (value) => {
+                expect(
+                    check([
+                        {
+                            label: 'A',
+                            filters: [{ type: 'ticket_property', key: 'created_at', operator: 'date_before', value }],
+                        },
+                    ])
+                ).toBe(
+                    'The created date filter in “A” must be a relative date like "-3d" (units h/d/w/m/y, optional Start/End) or an ISO date like "2026-07-01".'
+                )
+            }
+        )
+
+        it.each([
+            ['an empty draft', [], 'Add at least one group, or reset to the example groups.'],
+            ['a blank label', [{ label: '  ', filters: [] }], 'Every group needs a label.'],
+            [
+                'duplicate labels',
+                [
+                    { label: 'A', filters: [] },
+                    { label: 'A', filters: [] },
+                ],
+                'Group labels must be unique.',
+            ],
+            [
+                'a tags filter without tags',
+                [{ label: 'A', filters: [tagsFilter()] }],
+                'A filter in \u201cA\u201d needs at least one value.',
+            ],
+            [
+                'an in filter without values',
+                [
+                    {
+                        label: 'A',
+                        filters: [{ type: 'ticket_property', key: 'status', operator: 'in', value: [] }],
+                    },
+                ] as TicketGroup[],
+                'A filter in \u201cA\u201d needs at least one value.',
+            ],
+            [
+                'an email filter without text',
+                [
+                    {
+                        label: 'A',
+                        filters: [{ type: 'ticket_property', key: 'email_from', operator: 'icontains', value: ' ' }],
+                    },
+                ] as TicketGroup[],
+                'The email filter in \u201cA\u201d needs text to match.',
+            ],
+            [
+                'a date filter without a value',
+                [
+                    {
+                        label: 'A',
+                        filters: [{ type: 'ticket_property', key: 'created_at', operator: 'date_after', value: '' }],
+                    },
+                ] as TicketGroup[],
+                'The created date filter in \u201cA\u201d needs a value (e.g. "-3d").',
+            ],
+            [
+                'more than 10 filters in one group',
+                [{ label: 'A', filters: Array(11).fill(tagsFilter('x')) }] as TicketGroup[],
+                'At most 10 filters per group.',
+            ],
+        ])('flags %s', (_label, draft, expected) => {
+            expect(check(draft as TicketGroup[])).toBe(expected)
+        })
+
+        it('is null while pristine (no draft)', () => {
+            expect(check(null)).toBeNull()
         })
     })
 })

@@ -1,4 +1,5 @@
 import json
+import time
 import uuid
 import typing
 import datetime as dt
@@ -332,6 +333,52 @@ def _copy_data_imports_via_duckdb(inputs: DuckLakeCopyDataImportsActivityInputs,
         logger.info("Successfully materialized DuckLake table", ducklake_table=qualified_table)
 
 
+# A v3 full-refresh sync purges the source Delta table during extract and the
+# delta-load consumer rebuilds it asynchronously after the import job (and therefore
+# this copy, fired at job end) has already started. Reads that land in that window see
+# an empty _delta_log. The wait budget covers the p99.9 of observed rebuild latency;
+# a consumer outage beyond it fails the copy, and the next sync retries.
+DELTA_REBUILD_WAIT_SECONDS = 600
+DELTA_REBUILD_POLL_SECONDS = 20
+
+
+def _is_delta_table_absent_error(error: Exception) -> bool:
+    """Whether an error means the source Delta table does not currently exist."""
+    if isinstance(error, deltalake.exceptions.TableNotFoundError):
+        return True
+    return isinstance(error, deltalake.exceptions.DeltaError) and "No files in log segment" in str(error)
+
+
+def _stage_delta_table_waiting_for_rebuild(
+    *, source_uri: str, catalog_bucket: str, organization_id: str, logger: typing.Any
+) -> None:
+    """Stage the source Delta table, waiting out the v3 full-refresh rebuild window.
+
+    Only the two "table momentarily absent" signals are absorbed; every other error
+    propagates immediately. Runs inside the activity's HeartbeaterSync, so the sleeps
+    keep heartbeating and a dead worker is still detected via heartbeat timeout.
+    """
+    deadline = time.monotonic() + DELTA_REBUILD_WAIT_SECONDS
+    while True:
+        try:
+            stage_delta_table(
+                source_uri=source_uri,
+                catalog_bucket=catalog_bucket,
+                organization_id=organization_id,
+            )
+            return
+        except Exception as error:
+            if not _is_delta_table_absent_error(error) or time.monotonic() >= deadline:
+                raise
+            logger.info(
+                "Source Delta table not readable yet, waiting for the loader to rebuild it",
+                source_uri=source_uri,
+                error=str(error),
+                poll_seconds=DELTA_REBUILD_POLL_SECONDS,
+            )
+            time.sleep(DELTA_REBUILD_POLL_SECONDS)
+
+
 def _copy_data_imports_via_duckgres(inputs: DuckLakeCopyDataImportsActivityInputs, logger: typing.Any) -> None:
     """Stage Delta files and create the DuckLake table via duckgres."""
     org_id = _get_org_id_for_team(inputs.team_id)
@@ -349,10 +396,11 @@ def _copy_data_imports_via_duckgres(inputs: DuckLakeCopyDataImportsActivityInput
         source_uri=inputs.model.source_table_uri,
         staging_uri=inputs.model.staging_uri,
     )
-    stage_delta_table(
+    _stage_delta_table_waiting_for_rebuild(
         source_uri=inputs.model.source_table_uri,
         catalog_bucket=bucket,
         organization_id=org_id,
+        logger=logger,
     )
 
     schema = inputs.model.ducklake_schema_name

@@ -1046,7 +1046,9 @@ jobs:
                   echo "- Run: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
 
             - name: Post Playwright section to CI report comment
-              if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              # Skipped on trunk-merge/** branches: merge-queue draft PRs are ephemeral and
+              # unread, and each section write spends shared GITHUB_TOKEN budget.
+              if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/')
               continue-on-error: true
               env:
                   DEPLOYMENT_URL: ${{ steps.cf-deploy.outputs.deployment-url }}

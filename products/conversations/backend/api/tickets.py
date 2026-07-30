@@ -61,7 +61,7 @@ from products.conversations.backend.metrics import TICKET_SEARCH_DURATION_SECOND
 from products.conversations.backend.models import EmailChannel, Ticket, TicketAssignment
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import _get_persons_by_email
-from products.conversations.backend.response_targets import response_target_groups, response_target_rank_annotation
+from products.conversations.backend.ticket_groups import team_ticket_groups, ticket_group_rank_annotation
 
 from ee.models.rbac.role import Role
 
@@ -594,18 +594,20 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         }
         order_by = self.request.query_params.get("order_by", "-updated_at")
 
-        # Rank by the team's response-target tiering (see
-        # backend/response_targets.py — team-configurable, default ladder
+        # Rank by the team's ticket groups (see
+        # backend/ticket_groups.py — team-configurable, default groups
         # otherwise), ties broken by SLA deadline (soonest first, no deadline
         # last) so one click yields the triage order, then by -ticket_number
         # (the same unique tiebreak the whitelisted orderings use below) —
         # without a unique final key, rows tied on rank+SLA (e.g. no deadline)
         # have no stable order and LimitOffsetPagination can skip or duplicate
         # them across pages.
-        if order_by in ("response_target", "-response_target"):
-            groups = response_target_groups(self.team)
-            return queryset.annotate(response_target_rank=response_target_rank_annotation(groups)).order_by(
-                "-response_target_rank" if order_by.startswith("-") else "response_target_rank",
+        if order_by in ("ticket_group", "-ticket_group"):
+            groups = team_ticket_groups(self.team)
+            return queryset.annotate(
+                ticket_group_rank=ticket_group_rank_annotation(groups, self.team.timezone_info)
+            ).order_by(
+                "-ticket_group_rank" if order_by.startswith("-") else "ticket_group_rank",
                 F("sla_due_at").asc(nulls_last=True),
                 "-ticket_number",
             )
@@ -848,10 +850,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                     "-ticket_number",
                     "snoozed_until",
                     "-snoozed_until",
-                    "response_target",
-                    "-response_target",
+                    "ticket_group",
+                    "-ticket_group",
                 ],
-                description="Sort order. Prefix with `-` for descending. Defaults to `-updated_at`. `response_target` ranks by the team's response-target tag groups (configurable via conversations_settings.response_target_groups) with SLA tiebreak, and adds a `response_target_counts` object (per-group-rank totals over the filtered result set) to the response.",
+                description="Sort order. Prefix with `-` for descending. Defaults to `-updated_at`. `ticket_group` ranks by the team's configured ticket groups (conversations_settings.ticket_groups) with SLA tiebreak, and adds a `ticket_group_counts` object (per-group-rank totals over the filtered result set) to the response.",
             ),
         ],
     )
@@ -864,24 +866,24 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             queryset = self.filter_queryset(self.get_queryset())
             page = self.paginate_queryset(queryset)
 
-            # When response-target-ordered (the annotation's presence is the
+            # When ticket-group-ordered (the annotation's presence is the
             # signal), also aggregate per-group counts over the same filtered
             # queryset, so the section headers can show how many tickets match
             # the current filters beyond the page. Count(distinct) because the
             # tag filters' joins can multiply rows.
-            response_target_counts: dict[str, int] | None = None
-            if "response_target_rank" in queryset.query.annotations:
-                response_target_counts = {
-                    str(row["response_target_rank"]): row["n"]
-                    for row in queryset.order_by().values("response_target_rank").annotate(n=Count("id", distinct=True))
+            ticket_group_counts: dict[str, int] | None = None
+            if "ticket_group_rank" in queryset.query.annotations:
+                ticket_group_counts = {
+                    str(row["ticket_group_rank"]): row["n"]
+                    for row in queryset.order_by().values("ticket_group_rank").annotate(n=Count("id", distinct=True))
                 }
 
             if page is not None:
                 self._attach_persons_to_tickets(page)
                 serializer = self.get_serializer(page, many=True)
                 response = self.get_paginated_response(serializer.data)
-                if response_target_counts is not None:
-                    response.data["response_target_counts"] = response_target_counts
+                if ticket_group_counts is not None:
+                    response.data["ticket_group_counts"] = ticket_group_counts
                 return response
 
             tickets = list(queryset)

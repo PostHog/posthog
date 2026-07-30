@@ -1493,6 +1493,13 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
+export const TasksPinCreateBody = /* @__PURE__ */ zod.object({
+    pinned: zod.boolean().describe('Whether the task should be pinned for the requester.'),
+})
+
+/**
  * Idempotent upsert: marks the calling user + `device_id` as actively watching this task for the next ~60 seconds. While at least one device for the user has a non-expired presence row for this task, the push fanout will skip ALL of that user's other registered devices for task notifications — the contract is 'if any device is demonstrably watching, suppress the others'. Clients call this every ~30s while the task screen is foregrounded. `device_id` is the UUID of the caller's UserPushToken row.
  * @summary Beacon presence for a device watching this task
  */

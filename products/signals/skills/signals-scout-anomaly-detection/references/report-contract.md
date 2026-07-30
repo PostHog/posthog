@@ -39,6 +39,7 @@ Below that bar, write a `baseline:` / `noise:` scratchpad entry instead — don'
 | `priority`                  | `P0`–`P4`               | Optional; pair with `priority_explanation`. Needed for an autostart draft PR.                                                                                   |
 | `priority_explanation`      | string                  | Required when `priority` is set.                                                                                                                                |
 | `repository`                | string                  | `owner/repo` for a code fix, the `NO_REPO` sentinel for a pure metric move, omitted for free-form.                                                              |
+| `charts`                    | list, optional          | Queries the inbox draws on the report itself — see _Charts on the report_ below.                                                                                |
 
 The result carries `report_id` (always set when a report was persisted — even when suppressed,
 so you can edit / dedup against it), `report_status`, `emitted` (true only when it surfaced as
@@ -80,6 +81,19 @@ characters behind a "Show more" toggle. Front-load, structure, no walls:
 
 Cite the insight `short_id` and dashboard id inline so a human pivots straight to the source,
 and close with the notebook URL: "Full write-up with charts: `<notebook-url>`."
+
+### Charts on the report
+
+The notebook stays the durable write-up, but attach the scored series to the report itself via
+`charts` too, so the inbox reader sees the break without leaving the report. Reuse the same
+widened-window node you embed in the notebook — but a `SavedInsightNode` only when the insight's
+saved range is **absolute** and contains both the baseline and the anomaly (a relative range
+like `-63d` shows them today and then slides until the anomaly scrolls off the durable report),
+else a widened ad-hoc `InsightVizNode` or `DataVisualizationNode` with pinned dates (and its
+axes named in `chartSettings` — a report chart carrying `display` but no `chartSettings` draws
+an empty box). The chart mechanics themselves (allowed
+kinds, placement, sizing, edit semantics) live in the harness prompt — don't re-derive them
+here.
 
 ### Evidence
 

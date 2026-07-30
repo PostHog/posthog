@@ -6256,8 +6256,8 @@ const api = {
         async get(id: IntegrationType['id']): Promise<IntegrationType> {
             return await new ApiRequest().integration(id).get()
         },
-        async create(data: Partial<IntegrationType> | FormData): Promise<IntegrationType> {
-            return await new ApiRequest().integrations().create({ data })
+        async create(data: Partial<IntegrationType> | FormData, teamId?: TeamType['id']): Promise<IntegrationType> {
+            return await new ApiRequest().integrations(teamId).create({ data })
         },
         async delete(integrationId: IntegrationType['id']): Promise<IntegrationType> {
             return await new ApiRequest().integration(integrationId).delete()
@@ -7106,10 +7106,10 @@ const api = {
                 limit?: number
                 offset?: number
             } = {}
-            // response_target_counts: per-group totals over the filtered result
-            // set, present only on `order_by=response_target`/`-response_target`
+            // ticket_group_counts: per-group totals over the filtered result
+            // set, present only on `order_by=ticket_group`/`-ticket_group`
             // responses.
-        ): Promise<CountedPaginatedResponse<any> & { response_target_counts?: Record<string, number> }> {
+        ): Promise<CountedPaginatedResponse<any> & { ticket_group_counts?: Record<string, number> }> {
             return await new ApiRequest().conversationsTickets().withQueryString(params).get()
         },
 

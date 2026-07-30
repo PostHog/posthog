@@ -1239,7 +1239,7 @@ export type ConversationsTicketsListParams = {
      */
     offset?: number
     /**
-     * Sort order. Prefix with `-` for descending. Defaults to `-updated_at`. `response_target` ranks by the team's response-target tag groups (configurable via conversations_settings.response_target_groups) with SLA tiebreak, and adds a `response_target_counts` object (per-group-rank totals over the filtered result set) to the response.
+     * Sort order. Prefix with `-` for descending. Defaults to `-updated_at`. `ticket_group` ranks by the team's configured ticket groups (conversations_settings.ticket_groups) with SLA tiebreak, and adds a `ticket_group_counts` object (per-group-rank totals over the filtered result set) to the response.
      */
     order_by?: string
     /**

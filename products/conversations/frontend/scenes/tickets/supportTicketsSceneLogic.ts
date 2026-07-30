@@ -216,7 +216,6 @@ export interface supportTicketsSceneLogicValues {
     loadedPage: number | null
     orderBy: string
     priorityFilter: TicketPriority[]
-    responseTargetCounts: Record<string, number> | null
     searchQuery: string
     selectedTicketIds: string[]
     selectedTickets: Ticket[]
@@ -226,6 +225,7 @@ export interface supportTicketsSceneLogicValues {
     tagsExcludeFilter: string[]
     tagsFilter: string[]
     tagsMatch: TicketTagsMatch
+    ticketGroupCounts: Record<string, number> | null
     tickets: Ticket[]
     ticketsLoading: boolean
     totalCount: number
@@ -308,9 +308,6 @@ export interface supportTicketsSceneLogicActions {
     setPriorityFilter: (priorities: TicketPriority[]) => {
         priorities: TicketPriority[]
     }
-    setResponseTargetCounts: (counts: Record<string, number> | null) => {
-        counts: Record<string, number> | null
-    }
     setSearchQuery: (query: string) => {
         query: string
     }
@@ -334,6 +331,9 @@ export interface supportTicketsSceneLogicActions {
     }
     setTagsMatch: (match: TicketTagsMatch) => {
         match: TicketTagsMatch
+    }
+    setTicketGroupCounts: (counts: Record<string, number> | null) => {
+        counts: Record<string, number> | null
     }
     setTickets: (tickets: Ticket[]) => {
         tickets: Ticket[]
@@ -413,7 +413,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         loadTickets: true,
         setTickets: (tickets: Ticket[]) => ({ tickets }),
         setTotalCount: (count: number) => ({ count }),
-        setResponseTargetCounts: (counts: Record<string, number> | null) => ({ counts }),
+        setTicketGroupCounts: (counts: Record<string, number> | null) => ({ counts }),
         setLoadedOrderBy: (orderBy: string) => ({ orderBy }),
         setLoadedPage: (page: number) => ({ page }),
         setTicketsLoading: (loading: boolean) => ({ loading }),
@@ -453,18 +453,18 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             },
         ],
         // Per-group ticket counts over the whole filtered result set (not
-        // just the page), keyed by response-target rank. Present only on
-        // response-target-ordered responses; the section headers read it.
-        responseTargetCounts: [
+        // just the page), keyed by ticket-group rank. Present only on
+        // ticket-group-ordered responses; the section headers read it.
+        ticketGroupCounts: [
             null as Record<string, number> | null,
             {
-                setResponseTargetCounts: (_, { counts }) => counts,
+                setTicketGroupCounts: (_, { counts }) => counts,
             },
         ],
         // The order_by the CURRENT tickets array was fetched with — updated in
         // lockstep with setTickets, so it describes the loaded data rather
-        // than the requested sort. The response-target grouped view only
-        // engages once this says the rows really are response-target-ordered,
+        // than the requested sort. The ticket-group grouped view only
+        // engages once this says the rows really are ticket-group-ordered,
         // keeping the list flat while a sort change is in flight instead of
         // grouping the previous sort's rows.
         loadedOrderBy: [
@@ -801,7 +801,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 breakpoint()
                 actions.setTickets(response.results || [])
                 actions.setTotalCount(response.count ?? response.results?.length ?? 0)
-                actions.setResponseTargetCounts(response.response_target_counts ?? null)
+                actions.setTicketGroupCounts(response.ticket_group_counts ?? null)
                 actions.setLoadedOrderBy(params.order_by as string)
                 actions.setLoadedPage(Math.floor((params.offset as number) / SUPPORT_TICKETS_PAGE_SIZE) + 1)
             } catch (error: any) {

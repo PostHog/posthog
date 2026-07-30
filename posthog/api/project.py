@@ -103,7 +103,7 @@ from posthog.session_recordings.data_retention import (
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
 
-from products.conversations.backend.response_targets import validate_response_target_groups
+from products.conversations.backend.ticket_groups import validate_ticket_groups
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
 from products.feature_flags.backend.models.evaluation_context import (
     EvaluationContext,
@@ -122,7 +122,7 @@ from ee.api.rbac.access_control import AccessControlViewSetMixin
 
 logger = structlog.get_logger(__name__)
 
-MAX_ALLOWED_PROJECTS_PER_ORG = 1500
+MAX_ALLOWED_PROJECTS_PER_ORG = 2000
 
 
 # --- Backward-compatibility logic for the /api/projects/ surface ---
@@ -609,8 +609,8 @@ class ProjectBackwardCompatSerializer(
         # Filter out None values from widget_domains if present
         if "widget_domains" in value and value["widget_domains"] is not None:
             value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
-        if "response_target_groups" in value:
-            value["response_target_groups"] = validate_response_target_groups(value["response_target_groups"])
+        if "ticket_groups" in value:
+            value["ticket_groups"] = validate_ticket_groups(value["ticket_groups"])
         return value
 
     class Meta:
