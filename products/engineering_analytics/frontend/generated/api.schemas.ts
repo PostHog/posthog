@@ -535,8 +535,13 @@ export interface WorkflowRunDetailApi {
     duration_seconds: number | null
     /** Re-run attempt number; 1 for the first attempt. */
     run_attempt: number
-    /** Attributed pull request number, or 0 when unattributed. */
+    /** Pull request this run ran for, from the run's own-repo PR association; 0 when unattributed (a default-branch push, or a fork PR). */
     pr_number: number
+    /**
+     * Pull request whose merge produced this run's head commit, resolved through the merged pull request's merge commit and falling back to the commit subject's '(#NNNN)' suffix. Null when neither resolves. The only PR attribution a default-branch push has: read pr_number first and fall back to this.
+     * @nullable
+     */
+    commit_pr_number: number | null
 }
 
 export interface CIStatusRollupApi {

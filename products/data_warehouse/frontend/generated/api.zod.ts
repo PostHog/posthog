@@ -46,8 +46,8 @@ export const DataWarehouseManagedWarehouseRepublishTableCreateBody = /* @__PURE_
 /**
  * Onboard this project onto the organization's existing managed warehouse.
  *
- * Requires a schema name; records the project's membership both in duckgres and in the
- * Django backfill state. Restricted to organization admins.
+ * Requires a schema name and records the project's membership in the Duckgres control plane.
+ * Restricted to organization admins.
  */
 export const DataWarehouseOnboardTeamCreateBody = /* @__PURE__ */ zod.object({
     schema_name: zod

@@ -1,0 +1,149 @@
+# Scrape targets for the kind E2E: three pods annotated for discovery and a
+# decoy without annotations that must NOT be scraped. Both serve the
+# integration fixture (OpenMetrics + exemplars) from a ConfigMap.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: fixture
+    namespace: fixtures
+spec:
+    replicas: 6
+    selector:
+        matchLabels:
+            app: fixture
+    template:
+        metadata:
+            labels:
+                app: fixture
+            annotations:
+                prometheus.io/scrape: 'true'
+                prometheus.io/port: '9464'
+        spec:
+            containers:
+                - name: fixture
+                  image: python:3.12-alpine
+                  command: [python, /app/fixture_server.py]
+                  ports:
+                      - containerPort: 9464
+                  volumeMounts:
+                      - name: server
+                        mountPath: /app
+                      - name: fixtures
+                        mountPath: /app/fixtures
+            volumes:
+                - name: server
+                  configMap:
+                      name: fixture-server
+                - name: fixtures
+                  configMap:
+                      name: fixture-payload
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: fixture-decoy
+    namespace: fixtures
+spec:
+    replicas: 1
+    selector:
+        matchLabels:
+            app: fixture-decoy
+    template:
+        metadata:
+            labels:
+                app: fixture-decoy
+        spec:
+            containers:
+                - name: fixture
+                  image: python:3.12-alpine
+                  command: [python, /app/fixture_server.py]
+                  ports:
+                      - containerPort: 9464
+                  volumeMounts:
+                      - name: server
+                        mountPath: /app
+                      - name: fixtures
+                        mountPath: /app/fixtures
+            volumes:
+                - name: server
+                  configMap:
+                      name: fixture-server
+                - name: fixtures
+                  configMap:
+                      name: fixture-payload
+---
+# In-cluster stand-in for PostHog ingest: OTLP http in, JSON file out.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+    name: sink-config
+    namespace: fixtures
+data:
+    sink.yaml: |
+        receivers:
+            otlp:
+                protocols:
+                    http:
+                        endpoint: 0.0.0.0:4318
+        exporters:
+            file:
+                path: /out/metrics.json
+        service:
+            pipelines:
+                metrics:
+                    receivers: [otlp]
+                    exporters: [file]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: sink
+    namespace: fixtures
+spec:
+    replicas: 1
+    selector:
+        matchLabels:
+            app: sink
+    template:
+        metadata:
+            labels:
+                app: sink
+        spec:
+            containers:
+                # Keep the collector version in sync with ../../Dockerfile.
+                - name: sink
+                  image: otel/opentelemetry-collector-contrib:0.142.0
+                  args: ['--config', '/etc/sink/sink.yaml']
+                  ports:
+                      - containerPort: 4318
+                  volumeMounts:
+                      - name: config
+                        mountPath: /etc/sink
+                      - name: out
+                        mountPath: /out
+                # The collector image is distroless (no shell), so a busybox
+                # sidecar sharing the output volume lets the test read the file.
+                - name: reader
+                  image: busybox:1.37
+                  command: [sh, -c, 'sleep 2147483647']
+                  volumeMounts:
+                      - name: out
+                        mountPath: /out
+            volumes:
+                - name: config
+                  configMap:
+                      name: sink-config
+                - name: out
+                  emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+    name: sink
+    namespace: fixtures
+spec:
+    selector:
+        app: sink
+    ports:
+        - port: 4318
+          targetPort: 4318

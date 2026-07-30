@@ -175,13 +175,15 @@ export function ReportChart({ chartId }: { chartId: string }): JSX.Element | nul
     // `size` arrives as stored JSON, so an unknown value falls back to the inferred height rather
     // than dropping the box altogether.
     const size = chart.size && chart.size in SIZE_HEIGHTS ? chart.size : null
-    // A graph fills whatever box it's given and collapses without one. A data table sizes itself to
-    // its rows, so it only takes a box when its author asked for one — and then that box is a
-    // ceiling it scrolls within rather than a height it has to fill. Either way the box scrolls, so
-    // a grid taller than its size is reachable instead of cut off.
+    const inferredSize = size ?? inferChartSize(query)
+    // A graph fills whatever box it's given and collapses without one, so it takes a fixed height. A
+    // data table sizes itself to its rows, so its box is a ceiling it scrolls within rather than a
+    // height it has to fill. Every chart gets a bounded box either way: a table taller than its size
+    // then scrolls inside the card, instead of growing the whole report down the page with its last
+    // rows left unreachable at the bottom.
     const isSelfSizing = !(isInsightVizNode(query) || isSavedInsightNode(query) || isGraphicalSqlNode(query))
-    const height = isSelfSizing ? (size ? SIZE_MAX_HEIGHTS[size] : null) : SIZE_HEIGHTS[size ?? inferChartSize(query)]
-    const bodyClass = height ? `flex flex-col overflow-y-auto ${height}` : 'flex flex-col'
+    const height = isSelfSizing ? SIZE_MAX_HEIGHTS[inferredSize] : SIZE_HEIGHTS[inferredSize]
+    const bodyClass = `flex flex-col overflow-y-auto ${height}`
     // The SQLEditor prefix opts into container-governed chart sizing
     // (dataVisualizationLogic.presetChartHeight). Without it a graphical SQL chart renders at 60vh
     // and swallows the report, which is why NotebookNodeSQLV2 prefixes its key the same way.
