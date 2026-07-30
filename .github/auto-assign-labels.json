@@ -11,7 +11,7 @@
         },
         {
             "scopes": ["mcp-store", "mcp_store"],
-            "labels": ["feature/mcp-store", "team/self-driving"]
+            "labels": ["feature/mcp-store"]
         }
     ]
 }
