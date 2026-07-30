@@ -154,13 +154,11 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                 tool_descriptions = await database_sync_to_async(intent_clustering.fetch_tool_descriptions)(
                     team, lookback_days=inputs.lookback_days
                 )
-                # Only embed descriptions for tools the corpus actually touched:
-                # the fit score is per (tool, cluster), so descriptions of tools
-                # outside every cluster have nothing to be compared against.
-                corpus_tools: set[str] = set()
-                for record in aligned_records:
-                    corpus_tools.update(record.tool_counts)
-                tool_descriptions = {tool: text for tool, text in tool_descriptions.items() if tool in corpus_tools}
+                # Bound the embedding fan-out to the tools that can appear in the
+                # snapshot; see select_tools_for_description_fit for why.
+                tool_descriptions = intent_clustering.select_tools_for_description_fit(
+                    aligned_records, tool_descriptions
+                )
                 described = sorted(tool_descriptions.items())
                 description_matrix, described_valid = await intent_clustering.embed_texts_async(
                     team,

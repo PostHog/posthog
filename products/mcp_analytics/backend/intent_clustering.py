@@ -733,6 +733,26 @@ def _medoid_index(embeddings: np.ndarray, indices: list[int]) -> int:
     return indices[best_local]
 
 
+def select_tools_for_description_fit(
+    records: list[IntentRecord],
+    tool_descriptions: dict[str, str],
+    max_tools: int = MAX_TOOLS_IN_SNAPSHOT,
+) -> dict[str, str]:
+    """Bound the description-embedding fan-out to tools that can appear in the snapshot.
+
+    Keeps descriptions only for the top ``max_tools`` corpus tools by attributed
+    call volume (the same population and cap the tool pivot uses). Without the
+    bound, a caller emitting a unique tool name and description per call could
+    turn one recompute into one embedding request per unique name.
+    """
+    totals: Counter[str] = Counter()
+    for record in records:
+        for tool, count in record.tool_counts.items():
+            totals[tool] += count
+    kept = {tool for tool, _ in sorted(totals.items(), key=lambda item: (-item[1], item[0]))[:max_tools]}
+    return {tool: text for tool, text in tool_descriptions.items() if tool in kept}
+
+
 def compute_description_fit(
     embeddings: np.ndarray,
     labels: np.ndarray,

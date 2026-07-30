@@ -26,6 +26,7 @@ import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
 import { getPostHogClient } from '@/lib/posthog'
+import { MAX_CAPTURED_DESCRIPTION_LENGTH } from '@/tools/toolDefinitions'
 
 function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> = {}): ResolvedState {
     return {
@@ -151,6 +152,43 @@ describe('ToolExecutor intent capture', () => {
         expect(captureSpy).toHaveBeenCalledTimes(1)
         expect(captureSpy.mock.calls[0]![0].toolName).toBe('projects-get')
         expect(captureSpy.mock.calls[0]![0].intent).toBe('looking up the current user')
+
+        captureSpy.mockRestore()
+    })
+
+    // execute-sql is the one tool whose advertised description is formatted per
+    // request rather than served from the catalog; the stamped
+    // $mcp_tool_description must be the formatted text the agent saw. One case
+    // per dispatch path, since each wires the served description independently.
+    // (Both handlers fail against the harness's empty api; the error path still
+    // captures the event, which is the shape being pinned.)
+    it.each([
+        {
+            label: 'native path',
+            call: { name: 'execute-sql', arguments: { query: 'SELECT 1' } },
+            state: () => makeState([{ name: 'execute-sql' }]),
+        },
+        {
+            label: 'exec path',
+            call: { name: 'exec', arguments: { command: 'call execute-sql {"query": "SELECT 1"}' } },
+            state: () =>
+                makeState(
+                    catalog.getFilteredTools({ scopes: ['*'] }).filter((tool) => tool.name === 'execute-sql'),
+                    { useSingleExec: false }
+                ),
+        },
+    ])('stamps the formatted execute-sql description on the $label', async ({ call, state }) => {
+        const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+
+        await executor.handleToolCall(call, state())
+
+        // trackToolCall is fire-and-forget; wait for the capture to land so the
+        // assertion (and the spy restore) never race the pending promise.
+        await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(1))
+        const arg = captureSpy.mock.calls[0]![0]
+        expect(arg.toolName).toBe('execute-sql')
+        const expected = new InstructionsBuilder('').formatExecuteSqlDescription(undefined)
+        expect(arg.properties?.$mcp_tool_description).toBe(expected.slice(0, MAX_CAPTURED_DESCRIPTION_LENGTH))
 
         captureSpy.mockRestore()
     })

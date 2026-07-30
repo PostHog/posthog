@@ -57,6 +57,7 @@ from products.mcp_analytics.backend.intent_clustering import (
     fetch_tool_descriptions,
     fetch_window_stats,
     sample_corpus_sessions,
+    select_tools_for_description_fit,
 )
 from products.mcp_analytics.backend.models import MCPIntentEmbeddingCache
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
@@ -519,6 +520,31 @@ class TestComputeClusterFlows:
 
         assert flows[0]["journey"]["paths"][0]["steps"] == ["tool_a", "tool_b", None, None]
         assert flows[0]["switches"] == [{"from_tool": "tool_a", "to_tool": "tool_b", "count": 1}]
+
+
+# select_tools_for_description_fit ------------------------------------------
+
+
+class TestSelectToolsForDescriptionFit:
+    def test_caps_to_the_highest_volume_corpus_tools(self) -> None:
+        # A caller emitting unique tool names per call could otherwise turn one
+        # recompute into one embedding request per unique name.
+        records = [
+            IntentRecord(intent_text="a", frequency=5, tool_counts={"busy": 5}),
+            IntentRecord(intent_text="b", frequency=3, tool_counts={"quiet": 1, "busy": 2}),
+        ]
+        descriptions = {"busy": "d1", "quiet": "d2", "uncalled": "d3"}
+
+        kept = select_tools_for_description_fit(records, descriptions, max_tools=1)
+
+        assert kept == {"busy": "d1"}
+
+    def test_keeps_only_corpus_tools_regardless_of_cap(self) -> None:
+        records = [IntentRecord(intent_text="a", frequency=1, tool_counts={"called": 1})]
+
+        kept = select_tools_for_description_fit(records, {"called": "d", "uncalled": "d"}, max_tools=10)
+
+        assert kept == {"called": "d"}
 
 
 # compute_description_fit --------------------------------------------------
