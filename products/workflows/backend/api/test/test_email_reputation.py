@@ -41,7 +41,12 @@ class TestEmailReputationAPI(APIBaseTest):
             "email_sending_suspension_reason": "",
         }
 
-    def test_reputation_endpoint_computes_rates_and_folds_batch_jobs_into_workflows(self):
+    # Creating a HogFlowBatchJob fires a post_save signal that dispatches to the plugin server —
+    # patched out like every other batch-job test, or CI fails on the outbound HTTP attempt.
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_reputation_endpoint_computes_rates_and_folds_batch_jobs_into_workflows(self, _mock_dispatch):
         flow = self._create_flow("Newsletter")
         batch_job = HogFlowBatchJob.objects.create(
             team=self.team, hog_flow=flow, variables={}, filters={}, status="completed"
