@@ -100,8 +100,8 @@ tools:
     integrations-environment-mapping-partial-update:
         operation: integrations_environment_mapping_partial_update
         enabled: false
-    integrations-github-available-installations-list:
-        operation: integrations_github_available_installations_list
+    integrations-github-available-installations-retrieve:
+        operation: integrations_github_available_installations_retrieve
         enabled: false
     integrations-github-branches-retrieve:
         operation: integrations_github_branches_retrieve

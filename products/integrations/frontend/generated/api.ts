@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    GitHubAvailableInstallationsResponseApi,
     GitHubBranchesResponseApi,
     GitHubLinkExistingRequestApi,
     GitHubOAuthAuthorizeRequestApi,
@@ -21,7 +22,6 @@ import type {
     IntegrationAccessRequestResponseApi,
     IntegrationConfigApi,
     IntegrationsChannelsRetrieveParams,
-    IntegrationsGithubAvailableInstallationsListParams,
     IntegrationsGithubBranchesRetrieveParams,
     IntegrationsGithubReposRetrieveParams,
     IntegrationsGithubTeamsRetrieveParams,
@@ -29,7 +29,6 @@ import type {
     JiraProjectsResponseApi,
     LinearTeamsResponseApi,
     OrganizationIntegrationApi,
-    PaginatedGitHubAvailableInstallationListApi,
     PaginatedIntegrationConfigListApi,
     PaginatedRoleExternalReferenceListApi,
     PatchedIntegrationConfigApi,
@@ -671,23 +670,8 @@ export const integrationsDomainConnectCheckRetrieve = async (
     })
 }
 
-export const getIntegrationsGithubAvailableInstallationsListUrl = (
-    projectId: string,
-    params?: IntegrationsGithubAvailableInstallationsListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/integrations/github/available_installations/?${stringifiedParams}`
-        : `/api/projects/${projectId}/integrations/github/available_installations/`
+export const getIntegrationsGithubAvailableInstallationsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/github/available_installations/`
 }
 
 /**
@@ -697,13 +681,12 @@ export const getIntegrationsGithubAvailableInstallationsListUrl = (
  * installation rather than reinstalling. This backs the picker: when the org has more than
  * one installation, the client passes the chosen installation_id to github/link_existing.
  */
-export const integrationsGithubAvailableInstallationsList = async (
+export const integrationsGithubAvailableInstallationsRetrieve = async (
     projectId: string,
-    params?: IntegrationsGithubAvailableInstallationsListParams,
     options?: RequestInit
-): Promise<PaginatedGitHubAvailableInstallationListApi> => {
-    return apiMutator<PaginatedGitHubAvailableInstallationListApi>(
-        getIntegrationsGithubAvailableInstallationsListUrl(projectId, params),
+): Promise<GitHubAvailableInstallationsResponseApi> => {
+    return apiMutator<GitHubAvailableInstallationsResponseApi>(
+        getIntegrationsGithubAvailableInstallationsRetrieveUrl(projectId),
         {
             ...options,
             method: 'GET',
