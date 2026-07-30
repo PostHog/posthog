@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     normalize_table_column_names,
     observe_and_project_table,
     observed_schema_metadata_columns,
+    reconcile_batch_schemas,
     source_uses_delta_write_column_selection,
     table_from_py_list,
 )
@@ -1528,3 +1529,51 @@ def test_billing_limit_exception_is_non_reportable_error():
     # Subclassing NonReportableError is what keeps the intentional billing-limit halt out of
     # error tracking (the activity interceptor re-raises these without capturing them).
     assert issubclass(BillingLimitsWillBeReachedException, NonReportableError)
+
+
+@pytest.mark.parametrize(
+    "first_type,second_type,expected_type",
+    [
+        # A vendor returning a numeric id as int in one page and string in the next has no common
+        # Arrow type, so the column degrades to text instead of taking the sync down.
+        (pa.int64(), pa.string(), pa.string()),
+        (pa.string(), pa.int64(), pa.string()),
+        (pa.timestamp("us"), pa.string(), pa.string()),
+        (pa.list_(pa.int64()), pa.list_(pa.string()), pa.string()),
+        # Money values whose inferred decimal scale shifts between batches widen instead.
+        (pa.decimal128(25, 23), pa.decimal128(23, 21), pa.decimal128(25, 23)),
+        (pa.int32(), pa.int64(), pa.int64()),
+        (pa.int64(), pa.float64(), pa.float64()),
+        (pa.null(), pa.int64(), pa.int64()),
+    ],
+)
+def test_reconcile_batch_schemas_widens_conflicting_column(first_type, second_type, expected_type):
+    first = pa.schema([pa.field("id", pa.int64()), pa.field("val", first_type)])
+    second = pa.schema([pa.field("id", pa.int64()), pa.field("val", second_type)])
+
+    reconciled = reconcile_batch_schemas([first, second])
+
+    assert reconciled.field("val").type == expected_type
+    assert reconciled.field("id").type == pa.int64()
+
+
+def test_reconcile_batch_schemas_keeps_unrelated_columns_and_order():
+    # Only the conflicting column may degrade — a second irreconcilable field must not drag
+    # neighbours to string, and column order stays first-seen so schema.json stays readable.
+    first_fields: list[pa.Field] = [
+        pa.field("id", pa.int64()),
+        pa.field("owner_id", pa.int64()),
+        pa.field("name", pa.string()),
+    ]
+    second_fields: list[pa.Field] = [
+        pa.field("id", pa.int64()),
+        pa.field("owner_id", pa.string()),
+        pa.field("extra", pa.bool_()),
+    ]
+
+    reconciled = reconcile_batch_schemas([pa.schema(first_fields), pa.schema(second_fields)])
+
+    assert reconciled.names == ["id", "owner_id", "name", "extra"]
+    assert reconciled.field("owner_id").type == pa.string()
+    assert reconciled.field("name").type == pa.string()
+    assert reconciled.field("extra").type == pa.bool_()

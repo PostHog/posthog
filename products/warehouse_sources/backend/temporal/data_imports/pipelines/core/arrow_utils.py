@@ -96,6 +96,61 @@ def pyarrow_schema_from_arrow_exportable(schema: ArrowSchemaExportable) -> pa.Sc
     return pa.schema(cast(Any, schema))
 
 
+def _widen_conflicting_type(left: pa.DataType, right: pa.DataType) -> pa.DataType:
+    if left == right:
+        return left
+
+    try:
+        unified = pa.unify_schemas(
+            [pa.schema([pa.field("f", left)]), pa.schema([pa.field("f", right)])],
+            promote_options="permissive",
+        )
+    except pa.ArrowTypeError:
+        # No common Arrow type exists (int64 vs string, timestamp vs string, list<int64> vs
+        # list<string>, …). Every one of those casts to text, and the Delta write path already
+        # renders nested values as JSON strings, so string is the widest thing both sides fit in.
+        return pa.string()
+
+    return unified.field("f").type
+
+
+def reconcile_batch_schemas(schemas: list[pa.Schema], logger: FilteringBoundLogger | None = None) -> pa.Schema:
+    """Fold batch schemas into one, degrading a single conflicting column instead of failing.
+
+    Vendor APIs routinely return the same field with different types across pages — a numeric id
+    that is sometimes an int and sometimes a string, or money values whose inferred decimal scale
+    shifts with the batch. A bare `pa.unify_schemas` raises `ArrowTypeError` on any of those and
+    takes the whole table's sync down, so widen instead: permissive promotion where a common type
+    exists, text for the rest.
+    """
+    try:
+        return pa.unify_schemas(schemas, promote_options="permissive")
+    except pa.ArrowTypeError:
+        pass
+
+    merged: dict[str, pa.Field] = {}
+    for schema in schemas:
+        for field_ in schema:
+            existing = merged.get(field_.name)
+            if existing is None:
+                merged[field_.name] = field_
+                continue
+
+            widened = _widen_conflicting_type(existing.type, field_.type)
+            if widened != existing.type and logger is not None:
+                logger.warning(
+                    "Reconciled conflicting types for column across batches",
+                    column=field_.name,
+                    previous_type=str(existing.type),
+                    incoming_type=str(field_.type),
+                    reconciled_type=str(widened),
+                )
+            # Keep the first field's metadata, and stay nullable if either side was.
+            merged[field_.name] = existing.with_type(widened).with_nullable(existing.nullable or field_.nullable)
+
+    return pa.schema(list(merged.values()))
+
+
 def safe_parse_datetime(date_str: object | None) -> None | pa.TimestampScalar | datetime.datetime:
     try:
         if date_str is None:

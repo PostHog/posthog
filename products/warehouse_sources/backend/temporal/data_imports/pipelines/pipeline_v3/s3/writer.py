@@ -11,6 +11,7 @@ from temporalio import activity
 
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import reconcile_batch_schemas
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.metrics import (
     get_s3_write_duration_metric,
     get_s3_write_errors_metric,
@@ -120,7 +121,7 @@ class S3BatchWriter:
         if self._schema is None:
             self._schema = pa_table.schema
         else:
-            self._schema = pa.unify_schemas([self._schema, pa_table.schema])
+            self._schema = reconcile_batch_schemas([self._schema, pa_table.schema], self._logger)
 
         self._logger.debug(
             f"Batch {batch_index} written successfully",
