@@ -30,6 +30,15 @@ function tableRef(table: string, key: string): string {
     return key ? `${table}.${key}` : table
 }
 
+function TableRefCell({ table, refKey }: { table: string; refKey: string }): JSX.Element {
+    const value = tableRef(table, refKey)
+    return (
+        <Tooltip title={value}>
+            <span className="font-mono text-xs truncate inline-block max-w-[280px] align-bottom">{value}</span>
+        </Tooltip>
+    )
+}
+
 export function RelationshipsTab(): JSX.Element {
     const { filteredRows, proposalsLoading, joinsLoading, statusFilter, actionsInFlight } =
         useValues(relationshipsLogic)
@@ -56,16 +65,12 @@ export function RelationshipsTab(): JSX.Element {
         {
             title: 'Source',
             key: 'source',
-            render: (_, row) => (
-                <span className="font-mono text-xs">{tableRef(row.sourceTableName, row.sourceTableKey)}</span>
-            ),
+            render: (_, row) => <TableRefCell table={row.sourceTableName} refKey={row.sourceTableKey} />,
         },
         {
             title: 'Joins to',
             key: 'joining',
-            render: (_, row) => (
-                <span className="font-mono text-xs">{tableRef(row.joiningTableName, row.joiningTableKey)}</span>
-            ),
+            render: (_, row) => <TableRefCell table={row.joiningTableName} refKey={row.joiningTableKey} />,
         },
         {
             title: (
