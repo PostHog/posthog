@@ -18,10 +18,7 @@ export interface ScoutSuggestButtonProps {
     'data-attr'?: string
 }
 
-/**
- * Kicks off a cloud task that drafts a scout for you. Paired with `ScoutCreateButton`, which opens
- * the form directly — this one is the AI route, so it lands you in the task rather than a modal.
- */
+/** Navigates away to a running cloud task, unlike `ScoutCreateButton`, which opens a modal in place. */
 export function ScoutSuggestButton({
     children = 'Suggest a scout',
     className,

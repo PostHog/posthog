@@ -172,8 +172,8 @@ describe('scoutFleetLogic', () => {
     })
 
     it('runs the task it creates, rather than leaving the user on an unstarted one', async () => {
-        jest.spyOn(api.tasks, 'repositories').mockResolvedValue({ repositories: ['PostHog/posthog'] })
-        jest.spyOn(api.tasks, 'create').mockResolvedValue({ id: 'task-1' } as any)
+        const repositories = jest.spyOn(api.tasks, 'repositories')
+        const create = jest.spyOn(api.tasks, 'create').mockResolvedValue({ id: 'task-1' } as any)
         const run = jest.spyOn(api.tasks, 'run').mockResolvedValue({ id: 'task-1' } as any)
 
         logic.actions.startScoutChatTask(SCOUT_AUTHOR_PROMPT, 'scout authoring task', 'Suggest a scout')
@@ -184,10 +184,12 @@ describe('scoutFleetLogic', () => {
             mode: TaskExecutionModeEnumApi.Interactive,
         })
         expect(router.values.location.pathname).toContain('task-1')
+        // Pinning a repo would make the run clone it in full, and these prompts never touch code.
+        expect(repositories).not.toHaveBeenCalled()
+        expect(create).toHaveBeenCalledWith(expect.not.objectContaining({ repository: expect.anything() }))
     })
 
     it('still opens the task when kicking off its run fails', async () => {
-        jest.spyOn(api.tasks, 'repositories').mockResolvedValue({ repositories: [] })
         jest.spyOn(api.tasks, 'create').mockResolvedValue({ id: 'task-2' } as any)
         jest.spyOn(api.tasks, 'run').mockRejectedValue(new Error('over the usage limit'))
 

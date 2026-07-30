@@ -659,23 +659,14 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             // Task-kickoff, mirroring inboxTaskKickoffLogic: create an auto-mode cloud
             // task from a templated prompt, then navigate to it. Not a live chat.
             try {
-                let repository: string | undefined
-                try {
-                    const { repositories } = await api.tasks.repositories()
-                    repository = repositories[0]
-                } catch (error: any) {
-                    // Authoring a scout writes a skill rather than opening a PR, so a missing repo
-                    // is fine — but a failed lookup shouldn't masquerade as "this team has none".
-                    lemonToast.warning(
-                        error?.detail || error?.message || "Couldn't load your repositories — continuing without one."
-                    )
-                    repository = undefined
-                }
+                // Deliberately repo-less: these prompts read PostHog data over MCP and never touch
+                // code, while `tasks/repositories/` would hand back whichever repo sorts first across
+                // the team's visible tasks. A SIGNAL_REPORT task clones with full history (for git
+                // blame), so pinning an arbitrary repo would clone it in full for nothing.
                 const task = await api.tasks.create({
                     title: fallbackTitle,
                     description: prompt,
                     origin_product: OriginProduct.SIGNAL_REPORT,
-                    repository,
                 })
                 // Creating the task alone lands the user on a "This task hasn't been run yet" screen,
                 // so kick off the run too (same as inboxTaskKickoffLogic). Interactive, not background:
