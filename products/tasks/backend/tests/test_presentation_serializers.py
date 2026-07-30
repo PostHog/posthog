@@ -33,12 +33,11 @@ class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
             ("support_reply", False),
             ("error_tracking", False),
             ("user_created", True),
+            ("user_created", False),
         ]
     )
     @patch("products.tasks.backend.presentation.serializers.logger.info")
-    def test_logs_client_writable_server_attribution(
-        self, origin_product: str, internal: bool, info: MagicMock
-    ) -> None:
+    def test_logs_client_attribution(self, origin_product: str, internal: bool, info: MagicMock) -> None:
         serializer = TaskWriteSerializer(
             data={"origin_product": origin_product, "internal": internal},
             context={"team_id": 123, "request": SimpleNamespace(user=SimpleNamespace(id=456))},
