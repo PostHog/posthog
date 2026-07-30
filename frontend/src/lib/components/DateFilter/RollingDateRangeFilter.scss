@@ -11,6 +11,10 @@
     cursor: pointer;
     transition: background 0.3s ease;
 
+    &.RollingDateRangeFilter--small {
+        padding: 0.375rem 0;
+    }
+
     &:hover {
         background-color: var(--color-bg-primary);
     }

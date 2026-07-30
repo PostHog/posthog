@@ -1,5 +1,6 @@
 import './RollingDateRangeFilter.scss'
 
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonButtonProps, LemonInput, LemonSelect, LemonSelectOptionLeaf } from '@posthog/lemon-ui'
@@ -38,6 +39,7 @@ type RollingDateRangeFilterProps = {
     dateRangeFilterSuffixLabel?: string
     allowedDateOptions?: DateOption[]
     fullWidth?: LemonButtonProps['fullWidth']
+    size?: 'small' | 'medium'
 }
 
 export function RollingDateRangeFilter({
@@ -54,6 +56,7 @@ export function RollingDateRangeFilter({
     pageKey,
     allowedDateOptions = ['days', 'weeks', 'months', 'years'],
     fullWidth,
+    size,
 }: RollingDateRangeFilterProps): JSX.Element {
     const logicProps = { onChange, dateFrom, inUse: selected || inUse, max, pageKey }
     const { increaseCounter, decreaseCounter, setCounter, setDateOption, toggleDateOptionsSelector, select } =
@@ -115,10 +118,11 @@ export function RollingDateRangeFilter({
     if (isButton) {
         contents = (
             <LemonButton
-                className="RollingDateRangeFilter"
+                className={clsx('RollingDateRangeFilter', size === 'small' && 'RollingDateRangeFilter--small')}
                 data-attr="rolling-date-range-filter"
                 onClick={select}
                 active={selected}
+                size={size}
                 fullWidth={fullWidth}
             >
                 {contents}

@@ -1,13 +1,17 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconCalendar } from '@posthog/icons'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { type DateFilterExclusions } from 'lib/components/DateFilter/DateFilterExclusionsControl'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { alignResolvedDateRangeToInterval } from 'lib/utils/datetime'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
+import { computeDaysOfWeekUpdate, getExcludedDaysOfWeek, type IsoDayOfWeek } from './daysOfWeekFilterUtils'
 
 type InsightDateFilterProps = {
     disabled: boolean
@@ -15,10 +19,40 @@ type InsightDateFilterProps = {
 
 export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
-    const { dateRange, interval, querySource } = useValues(insightVizDataLogic(insightProps))
-    const { updateDateRange } = useActions(insightVizDataLogic(insightProps))
+    const { dateRange, interval, querySource, trendsFilter, isTrends } = useValues(insightVizDataLogic(insightProps))
+    const { updateDateRange, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { insightData } = useValues(insightVizDataLogic(insightProps))
     const { reportInsightDatePickerOpened } = useActions(eventUsageLogic)
+
+    // The picker speaks excluded days; the query schema stores included days. The legacy
+    // display-only trendsFilter.hideWeekends is deliberately NOT folded in — different semantics.
+    const excludedDaysOfWeek = getExcludedDaysOfWeek(dateRange)
+    // The backend rejects daysOfWeek together with smoothing, so don't offer it
+    const smoothingActive = isTrends && (trendsFilter?.smoothingIntervals ?? 1) > 1
+    const showDaysOfWeekExclusions = isTrends && !smoothingActive
+
+    // Hiding the exclusions control (smoothing turned on, or the insight type changed away from
+    // trends) must also clear any daysOfWeek already on the query — otherwise it lingers with no
+    // UI left to remove it, and the backend rejects daysOfWeek alongside smoothing.
+    useEffect(() => {
+        if (!showDaysOfWeekExclusions && dateRange?.daysOfWeek?.length) {
+            updateQuerySource(computeDaysOfWeekUpdate([], dateRange))
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [showDaysOfWeekExclusions])
+
+    const exclusions: DateFilterExclusions = {
+        days: showDaysOfWeekExclusions ? excludedDaysOfWeek.map(String) : [],
+        incomplete: !!dateRange?.excludeIncompletePeriods,
+    }
+    const handleExclusionsChange = (next: DateFilterExclusions): void => {
+        if (isTrends && next.days.join(',') !== exclusions.days.join(',')) {
+            updateQuerySource(computeDaysOfWeekUpdate(next.days.map(Number) as IsoDayOfWeek[], dateRange))
+        }
+        if (next.incomplete !== exclusions.incomplete) {
+            updateDateRange({ excludeIncompletePeriods: next.incomplete ? true : null }, true)
+        }
+    }
 
     return (
         <DateFilter
@@ -26,6 +60,11 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
             dateTo={dateRange?.date_to ?? undefined}
             dateFrom={dateRange?.date_from ?? '-7d'}
             explicitDate={dateRange?.explicitDate ?? false}
+            exclusions={exclusions}
+            onExclusionsChange={handleExclusionsChange}
+            showIncompletePeriodExclusion
+            showDaysOfWeekExclusions={showDaysOfWeekExclusions}
+            optionsSize="small"
             allowTimePrecision
             allowFixedRangeWithTime
             disabled={disabled}
