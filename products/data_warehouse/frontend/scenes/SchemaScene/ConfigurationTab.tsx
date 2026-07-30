@@ -869,9 +869,9 @@ function ScheduleSection({
 }): JSX.Element {
     const { loadSchema } = useActions(schemaSceneLogic({ sourceId, schemaId: schema.id }))
     const isCdc = schema.sync_type === 'cdc'
-    const frequencyOptions: LemonSelectOption<DataWarehouseSyncInterval | OrNever>[] = allowedSyncFrequencies(
-        schema.sync_type
-    ).map((value) => ({ value, label: SyncFrequencyLabelMap[value] }))
+    const frequencyOptions: LemonSelectOption<DataWarehouseSyncInterval | OrNever>[] = allowedSyncFrequencies().map(
+        (value) => ({ value, label: SyncFrequencyLabelMap[value] })
+    )
 
     const [draftFrequency, setDraftFrequency] = useState<DataWarehouseSyncInterval | OrNever>(
         schema.sync_frequency || (isCdc ? '5min' : '6hour')
