@@ -68,8 +68,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            # A failure replayed from the query failure cache was already captured when it first
-            # happened, so re-capturing the fast-failing retries here would flood error tracking.
             ("served_from_cache", True, False),
             ("fresh_failure", False, True),
         ]
@@ -86,7 +84,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"/api/environments/{self.team.id}/query/",
                 {"query": HogQLQuery(query="select 1").model_dump()},
             )
-        # The user still gets the error either way — only the error-tracking capture is suppressed.
         self.assertEqual(response.status_code, ClickHouseQueryTimeOut.status_code)
         self.assertEqual(mock_capture.called, expect_capture)
 

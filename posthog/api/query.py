@@ -347,9 +347,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         except ConcurrencyLimitExceeded as c:
             self._raise_concurrency_throttled(c)
         except Exception as e:
-            # A failure served from the query failure cache never touched ClickHouse; the original
-            # error was already classified and captured when it happened (see query_runner.py).
-            # Re-capturing here floods error tracking with the fast-failing retries.
+            # Breaker replays were already captured when the original failure happened.
             if not getattr(e, "served_from_query_failure_cache", False):
                 capture_exception(e)
             raise
@@ -453,9 +451,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         except ConcurrencyLimitExceeded as c:
             self._raise_concurrency_throttled(c)
         except Exception as e:
-            # A failure served from the query failure cache never touched ClickHouse; the original
-            # error was already classified and captured when it happened (see query_runner.py).
-            # Re-capturing here floods error tracking with the fast-failing retries.
+            # Breaker replays were already captured when the original failure happened.
             if not getattr(e, "served_from_query_failure_cache", False):
                 capture_exception(e)
             raise
