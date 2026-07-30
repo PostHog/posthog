@@ -26,6 +26,7 @@ from products.engineering_analytics.backend.logic.ci_signals_config import (
     update_ci_signals_config,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries.workflow_flakiness import BY_DESIGN_FAILURE_JOB_NAMES
 from products.engineering_analytics.backend.logic.signals.contracts import (
     SOURCE_PRODUCT,
     SOURCE_TYPE_BROKEN_DEFAULT_BRANCH,
@@ -672,6 +673,21 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
             ),
             _job_row(202, 1, "real-test-job", "shaG", "failure", now - timedelta(hours=3), run_attempt=1),
             _job_row(203, 1, "real-test-job", "shaG", "success", now - timedelta(hours=2), run_attempt=2),
+        ]
+        findings = detect_flaky_checks(self._curated_over_runs(rows, jobs), min_flaky_runs=1)
+        assert {f.extra["job_name"] for f in findings} == {"real-test-job"}
+
+    @parameterized.expand([(name,) for name in BY_DESIGN_FAILURE_JOB_NAMES])
+    def test_flaky_check_ignores_by_design_failures(self, job_name: str) -> None:
+        # These jobs commit an artifact and then exit 1 to block auto-merge; the rerun passes because
+        # the artifact is in place. They do real work, so the no-op duration floor never catches them.
+        now = datetime.now(UTC).replace(tzinfo=None)
+        rows = [_run_row(1, "CI", "shaS", "success", now - timedelta(hours=2), 60, run_attempt=2)]
+        jobs = [
+            _job_row(300, 1, job_name, "shaS", "failure", now - timedelta(hours=3), run_attempt=1, duration_seconds=46),
+            _job_row(301, 1, job_name, "shaS", "success", now - timedelta(hours=2), run_attempt=2, duration_seconds=46),
+            _job_row(302, 1, "real-test-job", "shaS", "failure", now - timedelta(hours=3), run_attempt=1),
+            _job_row(303, 1, "real-test-job", "shaS", "success", now - timedelta(hours=2), run_attempt=2),
         ]
         findings = detect_flaky_checks(self._curated_over_runs(rows, jobs), min_flaky_runs=1)
         assert {f.extra["job_name"] for f in findings} == {"real-test-job"}

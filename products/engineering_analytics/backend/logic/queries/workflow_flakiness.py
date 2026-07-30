@@ -15,6 +15,19 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
 # aggregators settle in 3-5s and real jobs run 60s+. Run-level twin: NO_OP_RUN_MAX_SECONDS.
 NO_OP_JOB_MAX_SECONDS = 10
 
+# Jobs whose failure is a deliberate signal rather than nondeterminism. They commit an artifact
+# (updated snapshots, a completed Visual Review run) and then exit non-zero so auto-merge is blocked
+# until a human reviews what changed. A rerun passes because the artifact is now in place, so every
+# such job produces a guaranteed fail-then-pass pair on the same run — the exact shape this query
+# reads as flakiness. They do real work, so NO_OP_JOB_MAX_SECONDS above doesn't catch them; the only
+# honest filter is naming them. Matched on the job's display name, which is stable across workflows.
+BY_DESIGN_FAILURE_JOB_NAMES = (
+    # .github/actions/commit-snapshots, used by ci-backend.yml and ci-mcp.yml
+    "Commit snapshot changes",
+    # `vr run complete` exits 1 on detected visual changes; ci-storybook.yml and ci-e2e-playwright.yml
+    "Complete Visual Review run",
+)
+
 _SELECT = """
     SELECT
         r.repo_owner,
@@ -31,6 +44,7 @@ _SELECT = """
     -- created_at_raw is the unparsed string the scan can prune on; the parsed j.created_at filter
     -- alone can't push down, so both floors keep the sweep off a full jobs+runs scan each hour.
     WHERE j.created_at >= {date_from} AND j.created_at_raw >= {job_created_floor} AND j.head_sha != ''
+       AND j.name NOT IN {by_design_failure_job_names}
     GROUP BY r.repo_owner, r.repo_name, j.workflow_name, j.name, j.run_id, j.head_sha
     HAVING failed_attempt > 0
        AND passed_attempt > failed_attempt
@@ -71,6 +85,9 @@ def query_workflow_flakiness(
         placeholders={
             "date_from": ast.Constant(value=date_from),
             "min_failed_duration_seconds": ast.Constant(value=min_failed_duration_seconds),
+            "by_design_failure_job_names": ast.Array(
+                exprs=[ast.Constant(value=name) for name in BY_DESIGN_FAILURE_JOB_NAMES]
+            ),
             # Same date-only floor for both tables: prunes the runs subquery (run_started_floor) and
             # the jobs scan (job_created_floor via created_at_raw).
             "run_started_floor": run_started_floor_constant(date_from),
