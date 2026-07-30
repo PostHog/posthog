@@ -48,10 +48,13 @@ Each workflow is gated by its own feature flag (evaluated via `feature_enabled`)
 | Workflow                 | Feature Flag                                  |
 | ------------------------ | --------------------------------------------- |
 | Data Modeling            | `ducklake-data-modeling-copy-workflow`        |
+| Data Modeling Shadow     | `duckgres-data-modeling-shadow`               |
 | Data Imports             | `ducklake-data-imports-copy-workflow`         |
 | Data Import Registration | `ducklake-data-imports-registration-workflow` |
 
 The two data-import flags are independent and target the same stable DuckLake table. During rollout, enable only the intended path for a project; if both run for the same import, the last atomic table swap wins.
+
+The data-modeling shadow flag starts a Duckgres materialization alongside the normal ClickHouse materialization. It writes to `shadow_<team_id>_models`, records comparison metrics after the ClickHouse job completes, and does not fail the main job when the shadow run fails. HogQL compiled for Duckgres resolves materialized model dependencies from this shadow schema.
 
 ## Target bucket layout
 
@@ -65,12 +68,14 @@ Every copy is written to a deterministic schema inside DuckLake. Each workflow n
 
 ### Data Imports and Data Import Registration
 
-- **Schema**: `posthog_data_imports_team_<team_id>`
-- **Table**: `<source_type>_<prefix>_<normalized_name>` (prefix is user-defined on the external data source)
+- **Schema**: `posthog_data_imports_<cluster_schema_name>` for an onboarded team, or the legacy `posthog_data_imports_team_<team_id>` schema
+- **Table**: `<source_type>_<prefix>_<normalized_name>` using the same snake-case and 63-character shortening convention as the v3 Duckgres sink
 - **Example**: `ducklake.posthog_data_imports_team_123.stripe_prod_invoices`
 - **Registered files**: `s3://<ducklake-bucket>/<ducklake-schema>/<ducklake-table>/_imports/<source-schema-id>/<job-id>/<prepared-relative-path>`
 
 Each completed import creates a timestamped prepared Parquet snapshot in the data warehouse bucket. The registration workflow copies those objects directly into the DuckLake bucket, preserving Hive partition directories, registers the destination objects with `ducklake_add_data_files`, verifies the shadow table's row count, and only then swaps it into the stable table name through the Duckgres PostgreSQL connection. Registration, verification, and the swap share one catalog transaction, so a mismatch leaves the previous table live. Each import job gets its own object prefix and child workflow ID, so a later sync does not append into the previous snapshot.
+
+Duckgres query compilation applies these physical names recursively. This includes source tables referenced through non-materialized saved queries, plus the cluster-specific `events_<schema_name>` and `persons_<schema_name>` tables written by the Dagster backfills.
 
 The registered objects are permanent DuckLake data files, not staging files. Old generations remain reachable through DuckLake snapshots until snapshot expiration and old-file cleanup make them eligible for object deletion. Choose the bucket lifecycle policy with that retention behavior in mind.
 
