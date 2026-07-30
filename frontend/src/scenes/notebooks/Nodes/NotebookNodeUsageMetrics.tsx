@@ -54,7 +54,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
     useAttachedLogic(logic, notebookLogic)
     const { response, responseLoading, responseError } = useValues(logic)
     const { loadData } = useActions(logic)
-    const usageMetricsConfigLogicProps = { logicKey: attributes.nodeId }
+    const usageMetricsConfigLogicProps = { logicKey: attributes.nodeId, onMetricsChanged: loadData }
     const { openModal } = useActions(usageMetricsConfigLogic(usageMetricsConfigLogicProps))
 
     useOnMountEffect(() => {
