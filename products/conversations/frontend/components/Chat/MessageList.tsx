@@ -1,6 +1,8 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
+
+import { IconArrowDown } from 'lib/lemon-ui/icons'
 
 import type { AiReplyFeedbackRating, ChatMessage, MessageDeliveryStatus } from '../../types'
 import { Message } from './Message'
@@ -73,6 +75,16 @@ export function MessageList({
     // Latches once the thread has been opened at the bottom, so that initial jump
     // happens exactly once per loaded thread rather than on every content change.
     const openedAtBottomRef = useRef(false)
+    // Raised when new tail content lands while the reader has scrolled up into
+    // history. Drives the "See new messages" pill so they can drop to the latest
+    // on their own terms instead of being yanked down.
+    const [newContentBelow, setNewContentBelow] = useState(false)
+    // The newest message id, so the effect can tell a real tail append (or a new
+    // agent report) from an older-page prepend — "Load older" grows messages.length
+    // too, but must never raise the pill.
+    const lastMessageId = messages.length > 0 ? messages[messages.length - 1].id : null
+    const prevLastMessageIdRef = useRef<string | null>(null)
+    const prevExtrasCountRef = useRef(0)
 
     const scrollToBottom = (behavior: ScrollBehavior = 'smooth'): void => {
         const container = containerRef.current
@@ -81,13 +93,28 @@ export function MessageList({
         }
     }
 
+    const jumpToLatest = (): void => {
+        pinnedToBottomRef.current = true
+        setNewContentBelow(false)
+        scrollToBottom()
+    }
+
     useEffect(() => {
-        // No content yet: reset the latch so a freshly loaded thread opens at the
-        // bottom again (e.g. after switching tickets).
+        // No content yet: reset the latch and tail tracking so a freshly loaded
+        // thread opens at the bottom again (e.g. after switching tickets).
         if (messages.length === 0 && extras.length === 0) {
             openedAtBottomRef.current = false
+            prevLastMessageIdRef.current = null
+            prevExtrasCountRef.current = 0
+            setNewContentBelow(false)
             return
         }
+
+        const prevLastMessageId = prevLastMessageIdRef.current
+        const prevExtrasCount = prevExtrasCountRef.current
+        prevLastMessageIdRef.current = lastMessageId
+        prevExtrasCountRef.current = extras.length
+
         // Open at the latest message the first time content lands, instantly.
         if (!openedAtBottomRef.current) {
             openedAtBottomRef.current = true
@@ -95,13 +122,23 @@ export function MessageList({
             scrollToBottom('instant')
             return
         }
-        // Afterwards only follow the tail when the reader is already there, so a
-        // message or an extra (agent report) arriving while they've scrolled up
-        // into history leaves their position untouched.
+
+        // Only a tail append (newest message id advanced) or a new extra (agent
+        // report) counts as new content below. Prepending older pages changes
+        // messages[0], not the last id, so "Load older" never raises the pill.
+        const tailGrew = lastMessageId !== prevLastMessageId || extras.length > prevExtrasCount
+        if (!tailGrew) {
+            return
+        }
+
+        // Follow the tail when the reader is already there; otherwise hold their
+        // position and raise the pill so they can drop to the latest themselves.
         if (pinnedToBottomRef.current) {
             scrollToBottom()
+        } else {
+            setNewContentBelow(true)
         }
-    }, [messages.length, extras.length])
+    }, [lastMessageId, extras.length, messages.length])
 
     const handleScroll = (): void => {
         const container = containerRef.current
@@ -112,6 +149,10 @@ export function MessageList({
         // Track whether the reader is pinned to the bottom. The window is generous
         // so a smooth auto-scroll still in flight keeps counting as pinned.
         pinnedToBottomRef.current = container.scrollHeight - container.scrollTop - container.clientHeight < 120
+        // Returning to the bottom (by the pill or by hand) clears the pill.
+        if (pinnedToBottomRef.current) {
+            setNewContentBelow(false)
+        }
 
         if (olderMessagesLoading || !hasMoreMessages || !onLoadOlderMessages) {
             return
@@ -185,28 +226,46 @@ export function MessageList({
         .map(({ element }) => element)
 
     return (
-        <div
-            ref={containerRef}
-            onScroll={handleScroll}
-            className={`flex-1 overflow-y-auto space-y-1.5 ${className}`}
-            style={{ minHeight, maxHeight }}
-        >
-            {olderMessagesLoading && (
-                <div className="flex items-center justify-center py-2">
-                    <Spinner className="text-sm" />
+        <div className="relative flex flex-col flex-1 min-h-0">
+            <div
+                ref={containerRef}
+                onScroll={handleScroll}
+                className={`flex-1 overflow-y-auto space-y-1.5 ${className}`}
+                style={{ minHeight, maxHeight }}
+            >
+                {olderMessagesLoading && (
+                    <div className="flex items-center justify-center py-2">
+                        <Spinner className="text-sm" />
+                    </div>
+                )}
+                {messagesLoading && messages.length === 0 ? (
+                    <div className="flex items-center justify-center h-full">
+                        <Spinner />
+                    </div>
+                ) : messages.length === 0 ? (
+                    <div className="flex items-center justify-center h-full text-muted-alt text-sm">{emptyMessage}</div>
+                ) : (
+                    <>
+                        {timeline}
+                        <div ref={messagesEndRef} />
+                    </>
+                )}
+            </div>
+            {/* Sits over the bottom of the thread, not in the scroll flow, so it stays put as a
+                jump-to-latest affordance while the reader is up in history. The strip ignores
+                pointer events so only the pill itself is clickable. */}
+            {newContentBelow && (
+                <div className="absolute inset-x-0 bottom-2 flex justify-center pointer-events-none">
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        icon={<IconArrowDown />}
+                        onClick={jumpToLatest}
+                        className="pointer-events-auto rounded-full shadow-md"
+                    >
+                        See new messages
+                    </LemonButton>
                 </div>
-            )}
-            {messagesLoading && messages.length === 0 ? (
-                <div className="flex items-center justify-center h-full">
-                    <Spinner />
-                </div>
-            ) : messages.length === 0 ? (
-                <div className="flex items-center justify-center h-full text-muted-alt text-sm">{emptyMessage}</div>
-            ) : (
-                <>
-                    {timeline}
-                    <div ref={messagesEndRef} />
-                </>
             )}
         </div>
     )
