@@ -1159,6 +1159,50 @@ describe('dashboardLogic', () => {
                 dashboardFailedToLoad: true,
             })
         })
+
+        it('stops showing the error once a new load starts', async () => {
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({
+                dashboardFailedToLoad: true,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+            }).toMatchValues({
+                dashboardFailedToLoad: false,
+            })
+        })
+
+        it('retries the failed load when the tab becomes visible again', async () => {
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({
+                dashboardFailedToLoad: true,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setPageVisibility(true)
+            }).toDispatchActions(['loadDashboard'])
+        })
+    })
+
+    describe('when the dashboard API fails transiently', () => {
+        it('retries the load instead of showing the error state', async () => {
+            let attempts = 0
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/dashboards/5/': () => {
+                        attempts++
+                        return attempts === 1 ? [500, '💣'] : [200, dashboards[5]]
+                    },
+                },
+            })
+
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadDashboardSuccess']).toMatchValues({
+                dashboardFailedToLoad: false,
+            })
+            expect(attempts).toBe(2)
+        })
     })
 
     describe('when a dashboard item API errors', () => {

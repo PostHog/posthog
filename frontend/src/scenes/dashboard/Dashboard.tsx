@@ -6,10 +6,11 @@ import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { cn } from 'lib/utils/css-classes'
 import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
-import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -95,10 +96,23 @@ function DashboardScene({
         layoutEditMode,
         dashboardFailedToLoad,
         accessDeniedToDashboard,
+        shouldUseStreaming,
     } = useValues(dashboardLogic)
     const { layoutZoom } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { reportDashboardViewed, abortAnyRunningQuery, setLayoutZoom } = useActions(dashboardLogic)
+    const {
+        reportDashboardViewed,
+        abortAnyRunningQuery,
+        setLayoutZoom,
+        loadDashboard,
+        loadDashboardStreaming,
+        setPageVisibility,
+    } = useActions(dashboardLogic)
+
+    // Also tracked in the filter bar's reload control, but that isn't rendered when the dashboard
+    // failed to load — and a failed load is exactly what we want to retry on coming back to the tab.
+    usePageVisibilityCb(setPageVisibility)
+
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
 
     useAttachedContext(
@@ -136,7 +150,17 @@ function DashboardScene({
             <DashboardPublicAccessBanner dashboard={dashboard} placement={placement} />
 
             {dashboardFailedToLoad ? (
-                <InsightErrorState title="There was an error loading this dashboard" />
+                <InsightErrorState
+                    title="There was an error loading this dashboard"
+                    onRetry={() => {
+                        const action = DashboardLoadAction.Update
+                        if (shouldUseStreaming) {
+                            loadDashboardStreaming({ action })
+                        } else {
+                            loadDashboard({ action })
+                        }
+                    }}
+                />
             ) : !tiles || tiles.length === 0 ? (
                 <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />
             ) : (

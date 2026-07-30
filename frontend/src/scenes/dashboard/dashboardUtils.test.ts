@@ -5,6 +5,7 @@ import { DashboardPlacement, DashboardTile, DashboardType, InsightModel, QueryBa
 import {
     dashboardToSaveableTemplate,
     getDashboardTileDisplayName,
+    isRetryableDashboardLoadError,
     isWidgetTileVisibleOnPlacement,
     parseURLFilters,
     parseURLVariables,
@@ -158,5 +159,18 @@ describe('shouldSharedDashboardAutoForceForStaleTime', () => {
         ])('when %s, returns expected result', (_, isoTime, expected) => {
             expect(shouldSharedDashboardAutoForceForStaleTime(dayjs(isoTime))).toBe(expected)
         })
+    })
+})
+
+describe('isRetryableDashboardLoadError', () => {
+    it.each<[string, any, boolean]>([
+        ['a dropped fetch, which carries no status', new TypeError('Failed to fetch'), true],
+        ['a request the browser cancelled', Object.assign(new Error('aborted'), { name: 'AbortError' }), true],
+        ['a gateway timeout', { status: 504 }, true],
+        ['a server error', { status: 500 }, true],
+        ['a missing dashboard', { status: 404 }, false],
+        ['a permission error', { status: 403 }, false],
+    ])('%s', (_, error, expected) => {
+        expect(isRetryableDashboardLoadError(error)).toBe(expected)
     })
 })

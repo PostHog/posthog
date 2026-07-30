@@ -137,6 +137,7 @@ import {
     getInsightQueryError,
     getInsightWithRetry,
     isLayoutEditEventSource,
+    isRetryableDashboardLoadError,
     layoutsByTile,
     parseURLFilters,
     parseURLVariables,
@@ -146,6 +147,10 @@ import {
 } from './dashboardUtils'
 import { TileFiltersOverride } from './TileFiltersOverride'
 import { tileLogic } from './tileLogic'
+
+/** Attempts, including the first one, for the initial dashboard fetch. */
+const LOAD_DASHBOARD_MAX_ATTEMPTS = 3
+const LOAD_DASHBOARD_RETRY_DELAY_MS = IS_TEST_MODE ? 1 : 800
 
 export interface DashboardLogicProps {
     id: number
@@ -1358,9 +1363,25 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                     await breakpoint(200)
 
+                    const apiUrl = values.apiUrl('force_cache', values.filtersOverrideForLoad, values.urlVariables)
+
+                    // A single dropped fetch shouldn't replace the whole dashboard with an error
+                    // state, so transient failures get a couple of attempts before we give up.
+                    const getDashboardResponse = async (): Promise<Response> => {
+                        for (let attempt = 1; ; attempt++) {
+                            try {
+                                return await api.getResponse(apiUrl)
+                            } catch (error: any) {
+                                if (attempt >= LOAD_DASHBOARD_MAX_ATTEMPTS || !isRetryableDashboardLoadError(error)) {
+                                    throw error
+                                }
+                                await breakpoint(LOAD_DASHBOARD_RETRY_DELAY_MS * attempt)
+                            }
+                        }
+                    }
+
                     try {
-                        const apiUrl = values.apiUrl('force_cache', values.filtersOverrideForLoad, values.urlVariables)
-                        const dashboardResponse: Response = await api.getResponse(apiUrl)
+                        const dashboardResponse: Response = await getDashboardResponse()
                         const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
 
                         actions.setInitialLoadResponseBytes(getResponseBytes(dashboardResponse))
@@ -1767,6 +1788,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         dashboardFailedToLoad: [
             false,
             {
+                // Clearing when a load starts keeps a stale error from rendering over a fresh attempt
+                loadDashboard: () => false,
+                loadDashboardStreaming: () => false,
                 loadDashboardSuccess: () => false,
                 loadDashboardFailure: () => true,
             },
@@ -3132,8 +3156,31 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setPageVisibility: ({ visible }) => {
             if (!visible) {
                 cache.disposables.dispose('autoRefreshInterval')
-            } else if (values.autoRefresh.enabled) {
+                return
+            }
+            if (values.autoRefresh.enabled) {
                 actions.resetInterval()
+            }
+            // Anything that failed while the tab sat in the background would otherwise stay broken
+            // until the user reloaded by hand, so retry it now that they're looking at it again.
+            if (
+                values.placement === DashboardPlacement.Export ||
+                values.accessDeniedToDashboard ||
+                values.error404 ||
+                values.itemsLoading
+            ) {
+                return
+            }
+            if (values.dashboardFailedToLoad) {
+                const action = DashboardLoadAction.Update
+                if (values.shouldUseStreaming) {
+                    actions.loadDashboardStreaming({ action })
+                } else {
+                    actions.loadDashboard({ action })
+                }
+            } else if (Object.values(values.refreshStatus).some((status) => status.errored)) {
+                // Not a forced refresh: healthy tiles come back from the cache, errored ones re-run
+                actions.refreshDashboardItems({ action: RefreshDashboardItemsAction.Refresh })
             }
         },
         loadDashboardFailure: () => {
@@ -3155,9 +3202,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
             } else if (error?.message?.includes('403') || error?.status === 403) {
                 actions.setAccessDeniedToDashboard()
             } else {
-                // Show error toast for other errors (500s, network issues, etc.)
                 const errorMessage = error?.message || 'Dashboard streaming failed'
-                lemonToast.error(`Failed to load dashboard: ${errorMessage}`)
+                if (values.dashboard) {
+                    // Metadata and possibly some tiles made it, so keep what's on screen
+                    lemonToast.error(`Failed to load dashboard: ${errorMessage}`)
+                } else {
+                    // Nothing arrived, so a toast over a blank page dead-ends. The error state offers a retry.
+                    actions.loadDashboardFailure(errorMessage)
+                }
             }
         },
 

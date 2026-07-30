@@ -10,7 +10,7 @@ import { currentSessionId } from 'lib/internalMetrics'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { objectClean } from 'lib/utils/objects'
-import { shouldCancelQuery } from 'lib/utils/requests'
+import { isAbortedRequest, shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
@@ -31,6 +31,19 @@ import {
 } from '~/types'
 
 import { SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES } from './dashboardConstants'
+
+/**
+ * Whether a failed dashboard fetch is worth another attempt. A dropped connection, a request the
+ * browser cancelled, or a 5xx usually succeeds on the next try, while a 4xx never will.
+ */
+export function isRetryableDashboardLoadError(error: any): boolean {
+    if (isAbortedRequest(error)) {
+        return true
+    }
+    const status = error?.status
+    // Requests that never reached the server (e.g. `Failed to fetch`) carry no status
+    return typeof status !== 'number' || status >= 500
+}
 
 export function getInsightQueryError(insight: QueryBasedInsightModel): ApiError | null {
     const queryStatus = insight.query_status
