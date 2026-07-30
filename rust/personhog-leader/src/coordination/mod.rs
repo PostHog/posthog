@@ -8,7 +8,7 @@ use tracing::info;
 
 use crate::cache::{DirtyIndex, PartitionedCache};
 use crate::inflight::InflightTracker;
-use crate::warming::{warm_from_kafka, WarmingConfig};
+use crate::warming::{warm_from_kafka, WarmClientPools, WarmingConfig};
 
 const DRAIN_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
@@ -45,6 +45,7 @@ pub struct LeaderHandoffHandler {
     inflight: Arc<InflightTracker>,
     dirty_index: Arc<DirtyIndex>,
     warming: WarmingConfig,
+    pools: Arc<WarmClientPools>,
 }
 
 impl LeaderHandoffHandler {
@@ -53,12 +54,14 @@ impl LeaderHandoffHandler {
         inflight: Arc<InflightTracker>,
         dirty_index: Arc<DirtyIndex>,
         warming: WarmingConfig,
+        pools: Arc<WarmClientPools>,
     ) -> Self {
         Self {
             cache,
             inflight,
             dirty_index,
             warming,
+            pools,
         }
     }
 
@@ -85,7 +88,14 @@ impl HandoffHandler for LeaderHandoffHandler {
 
     async fn warm_partition(&self, partition: u32) -> Result<()> {
         info!(partition, "warming partition cache from kafka");
-        warm_from_kafka(&self.warming, &self.cache, &self.dirty_index, partition).await?;
+        warm_from_kafka(
+            &self.warming,
+            &self.pools,
+            &self.cache,
+            &self.dirty_index,
+            partition,
+        )
+        .await?;
         // This pod may still carry a fence from a previous ownership of
         // the partition (a drain whose handoff never completed); taking
         // ownership through a fresh warm re-admits writes.
@@ -145,6 +155,7 @@ mod tests {
             kafka_producer_acks: None,
             kafka_producer_retries: None,
         };
+        let pools = Arc::new(WarmClientPools::new(&kafka, "test", "personhog-writer"));
         LeaderHandoffHandler::new(
             Arc::new(PartitionedCache::new(100)),
             Arc::new(InflightTracker::new()),
@@ -164,6 +175,7 @@ mod tests {
                     max_backoff: Duration::from_secs(5),
                 },
             },
+            pools,
         )
     }
 

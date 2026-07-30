@@ -50,6 +50,7 @@ the row lists both.
 | -------------------------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
 | ably                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | adobe_analytics                  | HTTP                        | requests                                                        | ✅                          |
+| adobe_commerce                   | HTTP                        | requests                                                        | ✅                          |
 | adroll                           | HTTP                        | requests                                                        | ✅                          |
 | adyen                            | HTTP                        | requests                                                        | ✅                          |
 | agilecrm                         | HTTP                        | requests                                                        | ✅                          |
@@ -707,6 +708,7 @@ doesn't conflict with concurrent PRs.
 - acuity_scheduling
 - adapty
 - adjust
+- adobe_analytics
 - adobe_commerce
 - adp_workforce_now
 - aftership
