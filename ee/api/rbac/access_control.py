@@ -305,8 +305,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
             # the warehouse_objects rules, not by its own.
             #
             # None for a project is load-bearing: it is what stops the UI offering "No override" on
-            # a project's own default, which has nothing above it to fall back to. The project
-            # permissions panel renders the same component as any object.
+            # a project's own default, which has nothing above it to fall back to. "No override"
+            # belongs to object defaults only — project-level access is configured in its own
+            # panel, which has no inherited tier to fall back to.
             inherited_resource = (
                 None
                 if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS
