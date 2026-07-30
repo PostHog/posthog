@@ -375,8 +375,10 @@ class TestRelaySlackMessage(TestCase):
         _mock_flag,
         _mock_living_artifacts_flag,
     ):
-        chart_url = "https://us.posthog.com/project/1/insights/abc123"
-        image_url = "https://us.posthog.com/exporter/export-chart.png?token=abc"
+        # Must be SITE_URL-origin: off-origin urls are treated as untrusted caller metadata
+        # (no button, no url-referenced image block).
+        chart_url = "http://localhost:8010/project/1/insights/abc123"
+        image_url = "http://localhost:8010/exporter/export-chart.png?token=abc"
         artifact, _storage_path = self._create_pending_slack_file_artifact(
             name="Signups by week",
             filename="signups.v1.png",

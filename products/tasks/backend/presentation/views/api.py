@@ -5,7 +5,7 @@ import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, quote, urlparse
 from uuid import UUID
 
@@ -41,6 +41,9 @@ from posthog.schema_migrations.upgrade import upgrade
 from posthog.utils import absolute_uri
 
 from products.exports.backend.facade.api import render_png_export
+
+if TYPE_CHECKING:
+    from products.exports.backend.models.exported_asset import ExportedAsset
 from products.tasks.backend.facade import (
     access as tasks_access,
     api as tasks_facade,
@@ -2493,7 +2496,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         )
         return Response(serializer.data)
 
-    def _chart_url(self, query: dict | None, asset) -> str | None:
+    def _chart_url(self, query: dict | None, asset: "ExportedAsset") -> str | None:
         if query is not None:
             # absolute_uri rejects the %5C that json.dumps escapes produce, so append the payload
             # after resolving the path (same shape as data_catalog's _deep_link).

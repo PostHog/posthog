@@ -18,12 +18,14 @@ from posthog.models.integration import Integration
 from posthog.temporal.ai.slack_app.activities.task_creation import (
     _INITIATOR_PLACEHOLDER,
     _SLACK_DELIVERY_CONSTRAINTS,
+    _SLACK_DELIVERY_CONSTRAINTS_MESSAGE_AND_CHARTS,
     _SLACK_DELIVERY_CONSTRAINTS_MESSAGE_ONLY,
     _SLACK_DELIVERY_CONSTRAINTS_TEXT_ONLY,
     _THREAD_CONTEXT_TAG,
     _THREAD_CONTEXT_UPDATE_TAG,
     _build_posthog_code_task_description,
     _canvas_file_delivery_available,
+    _chart_delivery_available,
     _format_author_token,
     _indent_body,
     build_thread_context_update_block,
@@ -94,6 +96,39 @@ def test_build_description_omits_canvas_and_file_adapters_when_flag_off():
     assert "choose adapter" not in out
     assert "do not use the `slack_canvas` or `slack_file` adapters" in out
     assert "using adapter `slack_message`" in out
+    assert "living_artifacts/chart/" not in out
+
+
+def test_build_description_offers_charts_when_flag_on_but_scopes_missing():
+    # Charts post by PostHog-hosted url on chat:write alone — a flag-on workspace still
+    # waiting on the in-review canvases:write/files:write scopes must be offered the
+    # chart endpoint, or the feature is unreachable in the state it's rolled out for.
+    out = _build_posthog_code_task_description(
+        "do something",
+        [{"user": "georgiy", "user_id": "U_GEORGIY", "text": "do something", "ts": "1234.5678"}],
+        "1234.5678",
+        mentioner_slack_user_id="U_GEORGIY",
+        canvas_file_artifacts_enabled=False,
+        chart_artifacts_enabled=True,
+    )
+    assert _SLACK_DELIVERY_CONSTRAINTS_MESSAGE_AND_CHARTS in out
+    assert _SLACK_DELIVERY_CONSTRAINTS not in out
+    assert "living_artifacts/chart/" in out
+    assert "choose adapter" not in out
+    assert "do not use the `slack_canvas` or `slack_file` adapters" in out
+
+
+def test_build_description_prefers_full_constraints_over_charts_variant():
+    out = _build_posthog_code_task_description(
+        "do something",
+        [{"user": "georgiy", "user_id": "U_GEORGIY", "text": "do something", "ts": "1234.5678"}],
+        "1234.5678",
+        mentioner_slack_user_id="U_GEORGIY",
+        canvas_file_artifacts_enabled=True,
+        chart_artifacts_enabled=True,
+    )
+    assert _SLACK_DELIVERY_CONSTRAINTS in out
+    assert _SLACK_DELIVERY_CONSTRAINTS_MESSAGE_AND_CHARTS not in out
 
 
 def test_build_description_limits_delivery_to_text_when_artifact_flag_off():
@@ -137,6 +172,24 @@ def test_canvas_file_delivery_requires_flag_and_scopes(flag_enabled, granted_sco
         return_value=flag_enabled,
     ):
         assert _canvas_file_delivery_available(integration) is expected
+
+
+@pytest.mark.parametrize(
+    "flag_enabled,granted_scopes,expected",
+    [
+        (True, "chat:write", True),
+        (True, "chat:write,canvases:write,files:write", True),
+        (False, "chat:write,canvases:write,files:write", False),
+    ],
+)
+def test_chart_delivery_needs_only_the_flag(flag_enabled, granted_scopes, expected):
+    integration = Integration(kind="slack", config={"scope": granted_scopes})
+
+    with patch(
+        "products.slack_app.backend.feature_flags.is_slack_app_canvas_file_artifacts_enabled",
+        return_value=flag_enabled,
+    ):
+        assert _chart_delivery_available(integration) is expected
 
 
 def test_build_description_renders_labeled_mention_for_each_author():

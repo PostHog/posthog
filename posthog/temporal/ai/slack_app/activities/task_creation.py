@@ -31,21 +31,44 @@ _SLACK_RECOVERY_STRATEGY_CANCELLED = "cancelled_resume"
 _THREAD_CONTEXT_TAG = "slack_thread_context"
 _THREAD_CONTEXT_UPDATE_TAG = "slack_thread_context_update"
 _INITIATOR_PLACEHOLDER = "<original user message was here>"
-_SLACK_DELIVERY_CONSTRAINTS = """Slack delivery constraints:
+# Shared between the full and message+charts variants: charts post by PostHog-hosted url
+# on chat:write alone, so they're offered whenever the rollout flag is on.
+_SLACK_CHART_DELIVERY_BULLETS = """- When an analytics answer is naturally visual (a trend over time, funnel, breakdown comparison, retention curve), deliver a chart image by default alongside the summary — don't wait for the user to say "chart". Skip the image only when the result is a single number, a short list, or the user asked for raw data.
+- To show a chart in Slack (a saved insight or an ad-hoc analytics query result), make a single call: POST to `$POSTHOG_API_URL/api/projects/$POSTHOG_PROJECT_ID/tasks/$POSTHOG_TASK_ID/runs/$POSTHOG_TASK_RUN_ID/living_artifacts/chart/` with `$POSTHOG_PERSONAL_API_KEY` and body `{"name": "<chart title>", "query": <query JSON, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}>}`, or `{"name": "<chart title>", "insight_id": <numeric insight id>}` for a saved insight. The chart renders directly under your answer text with its name as the title, so don't restate the title or announce the chart ("Here's a chart of…") — spend your answer text on the takeaway instead: the trend, inflection points, spikes, or drops a reader should notice, with numbers where they matter. It renders the chart server-side and registers it for Slack delivery in one step, blocking until done (typically a few seconds). On a 400, read the `error` field and report the failure rather than retrying blindly. Do not download, view, or re-upload the image yourself. Each chart is delivered with an "Open in PostHog" button, so do not paste the response `url` into your answer unless the user explicitly asks for a link.
+- SQL results can't be charted yet — the chart endpoint rejects SQL queries. Chart with an insight query (e.g. TrendsQuery) when the question can be expressed as one; otherwise summarize the SQL result in your answer text."""
+
+_SLACK_DELIVERY_CONSTRAINTS = (
+    """Slack delivery constraints:
 - Local sandbox paths such as /tmp/workspace/... are not visible to Slack users.
 - Do not say a file, report, PDF, spreadsheet, document, or other artifact is attached, uploaded, or shared unless a tool explicitly confirms that delivery.
 - For Slack deliverables, create a living artifact before claiming delivery. POST to `$POSTHOG_API_URL/api/projects/$POSTHOG_PROJECT_ID/tasks/$POSTHOG_TASK_ID/runs/$POSTHOG_TASK_RUN_ID/living_artifacts/` with `$POSTHOG_PERSONAL_API_KEY`; choose adapter `slack_canvas`, `slack_message`, `slack_file`, or `document_connector`. Use `adapter=slack_file` with `content_base64` for binary deliverables such as .xlsx/.pdf/.docx, or `source_artifact_id` / `source_storage_path` for a file you already uploaded as a `type=output` run artifact.
 - Run artifacts that are not your uploaded outputs (plans, context, tree snapshots, checkpoints, user uploads) are internal: never deliver them to Slack or mention them in your reply.
 - To update a prior deliverable, GET the returned artifact id or POST new `content`, `content_base64`, or source artifact fields to `$POSTHOG_API_URL/api/projects/$POSTHOG_PROJECT_ID/tasks/$POSTHOG_TASK_ID/runs/$POSTHOG_TASK_RUN_ID/living_artifacts/<artifact_id>/edit/`.
-- When an analytics answer is naturally visual (a trend over time, funnel, breakdown comparison, retention curve), deliver a chart image by default alongside the summary — don't wait for the user to say "chart". Skip the image only when the result is a single number, a short list, or the user asked for raw data.
-- To show a chart in Slack (a saved insight or an ad-hoc analytics query result), make a single call: POST to `$POSTHOG_API_URL/api/projects/$POSTHOG_PROJECT_ID/tasks/$POSTHOG_TASK_ID/runs/$POSTHOG_TASK_RUN_ID/living_artifacts/chart/` with `$POSTHOG_PERSONAL_API_KEY` and body `{"name": "<chart title>", "query": <query JSON, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}>}`, or `{"name": "<chart title>", "insight_id": <numeric insight id>}` for a saved insight. The chart renders directly under your answer text with its name as the title, so don't restate the title or announce the chart ("Here's a chart of…") — spend your answer text on the takeaway instead: the trend, inflection points, spikes, or drops a reader should notice, with numbers where they matter. It renders the chart server-side and registers it for Slack delivery in one step, blocking until done (typically a few seconds). On a 400, read the `error` field and report the failure rather than retrying blindly. Do not download, view, or re-upload the image yourself. Each chart is delivered with an "Open in PostHog" button, so do not paste the response `url` into your answer unless the user explicitly asks for a link.
-- SQL results can't be charted yet — the chart endpoint rejects SQL queries. Chart with an insight query (e.g. TrendsQuery) when the question can be expressed as one; otherwise summarize the SQL result in your answer text.
+"""
+    + _SLACK_CHART_DELIVERY_BULLETS
+    + """
 - Do not paste living-artifact Slack file links or permalinks into your final Slack answer unless the user explicitly asks for the URL. The Slack relay attaches pending file artifacts to your final answer automatically, so mention the artifact by name only if useful.
 - If you created a local file but no upload or delivery tool is available, say that plainly and summarize the result in Slack instead."""
+)
 
-# Variant used when the workspace cannot deliver canvases or files — the
-# slack-app-canvas-file-artifacts flag is off, or the Slack install is missing the
-# canvases:write / files:write scopes the adapters need. The agent must not be offered
+# Variant used when the slack-app-canvas-file-artifacts flag is on but the Slack install
+# is missing the in-review canvases:write / files:write scopes: charts still work (they
+# post by url on chat:write alone), canvases and file uploads do not.
+_SLACK_DELIVERY_CONSTRAINTS_MESSAGE_AND_CHARTS = (
+    """Slack delivery constraints:
+- Local sandbox paths such as /tmp/workspace/... are not visible to Slack users.
+- Do not say a file, report, PDF, spreadsheet, document, or other artifact is attached, uploaded, or shared unless a tool explicitly confirms that delivery.
+- You do not have canvas or file delivery in this workspace: do not use the `slack_canvas` or `slack_file` adapters, and do not promise a canvas, uploaded spreadsheet, or downloadable file. Chart images are the one exception — deliver them through the dedicated chart endpoint below, never through the generic living-artifacts endpoint.
+- For Slack deliverables, create a living artifact before claiming delivery. POST to `$POSTHOG_API_URL/api/projects/$POSTHOG_PROJECT_ID/tasks/$POSTHOG_TASK_ID/runs/$POSTHOG_TASK_RUN_ID/living_artifacts/` with `$POSTHOG_PERSONAL_API_KEY` using adapter `slack_message`. To update a prior deliverable, GET the returned artifact id or POST new `content` to `$POSTHOG_API_URL/api/projects/$POSTHOG_PROJECT_ID/tasks/$POSTHOG_TASK_ID/runs/$POSTHOG_TASK_RUN_ID/living_artifacts/<artifact_id>/edit/`.
+- Run artifacts that are not your uploaded outputs (plans, context, tree snapshots, checkpoints, user uploads) are internal: never deliver them to Slack or mention them in your reply.
+"""
+    + _SLACK_CHART_DELIVERY_BULLETS
+    + """
+- If a deliverable cannot be expressed as a Slack message or a chart image (for example .xlsx/.pdf/.docx), say that plainly and summarize the result in Slack instead."""
+)
+
+# Variant used when the workspace cannot deliver canvases, files, or charts — the
+# slack-app-canvas-file-artifacts flag is off. The agent must not be offered
 # capabilities it doesn't have (the adapters reject the request server-side regardless).
 _SLACK_DELIVERY_CONSTRAINTS_MESSAGE_ONLY = """Slack delivery constraints:
 - Local sandbox paths such as /tmp/workspace/... are not visible to Slack users.
@@ -63,6 +86,17 @@ _SLACK_DELIVERY_CONSTRAINTS_TEXT_ONLY = """Slack delivery constraints:
 _SLACK_CANVAS_FILE_ADAPTER_SCOPES = frozenset({"canvases:write", "files:write"})
 
 
+def _chart_delivery_available(integration: Integration) -> bool:
+    """Whether the workspace can deliver chart images.
+
+    Chart cards post by PostHog-hosted url and work on chat:write alone, so only the
+    rollout flag gates them — not the in-review canvases:write / files:write scopes.
+    """
+    from products.slack_app.backend.feature_flags import is_slack_app_canvas_file_artifacts_enabled  # noqa: PLC0415
+
+    return is_slack_app_canvas_file_artifacts_enabled(integration)
+
+
 def _canvas_file_delivery_available(integration: Integration) -> bool:
     """Whether the workspace can actually deliver canvas/file artifacts.
 
@@ -70,9 +104,7 @@ def _canvas_file_delivery_available(integration: Integration) -> bool:
     scopes the adapters check at delivery time — so the agent is never invited to
     create an artifact that delivery will reject.
     """
-    from products.slack_app.backend.feature_flags import is_slack_app_canvas_file_artifacts_enabled  # noqa: PLC0415
-
-    if not is_slack_app_canvas_file_artifacts_enabled(integration):
+    if not _chart_delivery_available(integration):
         return False
     return not SlackIntegration(integration).missing_scopes(_SLACK_CANVAS_FILE_ADAPTER_SCOPES)
 
@@ -152,14 +184,21 @@ def _indent_body(text: str, indent: str = "  ") -> str:
 
 
 def _with_slack_delivery_constraints(
-    prompt: str, *, canvas_file_artifacts_enabled: bool, living_artifacts_enabled: bool = True
+    prompt: str,
+    *,
+    canvas_file_artifacts_enabled: bool,
+    chart_artifacts_enabled: bool = False,
+    living_artifacts_enabled: bool = True,
 ) -> str:
     if not living_artifacts_enabled:
         return f"{_SLACK_DELIVERY_CONSTRAINTS_TEXT_ONLY}\n{prompt}"
 
-    constraints = (
-        _SLACK_DELIVERY_CONSTRAINTS if canvas_file_artifacts_enabled else _SLACK_DELIVERY_CONSTRAINTS_MESSAGE_ONLY
-    )
+    if canvas_file_artifacts_enabled:
+        constraints = _SLACK_DELIVERY_CONSTRAINTS
+    elif chart_artifacts_enabled:
+        constraints = _SLACK_DELIVERY_CONSTRAINTS_MESSAGE_AND_CHARTS
+    else:
+        constraints = _SLACK_DELIVERY_CONSTRAINTS_MESSAGE_ONLY
     return f"{constraints}\n{prompt}"
 
 
@@ -272,6 +311,7 @@ def _build_posthog_code_task_description(
     mentioner_display_name: str | None = None,
     *,
     canvas_file_artifacts_enabled: bool,
+    chart_artifacts_enabled: bool = False,
     living_artifacts_enabled: bool = True,
 ) -> str:
     """Build the task description so the surrounding Slack thread is clearly delimited
@@ -333,6 +373,7 @@ def _build_posthog_code_task_description(
         return _with_slack_delivery_constraints(
             prompt,
             canvas_file_artifacts_enabled=canvas_file_artifacts_enabled,
+            chart_artifacts_enabled=chart_artifacts_enabled,
             living_artifacts_enabled=living_artifacts_enabled,
         )
 
@@ -384,7 +425,7 @@ def _build_posthog_code_task_description(
     context_block = "\n".join(context_entries)
     return (
         f"<{_THREAD_CONTEXT_TAG}>\n{header}{roles_block}\n\n{context_block}\n</{_THREAD_CONTEXT_TAG}>"
-        f"\n\n{_with_slack_delivery_constraints(prompt, canvas_file_artifacts_enabled=canvas_file_artifacts_enabled, living_artifacts_enabled=living_artifacts_enabled)}"
+        f"\n\n{_with_slack_delivery_constraints(prompt, canvas_file_artifacts_enabled=canvas_file_artifacts_enabled, chart_artifacts_enabled=chart_artifacts_enabled, living_artifacts_enabled=living_artifacts_enabled)}"
     )
 
 
@@ -612,6 +653,7 @@ def create_posthog_code_task_for_repo_activity(
         mentioner_slack_user_id=slack_user_id,
         mentioner_display_name=mentioner_display_name,
         canvas_file_artifacts_enabled=living_artifacts_enabled and _canvas_file_delivery_available(integration),
+        chart_artifacts_enabled=living_artifacts_enabled and _chart_delivery_available(integration),
         living_artifacts_enabled=living_artifacts_enabled,
     )
 

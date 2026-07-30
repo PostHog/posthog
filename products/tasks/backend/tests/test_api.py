@@ -71,6 +71,7 @@ from products.tasks.backend.models import (
 from products.tasks.backend.presentation.serializers import (
     TASK_RUN_ARTIFACT_MAX_SIZE_BYTES,
     TASK_RUN_PDF_ARTIFACT_MAX_SIZE_BYTES,
+    TaskRunLivingArtifactChartRequestSerializer,
 )
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
@@ -8016,8 +8017,6 @@ class TestLivingArtifactChartRequestValidation(SimpleTestCase):
         ]
     )
     def test_requires_exactly_one_of_query_or_insight_id(self, _name, body):
-        from products.tasks.backend.presentation.serializers import TaskRunLivingArtifactChartRequestSerializer
-
         serializer = TaskRunLivingArtifactChartRequestSerializer(data=body)
         self.assertFalse(serializer.is_valid())
         self.assertIn("query", serializer.errors)
@@ -8092,11 +8091,17 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
         )
         # The facade rejects any export_context whose source isn't an InsightVizNode, so a wrong
         # wrapping here would 400 every real request with the assertions above still green.
-        mock_render.assert_called_once_with(
-            team=self.team,
-            created_by=self.user,
-            export_context={"source": self.CHART_QUERY},
-            insight_id=None,
+        # upgrade() stamps schema versions on nested nodes, so compare everything else.
+        mock_render.assert_called_once()
+        render_kwargs = mock_render.call_args.kwargs
+        self.assertEqual(render_kwargs["team"], self.team)
+        self.assertEqual(render_kwargs["created_by"], self.user)
+        self.assertIsNone(render_kwargs["insight_id"])
+        sent_query = render_kwargs["export_context"]["source"]
+        self.assertEqual(sent_query["kind"], "InsightVizNode")
+        self.assertEqual(
+            {k: v for k, v in sent_query["source"].items() if k != "version"},
+            self.CHART_QUERY["source"],
         )
 
     @parameterized.expand(
@@ -8144,7 +8149,8 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
         mock_render.return_value = (MagicMock(id=322, exception="Query exploded"), None)
         response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": self.CHART_QUERY})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["error"], "Query exploded")
+        # The raw asset.exception stays in the log — the agent relays this field into Slack.
+        self.assertEqual(response.json()["error"], "Chart render failed")
 
 
 class TestTaskRepositoryReadinessAPI(BaseTaskAPITest):
