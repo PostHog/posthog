@@ -458,10 +458,12 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
     def test_non_transient_db_error_during_key_auth_is_not_translated(self, mock_validate_key):
         mock_validate_key.side_effect = OperationalError('relation "posthog_personalapikey" does not exist')
 
-        with self.assertRaises(OperationalError):
-            self.client.get(
-                f"/api/projects/{self.team.id}/dashboards/", headers={"authorization": f"Bearer {self.value}"}
-            )
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/", headers={"authorization": f"Bearer {self.value}"}
+        )
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert "Retry-After" not in response.headers
 
     def test_header_resilient(self):
         key_before = PersonalAPIKey.objects.get(id=self.key.id).secure_value
