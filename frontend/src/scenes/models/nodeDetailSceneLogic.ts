@@ -14,7 +14,7 @@ export interface NodeDetailSceneLogicProps {
     id: string
 }
 
-export type NodeDetailTab = 'query' | 'lineage' | 'runs'
+export type NodeDetailTab = 'query' | 'lineage' | 'runs' | 'quality'
 
 export type LineageDirection = 'upstream' | 'downstream'
 export type LineageDirectionFilter = 'all' | LineageDirection
@@ -447,7 +447,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
     urlToAction(({ actions, values }) => ({
         [urls.nodeDetail(':id')]: (_, searchParams) => {
             const tab = searchParams.tab as NodeDetailTab | undefined
-            if (tab && ['query', 'lineage', 'runs'].includes(tab) && tab !== values.activeTab) {
+            if (tab && ['query', 'lineage', 'runs', 'quality'].includes(tab) && tab !== values.activeTab) {
                 actions.setTab(tab)
             }
         },

@@ -16,6 +16,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { NodeDetailHeader } from './NodeDetailHeader'
 import type { NodeDetailSceneLogicProps, NodeDetailTab } from './nodeDetailSceneLogic'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
+import { NodeDetailDataQuality } from './tabs/NodeDetailDataQuality'
 import { NodeDetailLineage } from './tabs/NodeDetailLineage'
 import { NodeDetailQuery } from './tabs/NodeDetailQuery'
 
@@ -60,6 +61,15 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
                       key: 'runs' as NodeDetailTab,
                       label: 'Run history',
                       content: <MaterializationRunsTable viewId={node.saved_query_id as string} />,
+                  },
+              ]
+            : []),
+        ...(node?.saved_query_id
+            ? [
+                  {
+                      key: 'quality' as NodeDetailTab,
+                      label: 'Data quality',
+                      content: <NodeDetailDataQuality id={id} />,
                   },
               ]
             : []),
