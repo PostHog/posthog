@@ -597,6 +597,9 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 if (isBreakpoint(error)) {
                     throw error
                 }
+                // Abort if a newer validation or a modal close superseded this listener, so a late
+                // failure can't overwrite the reset state or resurface in a later modal session.
+                breakpoint()
                 // Only a 400 proves the join itself is broken; infrastructure failures
                 // must not block saving.
                 actions.validateJoinFailure(
