@@ -40,6 +40,11 @@ class NoExportableInsightsContext(typing.TypedDict, total=False):
     selected_insight_count: int
 
 
+class NoExportableInsightsErrorDetails(NoExportableInsightsContext):
+    message: str
+    type: str
+
+
 # Mirrors Subscription.ResourceType.AI_PROMPT — a plain constant so the Temporal
 # workflow sandbox can route by resource type without importing the Django model.
 AI_PROMPT_RESOURCE_TYPE = "ai_prompt"

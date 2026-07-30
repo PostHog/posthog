@@ -49,6 +49,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     ExportAssetPreparationStatus,
     FetchDueSubscriptionsActivityInputs,
     GenerateAIReportInputs,
+    NoExportableInsightsErrorDetails,
     ProcessSubscriptionWorkflowInputs,
     RecipientResult,
     ScheduleAllSubscriptionsWorkflowInputs,
@@ -205,7 +206,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
         total_assets = 0
         asset_errors: list[ExportError] = []
         caught_error: BaseException | None = None
-        delivery_error: dict[str, str | int] | None = None
+        delivery_error: NoExportableInsightsErrorDetails | None = None
 
         # Delivery record tracking
         delivery_id: uuid.UUID | None = None
