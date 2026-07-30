@@ -41,7 +41,6 @@ from products.exports.backend.temporal.subscriptions.retry_policy import (
 from products.exports.backend.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from products.exports.backend.temporal.subscriptions.types import (
     AI_PROMPT_RESOURCE_TYPE,
-    NO_EXPORTABLE_INSIGHTS_MESSAGE,
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     DeliverSubscriptionInputs,
@@ -58,6 +57,11 @@ from products.exports.backend.temporal.subscriptions.types import (
     SubscriptionTriggerType,
     TrackedSubscriptionInputs,
     UpdateDeliveryRecordInputs,
+)
+
+NO_EXPORTABLE_INSIGHTS_MESSAGE = (
+    "This subscription has no available insights to export. Add insights to the dashboard or update the subscription's "
+    "insight selection."
 )
 
 

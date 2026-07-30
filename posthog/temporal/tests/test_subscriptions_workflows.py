@@ -53,7 +53,6 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.activities 
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
 from products.exports.backend.temporal.subscriptions.types import (
-    NO_EXPORTABLE_INSIGHTS_MESSAGE,
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     DeliverSubscriptionInputs,
@@ -69,6 +68,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     UpdateDeliveryRecordInputs,
 )
 from products.exports.backend.temporal.subscriptions.workflows import (
+    NO_EXPORTABLE_INSIGHTS_MESSAGE,
     HandleSubscriptionValueChangeWorkflow,
     ProcessAISubscriptionWorkflow,
     ProcessSubscriptionWorkflow,

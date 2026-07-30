@@ -27,7 +27,6 @@ from products.exports.backend.temporal.subscriptions.insight_snapshot import (
     build_insight_delivery_snapshot,
 )
 from products.exports.backend.temporal.subscriptions.types import (
-    NO_EXPORTABLE_INSIGHTS_MESSAGE,
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     CreateExportAssetsResult,
@@ -252,9 +251,7 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             insight_id=subscription.insight_id,
             **failure_context,
         )
-        _capture_delivery_failed_event(
-            subscription, NoExportableInsightsError(NO_EXPORTABLE_INSIGHTS_MESSAGE), failure_context
-        )
+        _capture_delivery_failed_event(subscription, NoExportableInsightsError(no_exportable_reason), failure_context)
         return CreateExportAssetsResult(
             exported_asset_ids=[],
             total_insight_count=total_insight_count,
