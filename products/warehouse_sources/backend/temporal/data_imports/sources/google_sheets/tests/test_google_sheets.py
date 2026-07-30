@@ -16,8 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_she
     _PERMISSION_DENIED_MESSAGE,
     _REQUEST_TIMEOUT_SECONDS,
     GOOGLE_SHEETS_API_VERSION_V4,
+    _assert_no_blank_column_names,
     _assert_unique_normalized_column_names,
     _get_worksheet,
+    _read_records,
     _retry_on_transient_api_error,
     get_schema_incremental_fields,
     get_schemas,
@@ -376,7 +378,7 @@ def test_retry_on_transient_api_error_bubbles_network_error_after_max_retries(er
 
 
 def test_google_sheets_source_retries_transient_error_on_data_reads():
-    """A transient 5xx on the cell-reading calls (`get_all_values`/`get_all_records`)
+    """A transient 5xx on the cell-reading calls (`get_all_values`/`get`)
     must be retried, not surfaced on the first occurrence. These reads issue their own
     Sheets API requests separate from worksheet acquisition, so they need the same
     backoff — otherwise a "[503]: The service is currently unavailable." blip fails the
@@ -387,7 +389,7 @@ def test_google_sheets_source_retries_transient_error_on_data_reads():
     # First header read hits a transient 503, then succeeds on retry.
     mock_worksheet.get_all_values.side_effect = [_api_error(503), [["id"]]]
     # The data read also hits a transient 503 once before returning rows.
-    mock_worksheet.get_all_records.side_effect = [_api_error(503), [{"id": 1}]]
+    mock_worksheet.get.side_effect = [_api_error(503), [["id"], ["1"]]]
 
     with (
         mock.patch(
@@ -406,7 +408,7 @@ def test_google_sheets_source_retries_transient_error_on_data_reads():
         list(cast(Iterable[Any], response.items()))
 
     assert mock_worksheet.get_all_values.call_count == 2
-    assert mock_worksheet.get_all_records.call_count == 2
+    assert mock_worksheet.get.call_count == 2
 
 
 def test_google_sheets_source_reads_blank_cells_as_null():
@@ -414,10 +416,7 @@ def test_google_sheets_source_reads_blank_cells_as_null():
 
     mock_worksheet = mock.MagicMock()
     mock_worksheet.get_all_values.return_value = [["id", "NumericColumnWithBlanks"]]
-    mock_worksheet.get_all_records.return_value = [
-        {"id": 1, "NumericColumnWithBlanks": 1.5},
-        {"id": 2, "NumericColumnWithBlanks": None},
-    ]
+    mock_worksheet.get.return_value = [["id", "NumericColumnWithBlanks"], ["1", "1.5"], ["2", ""]]
 
     with (
         mock.patch(
@@ -434,7 +433,11 @@ def test_google_sheets_source_reads_blank_cells_as_null():
         )
         list(cast(Iterable[Any], response.items()))
 
-    mock_worksheet.get_all_records.assert_called_once_with(default_blank=None)
+    # Blank cells must import as null, not "", or numeric columns with gaps break.
+    assert _read_records(mock_worksheet) == [
+        {"id": 1, "NumericColumnWithBlanks": 1.5},
+        {"id": 2, "NumericColumnWithBlanks": None},
+    ]
 
 
 @pytest.mark.parametrize(
@@ -509,6 +512,8 @@ def test_reraises_spreadsheet_not_found_with_non_retryable_message(call_site):
         pytest.param(["task_id", "task-id"], id="punctuation_only"),
         pytest.param(["Name", "name"], id="case_only"),
         pytest.param(["id", "customer name", "Customer Name"], id="collision_among_distinct"),
+        # Exact duplicates used to be left to gspread's own check, which we no longer go through.
+        pytest.param(["id", "id"], id="exact_duplicate"),
     ],
 )
 def test_assert_unique_normalized_column_names_raises_on_normalized_collision(headers):
@@ -523,12 +528,43 @@ def test_assert_unique_normalized_column_names_raises_on_normalized_collision(he
 
 
 @pytest.mark.parametrize(
+    "headers,expected_columns",
+    [
+        pytest.param(["id", "", "name"], "Column B", id="interior_blank"),
+        pytest.param(["id", "name", "", ""], "Columns C, D", id="trailing_blanks"),
+        pytest.param(["id", "   "], "Column B", id="whitespace_only"),
+    ],
+)
+def test_assert_no_blank_column_names_names_the_offending_columns(headers, expected_columns):
+    with pytest.raises(Exception) as exc_info:
+        _assert_no_blank_column_names(headers)
+
+    assert expected_columns in str(exc_info.value)
+    non_retryable_errors = GoogleSheetsSource().get_non_retryable_errors()
+    assert any(key in str(exc_info.value) for key in non_retryable_errors)
+
+
+def test_read_records_rejects_unnamed_columns_past_the_last_header():
+    """Data rows wider than the header row make gspread pad the headers with empty strings and then
+    reject the sheet with "the header row in the worksheet contains duplicates: ['']", pointing the
+    user at `expected_headers`. Those columns are invisible to a row-1 read (the API trims trailing
+    empty cells), so the padded header row is the only place we can catch them."""
+    worksheet = mock.MagicMock()
+    # Shape gspread returns for a two-header sheet whose rows run four columns wide.
+    worksheet.get.return_value = [["id", "name", "", ""], ["1", "Ana", "extra", "extra"]]
+
+    with pytest.raises(Exception) as exc_info:
+        _read_records(worksheet)
+
+    assert "Columns C, D have no header in row 1" in str(exc_info.value)
+    # Without padding the unnamed columns aren't in the header row at all, so the check can't see them.
+    worksheet.get.assert_called_once_with(pad_values=True)
+
+
+@pytest.mark.parametrize(
     "headers",
     [
         pytest.param(["id", "name", "email"], id="distinct"),
-        pytest.param(["id", "", "name"], id="blank_cells_ignored"),
-        # Exact duplicates are left to gspread's own "contains duplicates" check.
-        pytest.param(["id", "id"], id="exact_duplicate"),
     ],
 )
 def test_assert_unique_normalized_column_names_allows_valid_headers(headers):
@@ -696,7 +732,7 @@ def test_source_for_pipeline_threads_resolved_api_version_to_worksheet(pinned_ve
 
     worksheet = mock.MagicMock()
     worksheet.get_all_values.return_value = [["id"]]
-    worksheet.get_all_records.return_value = [{"id": 1}]
+    worksheet.get.return_value = [["id"], ["1"]]
 
     inputs = mock.MagicMock()
     inputs.schema_name = "sheet1"

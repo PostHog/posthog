@@ -1,7 +1,7 @@
 import time
 import random
 from collections.abc import Callable
-from typing import Any, Optional, TypeVar
+from typing import Any, Optional, TypeVar, cast
 
 from django.conf import settings
 
@@ -93,22 +93,63 @@ _SPREADSHEET_NOT_FOUND_MESSAGE = (
 T = TypeVar("T")
 
 
+def _column_letter(index: int) -> str:
+    """1-based column index to its spreadsheet column letter (1 -> "A", 27 -> "AA")."""
+    letter = ""
+    while index > 0:
+        index, remainder = divmod(index - 1, 26)
+        letter = chr(ord("A") + remainder) + letter
+    return letter
+
+
+def _assert_no_blank_column_names(headers: list[str]) -> None:
+    """Fail early when a column that has data has no header.
+
+    A blank header has no usable column name — `NamingConvention.normalize_identifier("")` raises,
+    and gspread itself gives up much later with "the header row in the worksheet contains
+    duplicates: ['']" once two or more columns are unnamed (its padding turns every unnamed column
+    into the same empty key), advising the caller to pass `expected_headers`, which means nothing to
+    someone editing a spreadsheet. Name the offending column positions instead.
+
+    The header list must be padded to the width of the widest data row for this to see trailing
+    unnamed columns — the Sheets API trims trailing empty cells out of a bare row-1 read."""
+    blanks = [
+        _column_letter(index) for index, header in enumerate(headers, start=1) if not header or not header.strip()
+    ]
+    if not blanks:
+        return
+    if len(blanks) == 1:
+        raise Exception(
+            f"Column {blanks[0]} has no header in row 1. Every column with data needs a header. "
+            f"Add a header to that column, or delete it, and resync."
+        )
+    raise Exception(
+        f"Columns {', '.join(blanks)} have no header in row 1. Every column with data needs a "
+        f"header. Add a header to those columns, or delete them, and resync."
+    )
+
+
 def _assert_unique_normalized_column_names(headers: list[str]) -> None:
     """Fail early when two header cells collapse to the same column name.
 
     Sheet headers become table column names via `NamingConvention`, which is case-insensitive and
     collapses spaces/punctuation — so headers that look distinct ("Task ID" vs "task_id") map to the
-    same column. gspread only rejects *exact* duplicate headers, so these near-duplicates slip past it
-    and fail much later with an opaque "duplicate column name" deep in table creation, after the sync
-    has already started. Detect the collision up front and raise an actionable message naming the
-    offending headers instead. Exact duplicates are left to gspread's own check."""
+    same column, and fail much later with an opaque "duplicate column name" deep in table creation,
+    after the sync has already started. Detect the collision up front and raise an actionable
+    message naming the offending headers instead. Exact duplicates are caught here too, since we no
+    longer go through gspread's own header check (see `_read_records`)."""
     seen: dict[str, str] = {}
     for header in headers:
         if not header or not header.strip():
             continue
         normalized = NamingConvention.normalize_identifier(header)
         previous = seen.get(normalized)
-        if previous is not None and previous != header:
+        if previous == header:
+            raise Exception(
+                f'Duplicate column header "{header}" in row 1. Column headers must be unique. '
+                f"Rename or remove the duplicate and resync."
+            )
+        if previous is not None:
             raise Exception(
                 f'Column headers "{previous}" and "{header}" collapse to the same column name '
                 f'"{normalized}" when synced. Column headers must stay unique after PostHog normalizes '
@@ -265,6 +306,30 @@ def get_schema_incremental_fields(
     return []
 
 
+def _read_records(worksheet: gspread.Worksheet) -> list[dict[str, Any]]:
+    """Read the worksheet as records, keyed by the header row.
+
+    This is `gspread.Worksheet.get_all_records` (same single API call, same numericising) with its
+    header check swapped for ours. gspread pads the header row to the width of the widest data row,
+    so columns with data but no header become empty keys — and once there are two of them it raises
+    `GSpreadException: the header row in the worksheet contains duplicates: ['']`, pointing the user
+    at the `expected_headers` parameter. Validating the padded header row ourselves turns that into a
+    message that names the offending columns.
+
+    `default_blank=None` (rather than gspread's `""`) lets blank cells import as null instead of
+    strings, which would break numeric columns that legitimately have gaps."""
+    rows = cast(list[list[str]], worksheet.get(pad_values=True))
+    if not rows or rows == [[]]:
+        return []
+
+    headers = rows[0]
+    _assert_no_blank_column_names(headers)
+    _assert_unique_normalized_column_names(headers)
+
+    values = [gspread.utils.numericise_all(row, default_blank=None) for row in rows[1:]]
+    return gspread.utils.to_records(headers, values)
+
+
 def google_sheets_source(
     config: GoogleSheetsSourceConfig,
     worksheet_name: str,
@@ -283,6 +348,10 @@ def google_sheets_source(
 
     headers = _retry_on_transient_api_error(lambda: worksheet.get_all_values("1:1"))  # Get the first row
     if len(headers) > 0:
+        # Only catches unnamed columns that sit *between* named ones — the Sheets API trims trailing
+        # empty cells, so unnamed columns past the last named header are invisible here and are
+        # caught by `_read_records` instead, which sees the header row padded to the data width.
+        _assert_no_blank_column_names(headers[0])
         _assert_unique_normalized_column_names(headers[0])
     primary_keys = None
     if len(headers) > 0 and "id" in headers[0]:
@@ -301,9 +370,7 @@ def google_sheets_source(
     def get_rows():
         worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id, api_version)
 
-        # default_blank defaults to "", which turns empty cells into strings and breaks numeric
-        # columns that legitimately have gaps. None lets blank cells import as null instead.
-        values = _retry_on_transient_api_error(lambda: worksheet.get_all_records(default_blank=None))
+        values = _retry_on_transient_api_error(lambda: _read_records(worksheet))
 
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             values = [value for value in values if value.get("id", 0) > db_incremental_field_last_value]

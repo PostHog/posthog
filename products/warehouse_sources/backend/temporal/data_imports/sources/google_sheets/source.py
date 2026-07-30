@@ -51,7 +51,15 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            # Kept as a backstop: `_read_records` validates the padded header row itself, so
+            # gspread's own duplicate check should no longer be what fires.
             "the header row in the worksheet contains duplicates": "Import failed: There exists duplicate column headers. Please make sure all column headers have values and aren't duplicated.",
+            # Raised by `_assert_no_blank_column_names`: a column has data but no header in row 1.
+            # Deterministic, and the message already names the column positions, so keep it as-is.
+            "no header in row 1": None,
+            # Raised by `_assert_unique_normalized_column_names` for exact duplicate headers, which
+            # we now check ourselves rather than leaving to gspread.
+            "Duplicate column header": None,
             # Raised by `_assert_unique_normalized_column_names`: two headers that look distinct
             # collapse to the same normalized column name. Deterministic — retrying can't recover, and
             # the message already names the offending headers, so keep it as-is.
