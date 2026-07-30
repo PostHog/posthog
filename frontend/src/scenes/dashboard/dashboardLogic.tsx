@@ -3618,7 +3618,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     urlFilters,
                     urlVariables,
                     dashboardLoadData,
-                    dashboard,
                     lastDashboardRefresh,
                 } = values
 
@@ -3715,7 +3714,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 eventUsageLogic.actions.reportDashboardRefreshed(
                     dashboardId,
-                    dashboard,
                     urlFilters,
                     urlVariables,
                     lastDashboardRefresh,
