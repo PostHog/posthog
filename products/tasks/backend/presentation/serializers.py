@@ -598,12 +598,6 @@ class TaskWriteSerializer(serializers.Serializer):
         """Reject internal-only origins that are set by server-side flows, never by API callers."""
         if value == tasks_facade.TaskOriginProduct.SIGNAL_REPORT:
             raise serializers.ValidationError("origin_product 'signal_report' is reserved for signal report tasks")
-        if value == tasks_facade.TaskOriginProduct.POSTHOG_AI:
-            raise serializers.ValidationError("origin_product 'posthog_ai' is reserved for PostHog AI tasks")
-        if value == tasks_facade.TaskOriginProduct.SLACK:
-            raise serializers.ValidationError("origin_product 'slack' is reserved for Slack tasks")
-        if value == tasks_facade.TaskOriginProduct.SUPPORT_REPLY:
-            raise serializers.ValidationError("origin_product 'support_reply' is reserved for support reply tasks")
         if value == tasks_facade.TaskOriginProduct.IMAGE_BUILDER:
             raise serializers.ValidationError("origin_product 'image_builder' is reserved for image-builder sessions")
         if value == tasks_facade.TaskOriginProduct.EXPERIMENTS:
@@ -653,8 +647,6 @@ class TaskWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError({"runtime": "Runtime cannot be changed after task creation."})
 
         trusted_signal_report = self.context.get("trusted_signal_report", False)
-        if attrs.get("internal"):
-            raise serializers.ValidationError({"internal": "Internal tasks must be created by server-side flows."})
         if trusted_signal_report:
             attrs["origin_product"] = tasks_facade.TaskOriginProduct.SIGNAL_REPORT
         elif "signal_report" in attrs or "signal_report_task_relationship" in attrs:
