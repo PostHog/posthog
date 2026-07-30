@@ -109,7 +109,7 @@ export const getOpenTelemetrySteps = (ctx: OnboardingComponentsContext): StepDef
                                       }),
                                       spanProcessors: [
                                         new PostHogSpanProcessor({
-                                          apiKey: '<ph_project_token>',
+                                          projectToken: '<ph_project_token>',
                                           host: '<ph_client_api_host>',
                                         }),
                                       ],
