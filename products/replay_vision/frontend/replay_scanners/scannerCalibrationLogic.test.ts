@@ -14,7 +14,12 @@ import {
 } from '../generated/api'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { makeQuota } from '../utils/quotaTestUtils'
-import { DEFAULT_TEST_SESSIONS, QUALITY_PAGE_SIZE, RatedFilterValue, scannerQualityLogic } from './scannerQualityLogic'
+import {
+    DEFAULT_TEST_SESSIONS,
+    CALIBRATION_PAGE_SIZE,
+    RatedFilterValue,
+    scannerCalibrationLogic,
+} from './scannerCalibrationLogic'
 
 jest.mock('../generated/api', () => ({
     environmentVisionQuotaRetrieve: jest.fn(),
@@ -45,11 +50,11 @@ const PENDING_SUGGESTION = {
     applied_by: null,
 }
 
-describe('scannerQualityLogic', () => {
-    let logic: ReturnType<typeof scannerQualityLogic.build>
+describe('scannerCalibrationLogic', () => {
+    let logic: ReturnType<typeof scannerCalibrationLogic.build>
 
     const mountLogic = async (): Promise<void> => {
-        logic = scannerQualityLogic({ scannerId: 'scan-1' })
+        logic = scannerCalibrationLogic({ scannerId: 'scan-1' })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadObservationsSuccess', 'loadCurrentSuggestionSuccess'])
     }
@@ -87,9 +92,9 @@ describe('scannerQualityLogic', () => {
     })
 
     it.each<[RatedFilterValue, Record<string, unknown>]>([
-        ['all', { status: 'succeeded', limit: QUALITY_PAGE_SIZE, order_by: '-created_at' }],
-        ['rated', { status: 'succeeded', limit: QUALITY_PAGE_SIZE, labeled: true, order_by: '-created_at' }],
-        ['unrated', { status: 'succeeded', limit: QUALITY_PAGE_SIZE, labeled: false, order_by: '-created_at' }],
+        ['all', { status: 'succeeded', limit: CALIBRATION_PAGE_SIZE, order_by: '-created_at' }],
+        ['rated', { status: 'succeeded', limit: CALIBRATION_PAGE_SIZE, labeled: true, order_by: '-created_at' }],
+        ['unrated', { status: 'succeeded', limit: CALIBRATION_PAGE_SIZE, labeled: false, order_by: '-created_at' }],
     ])('the "%s" filter requests the matching observation set', async (filter, expectedParams) => {
         await mountLogic()
         logic.actions.setRatedFilter(filter)
@@ -115,7 +120,7 @@ describe('scannerQualityLogic', () => {
         expect(logic.values.ratedFilter).toBe('all')
         expect(visionScannersObservationsList).toHaveBeenLastCalledWith(TEAM_ID, 'scan-1', {
             status: 'succeeded',
-            limit: QUALITY_PAGE_SIZE,
+            limit: CALIBRATION_PAGE_SIZE,
             session_id: 'sess-1,sess-2',
             order_by: '-created_at',
         })
@@ -127,7 +132,7 @@ describe('scannerQualityLogic', () => {
         expect(logic.values.themeFilter).toBeNull()
         expect(visionScannersObservationsList).toHaveBeenLastCalledWith(TEAM_ID, 'scan-1', {
             status: 'succeeded',
-            limit: QUALITY_PAGE_SIZE,
+            limit: CALIBRATION_PAGE_SIZE,
             labeled: false,
             order_by: '-created_at',
         })

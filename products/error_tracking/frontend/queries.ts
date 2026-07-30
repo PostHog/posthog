@@ -6,7 +6,6 @@ import {
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingPendingFingerprintIssueStateUpdate,
     ErrorTrackingQuery,
-    ErrorTrackingSimilarIssuesQuery,
     EventsQuery,
     InsightVizNode,
     NodeKind,
@@ -193,24 +192,6 @@ export const errorTrackingIssueCorrelationQuery = ({
     return setLatestVersionsOnQuery<ErrorTrackingIssueCorrelationQuery>({
         kind: NodeKind.ErrorTrackingIssueCorrelationQuery,
         events,
-        tags: { productKey: ProductKey.ERROR_TRACKING },
-    })
-}
-
-export const errorTrackingSimilarIssuesQuery = ({
-    issueId,
-    limit,
-    maxDistance,
-}: {
-    issueId: string
-    limit: number
-    maxDistance: number
-}): ErrorTrackingSimilarIssuesQuery => {
-    return setLatestVersionsOnQuery<ErrorTrackingSimilarIssuesQuery>({
-        kind: NodeKind.ErrorTrackingSimilarIssuesQuery,
-        issueId,
-        limit,
-        maxDistance,
         tags: { productKey: ProductKey.ERROR_TRACKING },
     })
 }
