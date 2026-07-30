@@ -40,6 +40,46 @@ pub struct SymbolSetUpload {
     pub data: Vec<u8>,
 }
 
+/// Per-run tally of what an upload actually did. Without it a run that skipped
+/// every chunk is indistinguishable from one that uploaded every chunk, since
+/// both just exit zero.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct UploadSummary {
+    pub uploaded: usize,
+    pub skipped_already_present: usize,
+    pub skipped_too_large: usize,
+}
+
+impl UploadSummary {
+    pub fn skipped(&self) -> usize {
+        self.skipped_already_present + self.skipped_too_large
+    }
+
+    pub fn telemetry_props(&self) -> Vec<(&'static str, serde_json::Value)> {
+        vec![
+            ("uploaded", serde_json::json!(self.uploaded)),
+            (
+                "skipped_already_present",
+                serde_json::json!(self.skipped_already_present),
+            ),
+            (
+                "skipped_too_large",
+                serde_json::json!(self.skipped_too_large),
+            ),
+        ]
+    }
+
+    fn log(&self) {
+        info!(
+            "Upload summary: {} chunk(s) uploaded, {} skipped ({} already present, {} too large)",
+            self.uploaded,
+            self.skipped(),
+            self.skipped_already_present,
+            self.skipped_too_large
+        );
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct StartUploadResponseData {
     presigned_url: PresignedUrl,
@@ -78,13 +118,17 @@ struct BulkUploadFinishRequest {
 /// the upload will be retried without release IDs.
 /// If `force` is true, symbol sets whose content has changed are overwritten rather than skipped.
 /// If `skip_on_conflict` is true, symbol sets whose content has changed are skipped rather than failing.
+///
+/// The summary is returned beside the result rather than inside it, because a
+/// failed run still needs to report the chunks it uploaded and skipped before
+/// it gave up.
 pub fn upload_with_retry(
     input_sets: Vec<SymbolSetUpload>,
     batch_size: usize,
     skip_release_on_fail: bool,
     force: bool,
     skip_on_conflict: bool,
-) -> Result<()> {
+) -> (UploadSummary, Result<()>) {
     upload_with_retry_and_concurrency(
         input_sets,
         batch_size,
@@ -102,13 +146,21 @@ pub fn upload_with_retry_and_concurrency(
     force: bool,
     skip_on_conflict: bool,
     concurrency: NonZeroUsize,
-) -> Result<()> {
-    let thread_pool = build_upload_thread_pool(concurrency)?;
+) -> (UploadSummary, Result<()>) {
+    let mut summary = UploadSummary::default();
+    let thread_pool = match build_upload_thread_pool(concurrency) {
+        Ok(thread_pool) => thread_pool,
+        Err(e) => return (summary, Err(e)),
+    };
     // One client for the whole run: reusing its connection pool avoids paying a
     // TCP + TLS handshake per uploaded chunk.
-    let s3_client = context()
+    let s3_client = match context()
         .build_http_client()
-        .context("Failed to initialize upload HTTP client")?;
+        .context("Failed to initialize upload HTTP client")
+    {
+        Ok(client) => client,
+        Err(e) => return (summary, Err(e)),
+    };
     let res = upload_inner(
         &input_sets,
         batch_size,
@@ -116,11 +168,15 @@ pub fn upload_with_retry_and_concurrency(
         skip_on_conflict,
         &thread_pool,
         &s3_client,
+        &mut summary,
     );
-    match res {
-        Ok(()) => Ok(()),
+    let res = match res {
         Err(UploadError::ReleaseIdMismatch) if skip_release_on_fail => {
             warn!("Release ID mismatch detected. Retrying upload without release IDs...");
+            // Batches finalized before the mismatch are on the server by the time
+            // the retry runs, so upload_inner recounts them as already present.
+            // Remember them and reclassify below, because this run did upload them.
+            let uploaded_before_retry = summary.uploaded;
             let sets_without_release: Vec<_> = input_sets
                 .into_iter()
                 .map(|s| SymbolSetUpload {
@@ -129,18 +185,28 @@ pub fn upload_with_retry_and_concurrency(
                     data: s.data,
                 })
                 .collect();
-            upload_inner(
+            let res = upload_inner(
                 &sets_without_release,
                 batch_size,
                 force,
                 skip_on_conflict,
                 &thread_pool,
                 &s3_client,
-            )
-            .map_err(|e| e.into())
+                &mut summary,
+            );
+            summary.uploaded += uploaded_before_retry;
+            summary.skipped_already_present = summary
+                .skipped_already_present
+                .saturating_sub(uploaded_before_retry);
+            res
         }
-        Err(e) => Err(e.into()),
-    }
+        res => res,
+    };
+
+    // Logged on failure too, so a partial run still reports how far it got.
+    summary.log();
+
+    (summary, res.map_err(Into::into))
 }
 
 fn build_upload_thread_pool(concurrency: NonZeroUsize) -> Result<ThreadPool> {
@@ -157,11 +223,17 @@ fn upload_inner(
     skip_on_conflict: bool,
     thread_pool: &ThreadPool,
     s3_client: &Client,
+    summary: &mut UploadSummary,
 ) -> Result<(), UploadError> {
+    // A release-id-mismatch retry re-uploads the same sets from scratch, so the
+    // tally starts over rather than double-counting the first attempt.
+    *summary = UploadSummary::default();
+
     let upload_requests: Vec<_> = input_sets
         .iter()
         .filter(|s| {
             if s.data.len() > MAX_FILE_SIZE {
+                summary.skipped_too_large += 1;
                 warn!(
                     "Skipping symbol set with id: {}, file too large",
                     s.chunk_id
@@ -185,6 +257,7 @@ fn upload_inner(
             .map(|(u, hash)| (u.chunk_id.as_str(), (u, hash)))
             .collect();
 
+        summary.skipped_already_present += batch.len() - start_response.id_map.len();
         info!(
             "Server returned {} upload keys ({} skipped as already present)",
             start_response.id_map.len(),
@@ -208,8 +281,10 @@ fn upload_inner(
         });
 
         let content_hashes = res?;
+        let uploaded = content_hashes.len();
 
         finish_upload(content_hashes)?;
+        summary.uploaded += uploaded;
     }
 
     Ok(())
