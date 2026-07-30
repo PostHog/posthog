@@ -87,8 +87,11 @@ class TestFilterStorage:
         fake_redis = fakeredis.FakeRedis()
         mock_get_client.return_value = fake_redis
 
-        # Store filters with short TTL
-        storage_key = store_filters(self.test_filters, self.team_id, ttl=1)
+        # A short TTL would expire on the real clock before the reads below on a slow runner
+        ttl = 600
+        storage_key = store_filters(self.test_filters, self.team_id, ttl=ttl)
+
+        assert 0 < fake_redis.ttl(storage_key) <= ttl
 
         # Verify filters can be retrieved immediately
         result = get_filters_and_properties(storage_key)
