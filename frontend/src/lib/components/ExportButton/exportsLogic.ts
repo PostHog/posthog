@@ -25,10 +25,6 @@ import {
     SidePanelTab,
 } from '~/types'
 
-// Sentinel for a synchronous export whose content download failed after creation succeeded —
-// downloadExportedAsset has already shown the specific error toast by the time this is thrown.
-const EXPORT_DOWNLOAD_FAILED = 'Export download failed'
-
 const POLL_DELAY_MS = 10000
 // Long-running formats (e.g. MP4 session-replay renders) can take 30+ minutes,
 // so polling every 10s produces unhelpful timeout noise. Back off when the
@@ -263,36 +259,13 @@ export const exportsLogic = kea<exportsLogicType>([
         createExportSuccess: () => {
             actions.loadExports()
         },
-        downloadExport: async ({ exportedAsset }) => {
-            // Downloading a synchronous export blocks server-side while the content is generated,
-            // and downloadExportedAsset probes the endpoint before navigating — that wait can run
-            // for a minute or more. Drive it through lemonToast.promise so the user sees a spinner
-            // immediately instead of a button that looks like it did nothing until the download starts.
-            const downloadToastId = 'download-' + uuid()
-            try {
-                await lemonToast.promise(
-                    (async (): Promise<string> => {
-                        // Only drop the "not downloaded" highlight once the file actually downloads, so a
-                        // failed retrieval leaves the user a retry cue instead of a silent dead end.
-                        if (!(await downloadExportedAsset(exportedAsset))) {
-                            throw new Error(EXPORT_DOWNLOAD_FAILED)
-                        }
-                        actions.removeFresh(exportedAsset)
-                        return 'Download started'
-                    })(),
-                    {
-                        pending: 'Preparing download…',
-                        success: 'Download started',
-                        error: 'Download failed',
-                    },
-                    { toastId: downloadToastId }
-                )
-            } catch (error) {
-                if (error instanceof Error && error.message === EXPORT_DOWNLOAD_FAILED) {
-                    // downloadExportedAsset already surfaced a specific error toast — drop the generic one.
-                    lemonToast.dismiss(downloadToastId)
-                }
-            }
+        downloadExport: ({ exportedAsset }) => {
+            // Content already exists for this asset, so trigger the download synchronously — the click
+            // has to run inside the user gesture or Safari silently drops it. Drop the "not downloaded"
+            // highlight now that the download has been triggered.
+            downloadExportedAsset(exportedAsset)
+            actions.removeFresh(exportedAsset)
+            lemonToast.success('Download started')
         },
         loadExportsSuccess: async ({ exports: exportsList }, breakpoint) => {
             // Surface async exports we kicked off that have now finished: the render completes long
@@ -443,11 +416,7 @@ export const exportsLogic = kea<exportsLogicType>([
 
                         if (response.has_content) {
                             // Blocking export already finished in the request — download and confirm.
-                            // Only celebrate once the content actually downloads; downloadExportedAsset
-                            // surfaces its own error toast if retrieval fails (e.g. an access-control 404).
-                            if (!(await downloadExportedAsset(response))) {
-                                throw new Error(EXPORT_DOWNLOAD_FAILED)
-                            }
+                            downloadExportedAsset(response)
                             return 'Export complete!'
                         }
                         if (response.exception) {
@@ -486,12 +455,6 @@ export const exportsLogic = kea<exportsLogicType>([
                             )
                         } catch (error) {
                             const apiError = error as { data?: APIErrorType }
-                            if (error instanceof Error && error.message === EXPORT_DOWNLOAD_FAILED) {
-                                // downloadExportedAsset already surfaced a specific error toast —
-                                // drop the generic failure toast so the user isn't told twice.
-                                lemonToast.dismiss(exportToastId)
-                                return
-                            }
                             // Show a survey when the user reaches the export limit, replacing the
                             // generic failure toast with the upsell.
                             if (apiError?.data?.attr === 'export_limit_exceeded') {
