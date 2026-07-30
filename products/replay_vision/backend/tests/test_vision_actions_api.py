@@ -202,6 +202,37 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
         self.assertEqual(second.status_code, 201, second.content)
         self.assertEqual(self._flagged_digest_ids(), [second.json()["id"]])
 
+    def test_promotion_blocked_when_current_digest_reads_a_restricted_scanner(self) -> None:
+        # Demoting the current digest is a write to it. If that digest's selection reads from a scanner
+        # the promoting user can't access, a direct PATCH would be rejected — promoting must not be a
+        # back door around that check, and the restricted digest must stay put.
+        hidden = self._create_scanner(name="restricted")
+        current = VisionAction.all_teams.create(
+            team=self.team,
+            scanner=self.scanner,
+            name="current-digest",
+            is_scanner_digest=True,
+            selection={"scanner_ids": [str(hidden.id)]},
+            trigger_config={"rrule": "FREQ=DAILY", "timezone": "UTC"},
+        )
+        summary = VisionAction.all_teams.create(
+            team=self.team,
+            scanner=self.scanner,
+            name="promote-me",
+            trigger_config={"rrule": "FREQ=DAILY", "timezone": "UTC"},
+        )
+        with patch(
+            "products.replay_vision.backend.scanner_access.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.exclude(pk=hidden.pk),
+        ):
+            resp = self.client.patch(
+                f"{self.actions_url}{summary.id}/", data={"is_scanner_digest": True}, format="json"
+            )
+            self.assertEqual(resp.status_code, 400, resp.content)
+            self.assertIn("access", resp.json()["detail"])
+        # The promotion rolled back: the restricted digest is untouched and the summary wasn't flagged.
+        self.assertEqual(self._flagged_digest_ids(), [str(current.id)])
+
     def test_alert_cannot_be_featured_digest(self) -> None:
         payload = self._create_payload(
             name="an-alert",

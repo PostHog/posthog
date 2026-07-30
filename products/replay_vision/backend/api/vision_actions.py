@@ -439,7 +439,31 @@ class VisionActionSerializer(serializers.ModelSerializer):
         demote = VisionAction.objects.for_team(team.id).filter(scanner=scanner, is_scanner_digest=True)
         if self.instance is not None:
             demote = demote.exclude(pk=self.instance.pk)
+        # This bulk update is a write to the current digest. A direct PATCH to it would run
+        # _validate_scanner_access; authorize the same way here so promoting can't be a back door to
+        # modifying a digest whose selection reads from a scanner the requesting user can't access.
+        self._authorize_demotions(demote)
         demote.update(is_scanner_digest=False)
+
+    def _authorize_demotions(self, actions: QuerySet[VisionAction]) -> None:
+        request = self.context.get("request")
+        if request is None or not getattr(request.user, "is_authenticated", False):
+            return
+        # The bound scanner is the promotion target (already editor-checked upstream); the exposure is
+        # each demoted digest's selection.scanner_ids, which _validate_scanner_access guards on a direct
+        # write. Gather every scanner these actions read from and require read access to all of them.
+        requested: set[str] = set()
+        for demoted in actions:
+            requested.add(str(demoted.scanner_id))
+            requested.update(str(s) for s in (demoted.selection or {}).get("scanner_ids") or [])
+        if not requested:
+            return
+        team = self.context["get_team"]()
+        readable = set(readable_scanner_ids(request.user, team, list(requested)))
+        if requested - readable:
+            raise serializers.ValidationError(
+                {"is_scanner_digest": "You don't have access to a scanner the current digest reads from."}
+            )
 
     def create(self, validated_data: dict[str, Any]) -> VisionAction:
         team = self.context["get_team"]()
