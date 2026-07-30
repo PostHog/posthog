@@ -36,7 +36,10 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.ducklake.metrics import get_ducklake_register_data_imports_finished_metric
+from posthog.temporal.ducklake.metrics import (
+    get_ducklake_register_data_imports_duration_metric,
+    get_ducklake_register_data_imports_finished_metric,
+)
 
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
@@ -440,6 +443,7 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: DuckLakeRegisterDataImportsInputs) -> None:
         logger = LOGGER.bind(**inputs.properties_to_log)
+        workflow_started_at = workflow.now()
         logger.info("Starting DuckLakeRegisterDataImportsWorkflow")
 
         should_register = await workflow.execute_activity(
@@ -452,22 +456,24 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
             logger.info("DuckLake data imports registration workflow disabled by feature flag")
             return
 
-        metadata = await workflow.execute_activity(
-            prepare_ducklake_data_imports_registration_activity,
-            inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-        if metadata is None:
-            logger.info("Prepared Parquet generation is stale; nothing to register")
-            return
-
-        activity_inputs = DuckLakeRegisterDataImportsActivityInputs(
-            team_id=inputs.team_id,
-            job_id=inputs.job_id,
-            metadata=metadata,
-        )
+        status = "failed"
         try:
+            metadata = await workflow.execute_activity(
+                prepare_ducklake_data_imports_registration_activity,
+                inputs,
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            if metadata is None:
+                status = "stale"
+                logger.info("Prepared Parquet generation is stale; nothing to register")
+                return
+
+            activity_inputs = DuckLakeRegisterDataImportsActivityInputs(
+                team_id=inputs.team_id,
+                job_id=inputs.job_id,
+                metadata=metadata,
+            )
             copy_applied = await workflow.execute_activity(
                 copy_and_register_ducklake_data_imports_activity,
                 activity_inputs,
@@ -476,12 +482,17 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
             if not copy_applied:
+                status = "stale"
                 logger.info("Prepared Parquet generation became stale; registration skipped")
-                get_ducklake_register_data_imports_finished_metric(status="stale").add(1)
                 return
 
-        except Exception:
-            get_ducklake_register_data_imports_finished_metric(status="failed").add(1)
-            raise
-
-        get_ducklake_register_data_imports_finished_metric(status="completed").add(1)
+            status = "completed"
+        finally:
+            duration_seconds = (workflow.now() - workflow_started_at).total_seconds()
+            logger.info(
+                "Finished DuckLakeRegisterDataImportsWorkflow",
+                status=status,
+                duration_seconds=duration_seconds,
+            )
+            get_ducklake_register_data_imports_finished_metric(status=status).add(1)
+            get_ducklake_register_data_imports_duration_metric(status=status).record(duration_seconds)

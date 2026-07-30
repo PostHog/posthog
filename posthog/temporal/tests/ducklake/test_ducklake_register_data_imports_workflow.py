@@ -1,7 +1,9 @@
+import uuid
+import datetime as dt
 import contextlib
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
@@ -15,6 +17,7 @@ from posthog.temporal.ducklake.ducklake_register_data_imports_workflow import (
     DuckLakeRegisterDataImportsGateInputs,
     DuckLakeRegisterDataImportsInputs,
     DuckLakeRegisterDataImportsMetadata,
+    DuckLakeRegisterDataImportsWorkflow,
     build_register_data_imports_workflow_id,
     copy_and_register_ducklake_data_imports_activity,
     ducklake_register_data_imports_gate_activity,
@@ -247,6 +250,72 @@ def test_copy_activity_does_not_publish_a_row_count_mismatch(monkeypatch):
     assert not any("RENAME TO" in query for query in executed)
 
 
+@pytest.mark.asyncio
+async def test_workflow_does_not_record_duration_when_disabled(monkeypatch):
+    execute_activity = AsyncMock(return_value=False)
+    duration_metric, _, finished_metric, _ = _mock_workflow_metrics(monkeypatch)
+    monkeypatch.setattr(registration_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(registration_module.workflow, "now", MagicMock(return_value=dt.datetime(2026, 7, 30)))
+
+    await DuckLakeRegisterDataImportsWorkflow().run(_workflow_inputs())
+
+    duration_metric.assert_not_called()
+    finished_metric.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_workflow_records_end_to_end_duration_after_gate(monkeypatch):
+    started_at = dt.datetime(2026, 7, 30, 12, 0, 0)
+    finished_at = started_at + dt.timedelta(minutes=7, seconds=12)
+    execute_activity = AsyncMock(side_effect=[True, _activity_inputs().metadata, True])
+    duration_metric, duration_histogram, finished_metric, finished_counter = _mock_workflow_metrics(monkeypatch)
+    monkeypatch.setattr(registration_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(registration_module.workflow, "now", MagicMock(side_effect=[started_at, finished_at]))
+
+    await DuckLakeRegisterDataImportsWorkflow().run(_workflow_inputs())
+
+    finished_metric.assert_called_once_with(status="completed")
+    finished_counter.add.assert_called_once_with(1)
+    duration_metric.assert_called_once_with(status="completed")
+    duration_histogram.record.assert_called_once_with(432.0)
+
+
+@pytest.mark.asyncio
+async def test_workflow_records_end_to_end_duration_on_post_gate_failure(monkeypatch):
+    started_at = dt.datetime(2026, 7, 30, 12, 0, 0)
+    failed_at = started_at + dt.timedelta(seconds=5)
+    execute_activity = AsyncMock(side_effect=[True, RuntimeError("prepare failed")])
+    duration_metric, duration_histogram, finished_metric, finished_counter = _mock_workflow_metrics(monkeypatch)
+    monkeypatch.setattr(registration_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(registration_module.workflow, "now", MagicMock(side_effect=[started_at, failed_at]))
+
+    with pytest.raises(RuntimeError, match="prepare failed"):
+        await DuckLakeRegisterDataImportsWorkflow().run(_workflow_inputs())
+
+    finished_metric.assert_called_once_with(status="failed")
+    finished_counter.add.assert_called_once_with(1)
+    duration_metric.assert_called_once_with(status="failed")
+    duration_histogram.record.assert_called_once_with(5.0)
+
+
+def _mock_workflow_metrics(monkeypatch):
+    duration_histogram = MagicMock()
+    duration_metric = MagicMock(return_value=duration_histogram)
+    finished_counter = MagicMock()
+    finished_metric = MagicMock(return_value=finished_counter)
+    monkeypatch.setattr(
+        registration_module,
+        "get_ducklake_register_data_imports_duration_metric",
+        duration_metric,
+    )
+    monkeypatch.setattr(
+        registration_module,
+        "get_ducklake_register_data_imports_finished_metric",
+        finished_metric,
+    )
+    return duration_metric, duration_histogram, finished_metric, finished_counter
+
+
 def _activity_inputs() -> DuckLakeRegisterDataImportsActivityInputs:
     return DuckLakeRegisterDataImportsActivityInputs(
         team_id=1,
@@ -259,6 +328,15 @@ def _activity_inputs() -> DuckLakeRegisterDataImportsActivityInputs:
             ducklake_schema_name="posthog_data_imports_team_1",
             ducklake_table_name="postgres_customers",
         ),
+    )
+
+
+def _workflow_inputs() -> DuckLakeRegisterDataImportsInputs:
+    return DuckLakeRegisterDataImportsInputs(
+        team_id=1,
+        job_id="job",
+        schema_id=uuid.UUID("019ef5df-e4c7-0000-b543-8ef7f13b5f15"),
+        prepared_queryable_folder="customers__query",
     )
 
 

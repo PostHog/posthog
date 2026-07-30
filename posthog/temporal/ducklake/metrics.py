@@ -1,5 +1,5 @@
 from temporalio import workflow
-from temporalio.common import MetricCounter
+from temporalio.common import MetricCounter, MetricHistogramFloat
 
 
 def get_ducklake_copy_data_modeling_finished_metric(status: str) -> MetricCounter:
@@ -53,5 +53,17 @@ def get_ducklake_register_data_imports_finished_metric(status: str) -> MetricCou
         .create_counter(
             "ducklake_register_data_imports_finished",
             "Number of DuckLake prepared data import registration workflows finished, including failures.",
+        )
+    )
+
+
+def get_ducklake_register_data_imports_duration_metric(status: str) -> MetricHistogramFloat:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes({"status": status})
+        .create_histogram_float(
+            "ducklake_register_data_imports_duration_seconds",
+            "End-to-end duration of DuckLake prepared data import registration workflows that passed the feature flag gate.",
+            "s",
         )
     )
