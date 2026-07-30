@@ -8,7 +8,7 @@ from products.signals.backend.temporal.emit_eval_signal import (
     EvalSignalSummary,
     summarize_eval_for_signal,
 )
-from products.signals.backend.temporal.llm import call_llm
+from products.signals.backend.temporal.llm import MalformedLLMResponseError, call_llm
 from products.signals.eval.llm_gen.client import CanonicalSignal, CanonicalSignalBatch, generate_canonical_signals
 
 MODULE_PATH = "products.signals.backend.temporal.llm"
@@ -122,3 +122,37 @@ async def test_eval_signal_summary_opts_in_as_signals_eval():
     kwargs = summary_call.call_args.kwargs
     assert kwargs["ai_product"] == "signals_eval"
     assert kwargs["stage"] == "eval_signal_summary"
+
+
+# The Anthropic SDK validates responses non-strictly, so a 2xx carrying a non-JSON body (a proxy
+# serving an error page, say) is handed back as a plain string instead of a Message.
+@pytest.mark.asyncio
+async def test_non_message_body_is_retried_then_succeeds():
+    client = MagicMock()
+    client.messages.create = AsyncMock(
+        side_effect=["<html><body>502 Bad Gateway</body></html>", _text_response('"ok"')]
+    )
+    with (
+        patch(f"{MODULE_PATH}.get_async_anthropic_gateway_client", return_value=client),
+        patch("asyncio.sleep", new=AsyncMock()),
+    ):
+        result = await call_llm(
+            team_id=1, system_prompt="s", user_prompt="u", validate=lambda text: text, stage="match"
+        )
+
+    assert result == '{"ok"'
+    assert client.messages.create.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_non_message_body_raises_typed_error_with_snippet_when_retries_run_out():
+    client = MagicMock()
+    client.messages.create = AsyncMock(return_value="<html><body>502 Bad Gateway</body></html>")
+    with (
+        patch(f"{MODULE_PATH}.get_async_anthropic_gateway_client", return_value=client),
+        patch("asyncio.sleep", new=AsyncMock()),
+        pytest.raises(MalformedLLMResponseError) as exc_info,
+    ):
+        await call_llm(team_id=1, system_prompt="s", user_prompt="u", validate=lambda text: text, stage="match")
+
+    assert "502 Bad Gateway" in str(exc_info.value)

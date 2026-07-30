@@ -1,11 +1,12 @@
 import os
+import asyncio
 from collections.abc import Callable
 from typing import Optional, TypeVar
 
 from django.conf import settings
 
 import structlog
-from anthropic.types import MessageParam
+from anthropic.types import Message, MessageParam
 
 from posthog.helpers.tiktoken_encoding import TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 from posthog.llm.gateway_client import (
@@ -34,6 +35,8 @@ MAX_RETRIES = 3
 MAX_RESPONSE_TOKENS = 4096
 MAX_QUERY_TOKENS = 2048
 TIMEOUT = 100.0
+MALFORMED_RESPONSE_SNIPPET_CHARS = 500
+MALFORMED_RESPONSE_BACKOFF_SECONDS = 1.0
 
 
 def truncate_query_to_token_limit(query: str, max_tokens: int = MAX_QUERY_TOKENS) -> str:
@@ -57,9 +60,24 @@ class EmptyLLMResponseError(Exception):
     pass
 
 
-def _extract_text_content(response) -> str:
+class MalformedLLMResponseError(Exception):
+    """Raised when the response body isn't a usable Anthropic message."""
+
+    pass
+
+
+def _extract_text_content(response: Message) -> str:
     """Extract text content from Anthropic response."""
-    for block in reversed(response.content):
+    # The SDK validates responses non-strictly: a 2xx whose body isn't JSON comes back as the raw
+    # body string rather than a Message, so a proxy serving an error page with a success status
+    # would otherwise surface as `'str' object has no attribute 'content'`.
+    content = getattr(response, "content", None)
+    if not isinstance(content, list):
+        snippet = str(response)[:MALFORMED_RESPONSE_SNIPPET_CHARS]
+        raise MalformedLLMResponseError(
+            f"Expected an Anthropic message, got {type(response).__name__}. Body starts: {snippet!r}"
+        )
+    for block in reversed(content):
         if block.type == "text":
             return block.text
     raise EmptyLLMResponseError("No text content in response")
@@ -144,11 +162,30 @@ async def call_llm(
     last_exception: Exception | None = None
     stage_label = stage or "unknown"
     for attempt in range(retries):
-        # NOTE - we explicitly don't want to retry if we fail to call the llm, or fail to extract text content,
-        # only if we fail to validate the response. A transport/extraction failure is a hot-path LLM error.
+        # NOTE - we explicitly don't want to retry if we fail to call the llm, or if the model returns no
+        # text content at all, only if we fail to validate the response, or if the body we got back wasn't
+        # a message in the first place. Anything else is a hot-path LLM error.
         try:
             response = await client.messages.create(**create_kwargs)
+        except Exception:
+            metrics.increment_llm_call(stage_label, metrics.LLM_STATUS_ERROR)
+            raise
+        try:
             text_content = _extract_text_content(response)
+        except MalformedLLMResponseError as e:
+            # A non-message body means the gateway (or a proxy in front of it) served something that
+            # isn't JSON with a success status - transient upstream trouble, so retry the call rather
+            # than dropping the signal. Back off, since an immediate retry lands in the same blip.
+            logger.warning(
+                f"LLM returned a malformed response (attempt {attempt + 1}/{retries}): {e}",
+                attempt=attempt + 1,
+                retries=retries,
+                stage=stage_label,
+            )
+            last_exception = e
+            if attempt + 1 < retries:
+                await asyncio.sleep(MALFORMED_RESPONSE_BACKOFF_SECONDS * (attempt + 1))
+            continue
         except Exception:
             metrics.increment_llm_call(stage_label, metrics.LLM_STATUS_ERROR)
             raise
