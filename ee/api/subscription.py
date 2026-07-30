@@ -45,7 +45,6 @@ from posthog.utils import str_to_bool
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.exports.backend.constants import DEFAULT_MAX_ASSET_COUNT
 from products.exports.backend.models.subscription import (
     Subscription,
     SubscriptionDelivery,
@@ -68,6 +67,7 @@ from products.product_analytics.backend.models.insight import Insight
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
+from ee.tasks.subscriptions.subscription_utils import MAX_DASHBOARD_INSIGHTS
 
 SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
 SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
@@ -671,9 +671,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if dashboard_export_insights:
             selected_ids = set(dashboard_export_insights)
 
-            if len(selected_ids) > DEFAULT_MAX_ASSET_COUNT:
+            if len(selected_ids) > MAX_DASHBOARD_INSIGHTS:
                 raise ValidationError(
-                    {"dashboard_export_insights": [f"Cannot select more than {DEFAULT_MAX_ASSET_COUNT} insights."]}
+                    {"dashboard_export_insights": [f"Cannot select more than {MAX_DASHBOARD_INSIGHTS} insights."]}
                 )
 
             # Ensure all selected insights belong to the team

@@ -4,8 +4,6 @@ import dataclasses
 
 from posthog.slo.types import SloConfig
 
-from products.exports.backend.constants import DEFAULT_MAX_ASSET_COUNT
-
 
 class DeliveryStatus:
     """Mirrors SubscriptionDelivery.Status choices for use in Temporal workflows.
@@ -100,7 +98,7 @@ class FetchDueSubscriptionsActivityInputs:
 @dataclasses.dataclass
 class CreateExportAssetsInputs:
     subscription_id: int
-    max_asset_count: int = DEFAULT_MAX_ASSET_COUNT
+    max_asset_count: int = 6
     previous_value: typing.Optional[str] = None
     # When set, the activity persists the per-insight snapshot directly onto
     # SubscriptionDelivery.content_snapshot. Keeps multi-MB query_results off
