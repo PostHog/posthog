@@ -81,9 +81,12 @@ async def deliver_email(
     previous_target_value = inputs.previous_target_value
     if previous_target_value is None:
         previous_target_value = inputs.previous_value
-    if inputs.is_new_subscription_target or (
-        previous_target_value is not None and previous_target_value != subscription.target_value
-    ):
+    send_only_to_new_recipients = (
+        inputs.is_new_subscription_target
+        if inputs.is_new_subscription_target is not None
+        else previous_target_value is not None and previous_target_value != subscription.target_value
+    )
+    if send_only_to_new_recipients:
         previous = {e.strip() for e in (previous_target_value or "").split(",") if e.strip()}
         emails = [e for e in emails if e not in previous]
 

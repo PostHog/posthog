@@ -1437,7 +1437,7 @@ async def test_create_export_assets_excludes_deleted_standalone_insight(team, us
 @patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
-async def test_deliver_subscription_sends_email(
+async def test_deliver_subscription_legacy_false_sends_all_recipients(
     mock_send_email: MagicMock,
     mock_metric_meter: MagicMock,
     temporal_client: Client,
@@ -1461,6 +1461,8 @@ async def test_deliver_subscription_sends_email(
             subscription_id=subscription.id,
             exported_asset_ids=[asset.id],
             total_insight_count=1,
+            previous_value="test1@posthog.com",
+            is_new_subscription_target=False,
         ),
     )
 
