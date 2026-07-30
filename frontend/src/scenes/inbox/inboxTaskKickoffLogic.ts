@@ -41,6 +41,15 @@ const DISCUSS_RUNTIME: ClaudeRuntimeSelection = {
     reasoning_effort: ReasoningEffortEnumApi.High,
 }
 
+// Pressing "Create PR" is a strong engagement signal — the user is committing to a real
+// implementation run — so it pins the stronger model rather than taking the server-side default of
+// Sonnet, giving the change the best shot at landing.
+const CREATE_PR_RUNTIME: ClaudeRuntimeSelection = {
+    runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
+    model: 'claude-opus-5',
+    reasoning_effort: ReasoningEffortEnumApi.High,
+}
+
 function buildCreatePrReportPrompt(report: SignalReport, feedback?: string): string {
     const base = `Act on PostHog Inbox report "${report.title ?? report.id}" (id ${report.id}). Investigate the root cause using the report's contributing findings, implement the fix, and open a PR.${
         report.summary ? `\n\nReport summary:\n${report.summary}` : ''
@@ -226,7 +235,8 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     report,
                     SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
                     buildCreatePrReportPrompt(report),
-                    'Implement report fix'
+                    'Implement report fix',
+                    CREATE_PR_RUNTIME
                 )
                 actions.createPrSuccess()
             } catch (error: any) {
