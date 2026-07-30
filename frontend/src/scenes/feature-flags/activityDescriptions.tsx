@@ -462,6 +462,31 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
                 ),
             }
         }
+        // A flag this one depends on changed its definition: same story as the cohort
+        // case above. job_type must stay in sync with FLAG_DEPENDENCY_UPDATED_JOB_TYPE in
+        // products/feature_flags/backend/flag_version_sync.py.
+        if (logItem.detail.trigger?.job_type === 'flag_dependency_updated') {
+            const { flag_id, flag_key } = logItem.detail.trigger.payload ?? {}
+            return {
+                description: (
+                    <SentenceList
+                        listParts={[
+                            <Fragment key="flag-dependency-updated">
+                                changed the definition of linked flag{' '}
+                                {nameOrLinkToFlag(flag_id ? String(flag_id) : undefined, flag_key as string)}
+                            </Fragment>,
+                        ]}
+                        prefix={getActorName(logItem)}
+                        suffix={
+                            <>
+                                on {asNotification && ' the flag '}
+                                {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}
+                            </>
+                        }
+                    />
+                ),
+            }
+        }
         let changes: Description[] = []
         let changeSuffix: Description = (
             <>

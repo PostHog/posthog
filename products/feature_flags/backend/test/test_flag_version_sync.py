@@ -211,3 +211,127 @@ class TestFlagVersionSync(BaseTest):
         assert flag.version == 1
         # Recalculation bookkeeping must not spam flag history either.
         assert _updated_entries(flag) == []
+
+
+def _flag_dependency_filters(flag_id: int) -> dict:
+    return {
+        "groups": [
+            {"properties": [{"key": str(flag_id), "type": "flag", "operator": "flag_evaluates_to", "value": True}]}
+        ]
+    }
+
+
+class TestFlagDependencyVersionSync(BaseTest):
+    def _create_flag(self, key: str, filters: dict | None = None) -> FeatureFlag:
+        return FeatureFlag.objects.create(
+            team=self.team,
+            key=key,
+            created_by=self.user,
+            filters=filters if filters is not None else {"groups": [{"rollout_percentage": 100}]},
+        )
+
+    def test_flag_definition_change_bumps_versions_down_the_dependency_chain(self):
+        base = self._create_flag("base")
+        dependent = self._create_flag("dependent", _flag_dependency_filters(base.pk))
+        # base <- dependent <- transitive exercises the multi-hop walk.
+        transitive = self._create_flag("transitive", _flag_dependency_filters(dependent.pk))
+        # A cycle back onto the edited flag must terminate, not re-bump base.
+        cycling = self._create_flag("cycling", _flag_dependency_filters(transitive.pk))
+        FeatureFlag.objects.filter(pk=base.pk).update(
+            filters={
+                "groups": [{"properties": [{"key": str(cycling.pk), "type": "flag", "operator": "flag_evaluates_to"}]}]
+            }
+        )
+        unrelated = self._create_flag("unrelated")
+        deleted_dependent = self._create_flag("deleted-dependent", _flag_dependency_filters(base.pk))
+        FeatureFlag.objects_including_soft_deleted.filter(pk=deleted_dependent.pk).update(deleted=True)
+        # Legacy rows can have a NULL version; the bump must produce 1, not NULL.
+        FeatureFlag.objects.filter(pk=transitive.pk).update(version=None)
+
+        base.refresh_from_db()
+        base.filters = {"groups": [{"rollout_percentage": 25}]}
+        base.save()
+
+        for flag in (base, dependent, transitive, cycling, unrelated, deleted_dependent):
+            flag.refresh_from_db()
+        # The edited flag's own version is the serializer's job, not this receiver's.
+        assert base.version == 1
+        assert dependent.version == 2
+        assert transitive.version == 1
+        assert cycling.version == 2
+        assert unrelated.version == 1
+        assert deleted_dependent.version == 1
+
+        assert _updated_entries(base) == []
+        assert _updated_entries(unrelated) == []
+        assert _updated_entries(deleted_dependent) == []
+        for flag, before, after in ((dependent, 1, 2), (transitive, None, 1), (cycling, 1, 2)):
+            (entry,) = _updated_entries(flag)
+            detail = entry.detail
+            assert detail is not None
+            assert detail["changes"] == [
+                {"type": "FeatureFlag", "action": "changed", "field": "version", "before": before, "after": after}
+            ]
+            assert detail["trigger"] == {
+                "job_type": "flag_dependency_updated",
+                "job_id": str(base.pk),
+                "payload": {"flag_id": base.pk, "flag_key": "base"},
+            }
+            assert detail["name"] == flag.key
+
+    def test_cohort_change_cascades_through_a_flag_dependency(self):
+        cohort = Cohort.objects.create(team=self.team, name="cohort", filters=_person_filters("a@a.com"))
+        base = self._create_flag(
+            "base", {"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}]}]}
+        )
+        dependent = self._create_flag("dependent", _flag_dependency_filters(base.pk))
+
+        cohort.filters = _person_filters("z@z.com")
+        cohort.save()
+
+        base.refresh_from_db()
+        dependent.refresh_from_db()
+        assert base.version == 2
+        assert dependent.version == 2
+        (entry,) = _updated_entries(dependent)
+        detail = entry.detail
+        assert detail is not None
+        # The dependent inherits the change through base, so that's what its history names.
+        assert detail["trigger"]["job_type"] == "flag_dependency_updated"
+        assert detail["trigger"]["payload"] == {"flag_id": base.pk, "flag_key": "base"}
+
+    def test_version_history_reconstructable_across_dependency_driven_bumps(self):
+        base = self._create_flag("base")
+        original_filters = _flag_dependency_filters(base.pk)
+        dependent = self._create_flag("dependent", original_filters)
+
+        base.filters = {"groups": [{"rollout_percentage": 25}]}
+        base.save()  # dependent -> version 2, via the receiver
+
+        dependent.refresh_from_db()
+        dependent.filters = {"groups": [{"rollout_percentage": 50}]}
+        dependent.version = 3
+        dependent.save()
+
+        at_v2 = reconstruct_flag_at_version(dependent, 2, self.team.pk)
+        assert at_v2["version"] == 2
+        assert at_v2["filters"] == original_filters
+
+    @parameterized.expand(
+        [
+            ("rename_only_full_save", {"name": "renamed"}, None),
+            ("unpersisted_definition_change", {"filters": {"groups": []}}, ["name"]),
+            ("unchanged_definition_full_save", {}, None),
+        ]
+    )
+    def test_non_definition_flag_saves_do_not_bump_dependent_versions(self, _name: str, attrs: dict, update_fields):
+        base = self._create_flag("base")
+        dependent = self._create_flag("dependent", _flag_dependency_filters(base.pk))
+
+        for field, value in attrs.items():
+            setattr(base, field, value)
+        base.save(update_fields=update_fields) if update_fields is not None else base.save()
+
+        dependent.refresh_from_db()
+        assert dependent.version == 1
+        assert _updated_entries(dependent) == []
