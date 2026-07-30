@@ -124,10 +124,11 @@ function Header(): JSX.Element {
     )
 }
 
-const REPLAY_VISION_PROMO_DISMISS_KEY = 'replay-vision-waitlist-promo'
+// New key for launch so users who dismissed the waitlist promo see this one
+const REPLAY_VISION_PROMO_DISMISS_KEY = 'replay-vision-launch-promo'
 
 function ReplayVisionPromoBanner(): JSX.Element | null {
-    // Teams with the flag already have access, so send them to the product instead of the waitlist
+    // The scene is still flag-gated, so unflagged users get the website instead of a dead link
     const hasReplayVision = useFeatureFlag('REPLAY_VISION')
     const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: REPLAY_VISION_PROMO_DISMISS_KEY }))
 
@@ -137,7 +138,7 @@ function ReplayVisionPromoBanner(): JSX.Element | null {
     }
 
     return (
-        <PostHogCaptureOnViewed name="replay-vision-waitlist-banner-shown">
+        <PostHogCaptureOnViewed name="replay-vision-launch-banner-shown">
             <LemonBanner
                 type="ai"
                 dismissKey={REPLAY_VISION_PROMO_DISMISS_KEY}
@@ -147,18 +148,18 @@ function ReplayVisionPromoBanner(): JSX.Element | null {
                               children: 'Try Replay vision',
                               to: urls.replayVision(),
                               center: true,
-                              'data-attr': 'replay-vision-waitlist-banner-cta',
+                              'data-attr': 'replay-vision-launch-banner-cta',
                           }
                         : {
-                              children: 'Join the waitlist',
-                              to: 'https://posthog.com/replay-vision?utm_medium=in-product&utm_campaign=replay-vision-waitlist-banner',
+                              children: 'Learn more',
+                              to: 'https://posthog.com/replay-vision?utm_medium=in-product&utm_campaign=replay-vision-launch-banner',
                               targetBlank: true,
                               center: true,
-                              'data-attr': 'replay-vision-waitlist-banner-cta',
+                              'data-attr': 'replay-vision-launch-banner-cta',
                           }
                 }
             >
-                Tired of watching replays? Replay vision watches them for you and surfaces what matters.
+                Replay vision is here. Scanners watch your recordings for you and surface what matters.
             </LemonBanner>
         </PostHogCaptureOnViewed>
     )

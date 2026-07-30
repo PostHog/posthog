@@ -5,6 +5,7 @@ import { useState } from 'react'
 import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { IconPencil, IconPlus, IconRefresh, IconSearch, IconTrash } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonInput,
     LemonSwitch,
@@ -283,6 +284,15 @@ export function ReplayScannersScene(): JSX.Element {
             />
 
             <IngestionLimitBanner />
+
+            {/* Beta scanners were disabled when billing went live at launch; only beta teams have disabled scanners to re-enable. */}
+            {scanners.some((scanner) => !scanner.enabled) && (
+                <LemonBanner type="warning" dismissKey="replay-vision-launch-beta-scanners">
+                    Replay vision is out of beta and scans now use billed credits. Your scanners were turned off for the
+                    launch, so re-enable the ones you want to keep running. Check your email for billing details, or see
+                    the Usage tab for current spend.
+                </LemonBanner>
+            )}
 
             <ProductIntroduction
                 productName="Replay vision"
