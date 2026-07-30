@@ -56,6 +56,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.bat
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
     DeltaTableHelper,
+    is_transient_delta_maintenance_error,
     is_transient_object_store_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
@@ -457,10 +458,11 @@ class PipelineNonDLT(Generic[ResumableData]):
         try:
             await self._delta_table_helper.compact_table()
         except Exception as e:
-            if is_transient_object_store_error(e):
-                # A rate-limited or connectivity blip compacting/vacuuming our own S3 bucket isn't a
-                # bug - the next sync's post-run compaction retries the same idempotent cleanup.
-                await self._logger.awarning(f"Compaction skipped: transient object-store error: {e}")
+            if is_transient_object_store_error(e) or is_transient_delta_maintenance_error(e):
+                # A rate-limited or connectivity blip compacting/vacuuming our own S3 bucket, or a
+                # concurrent maintenance pass racing ours, isn't a bug - the next sync's post-run
+                # compaction retries the same idempotent cleanup.
+                await self._logger.awarning(f"Compaction skipped: transient error: {e}")
             else:
                 capture_exception(e)
                 await self._logger.aexception(f"Compaction failed: {e}", exc_info=e)

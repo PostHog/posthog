@@ -79,14 +79,23 @@ def is_transient_object_store_error(error: BaseException) -> bool:
 # asks the caller to do.
 DELTA_MERGE_CONFLICT_RETRIES = 3
 
-# `optimize.compact` plans its rewrite against the file list at the start of its scan, then reads
-# those files. A concurrent maintenance pass on the same table (e.g. a Temporal activity attempt that
-# heartbeat-timed-out but keeps running as a zombie — see this package's README on the equivalent
-# unfenced race for repartition) can vacuum one of those files out from under the scan before it gets
-# read, which delta-rs surfaces as this DeltaError. The scan failing here means the optimize aborted
-# before committing anything — the table is left exactly as it was, just still fragmented — so this is
-# safe to skip and retry on the next maintenance pass, not a bug in our logic.
-TRANSIENT_DELTA_MAINTENANCE_ERRORS = ("Optimize selected-file scan failed",)
+# Both signatures below are a concurrent maintenance pass on the same table racing ours (e.g. a
+# Temporal activity attempt that heartbeat-timed-out but keeps running as a zombie — see this
+# package's README on the equivalent unfenced race for repartition), and in both cases our operation
+# aborts before committing anything, leaving the table exactly as it was, so the next maintenance
+# pass redoes the same idempotent cleanup:
+# - "Optimize selected-file scan failed": `optimize.compact` plans its rewrite against the file list
+#   at the start of its scan, then reads those files; the other pass can vacuum one out from under
+#   the scan before it gets read.
+# - "Kernel error: File not found" on a `_delta_log/*.json` entry: the other pass can checkpoint and
+#   expire log entries while we are reading the log to plan a vacuum, so the commit we resolved a
+#   moment ago is gone by the time the kernel opens it.
+# Only consult this from the best-effort maintenance paths (compact/vacuum), where aborting is
+# harmless — a missing log entry seen while reading or merging data would be a real problem.
+TRANSIENT_DELTA_MAINTENANCE_ERRORS = (
+    "Optimize selected-file scan failed",
+    "Kernel error: File not found",
+)
 
 
 def is_transient_delta_maintenance_error(error: BaseException) -> bool:

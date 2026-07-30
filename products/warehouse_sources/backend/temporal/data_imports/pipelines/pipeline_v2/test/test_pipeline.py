@@ -4,6 +4,7 @@ from typing import cast
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import deltalake.exceptions
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -83,6 +84,16 @@ class TestPostRunOperationsCompactionErrorHandling:
     @parameterized.expand(
         [
             ("transient_s3_slowdown", OSError("Generic S3 error: Please reduce your request rate."), False),
+            # A concurrent maintenance pass can expire a log entry under our vacuum. The per-table S3
+            # path is in the message, so every affected table used to mint a brand-new issue.
+            (
+                "concurrent_maintenance_expired_log_entry",
+                deltalake.exceptions.DeltaError(
+                    "Generic error: Kernel error: File not found: "
+                    "dlt/team_1_postgres_abc/orders/_delta_log/00000000000000000001.json"
+                ),
+                False,
+            ),
             ("genuine_bug", OSError("Access Denied: not authorized"), True),
         ]
     )

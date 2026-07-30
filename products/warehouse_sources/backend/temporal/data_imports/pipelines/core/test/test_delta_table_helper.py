@@ -1229,11 +1229,22 @@ class TestIsTransientDeltaMaintenanceError:
                 ),
                 True,
             ),
+            # A concurrent pass checkpointing and expiring log entries under our vacuum: same deal.
+            (
+                "vacuum_log_entry_expired",
+                deltalake.exceptions.DeltaError(
+                    "Generic error: Kernel error: File not found: "
+                    "dlt/team_1_postgres_abc/orders/_delta_log/00000000000000000001.json"
+                ),
+                True,
+            ),
             # Other DeltaErrors are real failures (e.g. a genuinely corrupt log) and must still be captured.
             ("unrelated_delta_error", deltalake.exceptions.DeltaError("no protocol found in delta log"), False),
             # Same message shape but not the DeltaError type delta-rs actually raises for it.
             ("wrong_exception_type", RuntimeError("Optimize selected-file scan failed"), False),
         ]
     )
-    def test_matches_only_the_racy_optimize_scan_signature(self, _name: str, error: Exception, expected: bool):
+    def test_matches_only_the_racy_concurrent_maintenance_signatures(
+        self, _name: str, error: Exception, expected: bool
+    ):
         assert is_transient_delta_maintenance_error(error) is expected

@@ -271,6 +271,7 @@ async def _run_delta_maintenance(
     logger: FilteringBoundLogger,
 ) -> None:
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
+        is_transient_delta_maintenance_error,
         is_transient_object_store_error,
     )
 
@@ -307,10 +308,11 @@ async def _run_delta_maintenance(
                         schema.id, schema.team_id, updates={watermark_key: new_version}
                     )
         except Exception as e:
-            if is_transient_object_store_error(e):
-                # A rate-limited or connectivity blip talking to our own S3 bucket isn't a bug - the
-                # next tick's maintenance pass retries the same idempotent cleanup.
-                logger.warning(f"Delta maintenance skipped: transient object-store error: {e}")
+            if is_transient_object_store_error(e) or is_transient_delta_maintenance_error(e):
+                # A rate-limited or connectivity blip talking to our own S3 bucket, or a concurrent
+                # maintenance pass racing ours, isn't a bug - the next tick's maintenance pass
+                # retries the same idempotent cleanup.
+                logger.warning(f"Delta maintenance skipped: transient error: {e}")
             else:
                 capture_exception(e)
                 logger.exception(f"Delta maintenance failed: {e}", exc_info=e)
@@ -320,8 +322,8 @@ async def _run_delta_maintenance(
             with POST_LOAD_DURATION_SECONDS.labels(operation="compact").time():
                 await delta_table_helper.compact_table()
         except Exception as e:
-            if is_transient_object_store_error(e):
-                logger.warning(f"Compaction skipped: transient object-store error: {e}")
+            if is_transient_object_store_error(e) or is_transient_delta_maintenance_error(e):
+                logger.warning(f"Compaction skipped: transient error: {e}")
             else:
                 capture_exception(e)
                 logger.exception(f"Compaction failed: {e}", exc_info=e)
