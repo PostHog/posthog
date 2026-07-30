@@ -11,7 +11,7 @@ import {
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
-import { getToolCategory } from '@/tools/toolDefinitions'
+import { getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
 
 import { buildMCPSessionAnalyticsProperties } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
@@ -117,6 +117,11 @@ export async function trackToolCall(
         // (it never maps tool→category itself). Omitted when unknown (e.g. the `exec`
         // wrapper), which the dashboard buckets as "Uncategorized".
         const toolCategory = getToolCategory(toolName)
+        // The description the agent saw when it picked this tool, clipped catalog-side.
+        // Powers the tool-detail Descriptions table and description-vs-intent fit in
+        // MCP analytics. Inner exec calls reach here with the resolved inner tool name,
+        // so the lookup lands on the inner tool's own description.
+        const toolDescription = getToolDescription(toolName)
 
         // Emits `$mcp_tool_call` (+ `$mcp_is_error`). The SDK maps `toolName` →
         // `$mcp_tool_name`, `durationMs` → `$mcp_duration_ms`, `isError` →
@@ -136,6 +141,7 @@ export async function trackToolCall(
                 ...properties,
                 tool_name: toolName,
                 ...(toolCategory ? { $mcp_tool_category: toolCategory } : {}),
+                ...(toolDescription ? { $mcp_tool_description: toolDescription } : {}),
                 ...extraProperties,
             },
         })

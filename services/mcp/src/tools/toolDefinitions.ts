@@ -128,6 +128,23 @@ export function getToolCategory(toolName: string): string | undefined {
     return getToolDefinitions()[toolName]?.category
 }
 
+/**
+ * Catalogued descriptions run to ~13 KB (the query tools embed full usage guides), which
+ * is too heavy to stamp on every analytics event. The first 512 characters carry the
+ * lead paragraph, which is the part that describes what the tool is for.
+ */
+export const MAX_CAPTURED_DESCRIPTION_LENGTH = 512
+
+/**
+ * The description a tool advertises to agents, clipped for analytics capture, or
+ * undefined for tools without a catalogued definition (e.g. the `exec` wrapper).
+ * Like {@link getToolCategory} this never throws, so it is safe to call from the
+ * analytics hot path where a missing definition must not break the request.
+ */
+export function getToolDescription(toolName: string): string | undefined {
+    return getToolDefinitions()[toolName]?.description.slice(0, MAX_CAPTURED_DESCRIPTION_LENGTH)
+}
+
 export interface ToolFilterOptions {
     features?: string[] | undefined
     tools?: string[] | undefined
