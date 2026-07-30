@@ -42,11 +42,7 @@ class CachedFunction(Generic[P, R]):
                 self._refreshing[key] = None
             except Exception:
                 self._refreshing[key] = None
-                if key not in self._cache:
-                    raise
-                # A failing refresh usually means the backing store is struggling; serving the
-                # stale value beats both re-raising and hammering it again on the next call.
-                self._cache[key] = (now(), self._cache[key][1])
+                raise
 
         if key not in self._cache:
             refresh()
