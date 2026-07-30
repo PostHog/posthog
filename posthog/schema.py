@@ -25529,6 +25529,15 @@ class TrendsQuery(BaseModel):
     )
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
     trendsFilter: TrendsFilter | None = Field(default=None, description="Properties specific to the trends insight")
+    useWebAnalyticsPrecompute: bool | None = Field(
+        default=None,
+        description=(
+            'Web analytics "Allow precompute" opt-out. Only consulted for queries the'
+            " web analytics product routes to its precompute-backed trends runners"
+            " (`tags.productKey === 'web_analytics'`); ignored otherwise. An explicit"
+            " `false` forces the live trends path."
+        ),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 

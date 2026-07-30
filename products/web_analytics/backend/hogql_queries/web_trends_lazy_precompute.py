@@ -193,9 +193,13 @@ def effective_properties(query: TrendsQuery) -> list[Any]:
 def build_inner_overview_query(query: TrendsQuery, properties: list[Any]) -> WebOverviewQuery:
     return WebOverviewQuery(
         dateRange=query.dateRange or DateRange(),
+        interval=query.interval,
         properties=properties,
         filterTestAccounts=query.filterTestAccounts,
         compareFilter=query.compareFilter or CompareFilter(compare=False),
+        # The "Allow precompute" toggle: carrying it into the inner query lets
+        # the shared gate's per-query opt-out fire for trend tiles too.
+        useWebAnalyticsPrecompute=getattr(query, "useWebAnalyticsPrecompute", None),
     )
 
 
@@ -205,6 +209,14 @@ def can_use_web_trends_precompute(trends_runner: "WebTrendsQueryRunner", inner_r
     if trends_precompute_metric(trends_runner.query) is None:
         return False
     return _can_use_lazy_precompute_shared(inner_runner, log_prefix=_FAMILY)
+
+
+def _tz_offset_changes(date_range: Any) -> bool:
+    start = date_range.date_from()
+    end = date_range.date_to()
+    if start is None or end is None:
+        return False
+    return start.utcoffset() != end.utcoffset()
 
 
 def _read_series(
@@ -266,13 +278,17 @@ def _series_dict(
 
     series_object: dict[str, Any] = {
         "data": data,
-        "labels": [format_label_date(item, date_range, runner.team.week_start_day) for item in buckets],
+        # Labels are formatted in the CURRENT range's context and action.days is
+        # always the current range, even for the previous compare series — the
+        # live runner does both (build_series_response passes
+        # self.query_date_range regardless of series period).
+        "labels": [format_label_date(item, runner.query_date_range, runner.team.week_start_day) for item in buckets],
         "days": [item.strftime(day_fmt) for item in buckets],
         "count": float(sum(data)),
         "label": "All events" if series_label is None else series_label,
         "filter": runner._query_to_filter(),
         "action": {
-            "days": date_range.all_values(),
+            "days": runner.query_date_range.all_values(),
             "id": series_label,
             "type": "events",
             "order": 0,
@@ -313,10 +329,24 @@ def execute_lazy_precomputed_trends(runner: "WebTrendsQueryRunner") -> Optional[
 
         interval = (runner.query.interval or IntervalType.DAY).value
 
-        cur_from = runner.query_date_range.date_from()
+        # A DST transition inside an hour-interval range makes two local
+        # wall-clock hours collide on one bucket key (fall-back) or produces a
+        # nonexistent one (spring-forward); the live path emits 25/23 points
+        # there. Fall back rather than serve a silently different axis.
+        if interval == "hour" and _tz_offset_changes(runner.query_date_range):
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="dst_transition").inc()
+            return None
+
+        cur_buckets = runner.query_date_range.all_values()
         cur_to = runner.query_date_range.date_to()
-        assert cur_from is not None and cur_to is not None
-        cur_start_utc = cur_from.astimezone(UTC)
+        if not cur_buckets or cur_to is None:
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="empty_range").inc()
+            return None
+        # The live trends path truncates date_from to the start of the interval
+        # (a mid-month absolute date_from with month interval still counts the
+        # whole first month) — read and precompute from the first aligned
+        # bucket, not the raw date_from.
+        cur_start_utc = cur_buckets[0].astimezone(UTC)
         cur_end_utc = cur_to.astimezone(UTC)
 
         time_range_start = floor_utc_day(cur_start_utc)
@@ -343,8 +373,43 @@ def execute_lazy_precomputed_trends(runner: "WebTrendsQueryRunner") -> Optional[
         job_ids = [str(jid) for jid in result.job_ids]
 
         has_compare = runner.query.compareFilter is not None and bool(runner.query.compareFilter.compare)
-        results: list[dict[str, Any]] = []
 
+        # Both ensures run before any read: if the previous period turns out
+        # not ready the whole path falls back, and a current-period read done
+        # first would be wasted work mis-tagged as a served lazy query.
+        prev_job_ids: list[str] = []
+        prev_start_utc = prev_end_utc = None
+        prev_buckets: list = []
+        if has_compare:
+            prev_buckets = runner.query_previous_date_range.all_values()
+            prev_to = runner.query_previous_date_range.date_to()
+            if not prev_buckets or prev_to is None:
+                WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="previous_range_missing").inc()
+                return None
+            prev_start_utc = prev_buckets[0].astimezone(UTC)
+            prev_end_utc = prev_to.astimezone(UTC)
+            prev_range_start = floor_utc_day(prev_start_utc)
+            prev_range_end = ceil_utc_day(prev_end_utc)
+            if prev_range_start < prev_range_end:
+                prev_result = ensure_web_overview_precomputed(
+                    runner=inner_runner,
+                    time_range_start=prev_range_start,
+                    time_range_end=prev_range_end,
+                )
+                if prev_result.stale:
+                    handle_stale_served(runner=inner_runner, family="web_overview")
+                if not prev_result.ready:
+                    WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="previous_not_ready").inc()
+                    return None
+                # The previous window is fully covered by its own ensure's jobs.
+                # Unioning in the current period's jobs would double-count any
+                # overlap day (overlapping compare_to windows) if a redundant
+                # READY job for the same window exists under both ids.
+                prev_job_ids = [str(jid) for jid in prev_result.job_ids]
+            else:
+                prev_job_ids = list(job_ids)
+
+        results: list[dict[str, Any]] = []
         current_values = _read_series(
             team=team,
             metric=metric,
@@ -358,29 +423,7 @@ def execute_lazy_precomputed_trends(runner: "WebTrendsQueryRunner") -> Optional[
         )
 
         if has_compare:
-            prev_from = runner.query_previous_date_range.date_from()
-            prev_to = runner.query_previous_date_range.date_to()
-            if prev_from is None or prev_to is None:
-                WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="previous_range_missing").inc()
-                return None
-            prev_start_utc = prev_from.astimezone(UTC)
-            prev_end_utc = prev_to.astimezone(UTC)
-            prev_range_start = floor_utc_day(prev_start_utc)
-            prev_range_end = ceil_utc_day(prev_end_utc)
-            prev_job_ids = list(job_ids)
-            if prev_range_start < prev_range_end:
-                prev_result = ensure_web_overview_precomputed(
-                    runner=inner_runner,
-                    time_range_start=prev_range_start,
-                    time_range_end=prev_range_end,
-                )
-                if prev_result.stale:
-                    handle_stale_served(runner=inner_runner, family="web_overview")
-                if not prev_result.ready:
-                    WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="previous_not_ready").inc()
-                    return None
-                prev_job_ids.extend(str(jid) for jid in prev_result.job_ids)
-
+            assert prev_start_utc is not None and prev_end_utc is not None
             previous_values = _read_series(
                 team=team,
                 metric=metric,

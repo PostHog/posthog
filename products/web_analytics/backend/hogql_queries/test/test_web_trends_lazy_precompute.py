@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
@@ -11,6 +13,7 @@ from posthog.schema import (
     ChartDisplayType,
     CompareFilter,
     DateRange,
+    EventPropertyFilter,
     EventsNode,
     IntervalType,
     SessionPropertyFilter,
@@ -24,6 +27,7 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.utils import uuid7
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
+from products.web_analytics.backend.hogql_queries import web_trends_lazy_precompute
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 from products.web_analytics.backend.hogql_queries.web_trends import WebTrendsQueryRunner
 from products.web_analytics.backend.hogql_queries.web_trends_lazy_precompute import (
@@ -148,6 +152,11 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             assert pre_series["compare_label"] == live_series["compare_label"]
             assert pre_series["data"] == live_series["data"]
             assert pre_series["days"] == live_series["days"]
+            # The previous series' labels and action.days must use the CURRENT
+            # range's context like the live runner does — the compare tooltip
+            # pairs points across series by these.
+            assert pre_series["labels"] == live_series["labels"]
+            assert pre_series["action"]["days"] == live_series["action"]["days"]
         assert precomputed.resolved_compare_date_range is not None
 
     @freeze_time("2024-01-15T12:00:00Z")
@@ -240,6 +249,99 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         runner = get_query_runner(untagged, self.team)
         assert isinstance(runner, TrendsQueryRunner)
         assert not isinstance(runner, WebTrendsQueryRunner)
+
+    @parameterized.expand(
+        [
+            # Each interval has its own bucket expression and days-format
+            # branch; hour additionally exercises mid-day (non-day-floored)
+            # read bounds against day-floored precompute jobs.
+            ("hour", IntervalType.HOUR, "2024-01-02", "2024-01-03"),
+            ("month", IntervalType.MONTH, "2024-01-01", "2024-01-31"),
+        ]
+    )
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_interval_parity_with_live_trends(
+        self, _name: str, interval: IntervalType, date_from: str, date_to: str
+    ) -> None:
+        self._seed()
+        query = self._build_query(interval=interval)
+        query.dateRange = DateRange(date_from=date_from, date_to=date_to)
+
+        live = TrendsQueryRunner(team=self.team, query=query).calculate()
+        with self._enable_lazy(), self._enable_trends_flag():
+            precomputed = WebTrendsQueryRunner(team=self.team, query=query).calculate()
+
+        assert precomputed.results[0]["data"] == live.results[0]["data"]
+        assert precomputed.results[0]["days"] == live.results[0]["days"]
+        assert precomputed.results[0]["labels"] == live.results[0]["labels"]
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_filtered_round_trip_matches_live(self) -> None:
+        # Filters must flow into the precompute INSERT and back out — if the
+        # series-level merge in effective_properties or the inner query's
+        # property mapping drops them, a $host-filtered tile silently shows
+        # unfiltered fleet numbers.
+        self._seed()
+        host_filter = EventPropertyFilter(key="$host", value=["example.com"], operator="exact")
+        query = self._build_query()
+        query.properties = [host_filter]
+
+        live = TrendsQueryRunner(team=self.team, query=query).calculate()
+        with self._enable_lazy(), self._enable_trends_flag():
+            precomputed = WebTrendsQueryRunner(team=self.team, query=query).calculate()
+        assert precomputed.results[0]["data"] == live.results[0]["data"]
+        assert sum(precomputed.results[0]["data"]) == 1  # only p1 on example.com
+
+        # Same filter attached to the series node (how some WA tiles send it)
+        # must produce the same served numbers.
+        series_query = self._build_query()
+        series_query.series[0].properties = [host_filter]
+        with self._enable_lazy(), self._enable_trends_flag():
+            series_filtered = WebTrendsQueryRunner(team=self.team, query=series_query).calculate()
+        assert series_filtered.results[0]["data"] == precomputed.results[0]["data"]
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_per_query_opt_out_falls_back(self) -> None:
+        # The "Allow precompute" toggle sets useWebAnalyticsPrecompute=false on
+        # the tile queries; the trends path must honor it like every other WA
+        # runner — it is the user-facing escape hatch for precompute doubts.
+        self._seed()
+        query = self._build_query()
+        query.useWebAnalyticsPrecompute = False
+        with self._enable_lazy(), self._enable_trends_flag():
+            response = WebTrendsQueryRunner(team=self.team, query=query).calculate()
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+        assert sum(response.results[0]["data"]) == 2
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_stale_buckets_are_served_and_revalidated_via_overview_family(self) -> None:
+        # Stale-within-grace buckets must be served (falling back would put
+        # dashboards on the slow path at every TTL lapse) and the background
+        # revalidation must debounce under the web_overview family so one
+        # rebuild refreshes the buckets both tiles read.
+        self._seed()
+        real_ensure = web_trends_lazy_precompute.ensure_web_overview_precomputed
+
+        def stale_ensure(**kwargs):
+            result = real_ensure(**kwargs)
+            return replace(result, stale=True)
+
+        with (
+            self._enable_lazy(),
+            self._enable_trends_flag(),
+            patch(
+                "products.web_analytics.backend.hogql_queries.web_trends_lazy_precompute.ensure_web_overview_precomputed",
+                side_effect=stale_ensure,
+            ),
+            patch(
+                "products.web_analytics.backend.hogql_queries.web_trends_lazy_precompute.handle_stale_served"
+            ) as mock_stale,
+        ):
+            response = WebTrendsQueryRunner(team=self.team, query=self._build_query()).calculate()
+
+        assert sum(response.results[0]["data"]) == 2  # served, not fallen back
+        assert mock_stale.called
+        assert mock_stale.call_args.kwargs["family"] == "web_overview"
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_week_interval_zero_fills_full_range(self) -> None:

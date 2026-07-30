@@ -48947,6 +48947,10 @@
                     "$ref": "#/definitions/TrendsFilter",
                     "description": "Properties specific to the trends insight"
                 },
+                "useWebAnalyticsPrecompute": {
+                    "description": "Web analytics \"Allow precompute\" opt-out. Only consulted for queries the web analytics product routes to its precompute-backed trends runners (`tags.productKey === 'web_analytics'`); ignored otherwise. An explicit `false` forces the live trends path.",
+                    "type": "boolean"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
