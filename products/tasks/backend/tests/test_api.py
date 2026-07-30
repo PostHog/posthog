@@ -131,6 +131,13 @@ vbMnD1ZQKgL8LHgb02cbTsc=
 -----END PRIVATE KEY-----"""
 
 
+# A discuss-report kickoff prompt: the report URL line the frontend prepends, then the user's question.
+_DISCUSS_PROMPT = (
+    "Let's discuss this PostHog Inbox report: "
+    "https://us.posthog.com/project/2/inbox/reports/x\n\nIs this still happening?"
+)
+
+
 class BaseTaskAPITest(TestCase):
     organization: ClassVar[Organization]
     team: ClassVar[Team]
@@ -1425,10 +1432,7 @@ class TestTaskAPI(BaseTaskAPITest):
             "/api/projects/@current/tasks/",
             {
                 "title": "Discuss report",
-                "description": (
-                    "Let's discuss this PostHog Inbox report: "
-                    "https://us.posthog.com/project/2/inbox/reports/x\n\nIs this still happening?"
-                ),
+                "description": _DISCUSS_PROMPT,
                 "origin_product": "signal_report",
                 "signal_report": str(report.id),
                 "signal_report_task_relationship": relationship,
@@ -1444,6 +1448,93 @@ class TestTaskAPI(BaseTaskAPITest):
             self.assertEqual(note.skill_name, "")  # no authoring run recorded → addressed to the whole fleet
         else:
             self.assertFalse(notes.exists())
+
+    def _post_discussion_task(self, report_id, description=_DISCUSS_PROMPT):
+        return self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Discuss report",
+                "description": description,
+                "origin_product": "signal_report",
+                "signal_report": str(report_id),
+                "signal_report_task_relationship": "discussion",
+            },
+            format="json",
+        )
+
+    def _discussion_notes(self):
+        from products.signals.backend.models import SignalScoutNote
+
+        return SignalScoutNote.objects.filter(team=self.team, origin=SignalScoutNote.Origin.REPORT_DISCUSSION)
+
+    def test_discussion_note_targets_authoring_scout(self):
+        # A discussion note is addressed to the scout that authored the report (resolved from its run
+        # rows), so a reviewer's question reaches the right scout rather than the whole fleet.
+        from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun
+        from products.skills.backend.models.skills import LLMSkill
+
+        skill_name = "signals-scout-error-tracking"
+        report = SignalReport.objects.create(team=self.team, title="Checkout errors spiked")
+        LLMSkill.objects.create(team=self.team, name=skill_name, description="scout", body="# scout")
+        scout_task = Task.objects.create(
+            team=self.team, title="scout run", description="scout run", origin_product=Task.OriginProduct.SIGNALS_SCOUT
+        )
+        config, _ = SignalScoutConfig.objects.get_or_create(team=self.team, skill_name=skill_name)
+        SignalScoutRun.objects.create(
+            team=self.team,
+            task_run=TaskRun.objects.create(task=scout_task, team=self.team),
+            scout_config=config,
+            skill_name=skill_name,
+            skill_version=1,
+            emitted_report_ids=[str(report.id)],
+        )
+
+        self.assertEqual(self._post_discussion_task(report.id).status_code, status.HTTP_201_CREATED)
+        self.assertEqual(self._discussion_notes().get().skill_name, skill_name)
+
+    def test_discussion_note_skipped_when_user_lacks_skill_editor_access(self):
+        # A caller who couldn't write a scout note by hand (no llm_skill editor access) can't plant one
+        # via a discussion, even though creating the task needs only task:write.
+        from posthog.rbac.user_access_control import UserAccessControl
+
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team, title="Checkout errors spiked")
+
+        def deny_llm_skill(self, resource, *args, **kwargs):
+            return resource != "llm_skill"
+
+        with patch.object(
+            UserAccessControl, "check_access_level_for_resource", autospec=True, side_effect=deny_llm_skill
+        ):
+            response = self._post_discussion_task(report.id)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(self._discussion_notes().exists())
+
+    def test_discussion_note_forwarding_is_best_effort(self):
+        # Forwarding is a post-commit side effect: if the note write fails, the discussion task is still
+        # created (never a 5xx) and simply no note lands.
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team, title="Checkout errors spiked")
+        with patch("products.signals.backend.discussion_notes.leave_note", side_effect=RuntimeError("boom")):
+            response = self._post_discussion_task(report.id)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(self._discussion_notes().exists())
+
+    def test_discussion_note_skipped_for_blank_question(self):
+        # A discuss kickoff whose question is empty (only the URL prefix) forwards nothing.
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team, title="Checkout errors spiked")
+        response = self._post_discussion_task(
+            report.id, description="Let's discuss this PostHog Inbox report: x\n\n   "
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(self._discussion_notes().exists())
 
     def test_create_task_with_signal_report_accepts_free_form_relationship(self):
         from products.signals.backend.models import SignalReport, SignalReportTask
