@@ -12,12 +12,14 @@ const assert = require('node:assert/strict')
 
 const {
     computeTargets,
+    compileContractMatcher,
     globToRegExp,
     isTripwire,
     parseCrateDependencies,
     reverseClosure,
     ALL,
 } = require('./trunk-impacted-targets')
+const { parseTachModules, tachDependents } = require('./turbo-discover')
 
 const CONTEXT = {
     products: ['alpha', 'beta', 'gamma'],
@@ -178,6 +180,83 @@ test('an isolated product change stays narrow and names its tach dependents', ()
     ])
     // beta has no dependents in the synthetic graph, so it must not widen.
     assert.deepEqual(computeTargets(['products/beta/backend/api.py'], CONTEXT), ['py:product:beta'])
+})
+
+const withContractSurface = (product, inputs) => ({
+    ...CONTEXT,
+    contractSurfaces: new Map([[product, compileContractMatcher(inputs)]]),
+})
+
+// Nothing outside the product can import a file the product never exposes, so
+// no other PR can add a call to it and there is no combination to serialize.
+test('a change outside a declared contract surface keeps its own lane', () => {
+    const context = withContractSurface('alpha', ['backend/facade/**'])
+    assert.deepEqual(computeTargets(['products/alpha/backend/connectors/mongo.py'], context), ['py:product:alpha'])
+})
+
+test('a change inside a declared contract surface still cascades to dependents', () => {
+    const context = withContractSurface('alpha', ['backend/facade/**'])
+    assert.deepEqual(computeTargets(['products/alpha/backend/facade/models.py'], context), [
+        'py:product:alpha',
+        'py:product:beta',
+        'py:product:gamma',
+    ])
+})
+
+// The gate applies to the change set, not to each file: a PR that touches the
+// contract has to cascade no matter how much internal code sits beside it.
+test('one contract file among internals still cascades', () => {
+    const context = withContractSurface('alpha', ['backend/facade/**'])
+    const targets = computeTargets(
+        ['products/alpha/backend/connectors/mongo.py', 'products/alpha/backend/facade/models.py'],
+        context
+    )
+    assert.equal(targets.includes('py:product:gamma'), true)
+})
+
+// The absence of a declaration has to mean "all of it is contract". Reading it
+// as "none of it" would hand every isolated product a lane it has not earned.
+test('a product that declares no contract surface cascades on any backend file', () => {
+    const targets = computeTargets(['products/alpha/backend/connectors/mongo.py'], CONTEXT)
+    assert.equal(targets.includes('py:product:gamma'), true)
+})
+
+test('contract inputs honor negation and drop inputs outside the product', () => {
+    const matcher = compileContractMatcher(['backend/**/*.py', '!backend/**/__pycache__/**', '../../uv.lock'])
+    assert.equal(matcher('backend/api.py'), true)
+    assert.equal(matcher('backend/facade/models.py'), true)
+    assert.equal(matcher('backend/__pycache__/api.py'), false)
+    assert.equal(matcher('frontend/Scene.tsx'), false)
+})
+
+// A matcher that matched nothing would classify every file as internal, which
+// is the same silent under-report as a missing cascade.
+test('a contract with no product-relative inputs yields no matcher', () => {
+    assert.equal(compileContractMatcher(['../../uv.lock']), null)
+    assert.equal(compileContractMatcher([]), null)
+})
+
+// Only a direct importer can name the changed product's symbols. The hop beyond
+// reaches the changed code through an intermediate whose own PR carries its own
+// targets, and in the real graph a 31-product cycle makes the transitive
+// closure the whole backend.
+test('the cascade names direct importers and stops before the next hop', () => {
+    const toml = `
+[[modules]]
+path = "products.beta"
+depends_on = ["products.alpha"]
+layer = "modules"
+
+[[modules]]
+path = "products.gamma"
+depends_on = ["products.beta"]
+layer = "modules"
+`
+    const context = { ...CONTEXT, tachGraph: { graph: parseTachModules(toml), tachDependents } }
+    assert.deepEqual(computeTargets(['products/alpha/backend/api.py'], context), [
+        'py:product:alpha',
+        'py:product:beta',
+    ])
 })
 
 test('a non-isolated product change widens to every backend target', () => {
