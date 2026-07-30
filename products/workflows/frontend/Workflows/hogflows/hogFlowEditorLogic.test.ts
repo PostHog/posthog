@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
-import { computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
+import { computeMoveEdges, computeReconnectEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
 
 type Edge = HogFlow['edges'][0]
@@ -85,6 +85,55 @@ describe('computeMoveEdges', () => {
         const edges = [edge('trigger', 'A', 'continue'), edge('A', 'exit', 'continue')]
         const nonexistent = edge('X', 'Y', 'continue')
         expect(computeMoveEdges(edges, 'A', nonexistent, false)).toBeNull()
+    })
+})
+
+describe('computeReconnectEdges', () => {
+    const edges = [
+        edge('trigger_node', 'cond', 'continue'),
+        edge('cond', 'exit_node', 'branch', 0),
+        edge('cond', 'exit_node', 'branch', 1),
+        edge('cond', 'email', 'continue'),
+        edge('email', 'exit_node', 'continue'),
+    ]
+
+    it('re-points only the reconnected branch edge', () => {
+        const result = computeReconnectEdges(edges, edge('cond', 'exit_node', 'branch', 1), 'email')
+        expect(result.error).toBeUndefined()
+        expect(result.edges).toEqual([
+            edge('trigger_node', 'cond', 'continue'),
+            edge('cond', 'exit_node', 'branch', 0),
+            edge('cond', 'email', 'branch', 1),
+            edge('cond', 'email', 'continue'),
+            edge('email', 'exit_node', 'continue'),
+        ])
+    })
+
+    it.each([
+        { name: 'self connection', edgeToReconnect: edge('cond', 'exit_node', 'branch', 0), newTarget: 'cond' },
+        {
+            name: 'connection back to the trigger',
+            edgeToReconnect: edge('cond', 'exit_node', 'branch', 0),
+            newTarget: 'trigger_node',
+        },
+        {
+            name: 'loop back to an upstream step',
+            edgeToReconnect: edge('email', 'exit_node', 'continue'),
+            newTarget: 'cond',
+        },
+        {
+            name: 'edge that no longer exists',
+            edgeToReconnect: edge('gone', 'exit_node', 'continue'),
+            newTarget: 'email',
+        },
+    ])('refuses a $name', ({ edgeToReconnect, newTarget }) => {
+        const result = computeReconnectEdges(edges, edgeToReconnect, newTarget)
+        expect(result.error).toBeTruthy()
+        expect(result.edges).toBeUndefined()
+    })
+
+    it('leaves the edges untouched when dropped back on the same step', () => {
+        expect(computeReconnectEdges(edges, edge('cond', 'exit_node', 'branch', 0), 'exit_node').edges).toBe(edges)
     })
 })
 

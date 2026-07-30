@@ -1,4 +1,5 @@
 import { BaseEdge, Edge, EdgeLabelRenderer, EdgeProps, useEdges } from '@xyflow/react'
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
@@ -152,14 +153,14 @@ export function getSmartStepPath({
     return [svgPath, labelX, labelY, offsetX, offsetY]
 }
 
-function EdgeLabel({ transform, label }: { transform: string; label: string }): JSX.Element {
+function EdgeLabel({ transform, label, dimmed }: { transform: string; label: string; dimmed?: boolean }): JSX.Element {
     return (
         <LemonTag
             style={{
                 transform,
             }}
             size="small"
-            className="nodrag nopan absolute text-[0.45rem] font-sans font-medium"
+            className={clsx('nodrag nopan absolute text-[0.45rem] font-sans font-medium', dimmed && 'opacity-40')}
             type="muted"
         >
             {label}
@@ -232,12 +233,17 @@ export function SmartEdge({
     markerEnd,
     markerStart,
     data,
+    style,
     ...props
 }: EdgeProps): JSX.Element {
     const edges = useEdges()
-    const { animatingEdgePair, mode } = useValues(hogFlowEditorLogic)
+    const { animatingEdgePair, mode, selectedNodeId } = useValues(hogFlowEditorLogic)
 
     const isAnimating = mode === 'test' && animatingEdgePair === `${source}->${target}`
+    // Several paths often converge on one step along the same line, so emphasize the selected
+    // step's own connections and fade the rest to keep them apart.
+    const isConnectedToSelectedNode = !!selectedNodeId && (source === selectedNodeId || target === selectedNodeId)
+    const isDimmed = !!selectedNodeId && !isConnectedToSelectedNode
     const animPathRef = useRef<SVGPathElement>(null)
 
     // Use the programmatic function to get the smart step path
@@ -269,7 +275,20 @@ export function SmartEdge({
 
     return (
         <>
-            <BaseEdge {...props} path={edgePath} markerEnd={markerEnd} markerStart={markerStart} />
+            <BaseEdge
+                {...props}
+                path={edgePath}
+                markerEnd={markerEnd}
+                markerStart={markerStart}
+                style={{
+                    ...style,
+                    ...(isConnectedToSelectedNode
+                        ? { stroke: 'var(--accent)', strokeWidth: 1.5 }
+                        : isDimmed
+                          ? { opacity: 0.4 }
+                          : {}),
+                }}
+            />
             {isAnimating && (
                 <path
                     ref={animPathRef}
@@ -287,6 +306,7 @@ export function SmartEdge({
                     <EdgeLabel
                         transform={`translate(-50%, -50%) translate(${labelPoint.x}px,${labelPoint.y}px)`}
                         label={(data?.label as string) || ''}
+                        dimmed={isDimmed}
                     />
                 ) : null}
             </EdgeLabelRenderer>

@@ -3,6 +3,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -274,6 +275,9 @@ export interface hogFlowEditorTestLogicActions {
     }
     receiveExampleGlobals: (globals: object | null) => {
         globals: object | null
+    }
+    refreshSampleGlobals: () => {
+        value: true
     }
     resetAccumulatedVariables: () => {
         value: true
@@ -627,6 +631,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         setEventSelectorOpen: (eventSelectorOpen: boolean) => ({ eventSelectorOpen }),
         setLastSearchedEventName: (eventName: string | null) => ({ eventName }),
         resetAccumulatedVariables: true,
+        refreshSampleGlobals: true,
     }),
     reducers({
         testResult: [
@@ -725,7 +730,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         sampleGlobals: [
             null as CyclotronJobInvocationGlobals | null,
             {
-                loadSampleGlobals: async ({ extendedSearch }) => {
+                loadSampleGlobals: async ({ extendedSearch }, breakpoint) => {
                     if (!values.shouldLoadSampleGlobals) {
                         return null
                     }
@@ -749,6 +754,8 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         }
 
                         const response = await performWideEventsQueryInTwoPhases(query)
+                        // Drop this response if the filters changed while it was in flight
+                        breakpoint()
 
                         if (!response?.results?.[0]) {
                             // No matching events found
@@ -1048,6 +1055,18 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         cancelSampleGlobalsLoading: () => {
             // Just mark as cancelled - we'll ignore any results that come back
         },
+        refreshSampleGlobals: async (_, breakpoint) => {
+            // Trigger filters change a keystroke at a time, so let the edits settle first
+            await breakpoint(300)
+
+            // If we can load actual events (i.e., trigger is configured), load them automatically
+            if (values.shouldLoadSampleGlobals) {
+                actions.loadSampleGlobals()
+            } else {
+                // Only use example event if we can't load actual events
+                actions.loadSampleGlobalsSuccess(createExampleEvent(values.workflow.team_id, values.workflow.name))
+            }
+        },
         setSelectedNodeId: () => {
             // When we switch back to a trigger node, reset the flags
             // so we can try loading again
@@ -1058,14 +1077,13 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         },
     })),
 
-    afterMount(({ actions, values }) => {
-        // If we can load actual events (i.e., trigger is configured), load them automatically
-        if (values.shouldLoadSampleGlobals) {
-            actions.loadSampleGlobals()
-        } else {
-            // Only use example event if we can't load actual events
-            const exampleGlobals = createExampleEvent(values.workflow.team_id, values.workflow.name)
-            actions.loadSampleGlobalsSuccess(exampleGlobals)
-        }
+    subscriptions(({ actions }) => ({
+        // Otherwise the panel keeps showing an event that the edited trigger no longer matches
+        matchingFilters: () => actions.refreshSampleGlobals(),
+        shouldLoadSampleGlobals: () => actions.refreshSampleGlobals(),
+    })),
+
+    afterMount(({ actions }) => {
+        actions.refreshSampleGlobals()
     }),
 ])

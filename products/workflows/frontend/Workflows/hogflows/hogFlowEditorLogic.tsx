@@ -1,4 +1,5 @@
 import {
+    Connection,
     Edge,
     EdgeChange,
     MarkerType,
@@ -67,6 +68,63 @@ const getBranchLabel = (action: HogFlowAction | undefined, edge: HogFlow['edges'
         default:
             return `If condition #${(edge.index || 0) + 1} matches`
     }
+}
+
+export type ReconnectEdgesResult = { edges: HogFlow['edges']; error?: undefined } | { edges?: undefined; error: string }
+
+/**
+ * Computes the new edges after re-pointing one edge at a different step.
+ * Extracted into pure function to be easier to test.
+ */
+export function computeReconnectEdges(
+    edges: HogFlow['edges'],
+    edgeToReconnect: HogFlow['edges'][0],
+    newTarget: string
+): ReconnectEdgesResult {
+    const index = edges.findIndex(
+        (edge) =>
+            edge.from === edgeToReconnect.from &&
+            edge.to === edgeToReconnect.to &&
+            edge.type === edgeToReconnect.type &&
+            edge.index === edgeToReconnect.index
+    )
+
+    if (index === -1) {
+        return { error: 'That connection no longer exists. Try again.' }
+    }
+
+    if (newTarget === edgeToReconnect.to) {
+        return { edges }
+    }
+
+    if (newTarget === edgeToReconnect.from) {
+        return { error: "A step can't connect to itself." }
+    }
+
+    if (newTarget === TRIGGER_NODE_ID) {
+        return { error: 'Nothing can connect back to the trigger.' }
+    }
+
+    const newEdges = [...edges]
+    newEdges[index] = { ...edgeToReconnect, to: newTarget }
+
+    // Workflows run forwards only, so refuse a reconnection that would let the new target loop
+    // back around to the step the edge leaves from.
+    const queue = [newTarget]
+    const visited = new Set<string>()
+    while (queue.length) {
+        const current = queue.shift()!
+        if (current === edgeToReconnect.from) {
+            return { error: 'That would create a loop in the workflow.' }
+        }
+        if (visited.has(current)) {
+            continue
+        }
+        visited.add(current)
+        newEdges.filter((edge) => edge.from === current).forEach((edge) => queue.push(edge.to))
+    }
+
+    return { edges: newEdges }
 }
 
 /**
@@ -1867,6 +1925,13 @@ export interface hogFlowEditorLogicActions {
     onNodesDelete: (deleted: HogFlowActionNode[]) => {
         deleted: HogFlowActionNode[]
     }
+    onReconnect: (
+        oldEdge: HogFlowActionEdge,
+        newConnection: Connection
+    ) => {
+        oldEdge: HogFlowActionEdge
+        newConnection: Connection
+    }
     resetFlowFromHogFlow: (hogFlow: HogFlow) => {
         hogFlow: HogFlow
     }
@@ -1971,6 +2036,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         onEdgesChange: (edges: EdgeChange<HogFlowActionEdge>[]) => ({ edges }),
         onNodesChange: (nodes: NodeChange<HogFlowActionNode>[]) => ({ nodes }),
         onNodesDelete: (deleted: HogFlowActionNode[]) => ({ deleted }),
+        onReconnect: (oldEdge: HogFlowActionEdge, newConnection: Connection) => ({ oldEdge, newConnection }),
         setNodes: (nodes: HogFlowActionNode[]) => ({ nodes }),
         setDropzoneNodes: (dropzoneNodes: DropzoneNode[]) => ({
             dropzoneNodes,
@@ -2226,7 +2292,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             id: getEdgeId(edge),
                             type: 'smart',
                             deletable: false,
-                            reconnectable: false,
+                            // The target end can be dragged onto another step, so wiring produced by
+                            // an insert isn't permanent. The source end identifies which branch the
+                            // edge belongs to, so it stays fixed.
+                            reconnectable: 'target',
                             selectable: false,
                             focusable: false,
                             markerEnd: {
@@ -2319,6 +2388,24 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 // that moved gets a fresh reference, an untouched one keeps its identity and its
                 // ReactFlow subtree doesn't re-render.
                 actions.setNodesRaw(reconcileById(values.nodes, formattedNodes, (node) => node.id))
+            },
+
+            onReconnect: ({ oldEdge, newConnection }) => {
+                const hogFlowEdge = oldEdge.data?.edge
+                if (!hogFlowEdge || !newConnection.target) {
+                    return
+                }
+
+                const { edges, error } = computeReconnectEdges(values.workflow.edges, hogFlowEdge, newConnection.target)
+
+                if (error) {
+                    lemonToast.error(error)
+                    return
+                }
+
+                if (edges !== values.workflow.edges) {
+                    actions.setWorkflowInfo({ actions: values.workflow.actions, edges })
+                }
             },
 
             onNodesDelete: ({ deleted }) => {

@@ -79,8 +79,15 @@ function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
     return (
         <div className="transition-all hover:translate-y-[-2px]">
             {node?.handles?.map((handle) => (
-                // isConnectable={false} prevents edges from being manually added
-                <Handle key={handle.id} className="opacity-0" {...handle} isConnectable={false} />
+                // Target handles accept a connection so an existing edge can be dragged onto another
+                // step, but can't start one: brand new edges still aren't drawn by hand.
+                <Handle
+                    key={handle.id}
+                    className="opacity-0"
+                    {...handle}
+                    isConnectable={handle.type === 'target'}
+                    isConnectableStart={false}
+                />
             ))}
             <StepView action={props.data} />
         </div>
