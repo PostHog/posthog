@@ -1878,7 +1878,7 @@ export interface SignalScoutConfigCreateApi {
  * Editable schedule, enablement, and emit posture for one scout config.
  */
 export interface PatchedSignalScoutConfigUpdateApi {
-    /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Setting false records a user pause (`status` becomes `paused_by_user`, which the system never overrides); setting true resumes the scout from any pause. */
+    /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Turning this off records a user pause (`status` becomes `paused_by_user`, which the system never overrides); turning it on resumes the scout from any pause. Only a change of value is a lifecycle action: re-sending the current value leaves the existing status and its ownership untouched. */
     enabled?: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
     emit?: boolean
