@@ -16,11 +16,12 @@ use tracing::{info, warn};
 
 use crate::clickhouse::person_scanner::PersonScanner;
 use crate::clickhouse::scanner::ChunkScanner;
-use crate::domain::{ClaimKind, RunId, RunKind};
+use crate::domain::{ClaimKind, RunId};
 use crate::kafka::pacing::TilePacer;
 use crate::kafka::producer::SeedTileProducer;
 use crate::observability::metrics::{CHUNKS_CLAIMED, CHUNKS_POISONED, CHUNKS_RECLAIMED};
 use crate::store::chunks::{Claim, PgChunkStore};
+use crate::store::runs::RunKind;
 use crate::store::Claimant;
 
 use super::completion::CompletionDriver;

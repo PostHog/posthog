@@ -20,8 +20,10 @@ use std::fmt;
 use crate::domain::{
     BehavioralShapeHash, BehavioralShapeHashError, CompletionParts, CompletionPhase,
     CompletionStatus, DispatchEpoch, MarkerWatch, ObservationEnds, PartitionBitmap,
-    PartitionBitmapError, ReconcileHwms, RunId, RunKind, WatchPositions, MARKER_WATCH_SCHEMA,
+    PartitionBitmapError, ReconcileHwms, RunId, WatchPositions, MARKER_WATCH_SCHEMA,
 };
+
+use super::runs::RunKind;
 
 use super::{RenderedError, PERSISTED_ERROR_LIMIT};
 

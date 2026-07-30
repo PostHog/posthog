@@ -15,13 +15,14 @@ use tracing::{info, warn};
 use crate::clickhouse::scanner::ChunkScanner;
 use crate::domain::{
     ChunkLease, ChunkSpec, ClaimedChunk, EnqueuedChunk, HaltReason, Halted, PinnedRun,
-    ProducedChunk, RunKind, ScannedChunk, StreamedChunk,
+    ProducedChunk, ScannedChunk, StreamedChunk,
 };
 use crate::kafka::pacing::TilePacer;
 use crate::kafka::producer::SeedTileProducer;
 use crate::observability::metrics::{CHUNKS_CONFIRMED, CHUNKS_FAILED, TILES_PRODUCED};
 use crate::store::chunks::{ChunkStoreError, PgChunkStore};
 use crate::store::lease::LeaseHandle;
+use crate::store::runs::RunKind;
 use crate::store::RenderedError;
 
 use super::deliver::{self, ProduceError};

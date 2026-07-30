@@ -17,13 +17,13 @@ use cohort_seeder::app::reconcile_dispatch::{
     RegisterBackfillConfirmation,
 };
 use cohort_seeder::domain::{
-    tile_ranges, ClaimEpoch, PersonRunValidation, PinnedWarning, ProduceHwms, RunKind,
+    tile_ranges, ClaimEpoch, PersonRunValidation, PinnedWarning, ProduceHwms,
 };
 use cohort_seeder::store::chunks::{ChunkStoreError, PgChunkStore, PlanOutcome};
 use cohort_seeder::store::lease::LeaseFailure;
 use cohort_seeder::store::runs::{
     discover_runs, establish_boundary, fail_run, load_reconcile_run, record_run_warning,
-    BoundaryOutcome, ReconcileRunError, RunError, RunStatus, RunWarningNote,
+    BoundaryOutcome, ReconcileRunError, RunError, RunKind, RunStatus, RunWarningNote,
 };
 use cohort_seeder::store::{Claimant, LeaseDuration, MaxAttempts, RenderedError};
 use cohort_seeder::test_support;

@@ -6,7 +6,8 @@ use std::num::{NonZeroU16, NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::time::Duration;
 
 use crate::config::Config;
-use crate::domain::{PlanCaps, RunKind};
+use crate::domain::PlanCaps;
+use crate::store::runs::RunKind;
 use crate::store::{LeaseDuration, LeaseDurationError, MaxAttempts, MaxAttemptsError};
 
 use super::deliver::QUEUE_FULL_BACKOFF_CAP;

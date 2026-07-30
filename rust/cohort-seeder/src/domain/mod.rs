@@ -50,7 +50,7 @@ pub use person::{
     person_chunk_sentinel_day, tile_ranges, EvaluatedConditions, PersonChunkSpec,
     PersonChunkSpecError, PersonEvaluator, PersonPinnedSnapshot, PersonPlanError, PersonRange,
     PersonRangeError, PersonRowOutcome, PersonRowSkip, PersonRunValidation, PersonSeedContext,
-    PinnedPersonRun, RunKind, UnknownRunKind, ValidatedPinnedPersonRun, MAX_PERSON_CHUNKS,
+    PinnedPersonRun, ValidatedPinnedPersonRun, MAX_PERSON_CHUNKS,
 };
 pub use pinned::{
     PinnedDropReason, PinnedError, PinnedParticipation, PinnedParticipationState, PinnedRun,

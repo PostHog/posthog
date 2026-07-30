@@ -19,7 +19,7 @@ use tracing::warn;
 
 use crate::domain::{
     plan_days, Lookback, PersonRunValidation, PinnedPersonRun, PinnedRun, PinnedWarning, PlanCaps,
-    RunId, RunKind,
+    RunId,
 };
 use crate::observability::metrics::{
     BOUNDARY_CAS_LOST, BOUNDARY_ESTABLISHED, CHUNKS_PLANNED, CONDITIONS_DROPPED,
@@ -31,7 +31,7 @@ use crate::store::chunks::{PgChunkStore, PlanOutcome};
 use crate::store::completion::{mark_chunks_planned, read_planning_stamp, PlanningStampOutcome};
 use crate::store::runs::{
     discover_runs, establish_boundary, fail_run, record_run_warning, BoundaryOutcome,
-    DiscoveredRun, RunError, RunStatus, RunWarningNote, SeedableRun,
+    DiscoveredRun, RunError, RunKind, RunStatus, RunWarningNote, SeedableRun,
 };
 use crate::store::RenderedError;
 

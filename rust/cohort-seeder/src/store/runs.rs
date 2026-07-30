@@ -13,7 +13,7 @@ use sqlx::{FromRow, PgPool};
 use crate::domain::{
     BehavioralShapeHash, BehavioralShapeHashError, PersonPinnedSnapshot, PersonRunValidation,
     PinnedError, PinnedParticipation, PinnedParticipationState, PinnedPersonRun, PinnedRun,
-    PinnedRunSnapshot, ReconcileTile, RunId, RunKind, TriggerKind, UtcMillis, ValidatedPinnedRun,
+    PinnedRunSnapshot, ReconcileTile, RunId, TriggerKind, UtcMillis, ValidatedPinnedRun,
 };
 
 use super::{RenderedError, PERSISTED_ERROR_LIMIT};
@@ -151,6 +151,38 @@ impl FromStr for RunScope {
         }
     }
 }
+
+/// The `cohort_backfill_runs.backfill_kind` vocabulary. Fail-closed: an unknown kind never decodes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RunKind {
+    Behavioral,
+    PersonProperty,
+}
+
+impl RunKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Behavioral => "behavioral",
+            Self::PersonProperty => "person_property",
+        }
+    }
+}
+
+impl FromStr for RunKind {
+    type Err = UnknownRunKind;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "behavioral" => Ok(Self::Behavioral),
+            "person_property" => Ok(Self::PersonProperty),
+            other => Err(UnknownRunKind(other.to_string())),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("unknown backfill kind {0:?}")]
+pub struct UnknownRunKind(pub String);
 
 #[derive(Debug, Clone)]
 pub struct DiscoveredRun {
@@ -455,6 +487,15 @@ impl TryFrom<RunRow> for DiscoveredRun {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn run_kind_round_trips_and_fails_closed() {
+        for kind in [RunKind::Behavioral, RunKind::PersonProperty] {
+            assert_eq!(kind.as_str().parse::<RunKind>().unwrap(), kind);
+        }
+        assert!("person".parse::<RunKind>().is_err());
+        assert!("".parse::<RunKind>().is_err());
+    }
 
     #[test]
     fn malformed_discovered_rows_keep_the_run_capability_for_q8() {

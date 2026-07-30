@@ -16,14 +16,14 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::clickhouse::person_scanner::{PersonScanError, PersonScanner};
-use crate::domain::{tile_ranges, PinnedPersonRun, RunId, RunKind};
+use crate::domain::{tile_ranges, PinnedPersonRun, RunId};
 use crate::observability::metrics::{
     CHUNKS_PLANNED, PERSON_BOUNDARIES_PLANNED, PERSON_PLANNING_DURATION_SECONDS,
     RUNS_PLANNING_STAMPED,
 };
 use crate::store::chunks::{PgChunkStore, PlanOutcome};
 use crate::store::completion::{mark_chunks_planned, PlanningStampOutcome};
-use crate::store::runs::fail_run;
+use crate::store::runs::{fail_run, RunKind};
 use crate::store::RenderedError;
 
 use std::sync::Arc;

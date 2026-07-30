@@ -17,7 +17,7 @@ use cohort_core::filters::{CohortId, TeamId};
 use cohort_core::partitioner::COHORT_PARTITION_COUNT;
 use cohort_seeder::domain::{
     CompletionPhase, DispatchEpoch, MarkerPartition, MarkerWatch, MembershipPartition, NextOffset,
-    ObservationEnds, PartitionBitmap, ProducedOffset, ReconcileHwms, RunId, RunKind, SeedPartition,
+    ObservationEnds, PartitionBitmap, ProducedOffset, ReconcileHwms, RunId, SeedPartition,
     UndispatchedReason, WatchPositions,
 };
 use cohort_seeder::store::chunks::PgChunkStore;
@@ -29,6 +29,7 @@ use cohort_seeder::store::completion::{
     record_participation_shortfall, runs_with_all_chunks_confirmed, CompletionStoreError,
     CurrentBehavioralHash, PlanningStampOutcome,
 };
+use cohort_seeder::store::runs::RunKind;
 use cohort_seeder::store::RenderedError;
 use cohort_seeder::test_support;
 use common_types::cohort::TeamAllowlist;

@@ -9,7 +9,6 @@
 //! decode would strand claimed chunks `scanning`.
 
 use std::collections::{BTreeMap, HashSet};
-use std::str::FromStr;
 use std::sync::Arc;
 
 use chrono::NaiveDate;
@@ -33,38 +32,6 @@ use super::pinned::{
 
 /// The wire cap a single seed's `evaluated` list admits; validation enforces it run-wide.
 pub use cohort_core::seed::MAX_PERSON_SEED_HASHES;
-
-/// The `cohort_backfill_runs.backfill_kind` vocabulary. Fail-closed: an unknown kind never decodes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum RunKind {
-    Behavioral,
-    PersonProperty,
-}
-
-impl RunKind {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Behavioral => "behavioral",
-            Self::PersonProperty => "person_property",
-        }
-    }
-}
-
-impl FromStr for RunKind {
-    type Err = UnknownRunKind;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "behavioral" => Ok(Self::Behavioral),
-            "person_property" => Ok(Self::PersonProperty),
-            other => Err(UnknownRunKind(other.to_string())),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("unknown backfill kind {0:?}")]
-pub struct UnknownRunKind(pub String);
 
 /// The fixed far-future `day` every person chunk is planned under. `claim_next` orders by
 /// `(day, band)`, so behavioral chunks (readiness-gating, fence-sensitive) always claim first.
@@ -566,15 +533,6 @@ mod tests {
             PersonRunValidation::Seedable(validated) => validated,
             PersonRunValidation::Retired { .. } => panic!("expected a seedable run"),
         }
-    }
-
-    #[test]
-    fn run_kind_round_trips_and_fails_closed() {
-        for kind in [RunKind::Behavioral, RunKind::PersonProperty] {
-            assert_eq!(kind.as_str().parse::<RunKind>().unwrap(), kind);
-        }
-        assert!("person".parse::<RunKind>().is_err());
-        assert!("".parse::<RunKind>().is_err());
     }
 
     #[test]

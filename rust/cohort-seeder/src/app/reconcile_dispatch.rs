@@ -12,13 +12,13 @@ use cohort_core::partitioner::COHORT_PARTITION_COUNT;
 use rdkafka::error::KafkaError;
 use sqlx::PgPool;
 
-use crate::domain::{ReconcileTile, RunId, RunKind};
+use crate::domain::{ReconcileTile, RunId};
 use crate::kafka::producer::{
     EnqueueError, PartitionCountError, SeedPartition, SeedPartitionCountError, SeedTileProducer,
 };
 use crate::store::chunks::{ChunkStoreError, PgChunkStore};
 use crate::store::completion::{read_planning_stamp, CompletionStoreError};
-use crate::store::runs::{load_reconcile_run, ReconcileRun, ReconcileRunError, RunStatus};
+use crate::store::runs::{load_reconcile_run, ReconcileRun, ReconcileRunError, RunKind, RunStatus};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompletionRequirement {
