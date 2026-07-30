@@ -469,8 +469,8 @@ class TestWarmQueriesOp(BaseTest):
         [
             # The dagster CH user's simultaneous-query cap is shared with other
             # Dagster jobs, so co-tenant bursts hit the warmer as AtCapacity for
-            # a few seconds. A transient burst must be retried (deferring the
-            # shape a whole hour cost ~13k shapes in one run), while sustained
+            # a few seconds. A transient burst must be retried (deferring every
+            # affected shape a whole hour), while sustained
             # saturation must still fail after the bounded retries — unbounded
             # retrying would wedge every worker thread against a hard cap.
             ("transient_202_recovers", [ClickHouseAtCapacity(), None], 2, False),
