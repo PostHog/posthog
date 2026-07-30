@@ -63,26 +63,57 @@ export function MessageList({
 }: MessageListProps): JSX.Element {
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
+    // Whether the reader is at (or near) the bottom of the thread. Starts true so
+    // the thread opens on its latest message; scrolling up clears it and scrolling
+    // back down restores it. Auto-scroll is gated on this so late-arriving content
+    // — notably a self-driving agent report, which loads on its own async request
+    // separate from the polled messages — never yanks a reader who has scrolled up
+    // into history back down to the bottom.
+    const pinnedToBottomRef = useRef(true)
+    // Latches once the thread has been opened at the bottom, so that initial jump
+    // happens exactly once per loaded thread rather than on every content change.
+    const openedAtBottomRef = useRef(false)
 
-    const scrollToBottom = (): void => {
-        if (containerRef.current && messagesEndRef.current) {
-            containerRef.current.scrollTo({
-                top: containerRef.current.scrollHeight,
-                behavior: 'smooth',
-            })
+    const scrollToBottom = (behavior: ScrollBehavior = 'smooth'): void => {
+        const container = containerRef.current
+        if (container) {
+            container.scrollTo({ top: container.scrollHeight, behavior })
         }
     }
 
     useEffect(() => {
-        if (messages.length > 0 || extras.length > 0) {
+        // No content yet: reset the latch so a freshly loaded thread opens at the
+        // bottom again (e.g. after switching tickets).
+        if (messages.length === 0 && extras.length === 0) {
+            openedAtBottomRef.current = false
+            return
+        }
+        // Open at the latest message the first time content lands, instantly.
+        if (!openedAtBottomRef.current) {
+            openedAtBottomRef.current = true
+            pinnedToBottomRef.current = true
+            scrollToBottom('instant')
+            return
+        }
+        // Afterwards only follow the tail when the reader is already there, so a
+        // message or an extra (agent report) arriving while they've scrolled up
+        // into history leaves their position untouched.
+        if (pinnedToBottomRef.current) {
             scrollToBottom()
         }
-        // Extras land in the same stream, so one arriving has to scroll like a message does.
     }, [messages.length, extras.length])
 
     const handleScroll = (): void => {
         const container = containerRef.current
-        if (!container || olderMessagesLoading || !hasMoreMessages || !onLoadOlderMessages) {
+        if (!container) {
+            return
+        }
+
+        // Track whether the reader is pinned to the bottom. The window is generous
+        // so a smooth auto-scroll still in flight keeps counting as pinned.
+        pinnedToBottomRef.current = container.scrollHeight - container.scrollTop - container.clientHeight < 120
+
+        if (olderMessagesLoading || !hasMoreMessages || !onLoadOlderMessages) {
             return
         }
 
