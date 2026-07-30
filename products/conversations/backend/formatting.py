@@ -512,11 +512,15 @@ def _serialize_block_node_to_markdown(node: JSON, include_images: bool = True) -
         language = node.get("attrs", {}).get("language") or ""
         return f"```{language}\n{code_text}\n```"
 
-    if node_type == "image" and include_images:
+    if node_type == "image":
         src = node.get("attrs", {}).get("src")
-        if src:
+        if src and include_images:
             alt = _escape_alt_text(node.get("attrs", {}).get("alt", "image"))
             return f"![{alt}]({src})"
+        return ""
+
+    if node.get("content"):
+        return _serialize_inline_nodes_to_markdown(node.get("content", []), include_images=include_images)
 
     return ""
 
