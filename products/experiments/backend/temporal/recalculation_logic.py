@@ -216,11 +216,21 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
             if won:
                 return proposed_query_to.isoformat()
 
-            existing_query_to = (
+            existing = (
                 ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id)
-                .values_list("query_to", flat=True)
+                .values_list("query_to", "status")
                 .first()
             )
+
+            if existing is None:
+                return None
+
+            existing_query_to, existing_status = existing
+            if existing_status not in (
+                ExperimentMetricsRecalculation.Status.PENDING,
+                ExperimentMetricsRecalculation.Status.IN_PROGRESS,
+            ):
+                return None
 
             return existing_query_to.isoformat() if existing_query_to is not None else None
 
