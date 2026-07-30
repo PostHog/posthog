@@ -15,9 +15,12 @@ const DEFAULT_WAIT_DURATION_SECONDS = 10 * 60
 // subscription matcher did NOT wake (and not an evaluate-on-entry match). This is the decisive
 // signal for removing the poll: while it sits at ~0 across teams for a sustained window, the
 // person/event/internal streams cover every wake and polling is provably redundant.
+// Labelled by team and flow so a non-zero reading names the workflow still leaning on the poll; a
+// series only exists for flows that actually poll-advance, so cardinality tracks incidence.
 export const counterHogflowWaitPollOnlyAdvance = new Counter({
     name: 'cdp_hogflow_wait_poll_only_advance',
     help: 'wait_until_condition advanced via the polling re-check, not the subscription matcher — a wake the streams missed.',
+    labelNames: ['team_id', 'hog_flow_id'],
 })
 
 // Outcome of a wait_until_condition re-check that ran because a person merge re-keyed the parked job
@@ -91,7 +94,9 @@ export class ConditionalBranchHandler implements ActionHandler {
             // Poll-only advance: a wait whose condition matched on a re-check (not via the matcher's
             // eventMatched short-circuit above, and not on entry). This is the wake the streams missed.
             if (isWait && invocation.state.currentAction?.pollReparked === true) {
-                counterHogflowWaitPollOnlyAdvance.inc()
+                counterHogflowWaitPollOnlyAdvance
+                    .labels({ team_id: invocation.hogFlow.team_id, hog_flow_id: invocation.hogFlow.id })
+                    .inc()
             }
             if (rekeyWoken) {
                 counterHogflowRekeyWake.labels('advanced').inc()

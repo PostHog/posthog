@@ -29,7 +29,7 @@ from posthog.schema import DateRange, LLMTrace, QueryLogTags, TraceQuery
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.models.team import Team
@@ -643,6 +643,13 @@ async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventI
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()
         increment_emit_event_outcome("success")
+    except CaptureInternalError as e:
+        if e.is_billing_limit_exceeded:
+            increment_emit_event_outcome("dropped_billing_limited")
+            logger.info("Skipping eval event emission; team over billing quota", team_id=inputs.team_id)
+            return
+        increment_emit_event_outcome("failed")
+        raise
     except Exception:
         increment_emit_event_outcome("failed")
         raise

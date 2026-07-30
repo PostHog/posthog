@@ -21,6 +21,23 @@ import {
     type WorkflowMetricsSummaryLogicProps,
 } from './workflowMetricsSummaryLogic'
 
+const TRACKED_SENDS_TOOLTIP =
+    'Untracked sends can never record opens or clicks, so engagement is shown against tracked sends (sent minus untracked).'
+
+// Opens and clicks are only possible on tracked sends, so pair the raw count with the denominator it
+// should be read against. A step that tracked every send shows the count alone, because its Sent
+// column is already the right denominator.
+function trackedEngagementColumn(value: number, row: EmailMetricRow): JSX.Element {
+    return (
+        <span>
+            {value.toLocaleString()}
+            {row.untracked > 0 && (
+                <span className="text-muted"> of {row.trackedSends.toLocaleString()} tracked sends</span>
+            )}
+        </span>
+    )
+}
+
 interface WorkflowMetricsSummaryProps extends WorkflowMetricsSummaryLogicProps {
     onSelectAction?: (actionId: string) => void
     /** Drill a per-email metric into its filtered logs (only bounced/blocked have a log filter). */
@@ -84,35 +101,15 @@ export function WorkflowMetricsSummary({
                 title: 'Opened',
                 key: 'opened',
                 align: 'right',
-                tooltip:
-                    'Untracked sends can never record opens or clicks, so opens are shown against tracked deliveries (delivered minus untracked).',
-                render: (_, row) => (
-                    <span>
-                        {row.opened.toLocaleString()}
-                        {row.untracked > 0 && row.delivered - row.untracked > 0 && (
-                            <span className="text-muted">
-                                {' '}
-                                of {(row.delivered - row.untracked).toLocaleString()} tracked
-                            </span>
-                        )}
-                    </span>
-                ),
+                tooltip: TRACKED_SENDS_TOOLTIP,
+                render: (_, row) => trackedEngagementColumn(row.opened, row),
             },
             {
                 title: 'Clicked',
                 key: 'clicked',
                 align: 'right',
-                render: (_, row) => (
-                    <span>
-                        {row.linkClicked.toLocaleString()}
-                        {row.untracked > 0 && row.delivered - row.untracked > 0 && (
-                            <span className="text-muted">
-                                {' '}
-                                of {(row.delivered - row.untracked).toLocaleString()} tracked
-                            </span>
-                        )}
-                    </span>
-                ),
+                tooltip: TRACKED_SENDS_TOOLTIP,
+                render: (_, row) => trackedEngagementColumn(row.linkClicked, row),
             },
             {
                 title: 'Issues',

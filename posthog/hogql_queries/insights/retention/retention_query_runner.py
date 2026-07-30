@@ -401,20 +401,25 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         # Pre-filter by event name
         if entities is None:
             entities = [self.start_event, self.return_event]
-        events = [event for entity in entities for event in self.get_events_for_entity(entity)]
-        unique_events = set(events)
-        # Don't pre-filter if any of them is "All events" or the entity has no events at all
-        if unique_events and None not in unique_events:
-            events_where.append(
-                ast.CompareOperation(
-                    left=ast.Field(chain=["event"]),
-                    # Sorting for consistent snapshots in tests
-                    right=ast.Tuple(exprs=[ast.Constant(value=event) for event in sorted(unique_events)]),  # type: ignore
-                    op=ast.CompareOperationOp.In,
-                )
-            )
+        event_name_filter = self.event_name_filter(entities)
+        if event_name_filter is not None:
+            events_where.append(event_name_filter)
 
         return events_where
+
+    def event_name_filter(self, entities: list[RetentionEntity]) -> ast.Expr | None:
+        """`event IN (...)` pre-filter for the given entities, or None when any of them is "All events"
+        (or an action with no concrete events), in which case no name filter can narrow the scan."""
+        events = [event for entity in entities for event in self.get_events_for_entity(entity)]
+        unique_events = set(events)
+        if not unique_events or None in unique_events:
+            return None
+        return ast.CompareOperation(
+            left=ast.Field(chain=["event"]),
+            # Sorting for consistent snapshots in tests
+            right=ast.Tuple(exprs=[ast.Constant(value=event) for event in sorted(unique_events)]),  # type: ignore
+            op=ast.CompareOperationOp.In,
+        )
 
     def _refresh_frequency(self):
         date_to = self.query_date_range.date_to()
