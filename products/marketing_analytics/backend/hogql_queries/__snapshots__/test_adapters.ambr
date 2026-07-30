@@ -10,10 +10,10 @@
 # name: TestMarketingAnalyticsAdapters.test_bing_ads_native_query_generation
   '''
   
-  SELECT toString(bing_campaigns.name) AS match_key, toString(bing_campaigns.name) AS campaign, toString(bing_campaigns.id) AS id, toString('bing') AS source, toFloat(SUM(ifNull(toFloat(bing_campaign_performance_report.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(bing_campaign_performance_report.clicks), 0))) AS clicks, SUM(ifNull(toFloat(bing_campaign_performance_report.spend), 0)) AS cost, toFloat(SUM(ifNull(toFloat(bing_campaign_performance_report.conversions), 0))) AS reported_conversion, toFloat(SUM(ifNull(toFloat(bing_campaign_performance_report.revenue), 0))) AS reported_conversion_value 
-  FROM bing_campaigns LEFT JOIN bing_campaign_performance_report ON equals(toString(bing_campaigns.id), toString(bing_campaign_performance_report.campaign_id)) 
+  SELECT toString(bing_campaign_performance_report.campaign_name) AS match_key, toString(bing_campaign_performance_report.campaign_name) AS campaign, toString(bing_campaign_performance_report.campaign_id) AS id, toString('bing') AS source, toFloat(SUM(ifNull(toFloat(bing_campaign_performance_report.impressions), 0))) AS impressions, toFloat(SUM(ifNull(toFloat(bing_campaign_performance_report.clicks), 0))) AS clicks, SUM(ifNull(toFloat(bing_campaign_performance_report.spend), 0)) AS cost, toFloat(SUM(ifNull(toFloat(bing_campaign_performance_report.conversions), 0))) AS reported_conversion, toFloat(SUM(ifNull(toFloat(bing_campaign_performance_report.revenue), 0))) AS reported_conversion_value 
+  FROM bing_campaign_performance_report 
   WHERE and(greaterOrEquals(toDateTime(bing_campaign_performance_report.time_period), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(bing_campaign_performance_report.time_period), toDateTime('2024-12-31 23:59:59'))) 
-  GROUP BY toString(bing_campaigns.name), toString(bing_campaigns.id)
+  GROUP BY toString(bing_campaign_performance_report.campaign_name), toString(bing_campaign_performance_report.campaign_id)
   '''
 # ---
 # name: TestMarketingAnalyticsAdapters.test_cloudflare_r2_adapter_query_generation

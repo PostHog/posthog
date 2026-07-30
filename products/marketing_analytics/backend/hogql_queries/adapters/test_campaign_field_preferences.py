@@ -135,15 +135,13 @@ class TestCampaignFieldPreferences(BaseTest):
         )
         adapter = MetaAdsAdapter(config, self.context)
 
-        # Check that the campaign name field uses 'name' field
         campaign_name_expr = adapter._get_campaign_name_field()
         name_hogql = campaign_name_expr.to_hogql()
-        assert ".name" in name_hogql
+        assert ".campaign_name" in name_hogql
 
-        # Check that the campaign id field uses 'id' field
         campaign_id_expr = adapter._get_campaign_id_field()
         id_hogql = campaign_id_expr.to_hogql()
-        assert ".id" in id_hogql
+        assert ".campaign_id" in id_hogql
 
     def test_metaads_uses_campaign_id_for_matching_when_configured(self):
         """Test that MetaAds adapter uses campaign id (field: 'id') for matching when configured"""
@@ -228,15 +226,15 @@ class TestCampaignFieldPreferences(BaseTest):
         )
         adapter = LinkedinAdsAdapter(config, self.context)
 
-        # Check that matching field uses id
+        # Bing reads campaign columns off the performance report, so no campaigns join
         match_field_expr = adapter.get_campaign_match_field()
         match_hogql = match_field_expr.to_hogql()
-        assert ".id" in match_hogql
+        assert ".campaign_id" in match_hogql
 
         # But name should still be available for display
         name_field_expr = adapter._get_campaign_name_field()
         name_hogql = name_field_expr.to_hogql()
-        assert ".name" in name_hogql
+        assert ".campaign_name" in name_hogql
 
     def test_tiktok_adapter_respects_preferences(self):
         """Test that TikTokAds adapter respects preferences for matching"""
@@ -296,15 +294,15 @@ class TestCampaignFieldPreferences(BaseTest):
         )
         adapter = RedditAdsAdapter(config, self.context)
 
-        # Check that matching field uses id
+        # Bing reads campaign columns off the performance report, so no campaigns join
         match_field_expr = adapter.get_campaign_match_field()
         match_hogql = match_field_expr.to_hogql()
-        assert ".id" in match_hogql
+        assert ".campaign_id" in match_hogql
 
         # But name should still be available for display
         name_field_expr = adapter._get_campaign_name_field()
         name_hogql = name_field_expr.to_hogql()
-        assert ".name" in name_hogql
+        assert ".campaign_name" in name_hogql
 
     def test_get_campaign_field_preference_handles_missing_config(self):
         """Test that helper method handles missing team config gracefully"""
@@ -352,7 +350,13 @@ class TestCampaignFieldPreferences(BaseTest):
         bing_stats_table = DataWarehouseTable.objects.create(
             team=self.team,
             name="bing_ads_campaign_performance_report",
-            columns={"campaign_id": "String", "impressions": "Int64", "clicks": "Int64", "spend": "Float64"},
+            columns={
+                "campaign_id": "String",
+                "campaign_name": "String",
+                "impressions": "Int64",
+                "clicks": "Int64",
+                "spend": "Float64",
+            },
         )
 
         self.team.marketing_analytics_config.campaign_field_preferences = {"BingAds": {"match_field": "campaign_id"}}
@@ -366,15 +370,15 @@ class TestCampaignFieldPreferences(BaseTest):
         )
         adapter = BingAdsAdapter(config, self.context)
 
-        # Check that matching field uses id
+        # Bing reads campaign columns off the performance report, so no campaigns join
         match_field_expr = adapter.get_campaign_match_field()
         match_hogql = match_field_expr.to_hogql()
-        assert ".id" in match_hogql
+        assert ".campaign_id" in match_hogql
 
         # But name should still be available for display
         name_field_expr = adapter._get_campaign_name_field()
         name_hogql = name_field_expr.to_hogql()
-        assert ".name" in name_hogql
+        assert ".campaign_name" in name_hogql
 
     def test_bingads_always_returns_both_fields(self):
         """Test that BingAds adapter always returns both name and id"""
@@ -386,7 +390,13 @@ class TestCampaignFieldPreferences(BaseTest):
         bing_stats_table = DataWarehouseTable.objects.create(
             team=self.team,
             name="bing_ads_campaign_performance_report_both",
-            columns={"campaign_id": "String", "impressions": "Int64", "clicks": "Int64", "spend": "Float64"},
+            columns={
+                "campaign_id": "String",
+                "campaign_name": "String",
+                "impressions": "Int64",
+                "clicks": "Int64",
+                "spend": "Float64",
+            },
         )
 
         config = BingAdsConfig(
@@ -401,12 +411,10 @@ class TestCampaignFieldPreferences(BaseTest):
         query = adapter.build_query()
         assert query is not None
 
-        # Check that the campaign name field uses 'name' field
         campaign_name_expr = adapter._get_campaign_name_field()
         name_hogql = campaign_name_expr.to_hogql()
-        assert ".name" in name_hogql
+        assert ".campaign_name" in name_hogql
 
-        # Check that the campaign id field uses 'id' field
         campaign_id_expr = adapter._get_campaign_id_field()
         id_hogql = campaign_id_expr.to_hogql()
-        assert ".id" in id_hogql
+        assert ".campaign_id" in id_hogql

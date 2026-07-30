@@ -1,6 +1,6 @@
 # Bing Ads Marketing Source Adapter
 
-from posthog.schema import MarketingAnalyticsDrillDownLevel, NativeMarketingSource
+from posthog.schema import NativeMarketingSource
 
 from posthog.hogql import ast
 
@@ -16,7 +16,7 @@ class BingAdsAdapter(MarketingSourceAdapter[BingAdsConfig]):
     """
     Adapter for Bing Ads native marketing data.
     Expects config with:
-    - campaign_table: campaigns entity table
+    - campaign_table: campaigns entity table (only used for validation / discovery)
     - stats_table: campaign_performance_report
     - adset_table / adset_stats_table: ad_group_performance_report (same table — Bing
       reports embed entity columns directly, see `_uses_unified_entity_stats` below)
@@ -24,21 +24,20 @@ class BingAdsAdapter(MarketingSourceAdapter[BingAdsConfig]):
 
     Bing's performance reports embed `ad_group_id` / `ad_group_name` /
     `campaign_id` / `campaign_name` (and at ad level, also `ad_id` / `ad_title`)
-    directly as columns, so there's no separate entity table at AD_GROUP / AD —
-    the report is both. `_uses_unified_entity_stats` flips the base FROM/GROUP BY
-    builders into the no-join code path.
+    directly as columns, so there's no separate entity table to join at any level —
+    the report is both. `_uses_unified_entity_stats` /
+    `_uses_unified_campaign_stats` flip the base FROM/GROUP BY builders into the
+    no-join code path.
     """
 
     _source_type = NativeMarketingSource.BING_ADS
 
     _stats_date_column = "time_period"
-    _campaign_pk_column = "id"
-    _campaign_name_column = "name"
-    _campaign_stats_fk_column = "campaign_id"
 
     # Bing imports lowercase + snake-case the API's CamelCase fields, so the
     # `AdGroupId` column arrives as `ad_group_id`, `AdTitle` as `ad_title`, etc.
     _uses_unified_entity_stats = True
+    _uses_unified_campaign_stats = True
     _adset_pk_column = "ad_group_id"
     _adset_name_column = "ad_group_name"
     _ad_pk_column = "ad_id"
@@ -156,32 +155,3 @@ class BingAdsAdapter(MarketingSourceAdapter[BingAdsConfig]):
 
         sum = ast.Call(name="SUM", args=[field_as_float])
         return ast.Call(name="toFloat", args=[sum])
-
-    def _get_from(self) -> ast.JoinExpr:
-        """At AD_GROUP / AD the base unified-mode FROM applies (just `FROM <report>`,
-        no joins). At CAMPAIGN we override because Bing requires explicit toString
-        casts on both sides of the join: `campaigns.id` is Int64 in the warehouse but
-        the report's `campaign_id` arrives as a String, and without casts the join
-        silently produces zero matches.
-        """
-        if self.context.drill_down_level in (
-            MarketingAnalyticsDrillDownLevel.AD_GROUP,
-            MarketingAnalyticsDrillDownLevel.AD,
-        ):
-            return super()._get_from()
-
-        campaign_table_name = self.config.campaign_table.name
-        stats_table_name = self.config.stats_table.name
-
-        left_field = ast.Call(name="toString", args=[ast.Field(chain=[campaign_table_name, "id"])])
-        right_field = ast.Call(name="toString", args=[ast.Field(chain=[stats_table_name, "campaign_id"])])
-        join_condition_expr = ast.CompareOperation(left=left_field, op=ast.CompareOperationOp.Eq, right=right_field)
-
-        return ast.JoinExpr(
-            table=ast.Field(chain=[campaign_table_name]),
-            next_join=ast.JoinExpr(
-                table=ast.Field(chain=[stats_table_name]),
-                join_type="LEFT JOIN",
-                constraint=ast.JoinConstraint(expr=join_condition_expr, constraint_type="ON"),
-            ),
-        )

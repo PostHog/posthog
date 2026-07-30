@@ -450,9 +450,16 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
     # The default builders then skip the entity→stats and parent-campaign joins and
     # read campaign columns off the report via `_unified_campaign_*_column`.
     _uses_unified_entity_stats: bool = False
+    # Same idea at CAMPAIGN level: when True, the campaign performance report embeds
+    # `_unified_campaign_*_column`, so the campaigns entity table isn't joined at all.
+    # That matters for correctness, not just cost: anchoring on the entity table and
+    # LEFT JOINing the report drops spend for any campaign the report knows about but
+    # the entity table doesn't — deleted campaigns are never returned by the platform's
+    # "get campaigns" endpoints, yet their historical spend lives on in the report.
+    _uses_unified_campaign_stats: bool = False
     # Column names on a unified report that hold parent campaign info. Only consulted
-    # when `_uses_unified_entity_stats` is True. Default to snake_case since most
-    # warehouse imports lowercase the platform's CamelCase fields.
+    # when `_uses_unified_entity_stats` / `_uses_unified_campaign_stats` is True. Default
+    # to snake_case since most warehouse imports lowercase the platform's CamelCase fields.
     _unified_campaign_pk_column: str = "campaign_id"
     _unified_campaign_name_column: str = "campaign_name"
 
@@ -535,6 +542,15 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
                 entity_name_column=self._ad_name_column,
                 entity_id_output_column=self._ad_pk_column,
             )
+        if self._uses_unified_campaign_stats:
+            return HierarchicalLevelTables(
+                entity_table=config.stats_table,
+                stats_table=config.stats_table,
+                entity_id_column=self._unified_campaign_pk_column,
+                stats_entity_id_column=self._unified_campaign_pk_column,
+                entity_name_column=self._unified_campaign_name_column,
+                entity_id_output_column=self._unified_campaign_pk_column,
+            )
         return HierarchicalLevelTables(
             entity_table=config.campaign_table,
             stats_table=config.stats_table,
@@ -574,9 +590,10 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
         entity_table_name = tables.entity_table.name
         stats_table_name = tables.stats_table.name
         level = self.context.drill_down_level
-        is_unified = self._uses_unified_entity_stats and level in (
-            MarketingAnalyticsDrillDownLevel.AD_GROUP,
-            MarketingAnalyticsDrillDownLevel.AD,
+        is_entity_level = level in (MarketingAnalyticsDrillDownLevel.AD_GROUP, MarketingAnalyticsDrillDownLevel.AD)
+        # Every other level (campaign, channel, source, …) reads the campaign bundle.
+        is_unified = (self._uses_unified_entity_stats and is_entity_level) or (
+            self._uses_unified_campaign_stats and not is_entity_level
         )
 
         # Entity and report/stats tables can store the same id with different types
