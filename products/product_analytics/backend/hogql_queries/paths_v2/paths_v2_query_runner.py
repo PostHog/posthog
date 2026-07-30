@@ -225,6 +225,7 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
     def _gap_expr(self) -> ast.Expr:
         # Fixed seconds via the funnels realization (month means 31 days), never calendar INTERVAL
         # arithmetic, so a journey's gap G always equals the emitted funnel's conversion window.
+        # nosemgrep: hogql-fstring-audit - only interpolates an int computed from the pydantic-validated interval int and unit enum (no user strings)
         return parse_expr(
             f"toIntervalSecond({conversion_window_to_seconds(self.gap_interval, self.gap_interval_unit)})"
         )
@@ -232,6 +233,7 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
     def _window_interval_expr(self) -> ast.Expr:
         # Window W realized the same fixed-seconds way as the gap, so it always equals the emitted
         # funnel's conversion window.
+        # nosemgrep: hogql-fstring-audit - only interpolates an int computed from the pydantic-validated interval int and unit enum (no user strings)
         return parse_expr(
             f"toIntervalSecond({conversion_window_to_seconds(self.window_interval, self.window_interval_unit)})"
         )
@@ -252,7 +254,9 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
         if self.is_anchored and self.anchor is not None and self.anchor.type == PathsV2AnchorType.END:
             # arrayReverse(arraySort(...)), not arrayReverseSort: HogQL aliases arrayReverseSort to the
             # ascending arraySort, which would silently keep forward order.
+            # nosemgrep: hogql-fstring-audit - only interpolates the local constant string above (no user input)
             return parse_expr(f"arrayReverse(arraySort(x -> x.1, {events}))")
+        # nosemgrep: hogql-fstring-audit - only interpolates the local constant string above (no user input)
         return parse_expr(f"arraySort(x -> x.1, {events})")
 
     def _event_base_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
