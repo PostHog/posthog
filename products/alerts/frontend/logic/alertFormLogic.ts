@@ -404,12 +404,12 @@ export interface alertFormLogicMeta {
         hogqlAlertPreview: (
             insightData: Record<string, any>,
             arg: AlertConfig,
-            arg2: InsightsThresholdBounds | undefined
+            arg2: InsightsThresholdBounds | null | undefined
         ) => HogQLAlertPreview | null
         funnelAlertPreview: (
             insightData: Record<string, any>,
             arg: AlertConfig,
-            arg2: InsightsThresholdBounds | undefined,
+            arg2: InsightsThresholdBounds | null | undefined,
             arg3: AlertConditionType,
             arg4: InsightThresholdType
         ) => FunnelAlertPreview | null
