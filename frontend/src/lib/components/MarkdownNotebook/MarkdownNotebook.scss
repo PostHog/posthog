@@ -571,9 +571,12 @@
 .MarkdownNotebook__section {
     box-sizing: border-box;
     width: calc(100% - var(--markdown-notebook-content-offset));
+
+    // Indents the cards inside past the section's own rule, so the two left edges read as
+    // nesting rather than as one thick gutter.
+    padding-left: 0.75rem;
     margin: 0.75rem 0 0.75rem var(--markdown-notebook-content-offset);
     border-left: 2px solid var(--markdown-notebook-section-border);
-    border-radius: 0.25rem;
 }
 
 .MarkdownNotebook__canvas > .MarkdownNotebook__section:first-child,
@@ -589,11 +592,13 @@
     margin-left: 0;
 }
 
+// Sits the chevron just inside the section's rule, left of the cards it indents.
 .MarkdownNotebook__section-header {
     display: flex;
     gap: 0.25rem;
     align-items: center;
-    padding: 0.25rem 0.5rem 0.25rem 0.375rem;
+    padding: 0.25rem 0.5rem 0.25rem 0;
+    margin-left: -0.5rem;
 }
 
 .MarkdownNotebook__section--collapsed .MarkdownNotebook__section-header {
