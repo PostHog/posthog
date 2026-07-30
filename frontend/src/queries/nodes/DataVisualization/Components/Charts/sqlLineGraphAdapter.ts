@@ -105,11 +105,7 @@ export type SqlChartKind = 'line' | 'bar' | 'combo'
 
 /** The slice of chart props renderer dispatch reads — `SqlChartProps` and Customer analytics'
  *  `BillingChartProps` both satisfy it. */
-export interface SqlChartKindProps {
-    visualizationType: ChartDisplayType
-    yData: SqlLineYSeries[] | null | undefined
-    chartSettings: ChartSettings
-}
+export type SqlChartKindProps = Pick<SqlChartProps, 'visualizationType' | 'yData' | 'chartSettings'>
 
 /**
  * The single source of truth for which quill renderer draws a SQL insight. Resolves the per-series
@@ -135,15 +131,21 @@ export function sqlChartKind({ visualizationType, yData, chartSettings }: SqlCha
     if (hasMixedSeriesTypes(yData, visualizationType)) {
         // Percent-stacked bars clamp their axis to [0, 1] — a line/area series sharing that same
         // axis would plot its raw values off-scale with no way to reconcile the two domains. Keep
-        // the percent stack and draw those series as bars; a right-axis series has its own scale
-        // and is safe to combo.
+        // the percent stack and draw those series as bars — but only when every non-bar series is on
+        // the left axis: `TimeSeriesBarChart` has no notion of `series.type` and percent-stacks every
+        // series it's given, so a right-axis non-bar series would still get force-stacked into a
+        // constant 100% bar. A right-axis non-bar series has its own scale and is safe to combo.
+        const hasNonBarOnLeftAxis = yData.some(
+            (series) => seriesDisplayType(visualizationType, series.settings) !== 'bar' && !isRightAxisSeries(series)
+        )
+        const hasNonBarOnRightAxis = yData.some(
+            (series) => seriesDisplayType(visualizationType, series.settings) !== 'bar' && isRightAxisSeries(series)
+        )
         const sharesPercentAxis =
             visualizationType === ChartDisplayType.ActionsStackedBar &&
             chartSettings.stackBars100 &&
-            yData.some(
-                (series) =>
-                    seriesDisplayType(visualizationType, series.settings) !== 'bar' && !isRightAxisSeries(series)
-            )
+            hasNonBarOnLeftAxis &&
+            !hasNonBarOnRightAxis
         return sharesPercentAxis ? 'bar' : 'combo'
     }
 

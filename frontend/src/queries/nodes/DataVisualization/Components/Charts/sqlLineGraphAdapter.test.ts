@@ -180,6 +180,26 @@ describe('sqlLineGraphAdapter', () => {
                 )
             ).toBe('bar')
         })
+
+        // Regression: TimeSeriesBarChart percent-stacks every series it's given regardless of
+        // series.type, so degrading to bar here would force the right-axis line into the same [0, 1]
+        // stack as the left-axis bar/line pair and render it as a constant 100% bar.
+        it("picks combo for percent-stacked bars when a line shares the bars' axis and another line is on the right axis", () => {
+            const yData = [
+                ySeries('a', [1], { display: { displayType: 'bar' } }),
+                ySeries('b', [2], { display: { displayType: 'line' } }),
+                ySeries('c', [3], { display: { displayType: 'line', yAxisPosition: 'right' } }),
+            ]
+            expect(
+                sqlChartKind(
+                    baseProps({
+                        visualizationType: ChartDisplayType.ActionsStackedBar,
+                        yData,
+                        chartSettings: { stackBars100: true },
+                    })
+                )
+            ).toBe('combo')
+        })
     })
 
     describe('seriesDisplayType', () => {
