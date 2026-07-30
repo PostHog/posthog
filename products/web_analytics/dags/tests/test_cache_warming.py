@@ -10,6 +10,7 @@ import dagster
 from parameterized import parameterized
 
 from posthog.clickhouse.query_tagging import Feature, get_query_tags, reset_query_tags, tag_queries
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_background_warming_request
@@ -590,6 +591,10 @@ class TestWarmQueriesOp(BaseTest):
             )
 
         self.assertEqual(runner.run.call_count, 1)
+        # Forcing matters: run()'s default mode re-checks staleness against the
+        # true last_refresh and would return the fresh cached response, turning
+        # the early warm into a silent no-op.
+        self.assertEqual(runner.run.call_args.kwargs.get("execution_mode"), ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
     def test_team_ids_and_limit_scope_the_run(self) -> None:
         # A Launchpad run scoped to one team must not warm the fleet: launches

@@ -25,7 +25,7 @@ from posthog.clickhouse.query_tagging import Feature, reset_query_tags, tag_quer
 from posthog.dags.common import JobOwners
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.query_runner import get_query_runner_or_none
+from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner_or_none
 from posthog.models import Team
 from posthog.models.instance_setting import get_instance_setting
 from posthog.query_cache import QueryCache
@@ -839,7 +839,16 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
                     return "skipped_fresh"
 
             # TODO: We shouldn't try to run a query if it failed last run
-            runner.run(analytics_props={"source": EventSource.CACHE_WARMING})
+            # Blocking-always, not the stale-checking default: run() re-checks
+            # staleness internally against the entry's true last_refresh, so a
+            # jitter-early warm would silently return the still-fresh cached
+            # response and the early refresh — the whole point of the jitter —
+            # would never happen. The warmer has already made the staleness
+            # decision above; run() must not second-guess it.
+            runner.run(
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                analytics_props={"source": EventSource.CACHE_WARMING},
+            )
             WARMING_QUERIES_COUNTER.labels(outcome="warmed").inc()
             return "warmed"
         except Exception as e:
