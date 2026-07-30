@@ -111,24 +111,40 @@ def team_from_row(row: dict, *, organization_id: str | None = None) -> CPTeam | 
 
 _cache_lock = threading.Lock()
 _cache: dict[tuple[str, ...], tuple[float, list[dict]]] = {}
+_cache_epoch = 0
+_cache_generations: dict[tuple[str, ...], int] = {}
 
 
 def clear_cache() -> None:
     """Drop every cached CP response (for tests and operational cache busts)."""
+    global _cache_epoch
     with _cache_lock:
         _cache.clear()
+        _cache_epoch += 1
 
 
-def _cached_rows(key: tuple[str, ...], fetch: Callable[[], list[dict] | None]) -> list[dict] | None:
-    """Serve `key` from the TTL cache, fetching (and caching only successes) on a miss."""
+def invalidate_org_cache(organization_id: str) -> None:
+    """Drop cached rows affected by a mutation to one organization's teams."""
+    with _cache_lock:
+        for key in (("org_teams", str(organization_id)), ("all_teams",)):
+            _cache.pop(key, None)
+            _cache_generations[key] = _cache_generations.get(key, 0) + 1
+
+
+def _cached_rows(
+    key: tuple[str, ...], fetch: Callable[[], list[dict] | None], *, use_cache: bool = True
+) -> list[dict] | None:
+    """Serve `key` from the TTL cache unless the caller requires a fresh CP read."""
     with _cache_lock:
         hit = _cache.get(key)
-        if hit is not None and time.monotonic() - hit[0] < CACHE_TTL_SECONDS:
+        if use_cache and hit is not None and time.monotonic() - hit[0] < CACHE_TTL_SECONDS:
             return hit[1]
+        generation = (_cache_epoch, _cache_generations.get(key, 0))
     rows = fetch()
     if rows is not None:
         with _cache_lock:
-            _cache[key] = (time.monotonic(), rows)
+            if generation == (_cache_epoch, _cache_generations.get(key, 0)):
+                _cache[key] = (time.monotonic(), rows)
     return rows
 
 
@@ -157,10 +173,10 @@ def _fetch_all_rows() -> list[dict] | None:
         return None
 
 
-def list_org_teams(organization_id: str) -> list[CPTeam] | None:
+def list_org_teams(organization_id: str, *, use_cache: bool = True) -> list[CPTeam] | None:
     """All CP team rows of an org, or None when the control plane can't answer."""
     org_id = str(organization_id)
-    rows = _cached_rows(("org_teams", org_id), lambda: _fetch_org_rows(org_id))
+    rows = _cached_rows(("org_teams", org_id), lambda: _fetch_org_rows(org_id), use_cache=use_cache)
     if rows is None:
         return None
     teams = (team_from_row(row, organization_id=org_id) for row in rows)
@@ -180,9 +196,9 @@ def get_team(organization_id: str, team_id: int) -> CPTeam | None:
     return next((team for team in teams if team.team_id == wanted), None)
 
 
-def list_member_teams() -> list[CPTeam] | None:
+def list_member_teams(*, use_cache: bool = True) -> list[CPTeam] | None:
     """Every CP team row across all orgs, or None when unreachable."""
-    rows = _cached_rows(("all_teams",), _fetch_all_rows)
+    rows = _cached_rows(("all_teams",), _fetch_all_rows, use_cache=use_cache)
     if rows is None:
         return None
     teams = (team_from_row(row) for row in rows)
