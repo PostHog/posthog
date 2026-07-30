@@ -249,6 +249,21 @@ class TestOauthIntegrationModel(BaseTest):
                 "code_challenge_method": "S256",
             }
 
+    def test_authorize_url_carries_initiating_team_id_in_state(self):
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url(
+                "salesforce", token="state_token", next="/projects/test", team_id=228502
+            )
+            params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+            state = {k: v[0] for k, v in parse_qs(params["state"]).items()}
+            assert state["team_id"] == "228502"
+
+    def test_authorize_url_omits_team_id_when_not_provided(self):
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url("salesforce", token="state_token", next="/projects/test")
+            params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+            assert "team_id" not in parse_qs(params["state"])
+
     def test_authorize_url_pkce_challenge_matches_cached_verifier(self):
         with self.settings(**self.mock_settings):
             url = OauthIntegration.authorize_url("salesforce", token="pkce_state_token", next="/projects/test")
@@ -4208,3 +4223,76 @@ class TestResendIntegrationModel(BaseTest):
         assert sent["client_id"] == "resend-client-id"
         assert sent["client_secret"] == "resend-client-secret"
         assert sent["token_type_hint"] == "refresh_token"
+
+
+@override_settings(
+    SALESFORCE_CONSUMER_KEY="salesforce-client-id", SALESFORCE_CONSUMER_SECRET="salesforce-client-secret"
+)
+class TestPardotIntegrationModel(BaseTest):
+    def test_oauth_config_requests_the_account_engagement_scope(self):
+        config = OauthIntegration.oauth_config_for_kind("pardot")
+
+        assert config.authorize_url == "https://login.salesforce.com/services/oauth2/authorize"
+        assert config.token_url == "https://login.salesforce.com/services/oauth2/token"
+        assert config.token_revoke_url == "https://login.salesforce.com/services/oauth2/revoke"
+        assert config.client_id == "salesforce-client-id"
+        assert config.client_secret == "salesforce-client-secret"
+        assert config.pkce is True
+        assert config.id_path == "instance_url"
+        # Salesforce's `full` scope does not cover the Account Engagement API, so a token
+        # minted for the CRM kind cannot call it. That is why this kind exists at all.
+        assert config.scope == "pardot_api refresh_token"
+        assert config.scope != OauthIntegration.oauth_config_for_kind("salesforce").scope
+
+    def test_pardot_is_an_oauth_kind(self):
+        # Not being listed makes the authorize + callback endpoints reject the kind and drops
+        # it out of the scheduled token refresh sweep.
+        assert "pardot" in OauthIntegration.supported_kinds
+
+    @override_settings(SALESFORCE_CONSUMER_KEY="", SALESFORCE_CONSUMER_SECRET="")
+    def test_oauth_config_unconfigured_raises(self):
+        with pytest.raises(NotImplementedError, match="Salesforce app not configured"):
+            OauthIntegration.oauth_config_for_kind("pardot")
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_uses_the_org_instance_host_and_assumes_an_hour(self, mock_post, mock_reload):
+        # Account Engagement business units can live on a sandbox org, whose refresh token
+        # login.salesforce.com rejects, and Salesforce often omits expires_in — without the
+        # assumed hour the token is never treated as expired and syncs fail on a stale one.
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "REFRESHED_ACCESS_TOKEN"}
+
+        instance_url = "https://acme--sandbox.sandbox.my.salesforce.com"
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="pardot",
+            config={"instance_url": instance_url, "refreshed_at": int(time.time())},
+            sensitive_config={"refresh_token": "REFRESH"},
+        )
+
+        OauthIntegration(integration).refresh_access_token()
+
+        assert integration.errors == ""
+        assert mock_post.call_args.args[0] == f"{instance_url}/services/oauth2/token"
+        assert integration.sensitive_config["access_token"] == "REFRESHED_ACCESS_TOKEN"
+        assert integration.config["expires_in"] == 3600
+
+    @patch("posthog.models.integration.requests.post")
+    def test_expiry_is_assumed_when_the_token_response_omits_it(self, mock_post):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {
+            "access_token": "at",
+            "refresh_token": "rt",
+            "instance_url": "https://acme.my.salesforce.com",
+        }
+
+        integration = OauthIntegration.integration_from_oauth_response(
+            "pardot",
+            self.team.id,
+            self.user,
+            {"code": "code", "state": "token=state_token"},
+        )
+
+        assert integration.integration_id == "https://acme.my.salesforce.com"
+        assert integration.config["expires_in"] == 3600

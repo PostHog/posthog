@@ -1664,7 +1664,7 @@ export const LlmPromptsListQueryParams = /* @__PURE__ */ zod.object({
         .enum(['full', 'preview', 'none'])
         .default(llmPromptsListQueryContentDefault)
         .describe(
-            "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.\n\n\* `full` - full\n\* `preview` - preview\n\* `none` - none"
+            "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The config field is only included with 'full'. The outline field is always included.\n\n\* `full` - full\n\* `preview` - preview\n\* `none` - none"
         ),
     created_by_id: zod.number().optional().describe('Filter prompts by the ID of the user who created them.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
@@ -1697,6 +1697,12 @@ export const LlmPromptsCreateBody = /* @__PURE__ */ zod.object({
         .max(llmPromptsCreateBodyNameMax)
         .describe('Unique prompt name using letters, numbers, hyphens, and underscores only.'),
     prompt: zod.unknown().describe('Prompt payload as JSON or string data.'),
+    config: zod
+        .looseObject({})
+        .nullish()
+        .describe(
+            "Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt."
+        ),
     version_description: zod
         .string()
         .max(llmPromptsCreateBodyVersionDescriptionMax)
@@ -1723,7 +1729,7 @@ export const LlmPromptsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .enum(['full', 'preview', 'none'])
         .default(llmPromptsNameRetrieveQueryContentDefault)
         .describe(
-            "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.\n\n\* `full` - full\n\* `preview` - preview\n\* `none` - none"
+            "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The config field is only included with 'full'. The outline field is always included.\n\n\* `full` - full\n\* `preview` - preview\n\* `none` - none"
         ),
     label: zod
         .string()
@@ -1768,6 +1774,12 @@ export const LlmPromptsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "List of find\/replace operations to apply to the current prompt version. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with prompt."
+        ),
+    config: zod
+        .looseObject({})
+        .nullish()
+        .describe(
+            "JSON object with model parameters or any agent configuration to store with this version. If omitted, the current version's config is carried forward; pass null to clear it. Can be combined with either prompt or edits. Don't store secrets here: config is returned to anyone who can read the prompt."
         ),
     base_version: zod
         .number()

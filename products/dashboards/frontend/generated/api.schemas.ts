@@ -4471,6 +4471,7 @@ export const IntegrationKindApi = {
     Firebase: 'firebase',
     Jira: 'jira',
     PinterestAds: 'pinterest-ads',
+    Pardot: 'pardot',
     CustomerioApp: 'customerio-app',
     CustomerioWebhook: 'customerio-webhook',
     CustomerioTrack: 'customerio-track',
@@ -5904,6 +5905,8 @@ export interface HogQLQueryApi {
 }
 
 export interface ActorsQueryApi {
+    /** Exclude persons matching the team's "internal and test account" filters. Only person-scoped filters (person properties, cohorts) are applied. Event-scoped test account filters have no meaning in a persons query and are ignored. */
+    filterTestAccounts?: boolean | null
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
     fixedProperties?:
         | (

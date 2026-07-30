@@ -48,9 +48,11 @@ const STRIP_KEYS = [
     'gen_ai.response.id',
 ]
 
-// Metadata properties to promote to event properties
-const STRING_AI_METADATA_KEYS = ['$ai_session_id', '$ai_prompt_name']
+const STRING_AI_CONTEXT_KEYS = ['$ai_session_id', '$ai_prompt_name']
 const AI_PROMPT_VERSION_KEY = '$ai_prompt_version'
+const AI_TELEMETRY_METADATA_PREFIX = 'ai.telemetry.metadata.'
+const AI_RUNTIME_CONTEXT_PREFIX = 'ai.settings.context.'
+const AI_CONTEXT_PREFIXES = [AI_TELEMETRY_METADATA_PREFIX, AI_RUNTIME_CONTEXT_PREFIX]
 const EVE_MARKER_KEYS = ['eve.version', 'eve.session.id']
 const EVE_TURN_SPAN_NAME = 'ai.eve.turn'
 
@@ -60,6 +62,46 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isPromptVersion(value: unknown): value is string | number {
     return isNonEmptyString(value) || (typeof value === 'number' && Number.isInteger(value) && value > 0)
+}
+
+function getAiContextValue(props: Record<string, unknown>, key: string): unknown {
+    for (const prefix of AI_CONTEXT_PREFIXES) {
+        const value = props[`${prefix}${key}`]
+        if (value !== undefined) {
+            return value
+        }
+    }
+    return undefined
+}
+
+function normalizeEveRuntimeContext(props: Record<string, unknown>): void {
+    const eveRuntimeContextPrefix = `${AI_RUNTIME_CONTEXT_PREFIX}eve.`
+    for (const key of Object.keys(props)) {
+        if (!key.startsWith(eveRuntimeContextPrefix)) {
+            continue
+        }
+        const eveKey = key.slice(AI_RUNTIME_CONTEXT_PREFIX.length)
+        props[eveKey] ??= props[key]
+        delete props[key]
+    }
+}
+
+function promotePosthogContext(props: Record<string, unknown>): void {
+    for (const prefix of AI_CONTEXT_PREFIXES) {
+        promotePosthogCustomMetadata(props, prefix)
+    }
+}
+
+function stripProcessedContext(props: Record<string, unknown>): void {
+    for (const key of Object.keys(props)) {
+        if (
+            key.startsWith(AI_TELEMETRY_METADATA_PREFIX) ||
+            key.startsWith(AI_RUNTIME_CONTEXT_PREFIX) ||
+            key.startsWith('ai.request.headers.')
+        ) {
+            delete props[key]
+        }
+    }
 }
 
 function isEveSpan(props: Record<string, unknown>): boolean {
@@ -117,6 +159,7 @@ function process(event: PluginEvent, next: () => void): void {
         return next()
     }
     const props = event.properties
+    normalizeEveRuntimeContext(props)
     const eveSpan = isEveSpan(props)
 
     // Eve's Workflow parent is filtered before ingestion, so the turn must become the logical trace root.
@@ -170,10 +213,8 @@ function process(event: PluginEvent, next: () => void): void {
     }
     delete props['ai.response.text']
 
-    // Promote a groups map supplied via telemetry metadata before next(), so the
-    // generic mapper's normalizeGroups() can parse the JSON string and attach it.
-    // Skip if a $groups span attribute was already set directly.
-    const groupsMetadata = props['ai.telemetry.metadata.$groups']
+    // Promote groups before the generic mapper runs so it can parse the JSON value.
+    const groupsMetadata = getAiContextValue(props, '$groups')
     if (props['$groups'] === undefined && isNonEmptyString(groupsMetadata)) {
         props['$groups'] = groupsMetadata
     }
@@ -250,7 +291,7 @@ function process(event: PluginEvent, next: () => void): void {
         props['$ai_span_name'] = functionId
     }
 
-    const posthogDistinctId = props['ai.telemetry.metadata.posthog_distinct_id']
+    const posthogDistinctId = getAiContextValue(props, 'posthog_distinct_id')
     if (typeof posthogDistinctId === 'string' && posthogDistinctId) {
         if (props['posthog_distinct_id'] === undefined) {
             props['posthog_distinct_id'] = posthogDistinctId
@@ -258,36 +299,27 @@ function process(event: PluginEvent, next: () => void): void {
         event.distinct_id = posthogDistinctId
     }
 
-    for (const aiKey of STRING_AI_METADATA_KEYS) {
-        const value = props[`ai.telemetry.metadata.${aiKey}`]
+    for (const aiKey of STRING_AI_CONTEXT_KEYS) {
+        const value = getAiContextValue(props, aiKey)
         if (props[aiKey] === undefined && isNonEmptyString(value)) {
             props[aiKey] = value
         }
     }
 
-    const promptVersion = props[`ai.telemetry.metadata.${AI_PROMPT_VERSION_KEY}`]
+    const promptVersion = getAiContextValue(props, AI_PROMPT_VERSION_KEY)
     if (props[AI_PROMPT_VERSION_KEY] === undefined && isPromptVersion(promptVersion)) {
         props[AI_PROMPT_VERSION_KEY] = promptVersion
     }
 
-    // Vercel repeats telemetry metadata across provider spans, so only use the
-    // custom call name for the top-level event.
-    const spanNameOverride = props['ai.telemetry.metadata.$ai_span_name']
+    // Vercel repeats context across provider spans, so only rename the top-level event.
+    const spanNameOverride = getAiContextValue(props, '$ai_span_name')
     if (isTopLevel && isNonEmptyString(spanNameOverride)) {
         props['$ai_span_name'] = spanNameOverride
     }
 
-    promotePosthogCustomMetadata(props, 'ai.telemetry.metadata.')
+    promotePosthogContext(props)
 
-    // Strip Vercel-specific telemetry metadata and request headers after preserving
-    // the PostHog identifiers we rely on for event linkage and session grouping.
-    for (const key of Object.keys(props)) {
-        if (key.startsWith('ai.telemetry.metadata.')) {
-            delete props[key]
-        } else if (key.startsWith('ai.request.headers.')) {
-            delete props[key]
-        }
-    }
+    stripProcessedContext(props)
 
     // Map finish reason to $ai_stop_reason before stripping
     if (props['$ai_stop_reason'] === undefined) {
@@ -336,7 +368,12 @@ function process(event: PluginEvent, next: () => void): void {
     }
 }
 
-const MARKER_KEYS = ['ai.operationId', 'ai.telemetry.functionId', ...EVE_MARKER_KEYS]
+const MARKER_KEYS = [
+    'ai.operationId',
+    'ai.telemetry.functionId',
+    ...EVE_MARKER_KEYS,
+    ...EVE_MARKER_KEYS.map((key) => `${AI_RUNTIME_CONTEXT_PREFIX}${key}`),
+]
 
 export const vercelAi: OtelLibraryMiddleware = {
     name: 'vercel-ai',

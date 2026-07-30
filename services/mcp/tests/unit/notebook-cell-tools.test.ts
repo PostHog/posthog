@@ -169,11 +169,19 @@ describe('notebook cell tools', () => {
             cell_type: 'markdown',
             markdown: 'Some **notes**.',
         })
+        await addCellHandler(context, {
+            notebook_id: 'aBcD1234',
+            cell_type: 'markdown',
+            markdown: 'More notes.',
+        })
 
         expect(result).toEqual({})
-        expect(state.saveBodies).toHaveLength(1)
-        expect(state.saveBodies[0].content.content[0].attrs.markdown).toContain('Some **notes**.')
         expect(state.runBodies).toHaveLength(0)
+        // Each cell is a node of its own: one blank line would fold consecutive prose cells
+        // into a single card in the editor, two keeps them separate.
+        expect(state.saveBodies[1].content.content[0].attrs.markdown).toBe(
+            '# Doc\n\n\nSome **notes**.\n\n\nMore notes.\n'
+        )
     })
 
     it('add component cell inserts the tag with a minted nodeId and no run', async () => {
@@ -205,6 +213,26 @@ describe('notebook cell tools', () => {
                 props: { code: 'select 1' },
             })
         ).rejects.toThrow(/cell_type 'sql' or 'python'/)
+        expect(state.saveBodies).toHaveLength(0)
+    })
+
+    // The legacy SQL cell: a Query node rendering HogQL results without a run, a dataframe name, or
+    // run history. Reachable only through the component escape hatch, so it is blocked there too.
+    it.each([
+        ['a SQL chart', { kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery', query: 'select 1' } }],
+        ['a SQL result table', { kind: 'DataTableNode', source: { kind: 'HogQLQuery', query: 'select 1' } }],
+    ])('component cell rejects %s, directing SQL to a sql cell', async (_label, query) => {
+        const state = makeState('# Doc\n')
+        const context = createMockContext(state)
+
+        await expect(
+            addCellHandler(context, {
+                notebook_id: 'aBcD1234',
+                cell_type: 'component',
+                tag_name: 'Query',
+                props: { query },
+            })
+        ).rejects.toThrow(/cell_type 'sql'/)
         expect(state.saveBodies).toHaveLength(0)
     })
 

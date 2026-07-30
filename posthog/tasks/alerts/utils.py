@@ -1,3 +1,4 @@
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -127,7 +128,7 @@ def next_check_at_after_schedule_restriction_change(alert: AlertConfiguration) -
         alert.next_check_at = old_next
 
 
-def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> None:
+def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> bool:
     """Trigger all HogFunctions linked to the alert as notification destinations by producing an internal event."""
 
     logger.info(
@@ -148,11 +149,12 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
         **properties,
     }
 
-    produce_alert_internal_event(
+    result = produce_alert_internal_event(
         team_id=alert.team_id,
         event_name=INSIGHT_ALERT_FIRING_EVENT,
         properties=props,
     )
+    return result is not None
 
 
 def send_notifications_for_breaches(
@@ -197,6 +199,25 @@ def send_notifications_for_breaches(
     )
 
     return email_targets
+
+
+def send_test_alert_email(alert: AlertConfiguration, recipients: Collection[str], idempotency_key: str) -> None:
+    insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
+    send_alert_email(
+        recipients=recipients,
+        campaign_key=f"alert-test-notification-{idempotency_key}",
+        subject=f"Test alert: {alert.name} for {alert.team.name}",
+        template_name="alert_check_firing",
+        template_context={
+            "match_descriptions": ["This is a test alert. No action is needed."],
+            "insight_url": insight_url,
+            "insight_name": alert.insight.name,
+            "alert_url": f"{insight_url}?alert_id={alert.id}",
+            "alert_name": alert.name,
+            "project_name": alert.team.name,
+            "is_test": True,
+        },
+    )
 
 
 def send_notifications_for_errors(alert: AlertConfiguration, error: dict) -> list[str]:

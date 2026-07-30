@@ -10,6 +10,9 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -29,7 +32,11 @@ from products.data_catalog.backend.presentation.serializers import (
     CertificationSerializer,
 )
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSource,
+)
 
 
 def _table(
@@ -339,3 +346,68 @@ class TestCertificationInputValidation(SimpleTestCase):
         serializer = CertificationCreateSerializer(data={field: "not-a-uuid"})
         assert not serializer.is_valid()
         assert field in serializer.errors
+
+
+class TestSerializedSchemaCertification(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        flag_patch = patch("products.data_catalog.backend.facade.flags.is_data_catalog_enabled", return_value=True)
+        flag_patch.start()
+        self.addCleanup(flag_patch.stop)
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        self.warehouse_table = DataWarehouseTable.objects.create(
+            name="stripe_customers",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        self.view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="revenue_view",
+            query={"kind": "HogQLQuery", "query": "select event from events limit 1"},
+            columns={"event": "String"},
+        )
+
+    def _serialized_tables(self) -> dict:
+        database = Database.create_for(team=self.team, user=self.user)
+        context = HogQLContext(team=self.team, team_id=self.team.pk, database=database)
+        return database.serialize(context)
+
+    @parameterized.expand(
+        [("table", "stripe_customers", certify, "certified"), ("view", "revenue_view", deprecate, "deprecated")]
+    )
+    def test_settled_certification_serialized_on_schema(
+        self, target_type: str, table_key: str, action, expected_status: str
+    ) -> None:
+        target_selector: dict[str, Any] = (
+            {"table_id": str(self.warehouse_table.id)}
+            if target_type == "table"
+            else {"saved_query_id": str(self.view.id)}
+        )
+        action(
+            propose_certification(team=self.team, user=self.user, notes="canonical source", **target_selector),
+            self.user,
+        )
+
+        certification = self._serialized_tables()[table_key].certification
+
+        assert certification is not None
+        assert certification.status == expected_status
+        assert certification.notes == "canonical source"
+        assert certification.certified_by == self.user.email
+
+    def test_proposed_certification_absent_from_schema(self) -> None:
+        propose_certification(team=self.team, user=self.user, table_id=str(self.warehouse_table.id))
+
+        tables = self._serialized_tables()
+
+        assert tables["stripe_customers"].certification is None
+        assert tables["revenue_view"].certification is None
+
+    def test_certification_absent_when_flag_off(self) -> None:
+        certify(propose_certification(team=self.team, user=self.user, table_id=str(self.warehouse_table.id)), self.user)
+
+        with patch("products.data_catalog.backend.facade.flags.is_data_catalog_enabled", return_value=False):
+            assert self._serialized_tables()["stripe_customers"].certification is None
