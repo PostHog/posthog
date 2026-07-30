@@ -466,6 +466,32 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             self.assertTrue(Project.objects.filter(id=self.project.id).exists())
 
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    @patch("posthog.api.project.get_cached_instance_license")
+    def test_delete_last_remaining_project_blocked_when_others_are_pending_deletion(
+        self, mock_get_license, mock_get_billing, mock_delete_task
+    ):
+        mock_get_license.return_value = True
+        mock_get_billing.return_value = {"has_active_subscription": True}
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        other = Project.objects.create_with_team(
+            organization=self.organization, name="Second project", initiating_user=self.user
+        )[0]
+        other.is_pending_deletion = True
+        other.save(update_fields=["is_pending_deletion"])
+
+        with self.is_cloud(True):
+            response = self.client.delete(f"/api/projects/{self.project.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("active subscription", response.json()["detail"])
+        self.project.refresh_from_db()
+        self.assertFalse(self.project.is_pending_deletion)
+
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
     def test_project_deletion_sets_pending_deletion_flag(self, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()

@@ -17,6 +17,7 @@ from posthog import settings
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import OrgScopedPrimaryKeyRelatedField
 from posthog.api.shared import ProjectBasicSerializer, TeamBasicSerializer
+from posthog.api.utils import active_subscription_deletion_error
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.caching.organization_serializer_cache import (
     ORG_SERIALIZER_CACHE_TTL_SECONDS,
@@ -468,10 +469,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 billing_manager = BillingManager(license)
                 billing = billing_manager.get_billing(organization)
                 if billing.get("has_active_subscription"):
-                    raise exceptions.ValidationError(
-                        "Cannot delete organization with an active subscription. "
-                        "Please cancel your subscription first in the billing page."
-                    )
+                    raise exceptions.ValidationError(active_subscription_deletion_error(billing, "this organization"))
 
         if organization.is_pending_deletion:
             raise exceptions.ValidationError("This organization is already being deleted.")

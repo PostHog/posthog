@@ -91,6 +91,22 @@ class ClassicBehaviorBooleanFieldSerializer(serializers.BooleanField):
         Field.__init__(self, allow_null=True, required=False, **kwargs)
 
 
+def active_subscription_deletion_error(billing: dict[str, Any], what: str) -> str:
+    """Explain which subscription is blocking a deletion, and where to cancel it."""
+    subscribed = [
+        product.get("name")
+        for product in (billing.get("products") or [])
+        if product.get("subscribed") and product.get("name")
+    ]
+    plans = ", ".join(subscribed)
+    subscription = f"an active subscription to {plans}" if plans else "an active subscription"
+    return (
+        f"You still have {subscription}, so we can't delete {what} yet. "
+        "Cancel it at /organization/billing, then try again. "
+        "If you can't cancel it yourself, contact us at https://posthog.com/support and we'll help."
+    )
+
+
 def get_target_entity(filter: Union[Filter, StickinessFilter]) -> Entity:
     # Except for "events", we require an entity id and type to be provided
     if not filter.target_entity_id and filter.target_entity_type != "events":

@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { kea, path } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
@@ -8,6 +10,7 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, type AppContext } from '~/types'
@@ -31,6 +34,8 @@ const testScenes: Record<string, () => any> = {
     [Scene.Alerts]: sceneImport,
     [Scene.DataManagement]: sceneImport,
     [Scene.Settings]: sceneImport,
+    [Scene.Billing]: sceneImport,
+    [Scene.ProjectCreateFirst]: sceneImport,
 }
 
 describe('sceneLogic', () => {
@@ -137,6 +142,30 @@ describe('sceneLogic', () => {
         } finally {
             window.POSTHOG_APP_CONTEXT = priorAppContext
         }
+    })
+
+    describe('organization with no projects', () => {
+        beforeEach(async () => {
+            userLogic.actions.loadUserSuccess({
+                ...MOCK_DEFAULT_USER,
+                organization: { ...MOCK_DEFAULT_ORGANIZATION, teams: [], projects: [] },
+            })
+            teamLogic.actions.loadCurrentTeamSuccess(null)
+            await expectLogic(logic).delay(1)
+        })
+
+        // sceneLogic reads the browser's own location, which kea-router doesn't drive under jsdom
+        const visit = async (path: string): Promise<void> => {
+            window.history.replaceState({}, '', path)
+            router.actions.push(path)
+            await expectLogic(logic).delay(1)
+        }
+
+        it('still lets the user reach billing, so they can cancel a subscription', async () => {
+            await visit(urls.organizationBilling())
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.organizationBilling())
+        })
     })
 
     describe('/home honors the configured homepage', () => {

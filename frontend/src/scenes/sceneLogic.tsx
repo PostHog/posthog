@@ -823,10 +823,13 @@ export const sceneLogic = kea<sceneLogicType>([
                             user.organization.membership_level &&
                             user.organization.membership_level >= TeamMembershipLevel.Admin
                         ) {
-                            // Allow settings to be opened, otherwise route to project creation
+                            // Allow settings and billing to be opened, otherwise route to project
+                            // creation. Billing has to stay reachable: cancelling a subscription is
+                            // a prerequisite for deleting an org, and an org can have zero projects.
                             if (
                                 location.pathname !== urls.projectCreateFirst() &&
-                                !location.pathname.startsWith('/settings')
+                                !location.pathname.startsWith('/settings') &&
+                                !location.pathname.startsWith(urls.organizationBilling())
                             ) {
                                 console.warn(
                                     'Project not available and no other projects, redirecting to project creation'
