@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { PropsWithChildren, useMemo, useState } from 'react'
 
+import { IconChevronDown } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@posthog/quill'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -11,6 +13,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { IntegrationKind, IntegrationType } from '~/types'
+
+import type { GitHubAvailableInstallationApi } from 'products/integrations/frontend/generated/api.schemas'
 
 export function GitLabIntegration(): JSX.Element {
     const [isOpen, setIsOpen] = useState<boolean>(false)
@@ -41,8 +45,6 @@ export function GithubIntegration({ next }: { next?: string }): JSX.Element {
     })
 
     const installations = githubAvailableInstallations ?? []
-    // A GitHub App installs once per org, so reuse an existing installation rather than reinstall —
-    // but only when this project has none and the org has one to link.
     const canLinkExisting = githubIntegrations.length === 0 && installations.length > 0
     const multipleInstallations = installations.length > 1
 
@@ -53,37 +55,66 @@ export function GithubIntegration({ next }: { next?: string }): JSX.Element {
                     <LemonButton type="secondary" disableClientSideRouting to={authorizationUrl}>
                         Connect organization
                     </LemonButton>
-                    {canLinkExisting &&
-                        (multipleInstallations ? (
-                            installations.map((installation) => (
-                                <LemonButton
-                                    key={installation.installation_id}
-                                    type="secondary"
-                                    loading={linkedGithubInstallationLoading}
-                                    onClick={() => linkExistingGithubInstallation(installation.installation_id)}
-                                >
-                                    Link {installation.account_name ?? `installation ${installation.installation_id}`}
-                                </LemonButton>
-                            ))
-                        ) : (
-                            <LemonButton
-                                type="secondary"
-                                loading={linkedGithubInstallationLoading}
-                                onClick={() => linkExistingGithubInstallation()}
-                            >
-                                Link existing installation
-                            </LemonButton>
-                        ))}
+                    {canLinkExisting && (
+                        <GitHubInstallationLink
+                            installations={installations}
+                            loading={linkedGithubInstallationLoading}
+                            onLink={linkExistingGithubInstallation}
+                        />
+                    )}
                 </div>
                 {canLinkExisting && (
                     <p className="text-secondary text-xs mb-0">
                         {multipleInstallations
-                            ? 'Your organization has more than one PostHog GitHub App installation. A GitHub App installs once per organization, so pick the one to connect to this project.'
+                            ? 'Choose an existing GitHub installation to connect to this project.'
                             : 'Already installed the PostHog GitHub App for another project in this organization? A GitHub App installs once per organization, so use "Link existing installation" to connect it here instead of reinstalling.'}
                     </p>
                 )}
             </div>
         </Integration>
+    )
+}
+
+export function GitHubInstallationLink({
+    installations,
+    loading,
+    onLink,
+}: {
+    installations: GitHubAvailableInstallationApi[]
+    loading: boolean
+    onLink: (installationId?: string) => void
+}): JSX.Element | null {
+    if (installations.length === 0) {
+        return null
+    }
+
+    if (installations.length === 1) {
+        return (
+            <LemonButton type="secondary" loading={loading} onClick={() => onLink()}>
+                Link existing installation
+            </LemonButton>
+        )
+    }
+
+    return (
+        <DropdownMenu>
+            <DropdownMenuTrigger
+                render={<LemonButton type="secondary" loading={loading} sideIcon={<IconChevronDown />} />}
+            >
+                Link existing installation
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-64 max-w-96">
+                {installations.map((installation) => (
+                    <DropdownMenuItem
+                        key={installation.installation_id}
+                        disabled={loading}
+                        onClick={() => onLink(installation.installation_id)}
+                    >
+                        {installation.account_name ?? `Installation ${installation.installation_id}`}
+                    </DropdownMenuItem>
+                ))}
+            </DropdownMenuContent>
+        </DropdownMenu>
     )
 }
 
