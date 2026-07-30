@@ -24,13 +24,13 @@ import { LemonBanner, LemonButton, LemonInput, LemonInputSelect } from '@posthog
 
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 
-import { DEFAULT_RESPONSE_TARGET_GROUPS, ResponseTargetGroup } from '../tickets/responseTargets'
+import { DEFAULT_TICKET_GROUPS, TicketGroup } from '../tickets/ticketGroups'
 import { supportSettingsLogic } from './supportSettingsLogic'
 
 interface SortableGroupRowProps {
     id: string
-    group: ResponseTargetGroup
-    onPatch: (patch: Partial<ResponseTargetGroup>) => void
+    group: TicketGroup
+    onPatch: (patch: Partial<TicketGroup>) => void
     onRemove: () => void
 }
 
@@ -69,30 +69,25 @@ function SortableGroupRow({ id, group, onPatch, onRemove }: SortableGroupRowProp
                 onChange={(tags) => onPatch({ tags })}
                 placeholder="Ticket tags (exact match)"
                 className="flex-1"
-                data-attr="response-target-group-tags"
+                data-attr="ticket-group-tags"
             />
             <LemonButton icon={<IconTrash />} size="small" tooltip="Remove group" onClick={onRemove} />
         </div>
     )
 }
 
-export function ResponseTargetsSection(): JSX.Element {
-    const {
-        responseTargetGroupsView,
-        responseTargetGroupsDraft,
-        responseTargetGroupsCustomized,
-        responseTargetGroupsError,
-        currentTeamLoading,
-    } = useValues(supportSettingsLogic)
-    const { setResponseTargetGroupsDraft, saveResponseTargetGroups } = useActions(supportSettingsLogic)
+export function TicketGroupsSection(): JSX.Element {
+    const { ticketGroupsView, ticketGroupsDraft, ticketGroupsCustomized, ticketGroupsError, currentTeamLoading } =
+        useValues(supportSettingsLogic)
+    const { setTicketGroupsDraft, saveTicketGroups } = useActions(supportSettingsLogic)
 
-    const groups = responseTargetGroupsView
-    const dirty = responseTargetGroupsDraft !== null
+    const groups = ticketGroupsView
+    const dirty = ticketGroupsDraft !== null
 
     // Stable per-row ids for drag-and-drop and React keys, so a row's
     // transient input state travels with the row when the list reorders.
     // Mutations below keep this array position-aligned with `groups`; while
-    // pristine it just mirrors the saved ladder.
+    // pristine it just mirrors the saved groups.
     const [rowIds, setRowIds] = useState<string[]>(() => groups.map((_, index) => `row-${index}`))
     const nextIdRef = useRef(groups.length)
     useEffect(() => {
@@ -108,15 +103,15 @@ export function ResponseTargetsSection(): JSX.Element {
         useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
     )
 
-    const patchGroup = (index: number, patch: Partial<ResponseTargetGroup>): void =>
-        setResponseTargetGroupsDraft(groups.map((group, i) => (i === index ? { ...group, ...patch } : group)))
+    const patchGroup = (index: number, patch: Partial<TicketGroup>): void =>
+        setTicketGroupsDraft(groups.map((group, i) => (i === index ? { ...group, ...patch } : group)))
     const removeGroup = (index: number): void => {
         setRowIds(ids.filter((_, i) => i !== index))
-        setResponseTargetGroupsDraft(groups.filter((_, i) => i !== index))
+        setTicketGroupsDraft(groups.filter((_, i) => i !== index))
     }
     const addGroup = (): void => {
         setRowIds([...ids, `row-new-${nextIdRef.current++}`])
-        setResponseTargetGroupsDraft([...groups, { label: '', tags: [] }])
+        setTicketGroupsDraft([...groups, { label: '', tags: [] }])
     }
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (over && active.id !== over.id) {
@@ -124,7 +119,7 @@ export function ResponseTargetsSection(): JSX.Element {
             const newIndex = ids.indexOf(String(over.id))
             if (oldIndex !== -1 && newIndex !== -1) {
                 setRowIds(arrayMove(ids, oldIndex, newIndex))
-                setResponseTargetGroupsDraft(arrayMove(groups, oldIndex, newIndex))
+                setTicketGroupsDraft(arrayMove(groups, oldIndex, newIndex))
             }
         }
     }
@@ -133,13 +128,13 @@ export function ResponseTargetsSection(): JSX.Element {
         <div className="flex flex-col gap-4 max-w-[800px]">
             <ul className="list-disc pl-4 flex flex-col gap-1">
                 <li>
-                    When sorting tickets by <strong>Response target</strong>, it orders tickets by the groups you define
+                    When sorting tickets by <strong>Ticket group</strong>, it orders tickets by the groups you define
                     below, then by SLA within each group.
                 </li>
                 <li>Groups match on ticket tags (exact matches only).</li>
                 <li>A ticket with several matching tags is shown in the highest group with a matching tag.</li>
                 <li>Tickets with no matching tags land in the top group, so they won't be missed (for triage.)</li>
-                <li>The starter groups are just examples, replace them with your own response targets and tags.</li>
+                <li>The starter groups are just examples, replace them with your own groups and tags.</li>
             </ul>
             <DndContext
                 sensors={sensors}
@@ -161,7 +156,7 @@ export function ResponseTargetsSection(): JSX.Element {
                     </div>
                 </SortableContext>
             </DndContext>
-            {responseTargetGroupsError && <LemonBanner type="warning">{responseTargetGroupsError}</LemonBanner>}
+            {ticketGroupsError && <LemonBanner type="warning">{ticketGroupsError}</LemonBanner>}
             <div className="flex items-center gap-2">
                 <LemonButton type="secondary" icon={<IconPlus />} onClick={addGroup}>
                     Add group
@@ -169,21 +164,21 @@ export function ResponseTargetsSection(): JSX.Element {
                 <LemonButton
                     type="primary"
                     loading={dirty && currentTeamLoading}
-                    disabledReason={!dirty ? 'No unsaved changes' : (responseTargetGroupsError ?? undefined)}
-                    onClick={() => saveResponseTargetGroups(responseTargetGroupsDraft)}
+                    disabledReason={!dirty ? 'No unsaved changes' : (ticketGroupsError ?? undefined)}
+                    onClick={() => saveTicketGroups(ticketGroupsDraft)}
                 >
                     Save groups
                 </LemonButton>
                 {dirty && (
-                    <LemonButton type="tertiary" onClick={() => setResponseTargetGroupsDraft(null)}>
+                    <LemonButton type="tertiary" onClick={() => setTicketGroupsDraft(null)}>
                         Discard changes
                     </LemonButton>
                 )}
-                {responseTargetGroupsCustomized && (
+                {ticketGroupsCustomized && (
                     <LemonButton
                         type="tertiary"
                         status="danger"
-                        onClick={() => setResponseTargetGroupsDraft([...DEFAULT_RESPONSE_TARGET_GROUPS])}
+                        onClick={() => setTicketGroupsDraft([...DEFAULT_TICKET_GROUPS])}
                         disabledReason={dirty ? 'Save or discard your changes first' : undefined}
                         tooltip="Replace the groups below with the example starter groups — nothing is erased until you save"
                     >

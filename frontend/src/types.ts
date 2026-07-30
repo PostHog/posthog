@@ -791,9 +791,9 @@ export interface ConversationsSettings {
     ai_diagnostics_enabled?: boolean
     ai_resolution_channels?: string[] | null
     ai_reply_modes?: Record<string, Record<string, 'private_note' | 'bot_reply'>> | null
-    /** Ordered response-target ladder for the tickets list's response_target
-     * sort/grouping; null/absent means the built-in default ladder. */
-    response_target_groups?: { label: string; tags: string[] }[] | null
+    /** Ordered ticket groups for the tickets list's ticket_group
+     * sort/grouping; null/absent means the built-in default groups. */
+    ticket_groups?: { label: string; tags: string[] }[] | null
 }
 
 export interface LogsSettings {

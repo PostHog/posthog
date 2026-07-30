@@ -49,17 +49,17 @@ import {
     statusMultiselectOptions,
     statusOptionsWithoutAll,
 } from '../../types'
-import {
-    buildResponseTargetGroupedRows,
-    isResponseTargetHeaderRow,
-    TicketListRow,
-    withResponseTargetHeaderRows,
-} from './responseTargetGroupedRows'
-import { teamResponseTargetGroups } from './responseTargets'
 import { SUPPORT_TICKETS_PAGE_SIZE, supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 import { buildTicketColumns } from './ticketColumns'
 import { TicketColumnsDropdown } from './TicketColumnsDropdown'
 import { ticketColumnsLogic } from './ticketColumnsLogic'
+import {
+    buildTicketGroupedRows,
+    isTicketGroupHeaderRow,
+    TicketListRow,
+    withTicketGroupHeaderRows,
+} from './ticketGroupedRows'
+import { teamTicketGroups } from './ticketGroups'
 
 export const scene: SceneExport = {
     component: SupportTicketsScene,
@@ -125,7 +125,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
         ticketsLoading,
         currentPage,
         totalCount,
-        responseTargetCounts,
+        ticketGroupCounts,
         loadedOrderBy,
         loadedPage,
         sorting,
@@ -139,7 +139,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
     const { searchParams } = useValues(router)
     const { currentTeam } = useValues(teamLogic)
     const aiEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
-    const responseTargetGroups = teamResponseTargetGroups(currentTeam)
+    const ticketGroups = teamTicketGroups(currentTeam)
 
     const getKey = useMemo(() => (t: Ticket) => t.id, [])
     const bulk = useBulkSelection<Ticket, string>({ pageRecords: tickets, getKey })
@@ -174,43 +174,34 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
         }
     }, [selectedTicketIds, selectedKeys, clearSelection])
 
-    // Sorting by Response target IS the grouped view: the server returns the
+    // Sorting by Ticket group IS the grouped view: the server returns the
     // page ordered by group rank, so tier boundaries are contiguous and we
     // interleave full-width group headers at each change (see
-    // responseTargetGroupedRows). Gate and direction both come from
+    // ticketGroupedRows). Gate and direction both come from
     // loadedOrderBy — the order_by the CURRENT tickets were fetched with —
     // not from `sorting`, which flips the moment the user clicks while
     // `tickets` still holds the previous sort's rows. Grouping engages (and
-    // orients its ladder) only once the loaded data really is
-    // response-target-ordered, so the in-flight beat renders flat instead of
+    // orients its groups) only once the loaded data really is
+    // ticket-group-ordered, so the in-flight beat renders flat instead of
     // grouping stale rows.
-    const responseTargetDesc = loadedOrderBy === '-response_target'
-    const responseTargetGrouped =
-        sorting?.columnKey === 'response_target' && (loadedOrderBy === 'response_target' || responseTargetDesc)
+    const ticketGroupDesc = loadedOrderBy === '-ticket_group'
+    const ticketGrouped = sorting?.columnKey === 'ticket_group' && (loadedOrderBy === 'ticket_group' || ticketGroupDesc)
     const rows = useMemo<TicketListRow[]>(
         () =>
-            responseTargetGrouped
-                ? buildResponseTargetGroupedRows(tickets, {
-                      groups: responseTargetGroups,
-                      desc: responseTargetDesc,
+            ticketGrouped
+                ? buildTicketGroupedRows(tickets, {
+                      groups: ticketGroups,
+                      desc: ticketGroupDesc,
                       // Page bounds come from loadedPage — the page the rendered
                       // tickets belong to — not the live currentPage, which leads
                       // during an in-flight page change and would let the trailing
                       // "zero tickets match" headers fire against stale rows.
                       isFirstPage: loadedPage === 1,
                       isLastPage: loadedPage !== null && loadedPage * SUPPORT_TICKETS_PAGE_SIZE >= totalCount,
-                      counts: responseTargetCounts,
+                      counts: ticketGroupCounts,
                   })
                 : tickets,
-        [
-            responseTargetGrouped,
-            responseTargetDesc,
-            responseTargetGroups,
-            tickets,
-            loadedPage,
-            totalCount,
-            responseTargetCounts,
-        ]
+        [ticketGrouped, ticketGroupDesc, ticketGroups, tickets, loadedPage, totalCount, ticketGroupCounts]
     )
     // Shift-click ranges index into `tickets` (useBulkSelection's pageRecords),
     // not the rendered rows — header rows would offset the table's recordIndex.
@@ -243,17 +234,17 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
         }
         const ticketColumns = [
             checkboxCol,
-            ...buildTicketColumns(visibleColumns, { aiEnabled, embedded, responseTargetGroups }),
+            ...buildTicketColumns(visibleColumns, { aiEnabled, embedded, ticketGroups }),
         ]
-        return responseTargetGrouped
-            ? withResponseTargetHeaderRows(ticketColumns)
+        return ticketGrouped
+            ? withTicketGroupHeaderRows(ticketColumns)
             : (ticketColumns as unknown as LemonTableColumns<TicketListRow>)
     }, [
         visibleColumns,
         embedded,
         aiEnabled,
-        responseTargetGroups,
-        responseTargetGrouped,
+        ticketGroups,
+        ticketGrouped,
         ticketIndexById,
         isSomeOnPageSelected,
         isAllOnPageSelected,
@@ -277,9 +268,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
     return (
         <LemonTable<TicketListRow>
             dataSource={rows}
-            rowKey={(row) =>
-                isResponseTargetHeaderRow(row) ? `response-target-header:${row.responseTargetHeader}` : row.id
-            }
+            rowKey={(row) => (isTicketGroupHeaderRow(row) ? `ticket-group-header:${row.ticketGroupHeader}` : row.id)}
             emptyState={emptyState}
             loading={ticketsLoading}
             // Keep rows clickable while a background refresh is in flight; the loading overlay
@@ -301,7 +290,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
                         : undefined,
             }}
             onRow={(ticket) => {
-                if (isResponseTargetHeaderRow(ticket)) {
+                if (isTicketGroupHeaderRow(ticket)) {
                     return {}
                 }
                 // Carry the active filters / saved view (the list's query string) onto the
@@ -333,7 +322,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
             }}
             rowClassName={(row) =>
                 clsx(
-                    isResponseTargetHeaderRow(row)
+                    isTicketGroupHeaderRow(row)
                         ? 'bg-surface-secondary'
                         : { 'bg-primary-alt-highlight': row.unread_team_count > 0 }
                 )

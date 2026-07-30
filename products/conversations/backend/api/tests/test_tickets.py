@@ -586,12 +586,12 @@ class TestTicketAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return [r["id"] for r in response.json()["results"]]
 
-    def _configure_response_target_groups(self):
+    def _configure_ticket_groups(self):
         """Save a five-tier fixture ladder onto the team: Triage(0, also the
         unmatched fallback) → Churn risk(1) → Top 20(2) → Enterprise(3) →
         Free plan(4)."""
         self.team.conversations_settings = {
-            "response_target_groups": [
+            "ticket_groups": [
                 {"label": "Triage", "tags": ["needs_triage"]},
                 {"label": "Churn risk", "tags": ["churn_risk"]},
                 {"label": "Top 20", "tags": ["plan_top20"]},
@@ -601,43 +601,43 @@ class TestTicketAPI(APIBaseTest):
         }
         self.team.save()
 
-    def test_order_by_response_target_ranks_by_tag_groups(self, mock_on_commit):
-        """Response-target ordering ranks tickets by their tag group, first group first."""
-        self._configure_response_target_groups()
+    def test_order_by_ticket_group_ranks_by_tag_groups(self, mock_on_commit):
+        """Ticket-group ordering ranks tickets by their tag group, first group first."""
+        self._configure_ticket_groups()
         # setUp's self.ticket is untagged → first group (rank 0)
         free = self._ticket_with_tags("plan_free")
         churn = self._ticket_with_tags("churn_risk")
         enterprise = self._ticket_with_tags("plan_enterprise")
 
-        ids = self._list_ordered_ids("response_target")
+        ids = self._list_ordered_ids("ticket_group")
         self.assertEqual(ids, [str(self.ticket.id), str(churn.id), str(enterprise.id), str(free.id)])
 
-        ids_desc = self._list_ordered_ids("-response_target")
+        ids_desc = self._list_ordered_ids("-ticket_group")
         self.assertEqual(ids_desc, [str(free.id), str(enterprise.id), str(churn.id), str(self.ticket.id)])
 
-    def test_order_by_response_target_default_example_ladder(self, mock_on_commit):
+    def test_order_by_ticket_group_default_example_ladder(self, mock_on_commit):
         """Without team config, the built-in example ladder orders
         Triage → Urgent → VIP, untagged tickets first (rank 0)."""
         vip = self._ticket_with_tags("vip")
         urgent = self._ticket_with_tags("urgent")
         triage = self._ticket_with_tags("needs_triage")
 
-        ids = self._list_ordered_ids("response_target")
+        ids = self._list_ordered_ids("ticket_group")
         # triage-tagged and setUp's untagged ticket both rank 0; within the tie
         # -ticket_number puts the later-created tagged one first
         self.assertEqual(ids, [str(triage.id), str(self.ticket.id), str(urgent.id), str(vip.id)])
 
-    def test_order_by_response_target_multi_tag_uses_highest_priority_group(self, mock_on_commit):
+    def test_order_by_ticket_group_multi_tag_uses_highest_priority_group(self, mock_on_commit):
         """A ticket carrying several matching tags ranks with the highest-priority one."""
-        self._configure_response_target_groups()
+        self._configure_ticket_groups()
         enterprise = self._ticket_with_tags("plan_enterprise")
         churny_free = self._ticket_with_tags("plan_free", "churn_risk")
 
-        ids = self._list_ordered_ids("response_target")
+        ids = self._list_ordered_ids("ticket_group")
         # churn_risk (rank 1) outranks plan_enterprise (rank 3); setUp's untagged ticket ranks first
         self.assertEqual(ids, [str(self.ticket.id), str(churny_free.id), str(enterprise.id)])
 
-    def test_order_by_response_target_ties_break_by_sla_nulls_last(self, mock_on_commit):
+    def test_order_by_ticket_group_ties_break_by_sla_nulls_last(self, mock_on_commit):
         """Within one group, sooner SLA deadlines come first; no SLA sorts last."""
         self.ticket.delete()  # keep only the enterprise trio in play
         later = self._ticket_with_tags("plan_enterprise")
@@ -648,10 +648,10 @@ class TestTicketAPI(APIBaseTest):
         sooner.save()
         no_sla = self._ticket_with_tags("plan_enterprise")
 
-        ids = self._list_ordered_ids("response_target")
+        ids = self._list_ordered_ids("ticket_group")
         self.assertEqual(ids, [str(sooner.id), str(later.id), str(no_sla.id)])
 
-    def test_order_by_response_target_paginates_deterministically_within_ties(self, mock_on_commit):
+    def test_order_by_ticket_group_paginates_deterministically_within_ties(self, mock_on_commit):
         """Tickets tied on group rank AND SLA (e.g. all null) need a stable
         tiebreak, or LimitOffsetPagination can skip/duplicate rows between
         page queries. Ties order by -ticket_number (the whitelisted
@@ -660,23 +660,23 @@ class TestTicketAPI(APIBaseTest):
         tied = [self._ticket_with_tags("plan_enterprise") for _ in range(5)]  # all sla_due_at=None
         expected_ids = [str(t.id) for t in sorted(tied, key=lambda t: t.ticket_number, reverse=True)]
 
-        full = self._list_ordered_ids("response_target")
+        full = self._list_ordered_ids("ticket_group")
         self.assertEqual(full, expected_ids)
 
         paged: list[str] = []
         for offset in range(0, 5, 2):
             response = self.client.get(
                 f"/api/projects/{self.team.id}/conversations/tickets/",
-                data={"order_by": "response_target", "limit": "2", "offset": str(offset)},
+                data={"order_by": "ticket_group", "limit": "2", "offset": str(offset)},
             )
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             paged.extend(r["id"] for r in response.json()["results"])
         self.assertEqual(paged, expected_ids)
 
-    def test_order_by_response_target_composes_with_tag_filters(self, mock_on_commit):
-        """Response-target ordering works on top of the tag filters' DISTINCT
+    def test_order_by_ticket_group_composes_with_tag_filters(self, mock_on_commit):
+        """Ticket-group ordering works on top of the tag filters' DISTINCT
         queryset, without duplicating multi-matched rows."""
-        self._configure_response_target_groups()
+        self._configure_ticket_groups()
         self.ticket.delete()
         free = self._ticket_with_tags("plan_free", "filtered")
         enterprise = self._ticket_with_tags("plan_enterprise", "filtered", "beta")  # matches both filter tags
@@ -684,29 +684,29 @@ class TestTicketAPI(APIBaseTest):
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/conversations/tickets/",
-            data={"tags": json.dumps(["filtered", "beta"]), "order_by": "response_target"},
+            data={"tags": json.dumps(["filtered", "beta"]), "order_by": "ticket_group"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ids = [r["id"] for r in response.json()["results"]]
         self.assertEqual(ids, [str(enterprise.id), str(free.id)])
 
-    def test_order_by_response_target_returns_per_group_counts(self, mock_on_commit):
-        """Response-target-ordered responses carry filtered per-group counts for the section headers."""
-        self._configure_response_target_groups()
+    def test_order_by_ticket_group_returns_per_group_counts(self, mock_on_commit):
+        """Ticket-group-ordered responses carry filtered per-group counts for the section headers."""
+        self._configure_ticket_groups()
         # setUp's self.ticket is untagged → rank 0
         self._ticket_with_tags("plan_enterprise")
         self._ticket_with_tags("plan_enterprise", "filtered")
         self._ticket_with_tags("plan_free")
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/conversations/tickets/", data={"order_by": "response_target"}
+            f"/api/projects/{self.team.id}/conversations/tickets/", data={"order_by": "ticket_group"}
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["response_target_counts"], {"0": 1, "3": 2, "4": 1})
+        self.assertEqual(response.json()["ticket_group_counts"], {"0": 1, "3": 2, "4": 1})
 
-    def test_order_by_response_target_counts_respect_filters_and_dedupe(self, mock_on_commit):
+    def test_order_by_ticket_group_counts_respect_filters_and_dedupe(self, mock_on_commit):
         """Counts aggregate the filtered queryset, counting multi-tag-matched tickets once."""
-        self._configure_response_target_groups()
+        self._configure_ticket_groups()
         self.ticket.delete()
         self._ticket_with_tags("plan_enterprise", "filtered", "beta")  # matches both filter tags → count once
         self._ticket_with_tags("plan_free", "filtered")
@@ -714,26 +714,26 @@ class TestTicketAPI(APIBaseTest):
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/conversations/tickets/",
-            data={"tags": json.dumps(["filtered", "beta"]), "order_by": "response_target"},
+            data={"tags": json.dumps(["filtered", "beta"]), "order_by": "ticket_group"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["response_target_counts"], {"3": 1, "4": 1})
+        self.assertEqual(response.json()["ticket_group_counts"], {"3": 1, "4": 1})
 
-    def test_response_target_counts_absent_without_response_target_ordering(self, mock_on_commit):
-        """No response_target_counts on responses ordered any other way."""
+    def test_ticket_group_counts_absent_without_ticket_group_ordering(self, mock_on_commit):
+        """No ticket_group_counts on responses ordered any other way."""
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
-        self.assertNotIn("response_target_counts", response.json())
+        self.assertNotIn("ticket_group_counts", response.json())
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/conversations/tickets/", data={"order_by": "-updated_at"}
         )
-        self.assertNotIn("response_target_counts", response.json())
+        self.assertNotIn("ticket_group_counts", response.json())
 
-    def test_order_by_response_target_uses_team_configured_groups(self, mock_on_commit):
+    def test_order_by_ticket_group_uses_team_configured_groups(self, mock_on_commit):
         """A team-configured ladder overrides the default groups for both
-        ordering and the rank keys in response_target_counts."""
+        ordering and the rank keys in ticket_group_counts."""
         self.team.conversations_settings = {
-            "response_target_groups": [
+            "ticket_groups": [
                 {"label": "VIPs", "tags": ["vip"]},
                 {"label": "Free", "tags": ["plan_free"]},
                 {"label": "Enterprise", "tags": ["plan_enterprise"]},
@@ -745,14 +745,14 @@ class TestTicketAPI(APIBaseTest):
         vip = self._ticket_with_tags("vip")
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/conversations/tickets/", data={"order_by": "response_target"}
+            f"/api/projects/{self.team.id}/conversations/tickets/", data={"order_by": "ticket_group"}
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ids = [r["id"] for r in response.json()["results"]]
         # Untagged setUp ticket ranks with the first group (rank 0), tied with vip;
         # within the tie, -ticket_number puts the later-created vip ticket first.
         self.assertEqual(ids, [str(vip.id), str(self.ticket.id), str(free.id), str(enterprise.id)])
-        self.assertEqual(response.json()["response_target_counts"], {"0": 2, "1": 1, "2": 1})
+        self.assertEqual(response.json()["ticket_group_counts"], {"0": 2, "1": 1, "2": 1})
 
     @parameterized.expand(
         [
@@ -762,15 +762,15 @@ class TestTicketAPI(APIBaseTest):
             ("tag_in_two_groups", [{"label": "A", "tags": ["urgent"]}, {"label": "B", "tags": ["urgent"]}]),
         ]
     )
-    def test_order_by_response_target_ignores_malformed_team_config(self, _name, groups, mock_on_commit):
+    def test_order_by_ticket_group_ignores_malformed_team_config(self, _name, groups, mock_on_commit):
         """Bad config in conversations_settings falls back to the example
         default ladder instead of erroring the list endpoint."""
-        self.team.conversations_settings = {"response_target_groups": groups}
+        self.team.conversations_settings = {"ticket_groups": groups}
         self.team.save()
         vip = self._ticket_with_tags("vip")
         urgent = self._ticket_with_tags("urgent")
 
-        ids = self._list_ordered_ids("response_target")
+        ids = self._list_ordered_ids("ticket_group")
         # Example default ladder: untagged first (rank 0), urgent (1) before vip (2)
         self.assertEqual(ids, [str(self.ticket.id), str(urgent.id), str(vip.id)])
 

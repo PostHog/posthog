@@ -45,7 +45,7 @@ import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
-import { ResponseTargetsSection } from 'products/conversations/frontend/scenes/settings/ResponseTargetsSection'
+import { TicketGroupsSection } from 'products/conversations/frontend/scenes/settings/TicketGroupsSection'
 import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
 import { CustomerAnalyticsEventStream } from 'products/customer_analytics/frontend/components/EventStream/CustomerAnalyticsEventStream'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
@@ -1202,11 +1202,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 ],
             },
             {
-                id: 'conversations-response-targets',
-                title: 'Response targets',
+                id: 'conversations-ticket-groups',
+                title: 'Ticket groups',
                 description:
-                    'Response targets are grouped and sorted by tags. Define your tag-based priority groups here.',
-                component: <ResponseTargetsSection />,
+                    'Group and sort tickets by tags. Define ordered ticket groups here — priority ladders (e.g. response targets), plan tiers, product areas, or anything else.',
+                component: <TicketGroupsSection />,
                 allowForTeam: (t) => !!t?.conversations_enabled,
                 keywords: [
                     'conversation',

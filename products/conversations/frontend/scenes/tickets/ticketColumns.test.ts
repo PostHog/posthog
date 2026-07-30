@@ -25,9 +25,9 @@ describe('buildTicketColumns', () => {
         expect(keysOf(all, ctx)).not.toContain(key)
     })
 
-    it('offers the response target column to everyone', () => {
-        expect(keysOf(all, context)).toContain('response_target')
-        expect(keysOf(all, { aiEnabled: false, embedded: true })).toContain('response_target')
+    it('offers the ticket group column to everyone', () => {
+        expect(keysOf(all, context)).toContain('ticket_group')
+        expect(keysOf(all, { aiEnabled: false, embedded: true })).toContain('ticket_group')
     })
 
     it('renders in canonical order regardless of selection order', () => {
@@ -35,13 +35,13 @@ describe('buildTicketColumns', () => {
         expect(keysOf(shuffled, context)).toEqual(['ticket_number', 'status', 'tags', 'updated_at'])
     })
 
-    it('labels the response target cell against the configured ladder', () => {
+    it('labels the ticket group cell against the configured groups', () => {
         const groups = [
             { label: 'VIPs', tags: ['vip'] },
             { label: 'Everyone else', tags: ['plan_free'] },
         ]
-        const column = buildTicketColumns(['response_target'], { ...context, responseTargetGroups: groups }).find(
-            (c): c is LemonTableColumn<Ticket, keyof Ticket | undefined> => 'key' in c && c.key === 'response_target'
+        const column = buildTicketColumns(['ticket_group'], { ...context, ticketGroups: groups }).find(
+            (c): c is LemonTableColumn<Ticket, keyof Ticket | undefined> => 'key' in c && c.key === 'ticket_group'
         )
         const cell = column!.render!(undefined, { tags: ['plan_free'] } as unknown as Ticket, 0, 1)
         expect(JSON.stringify(cell)).toContain('Everyone else')

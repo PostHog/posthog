@@ -12,11 +12,7 @@ import { SlackChannelType, UserBasicType } from '~/types'
 import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
 import { TicketChannel } from '../../types'
-import {
-    DEFAULT_RESPONSE_TARGET_GROUPS,
-    ResponseTargetGroup,
-    teamResponseTargetGroups,
-} from '../tickets/responseTargets'
+import { DEFAULT_TICKET_GROUPS, TicketGroup, teamTicketGroups } from '../tickets/ticketGroups'
 
 const BASE_AI_CHANNELS: TicketChannel[] = ['widget', 'email', 'slack']
 
@@ -59,7 +55,7 @@ export interface supportSettingsLogicValues {
     aiResolutionChannels: TicketChannel[]
     aiSuggestionsEnabled: boolean
     aiSuggestionsLoading: boolean
-    configuredResponseTargetGroups: ResponseTargetGroup[]
+    configuredTicketGroups: TicketGroup[]
     conversationsDomains: string[]
     conversationsEnabledLoading: boolean
     domainInputValue: string
@@ -89,10 +85,6 @@ export interface supportSettingsLogicValues {
     newEmailFromName: string
     notificationRecipients: number[]
     placeholderTextValue: string | null
-    responseTargetGroupsCustomized: boolean
-    responseTargetGroupsDraft: ResponseTargetGroup[] | null
-    responseTargetGroupsError: string | null
-    responseTargetGroupsView: ResponseTargetGroup[]
     settingDefaultEmailConfigId: string | null
     slackAlertChannelId: string | null
     slackBotDisplayName: string | null
@@ -144,6 +136,10 @@ export interface supportSettingsLogicValues {
         name: string
     }[]
     teamsTeamsLoading: boolean
+    ticketGroupsCustomized: boolean
+    ticketGroupsDraft: TicketGroup[] | null
+    ticketGroupsError: string | null
+    ticketGroupsView: TicketGroup[]
     widgetEnabledLoading: boolean
 }
 
@@ -382,14 +378,14 @@ export interface supportSettingsLogicActions {
     savePlaceholderText: () => {
         value: true
     }
-    saveResponseTargetGroups: (groups: ResponseTargetGroup[] | null) => {
-        groups: ResponseTargetGroup[] | null
-    }
     saveSlackBotSettings: () => {
         value: true
     }
     saveSlackTicketEmoji: () => {
         value: true
+    }
+    saveTicketGroups: (groups: TicketGroup[] | null) => {
+        groups: TicketGroup[] | null
     }
     sendTestEmail: (configId: string) => {
         configId: string
@@ -469,9 +465,6 @@ export interface supportSettingsLogicActions {
     setPlaceholderTextValue: (value: string | null) => {
         value: string | null
     }
-    setResponseTargetGroupsDraft: (groups: ResponseTargetGroup[] | null) => {
-        groups: ResponseTargetGroup[] | null
-    }
     setSlackAlertChannel: (channelId: string | null) => {
         channelId: string | null
     }
@@ -506,6 +499,9 @@ export interface supportSettingsLogicActions {
         status: 'error' | 'idle' | 'installed' | 'installing' | 'needs_org_catalog'
         teamId: string | null
     }
+    setTicketGroupsDraft: (groups: TicketGroup[] | null) => {
+        groups: TicketGroup[] | null
+    }
     setWidgetEnabledLoading: (loading: boolean) => {
         loading: boolean
     }
@@ -530,13 +526,13 @@ export interface supportSettingsLogicActions {
 export interface supportSettingsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         conversationsDomains: (currentTeam: TeamPublicType | TeamType | null) => string[]
-        configuredResponseTargetGroups: (currentTeam: TeamPublicType | TeamType | null) => ResponseTargetGroup[]
-        responseTargetGroupsCustomized: (configuredResponseTargetGroups: ResponseTargetGroup[]) => boolean
-        responseTargetGroupsView: (
-            responseTargetGroupsDraft: ResponseTargetGroup[] | null,
-            configuredResponseTargetGroups: ResponseTargetGroup[]
-        ) => ResponseTargetGroup[]
-        responseTargetGroupsError: (responseTargetGroupsDraft: ResponseTargetGroup[] | null) => string | null
+        configuredTicketGroups: (currentTeam: TeamPublicType | TeamType | null) => TicketGroup[]
+        ticketGroupsCustomized: (configuredTicketGroups: TicketGroup[]) => boolean
+        ticketGroupsView: (
+            ticketGroupsDraft: TicketGroup[] | null,
+            configuredTicketGroups: TicketGroup[]
+        ) => TicketGroup[]
+        ticketGroupsError: (ticketGroupsDraft: TicketGroup[] | null) => string | null
         notificationRecipients: (currentTeam: TeamPublicType | TeamType | null) => number[]
         slackEnabled: (currentTeam: TeamPublicType | TeamType | null) => boolean
         slackChannelIds: (currentTeam: TeamPublicType | TeamType | null) => string[]
@@ -610,9 +606,9 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         removeDomain: (index: number) => ({ index }),
         startEditDomain: (index: number) => ({ index }),
         cancelDomainEdit: true,
-        // Response-target ladder
-        setResponseTargetGroupsDraft: (groups: ResponseTargetGroup[] | null) => ({ groups }),
-        saveResponseTargetGroups: (groups: ResponseTargetGroup[] | null) => ({ groups }),
+        // Ticket groups
+        setTicketGroupsDraft: (groups: TicketGroup[] | null) => ({ groups }),
+        saveTicketGroups: (groups: TicketGroup[] | null) => ({ groups }),
         setGreetingInputValue: (value: string | null) => ({ value }),
         saveGreetingText: true,
         // Identification form settings
@@ -736,12 +732,12 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 setIsAddingDomain: () => '',
             },
         ],
-        // Unsaved edits to the response-target ladder; null = pristine
-        // (render the saved/default ladder from the selector).
-        responseTargetGroupsDraft: [
-            null as ResponseTargetGroup[] | null,
+        // Unsaved edits to the ticket groups; null = pristine
+        // (render the saved/default groups from the selector).
+        ticketGroupsDraft: [
+            null as TicketGroup[] | null,
             {
-                setResponseTargetGroupsDraft: (_, { groups }) => groups,
+                setTicketGroupsDraft: (_, { groups }) => groups,
             },
         ],
         greetingInputValue: [
@@ -1007,29 +1003,27 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): string[] =>
                 currentTeam?.conversations_settings?.widget_domains || [],
         ],
-        // The saved ladder (team-configured, or the built-in default).
-        configuredResponseTargetGroups: [
+        // The saved groups (team-configured, or the built-in default).
+        configuredTicketGroups: [
             (s) => [s.currentTeam],
-            (
-                currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
-            ): ResponseTargetGroup[] => teamResponseTargetGroups(currentTeam),
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): TicketGroup[] =>
+                teamTicketGroups(currentTeam),
         ],
-        // Whether the team has a saved custom ladder (vs the built-in default).
-        responseTargetGroupsCustomized: [
-            (s) => [s.configuredResponseTargetGroups],
-            (configured: ResponseTargetGroup[]): boolean => configured !== DEFAULT_RESPONSE_TARGET_GROUPS,
+        // Whether the team has saved custom groups (vs the built-in default).
+        ticketGroupsCustomized: [
+            (s) => [s.configuredTicketGroups],
+            (configured: TicketGroup[]): boolean => configured !== DEFAULT_TICKET_GROUPS,
         ],
-        // What the editor renders: the in-progress draft, else the saved ladder.
-        responseTargetGroupsView: [
-            (s) => [s.responseTargetGroupsDraft, s.configuredResponseTargetGroups],
-            (draft: ResponseTargetGroup[] | null, configured: ResponseTargetGroup[]): ResponseTargetGroup[] =>
-                draft ?? configured,
+        // What the editor renders: the in-progress draft, else the saved groups.
+        ticketGroupsView: [
+            (s) => [s.ticketGroupsDraft, s.configuredTicketGroups],
+            (draft: TicketGroup[] | null, configured: TicketGroup[]): TicketGroup[] => draft ?? configured,
         ],
         // Client-side pre-check mirroring the serializer's rules, so the Save
         // button can explain problems before a round trip.
-        responseTargetGroupsError: [
-            (s) => [s.responseTargetGroupsDraft],
-            (draft: ResponseTargetGroup[] | null): string | null => {
+        ticketGroupsError: [
+            (s) => [s.ticketGroupsDraft],
+            (draft: TicketGroup[] | null): string | null => {
                 if (!draft) {
                     return null
                 }
@@ -1312,22 +1306,21 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 },
             })
         },
-        saveResponseTargetGroups: ({ groups }) => {
-            // A ladder identical to the built-in examples stores as null
+        saveTicketGroups: ({ groups }) => {
+            // A group list identical to the built-in examples stores as null
             // ("not customized"), so the team follows future example updates
             // instead of freezing a copy. This is how "Reset to examples"
             // lands after the user confirms with Save.
-            const value =
-                groups && JSON.stringify(groups) === JSON.stringify(DEFAULT_RESPONSE_TARGET_GROUPS) ? null : groups
+            const value = groups && JSON.stringify(groups) === JSON.stringify(DEFAULT_TICKET_GROUPS) ? null : groups
             // Arm the success listener to clear the draft: intent can't be
             // inferred from the payload, because every other save in this file
             // spreads ...conversations_settings and so carries the
-            // response_target_groups key once it has ever been saved.
-            cache.clearResponseTargetDraftOnSuccess = true
+            // ticket_groups key once it has ever been saved.
+            cache.clearTicketGroupsDraftOnSuccess = true
             actions.updateCurrentTeam({
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
-                    response_target_groups: value,
+                    ticket_groups: value,
                 },
             })
         },
@@ -1749,17 +1742,17 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             }
         },
         updateCurrentTeamFailure: () => {
-            // A failed ladder save must not leave the flag armed for a later
+            // A failed groups save must not leave the flag armed for a later
             // unrelated save's success to consume.
-            cache.clearResponseTargetDraftOnSuccess = false
+            cache.clearTicketGroupsDraftOnSuccess = false
         },
         updateCurrentTeamSuccess: () => {
-            // Only a save initiated by saveResponseTargetGroups clears the
+            // Only a save initiated by saveTicketGroups clears the
             // draft — an unrelated team update (e.g. toggling another setting)
             // must not discard minutes of unsaved reordering.
-            if (cache.clearResponseTargetDraftOnSuccess) {
-                cache.clearResponseTargetDraftOnSuccess = false
-                actions.setResponseTargetGroupsDraft(null)
+            if (cache.clearTicketGroupsDraftOnSuccess) {
+                cache.clearTicketGroupsDraftOnSuccess = false
+                actions.setTicketGroupsDraft(null)
             }
             actions.setGreetingInputValue(null)
             actions.setIdentificationFormTitleValue(null)

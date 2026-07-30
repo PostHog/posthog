@@ -1609,12 +1609,12 @@ def team_api_test_factory():
             assert settings["widget_greeting_text"] == "Hello!"
             assert settings["widget_color"] == "#ff0000"
 
-        def test_conversations_settings_accepts_and_normalizes_response_target_groups(self):
+        def test_conversations_settings_accepts_and_normalizes_ticket_groups(self):
             response = self.client.patch(
                 "/api/environments/@current/",
                 {
                     "conversations_settings": {
-                        "response_target_groups": [
+                        "ticket_groups": [
                             {"label": "  VIPs  ", "tags": [" vip ", "vip", "top_20"]},
                             {"label": "Everyone else", "tags": []},
                         ]
@@ -1623,22 +1623,22 @@ def team_api_test_factory():
             )
             assert response.status_code == status.HTTP_200_OK
             # Labels/tags are stripped, tags deduped within a group; empty tag lists are allowed.
-            assert response.json()["conversations_settings"]["response_target_groups"] == [
+            assert response.json()["conversations_settings"]["ticket_groups"] == [
                 {"label": "VIPs", "tags": ["vip", "top_20"]},
                 {"label": "Everyone else", "tags": []},
             ]
 
-        def test_conversations_settings_null_response_target_groups_resets_to_default(self):
+        def test_conversations_settings_null_ticket_groups_resets_to_default(self):
             self.client.patch(
                 "/api/environments/@current/",
-                {"conversations_settings": {"response_target_groups": [{"label": "VIPs", "tags": ["vip"]}]}},
+                {"conversations_settings": {"ticket_groups": [{"label": "VIPs", "tags": ["vip"]}]}},
             )
             response = self.client.patch(
                 "/api/environments/@current/",
-                {"conversations_settings": {"response_target_groups": None}},
+                {"conversations_settings": {"ticket_groups": None}},
             )
             assert response.status_code == status.HTTP_200_OK
-            assert response.json()["conversations_settings"]["response_target_groups"] is None
+            assert response.json()["conversations_settings"]["ticket_groups"] is None
 
         @parameterized.expand(
             [
@@ -1664,10 +1664,10 @@ def team_api_test_factory():
                 ("too_many_tags_in_group", [{"label": "A", "tags": [f"t{i}" for i in range(101)]}]),
             ]
         )
-        def test_conversations_settings_rejects_invalid_response_target_groups(self, _name, groups):
+        def test_conversations_settings_rejects_invalid_ticket_groups(self, _name, groups):
             response = self.client.patch(
                 "/api/environments/@current/",
-                {"conversations_settings": {"response_target_groups": groups}},
+                {"conversations_settings": {"ticket_groups": groups}},
             )
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 

@@ -20,7 +20,7 @@ import {
     aiTriageResultTagType,
     aiTriageTicketTypeLabel,
 } from '../../types'
-import { DEFAULT_RESPONSE_TARGET_GROUPS, ResponseTargetGroup, responseTargetLabel } from './responseTargets'
+import { DEFAULT_TICKET_GROUPS, TicketGroup, ticketGroupLabel } from './ticketGroups'
 
 export type TicketColumnKey =
     | 'ticket_number'
@@ -29,7 +29,7 @@ export type TicketColumnKey =
     | 'status'
     | 'ai_triage'
     | 'priority'
-    | 'response_target'
+    | 'ticket_group'
     | 'sla_due_at'
     | 'assignee'
     | 'channel'
@@ -48,12 +48,12 @@ interface TicketColumnDefinition {
     column: LemonTableColumns<Ticket>[number]
 }
 
-const responseTargetRender =
-    (groups: ResponseTargetGroup[]) =>
+const ticketGroupRender =
+    (groups: TicketGroup[]) =>
     (_: unknown, ticket: Ticket): JSX.Element => {
-        const label = responseTargetLabel(ticket.tags, groups)
+        const label = ticketGroupLabel(ticket.tags, groups)
         return (
-            // Cap the cell at about the header's width ("Response target" +
+            // Cap the cell at about the header's width ("Ticket group" +
             // sort arrow) so a long group label can't blow the column out;
             // the title attribute shows the full label on hover.
             <span className="text-xs block max-w-36 truncate" title={label}>
@@ -225,13 +225,13 @@ const TICKET_COLUMNS: Record<TicketColumnKey, TicketColumnDefinition> = {
                 ),
         },
     },
-    response_target: {
-        label: 'Response target',
+    ticket_group: {
+        label: 'Ticket group',
         column: {
-            title: 'Response target',
-            key: 'response_target',
+            title: 'Ticket group',
+            key: 'ticket_group',
             sorter: true,
-            render: responseTargetRender(DEFAULT_RESPONSE_TARGET_GROUPS),
+            render: ticketGroupRender(DEFAULT_TICKET_GROUPS),
         },
     },
     sla_due_at: {
@@ -332,7 +332,7 @@ export const TICKET_COLUMN_ORDER: TicketColumnKey[] = [
     'status',
     'ai_triage',
     'priority',
-    'response_target',
+    'ticket_group',
     'sla_due_at',
     'assignee',
     'channel',
@@ -354,9 +354,9 @@ export function isTicketColumnMandatory(key: TicketColumnKey): boolean {
 interface TicketColumnContext {
     aiEnabled: boolean
     embedded: boolean
-    /** The team's response-target ladder (teamResponseTargetGroups); the
+    /** The team's configured ticket groups (teamTicketGroups); the
      *  built-in default when omitted. */
-    responseTargetGroups?: ResponseTargetGroup[]
+    ticketGroups?: TicketGroup[]
 }
 
 /** The columns a user can actually choose between, given the current context. */
@@ -378,15 +378,15 @@ export function buildTicketColumns(
     context: TicketColumnContext
 ): LemonTableColumns<Ticket> {
     const visible = new Set(visibleColumns)
-    const { responseTargetGroups } = context
+    const { ticketGroups } = context
     return offerableTicketColumns(context)
         .filter((key) => visible.has(key) || isTicketColumnMandatory(key))
         .map((key) => {
             const column = TICKET_COLUMNS[key].column
-            // The response-target cell labels tickets against the team's
-            // configured ladder rather than the static default.
-            if (key === 'response_target' && responseTargetGroups) {
-                return { ...column, render: responseTargetRender(responseTargetGroups) }
+            // The ticket-group cell labels tickets against the team's
+            // configured groups rather than the static default.
+            if (key === 'ticket_group' && ticketGroups) {
+                return { ...column, render: ticketGroupRender(ticketGroups) }
             }
             return column
         })
