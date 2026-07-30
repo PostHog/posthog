@@ -177,11 +177,34 @@ class PersonUpdatePropertyRequestSerializer(serializers.Serializer):
     value = serializers.JSONField(help_text="The property value. Can be a string, number, boolean, or object.")
 
 
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "string"},
+            {"type": "array", "items": {"type": "string"}},
+        ]
+    }
+)
+class UnsetPropertyKeysField(serializers.Field):
+    """A single property key, or a list of keys, to unset. Normalizes both to a list."""
+
+    def to_representation(self, value: Any) -> Any:
+        return value
+
+    def to_internal_value(self, data: Any) -> list[str]:
+        keys = [data] if isinstance(data, str) else data
+        if not isinstance(keys, list) or not keys or not all(isinstance(key, str) and key for key in keys):
+            raise ValidationError("Provide '$unset' as a property key or a non-empty list of property keys.")
+        return keys
+
+
 class PersonDeletePropertyRequestSerializer(serializers.Serializer):
     def get_fields(self):
         fields = super().get_fields()
         # The endpoint reads request.data["$unset"], so the field name must include the $ prefix.
-        fields["$unset"] = serializers.CharField(help_text="The property key to remove from this person.")
+        fields["$unset"] = UnsetPropertyKeysField(
+            help_text="A property key, or a list of property keys, to remove from this person."
+        )
         return fields
 
 
@@ -972,17 +995,21 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if person is None:
             raise Person.DoesNotExist
 
-        key = request.data.get("$unset")
-        if key:
-            non_writable = self._get_non_writable_person_properties(request)
-            if key in non_writable:
-                raise ValidationError(f'You do not have write access to the property "{key}".')
+        raw = request.data.get("$unset")
+        keys = [raw] if isinstance(raw, str) else raw
+        if not isinstance(keys, list) or not keys or not all(isinstance(key, str) and key for key in keys):
+            raise ValidationError("Provide '$unset' as a property key or a non-empty list of property keys.")
+
+        non_writable = self._get_non_writable_person_properties(request)
+        forbidden = sorted(set(keys) & non_writable)
+        if forbidden:
+            raise ValidationError(f'You do not have write access to the property "{forbidden[0]}".')
 
         event_name = "$delete_person_property"
         distinct_id = person.distinct_ids[0]
         timestamp = datetime.now(UTC)
         properties = {
-            "$unset": [request.data["$unset"]],
+            "$unset": keys,
         }
 
         try:

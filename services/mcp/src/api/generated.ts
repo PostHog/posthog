@@ -55031,8 +55031,8 @@ export namespace Schemas {
     }
 
     export interface PersonDeletePropertyRequest {
-      /** The property key to remove from this person. */
-      $unset: string;
+      /** A property key, or a list of property keys, to remove from this person. */
+      $unset: string | string[];
     }
 
     /**
