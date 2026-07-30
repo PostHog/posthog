@@ -23,6 +23,7 @@ from products.data_modeling.backend.facade.models import (
 from products.endpoints.backend.facade.temporal import prepare_executable_query
 from products.managed_warehouse.backend.facade.api import (
     duckgres_data_modeling_schema,
+    duckgres_data_modeling_table_name,
     get_duckgres_server_for_organization,
     is_dev_mode,
 )
@@ -165,7 +166,7 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
     team, node, saved_query = await _get_shadow_input_objects(inputs)
     hogql_query = typing.cast(dict, saved_query.query)["query"]
     schema_name = duckgres_data_modeling_schema(team.pk)
-    table_name = saved_query.normalized_name
+    table_name = duckgres_data_modeling_table_name(saved_query.name)
 
     await logger.ainfo(
         "Starting duckgres shadow materialization",

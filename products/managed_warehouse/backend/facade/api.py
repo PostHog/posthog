@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     import psycopg
 
     from products.managed_warehouse.backend.models import DuckgresServer
+    from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 __all__ = [
     "DUCKGRES_BUCKET_REGION",
@@ -34,7 +35,9 @@ __all__ = [
     "NO_HISTORY_SENTINEL",
     "default_bucket_region",
     "duckgres_data_imports_schema",
+    "duckgres_data_imports_table_name",
     "duckgres_data_modeling_schema",
+    "duckgres_data_modeling_table_name",
     "get_duckgres_config_for_org",
     "get_duckgres_server_by_team_org",
     "get_duckgres_server_for_organization",
@@ -100,8 +103,16 @@ def duckgres_data_imports_schema(team_id: int) -> str:
     return common.duckgres_data_imports_schema(team_id)
 
 
+def duckgres_data_imports_table_name(schema: ExternalDataSchema) -> str:
+    return common.duckgres_data_imports_table_name(schema)
+
+
 def duckgres_data_modeling_schema(team_id: int) -> str:
     return common.duckgres_data_modeling_schema(team_id)
+
+
+def duckgres_data_modeling_table_name(saved_query_name: str) -> str:
+    return common.duckgres_data_modeling_table_name(saved_query_name)
 
 
 def validate_schema_name(name: str | None) -> str | None:

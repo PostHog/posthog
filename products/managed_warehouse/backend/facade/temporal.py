@@ -21,6 +21,7 @@ from products.managed_warehouse.backend.temporal.ducklake_copy_data_modeling_wor
 from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_workflow import (
     DuckLakeRegisterDataImportsInputs,
     DuckLakeRegisterDataImportsWorkflow,
+    build_register_data_imports_workflow_id,
 )
 from products.managed_warehouse.backend.temporal.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
@@ -35,4 +36,5 @@ __all__ = [
     "DuckLakeRegisterDataImportsInputs",
     "DuckLakeRegisterDataImportsWorkflow",
     "DucklakeCompactionInput",
+    "build_register_data_imports_workflow_id",
 ]
