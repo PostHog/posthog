@@ -1,10 +1,10 @@
+import functools
 import dataclasses
 from typing import Any, Optional
 
 from requests import Request, Response
 from requests.exceptions import RequestException
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.settings import CLERK_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     EndpointResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 
 @dataclasses.dataclass
@@ -46,7 +47,7 @@ def get_resource(name: str) -> EndpointResource:
 
     # Only set data_selector for endpoints that return wrapped responses {data: [...], total_count: ...}
     if config.is_wrapped_response:
-        endpoint_config["data_selector"] = "data"
+        endpoint_config["data_selector"] = config.data_key
 
     return {
         "name": config.name,
@@ -60,10 +61,11 @@ def get_resource(name: str) -> EndpointResource:
 class ClerkPaginator(BasePaginator):
     """Paginator for Clerk API using offset-based pagination."""
 
-    def __init__(self, limit: int = 100) -> None:
+    def __init__(self, limit: int = 100, data_key: str = "data") -> None:
         super().__init__()
         self._limit = limit
         self._offset = 0
+        self._data_key = data_key
 
     def init_request(self, request: Request) -> None:
         # Emit the seeded offset on the first request so resume starts from the
@@ -91,9 +93,10 @@ class ClerkPaginator(BasePaginator):
         # Clerk endpoints return either:
         # - Direct array: /users, /invitations
         # - Wrapped object {data: [...], total_count: ...}: /organizations, /organization_memberships
+        #   (/m2m_tokens wraps under `m2m_tokens` instead of `data`)
         total_count: Optional[int] = None
-        if isinstance(res, dict) and "data" in res:
-            items = res["data"]
+        if isinstance(res, dict) and self._data_key in res:
+            items = res[self._data_key]
             raw_total = res.get("total_count")
             if isinstance(raw_total, int):
                 total_count = raw_total
@@ -143,16 +146,55 @@ TIMESTAMP_FIELDS = [
     "password_last_updated_at",
     "legal_accepted_at",
     "expires_at",  # invitations
+    "expire_at",  # sessions
+    "abandon_at",  # sessions
+    "expiration",  # api_keys, m2m_tokens
+    "last_used_at",  # api_keys, m2m_tokens
+    "idp_certificate_issued_at",  # saml_connections
+    "idp_certificate_expires_at",  # saml_connections
+    "period_start",  # commerce_subscription_items
+    "period_end",  # commerce_subscription_items
+    "canceled_at",  # commerce_subscription_items
+    "past_due_at",  # commerce_subscription_items
+    "ended_at",  # commerce_subscription_items
 ]
 
 
 def _convert_timestamps(item: dict[str, Any]) -> dict[str, Any]:
     """Convert Clerk timestamp fields from milliseconds to seconds."""
     for field in TIMESTAMP_FIELDS:
-        if field in item and item[field] is not None:
-            # Clerk returns timestamps in milliseconds, convert to seconds
-            # Use integer division to maintain int64 type for delta table compatibility
-            item[field] = item[field] // 1000
+        value = item.get(field)
+        # Some endpoints return these fields as an ISO string (or other non-numeric shape)
+        # rather than epoch milliseconds; leave those untouched instead of crashing on `//`.
+        # bool is an int subclass, so exclude it explicitly.
+        if isinstance(value, int) and not isinstance(value, bool):
+            # Clerk returns timestamps in milliseconds, convert to seconds.
+            # Use integer division to maintain int64 type for delta table compatibility.
+            item[field] = value // 1000
+    return item
+
+
+# Redeemable invitation links Clerk returns on invitation rows. Anyone who can read the
+# warehouse table could otherwise copy one of these and accept the invitation, so drop them
+# before the row is stored. Values are dotted paths into each endpoint's row shape.
+SENSITIVE_FIELDS_BY_ENDPOINT: dict[str, tuple[str, ...]] = {
+    "invitations": ("url",),
+    "organization_invitations": ("url",),
+    "waitlist_entries": ("invitation.url",),
+}
+
+
+def _strip_sensitive_fields(item: dict[str, Any], paths: tuple[str, ...]) -> dict[str, Any]:
+    """Remove the given dotted-path fields from a row in place."""
+    for path in paths:
+        parts = path.split(".")
+        target: Any = item
+        for part in parts[:-1]:
+            target = target.get(part) if isinstance(target, dict) else None
+            if target is None:
+                break
+        if isinstance(target, dict):
+            target.pop(parts[-1], None)
     return item
 
 
@@ -201,7 +243,7 @@ def clerk_source(
             "headers": {
                 "Content-Type": "application/json",
             },
-            "paginator": ClerkPaginator(limit=endpoint_config.page_size),
+            "paginator": ClerkPaginator(limit=endpoint_config.page_size, data_key=endpoint_config.data_key),
         },
         "resource_defaults": {
             "write_disposition": "replace",
@@ -234,6 +276,17 @@ def clerk_source(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     ).add_map(_convert_timestamps)
+
+    sensitive_fields = SENSITIVE_FIELDS_BY_ENDPOINT.get(endpoint)
+    if sensitive_fields:
+        resource = resource.add_map(functools.partial(_strip_sensitive_fields, paths=sensitive_fields))
+
+    if endpoint_config.partition_key is None:
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: resource,
+            primary_keys=["id"],
+        )
 
     return SourceResponse(
         name=endpoint,

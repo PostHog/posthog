@@ -16,7 +16,7 @@ use sqlx::PgPool;
 use crate::{
     core::config::ResolverConfig,
     error::{JsResolveErr, ProguardError, ResolveError, UnhandledError},
-    frames::{releases::ReleaseRecord, Frame, RawFrame},
+    frames::{Frame, RawFrame},
     langs::native::DebugImage,
     metric_consts::{
         FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS, FRAME_DB_MISSES,
@@ -156,28 +156,19 @@ impl LocalSymbolResolver {
 
         assert!(!resolved.is_empty()); // If this ever happens, we've got a data-dropping bug, and want to crash
 
-        let (set, release) = if let Some(set_ref) = frame.symbol_set_ref(debug_images) {
-            let set_fut = SymbolSetRecord::load(&self.pool, raw_id.team_id, &set_ref);
-            let release_fut = async {
-                ReleaseRecord::for_symbol_set_ref(&self.pool, &set_ref, raw_id.team_id)
-                    .await
-                    .map_err(UnhandledError::from)
-            };
-            let (mut set, release) = tokio::try_join!(set_fut, release_fut)?;
+        let set = if let Some(set_ref) = frame.symbol_set_ref(debug_images) {
+            let mut set = SymbolSetRecord::load(&self.pool, raw_id.team_id, &set_ref).await?;
             if let Some(s) = &mut set {
                 s.set_last_used(&self.pool).await?;
             }
-            (set, release)
+            set
         } else {
-            (None, None)
+            None
         };
 
         let mut records = Vec::new();
-        let mut resolved = resolved;
-        for r_frame in resolved.iter_mut() {
-            r_frame.release = release.clone(); // Enrich with release information
-
-            // And save back to the DB
+        for r_frame in &resolved {
+            // Save back to the DB
             let record = ErrorTrackingStackFrame::new(
                 r_frame.frame_id.clone(),
                 set.as_ref().map(|s| s.id),
