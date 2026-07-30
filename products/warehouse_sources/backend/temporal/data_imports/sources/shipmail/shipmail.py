@@ -18,7 +18,7 @@ SHIPMAIL_BASE_URL = "https://shipmail.to/api/v1"
 
 
 @dataclasses.dataclass
-class ShipMailResumeConfig:
+class ShipmailResumeConfig:
     cursor: str | None = None
 
 
@@ -29,7 +29,7 @@ def _incremental_value(value: Any) -> str:
 
 
 def _initial_paginator_state(
-    resumable_source_manager: ResumableSourceManager[ShipMailResumeConfig],
+    resumable_source_manager: ResumableSourceManager[ShipmailResumeConfig],
 ) -> dict[str, str] | None:
     if not resumable_source_manager.can_resume():
         return None
@@ -44,7 +44,7 @@ def shipmail_source(
     endpoint: str,
     team_id: int,
     job_id: str,
-    resumable_source_manager: ResumableSourceManager[ShipMailResumeConfig],
+    resumable_source_manager: ResumableSourceManager[ShipmailResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: Optional[str] = None,
@@ -87,7 +87,7 @@ def shipmail_source(
 
     def save_checkpoint(state: dict[str, Any] | None) -> None:
         if state and state.get("cursor"):
-            resumable_source_manager.save_state(ShipMailResumeConfig(cursor=str(state["cursor"])))
+            resumable_source_manager.save_state(ShipmailResumeConfig(cursor=str(state["cursor"])))
 
     resource = rest_api_resource(
         rest_config,

@@ -1,4 +1,4 @@
-"""Canonical descriptions sourced from the ShipMail API documentation."""
+"""Canonical descriptions sourced from the Shipmail API documentation."""
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -27,7 +27,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "mailboxes": {
-        "description": "Mailboxes belonging to the authenticated ShipMail organization.",
+        "description": "Mailboxes belonging to the authenticated Shipmail organization.",
         "docs_url": "https://shipmail.to/docs/api/mailboxes",
         "columns": {
             "object": "The API object type. Always `mailbox`.",
@@ -44,26 +44,26 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "domains": {
-        "description": "Sending and receiving domains configured in the authenticated ShipMail organization.",
+        "description": "Sending and receiving domains configured in the authenticated Shipmail organization.",
         "docs_url": "https://shipmail.to/docs/api/domains",
         "columns": {
             "object": "The API object type. Always `domain`.",
             "id": "Unique identifier for the domain.",
             "name": "Domain name.",
             "status": "Current domain status.",
-            "managed_by": "Whether DNS is managed externally or by ShipMail.",
+            "managed_by": "Whether DNS is managed externally or by Shipmail.",
             "dns_provider": "Detected DNS provider, when available.",
             "mx_verified": "Whether the MX record is verified.",
             "spf_verified": "Whether the SPF record is verified.",
             "dkim_verified": "Whether the DKIM record is verified.",
             "dmarc_verified": "Whether the DMARC record is verified.",
-            "dmarc_managed_externally": "Whether DMARC is managed outside ShipMail.",
+            "dmarc_managed_externally": "Whether DMARC is managed outside Shipmail.",
             "outbound_verified": "Whether outbound sending is verified.",
             "catch_all_mailbox_id": "Identifier of the catch-all mailbox, when configured.",
             "verified_at": "Time at which the domain completed verification.",
             "created_at": "Time at which the domain was created.",
             "updated_at": "Time at which the domain was last updated.",
-            "registration": "Registration details for domains managed by ShipMail, when available.",
+            "registration": "Registration details for domains managed by Shipmail, when available.",
         },
     },
     "suppressions": {

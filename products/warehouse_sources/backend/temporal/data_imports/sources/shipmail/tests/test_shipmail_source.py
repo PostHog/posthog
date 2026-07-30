@@ -3,18 +3,18 @@ from unittest import mock
 from posthog.schema import ReleaseStatus
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shipmail import (
-    ShipMailSourceConfig,
+    ShipmailSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.shipmail.source import ShipMailSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.shipmail.source import ShipmailSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 CAPABILITIES_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.shipmail.source.get_capabilities"
 
 
-class TestShipMailSource:
+class TestShipmailSource:
     def setup_method(self) -> None:
-        self.source = ShipMailSource()
-        self.config = ShipMailSourceConfig(api_key="test-key")
+        self.source = ShipmailSource()
+        self.config = ShipmailSourceConfig(api_key="test-key")
 
     def test_source_metadata(self) -> None:
         assert self.source.source_type == ExternalDataSourceType.SHIPMAIL
@@ -49,7 +49,7 @@ class TestShipMailSource:
         assert self.source.validate_credentials(self.config, team_id=1, schema_name="messages") == (True, None)
         assert self.source.validate_credentials(self.config, team_id=1, schema_name="domains") == (
             False,
-            "Your ShipMail API key is missing the `domains:read` scope",
+            "Your Shipmail API key is missing the `domains:read` scope",
         )
 
     @mock.patch(CAPABILITIES_PATCH, return_value=(200, {"messages:read", "suppressions:read"}))
@@ -69,4 +69,4 @@ class TestShipMailSource:
 
     @mock.patch(CAPABILITIES_PATCH, return_value=(401, set()))
     def test_rejects_invalid_token(self, get_capabilities: mock.MagicMock) -> None:
-        assert self.source.validate_credentials(self.config, team_id=1) == (False, "Invalid ShipMail API key")
+        assert self.source.validate_credentials(self.config, team_id=1) == (False, "Invalid Shipmail API key")

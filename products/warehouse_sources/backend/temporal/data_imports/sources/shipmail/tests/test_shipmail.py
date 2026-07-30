@@ -9,7 +9,7 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.shipmail.shipmail import (
     SHIPMAIL_BASE_URL,
-    ShipMailResumeConfig,
+    ShipmailResumeConfig,
     _incremental_value,
     get_capabilities,
     shipmail_source,
@@ -27,7 +27,7 @@ def _response(body: Any, status_code: int = 200) -> Response:
     return response
 
 
-def _manager(resume_state: ShipMailResumeConfig | None = None) -> mock.MagicMock:
+def _manager(resume_state: ShipmailResumeConfig | None = None) -> mock.MagicMock:
     manager = mock.MagicMock()
     manager.can_resume.return_value = resume_state is not None
     manager.load_state.return_value = resume_state
@@ -107,7 +107,7 @@ def test_messages_paginates_checkpoints_and_sends_incremental_watermark(make_ses
         "updated_after": "2026-07-01T00:00:00Z",
         "cursor": "cursor_2",
     }
-    manager.save_state.assert_called_once_with(ShipMailResumeConfig(cursor="cursor_2"))
+    manager.save_state.assert_called_once_with(ShipmailResumeConfig(cursor="cursor_2"))
     make_session.assert_called_once_with(redact_values=("test-key",), capture=False)
 
 
@@ -126,7 +126,7 @@ def test_resumes_from_saved_cursor(make_session: mock.MagicMock) -> None:
         ],
     )
 
-    rows = _rows(_source("mailboxes", _manager(ShipMailResumeConfig(cursor="cursor_2"))))
+    rows = _rows(_source("mailboxes", _manager(ShipmailResumeConfig(cursor="cursor_2"))))
 
     assert rows == [{"id": "mbx_2"}]
     assert params[0] == {"limit": 100, "cursor": "cursor_2"}
