@@ -7,6 +7,7 @@ import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVariants'
 import { projectLogic } from 'scenes/projectLogic'
+import { userLogic } from 'scenes/userLogic'
 
 // Cross-product import (onboarding core → wizard product) is intentional: this
 // detector is the single client that owns the wizard latest-session poll. Going
@@ -14,6 +15,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { wizardSessionsLatestRetrieve } from 'products/wizard/frontend/generated/api'
 import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
 
+import type { UserType } from '../../../../types'
 import { POSTHOG_INTEGRATION_WORKFLOW_ID, SELF_DRIVING_WORKFLOW_ID } from './workflows'
 
 /** Always watched: the SDK install is what the app-wide FAB and nav button exist for. */
@@ -74,6 +76,17 @@ export function watchWorkflowWhileMounted(workflowId: string): () => void {
     }
 }
 
+/**
+ * Whether a run belongs to the person looking at it. The latest-session endpoint scopes by team and
+ * program, not by user, so a teammate running the wizard would otherwise take over this browser's
+ * single verdict slot: their run would tear down the viewer's widget, and their self-driving run
+ * would suppress onboarding for someone who has no run at all. Runs from before attribution existed
+ * carry no `created_by`, and those stay eligible rather than disappearing from the UI.
+ */
+function isOwnSession(session: WizardSessionDTOApi, userId: number | null): boolean {
+    return !session.created_by || userId === null || session.created_by.id === userId
+}
+
 /** Sorts unparseable timestamps last rather than letting NaN scramble the comparison. */
 function startedAtMs(session: WizardSessionDTOApi): number {
     const parsed = new Date(session.started_at).getTime()
@@ -105,6 +118,7 @@ export function isSessionActive(session: WizardSessionDTOApi | null | undefined)
 export interface wizardActiveSessionDetectorLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentProjectId: number | null // projectLogic
+    user: UserType | null // userLogic
     activeWorkflowId: string | null
     consecutivePollFailures: number
     extraWorkflowCounts: Record<string, number>
@@ -191,7 +205,7 @@ export type wizardActiveSessionDetectorLogicType = MakeLogicType<
 export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorLogicType>([
     path(['scenes', 'onboarding', 'wizardActiveSessionDetectorLogic']),
     connect(() => ({
-        values: [projectLogic, ['currentProjectId'], featureFlagLogic, ['featureFlags']],
+        values: [projectLogic, ['currentProjectId'], featureFlagLogic, ['featureFlags'], userLogic, ['user']],
     })),
     actions({
         check: true,
@@ -387,9 +401,26 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
                 actions.setLastError(errors[0] instanceof Error ? (errors[0] as Error).message : String(errors[0]))
             }
 
-            if (sessions.length === 0) {
-                // Nothing answered, so we know nothing — leave hasActiveSession as-is so SSE-driven
-                // state isn't clobbered, and count the failure toward giving up on a verdict.
+            // Newest wins when two programs both look live — a user who kicked off self-driving
+            // after an SDK install should see the run they just started. Parsed rather than compared
+            // as strings: the CLI mints these timestamps, so offset and fractional-second precision
+            // aren't guaranteed to be uniform, and lexicographic order would rank them wrong.
+            const userId = values.user?.id ?? null
+            const live = sessions
+                .filter(isSessionActive)
+                .filter((session) => isOwnSession(session, userId))
+                .sort((a, b) => startedAtMs(b) - startedAtMs(a))[0]
+            if (live) {
+                actions.markActive(live.workflow_id)
+                return
+            }
+
+            if (errors.length > 0) {
+                // "Nothing live" is only a verdict when every program answered. A failure on the
+                // program that is actually running, alongside an empty answer from the other, looks
+                // identical to "no run" from here — and tearing down over that would kill a live
+                // run's widget. Leave the state alone and count the failure toward giving up on a
+                // verdict, so consumers waiting on one aren't stranded either.
                 actions.pollFailed()
                 if (values.consecutivePollFailures >= MAX_CONSECUTIVE_POLL_FAILURES) {
                     actions.markResolutionUnavailable()
@@ -397,14 +428,7 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
                 return
             }
 
-            // Newest wins when two programs both look live — a user who kicked off self-driving
-            // after an SDK install should see the run they just started. Parsed rather than compared
-            // as strings: the CLI mints these timestamps, so offset and fractional-second precision
-            // aren't guaranteed to be uniform, and lexicographic order would rank them wrong.
-            const live = sessions.filter(isSessionActive).sort((a, b) => startedAtMs(b) - startedAtMs(a))[0]
-            if (live) {
-                actions.markActive(live.workflow_id)
-            } else if (values.hasActiveSession) {
+            if (values.hasActiveSession) {
                 // Was streaming, REST now reports terminal / empty: defer
                 // teardown so any in-flight terminal UI gets its grace
                 // window via the same shared scheduler the tracker uses.

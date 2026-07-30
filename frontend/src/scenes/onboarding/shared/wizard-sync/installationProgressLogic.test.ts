@@ -269,6 +269,9 @@ describe('installationProgressLogic merge', () => {
             ['running + open → running', { run_phase: 'running' }, 'open', 'running'],
             ['running + connecting conn → connecting', { run_phase: 'running' }, 'connecting', 'connecting'],
             ['running + error conn → connecting', { run_phase: 'running' }, 'error', 'connecting'],
+            // A CLI that dies without pushing a terminal phase: without this the step spins forever,
+            // and InstallationProgressContent only offers a way out on a terminal phase.
+            ['running + server-flagged stale → error', { run_phase: 'running', is_stale: true }, 'open', 'error'],
         ])('phase: %s', (_name, sessionOverrides, conn, expected) => {
             const s = sessionOverrides === null ? null : session(sessionOverrides as Partial<WizardSessionDTOApi>)
             expect(localProgress(s, conn, true).phase).toBe(expected)
@@ -290,6 +293,13 @@ describe('installationProgressLogic merge', () => {
                 { id: 'a', label: 'Detect framework', status: 'completed', detail: null },
                 { id: 'b', label: 'Install SDK', status: 'in_progress', detail: null },
             ])
+        })
+
+        it('explains the dead end when a run goes stale without a terminal phase', () => {
+            expect(localProgress(session({ run_phase: 'running', is_stale: true }), 'open', true).error).toEqual({
+                title: 'Setup lost contact',
+                detail: 'We stopped hearing back from this run. Run the wizard yourself, or dismiss it and start over.',
+            })
         })
 
         it('surfaces the wizard error on the error phase', () => {

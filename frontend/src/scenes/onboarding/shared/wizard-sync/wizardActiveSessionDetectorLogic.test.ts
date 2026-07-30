@@ -131,6 +131,33 @@ describe('wizardActiveSessionDetectorLogic', () => {
             .toMatchValues({ permanentlyDisabled: false })
     })
 
+    // With two programs watched, a failure on the live one plus an empty answer from the other is
+    // indistinguishable from "no run" unless the error is taken into account — and acting on it
+    // would tear down a run that is still going.
+    it('does not tear down a live run when one watched program fails and the other returns empty', async () => {
+        logic.actions.watchWorkflow('self-driving')
+        mockLatestRetrieve.mockResolvedValue(makeSession({ run_phase: 'running' }))
+        await expectLogic(logic, () => {
+            logic.actions.check()
+        })
+            .toDispatchActions(['markActive'])
+            .toMatchValues({ hasActiveSession: true })
+
+        mockLatestRetrieve.mockImplementation(async (_projectId: string, params: { workflow_id: string }) => {
+            if (params.workflow_id === 'self-driving') {
+                throw new ApiError('boom', 500)
+            }
+            return null
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.check()
+        })
+            .toDispatchActions(['pollFailed'])
+            .toNotHaveDispatchedActions(['markInactive', 'scheduleMarkInactive'])
+            .toMatchValues({ hasActiveSession: true })
+    })
+
     describe('hasResolvedSessionState', () => {
         it('starts unresolved and resolves on a settled poll, in either direction', async () => {
             expect(logic.values.hasResolvedSessionState).toBe(false)

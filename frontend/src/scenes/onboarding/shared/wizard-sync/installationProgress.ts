@@ -257,10 +257,16 @@ export function localProgress(
         }
     }
 
+    // A CLI that dies without pushing a terminal phase leaves the row mid-run forever. The server
+    // computes staleness against the same threshold the detector trusts, so treat it the way the
+    // cloud path treats a stalled run: surface the dead end, because `connecting` and `running` both
+    // render as a spinner that `InstallationProgressContent` offers no way out of.
+    const stalled = latestSession.is_stale && latestSession.run_phase !== 'completed'
+
     let phase: InstallationPhase
     if (latestSession.run_phase === 'completed') {
         phase = 'completed'
-    } else if (latestSession.run_phase === 'error') {
+    } else if (latestSession.run_phase === 'error' || stalled) {
         phase = 'error'
     } else if (sessionConnectionStatus === 'connecting' || sessionConnectionStatus === 'error') {
         phase = 'connecting'
@@ -275,13 +281,18 @@ export function localProgress(
         detail: null,
     }))
 
-    const error =
-        latestSession.run_phase === 'error'
-            ? {
-                  title: 'Wizard hit an error',
-                  detail: (latestSession.error as { message?: string } | null)?.message ?? null,
-              }
-            : null
+    let error: { title: string; detail: string | null } | null = null
+    if (latestSession.run_phase === 'error') {
+        error = {
+            title: 'Wizard hit an error',
+            detail: (latestSession.error as { message?: string } | null)?.message ?? null,
+        }
+    } else if (stalled) {
+        error = {
+            title: 'Setup lost contact',
+            detail: 'We stopped hearing back from this run. Run the wizard yourself, or dismiss it and start over.',
+        }
+    }
 
     return {
         phase,
