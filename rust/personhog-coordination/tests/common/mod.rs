@@ -2,11 +2,13 @@
 
 use std::collections::{HashMap, HashSet};
 use std::future::{pending, Future};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
+use tokio::io::copy_bidirectional;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{Mutex, Notify, RwLock};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -307,6 +309,88 @@ pub fn start_router_with_lease_ttl(
         addresses,
         table,
         join_handle: Some(join_handle),
+    }
+}
+
+/// Connect a store to an arbitrary endpoint (e.g. a `FlakyProxy`) under
+/// an explicit prefix, so a component under test can run through a
+/// fault-injected connection while the test asserts against a direct one.
+pub async fn store_at(endpoint: &str, prefix: &str) -> Arc<PersonhogStore> {
+    let config = StoreConfig {
+        endpoints: vec![endpoint.to_string()],
+        prefix: prefix.to_string(),
+    };
+    let inner = EtcdStore::connect(config)
+        .await
+        .expect("failed to connect store");
+    Arc::new(PersonhogStore::new(inner))
+}
+
+/// A byte-forwarding TCP proxy for fault-injecting a component's etcd
+/// connection: `sever` breaks every live connection (in-flight streams
+/// error; reconnects still succeed), and `set_blackholed(true)` also
+/// kills new connections on accept, so recovery is impossible until it
+/// is lifted.
+pub struct FlakyProxy {
+    /// Endpoint URL to hand to `store_at`.
+    pub endpoint: String,
+    conns: Arc<StdMutex<Vec<tokio::task::JoinHandle<()>>>>,
+    blackholed: Arc<AtomicBool>,
+    listener: tokio::task::JoinHandle<()>,
+}
+
+impl FlakyProxy {
+    pub async fn start(upstream: &'static str) -> Self {
+        let socket = TcpListener::bind("127.0.0.1:0").await.expect("bind proxy");
+        let endpoint = format!("http://{}", socket.local_addr().expect("proxy addr"));
+        let conns: Arc<StdMutex<Vec<tokio::task::JoinHandle<()>>>> =
+            Arc::new(StdMutex::new(Vec::new()));
+        let blackholed = Arc::new(AtomicBool::new(false));
+        let conns_bg = Arc::clone(&conns);
+        let blackholed_bg = Arc::clone(&blackholed);
+        let listener = tokio::spawn(async move {
+            loop {
+                let Ok((mut client, _)) = socket.accept().await else {
+                    return;
+                };
+                if blackholed_bg.load(Ordering::SeqCst) {
+                    drop(client);
+                    continue;
+                }
+                let pump = tokio::spawn(async move {
+                    let Ok(mut upstream_conn) = TcpStream::connect(upstream).await else {
+                        return;
+                    };
+                    drop(copy_bidirectional(&mut client, &mut upstream_conn).await);
+                });
+                conns_bg.lock().unwrap().push(pump);
+            }
+        });
+        Self {
+            endpoint,
+            conns,
+            blackholed,
+            listener,
+        }
+    }
+
+    /// Break every live connection; the streams running over them error
+    /// out. New connections still succeed unless blackholed.
+    pub fn sever(&self) {
+        for pump in self.conns.lock().unwrap().drain(..) {
+            pump.abort();
+        }
+    }
+
+    pub fn set_blackholed(&self, blackholed: bool) {
+        self.blackholed.store(blackholed, Ordering::SeqCst);
+    }
+}
+
+impl Drop for FlakyProxy {
+    fn drop(&mut self) {
+        self.listener.abort();
+        self.sever();
     }
 }
 
