@@ -103,7 +103,7 @@ describe('signalTeamConfigLogic', () => {
         logic.actions.setDraftBaseBranchRepo('acme/api')
 
         expect(logic.values.draftBaseBranchBranch).toBe('')
-        expect(logic.values.canAddBaseBranchOverride).toBe(false)
+        expect(logic.values.addBaseBranchOverrideDisabledReason).toBe('Choose a branch first')
     })
 
     it('updates an existing override branch without touching others', async () => {

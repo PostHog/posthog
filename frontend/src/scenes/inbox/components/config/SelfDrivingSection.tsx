@@ -41,19 +41,22 @@ const THRESHOLD_SEGMENTS = PRIORITY_THRESHOLD_OPTIONS.map(({ value }) => ({
 function BaseBranchOverrideRows(): JSX.Element | null {
     const { baseBranchOverrides, teamConfigUpdating } = useValues(signalTeamConfigLogic)
     const { updateBaseBranchOverride, removeBaseBranchOverride } = useActions(signalTeamConfigLogic)
-    const { getIntegrationsByKind } = useValues(integrationsLogic)
-    const githubIntegrations = getIntegrationsByKind(['github'])
+    const { githubIntegrations } = useValues(integrationsLogic)
 
     if (baseBranchOverrides.length === 0) {
         return null
     }
 
+    // A stored override is just `org/repo`, so the owning integration has to be recovered from the owner
+    // half. A GitHub integration's display name is the installation's account login, which is that owner.
+    const integrationsByOwner = new Map(
+        githubIntegrations.map((integration) => [integration.display_name.toLowerCase(), integration])
+    )
+
     return (
         <div className="flex flex-col gap-1">
             {baseBranchOverrides.map(({ repo, branch }) => {
-                const integration = githubIntegrations.find(
-                    (candidate) => candidate.display_name.toLowerCase() === repo.split('/')[0]
-                )
+                const integration = integrationsByOwner.get(repo.split('/')[0])
                 return (
                     <div key={repo} className="flex items-center gap-1">
                         <span className="text-xs text-default min-w-0 flex-1 truncate" title={repo}>
@@ -91,30 +94,23 @@ function BaseBranchOverrideRows(): JSX.Element | null {
     )
 }
 
-function BaseBranchOverridePicker({ integrationIds }: { integrationIds: number[] }): JSX.Element {
+function BaseBranchOverridePicker(): JSX.Element {
     const {
         draftBaseBranchIntegrationId,
         draftBaseBranchRepo,
         draftBaseBranchBranch,
-        canAddBaseBranchOverride,
+        addBaseBranchOverrideDisabledReason,
         teamConfigUpdating,
     } = useValues(signalTeamConfigLogic)
     const { setDraftBaseBranchIntegrationId, setDraftBaseBranchRepo, setDraftBaseBranchBranch, addBaseBranchOverride } =
         useActions(signalTeamConfigLogic)
-    const { getIntegrationsByKind } = useValues(integrationsLogic)
+    const { githubIntegrations } = useValues(integrationsLogic)
 
-    const integrationId = draftBaseBranchIntegrationId ?? integrationIds[0]
-    const githubIntegrations = getIntegrationsByKind(['github'])
-    // The pickers only ever emit whole values, so an incomplete draft is always a missing pick.
-    const addDisabledReason = !draftBaseBranchRepo
-        ? 'Choose a repository first'
-        : !draftBaseBranchBranch
-          ? 'Choose a branch first'
-          : null
+    const integrationId = draftBaseBranchIntegrationId ?? githubIntegrations[0].id
 
     return (
         <div className="flex flex-wrap items-center gap-1">
-            {integrationIds.length > 1 && (
+            {githubIntegrations.length > 1 && (
                 <DropdownMenu>
                     <DropdownMenuTrigger
                         render={
@@ -168,7 +164,7 @@ function BaseBranchOverridePicker({ integrationIds }: { integrationIds: number[]
                         <Button
                             variant="outline"
                             size="sm"
-                            disabled={!canAddBaseBranchOverride}
+                            disabled={!!addBaseBranchOverrideDisabledReason}
                             loading={teamConfigUpdating}
                             aria-label="Add base branch override"
                             onClick={() => addBaseBranchOverride()}
@@ -178,7 +174,7 @@ function BaseBranchOverridePicker({ integrationIds }: { integrationIds: number[]
                         </Button>
                     }
                 />
-                <TooltipContent>{addDisabledReason ?? 'Add base branch override'}</TooltipContent>
+                <TooltipContent>{addBaseBranchOverrideDisabledReason ?? 'Add base branch override'}</TooltipContent>
             </Tooltip>
         </div>
     )
@@ -191,8 +187,7 @@ function BaseBranchOverridePicker({ integrationIds }: { integrationIds: number[]
  */
 function BaseBranchOverrides(): JSX.Element {
     const { baseBranchOverrides } = useValues(signalTeamConfigLogic)
-    const { getIntegrationsByKind } = useValues(integrationsLogic)
-    const integrationIds = getIntegrationsByKind(['github']).map((integration) => integration.id)
+    const { githubIntegrations } = useValues(integrationsLogic)
 
     // The Collapsible root fills itself with --muted while open or hovered, which reads as an
     // off-color patch against the card. The trigger owns the hover instead.
@@ -213,8 +208,8 @@ function BaseBranchOverrides(): JSX.Element {
                     Otherwise, PRs use GitHub's default branch.
                 </p>
                 <BaseBranchOverrideRows />
-                {integrationIds.length > 0 ? (
-                    <BaseBranchOverridePicker integrationIds={integrationIds} />
+                {githubIntegrations.length > 0 ? (
+                    <BaseBranchOverridePicker />
                 ) : (
                     <p className="text-[11px] text-tertiary leading-snug mb-0">
                         Connect GitHub above to add an override.
