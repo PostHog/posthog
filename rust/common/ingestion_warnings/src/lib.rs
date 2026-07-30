@@ -63,7 +63,27 @@ pub use throttle::{ThrottleDecision, WarningThrottle};
 /// cardinality_capped | queue_full | serialize_error | enqueue_error`.
 /// Delivery-time outcomes (reported asynchronously for each `emitted`
 /// message): `delivered | delivery_failed`.
+///
+/// The Node.js `clientwarnings` consumer exports the same metric name for the
+/// terminal rows it writes (`{type, emitted}`, see
+/// `nodejs/src/ingestion/common/ingestion-warnings.ts`), so the two count the
+/// same logical warning at different pipeline stages and at very different
+/// volumes. They never collide as series — only this side carries `source` —
+/// but any query must scope by `source` (or namespace) or it silently sums
+/// both stages.
 pub const INGESTION_WARNINGS_TOTAL: &str = "ingestion_warnings_total";
+
+/// Counter of delivery failures broken down by rdkafka error code: labels
+/// `source` and `error` (the [`RDKafkaErrorCode`] variant name, or `unknown`
+/// for an error carrying no code). [`INGESTION_WARNINGS_TOTAL`]'s
+/// `delivery_failed` outcome says warnings stopped landing; this says why,
+/// which is the difference between a bad topic and an unreachable broker.
+///
+/// Kept separate rather than adding `error` to [`INGESTION_WARNINGS_TOTAL`]:
+/// a label present on only one outcome breaks aggregations over the rest, and
+/// per-failure logging is not an option at post-throttle volume.
+pub const INGESTION_WARNINGS_DELIVERY_ERRORS_TOTAL: &str =
+    "ingestion_warnings_delivery_errors_total";
 
 /// Gauge of `(token, type)` keys currently tracked by the throttle, updated
 /// on each sweep. The early-warning signal for the cardinality cap.
@@ -74,6 +94,17 @@ pub const INGESTION_WARNINGS_THROTTLE_KEYS: &str = "ingestion_warnings_throttle_
 /// are disabled, because otherwise a misconfigured pod reporting `0` would be
 /// indistinguishable from an intentionally quiet one. Absence means "off",
 /// `0` means "broken".
+///
+/// Carries a `reason` label on every emission — `ok` when healthy, the
+/// specific misconfiguration otherwise (capture uses `hosts_unset`,
+/// `topic_unset`, `no_handle`, `producer_create_failed`) — so a firing alert
+/// names the cause. Set it on the healthy path too: a label present only on
+/// failures would leave the two states with different label sets, and
+/// `min(...) == 0` would need an aggregation workaround.
+///
+/// Emit this only *after* the process installs its global metrics recorder.
+/// `gauge!` before that point is silently dropped, which is exactly how this
+/// signal was lost once already.
 ///
 /// `1` means the emitter was built, not that its cluster is reachable:
 /// construction deliberately skips the broker ping, so a producer pointed at a
@@ -317,17 +348,39 @@ pub struct WarningDelivery {
     pub source: WarningSource,
 }
 
+/// Bounded metric label for a delivery failure: the [`RDKafkaErrorCode`]
+/// variant name (`MessageTimedOut`, `UnknownTopicOrPartition`, ...), or
+/// `unknown` for the few `KafkaError` variants that carry no code. Uses the
+/// variant name rather than `Display`, whose human-readable text is unfit for
+/// a label; the enum is closed, so cardinality is bounded by librdkafka.
+pub fn delivery_error_label(err: &KafkaError) -> String {
+    match err.rdkafka_error_code() {
+        Some(code) => format!("{code:?}"),
+        None => "unknown".to_string(),
+    }
+}
+
 /// Delivery-report callback for the warnings `ThreadedProducer`. Runs on
 /// rdkafka's poll thread for every produced message and ticks the
 /// `delivered`/`delivery_failed` outcome — the async half of the `emitted`
 /// counter, which alone only proves the message entered the local queue.
 /// Without this, a broken topic or broker at rollout looks healthy while
-/// nothing lands. Metric-only (no per-message log) since a broken topic at
-/// rollout would otherwise flood logs at post-throttle volume.
+/// nothing lands. Failures also tick
+/// [`INGESTION_WARNINGS_DELIVERY_ERRORS_TOTAL`] with the rdkafka error code.
+/// Metric-only (no per-message log) since a broken topic at rollout would
+/// otherwise flood logs at post-throttle volume.
 pub fn observe_delivery(result: &DeliveryResult, delivery: WarningDelivery) {
     let outcome = match result {
         Ok(_) => "delivered",
-        Err(_) => "delivery_failed",
+        Err((err, _message)) => {
+            counter!(
+                INGESTION_WARNINGS_DELIVERY_ERRORS_TOTAL,
+                "source" => delivery.source.service,
+                "error" => delivery_error_label(err),
+            )
+            .increment(1);
+            "delivery_failed"
+        }
     };
     counter!(
         INGESTION_WARNINGS_TOTAL,
@@ -344,6 +397,7 @@ mod tests {
     use common_kafka::config::KafkaConfig;
     use common_kafka::kafka_producer::create_threaded_kafka_producer_no_ping;
     use common_liveness::SyncLivenessReporter;
+    use rstest::rstest;
 
     use super::*;
 
@@ -375,6 +429,28 @@ mod tests {
         };
         create_threaded_kafka_producer_no_ping(&config, AlwaysHealthy, observe_delivery)
             .expect("client config is valid, so creation cannot fail without a broker round-trip")
+    }
+
+    // The label must stay a bare error-code name. `KafkaError`'s own `Display`
+    // is a human sentence ("Message production error: Broker: ..."), which as a
+    // label would be unreadable and effectively unbounded.
+    #[rstest]
+    #[case::timed_out(
+        KafkaError::MessageProduction(RDKafkaErrorCode::MessageTimedOut),
+        "MessageTimedOut"
+    )]
+    #[case::unknown_topic(
+        KafkaError::MessageProduction(RDKafkaErrorCode::UnknownTopicOrPartition),
+        "UnknownTopicOrPartition"
+    )]
+    #[case::carries_no_code(KafkaError::Canceled, "unknown")]
+    fn delivery_error_label_is_a_bare_error_code(#[case] err: KafkaError, #[case] expected: &str) {
+        let label = delivery_error_label(&err);
+        assert_eq!(label, expected);
+        assert!(
+            !label.contains(' '),
+            "label must be metric-safe, got {label:?}"
+        );
     }
 
     #[test]
