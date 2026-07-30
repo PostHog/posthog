@@ -6,7 +6,7 @@ use sqlx::Executor;
 use uuid::Uuid;
 
 use crate::error::UnhandledError;
-use crate::frames::{releases::ReleaseRecord, Context, Frame};
+use crate::frames::{Context, Frame};
 
 const FRAME_TTL_JITTER_PERCENT: u32 = 10;
 
@@ -175,11 +175,6 @@ impl ErrorTrackingStackFrame {
             return Ok(Vec::new());
         }
 
-        let mut release = None;
-        if let Some(ss_id) = &res[0].symbol_set_id {
-            release = ReleaseRecord::for_symbol_set_id(e, *ss_id, id.team_id).await?;
-        }
-
         for found in res {
             // Frame ID's lose team_id when they're serialized, so we fix that up here when loading them
             let frame_id = FrameId::new(found.raw_id, found.team_id, found.part);
@@ -197,7 +192,6 @@ impl ErrorTrackingStackFrame {
                 None
             };
 
-            frame.release = release.clone();
             frame.context = context.clone();
 
             results.push(Self {
@@ -236,7 +230,6 @@ mod tests {
             junk_drawer: None,
             code_variables: None,
             context: None,
-            release: None,
         }
     }
 

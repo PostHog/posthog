@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use chrono::{DateTime, Utc};
+use futures::stream::{FuturesUnordered, StreamExt};
 use sqlx::PgPool;
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
@@ -272,7 +273,13 @@ impl PropertyDefinitionsBatch {
 }
 
 // HACK: making this public so the test suite file can live under "../tests/" dir
-pub async fn process_batch(config: &Config, cache: Arc<Cache>, pool: &PgPool, batch: Vec<Update>) {
+pub async fn process_batch(
+    config: &Config,
+    cache: Arc<Cache>,
+    pool: &PgPool,
+    batch: Vec<Update>,
+    handle: &lifecycle::Handle,
+) {
     // prep reshaped, isolated data batch bufffers and async join handles
     let mut event_defs = EventDefinitionsBatch::new(config.write_batch_size);
     let mut event_props = EventPropertiesBatch::new(config.write_batch_size);
@@ -345,9 +352,13 @@ pub async fn process_batch(config: &Config, cache: Arc<Cache>, pool: &PgPool, ba
         }));
     }
 
-    // Execute final batch handles concurrently
-    let final_results = futures::future::join_all(handles).await;
-    for result in final_results {
+    // Drain the chunk writes as they complete, beating the consumer heartbeat on each
+    // completion. Heartbeats track real progress: a long batch of slow-but-advancing
+    // writes no longer trips the lifecycle stall detector, while a wedged consumer
+    // (no chunk completing within the liveness deadline) still does.
+    let mut in_flight: FuturesUnordered<_> = handles.into_iter().collect();
+    while let Some(result) = in_flight.next().await {
+        handle.report_healthy();
         match result {
             Ok(batch_result) => match batch_result {
                 Ok(_) => continue,

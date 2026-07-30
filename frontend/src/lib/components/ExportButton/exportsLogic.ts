@@ -8,6 +8,7 @@ import { isLongRunningExportFormat } from 'lib/components/ExportButton/exportSta
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { delay } from 'lib/utils/async'
 import { uuid } from 'lib/utils/dom'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
@@ -238,6 +239,12 @@ export const exportsLogic = kea<exportsLogicType>([
 
     listeners(({ actions, values, cache }) => ({
         startExport: async ({ exportData }) => {
+            // Fires for every dashboard export entry point (menu bar, dropdown, export button)
+            // regardless of edit permission. Format is a property so PNG is filterable.
+            if (exportData.dashboard && exportData.export_format) {
+                eventUsageLogic.actions.reportDashboardExported(exportData.dashboard, exportData.export_format)
+            }
+
             if (isLocalExport(exportData.export_context)) {
                 try {
                     const blob = new Blob([exportData.export_context.localData], {

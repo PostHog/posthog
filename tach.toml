@@ -606,6 +606,7 @@ path = "products.review_hog"
 depends_on = [
     "ee",
     "posthog",
+    "products.engineering_analytics",
     "products.signals",
     "products.skills",
     "products.tasks",
@@ -698,6 +699,7 @@ depends_on = [
     "products.access_control",
     "products.actions",
     "products.analytics_platform", "products.warehouse_sources",
+    "products.feature_flags",
 ]
 layer = "modules"
 
