@@ -23996,7 +23996,10 @@
                 "Typesense",
                 "FirstPromoter",
                 "Zero",
-                "Inth"
+                "Inth",
+                "BCMS",
+                "Convonite",
+                "Hookdeck"
             ],
             "type": "string"
         },
