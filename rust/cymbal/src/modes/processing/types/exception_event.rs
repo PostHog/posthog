@@ -7,7 +7,6 @@ use uuid::Uuid;
 use crate::{
     error::EventError,
     fingerprinting::{Fingerprint, FingerprintRecordPart, FingerprintVersion},
-    frames::releases::ReleaseInfo,
     issue_resolution::Issue,
     langs::native::DebugImage,
     modes::processing::normalization::normalize_wire_order,
@@ -35,7 +34,6 @@ pub struct ResolvedMetadata {
     pub messages: Vec<String>,
     pub functions: Vec<String>,
     pub handled: bool,
-    pub releases: HashMap<String, ReleaseInfo>,
 }
 
 impl ResolvedMetadata {
@@ -46,7 +44,6 @@ impl ResolvedMetadata {
             messages: exception_list.get_unique_messages(),
             functions: exception_list.get_unique_functions(),
             handled: exception_list.get_is_handled(),
-            releases: exception_list.get_release_map(),
         }
     }
 }
@@ -356,13 +353,6 @@ impl ExceptionEvent<Finalized> {
             serde_json::to_value(metadata.functions).expect("exception functions are serializable"),
         );
         map.insert("$exception_handled".into(), Value::Bool(metadata.handled));
-        if !metadata.releases.is_empty() {
-            map.insert(
-                "$exception_releases".into(),
-                serde_json::to_value(metadata.releases)
-                    .expect("exception releases are serializable"),
-            );
-        }
         map.insert(
             "$exception_fingerprint".into(),
             Value::String(fingerprint.value),
@@ -423,13 +413,6 @@ impl<S> ExceptionEvent<S> {
                 .expect("exception functions are serializable"),
         );
         map.insert("$exception_handled".into(), Value::Bool(metadata.handled));
-        if !metadata.releases.is_empty() {
-            map.insert(
-                "$exception_releases".into(),
-                serde_json::to_value(&metadata.releases)
-                    .expect("exception releases are serializable"),
-            );
-        }
         if let Some(name) = &self.proposed_issue_name {
             map.insert("$issue_name".into(), Value::String(name.clone()));
         }
@@ -491,7 +474,6 @@ impl<S> ExceptionEvent<S> {
             issue_id,
             other: self.props.clone(),
             handled: metadata.handled,
-            releases: metadata.releases.clone(),
             types: metadata.types.clone(),
             values: metadata.messages.clone(),
             sources: metadata.sources.clone(),
@@ -542,7 +524,6 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
             "$exception_types",
             "$exception_values",
             "$exception_functions",
-            "$exception_releases",
             "$exception_fingerprint_version",
             "$exception_proposed_fingerprint",
             "$exception_fingerprint_record",
@@ -619,7 +600,6 @@ mod tests {
                     messages: vec!["boom".to_string()],
                     functions: vec![],
                     handled: false,
-                    releases: HashMap::new(),
                 },
                 client_fingerprint: Some("client-fingerprint".to_string()),
                 legacy_order_resolved: None,
