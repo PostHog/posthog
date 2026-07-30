@@ -439,6 +439,7 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
         # Receipt ids are keyed on started_at, so the run must carry the stamp it was started with rather
         # than re-reading a row a concurrent re-test can restamp underneath it.
         suggestion.refresh_from_db()
+        assert suggestion.evaluation is not None
         self.assertEqual(client.start_workflow.await_args.args[1].started_at, suggestion.evaluation["started_at"])
 
     def test_evaluate_passes_edited_config_to_workflow(self) -> None:

@@ -575,11 +575,13 @@ async def test_reap_settles_stuck_prompt_suggestion_evaluations(org_team) -> Non
 
     assert reaped == 1
     settled = await sync_to_async(lambda: ReplayScannerPromptSuggestion.objects.get(pk=rows["stuck"].pk))()
+    assert settled.evaluation is not None
     assert settled.evaluation["status"] == "failed"
     assert settled.evaluation["finished_at"] is not None
     assert settled.evaluation["summary"] == {"kept": 1, "regressed": 0, "fixed": 0, "still_wrong": 0, "errors": 0}
     for key in ("recent", "still_open"):
         untouched = await sync_to_async(lambda k=key: ReplayScannerPromptSuggestion.objects.get(pk=rows[k].pk))()
+        assert untouched.evaluation is not None
         assert untouched.evaluation["status"] == "running", key
     # A stamp inside the timeout is never described: only provably-dead runs are settled.
     assert build_evaluate_prompt_suggestion_workflow_id(rows["recent"].id) not in temporal.described
