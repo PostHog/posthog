@@ -5,7 +5,7 @@ import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
-import { IconFilter, IconList, IconRefresh, IconRewindPlay, IconSearch, IconX } from '@posthog/icons'
+import { IconFilter, IconList, IconRefresh, IconRewindPlay, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -62,7 +62,6 @@ import {
 } from './errorTrackingIssueSceneLogic'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
-import { SimilarIssuesList } from './ScenePanel/SimilarIssuesList'
 
 export const scene: SceneExport<ErrorTrackingIssueSceneLogicProps> = {
     component: ErrorTrackingIssueScene,
@@ -313,7 +312,6 @@ const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
         persistPrefix: 'error-tracking-issue-view-columns-ratio',
     }
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
-    const hasSimilarIssues = useFeatureFlag('ERROR_TRACKING_RELATED_ISSUES')
 
     return (
         <div
@@ -345,12 +343,6 @@ const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
                                 <IconFilter className="mr-1" />
                                 <span className="text-nowrap">Breakdowns</span>
                             </TabsPrimitiveTrigger>
-                            {hasSimilarIssues && (
-                                <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="similar_issues">
-                                    <IconSearch className="mr-1" />
-                                    <span className="text-nowrap">Similar issues</span>
-                                </TabsPrimitiveTrigger>
-                            )}
                         </TabsPrimitiveList>
                     </ScrollableShadows>
                 </div>
@@ -360,11 +352,6 @@ const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
                 <TabsPrimitiveContent value="breakdowns" className="flex-1 min-h-0">
                     <BreakdownsTab />
                 </TabsPrimitiveContent>
-                {hasSimilarIssues && (
-                    <TabsPrimitiveContent value="similar_issues" className="flex-1 min-h-0">
-                        <SimilarIssuesList />
-                    </TabsPrimitiveContent>
-                )}
             </TabsPrimitive>
 
             {!isMobile && <Resizer {...resizerLogicProps} />}
