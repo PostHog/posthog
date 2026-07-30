@@ -47,6 +47,13 @@ def etl_workload() -> Workload:
     return Workload.OFFLINE if is_cloud() else Workload.DEFAULT
 
 
+def utc_bound(value: datetime.datetime) -> str:
+    """Render a UTC instant for a HogQL toDateTime() placeholder. The explicit +00:00 offset is
+    load-bearing: HogQL parses bare datetime strings in the querying team's timezone (US/Pacific
+    for the dogfood project), which would silently shift every bound 7-8 hours."""
+    return value.astimezone(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+
 def hogql_rows(sql: str, *, team: Team, query_type: str, snapshot_end: datetime.datetime) -> list[tuple[Any, ...]]:
     response = execute_hogql_query(
         query=sql,
@@ -54,7 +61,7 @@ def hogql_rows(sql: str, *, team: Team, query_type: str, snapshot_end: datetime.
         query_type=query_type,
         placeholders={
             "labels_epoch": ast.Constant(value=LABELS_EPOCH),
-            "snapshot_end": ast.Constant(value=snapshot_end.strftime("%Y-%m-%d %H:%M:%S")),
+            "snapshot_end": ast.Constant(value=utc_bound(snapshot_end)),
         },
         limit_context=LimitContext.SAVED_QUERY,
         workload=etl_workload(),
@@ -67,16 +74,19 @@ def hogql_rows(sql: str, *, team: Team, query_type: str, snapshot_end: datetime.
     return [tuple(row) for row in response.results or []]
 
 
+def canonical_report_uuid(report_id: str) -> str | None:
+    """Canonical lowercase-hyphenated form of a client-supplied report id, or None when it cannot
+    be a report UUID. Canonicalizing (not just validating) matters because a case or hyphenation
+    variant would otherwise survive as a separate label-only row instead of joining its report."""
+    try:
+        return str(uuid.UUID(report_id))
+    except ValueError:
+        return None
+
+
 def valid_report_uuids(report_ids: set[str]) -> set[str]:
     """Label events are client-supplied; drop ids that cannot be report UUIDs before ORM lookups."""
-    valid: set[str] = set()
-    for report_id in report_ids:
-        try:
-            uuid.UUID(report_id)
-        except ValueError:
-            continue
-        valid.add(report_id)
-    return valid
+    return {canonical for report_id in report_ids if (canonical := canonical_report_uuid(report_id)) is not None}
 
 
 LABELED_REPORT_IDS_SQL = """
@@ -220,6 +230,9 @@ SELECT
     nullIf(minIf(timestamp, outcome = 'snoozed'), fromUnixTimestamp(0)) AS first_snoozed_at,
     argMax(status, timestamp) AS latest_status_event,
     max(timestamp) AS latest_status_event_at,
+    -- argMax skips NULL values, so this is the reason from the latest *reasoned* transition (the
+    -- intended semantic: reasons only accompany dismissals/snoozes), not necessarily paired with
+    -- latest_status_event above.
     argMax(dismissal_reason, timestamp) AS dismissal_reason
 FROM (
     SELECT
@@ -318,13 +331,17 @@ def merge_label_streams(
     stream_rows: dict[str, list[tuple[Any, ...]]], snapshot_date: datetime.date
 ) -> list[dict[str, Any]]:
     """Merge the per-stream aggregates (each row `(report_id, *stream_columns)`) into one labels
-    row per report, filling unseen streams with LABEL_DEFAULTS."""
+    row per report, filling unseen streams with LABEL_DEFAULTS. Report ids are canonicalized and
+    rows with impossible ids dropped, so forged or malformed client events cannot mint label-only
+    training rows."""
     merged: dict[str, dict[str, Any]] = {}
     columns_by_stream = {name: columns for name, _, columns in LABEL_STREAMS}
     for stream_name, rows in stream_rows.items():
         columns = columns_by_stream[stream_name]
         for row in rows:
-            report_id = str(row[0])
+            report_id = canonical_report_uuid(str(row[0]))
+            if report_id is None:
+                continue
             entry = merged.setdefault(
                 report_id,
                 {"snapshot_date": snapshot_date, "report_id": report_id, **LABEL_DEFAULTS},

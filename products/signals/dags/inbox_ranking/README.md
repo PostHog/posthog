@@ -53,3 +53,10 @@ All reads route to the offline cluster replicas on Cloud (`etl_workload()`), car
 - Backfill any day range from the Dagster UI; partitions start 2026-04-01 (the label epoch).
 - Failures alert `#alerts-self-driving` (owner `team-self-driving`); assets retry twice with a 60s delay before failing a run.
 - The job is capped at 1h via `dagster/max_runtime`.
+
+### Deletion and retention
+
+Partitions are immutable history, so a report deleted later keeps its rows (and vector) in partitions written before the deletion.
+The embedding tombstone nulls the vector in every partition built after it, and `status='deleted'` flows through state from then on.
+When history must actually be scrubbed (a team deletion, a takedown), re-run the affected partitions - a re-run is idempotent and regenerates them from current sources, dropping what no longer exists - or delete the `dt=` objects outright.
+The bucket is internal-only and access-restricted; a lifecycle policy for old partitions is a provisioning-time decision.

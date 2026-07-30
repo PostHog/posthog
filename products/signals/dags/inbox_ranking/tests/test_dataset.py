@@ -9,6 +9,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     LABEL_DEFAULTS,
     LABEL_STREAMS,
     merge_label_streams,
+    utc_bound,
     valid_report_uuids,
 )
 
@@ -16,6 +17,8 @@ SNAPSHOT_DATE = datetime.date(2026, 7, 29)
 BUILT_AT = datetime.datetime(2026, 7, 30, 2, 30, tzinfo=datetime.UTC)
 T1 = datetime.datetime(2026, 7, 20, 10, 0, tzinfo=datetime.UTC)
 T2 = datetime.datetime(2026, 7, 21, 10, 0, tzinfo=datetime.UTC)
+UUID_A = "0198c0e8-93c8-0000-38f5-a934eeb1b93e"
+UUID_B = "0198c0e8-93c8-0000-38f5-a934eeb1b93f"
 
 
 def test_s3_key_layout_is_stable():
@@ -64,23 +67,33 @@ def test_snapshot_bounds_cover_the_partition_day():
     assert end == datetime.datetime(2026, 7, 30, tzinfo=datetime.UTC)
 
 
-def test_valid_report_uuids_drops_client_supplied_junk():
-    good = "0198c0e8-93c8-0000-38f5-a934eeb1b93e"
-    assert valid_report_uuids({good, "not-a-uuid", ""}) == {good}
+def test_valid_report_uuids_canonicalizes_and_drops_junk():
+    # Case/hyphenation variants must collapse onto the canonical id, or a forged variant would
+    # survive as a separate label-only training row instead of joining its report.
+    assert valid_report_uuids({UUID_A, UUID_A.upper(), "not-a-uuid", ""}) == {UUID_A}
+
+
+def test_utc_bound_carries_an_explicit_offset():
+    # HogQL parses bare datetime strings in the querying team's timezone (US/Pacific for the
+    # dogfood project); dropping the offset silently shifts every label bound by 7-8 hours.
+    assert utc_bound(datetime.datetime(2026, 7, 30, tzinfo=datetime.UTC)) == "2026-07-30T00:00:00+00:00"
+    pacific_instant = datetime.datetime(2026, 7, 29, 17, 0, tzinfo=datetime.timezone(datetime.timedelta(hours=-7)))
+    assert utc_bound(pacific_instant) == "2026-07-30T00:00:00+00:00"
 
 
 def test_merge_label_streams_fills_defaults_and_maps_columns():
     stream_rows: dict[str, list[tuple[Any, ...]]] = {
-        "impressions": [("r1", T1.replace(tzinfo=None), 5, 2, 3, 1, ["error_tracking"])],
-        "opens": [("r1", T2, 4, 2), ("r2", T2, 1, 1)],
-        "actions": [],
+        "impressions": [(UUID_A, T1.replace(tzinfo=None), 5, 2, 3, 1, ["error_tracking"])],
+        "opens": [(UUID_A.upper(), T2, 4, 2), (UUID_B, T2, 1, 1)],
+        "actions": [("bogus-id", 1, T1, 1, T1, 1, 1)],
         "status_changes": [],
         "pr_events": [],
     }
     rows = {row["report_id"]: row for row in merge_label_streams(stream_rows, SNAPSHOT_DATE)}
 
-    assert set(rows) == {"r1", "r2"}
-    r1 = rows["r1"]
+    # The uppercase open joins UUID_A's row, and the bogus action id mints no row.
+    assert set(rows) == {UUID_A, UUID_B}
+    r1 = rows[UUID_A]
     assert r1["impression_unit_count"] == 5
     assert r1["impressed_user_count"] == 2
     assert r1["first_impression_rank"] == 3
@@ -88,7 +101,7 @@ def test_merge_label_streams_fills_defaults_and_maps_columns():
     assert r1["source_products"] == ["error_tracking"]
     assert r1["first_impressed_at"] == T1
     assert r1["open_count"] == 4
-    r2 = rows["r2"]
+    r2 = rows[UUID_B]
     assert r2["impression_unit_count"] == 0
     assert r2["first_impressed_at"] is None
     assert r2["pr_created_count"] == 0
@@ -96,7 +109,7 @@ def test_merge_label_streams_fills_defaults_and_maps_columns():
 
 def test_stream_row_width_mismatch_fails_loudly():
     with pytest.raises(ValueError):
-        merge_label_streams({"opens": [("r1", T1, 4)]}, SNAPSHOT_DATE)
+        merge_label_streams({"opens": [(UUID_A, T1, 4)]}, SNAPSHOT_DATE)
 
 
 def test_label_stream_columns_all_exist_in_defaults():

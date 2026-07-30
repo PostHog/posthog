@@ -228,8 +228,17 @@ def _chunked(ids: list[str]) -> Iterator[list[str]]:
         yield ids[offset : offset + _ORM_ID_CHUNK]
 
 
-def _artefact_judgments(report_ids: list[str]) -> dict[str, dict[str, str | None]]:
-    """Latest priority/actionability judgment per report, parsed from the artefact content JSON."""
+def _judgment_value(parsed: dict[str, Any], key: str) -> str | None:
+    # Legacy artefact content is unconstrained JSON; a non-string value must not reach the
+    # pa.string() column, where it would abort the whole partition build.
+    value = parsed.get(key)
+    return value if isinstance(value, str) else None
+
+
+def _artefact_judgments(report_ids: list[str], snapshot_end: datetime.datetime) -> dict[str, dict[str, str | None]]:
+    """Latest priority/actionability judgment per report as of the snapshot cutoff, parsed from
+    the artefact content JSON. Artefacts are append-only, so bounding created_at makes this the
+    one piece of report state that is genuinely point-in-time even on forward runs."""
     judgments: dict[str, dict[str, str | None]] = {}
     for chunk in _chunked(report_ids):
         artefacts = (
@@ -239,6 +248,7 @@ def _artefact_judgments(report_ids: list[str]) -> dict[str, dict[str, str | None
                     SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
                     SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
                 ],
+                created_at__lt=snapshot_end,
             )
             .order_by("report_id", "type", "-created_at")
             .distinct("report_id", "type")
@@ -254,9 +264,9 @@ def _artefact_judgments(report_ids: list[str]) -> dict[str, dict[str, str | None
                 continue
             entry = judgments.setdefault(str(report_id), {"priority": None, "actionability": None})
             if artefact_type == SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT:
-                entry["priority"] = parsed.get("priority")
+                entry["priority"] = _judgment_value(parsed, "priority")
             else:
-                entry["actionability"] = parsed.get("actionability")
+                entry["actionability"] = _judgment_value(parsed, "actionability")
     return judgments
 
 
@@ -296,7 +306,7 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
             )
         }
     ordered_spine_ids = sorted(spine_ids)
-    judgments = _artefact_judgments(ordered_spine_ids)
+    judgments = _artefact_judgments(ordered_spine_ids, snapshot_end)
 
     rows: list[dict[str, Any]] = []
     for spine_chunk in _chunked(ordered_spine_ids):
@@ -611,6 +621,6 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
 )
 def inbox_ranking_dataset_schedule(context: dagster.ScheduleEvaluationContext) -> dagster.RunRequest:
     # Derived from the tick rather than wall-clock now() so a delayed or replayed tick still
-    # builds the partition it was scheduled for.
+    # builds the partition it was scheduled for; run_key dedupes a re-evaluated tick.
     previous_day = context.scheduled_execution_time.date() - datetime.timedelta(days=1)
-    return dagster.RunRequest(partition_key=previous_day.isoformat())
+    return dagster.RunRequest(partition_key=previous_day.isoformat(), run_key=previous_day.isoformat())

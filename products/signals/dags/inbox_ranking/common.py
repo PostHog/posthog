@@ -25,7 +25,10 @@ PARQUET_PART_NAME = "part-00000.parquet"
 
 # Earliest label event worth reading: report-attributed pr_created starts 2026-04-20, and the
 # other label streams start later. Also the earliest backfillable partition.
-LABELS_EPOCH = "2026-04-01 00:00:00"
+# The explicit +00:00 offset is load-bearing: HogQL's toDateTime parses bare datetime strings in
+# the querying team's timezone (US/Pacific for the dogfood project), which would shift every
+# label bound 7-8 hours off the UTC partition boundary. An embedded offset overrides that.
+LABELS_EPOCH = "2026-04-01T00:00:00+00:00"
 
 partition_def = dagster.DailyPartitionsDefinition(start_date="2026-04-01")
 
