@@ -1,7 +1,9 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
+
+import api from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -141,6 +143,36 @@ describe('QuestionInput', () => {
             await waitFor(() => expect(sendButton()).not.toBeNull())
             expect(stopButton()).toBeNull()
             expect(screen.queryByText("Let's bail")).not.toBeInTheDocument()
+        })
+    })
+
+    describe('thinking placeholder', () => {
+        const hint = (): HTMLElement => document.getElementById('textarea-hint') as HTMLElement
+
+        it('counts up during a long turn so it stops reading as hung', async () => {
+            // A turn that never resolves — the state users abandon.
+            jest.spyOn(api.conversations, 'stream').mockReturnValue(new Promise<Response>(() => {}))
+
+            jest.useFakeTimers()
+            try {
+                act(() => {
+                    threadLogicInstance.actions.reconnectToStream()
+                })
+                // Fast turns get no counter, it would only be noise.
+                expect(hint().textContent).toBe('Thinking…')
+
+                act(() => {
+                    jest.advanceTimersByTime(12_000)
+                })
+                expect(hint().textContent).toBe('Thinking…12s')
+
+                act(() => {
+                    jest.advanceTimersByTime(53_000)
+                })
+                expect(hint().textContent).toBe('Thinking…1m 05s')
+            } finally {
+                jest.useRealTimers()
+            }
         })
     })
 })

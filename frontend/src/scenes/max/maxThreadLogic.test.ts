@@ -3250,6 +3250,41 @@ describe('maxThreadLogic', () => {
         })
     })
 
+    describe('endStreaming teardown', () => {
+        it('clears every loading flag and drops orphaned streaming messages', async () => {
+            // An in-progress conversation drives conversationLoading -> true
+            logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+            await expectLogic(logic).toMatchValues({ conversationLoading: true })
+
+            logic.actions.setThread([
+                { type: AssistantMessageType.Human, content: 'test question', status: 'completed', id: 'human-1' },
+                { type: AssistantMessageType.Assistant, content: 'partial', status: 'loading', id: 'temp-1' },
+            ])
+
+            await expectLogic(logic, () => {
+                logic.actions.endStreaming()
+            }).toDispatchActions(['endStreaming', 'setConversation'])
+
+            expect(logic.values.streamingActive).toBe(false)
+            expect(logic.values.conversationLoading).toBe(false)
+            expect(logic.values.threadLoading).toBe(false)
+            expect(logic.values.threadRaw.some((message) => message.status === 'loading')).toBe(false)
+            expect(logic.values.currentThinkingMessage).toBeNull()
+        })
+    })
+
+    describe('unreadable stream response', () => {
+        it('ends the turn instead of stranding it when the response has no body', async () => {
+            jest.spyOn(api.conversations, 'stream').mockResolvedValue({ body: null } as Response)
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('hello')
+            }).toDispatchActions(['askMax', 'streamConversation', 'completeThreadGeneration'])
+
+            expect(logic.values.streamingActive).toBe(false)
+        })
+    })
+
     describe('multiQuestionFormPending selector', () => {
         it('returns true when thread ends with AssistantMessage containing create_form tool call', async () => {
             // With NodeInterrupt(None), no ToolCall message is created - the thread ends with the AssistantMessage

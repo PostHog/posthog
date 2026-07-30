@@ -28,6 +28,7 @@ import { FillInHint } from './FillInHint'
 import { HandsFreeButton } from './HandsFreeButton'
 import { HandsFreeSurface } from './HandsFreeSurface'
 import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
+import { ThinkingElapsed } from './ThinkingElapsed'
 
 interface QuestionInputProps {
     isSticky?: boolean
@@ -166,6 +167,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         queueingEnabled,
         queuedMessages,
         queueSubmitting,
+        turnStartedAt,
     } = useValues(maxThreadLogic)
     const {
         askMax,
@@ -362,7 +364,10 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                             {conversation && isSharedThread ? (
                                                 `This thread was shared with you by ${conversation.user.first_name} ${conversation.user.last_name}`
                                             ) : threadLoading ? (
-                                                'Thinking…'
+                                                <span className="flex items-center gap-1.5">
+                                                    Thinking…
+                                                    <ThinkingElapsed startedAt={turnStartedAt} />
+                                                </span>
                                             ) : isThreadVisible ? (
                                                 placeholder || (
                                                     <>
