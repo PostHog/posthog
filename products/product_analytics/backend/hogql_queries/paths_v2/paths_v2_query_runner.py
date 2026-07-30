@@ -116,7 +116,8 @@ class ValidateWindowBounds:
 
 class ValidateAnchor:
     """An anchor's event must be one of the step sources, otherwise no event could ever derive it and
-    the chart would be empty for a reason the config does not reveal."""
+    the chart would be empty for a reason the config does not reveal. When that source names its items
+    by a property, the anchor must carry the label that pins which item it is."""
 
     code = "paths_v2_anchor_invalid"
 
@@ -124,10 +125,16 @@ class ValidateAnchor:
         paths_filter = context.query.pathsV2Filter
         if paths_filter is None or paths_filter.anchor is None:
             return
-        source_events = {source.event for source in resolve_step_sources(context.query)}
-        if paths_filter.anchor.item.event not in source_events:
+        anchor_item = paths_filter.anchor.item
+        source = next((s for s in resolve_step_sources(context.query) if s.event == anchor_item.event), None)
+        if source is None:
             raise ValidationError(
-                f"The anchor event {paths_filter.anchor.item.event!r} must be one of the step sources.",
+                f"The anchor event {anchor_item.event!r} must be one of the step sources.",
+                code=self.code,
+            )
+        if source.namingProperty is not None and anchor_item.label is None:
+            raise ValidationError(
+                f"The anchor item for event {anchor_item.event!r} needs a label, as its source has a naming property.",
                 code=self.code,
             )
 
@@ -243,7 +250,9 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
         step 0 and the grid reads backward in time toward it."""
         events = "groupArray(tuple(timestamp, path_item))"
         if self.is_anchored and self.anchor is not None and self.anchor.type == PathsV2AnchorType.END:
-            return parse_expr(f"arrayReverseSort(x -> x.1, {events})")
+            # arrayReverse(arraySort(...)), not arrayReverseSort: HogQL aliases arrayReverseSort to the
+            # ascending arraySort, which would silently keep forward order.
+            return parse_expr(f"arrayReverse(arraySort(x -> x.1, {events}))")
         return parse_expr(f"arraySort(x -> x.1, {events})")
 
     def _event_base_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -499,7 +508,7 @@ class PathsV2QueryRunner(AnalyticsQueryRunner[PathsV2QueryResponse]):
             FROM sequences
             ARRAY JOIN arrayEnumerate(sequence) AS prefix_length
             GROUP BY prefix
-            ORDER BY length(prefix) ASC, actor_count DESC, prefix ASC
+            ORDER BY actor_count DESC, length(prefix) ASC, prefix ASC
             LIMIT {max_prefix_rows}
             """,
             placeholders={

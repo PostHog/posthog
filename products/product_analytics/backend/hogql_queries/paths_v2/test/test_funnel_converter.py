@@ -425,7 +425,11 @@ class TestEdgeToFunnelsQuery(APIBaseTest):
             FunnelConversionWindowTimeUnit.MINUTE,
         )
 
-        self.assertEqual([step.event for step in funnels_query.series], ["a", "b", "c"])
+        events = []
+        for step in funnels_query.series:
+            assert isinstance(step, EventsNode)
+            events.append(step.event)
+        self.assertEqual(events, ["a", "b", "c"])
         assert funnels_query.funnelsFilter is not None
         self.assertEqual(funnels_query.funnelsFilter.funnelWindowInterval, 15)
         self.assertEqual(funnels_query.funnelsFilter.funnelOrderType, StepOrderValue.ORDERED)
