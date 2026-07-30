@@ -81,6 +81,7 @@ export const MetricHeader = ({
     isPrimaryMetric,
     experiment,
     onDuplicateMetricClick,
+    onDuplicateAsSingleUseMetricClick,
     onBreakdownChange,
     onDeleteMetricClick,
     readOnly,
@@ -91,6 +92,7 @@ export const MetricHeader = ({
     isPrimaryMetric: boolean
     experiment: Experiment
     onDuplicateMetricClick: (metric: ExperimentMetric) => void
+    onDuplicateAsSingleUseMetricClick: (metric: ExperimentMetric) => void
     onBreakdownChange: (breakdown: Breakdown) => void
     onDeleteMetricClick?: (metric: ExperimentMetric) => void
     readOnly?: boolean
@@ -144,20 +146,29 @@ export const MetricHeader = ({
             LemonDialog.open({
                 title: 'Duplicate this shared metric?',
                 content: (
-                    <div className="text-sm text-secondary max-w-lg">
+                    <div className="text-sm text-secondary max-w-lg deprecated-space-y-2">
                         <p>
-                            We'll take you to the form to customize and save this metric. Your new version will appear
-                            in your shared metrics, ready to be added to your experiment.
+                            <b>As a single-use metric</b> adds an editable copy to this experiment only. Other
+                            experiments using the shared metric are unaffected.
+                        </p>
+                        <p>
+                            <b>As a shared metric</b> takes you to the form to customize and save a new shared metric,
+                            ready to be added to any experiment.
                         </p>
                     </div>
                 ),
                 primaryButton: {
-                    children: 'Duplicate metric',
-                    to: urls.experimentsSharedMetric(metric.sharedMetricId!, 'duplicate'),
-                    type: 'primary',
+                    children: 'Duplicate as single-use metric',
                     size: 'small',
+                    onClick: () => onDuplicateAsSingleUseMetricClick(metric),
                 },
                 secondaryButton: {
+                    children: 'Duplicate as shared metric',
+                    to: urls.experimentsSharedMetric(metric.sharedMetricId!, 'duplicate'),
+                    type: 'secondary',
+                    size: 'small',
+                },
+                tertiaryButton: {
                     children: 'Cancel',
                     type: 'tertiary',
                     size: 'small',

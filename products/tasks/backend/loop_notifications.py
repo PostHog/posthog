@@ -8,7 +8,8 @@ Celery task and Temporal activity contexts alike, no request assumed.
 ``payload`` carries event-specific detail from the caller. Recognized keys
 (all optional): ``title`` / ``body`` override the generated copy, ``url``
 links to the run or PR, ``task_id`` / ``task_run_id`` identify the run for
-push deep-linking and email idempotency.
+push deep-linking and email idempotency, ``report`` is the run's final agent
+message, delivered in the email body only.
 """
 
 from typing import Any
@@ -159,6 +160,7 @@ def _send_email(
             "event_title": title,
             "event_body": body,
             "run_url": str(payload.get("url") or ""),
+            "report": str(payload.get("report") or ""),
         }
         message = EmailMessage(
             campaign_key=campaign_key,

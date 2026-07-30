@@ -36,6 +36,9 @@ pub struct Ctx<'a> {
     images: ImageQueue,
     // `Some` routes collectable images to the scrub lane instead of the blur (inline or pooled).
     collector: Option<RefCell<ImageCollector>>,
+    // Whether a well-formed ref already present in the *input* is left alone. Off unless the
+    // caller vouches for the input's provenance; see `preserving_image_refs`.
+    preserve_image_refs: bool,
 }
 
 impl<'a> Ctx<'a> {
@@ -70,7 +73,26 @@ impl<'a> Ctx<'a> {
             image_policy,
             images: ImageQueue::default(),
             collector: image_collection.map(|c| RefCell::new(ImageCollector::new(c))),
+            preserve_image_refs: false,
         }
+    }
+
+    /// Leave well-formed `image:<pseudo_team>:<hash>` refs already present in the input alone
+    /// instead of scrubbing them.
+    ///
+    /// Off by default, and it must stay off for anything scrubbing untrusted capture input: the
+    /// ref format is not a secret, so a page could set a media attribute to a forged one and have
+    /// it copied into output unscrubbed. Enable it only where the input is known to be this
+    /// anonymizer's own mirrored output being re-scrubbed — there a ref is a join key whose bytes
+    /// were already scrubbed out of band, and re-scrubbing it destroys the only route back to them.
+    pub fn preserving_image_refs(mut self) -> Self {
+        self.preserve_image_refs = true;
+        self
+    }
+
+    /// Whether an input-side ref may skip scrubbing (see [`Self::preserving_image_refs`]).
+    pub(crate) fn keeps_image_refs(&self) -> bool {
+        self.preserve_image_refs
     }
 
     /// Scrub one image data URI: the collection lane's content ref when it takes the image (no blur

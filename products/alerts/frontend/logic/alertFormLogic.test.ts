@@ -349,6 +349,10 @@ describe('alertFormLogic', () => {
         })
 
         expect(thresholdAlertHasBounds(logic.values.alertForm)).toBe(false)
+        expect(logic.values.alertFormValidationErrors.threshold).toBe(
+            'Enter at least one threshold (less than or more than)'
+        )
+        expect(logic.values.thresholdBoundsFormError).toBeUndefined()
 
         logic.actions.setAlertFormSubmitAttempted()
 
@@ -358,7 +362,35 @@ describe('alertFormLogic', () => {
 
         expect(createSpy).not.toHaveBeenCalled()
         expect(successToastSpy).not.toHaveBeenCalled()
+        expect(errorToastSpy).toHaveBeenCalledWith(
+            "Couldn't save alert: Enter at least one threshold (less than or more than)"
+        )
         expect(logic.values.thresholdBoundsFormError).toBe('Enter at least one threshold (less than or more than)')
+    })
+
+    it('shows multiple validation errors without duplicate punctuation', async () => {
+        const logic = mountForm()
+        logic.actions.setAlertFormValues({
+            ...makeFormDefaults({
+                name: '',
+                threshold: {
+                    configuration: {
+                        type: InsightThresholdType.ABSOLUTE,
+                        bounds: {},
+                    },
+                },
+                schedule_restriction: { blocked_windows: [{ start: '09:00', end: '09:00' }] },
+            }),
+            checks: undefined,
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAlertForm()
+        }).toFinishAllListeners()
+
+        expect(errorToastSpy).toHaveBeenCalledWith(
+            "Couldn't save alert: You need to give your alert a name. Start and end must differ. Enter at least one threshold (less than or more than)"
+        )
     })
 
     it('treats cleared threshold inputs as missing bounds', () => {

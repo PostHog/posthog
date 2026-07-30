@@ -91,6 +91,55 @@ Cutover checklist — when done, the sync and this section are deleted:
   (members are deactivated or removed from the org, not deleted); if it bites, archive the
   destinations explicitly in the user-deletion flow rather than reintroducing a signal.
 
+## Account custom property changed workflow trigger
+
+- **Volatile synced columns can flood workflows.** A view column that genuinely changes for many
+  accounts each sync emits one `$account_custom_property_changed` event — and starts one workflow
+  run — per account per sync run. No cap and no emission-volume observability. Acceptable while the
+  product is internal-only; before external exposure add emission counts to `SyncResult` and
+  guidance to trigger on stable columns.
+- **Multi-property triggers fan out.** One event per changed property, so one run per property,
+  never one per batch write. The trigger UI warns; routing logic is the workflow author's job.
+- **Cross-workflow loops are damped, not prevented.** Same-value writes never emit and frequency
+  masking caps rate, but value-flapping loops (workflow A sets X→1, triggering B which sets X→2, …)
+  depend on runtime values and cannot be detected statically. The save-time cycle advisory is
+  best-effort — static tag/property references only, never a save blocker.
+- **Frequency options are account-keyed because account events carry no person.** The generic event
+  trigger's frequency options hash on `{person.id}`, which resolves empty on person-less events and
+  would mask globally across accounts. CA triggers ship account-keyed options; the generic event
+  trigger keeps its person-keyed options and retains this gap for person-less events.
+- **current/previous are event properties, not workflow variables.** Same `{event.properties.*}`
+  templating access everywhere; auto-populated variables would need executor and trigger-schema
+  changes. Revisit only if variable semantics (mutation, Variables taxonomic category) are needed.
+  The values land as analytics events in the team's own project (the established pattern —
+  conversation events carry old/new status and truncated message content the same way), so they
+  are visible to anyone with project access, like the rest of the account's data.
+- **No unset/delete emission.** No value-delete path exists; if one is added, its author decides
+  whether removal counts as a change.
+
+## Account channel summaries
+
+- **The channel binding is trusted as written.** `slack_channel_id` is an account property any
+  account editor can set, and the summary pipeline reads whatever channel it names with the team's
+  own SupportHog bot token. An editor can therefore point an account at any channel that team's bot
+  is in — including a private channel the editor isn't a member of — and read its summary. Accepted
+  for now: editors are internal team members, the token is team-scoped (no cross-team reach), and
+  the announcements feature already posts through the same binding. The activity re-resolves the
+  binding, cadence, and org AI-processing approval from the DB just before fetching, so stale or
+  forged workflow inputs can't widen this. If summaries ever cover channels whose membership matters,
+  validate the binding at write time against a server-side channel policy instead.
+
+## Slack workspace URL is hardcoded
+
+- **`SLACK_ARCHIVES_ORIGIN` hardcodes PostHog's own workspace** — in `backend/constants.py` and
+  mirrored in `frontend/components/Accounts/accountLinksLogic.ts`. Every Slack link built from it
+  (Useful links sidebar, Slack summary message permalinks, channel summary citations) is wrong for
+  any team other than us.
+  Fine while the product is PostHog-internal; **must be fixed before GA**. The correct value is
+  per-team and owned by conversations: the bot's `auth.test` response carries the workspace `url`
+  (same call `get_bot_user_id_cached` already caches a field from), so the fix is a cached lookup
+  in conversations exposed through its facade, consumed here and by the frontend.
+
 ## Tech debt
 
 - **Account property writes have no single choke point.** `Account._properties` is mutated from four
