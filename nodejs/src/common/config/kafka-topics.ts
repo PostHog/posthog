@@ -102,3 +102,7 @@ export const KAFKA_METRICS_CLICKHOUSE = `${prefix}clickhouse_metrics${suffix}`
 
 // TopHog metrics
 export const KAFKA_CLICKHOUSE_TOPHOG = `${prefix}clickhouse_tophog${suffix}`
+
+// FinOps usage meters — internal, produced by PostHog services and consumed into a dedicated
+// ClickHouse table on the AUX cluster. See posthog/models/finops/usage_meters.py.
+export const KAFKA_CLICKHOUSE_FINOPS_USAGE_METERS = `${prefix}clickhouse_finops_usage_meters${suffix}`

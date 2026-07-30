@@ -10,6 +10,7 @@ import {
 import {
     APP_METRICS_OUTPUT,
     DLQ_OUTPUT,
+    FINOPS_USAGE_OUTPUT,
     GROUPS_OUTPUT,
     INGESTION_WARNINGS_OUTPUT,
     LOG_ENTRIES_OUTPUT,
@@ -74,6 +75,10 @@ export function createOutputsRegistry() {
             .register(TOPHOG_OUTPUT, {
                 topicKey: 'INGESTION_OUTPUT_TOPHOG_TOPIC',
                 producerKey: 'INGESTION_OUTPUT_TOPHOG_PRODUCER',
+            })
+            .register(FINOPS_USAGE_OUTPUT, {
+                topicKey: 'INGESTION_OUTPUT_FINOPS_USAGE_TOPIC',
+                producerKey: 'INGESTION_OUTPUT_FINOPS_USAGE_PRODUCER',
             })
     )
 }

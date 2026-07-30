@@ -10,6 +10,7 @@ import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/cons
 import {
     AppMetricsOutput,
     DlqOutput,
+    FinopsUsageOutput,
     GroupsOutput,
     IngestionWarningsOutput,
     OverflowOutput,
@@ -25,6 +26,7 @@ import {
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PersonRepository } from '~/common/persons/repositories/person-repository'
+import { FinopsUsageMeter } from '~/common/services/finops-usage-meter'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import {
@@ -88,6 +90,7 @@ export interface IngestionConsumerDeps {
         | PersonMergeEventsOutput
         | AppMetricsOutput
         | TophogOutput
+        | FinopsUsageOutput
     >
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
@@ -137,6 +140,7 @@ export class IngestionConsumer {
     private eventSchemaEnforcementManager: EventSchemaEnforcementManager
     public readonly promiseScheduler = new PromiseScheduler()
     private topHog!: TopHog
+    private finopsUsageMeter!: FinopsUsageMeter
 
     private joinedPipeline!: ReturnType<
         typeof createJoinedIngestionPipeline<JoinedIngestionPipelineInput, JoinedIngestionPipelineContext>
@@ -242,6 +246,8 @@ export class IngestionConsumer {
             pipeline: this.config.INGESTION_PIPELINE ?? 'unknown',
             lane: this.config.INGESTION_LANE ?? 'unknown',
         })
+
+        this.finopsUsageMeter = new FinopsUsageMeter(this.deps.outputs)
     }
 
     public get service(): PluginServerService {
@@ -428,12 +434,24 @@ export class IngestionConsumer {
             }
         }
 
+        // FinOps: one product-level usage meter per batch (events this consumer processed).
+        // Aggregated in-memory and flushed in the background task so metering never blocks the hot path.
+        this.finopsUsageMeter.queue({
+            product: 'ingestion',
+            billableUnit: 'events',
+            quantity: messages.length,
+            system: 'warpstream',
+            workload: this.groupId,
+            resourceId: this.topic,
+        })
+
         return {
             backgroundTask: this.runInstrumented('awaitScheduledWork', async () => {
                 const labels = { groupId: this.groupId }
                 // Drains scheduled produces and the hog transformer invocation results, which
                 // the pipeline's afterBatch flush step schedules as a side effect.
                 await timedHistogram(backgroundTaskProducesDuration, labels, () => this.promiseScheduler.waitForAll())
+                await this.finopsUsageMeter.flush()
             }),
         }
     }

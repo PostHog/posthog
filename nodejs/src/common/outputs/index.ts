@@ -37,3 +37,6 @@ export type HogInvocationResultsOutput = typeof HOG_INVOCATION_RESULTS_OUTPUT
 
 export const MESSAGE_ASSETS_OUTPUT = 'message_assets' as const
 export type MessageAssetsOutput = typeof MESSAGE_ASSETS_OUTPUT
+
+export const FINOPS_USAGE_OUTPUT = 'finops_usage' as const
+export type FinopsUsageOutput = typeof FINOPS_USAGE_OUTPUT
