@@ -23,9 +23,8 @@ Point-in-time caveats, per source:
 
 import json
 import datetime
+from collections.abc import Iterator
 from typing import Any, cast
-
-from django.db.models import Q
 
 import dagster
 import pyarrow as pa
@@ -39,8 +38,9 @@ from products.signals.backend.report_embeddings import EMBEDDING_DOCUMENT_TYPE, 
 from products.signals.dags.inbox_ranking.common import (
     dataset_bucket,
     ensure_utc,
-    is_newest_partition,
+    latest_is_stale,
     latest_object_key,
+    object_snapshot_date,
     owner_tags,
     partition_def,
     partition_object_key,
@@ -206,31 +206,44 @@ _STATE_PASSTHROUGH_COLUMNS = (
 )
 
 
+# Stay far below Postgres's 65,535 bind-parameter cap when expanding id__in filters.
+_ORM_ID_CHUNK = 10_000
+
+
+def _chunked(ids: list[str]) -> Iterator[list[str]]:
+    for offset in range(0, len(ids), _ORM_ID_CHUNK):
+        yield ids[offset : offset + _ORM_ID_CHUNK]
+
+
 def _artefact_judgments(report_ids: list[str]) -> dict[str, dict[str, str | None]]:
     """Latest priority/actionability judgment per report, parsed from the artefact content JSON."""
     judgments: dict[str, dict[str, str | None]] = {}
-    artefacts = (
-        SignalReportArtefact.objects.filter(
-            report_id__in=report_ids,
-            type__in=[
-                SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
-                SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
-            ],
+    for chunk in _chunked(report_ids):
+        artefacts = (
+            SignalReportArtefact.objects.filter(
+                report_id__in=chunk,
+                type__in=[
+                    SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+                    SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+                ],
+            )
+            .order_by("report_id", "type", "-created_at")
+            .distinct("report_id", "type")
+            .values_list("report_id", "type", "content")
         )
-        .order_by("report_id", "type", "-created_at")
-        .distinct("report_id", "type")
-        .values_list("report_id", "type", "content")
-    )
-    for report_id, artefact_type, content in artefacts.iterator(chunk_size=2000):
-        try:
-            parsed = json.loads(content)
-        except ValueError:
-            continue
-        entry = judgments.setdefault(str(report_id), {"priority": None, "actionability": None})
-        if artefact_type == SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT:
-            entry["priority"] = parsed.get("priority")
-        else:
-            entry["actionability"] = parsed.get("actionability")
+        for report_id, artefact_type, content in artefacts.iterator(chunk_size=2000):
+            try:
+                parsed = json.loads(content)
+            except ValueError:
+                continue
+            # Legacy artefact rows can hold JSON that is not an object; readers tolerate them.
+            if not isinstance(parsed, dict):
+                continue
+            entry = judgments.setdefault(str(report_id), {"priority": None, "actionability": None})
+            if artefact_type == SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT:
+                entry["priority"] = parsed.get("priority")
+            else:
+                entry["actionability"] = parsed.get("actionability")
     return judgments
 
 
@@ -251,65 +264,77 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
     )
     labeled_ids = valid_report_uuids({row[0] for row in labeled_rows})
 
-    # Spine: promoted reports plus anything a label stream has ever referenced, so raw `potential`
-    # noise stays out. Labeled ids missing from Postgres (EU reports, hard-deleted rows) still get
-    # a model_data row downstream via the labels asset.
-    spine_ids = [
+    # Spine: reports promoted before the snapshot cutoff plus anything a label stream referenced
+    # before it, so raw `potential` noise and reports that appeared after the cutoff stay out.
+    # Labeled ids missing from Postgres (EU reports, hard-deleted rows) still get a model_data row
+    # downstream via the labels asset.
+    spine_ids: set[str] = {
         str(report_id)
-        for report_id in SignalReport.objects.filter(Q(promoted_at__isnull=False) | Q(id__in=labeled_ids)).values_list(
-            "id", flat=True
-        )
-    ]
-    judgments = _artefact_judgments(spine_ids)
+        for report_id in SignalReport.objects.filter(
+            promoted_at__isnull=False, promoted_at__lt=snapshot_end
+        ).values_list("id", flat=True)
+    }
+    for chunk in _chunked(sorted(labeled_ids)):
+        spine_ids |= {
+            str(report_id)
+            for report_id in SignalReport.objects.filter(id__in=chunk, created_at__lt=snapshot_end).values_list(
+                "id", flat=True
+            )
+        }
+    ordered_spine_ids = sorted(spine_ids)
+    judgments = _artefact_judgments(ordered_spine_ids)
 
     rows: list[dict[str, Any]] = []
-    for report in (
-        SignalReport.objects.filter(id__in=spine_ids)
-        .values(
-            "id",
-            "team_id",
-            "status",
-            "billing_exempt_reason",
-            "created_at",
-            "promoted_at",
-            "last_run_at",
-            "updated_at",
-            "signal_count",
-            "total_weight",
-            "run_count",
-            "title",
-            "summary",
-        )
-        .iterator(chunk_size=2000)
-    ):
-        report_id = str(report["id"])
-        created_at = ensure_utc(report["created_at"])
-        promoted_at = ensure_utc(report["promoted_at"])
-        judgment = judgments.get(report_id, {})
-        rows.append(
-            {
-                "snapshot_date": snapshot_date,
-                "report_id": report_id,
-                "report_team_id": report["team_id"],
-                "region": (settings.CLOUD_DEPLOYMENT or "local").lower(),
-                "status": report["status"],
-                "billing_exempt_reason": report["billing_exempt_reason"],
-                "report_created_at": created_at,
-                "promoted_at": promoted_at,
-                "last_run_at": ensure_utc(report["last_run_at"]),
-                "pg_updated_at": ensure_utc(report["updated_at"]),
-                "report_age_hours": (snapshot_end - created_at).total_seconds() / 3600 if created_at else None,
-                "hours_since_promotion": (snapshot_end - promoted_at).total_seconds() / 3600 if promoted_at else None,
-                "signal_count": report["signal_count"],
-                "total_weight": report["total_weight"],
-                "run_count": report["run_count"],
-                "priority": judgment.get("priority"),
-                "actionability": judgment.get("actionability"),
-                "title_chars": len(report["title"] or ""),
-                "summary_chars": len(report["summary"] or ""),
-                "features_observed_at": features_observed_at,
-            }
-        )
+    for spine_chunk in _chunked(ordered_spine_ids):
+        for report in (
+            SignalReport.objects.filter(id__in=spine_chunk)
+            .values(
+                "id",
+                "team_id",
+                "status",
+                "billing_exempt_reason",
+                "created_at",
+                "promoted_at",
+                "last_run_at",
+                "updated_at",
+                "signal_count",
+                "total_weight",
+                "run_count",
+                "title",
+                "summary",
+            )
+            .iterator(chunk_size=2000)
+        ):
+            report_id = str(report["id"])
+            created_at = ensure_utc(report["created_at"])
+            promoted_at = ensure_utc(report["promoted_at"])
+            judgment = judgments.get(report_id, {})
+            rows.append(
+                {
+                    "snapshot_date": snapshot_date,
+                    "report_id": report_id,
+                    "report_team_id": report["team_id"],
+                    "region": (settings.CLOUD_DEPLOYMENT or "local").lower(),
+                    "status": report["status"],
+                    "billing_exempt_reason": report["billing_exempt_reason"],
+                    "report_created_at": created_at,
+                    "promoted_at": promoted_at,
+                    "last_run_at": ensure_utc(report["last_run_at"]),
+                    "pg_updated_at": ensure_utc(report["updated_at"]),
+                    "report_age_hours": (snapshot_end - created_at).total_seconds() / 3600 if created_at else None,
+                    "hours_since_promotion": (snapshot_end - promoted_at).total_seconds() / 3600
+                    if promoted_at
+                    else None,
+                    "signal_count": report["signal_count"],
+                    "total_weight": report["total_weight"],
+                    "run_count": report["run_count"],
+                    "priority": judgment.get("priority"),
+                    "actionability": judgment.get("actionability"),
+                    "title_chars": len(report["title"] or ""),
+                    "summary_chars": len(report["summary"] or ""),
+                    "features_observed_at": features_observed_at,
+                }
+            )
 
     bucket = dataset_bucket()
     key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, STATE_TABLE, partition_key)
@@ -526,10 +551,11 @@ def inbox_report_model_data(context: dagster.AssetExecutionContext) -> None:
     table = pa.Table.from_pylist(rows, schema=MODEL_DATA_SCHEMA)
 
     partition_key_path = partition_object_key(prefix, MODEL_DATA_TABLE, partition_key)
-    write_parquet(client, bucket, partition_key_path, table)
-    wrote_latest = is_newest_partition(partition_key, built_at.date())
+    write_parquet(client, bucket, partition_key_path, table, snapshot_date=partition_key)
+    latest_key = latest_object_key(prefix, MODEL_DATA_TABLE)
+    wrote_latest = latest_is_stale(object_snapshot_date(client, bucket, latest_key), partition_key)
     if wrote_latest:
-        write_parquet(client, bucket, latest_object_key(prefix, MODEL_DATA_TABLE), table)
+        write_parquet(client, bucket, latest_key, table, snapshot_date=partition_key)
 
     with_state = sum(1 for row in rows if row["status"] is not None)
     context.add_output_metadata(
@@ -552,15 +578,22 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
 )
 
 
-# The assets self-disable while the destination bucket is unset, so the schedule can default to
-# RUNNING and the dataset starts flowing the moment infra provisions the bucket.
+# On Cloud the assets self-disable while the destination bucket is unset, so the schedule can
+# default to RUNNING and the dataset starts flowing the moment infra provisions the bucket.
+# Everywhere else (local dev loads this location via workspace.yaml, self-hosted) it stays
+# stopped: those environments have no dogfood project, so a running schedule would only produce
+# a failed run every day.
 @dagster.schedule(
     cron_schedule="30 2 * * *",
     job=inbox_ranking_dataset_job,
     execution_timezone="UTC",
-    default_status=dagster.DefaultScheduleStatus.RUNNING,
+    default_status=dagster.DefaultScheduleStatus.RUNNING
+    if settings.CLOUD_DEPLOYMENT
+    else dagster.DefaultScheduleStatus.STOPPED,
     tags=owner_tags,
 )
 def inbox_ranking_dataset_schedule(context: dagster.ScheduleEvaluationContext) -> dagster.RunRequest:
-    yesterday = (datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-    return dagster.RunRequest(partition_key=yesterday)
+    # Derived from the tick rather than wall-clock now() so a delayed or replayed tick still
+    # builds the partition it was scheduled for.
+    previous_day = context.scheduled_execution_time.date() - datetime.timedelta(days=1)
+    return dagster.RunRequest(partition_key=previous_day.isoformat())

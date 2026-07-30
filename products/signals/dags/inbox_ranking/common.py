@@ -12,6 +12,7 @@ import boto3
 import dagster
 import pyarrow as pa
 import pyarrow.parquet as pq
+from botocore.exceptions import ClientError
 
 from posthog import settings
 from posthog.dags.common import JobOwners
@@ -62,9 +63,11 @@ def snapshot_bounds(partition_key: str) -> tuple[datetime.datetime, datetime.dat
     return start, start + datetime.timedelta(days=1)
 
 
-def is_newest_partition(partition_key: str, today: datetime.date) -> bool:
-    """Only the newest complete day rewrites latest/, so backfills never clobber it."""
-    return datetime.date.fromisoformat(partition_key) == today - datetime.timedelta(days=1)
+def latest_is_stale(existing_snapshot_date: str | None, partition_key: str) -> bool:
+    """latest/ advances monotonically: a partition at or ahead of what latest/ currently holds
+    rewrites it (so delayed retries of the newest day still repair it), while backfills of older
+    days never clobber it. ISO date strings compare chronologically."""
+    return existing_snapshot_date is None or partition_key >= existing_snapshot_date
 
 
 def skip_unconfigured(context: dagster.AssetExecutionContext) -> bool:
@@ -79,20 +82,39 @@ def skip_unconfigured(context: dagster.AssetExecutionContext) -> bool:
 # boto3.client("s3") is left untyped on purpose: mypy and pyright resolve it to different stub
 # packages (mypy_boto3_s3 vs types_boto3_s3), so a concrete S3Client annotation can't satisfy both.
 def s3_client():  # noqa: ANN201
-    if settings.DEBUG:
-        return boto3.client(
-            "s3",
-            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-            aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        )
-    return boto3.client("s3")
+    # The dedicated bucket is reached via ambient AWS config (the node role on prod). Without it,
+    # every other environment (local dev, self-hosted, CI) uses the deployment's object-storage
+    # service, which needs its explicit endpoint and credentials regardless of DEBUG.
+    if settings.INBOX_RANKING_DATASET_S3_BUCKET:
+        return boto3.client("s3")
+    return boto3.client(
+        "s3",
+        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    )
 
 
-def write_parquet(client, bucket: str, key: str, table: pa.Table) -> None:
+SNAPSHOT_DATE_METADATA_KEY = "snapshot-date"
+
+
+def write_parquet(client, bucket: str, key: str, table: pa.Table, snapshot_date: str | None = None) -> None:
+    metadata = {SNAPSHOT_DATE_METADATA_KEY: snapshot_date} if snapshot_date else {}
     buffer = pa.BufferOutputStream()
     pq.write_table(table, buffer, compression="zstd")
-    client.put_object(Bucket=bucket, Key=key, Body=buffer.getvalue().to_pybytes())
+    client.put_object(Bucket=bucket, Key=key, Body=buffer.getvalue().to_pybytes(), Metadata=metadata)
+
+
+def object_snapshot_date(client, bucket: str, key: str) -> str | None:
+    """The snapshot-date stamped on an object at write time, or None when the object is missing
+    (or predates the stamp), so callers treat it as replaceable."""
+    try:
+        head = client.head_object(Bucket=bucket, Key=key)
+    except ClientError as error:
+        if error.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+            return None
+        raise
+    return head.get("Metadata", {}).get(SNAPSHOT_DATE_METADATA_KEY)
 
 
 def read_parquet(client, bucket: str, key: str) -> pa.Table:

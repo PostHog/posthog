@@ -46,14 +46,16 @@ def test_cloud_requires_dedicated_bucket(monkeypatch, cloud_deployment, bucket, 
 
 
 @pytest.mark.parametrize(
-    "partition_key,today,expected",
+    "existing,partition_key,expected",
     [
-        ("2026-07-29", datetime.date(2026, 7, 30), True),
-        ("2026-07-20", datetime.date(2026, 7, 30), False),
+        (None, "2026-07-29", True),
+        ("2026-07-28", "2026-07-29", True),
+        ("2026-07-29", "2026-07-29", True),
+        ("2026-07-29", "2026-07-20", False),
     ],
 )
-def test_only_newest_partition_rewrites_latest(partition_key, today, expected):
-    assert common.is_newest_partition(partition_key, today) is expected
+def test_latest_advances_monotonically_and_backfills_never_clobber_it(existing, partition_key, expected):
+    assert common.latest_is_stale(existing, partition_key) is expected
 
 
 def test_snapshot_bounds_cover_the_partition_day():

@@ -89,6 +89,11 @@ FROM (
 WHERE report_id != ''
 """
 
+# Point-in-time caveat: the source is a ReplacingMergeTree versioned by inserted_at, so merges
+# keep only the newest version of each key. The inserted_at bound is exact on forward daily runs,
+# but a backfill run after a re-embedding or tombstone superseded the vector that existed on the
+# snapshot day can return no row for it. embedding_inserted_at lineage records which version each
+# row actually carries.
 REPORT_EMBEDDINGS_SQL = f"""
 SELECT
     team_id,
