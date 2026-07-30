@@ -175,7 +175,7 @@ function confirmDeleteScout(config: SignalScoutConfig, onDelete: (configId: stri
         title: `Delete the ${displayName} scout?`,
         description: (
             <span>
-                This archives the <span className="font-mono text-[11px]">{config.skill_name}</span> scout and removes
+                This archives the <span className="font-mono text-[11px]">{config.skill_name}</span> skill and removes
                 its config. The scout stops running and won't come back — this can't be undone. To pause a scout without
                 deleting it, disable it instead.
             </span>

@@ -106,14 +106,14 @@ export function ScoutRowCard({
                             They never shrink (shrink-0); the name absorbs width pressure by shrinking
                             and truncating (down to its min-w floor), so the pill is never sliced. */}
                         <div className="flex items-center gap-2 shrink-0">
-                            <Tooltip title={`${config.skill_name} · open scout`}>
+                            <Tooltip title={`${config.skill_name} · open skill`}>
                                 <Link
                                     to={urls.skill(config.skill_name)}
                                     target="_blank"
                                     targetBlankIcon={false}
                                     subtle
                                     className="text-muted"
-                                    aria-label={`Open the ${config.skill_name} scout`}
+                                    aria-label={`Open the ${config.skill_name} skill`}
                                 >
                                     <IconArrowUpRight className="size-3.5" />
                                 </Link>
