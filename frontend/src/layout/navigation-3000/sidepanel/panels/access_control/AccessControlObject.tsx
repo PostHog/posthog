@@ -102,7 +102,10 @@ function AccessControlObjectDefaults(): JSX.Element | null {
 
     return (
         <SimplLevelComponent
-            level={accessControlDefault?.access_level ?? null}
+            // A null level renders as the "No override" option, which only exists when there is
+            // an inherited tier. With nothing to inherit (project/organization), a missing row
+            // means the built-in default applies — show that, not an empty selection.
+            level={accessControlDefault?.access_level ?? (inheritedAccess ? null : accessControls.default_access_level)}
             levels={availableLevelsWithNone}
             inherited={inheritedAccess}
             disabledReason={accessControlsLoading ? 'Loading…' : undefined}
