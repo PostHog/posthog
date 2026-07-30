@@ -110,7 +110,8 @@ pub async fn observe_run(
                 .await?;
         }
         store.mark_observed(target.run_id, target.epoch).await?;
-        counter!(RECONCILE_COHORTS_COMPLETED).increment(active.len() as u64);
+        counter!(RECONCILE_COHORTS_COMPLETED, "kind" => target.kind.as_str())
+            .increment(active.len() as u64);
         return Ok(ObserveStep::ObservedAllComplete);
     }
 
@@ -171,7 +172,8 @@ async fn apply_verdict(
                     .mark_completed(target.run_id, target.epoch, participation.cohort_id)
                     .await?;
             }
-            counter!(RECONCILE_COHORTS_COMPLETED).increment(active.len() as u64);
+            counter!(RECONCILE_COHORTS_COMPLETED, "kind" => target.kind.as_str())
+                .increment(active.len() as u64);
             Ok(SettleSummary {
                 completed: active.len(),
                 ..SettleSummary::default()
@@ -186,7 +188,8 @@ async fn apply_verdict(
                     .mark_completed(target.run_id, target.epoch, *cohort_id)
                     .await?;
             }
-            counter!(RECONCILE_COHORTS_COMPLETED).increment(complete.len() as u64);
+            counter!(RECONCILE_COHORTS_COMPLETED, "kind" => target.kind.as_str())
+                .increment(complete.len() as u64);
             let (partial, shortfall) =
                 attribute_incomplete(store, target, active, &incomplete).await?;
             Ok(SettleSummary {
@@ -232,6 +235,7 @@ async fn attribute_incomplete(
     let pinned: HashMap<CohortId, &ReconcileScope> =
         active.iter().map(|p| (p.cohort_id, &p.scope)).collect();
 
+    let kind_label = target.kind.as_str();
     let mut partial = 0;
     let mut shortfall = 0;
     for (cohort_id, bitmap) in incomplete {
@@ -249,7 +253,7 @@ async fn attribute_incomplete(
                 .record_shortfall(target.run_id, target.epoch, *cohort_id, &error)
                 .await?;
             shortfall += 1;
-            counter!(RECONCILE_COHORTS_SHORTFALL).increment(1);
+            counter!(RECONCILE_COHORTS_SHORTFALL, "kind" => kind_label).increment(1);
         } else {
             let error = RenderedError::from_message(format!(
                 "reconcile superseded by a cohort change: {missing}"
@@ -258,7 +262,7 @@ async fn attribute_incomplete(
                 .record_partial(target.run_id, target.epoch, *cohort_id, &error)
                 .await?;
             partial += 1;
-            counter!(RECONCILE_COHORTS_PARTIAL).increment(1);
+            counter!(RECONCILE_COHORTS_PARTIAL, "kind" => kind_label).increment(1);
         }
     }
     Ok((partial, shortfall))

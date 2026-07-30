@@ -71,19 +71,24 @@ impl Cohort {
     /// there's no realtime signal to gain from it, so they fall through to dynamic
     /// filter evaluation like any other property-only cohort.
     ///
-    /// Note: this mirrors Python's `Cohort.is_flag_compatible` — each half of the cohort's
-    /// composition must have its own backfill stamped. Accepting either timestamp was safe only
-    /// while nothing wrote `last_backfill_person_properties_at`; now that person-property backfills
-    /// stamp it independently, a mixed cohort can hold the person stamp with its behavioral half
-    /// unseeded, and routing that to `cohort_membership` would silently resolve every missing row
-    /// as a non-member.
+    /// Note: the events stamp is required and the person stamp is not. Only the events backfill
+    /// populates `cohort_membership` for a behavioral or lifecycle leaf, so accepting the person
+    /// stamp in its place — as this did while nothing wrote that column — routes a cohort whose
+    /// behavioral half is unseeded to the table and silently under-matches it.
+    ///
+    /// A mixed cohort therefore still routes here on the events stamp alone, its person half
+    /// answered from person records built off the live event stream rather than from a backfill.
+    /// That gap predates the person backfill, and Python's `Cohort.is_flag_compatible` already
+    /// refuses such a cohort at flag-save time. Demanding the person stamp *here* would instead
+    /// flip every already-live flag on a mixed cohort off the moment this deploys, since the
+    /// fallback resolves a behavioral leaf as unsupported and the whole cohort as a non-match.
+    /// Tighten it once person backfills have actually stamped the fleet.
     pub fn uses_realtime_membership(&self) -> bool {
         matches!(
             self.cohort_type,
             Some(CohortType::Realtime) | Some(CohortType::Behavioral)
         ) && self.has_behavioral_condition()
             && self.last_backfill_events_at.is_some()
-            && (!self.has_person_condition() || self.last_backfill_person_properties_at.is_some())
     }
 
     /// Returns true if `condition_type` flags a `behavioral` or `lifecycle` leaf condition.
@@ -93,13 +98,6 @@ impl Cohort {
     /// realtime `cohort_membership` table.
     fn has_behavioral_condition(&self) -> bool {
         self.condition_flag("behavioral") || self.condition_flag("lifecycle")
-    }
-
-    /// Returns true if `condition_type` flags a person-property leaf condition. An absent flag
-    /// defaults to `false`, which is unreachable in the unsafe direction: the same absence also
-    /// makes [`Cohort::has_behavioral_condition`] false, so the cohort never routes here at all.
-    fn has_person_condition(&self) -> bool {
-        self.condition_flag("person_properties")
     }
 
     fn condition_flag(&self, name: &str) -> bool {
@@ -497,7 +495,9 @@ mod tests {
                 behavioral.clone(),
                 true,
             ),
-            // Mixed: each half needs its own backfill, mirroring `Cohort.is_flag_compatible`.
+            // Mixed: the events stamp alone routes it here, and the person stamp alone never does.
+            // Only the events backfill seeds the behavioral half; the person half rides the live
+            // event stream until a person backfill lands (see `uses_realtime_membership`).
             (Some(CohortType::Realtime), None, None, mixed.clone(), false),
             (
                 Some(CohortType::Realtime),
@@ -511,7 +511,7 @@ mod tests {
                 None,
                 backfill_ts,
                 mixed.clone(),
-                false,
+                true,
             ),
             (
                 Some(CohortType::Realtime),

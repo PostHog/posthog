@@ -9,11 +9,13 @@
 //! run Django has already moved on) can never clobber the ruling dispatch's state.
 //!
 //! The two backfill kinds share these tables and are kept disjoint three different ways, so it is
-//! worth naming them separately: discovery and every status-changing statement bind the caller's
-//! [`RunKind`] in SQL, so a run id under the wrong kind matches no row; the participation loads
-//! carry no kind predicate and instead parse only the matching hash column, where the other kind's
-//! `''` fails closed; and `backfill_kind` is write-once at run creation, which is what lets a kind
-//! read at discovery stay authoritative for the rest of the dispatch.
+//! worth naming them separately: every statement that *selects* a run by id — discovery, the CAS,
+//! the claim, the unreconcilable observe — binds the caller's [`RunKind`] in SQL, so a run id under
+//! the wrong kind matches no row; the participation loads carry no kind predicate and instead parse
+//! only the matching hash column, where the other kind's `''` fails closed; and `backfill_kind` is
+//! write-once at run creation, which is what lets a kind read at discovery stay authoritative for
+//! the rest of the dispatch. The observation writes are the exception that proves it: they fence on
+//! the dispatch epoch alone, which a kind-bound claim is the only way to mint.
 
 use chrono::{DateTime, Utc};
 use cohort_core::filters::{CohortId, TeamId};

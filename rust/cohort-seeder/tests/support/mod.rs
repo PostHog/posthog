@@ -245,7 +245,7 @@ pub async fn insert_participation(
 }
 
 /// A person run's participation: the person hash is pinned and the behavioral column stays `''`,
-/// exactly as `create_backfill_run_for_cohort` writes it.
+/// exactly as `create_person_backfill_run_for_cohort` writes it.
 pub async fn insert_person_participation(
     pool: &PgPool,
     run_id: RunId,

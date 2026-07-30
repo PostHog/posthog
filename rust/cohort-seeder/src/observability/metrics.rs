@@ -40,7 +40,9 @@ pub const RUNS_WITHOUT_CHUNKS: &str = "seeder_runs_without_chunks";
 pub const WINDOW_DAYS_MISMATCH: &str = "seeder_window_days_mismatch_total";
 pub const RUNS_PLANNING_STAMPED: &str = "seeder_runs_planning_stamped_total";
 pub const RUNS_PLANNING_WITHHELD: &str = "seeder_runs_planning_withheld_total";
+/// Reconcile dispatch attempts, labelled by bounded `outcome` and the run's `kind` (counter).
 pub const RECONCILE_DISPATCHES: &str = "seeder_reconcile_dispatches_total";
+/// Dispatch claims lost to a concurrent writer, labelled by the run's `kind` (counter).
 pub const RECONCILE_CAS_LOST: &str = "seeder_reconcile_cas_lost_total";
 pub const RECONCILE_RECORD_INVALID: &str = "seeder_reconcile_record_invalid_total";
 pub const RECONCILE_DISPATCHES_IN_FLIGHT: &str = "seeder_reconcile_dispatches_in_flight";
@@ -51,8 +53,13 @@ pub const RECONCILE_MARKER_PARSE_FAILURES: &str = "seeder_reconcile_marker_parse
 pub const RECONCILE_MARKER_WATCH_LAG: &str = "seeder_reconcile_marker_watch_lag";
 pub const RECONCILE_LIVENESS_LAGGING_PARTITIONS: &str =
     "seeder_reconcile_liveness_lagging_partitions";
+/// Cohort participations settled complete, labelled by the run's `kind` (counter).
 pub const RECONCILE_COHORTS_COMPLETED: &str = "seeder_reconcile_cohorts_completed_total";
+/// Cohort participations terminally superseded while short, labelled by the run's `kind`
+/// (counter).
 pub const RECONCILE_COHORTS_PARTIAL: &str = "seeder_reconcile_cohorts_partial_total";
+/// Cohort participations short of their markers with the pinned shape unchanged — the retryable
+/// half of the split — labelled by the run's `kind` (counter).
 pub const RECONCILE_COHORTS_SHORTFALL: &str = "seeder_reconcile_cohorts_shortfall_total";
 pub const RECONCILE_ZERO_MARKER_RUNS: &str = "seeder_reconcile_zero_marker_runs_total";
 pub const RUNS_OBSERVED: &str = "seeder_runs_observed_total";

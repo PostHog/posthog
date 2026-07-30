@@ -2,8 +2,9 @@
 //! poll arm after `fill_claim_slots`, it discovers seeding/reconciling runs of the configured kinds,
 //! transitions a fully-confirmed run `seeding → reconciling`, produces the reconcile control tiles,
 //! and persists the dispatch record (produce HWMs + marker-watch start positions + fence epoch)
-//! through the same store path the CLI uses. Its second, independently gated half publishes the marker-watch directives and
-//! runs the per-run observation pass; either half alone is a valid configuration.
+//! through the same store path the CLI uses. Its second, independently gated half publishes the
+//! marker-watch directives and runs the per-run observation pass; either half alone is a valid
+//! configuration.
 //!
 //! Dispatch runs in a spawned task, never inline: producing `cohorts × COHORT_PARTITION_COUNT` control
 //! tiles and awaiting their delivery acks can exceed the orchestrator's liveness deadline. An
@@ -509,8 +510,9 @@ impl CompletionDriver {
         // would make a deterministic one — a poison row, say — an invisible per-tick respawn loop.
         tokio::spawn(async move {
             if let Err(error) = dispatch.await {
-                counter!(RECONCILE_DISPATCHES, "outcome" => "panicked").increment(1);
-                warn!(error = %error, run_id = ?run_id, "reconcile dispatch task panicked");
+                counter!(RECONCILE_DISPATCHES, "outcome" => "panicked", "kind" => run_kind.as_str())
+                    .increment(1);
+                warn!(error = %error, run_id = ?run_id, kind = run_kind.as_str(), "reconcile dispatch task panicked");
             }
         });
     }
@@ -633,11 +635,15 @@ fn lock_recoverable<T>(value: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// `ReconcilingUndispatched` and re-dispatches. On shutdown mid-dispatch the same recovery converges
 /// per the crash-recovery matrix.
 async fn run_dispatch(context: &DispatchArm, run_id: RunId, run_kind: RunKind, kind: DispatchKind) {
+    // Person and behavioral dispatch share every counter here, and a person-side spike summed
+    // against behavioral traffic is invisible.
+    let run_kind_label = run_kind.as_str();
     let claim = match acquire_claim(context, run_id, run_kind, kind).await {
         Ok(Some(claim)) => claim,
         Ok(None) => {
-            counter!(RECONCILE_CAS_LOST).increment(1);
-            counter!(RECONCILE_DISPATCHES, "outcome" => "cas_lost").increment(1);
+            counter!(RECONCILE_CAS_LOST, "kind" => run_kind_label).increment(1);
+            counter!(RECONCILE_DISPATCHES, "outcome" => "cas_lost", "kind" => run_kind_label)
+                .increment(1);
             return;
         }
         Err(error) => {
@@ -657,7 +663,12 @@ async fn run_dispatch(context: &DispatchArm, run_id: RunId, run_kind: RunKind, k
         Ok(PreparedDispatch::Certified(certified)) => certified,
         Ok(PreparedDispatch::Uncertified(_)) => {
             warn!(run_id = ?run_id, "dispatch was not certified under Complete; leaving reconciling");
-            counter!(RECONCILE_DISPATCHES, "outcome" => "prepare_failed").increment(1);
+            counter!(
+                RECONCILE_DISPATCHES,
+                "outcome" => "prepare_failed",
+                "kind" => run_kind_label,
+            )
+            .increment(1);
             return;
         }
         Err(PrepareReconcileDispatchError::Run(ReconcileRunError::NoActiveParticipations(_))) => {
@@ -671,7 +682,12 @@ async fn run_dispatch(context: &DispatchArm, run_id: RunId, run_kind: RunKind, k
             {
                 warn!(error = %error, run_id = ?run_id, "marking an unreconcilable run observed failed");
             }
-            counter!(RECONCILE_DISPATCHES, "outcome" => "no_participations").increment(1);
+            counter!(
+                RECONCILE_DISPATCHES,
+                "outcome" => "no_participations",
+                "kind" => run_kind_label,
+            )
+            .increment(1);
             return;
         }
         Err(PrepareReconcileDispatchError::Incomplete {
@@ -685,12 +701,18 @@ async fn run_dispatch(context: &DispatchArm, run_id: RunId, run_kind: RunKind, k
             if let Err(error) = claim.revert(&context.pool).await {
                 warn!(error = %error, run_id = ?run_id, "reverting the reconciling CAS failed");
             }
-            counter!(RECONCILE_DISPATCHES, "outcome" => "revert").increment(1);
+            counter!(RECONCILE_DISPATCHES, "outcome" => "revert", "kind" => run_kind_label)
+                .increment(1);
             return;
         }
         Err(error) => {
             warn!(error = %error, run_id = ?run_id, "preparing reconcile dispatch failed; leaving reconciling");
-            counter!(RECONCILE_DISPATCHES, "outcome" => "prepare_failed").increment(1);
+            counter!(
+                RECONCILE_DISPATCHES,
+                "outcome" => "prepare_failed",
+                "kind" => run_kind_label,
+            )
+            .increment(1);
             return;
         }
     };
@@ -707,12 +729,14 @@ async fn run_dispatch(context: &DispatchArm, run_id: RunId, run_kind: RunKind, k
     .await
     {
         Ok(_) => {
-            counter!(RECONCILE_DISPATCHES, "outcome" => "dispatched").increment(1);
+            counter!(RECONCILE_DISPATCHES, "outcome" => "dispatched", "kind" => run_kind_label)
+                .increment(1);
         }
         Err(error) => {
             let outcome = error.outcome();
             warn!(error = %error, run_id = ?run_id, "reconcile dispatch failed; leaving reconciling for re-dispatch");
-            counter!(RECONCILE_DISPATCHES, "outcome" => outcome).increment(1);
+            counter!(RECONCILE_DISPATCHES, "outcome" => outcome, "kind" => run_kind_label)
+                .increment(1);
         }
     }
 }

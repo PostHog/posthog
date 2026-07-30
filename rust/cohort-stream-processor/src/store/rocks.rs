@@ -191,9 +191,14 @@ pub type RawKv = (Vec<u8>, Vec<u8>);
 #[derive(Debug, Default)]
 struct Stage2DirtyTracking {
     /// Cohort prefixes with a reconcile drain currently capturing dirty rows, refcounted by lease.
-    /// The prefix carries no run kind, so a mixed cohort reconciled by a behavioral and a
-    /// person-property run can hold two leases at once; capture must stay on until the last one
-    /// releases, or the surviving job's snapshot would silently miss every concurrent mutation.
+    ///
+    /// No path holds two leases on one prefix today: the prefix carries `partition_id`, there is one
+    /// `ReconcileQueue` per partition worker, and only that queue's head is ever leased — kind-scoped
+    /// supersession puts a mixed cohort's two runs in the same queue, not in the same lease. The
+    /// `debug_assert` below pins that. Counting rather than setting is what keeps a release build
+    /// honest if it ever stops holding: the last release wins instead of the first, so capture stays
+    /// on for the surviving job rather than silently dropping every concurrent mutation from its
+    /// snapshot.
     active: RwLock<HashMap<Stage2CohortPrefix, NonZeroUsize>>,
     active_count: AtomicUsize,
 }
@@ -204,10 +209,15 @@ impl Stage2DirtyTracking {
             .active
             .write()
             .expect("Stage 2 dirty-tracking lock is not held across fallible work");
-        active
+        let leases = active
             .entry(prefix)
             .and_modify(|leases| *leases = leases.saturating_add(1))
             .or_insert(NonZeroUsize::MIN);
+        debug_assert_eq!(
+            leases.get(),
+            1,
+            "only the reconcile queue head leases dirty tracking, so one prefix holds one lease"
+        );
         self.active_count.fetch_add(1, Ordering::Release);
         Stage2DirtyTrackingGuard {
             tracking: self.clone(),
