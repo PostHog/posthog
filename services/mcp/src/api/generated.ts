@@ -19701,7 +19701,7 @@ export namespace Schemas {
       FirstPromoter: 'FirstPromoter',
       Zero: 'Zero',
       Inth: 'Inth',
-      BCMS: 'BCMS',
+      Bcms: 'BCMS',
       Convonite: 'Convonite',
       Hookdeck: 'Hookdeck',
     } as const;
