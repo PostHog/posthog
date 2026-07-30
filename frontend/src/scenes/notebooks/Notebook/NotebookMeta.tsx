@@ -14,6 +14,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { NotebookSyncStatus } from '../types'
 import { isKernelUiEnabled } from '../utils'
 import { isMarkdownNotebookContent } from './markdownNotebookV2'
+import { notebookSupportsKernel } from './notebookKernelInfoLogic'
 import { NotebookLogicProps, notebookLogic } from './notebookLogic'
 import { NOTEBOOK_AI_PRESENCE_COLOR, type NotebookPresenceParticipant } from './notebookPresence'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
@@ -216,12 +217,12 @@ export const NotebookKernelInfoButton = ({
     ...props
 }: NotebookKernelInfoButtonProps): JSX.Element | null => {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { content } = useValues(notebookLogic)
+    const { content, shortId } = useValues(notebookLogic)
     const { showKernelInfo } = useValues(notebookSettingsLogic)
     const { setShowKernelInfo } = useActions(notebookSettingsLogic)
 
     // The kernel info panel only renders for markdown (V2) notebooks, so hide the toggle elsewhere
-    if (!isKernelUiEnabled(featureFlags) || !isMarkdownNotebookContent(content)) {
+    if (!isKernelUiEnabled(featureFlags) || !isMarkdownNotebookContent(content) || !notebookSupportsKernel(shortId)) {
         return null
     }
 

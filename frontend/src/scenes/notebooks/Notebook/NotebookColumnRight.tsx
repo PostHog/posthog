@@ -7,11 +7,13 @@ import { NotebookNodeChildRenderer } from '../Nodes/NodeWrapper'
 import type { notebookNodeLogicType } from '../Nodes/notebookNodeLogic'
 import { isMarkdownNotebookContent } from './markdownNotebookV2'
 import { NotebookKernelInfo } from './NotebookKernelInfo'
+import { notebookSupportsKernel } from './notebookKernelInfoLogic'
 import { notebookLogic } from './notebookLogic'
 
 export const NotebookColumnRight = (): JSX.Element | null => {
-    const { content, isShowingLeftColumn, nodeLogicsWithChildren, showKernelInfo } = useValues(notebookLogic)
-    const shouldShowMarkdownKernelInfo = isMarkdownNotebookContent(content) && showKernelInfo
+    const { content, isShowingLeftColumn, nodeLogicsWithChildren, showKernelInfo, shortId } = useValues(notebookLogic)
+    const shouldShowMarkdownKernelInfo =
+        isMarkdownNotebookContent(content) && showKernelInfo && notebookSupportsKernel(shortId)
     const isShowing = (nodeLogicsWithChildren.length > 0 || shouldShowMarkdownKernelInfo) && !isShowingLeftColumn
 
     return (

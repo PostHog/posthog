@@ -51,6 +51,14 @@ export type NotebookKernelInfoLogicProps = {
     shortId: string
 }
 
+/**
+ * Templates and canvases exist only in the browser, so there is no notebook row for a kernel to
+ * attach to and every kernel request for one 404s. The scratchpad is local-only too, but the API
+ * synthesizes a notebook for it, so its kernel works.
+ */
+export const notebookSupportsKernel = (shortId: string): boolean =>
+    !shortId.startsWith('template-') && !shortId.startsWith('canvas-')
+
 export const cpuCoreOptions = [0.125, 0.25, 0.5, 1, 2, 4, 6, 8, 16, 32, 64]
 export const memoryGbOptions = [0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256]
 export const idleTimeoutOptions = [
@@ -358,6 +366,9 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
             null as NotebookKernelInfo | null,
             {
                 loadKernelInfo: async () => {
+                    if (!notebookSupportsKernel(props.shortId)) {
+                        return null
+                    }
                     try {
                         const response = (await api.notebooks.kernelStatus(props.shortId)) as NotebookKernelInfo
                         return response.backend ? response : null
@@ -546,7 +557,10 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
             actions.executeKernelSuccess(null)
         },
     })),
-    afterMount(({ actions, cache, values }) => {
+    afterMount(({ actions, cache, props, values }) => {
+        if (!notebookSupportsKernel(props.shortId)) {
+            return
+        }
         const scheduleRefresh = (): void => {
             const delayMs = values.isStarting ? 2000 : 10000
             cache.kernelInfoRefresh = window.setTimeout(() => {
