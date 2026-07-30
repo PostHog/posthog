@@ -81,6 +81,7 @@ export function LemonDateFilterExclusions({
                                             }
                                             tooltip={name}
                                             aria-label={`Exclude ${name}`}
+                                            aria-pressed={selected}
                                         >
                                             {label}
                                         </LemonButton>

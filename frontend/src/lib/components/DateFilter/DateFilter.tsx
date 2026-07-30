@@ -291,8 +291,8 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
             <div className="flex max-h-full min-h-0 flex-col" ref={optionsRef} onClick={(e) => e.stopPropagation()}>
                 <ScrollableShadows
                     direction="vertical"
-                    // max-h-80 shows ~9 preset rows with a sliver of the tenth as a scroll hint
                     hideScrollbars
+                    // max-h-80 shows ~9 preset rows with a sliver of the tenth as a scroll hint
                     className={clsx('min-h-0 flex-1 border-b', optionsSize === 'small' && 'max-h-80')}
                     innerClassName="deprecated-space-y-px p-1"
                 >
@@ -408,7 +408,8 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
                     {showExplicitDateToggle && (
                         <div
                             className={clsx(
-                                'LemonSwitch LemonSwitch--medium LemonSwitch--full-width',
+                                'LemonSwitch LemonSwitch--full-width',
+                                `LemonSwitch--${optionsSize}`,
                                 optionsSize === 'small' ? 'pb-1 pt-1' : 'pb-2 pt-2'
                             )}
                         >

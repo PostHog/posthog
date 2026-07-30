@@ -11,7 +11,12 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { computeDaysOfWeekUpdate, getExcludedDaysOfWeek, type IsoDayOfWeek } from './daysOfWeekFilterUtils'
+import {
+    computeDaysOfWeekUpdate,
+    daysOfWeekSetsEqual,
+    getExcludedDaysOfWeek,
+    parseIsoDaysOfWeek,
+} from './daysOfWeekFilterUtils'
 
 type InsightDateFilterProps = {
     disabled: boolean
@@ -43,8 +48,9 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
         incomplete: !!dateRange?.excludeIncompletePeriods,
     }
     const handleExclusionsChange = (next: DateFilterExclusions): void => {
-        if (isTrends && next.days.join(',') !== exclusions.days.join(',')) {
-            updateQuerySource(computeDaysOfWeekUpdate(next.days.map(Number) as IsoDayOfWeek[], dateRange))
+        const nextExcludedDaysOfWeek = parseIsoDaysOfWeek(next.days)
+        if (isTrends && !daysOfWeekSetsEqual(nextExcludedDaysOfWeek, excludedDaysOfWeek)) {
+            updateQuerySource(computeDaysOfWeekUpdate(nextExcludedDaysOfWeek, dateRange))
         }
         if (next.incomplete !== exclusions.incomplete) {
             updateDateRange({ excludeIncompletePeriods: next.incomplete ? true : null }, true)
