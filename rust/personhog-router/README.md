@@ -134,11 +134,12 @@ client-visible error. The policies layered on the mechanism:
    fence: the owner resuming after a reaffirm, or the new owner's
    cutover), an unroutable target, or a transport failure (a pod
    mid-restart or briefly unreachable) — puts the bounced request and
-   the rest of its key run back (each put-back entry counted by
+   the rest of its key run back (the interrupted attempt counts toward
    `personhog_router_forward_retries_total` as a stash-path retry under
-   the reason that interrupted the run), backs off briefly, and retries;
-   after a few consecutive bounced waves the drain yields its lane and
-   the reconcile pass re-requests it on the next tick. Clients never see a
+   the reason that cut it short; the never-attempted tail goes back
+   uncounted), backs off briefly, and retries; after a few consecutive
+   bounced waves the drain yields its lane and the reconcile pass
+   re-requests it on the next tick. Clients never see a
    bounce — their requests stay parked until the condition clears or
    the per-request deadline expires. A transport bounce marks the
    request possibly-applied: re-forwarding it is an at-least-once

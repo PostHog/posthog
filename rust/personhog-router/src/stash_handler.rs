@@ -189,24 +189,17 @@ struct KeyRunOutcome {
 
 /// Put an interrupted key run's remainder back at its admission
 /// positions: the entry whose attempt was cut short plus everything not
-/// yet attempted. Every entry put back is a request the drain will
-/// re-attempt, so the batch counts as stash-path retries under the
-/// reason that interrupted the run.
+/// yet attempted. Retry accounting stays with the callers — only an
+/// actually-attempted head counts as a stash-path retry, so the
+/// never-attempted tail goes back uncounted.
 async fn put_back_rest(
     session: &DrainSession,
     key: StashKey,
     head: Entry<StashedRequest>,
     rest: IntoIter<Entry<StashedRequest>>,
-    reason: &'static str,
 ) {
     let mut entries = vec![head];
     entries.extend(rest);
-    metrics::counter!(
-        "personhog_router_forward_retries_total",
-        "path" => ForwardPath::Stash.label(),
-        "reason" => reason
-    )
-    .increment(entries.len() as u64);
     session.put_back(key, entries).await;
 }
 
@@ -228,7 +221,7 @@ async fn forward_key_run(
     let mut entries = run.entries.into_iter();
     while let Some(mut entry) = entries.next() {
         if cancel.is_cancelled() {
-            put_back_rest(session, run.key, entry, entries, "cancelled").await;
+            put_back_rest(session, run.key, entry, entries).await;
             return outcome;
         }
         // Race the forward against cancellation: an in-flight call can
@@ -246,7 +239,13 @@ async fn forward_key_run(
             // outcome is unknown — same ambiguity as a transport bounce,
             // same conservative marking.
             entry.item.possibly_applied = true;
-            put_back_rest(session, run.key, entry, entries, "cancelled").await;
+            metrics::counter!(
+                "personhog_router_forward_retries_total",
+                "path" => ForwardPath::Stash.label(),
+                "reason" => "cancelled"
+            )
+            .increment(1);
+            put_back_rest(session, run.key, entry, entries).await;
             return outcome;
         };
         match disposition {
@@ -276,7 +275,13 @@ async fn forward_key_run(
                 if matches!(reason, BounceReason::Transport) {
                     entry.item.possibly_applied = true;
                 }
-                put_back_rest(session, run.key, entry, entries, reason.label()).await;
+                metrics::counter!(
+                    "personhog_router_forward_retries_total",
+                    "path" => ForwardPath::Stash.label(),
+                    "reason" => reason.label()
+                )
+                .increment(1);
+                put_back_rest(session, run.key, entry, entries).await;
                 outcome.bounced = true;
                 return outcome;
             }
