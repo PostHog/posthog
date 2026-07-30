@@ -16,8 +16,9 @@ APP_ORIGIN = "https://us.posthog.com"
 class TestFramingHeaderAnalysis(SimpleTestCase):
     @parameterized.expand(
         [
-            # Shopify storefront behind Cloudflare, as observed on the site from ticket 64763. The CSP is what
-            # blocks us; reporting this as allowed is the false negative that made the failure look like ours.
+            # Some sites send frame-ancestors 'none' alongside X-Frame-Options: DENY. The CSP is the
+            # operative one; reporting this as allowed is the false negative that makes the failure
+            # look like ours.
             (
                 "csp_frame_ancestors_none_wins_over_xfo",
                 {
@@ -27,8 +28,8 @@ class TestFramingHeaderAnalysis(SimpleTestCase):
                 "blocked",
                 "frame_ancestors",
             ),
-            # The customer's own workaround host. XFO is still DENY here, but browsers ignore XFO when
-            # frame-ancestors is present, so treating XFO as decisive would wrongly warn on a working setup.
+            # A host that names the app in frame-ancestors. XFO is still DENY here, but browsers ignore XFO
+            # when frame-ancestors is present, so treating XFO as decisive would wrongly warn on a working setup.
             (
                 "csp_allowing_app_wins_over_xfo_deny",
                 {"x-frame-options": "DENY", "content-security-policy": "frame-ancestors 'self' *.posthog.com"},

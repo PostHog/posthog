@@ -370,6 +370,10 @@ def _validate_screenshot_response(response: requests.Response, endpoint_url: str
 
 
 def _page_status_from(response: requests.Response) -> int | None:
+    # Browserless answers 200 with a valid JPEG even when the page it rendered returned 429 or 403,
+    # so this header is the only thing separating a heatmap from a picture of the customer's error
+    # page. It is documented under Browserless' Request Configuration rather than on the Screenshot
+    # API page. Absent or unparseable means we don't know, which must not fail an otherwise fine render.
     try:
         return int(response.headers["x-response-code"])
     except (KeyError, TypeError, ValueError):

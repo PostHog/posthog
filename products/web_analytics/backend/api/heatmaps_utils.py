@@ -12,10 +12,7 @@ PREWARM_TTL = timedelta(minutes=15)
 
 
 def heatmaps_flag_enabled(flag: str, distinct_id: str, *, team_id: int, organization_id: str) -> bool:
-    """Evaluate a heatmaps flag with the group context every heatmaps caller needs.
-
-    Fails closed: a flag we can't evaluate must not turn a feature on.
-    """
+    """Evaluate a flag with the org/project group context, failing closed when it can't be read."""
     if not distinct_id:
         return False
     groups = {"organization": organization_id, "project": str(team_id)}
