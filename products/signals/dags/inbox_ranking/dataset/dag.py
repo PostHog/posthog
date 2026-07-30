@@ -18,7 +18,11 @@ Point-in-time caveats, per source:
 - embeddings are point-in-time within the underlying table's 3-month TTL (inserted_at bound);
 - report state is current-state-only. A backfilled partition therefore carries *today's* Postgres
   state, flagged by features_observed_at being far after snapshot_date. Only forward-run daily
-  partitions are true point-in-time snapshots.
+  partitions are true point-in-time snapshots. This reaches row *inclusion*, not just feature
+  values: promoted_at is cleared on suppression and snooze, so a report promoted before the cutoff
+  and suppressed after it drops out of the spine unless a label event referenced it in time. A
+  spine derived from immutable promotion history (the status telemetry carries promoted_at) is the
+  fix, and is a v2 change.
 """
 
 import json
@@ -37,7 +41,9 @@ from posthog.dags.common import dagster_tags
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_embeddings import EMBEDDING_DOCUMENT_TYPE, EMBEDDING_PRODUCT, EMBEDDING_RENDERING
 from products.signals.dags.inbox_ranking.common import (
+    S3_BUCKET_ENV,
     dataset_bucket,
+    dataset_unconfigured,
     ensure_utc,
     latest_is_stale,
     latest_object_key,
@@ -141,6 +147,10 @@ LABEL_FIELDS: list[tuple[str, pa.DataType]] = [
     ("first_create_pr_clicked_at", _TIMESTAMP),
     ("discuss_count", pa.int32()),
     ("snooze_count", pa.int32()),
+    ("feedback_positive_count", pa.int32()),
+    ("feedback_negative_count", pa.int32()),
+    ("first_feedback_at", _TIMESTAMP),
+    ("latest_feedback_sentiment", pa.string()),
     ("first_resolved_at", _TIMESTAMP),
     ("first_dismissed_server_at", _TIMESTAMP),
     ("first_failed_at", _TIMESTAMP),
@@ -148,6 +158,8 @@ LABEL_FIELDS: list[tuple[str, pa.DataType]] = [
     ("latest_status_event", pa.string()),
     ("latest_status_event_at", _TIMESTAMP),
     ("dismissal_reason", pa.string()),
+    ("status_event_priority", pa.string()),
+    ("status_event_actionability", pa.string()),
     ("pr_created_count", pa.int32()),
     ("first_pr_created_at", _TIMESTAMP),
     ("pr_merged_count", pa.int32()),
@@ -495,6 +507,10 @@ def assemble_model_rows(
     The row set is the union of state and labels: label-only rows (EU reports, hard-deleted
     reports) survive with null state so their label history stays real, while embedding-only
     reports (never promoted, never labeled) stay out of the spine.
+
+    A deleted report is indistinguishable from an EU one here — both are label rows with no
+    Postgres row — so re-running a partition cannot scrub one. See the README's retention section:
+    scrubbing means deleting the objects.
     """
     state_by_id = {row["report_id"]: row for row in state_rows}
     embedding_by_id = {row["report_id"]: row for row in embedding_rows}
@@ -619,7 +635,15 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
     else dagster.DefaultScheduleStatus.STOPPED,
     tags=owner_tags,
 )
-def inbox_ranking_dataset_schedule(context: dagster.ScheduleEvaluationContext) -> dagster.RunRequest:
+def inbox_ranking_dataset_schedule(
+    context: dagster.ScheduleEvaluationContext,
+) -> dagster.RunRequest | dagster.SkipReason:
+    # Skip rather than launch a run whose assets would all take their early return: a run that
+    # materializes every asset without writing an object reads as a healthy partition, and once the
+    # bucket lands the schedule has already moved past those dates. Skipped ticks leave the
+    # partitions plainly unmaterialized and backfillable.
+    if dataset_unconfigured():
+        return dagster.SkipReason(f"{S3_BUCKET_ENV} is not set; skipping until the dedicated bucket is provisioned")
     # Derived from the tick rather than wall-clock now() so a delayed or replayed tick still
     # builds the partition it was scheduled for; run_key dedupes a re-evaluated tick.
     previous_day = context.scheduled_execution_time.date() - datetime.timedelta(days=1)

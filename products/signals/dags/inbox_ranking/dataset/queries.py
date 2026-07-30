@@ -100,7 +100,12 @@ FROM (
     UNION ALL
     SELECT toString(properties.report_id) AS report_id
     FROM events
-    WHERE event IN ('Inbox report opened', 'Inbox report action', 'signal_report_status_changed')
+    WHERE event IN (
+        'Inbox report opened',
+        'Inbox report action',
+        'Inbox report feedback',
+        'signal_report_status_changed'
+    )
       AND timestamp >= toDateTime({labels_epoch}) AND timestamp < toDateTime({snapshot_end})
     UNION ALL
     SELECT toString(properties.signal_report_id) AS report_id
@@ -154,11 +159,13 @@ IMPRESSIONS_COLUMNS = (
     "best_impression_rank",
     "source_products",
 )
-# Ranks come from client-supplied JSON, so they can be any Int64. The rank columns are int32 in
-# Parquet, where an out-of-range value raises on conversion and fails the whole fleet-wide labels
-# asset, so an impossible rank is nulled out here and the impression still counts.
+# Ranks come from client-supplied JSON, so they can be any Int64, and JSONExtractInt yields 0 for
+# a missing or non-numeric value. The producer contract (frontend/src/scenes/inbox/inboxAnalytics.ts)
+# is 1-based, so anything below 1 is malformed; anything above int32 would raise on the Parquet
+# conversion and fail the whole fleet-wide labels asset. Both are nulled out, and the impression
+# still counts toward the impression/user counts.
 _IMPRESSION_RANK = (
-    "if(JSONExtractInt(imp, 'rank') >= 0 AND JSONExtractInt(imp, 'rank') <= 2147483647, "
+    "if(JSONExtractInt(imp, 'rank') >= 1 AND JSONExtractInt(imp, 'rank') <= 2147483647, "
     "JSONExtractInt(imp, 'rank'), NULL)"
 )
 IMPRESSIONS_SQL = f"""
@@ -227,9 +234,16 @@ STATUS_COLUMNS = (
     "latest_status_event",
     "latest_status_event_at",
     "dismissal_reason",
+    "status_event_priority",
+    "status_event_actionability",
 )
 # The inner query dedupes at-least-once analytics delivery within 10-minute buckets;
 # events.timestamp is qualified because the min() alias shadows the raw column in WHERE/GROUP BY.
+#
+# status_event_priority/actionability are the classification the *event* carried, which is why
+# capture_status_change_analytics snapshots them onto every transition: artefacts can be re-judged
+# or edited, so the state asset's cutoff-observed judgment is not necessarily what was true when
+# the outcome happened. Both are kept — state for features, these for label-time provenance.
 STATUS_SQL = """
 SELECT
     report_id,
@@ -242,7 +256,9 @@ SELECT
     -- argMax skips NULL values, so this is the reason from the latest *reasoned* transition (the
     -- intended semantic: reasons only accompany dismissals/snoozes), not necessarily paired with
     -- latest_status_event above.
-    argMax(dismissal_reason, timestamp) AS dismissal_reason
+    argMax(dismissal_reason, timestamp) AS dismissal_reason,
+    argMax(event_priority, timestamp) AS status_event_priority,
+    argMax(event_actionability, timestamp) AS status_event_actionability
 FROM (
     SELECT
         min(events.timestamp) AS timestamp,
@@ -256,7 +272,9 @@ FROM (
             toString(properties.previous_status) IN ('ready', 'resolved') AND toString(properties.status) = 'potential', 'snoozed',
             'other'
         ) AS outcome,
-        any(nullIf(toString(properties.dismissal_reason), '')) AS dismissal_reason
+        any(nullIf(toString(properties.dismissal_reason), '')) AS dismissal_reason,
+        any(nullIf(toString(properties.priority), '')) AS event_priority,
+        any(nullIf(toString(properties.actionability), '')) AS event_actionability
     FROM events
     WHERE event = 'signal_report_status_changed'
       AND events.timestamp >= toDateTime({labels_epoch}) AND events.timestamp < toDateTime({snapshot_end})
@@ -293,10 +311,34 @@ WHERE event IN ('pr_created', 'pr_merged', 'pr_closed')
 GROUP BY report_id
 """
 
+FEEDBACK_COLUMNS = (
+    "feedback_positive_count",
+    "feedback_negative_count",
+    "first_feedback_at",
+    "latest_feedback_sentiment",
+)
+# The thumbs at the end of a report body. Feedback-only (the report stays in the inbox), so it is
+# not recoverable from the action or status streams. Only the rating event is aggregated; the
+# optional `Inbox report feedback note` rides separately and carries no additional label.
+FEEDBACK_SQL = """
+SELECT
+    toString(properties.report_id) AS report_id,
+    countIf(toString(properties.sentiment) = 'positive') AS feedback_positive_count,
+    countIf(toString(properties.sentiment) = 'negative') AS feedback_negative_count,
+    min(timestamp) AS first_feedback_at,
+    argMax(nullIf(toString(properties.sentiment), ''), timestamp) AS latest_feedback_sentiment
+FROM events
+WHERE event = 'Inbox report feedback'
+  AND timestamp >= toDateTime({labels_epoch}) AND timestamp < toDateTime({snapshot_end})
+  AND toString(properties.report_id) != ''
+GROUP BY report_id
+"""
+
 LABEL_STREAMS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("impressions", IMPRESSIONS_SQL, IMPRESSIONS_COLUMNS),
     ("opens", OPENS_SQL, OPENS_COLUMNS),
     ("actions", ACTIONS_SQL, ACTIONS_COLUMNS),
+    ("feedback", FEEDBACK_SQL, FEEDBACK_COLUMNS),
     ("status_changes", STATUS_SQL, STATUS_COLUMNS),
     ("pr_events", PR_EVENTS_SQL, PR_COLUMNS),
 )
@@ -319,6 +361,10 @@ LABEL_DEFAULTS: dict[str, Any] = {
     "first_create_pr_clicked_at": None,
     "discuss_count": 0,
     "snooze_count": 0,
+    "feedback_positive_count": 0,
+    "feedback_negative_count": 0,
+    "first_feedback_at": None,
+    "latest_feedback_sentiment": None,
     "first_resolved_at": None,
     "first_dismissed_server_at": None,
     "first_failed_at": None,
@@ -326,6 +372,8 @@ LABEL_DEFAULTS: dict[str, Any] = {
     "latest_status_event": None,
     "latest_status_event_at": None,
     "dismissal_reason": None,
+    "status_event_priority": None,
+    "status_event_actionability": None,
     "pr_created_count": 0,
     "first_pr_created_at": None,
     "pr_merged_count": 0,
