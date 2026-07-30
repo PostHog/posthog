@@ -2,9 +2,11 @@ import re
 import gzip
 import json
 import time
+import zlib
 import threading
 import statistics
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import timedelta
 from typing import TYPE_CHECKING, Optional
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -615,6 +617,25 @@ WARMING_PROGRESS_LOG_INTERVAL_SECONDS = 120
 # identity churn re-warming old days, one team's pathological filters).
 WARMING_SLOW_SHAPE_SECONDS = 15
 
+# The shape-level staleness threshold is a fixed wall-clock delta, so shapes
+# warmed together go stale together: any bulk pass (a cold drain, a deploy
+# rotating cache hashes) synchronizes the fleet and every later run inherits a
+# multi-hour expiry storm that monopolizes the hourly cadence until phases
+# drift apart on their own. Evaluating staleness with the entry aged by a
+# deterministic per-shape offset warms each shape a little early — never late,
+# so served freshness is untouched — and gives every shape a slightly different
+# effective period, which diffuses synchronized cohorts instead of merely
+# phase-shifting them. Worst case extra load is bounded by the offset cap
+# (~1h early on a ~4h cycle ≈ +12% warms on average).
+WARMING_STALENESS_JITTER_MAX_SECONDS = 3600
+
+
+def _staleness_jitter(normalized_query_hash: object) -> timedelta:
+    # crc32, not hash(): str hashing is salted per process, and the offset must
+    # be stable across runs or the jitter itself re-randomizes phases each hour.
+    seconds = zlib.crc32(str(normalized_query_hash).encode()) % WARMING_STALENESS_JITTER_MAX_SECONDS
+    return timedelta(seconds=seconds)
+
 
 def _team_still_exists(team_id: int) -> bool:
     # Thin DB boundary so tests can pin the answer: pool worker threads hold their
@@ -801,7 +822,10 @@ def _warm_queries(context: dagster.OpExecutionContext, mode: str, queries: list[
 
             if cached_data is not None:
                 last_refresh = parse_datetime(cached_data["last_refresh"])
-                if not runner._is_stale(last_refresh):
+                aged_refresh = (
+                    last_refresh - _staleness_jitter(query_info["normalized_query_hash"]) if last_refresh else None
+                )
+                if not runner._is_stale(aged_refresh):
                     WARMING_QUERIES_COUNTER.labels(outcome="skipped_fresh").inc()
                     return "skipped_fresh"
 
