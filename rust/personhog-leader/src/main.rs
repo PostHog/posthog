@@ -15,6 +15,7 @@ use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetric
 use personhog_coordination::pod::{PodConfig, PodHandle};
 use personhog_coordination::store::PersonhogStore;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
+use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use tonic::codec::CompressionEncoding;
 use tonic::transport::Server;
@@ -258,11 +259,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Discover this pod's owning controller and generation so the
     // coordinator can steer placement away from old-generation pods
-    // during rollouts. Fail-open: without the discovery the leader
-    // registers exactly as before and only loses rollout awareness.
+    // during rollouts. Fail-open, and bounded: this runs before the pod
+    // handle and gRPC server exist, so an unresponsive API server must
+    // cost a few seconds of startup at worst — never availability.
     let (controller, generation, k8s_awareness) = if config.k8s_awareness_enabled {
-        match discover_own_controller(&config, coordination_handle.shutdown_token()).await {
-            Ok((awareness, info)) => {
+        let discovery = discover_own_controller(&config, coordination_handle.shutdown_token());
+        match timeout(K8S_DISCOVERY_TIMEOUT, discovery).await {
+            Ok(Ok((awareness, info))) => {
                 tracing::info!(
                     controller = %info.controller,
                     generation = %info.generation,
@@ -270,10 +273,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
                 (Some(info.controller), info.generation, Some(awareness))
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 tracing::warn!(
                     error = %e,
                     "K8s awareness enabled but controller discovery failed; \
+                     registering without rollout awareness"
+                );
+                (None, String::new(), None)
+            }
+            Err(_) => {
+                tracing::warn!(
+                    timeout = ?K8S_DISCOVERY_TIMEOUT,
+                    "K8s awareness enabled but controller discovery timed out; \
                      registering without rollout awareness"
                 );
                 (None, String::new(), None)
@@ -483,6 +494,11 @@ async fn run_dirty_index_prune_loop(
         }
     }
 }
+
+/// How long startup may spend on controller discovery before falling
+/// open. Generous against a healthy API server (three small reads);
+/// tight against an unresponsive one, which must not delay serving.
+const K8S_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Build a K8s awareness client and discover this pod's owning controller
 /// and generation. The awareness handle is returned alongside so the pod
