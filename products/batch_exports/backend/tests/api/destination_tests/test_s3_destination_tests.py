@@ -7,6 +7,7 @@ from django.test import override_settings
 
 from products.batch_exports.backend.api.destination_tests import get_destination_test
 from products.batch_exports.backend.api.destination_tests.s3 import (
+    POSTHOG_MISCONFIGURED_MESSAGE,
     AwsS3DestinationTest,
     S3AssumeRoleTestStep,
     S3CompatibleDestinationTest,
@@ -115,6 +116,21 @@ async def test_assume_role_step_skips_without_role():
 
     assert result.status == Status.SKIPPED
     assert result.message == "No configured AWS role ARN, skipping test"
+
+
+async def test_assume_role_step_fails_without_our_own_role_configured():
+    """An unset broker role ARN must not be reported as a problem with the user's ARN."""
+    user_aws_role_arn = "arn:aws:iam::123456789012:role/user-provided-role"
+    test_step = S3AssumeRoleTestStep(
+        aws_role_arn=user_aws_role_arn, bucket_name="a-bucket", organization_id=str(uuid.uuid4())
+    )
+
+    with override_settings(BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN=""):
+        result = await test_step.run()
+
+    assert result.status == Status.FAILED
+    assert result.message == POSTHOG_MISCONFIGURED_MESSAGE
+    assert user_aws_role_arn not in (result.message or "")
 
 
 @pytest.mark.parametrize(

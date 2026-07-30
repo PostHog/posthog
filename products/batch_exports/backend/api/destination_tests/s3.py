@@ -8,8 +8,15 @@ from products.batch_exports.backend.api.destination_tests.base import (
 )
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
     InvalidCredentialsError,
+    MissingExternalRoleArnError,
     PolicyStatement,
     get_credentials_using_user_aws_role,
+)
+
+# Reported when the failure is on our side, so users don't go hunting through their own IAM setup.
+POSTHOG_MISCONFIGURED_MESSAGE = (
+    "This test can't run right now because of a problem on PostHog's side, not with your role. "
+    "Contact support so we can look into it."
 )
 
 
@@ -48,7 +55,7 @@ class S3AssumeRoleTestStep(DestinationTestStep):
 
     async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
-        from botocore.exceptions import ClientError
+        from botocore.exceptions import ClientError, ParamValidationError
 
         if self.aws_role_arn is None or self.bucket_name is None:
             return DestinationTestStepResult(status=Status.SKIPPED, message="No configured AWS role ARN, skipping test")
@@ -66,6 +73,13 @@ class S3AssumeRoleTestStep(DestinationTestStep):
                 ],
                 max_attempts=self.max_attempts,
             )
+        except MissingExternalRoleArnError:
+            return DestinationTestStepResult(status=Status.FAILED, message=POSTHOG_MISCONFIGURED_MESSAGE)
+
+        except ParamValidationError:
+            # Validation of the parameters *we* send to AWS, so this is never about the user's role.
+            return DestinationTestStepResult(status=Status.FAILED, message=POSTHOG_MISCONFIGURED_MESSAGE)
+
         except InvalidCredentialsError as err:
             return DestinationTestStepResult(
                 status=Status.FAILED,
@@ -150,7 +164,7 @@ class S3EnsureBucketTestStep(DestinationTestStep):
     async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
         import aioboto3
-        from botocore.exceptions import ClientError
+        from botocore.exceptions import ClientError, ParamValidationError
 
         session = aioboto3.Session()
 
@@ -161,17 +175,20 @@ class S3EnsureBucketTestStep(DestinationTestStep):
         if self.aws_role_arn is not None:
             external_id = f"posthog-{self.organization_id}"
 
-            credentials = await get_credentials_using_user_aws_role(
-                self.aws_role_arn,
-                external_id,
-                session_name="PostHog-batch-exports-test",
-                policy_statements=[
-                    PolicyStatement(
-                        Effect="Allow", Action=["s3:ListBucket"], Resource=f"arn:aws:s3:::{self.bucket_name}"
-                    )
-                ],
-                max_attempts=self.max_attempts,
-            )
+            try:
+                credentials = await get_credentials_using_user_aws_role(
+                    self.aws_role_arn,
+                    external_id,
+                    session_name="PostHog-batch-exports-test",
+                    policy_statements=[
+                        PolicyStatement(
+                            Effect="Allow", Action=["s3:ListBucket"], Resource=f"arn:aws:s3:::{self.bucket_name}"
+                        )
+                    ],
+                    max_attempts=self.max_attempts,
+                )
+            except (MissingExternalRoleArnError, ParamValidationError):
+                return DestinationTestStepResult(status=Status.FAILED, message=POSTHOG_MISCONFIGURED_MESSAGE)
 
             aws_access_key_id, aws_secret_access_key, aws_session_token = (
                 credentials.aws_access_key_id,

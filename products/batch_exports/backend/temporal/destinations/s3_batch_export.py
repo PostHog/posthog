@@ -90,6 +90,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "UnsupportedCompressionError",
     # Invalid S3 credentials
     "InvalidCredentialsError",
+    # Our own AWS role for assuming user roles is not configured, so retrying is pointless
+    "MissingExternalRoleArnError",
     # The linked Integration was deleted or doesn't belong to the team
     "S3IntegrationNotFoundError",
     # The linked Integration is the wrong kind or has invalid/missing credentials
@@ -252,6 +254,20 @@ class InvalidCredentialsError(Exception):
         super().__init__(message)
 
 
+class MissingExternalRoleArnError(Exception):
+    """Exception raised when PostHog's own broker role ARN is not configured.
+
+    Without it we cannot assume any user-provided role, and the failure has
+    nothing to do with the role the user configured.
+    """
+
+    def __init__(
+        self,
+        message: str = "PostHog's AWS role for batch exports is not configured in this environment.",
+    ):
+        super().__init__(message)
+
+
 def s3_default_fields() -> list[BatchExportField]:
     """Default fields for an S3 batch export.
 
@@ -402,7 +418,15 @@ async def get_credentials_using_user_aws_role(
         max_attempts: How many times to attempt to connect. Useful for tests as
             roles and/or policies may not be immediately available.
         delay: Initial delay in between connection attempts.
+
+    Raises:
+        MissingExternalRoleArnError: If our own broker role ARN is unset, as
+            botocore would otherwise reject the call with an error about a
+            zero-length `RoleArn` that reads as if the user's ARN was empty.
     """
+    if not settings.BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN:
+        raise MissingExternalRoleArnError()
+
     for attempt in range(1, max_attempts + 1):
         try:
             async with SESSION.client("sts") as sts:
