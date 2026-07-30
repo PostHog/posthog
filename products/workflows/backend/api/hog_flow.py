@@ -611,15 +611,28 @@ class HogFlowActionTypeField(serializers.ChoiceField):
     """
 
     def to_internal_value(self, data: Any) -> str:
-        if data in self.choices:
+        # isinstance before the membership test: self.choices is a dict, so `data in self.choices`
+        # raises TypeError on an unhashable JSON object/array, which escapes DRF's validation stack
+        # (it only catches ValidationError) and 500s the endpoint.
+        if isinstance(data, str) and data in self.choices:
             return super().to_internal_value(data)
         raise serializers.ValidationError(
-            f'Unsupported action type "{data}". Valid types are: {", ".join(SUPPORTED_ACTION_TYPES)}. '
+            f"Unsupported action type {self._describe(data)}. "
+            f"Valid types are: {', '.join(SUPPORTED_ACTION_TYPES)}. "
             "Steps that act on PostHog data don't get a type of their own - they are type 'function' "
             "with a template_id. To set person properties, use template_id "
             "'template-posthog-update-person-properties' with inputs distinct_id, set_properties and "
             "set_once_properties."
         )
+
+    @staticmethod
+    def _describe(data: Any) -> str:
+        # Echo the value back only when it's a short string. A non-string type is a malformed
+        # payload, and interpolating a whole nested object into the message would put it in the
+        # response and the logs behind it.
+        if not isinstance(data, str):
+            return f"(expected a string, got {type(data).__name__})"
+        return f'"{data[:100]}"' if len(data) > 100 else f'"{data}"'
 
 
 class HogFlowActionSerializer(serializers.Serializer):
