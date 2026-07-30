@@ -51,8 +51,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.con
 DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD = 200
 DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
 
-# Substrings of the `OSError`s raised talking to our own S3-backed data-warehouse bucket that are
-# transient and self-recovering, not a bug in our code or a customer credential problem:
+# Substrings of the object-store errors raised talking to our own S3-backed data-warehouse bucket
+# that are transient and self-recovering, not a bug in our code or a customer credential problem:
 # - the first three come from delta-rs's Rust `object_store` crate inside `DeltaTable.is_deltatable()`
 #   (IMDS/STS blips, dispatch timeouts)
 # - "Please reduce your request rate" is S3's SlowDown throttling response, surfaced by s3fs/aiobotocore
@@ -68,7 +68,16 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
 
 
 def is_transient_object_store_error(error: BaseException) -> bool:
-    return isinstance(error, OSError) and any(needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS)
+    """True for a transient object-store error, however delta-rs happened to surface it.
+
+    `DeltaTable.is_deltatable()` raises these as a plain `OSError`, but table-level operations
+    (e.g. `vacuum()`, `optimize.compact()`) wrap the identical underlying object-store error text in
+    `deltalake.exceptions.DeltaError` instead — same blip, different exception type depending on
+    which delta-rs entry point hit it.
+    """
+    return isinstance(error, OSError | deltalake.exceptions.DeltaError) and any(
+        needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS
+    )
 
 
 # Delta's conflict checker raises CommitFailedError the moment a concurrent commit invalidates what
@@ -949,29 +958,37 @@ class DeltaTableHelper:
         """
         return await self.has_commit_with_metadata({"run_uuid": run_uuid, "batch_index": str(batch_index)})
 
-    async def vacuum_table(self) -> None:
-        table = await self.get_delta_table()
-        if table is None:
-            raise Exception("Deltatable not found")
-
+    async def _vacuum(self, table: deltalake.DeltaTable) -> None:
         await self._logger.adebug("Vacuuming table...")
         vacuum_stats = await asyncio.to_thread(
             table.vacuum, retention_hours=24, enforce_retention_duration=False, dry_run=False
         )
         await self._logger.adebug(json.dumps(vacuum_stats))
 
-    async def compact_table(self) -> None:
-        table = await self.get_delta_table()
-        if table is None:
-            raise Exception("Deltatable not found")
-
+    async def _compact(self, table: deltalake.DeltaTable) -> None:
         await self._logger.adebug("Compacting table...")
         compact_stats = await self._execute_with_conflict_retry(
             table, lambda: table.optimize.compact(), "compact_table"
         )
         await self._logger.adebug(json.dumps(compact_stats))
 
-        await self.vacuum_table()
+    async def vacuum_table(self) -> None:
+        table = await self.get_delta_table()
+        if table is None:
+            raise Exception("Deltatable not found")
+
+        await self._vacuum(table)
+
+    async def compact_table(self) -> None:
+        table = await self.get_delta_table()
+        if table is None:
+            raise Exception("Deltatable not found")
+
+        await self._compact(table)
+        # Reuse the table already resolved above instead of re-fetching it: `get_delta_table`
+        # is cached only opportunistically, so a re-fetch here can race a concurrent sync of a
+        # different table evicting this table's cache entry and spuriously report it missing.
+        await self._vacuum(table)
         await self._logger.adebug("Compacting and vacuuming complete")
 
     async def vacuum_if_stale(self, last_vacuum_version: int | None, commit_threshold: int) -> int | None:
@@ -1010,7 +1027,7 @@ class DeltaTableHelper:
         await self._logger.ainfo(
             f"vacuum_if_stale: {commits_since} commits since last vacuum (>= {commit_threshold}), vacuuming"
         )
-        await self.vacuum_table()
+        await self._vacuum(table)
         try:
             # Observability for the maintenance path — how often tables vacuum and how much log churn
             # accrued between vacuums. Best-effort: telemetry must never break the sync.
@@ -1050,7 +1067,7 @@ class DeltaTableHelper:
         arrive here with None.
 
         Returns True if compaction ran, False if it was skipped. Cheap when the table is
-        healthy: one S3 LIST via `get_file_uris`. Intended for pre-write defensive cleanup
+        healthy: one S3 LIST via `table.file_uris`. Intended for pre-write defensive cleanup
         so a sync that arrived at a fragmented state (e.g. an earlier attempt that failed
         before reaching `_post_run_operations`) cleans up before adding to the pile.
         """
@@ -1058,7 +1075,7 @@ class DeltaTableHelper:
         if table is None:
             return False
 
-        file_uris = await self.get_file_uris()
+        file_uris = await asyncio.to_thread(table.file_uris)
         total_files = len(file_uris)
         if partition_count is None:
             # One directory per partition value; unpartitioned tables collapse to the single
@@ -1080,7 +1097,8 @@ class DeltaTableHelper:
             return False
 
         await self._logger.ainfo(f"compact_if_fragmented: triggering compact ({stats})")
-        await self.compact_table()
+        await self._compact(table)
+        await self._vacuum(table)
         return True
 
     async def run_maintenance(

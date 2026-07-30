@@ -7,9 +7,9 @@ import { LemonLabel, LemonTable, LemonTableColumns, LemonTag, Link, SpinnerOverl
 import { getColorVar } from 'lib/colors'
 import { type AppMetricsTimeSeriesResponse } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
-import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
+import { WorkflowMetricCard } from './WorkflowMetricCard'
 import {
     type EmailMetric,
     type EmailMetricRow,
@@ -204,9 +204,7 @@ export function WorkflowMetricsSummary({
                             ) : inProgressTotal === 0 ? (
                                 <LemonLabel className="text-muted text-md mb-2">No workflows in progress</LemonLabel>
                             ) : (
-                                <div className="text-6xl text-muted-foreground mb-2">
-                                    {humanFriendlyNumber(inProgressTotal)}
-                                </div>
+                                <div className="text-6xl mb-2">{humanFriendlyNumber(inProgressTotal)}</div>
                             )}
                         </div>
                     </div>
@@ -232,7 +230,7 @@ export function WorkflowMetricsSummary({
                     const sentSeries = (previous?: boolean): AppMetricsTimeSeriesResponse | null => {
                         if (hasEmail && hasPush) {
                             // Split the combined "Messages sent" tile into Emails + Push lines. The headline
-                            // number stays their sum (AppMetricSummary totals across series); the sparkline
+                            // number stays their sum (the metric card totals across series); the sparkline
                             // and its tooltip break the total down by channel.
                             const emailSeries = getSingleTrendSeries('email_sent', previous)
                             const pushSeries = getSingleTrendSeries('push_sent', previous)
@@ -264,7 +262,7 @@ export function WorkflowMetricsSummary({
                           : withDisplayName(getSingleTrendSeries(metricName, true), name)
 
                     return (
-                        <AppMetricSummary
+                        <WorkflowMetricCard
                             key={summaryMetric}
                             name={name}
                             description={description}
@@ -296,7 +294,7 @@ export function WorkflowMetricsSummary({
                                 ) : conversionStats.started === 0 ? (
                                     <LemonLabel className="text-muted text-md mb-2">No workflows started</LemonLabel>
                                 ) : (
-                                    <div className="text-6xl text-muted-foreground mb-2">
+                                    <div className="text-6xl mb-2">
                                         {`${(Math.min(conversionRate, 1) * 100).toFixed(1)}%`}
                                     </div>
                                 )}
