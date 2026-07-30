@@ -15,7 +15,6 @@ import { userLogic } from 'scenes/userLogic'
 import { wizardSessionsLatestRetrieve } from 'products/wizard/frontend/generated/api'
 import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
 
-import type { UserType } from '../../../../types'
 import { POSTHOG_INTEGRATION_WORKFLOW_ID, SELF_DRIVING_WORKFLOW_ID } from './workflows'
 
 /** Always watched: the SDK install is what the app-wide FAB and nav button exist for. */
@@ -118,7 +117,6 @@ export function isSessionActive(session: WizardSessionDTOApi | null | undefined)
 export interface wizardActiveSessionDetectorLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentProjectId: number | null // projectLogic
-    user: UserType | null // userLogic
     activeWorkflowId: string | null
     consecutivePollFailures: number
     extraWorkflowCounts: Record<string, number>
@@ -205,7 +203,7 @@ export type wizardActiveSessionDetectorLogicType = MakeLogicType<
 export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorLogicType>([
     path(['scenes', 'onboarding', 'wizardActiveSessionDetectorLogic']),
     connect(() => ({
-        values: [projectLogic, ['currentProjectId'], featureFlagLogic, ['featureFlags'], userLogic, ['user']],
+        values: [projectLogic, ['currentProjectId'], featureFlagLogic, ['featureFlags']],
     })),
     actions({
         check: true,
@@ -405,7 +403,10 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
             // after an SDK install should see the run they just started. Parsed rather than compared
             // as strings: the CLI mints these timestamps, so offset and fractional-second precision
             // aren't guaranteed to be uniform, and lexicographic order would rank them wrong.
-            const userId = values.user?.id ?? null
+            // Read rather than connected: `userLogic` loads the user on mount, and this detector runs
+            // app-wide, so connecting it would pull that fetch into every surface that mounts us. In
+            // the app it is always already mounted; if it somehow isn't, no id means no filtering.
+            const userId = userLogic.findMounted()?.values.user?.id ?? null
             const live = sessions
                 .filter(isSessionActive)
                 .filter((session) => isOwnSession(session, userId))
