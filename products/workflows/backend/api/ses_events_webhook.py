@@ -57,15 +57,18 @@ def ses_tenant_events_webhook(request: HttpRequest) -> HttpResponse:
         return HttpResponse("Webhook not configured", status=500)
 
     try:
+        # RecursionError: deeply nested JSON from an unauthenticated caller must 400, not 500.
         message = json.loads(request.body)
-    except (json.JSONDecodeError, UnicodeDecodeError):
+    except (json.JSONDecodeError, UnicodeDecodeError, RecursionError):
         return HttpResponse("Invalid payload", status=400)
     if not isinstance(message, dict):
         return HttpResponse("Invalid payload", status=400)
 
     if message.get("TopicArn") not in allowed_topics:
+        logger.warning("ses_tenant_events_webhook_unknown_topic", topic=message.get("TopicArn"))
         return HttpResponse("Unknown topic", status=403)
     if not verify_sns_message(message):
+        logger.warning("ses_tenant_events_webhook_invalid_signature", message_id=message.get("MessageId"))
         return HttpResponse("Invalid signature", status=403)
 
     message_type = message.get("Type")
@@ -73,7 +76,12 @@ def ses_tenant_events_webhook(request: HttpRequest) -> HttpResponse:
         subscribe_url = message.get("SubscribeURL")
         if not isinstance(subscribe_url, str) or not is_valid_sns_url(subscribe_url):
             return HttpResponse("Invalid subscribe URL", status=400)
-        requests.get(subscribe_url, timeout=5)
+        try:
+            requests.get(subscribe_url, timeout=5).raise_for_status()
+        except requests.RequestException:
+            # Non-2xx makes SNS retry the confirmation later.
+            logger.exception("ses_tenant_events_webhook_subscription_confirm_failed", topic=message.get("TopicArn"))
+            return HttpResponse("Subscription confirmation failed", status=502)
         logger.info("ses_tenant_events_webhook_subscription_confirmed", topic=message.get("TopicArn"))
         return HttpResponse(status=200)
 

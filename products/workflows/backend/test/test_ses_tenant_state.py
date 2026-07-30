@@ -15,6 +15,7 @@ class TestApplySesTenantState(BaseTest):
             patch(
                 "products.workflows.backend.services.ses_tenant_state.send_email_sending_reputation_finding"
             ) as finding,
+            self.captureOnCommitCallbacks(execute=True),
         ):
             apply_ses_tenant_state(self.team.id, sending_status=sending_status, reputation_impact=reputation_impact)
         return {"suspended": suspended.delay, "unsuspended": unsuspended.delay, "finding": finding.delay}
@@ -28,14 +29,27 @@ class TestApplySesTenantState(BaseTest):
             },
         )
 
-    def test_first_sync_sets_a_baseline_without_notifying(self):
-        emails = self._apply("DISABLED", "HIGH")
+    @parameterized.expand(
+        [
+            # A healthy or low-impact baseline is silent (rollout must not mass-email)...
+            ("healthy", "ENABLED", None, None),
+            ("low_findings", "ENABLED", "LOW", None),
+            # ...but a tenant that is already paused or already critical is exactly who this
+            # feature exists to tell — the first sync must not swallow that.
+            ("already_paused", "DISABLED", "HIGH", "suspended"),
+            ("already_critical", "ENABLED", "HIGH", "finding"),
+        ]
+    )
+    def test_first_sync_baseline_notifies_only_already_bad_tenants(
+        self, _name: str, sending_status: str, impact: str | None, expected_email: str | None
+    ):
+        emails = self._apply(sending_status, impact)
 
         config = TeamWorkflowsConfig.objects.get(team=self.team)
-        assert config.ses_tenant_sending_status == "DISABLED"
-        assert config.ses_tenant_reputation_impact == "HIGH"
+        assert config.ses_tenant_sending_status == sending_status
         assert config.ses_tenant_state_synced_at is not None
-        assert all(not mock.called for mock in emails.values())
+        for kind, mock in emails.items():
+            assert mock.called == (kind == expected_email), f"{kind} called={mock.called}"
 
     def test_unchanged_state_only_refreshes_synced_at(self):
         self._seed("ENABLED", "LOW")
@@ -55,6 +69,8 @@ class TestApplySesTenantState(BaseTest):
             ("first_finding", "ENABLED", "", "ENABLED", "LOW", "finding"),
             ("escalation", "ENABLED", "LOW", "ENABLED", "HIGH", "finding"),
             ("deescalation", "ENABLED", "HIGH", "ENABLED", "LOW", None),
+            # Impact escalating while already paused: the suspension email already covers it
+            ("escalation_while_paused", "DISABLED", "LOW", "DISABLED", "HIGH", None),
             ("finding_resolved", "ENABLED", "LOW", "ENABLED", "", None),
         ]
     )
