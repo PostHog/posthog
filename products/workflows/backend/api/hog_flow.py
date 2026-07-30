@@ -1164,7 +1164,9 @@ class EmailSendingRatesSerializer(serializers.Serializer):
 
 class WorkflowEmailSendingRatesSerializer(EmailSendingRatesSerializer):
     hog_flow_id = serializers.UUIDField(read_only=True, help_text="The workflow these rates are for.")
-    hog_flow_name = serializers.CharField(read_only=True, help_text="Display name of the workflow.")
+    hog_flow_name = serializers.CharField(
+        read_only=True, allow_blank=True, help_text="Display name of the workflow; empty for unnamed workflows."
+    )
 
 
 class TeamEmailReputationResponseSerializer(serializers.Serializer):
@@ -3234,21 +3236,32 @@ class HogFlowViewSet(
         # non-UUID ids) still count toward the team aggregate above.
         source_ids = [source_id for source_id in totals_by_source if _looks_like_uuid(source_id)]
         team_queryset = self.get_queryset()
-        flows_by_id = {str(flow.id): flow for flow in team_queryset.filter(id__in=source_ids)}
-        unmatched_ids = [source_id for source_id in source_ids if source_id not in flows_by_id]
+        # Only names are needed and HogFlow rows are wide (full step graphs in edges/actions/draft),
+        # so don't hydrate model instances for an uncapped id list. Unnamed flows serialize as "" to
+        # keep hog_flow_name a plain string in the generated types.
+        names_by_flow_id = {
+            str(flow_id): name or ""
+            for flow_id, name in team_queryset.filter(id__in=source_ids).values_list("id", "name")
+        }
+        unmatched_ids = [source_id for source_id in source_ids if source_id not in names_by_flow_id]
         batch_job_to_flow = {
             str(batch_job_id): str(flow_id)
             for batch_job_id, flow_id in HogFlowBatchJob.objects.filter(
                 team_id=self.team_id, id__in=unmatched_ids
             ).values_list("id", "hog_flow_id")
         }
-        missing_flow_ids = set(batch_job_to_flow.values()) - set(flows_by_id)
-        flows_by_id.update({str(flow.id): flow for flow in team_queryset.filter(id__in=missing_flow_ids)})
+        missing_flow_ids = set(batch_job_to_flow.values()) - set(names_by_flow_id)
+        names_by_flow_id.update(
+            {
+                str(flow_id): name or ""
+                for flow_id, name in team_queryset.filter(id__in=missing_flow_ids).values_list("id", "name")
+            }
+        )
 
         counts_by_flow: dict[str, dict[str, int]] = {}
         for source_id, counts in totals_by_source.items():
-            flow_id = source_id if source_id in flows_by_id else batch_job_to_flow.get(source_id)
-            if flow_id is None or flow_id not in flows_by_id:
+            flow_id = source_id if source_id in names_by_flow_id else batch_job_to_flow.get(source_id)
+            if flow_id is None or flow_id not in names_by_flow_id:
                 continue
             folded = counts_by_flow.setdefault(flow_id, {"sent": 0, "bounced": 0, "complained": 0})
             folded["sent"] += counts.get("email_sent", 0)
@@ -3269,13 +3282,13 @@ class HogFlowViewSet(
         workflow_rows = [
             {
                 "hog_flow_id": flow_id,
-                "hog_flow_name": flows_by_id[flow_id].name,
+                "hog_flow_name": names_by_flow_id[flow_id],
                 **_email_sending_rates(counts["sent"], counts["bounced"], counts["complained"]),
             }
             for flow_id, counts in counts_by_flow.items()
             if flow_id in accessible_ids
             and counts["sent"] > 0
-            and (not search or search in (flows_by_id[flow_id].name or "").lower())
+            and (not search or search in names_by_flow_id[flow_id].lower())
         ]
         # Complaint rate breaks ties first: it's the more dangerous SES signal, with thresholds
         # ~20x lower than bounce.

@@ -76,6 +76,20 @@ class TestEmailReputationAPI(APIBaseTest):
         assert data["workflows"][0]["complaint_rate"] == 1 / 1000
         assert data["workflows"][0]["hog_flow_id"] == str(flow.id)
 
+    def test_reputation_endpoint_serializes_unnamed_workflows_with_empty_name(self):
+        unnamed = HogFlow.objects.create(
+            team=self.team,
+            name=None,
+            status="active",
+            trigger={"type": "event"},
+            edges=[],
+            actions=[],
+            billable_action_types=["function_email"],
+        )
+
+        data = self._get_reputation({str(unnamed.id): {"email_sent": 10}})
+        assert [(row["hog_flow_id"], row["hog_flow_name"]) for row in data["workflows"]] == [(str(unnamed.id), "")]
+
     def test_reputation_endpoint_search_filters_before_the_cap(self):
         needle = self._create_flow("Quarterly newsletter")
         totals = {str(needle.id): {"email_sent": 100}}

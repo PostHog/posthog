@@ -1081,7 +1081,7 @@ export interface WorkflowEmailSendingRatesApi {
     readonly emails_sent: number
     /** The workflow these rates are for. */
     readonly hog_flow_id: string
-    /** Display name of the workflow. */
+    /** Display name of the workflow; empty for unnamed workflows. */
     readonly hog_flow_name: string
 }
 
