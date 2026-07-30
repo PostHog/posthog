@@ -34,7 +34,7 @@ function firstEnvEntry(names: string[]): EnvEntry | undefined {
 function normalizeEnvValue(value: string): string {
     const trimmed = value.trim()
     const unquoted = /^(["'])(.*)\1$/s.exec(trimmed)
-    return (unquoted ? unquoted[2] : trimmed).trim()
+    return (unquoted?.[2] ?? trimmed).trim()
 }
 
 const PROJECT_ID_HELP =
