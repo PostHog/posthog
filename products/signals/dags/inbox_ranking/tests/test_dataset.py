@@ -107,6 +107,22 @@ def test_merge_label_streams_fills_defaults_and_maps_columns():
     assert r2["pr_created_count"] == 0
 
 
+@pytest.mark.parametrize("alias_first", [True, False])
+def test_alias_spellings_never_overwrite_the_canonical_rows_aggregates(alias_first):
+    # ClickHouse groups on the raw client-supplied id, so a forged uppercase or unhyphenated
+    # spelling arrives as its own row and would otherwise overwrite the real report's counts with
+    # whatever order the rows came back in.
+    alias = (UUID_A.upper(), T1, 999, 999)
+    canonical = (UUID_A, T2, 4, 2)
+    rows = [alias, canonical] if alias_first else [canonical, alias]
+
+    merged = merge_label_streams({"opens": rows}, SNAPSHOT_DATE)
+
+    assert [row["report_id"] for row in merged] == [UUID_A]
+    assert merged[0]["open_count"] == 4
+    assert merged[0]["first_opened_at"] == T2
+
+
 def test_stream_row_width_mismatch_fails_loudly():
     with pytest.raises(ValueError):
         merge_label_streams({"opens": [(UUID_A, T1, 4)]}, SNAPSHOT_DATE)

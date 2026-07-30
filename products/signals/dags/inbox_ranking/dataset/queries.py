@@ -112,10 +112,12 @@ WHERE report_id != ''
 """
 
 # Point-in-time caveat: the source is a ReplacingMergeTree versioned by inserted_at, so merges
-# keep only the newest version of each key. The inserted_at bound is exact on forward daily runs,
-# but a backfill run after a re-embedding or tombstone superseded the vector that existed on the
-# snapshot day can return no row for it. embedding_inserted_at lineage records which version each
-# row actually carries.
+# keep only the newest version of each key. A run that happens after a re-embedding or tombstone
+# superseded the vector that existed on the snapshot day can therefore return no row for that
+# report — mostly a backfill concern, but forward runs are exposed too, for the 2.5 hours between
+# the snapshot cutoff and the 02:30 schedule. Reports are embedded once at promotion, so this only
+# bites the rare re-render; the vector reappears on the next partition, and embedding_inserted_at
+# lineage records which version each row actually carries.
 #
 # Index reality: the sharded table orders by (team_id, toDate(timestamp), product, document_type,
 # rendering, ...) and this cross-team query has no team_id prefix, so it scans the whole table.
@@ -152,19 +154,26 @@ IMPRESSIONS_COLUMNS = (
     "best_impression_rank",
     "source_products",
 )
-IMPRESSIONS_SQL = """
+# Ranks come from client-supplied JSON, so they can be any Int64. The rank columns are int32 in
+# Parquet, where an out-of-range value raises on conversion and fails the whole fleet-wide labels
+# asset, so an impossible rank is nulled out here and the impression still counts.
+_IMPRESSION_RANK = (
+    "if(JSONExtractInt(imp, 'rank') >= 0 AND JSONExtractInt(imp, 'rank') <= 2147483647, "
+    "JSONExtractInt(imp, 'rank'), NULL)"
+)
+IMPRESSIONS_SQL = f"""
 SELECT
     JSONExtractString(imp, 'report_id') AS report_id,
     min(timestamp) AS first_impressed_at,
     count() AS impression_unit_count,
     uniq(distinct_id) AS impressed_user_count,
-    argMin(JSONExtractInt(imp, 'rank'), timestamp) AS first_impression_rank,
-    min(JSONExtractInt(imp, 'rank')) AS best_impression_rank,
+    argMinIf({_IMPRESSION_RANK}, timestamp, {_IMPRESSION_RANK} IS NOT NULL) AS first_impression_rank,
+    min({_IMPRESSION_RANK}) AS best_impression_rank,
     argMax(JSONExtract(imp, 'source_products', 'Array(String)'), timestamp) AS source_products
 FROM events
 ARRAY JOIN JSONExtractArrayRaw(coalesce(properties.impressions, '[]')) AS imp
 WHERE event = 'Inbox reports impressed'
-  AND timestamp >= toDateTime({labels_epoch}) AND timestamp < toDateTime({snapshot_end})
+  AND timestamp >= toDateTime({{labels_epoch}}) AND timestamp < toDateTime({{snapshot_end}})
 GROUP BY report_id
 HAVING report_id != ''
 """
@@ -327,6 +336,26 @@ LABEL_DEFAULTS: dict[str, Any] = {
 _TIMESTAMP_LABEL_COLUMNS = frozenset(name for name in LABEL_DEFAULTS if name.endswith("_at"))
 
 
+def canonical_stream_rows(rows: list[tuple[Any, ...]]) -> dict[str, tuple[Any, ...]]:
+    """One row per canonical report id, dropping ids that cannot be report UUIDs.
+
+    ClickHouse groups on the raw client-supplied id, so spelling variants of one UUID arrive as
+    separate rows that canonicalize onto the same report. The canonically spelled row wins, so a
+    forged alias can never overwrite a real report's aggregates; between aliases the smallest raw
+    id wins, so the choice does not depend on ClickHouse's row order."""
+    best: dict[str, tuple[tuple[bool, str], tuple[Any, ...]]] = {}
+    for row in rows:
+        raw_id = str(row[0])
+        report_id = canonical_report_uuid(raw_id)
+        if report_id is None:
+            continue
+        rank = (raw_id != report_id, raw_id)
+        current = best.get(report_id)
+        if current is None or rank < current[0]:
+            best[report_id] = (rank, row)
+    return {report_id: row for report_id, (_rank, row) in best.items()}
+
+
 def merge_label_streams(
     stream_rows: dict[str, list[tuple[Any, ...]]], snapshot_date: datetime.date
 ) -> list[dict[str, Any]]:
@@ -338,10 +367,7 @@ def merge_label_streams(
     columns_by_stream = {name: columns for name, _, columns in LABEL_STREAMS}
     for stream_name, rows in stream_rows.items():
         columns = columns_by_stream[stream_name]
-        for row in rows:
-            report_id = canonical_report_uuid(str(row[0]))
-            if report_id is None:
-                continue
+        for report_id, row in canonical_stream_rows(rows).items():
             entry = merged.setdefault(
                 report_id,
                 {"snapshot_date": snapshot_date, "report_id": report_id, **LABEL_DEFAULTS},

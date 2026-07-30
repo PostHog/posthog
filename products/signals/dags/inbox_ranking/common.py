@@ -95,6 +95,7 @@ def s3_client():  # noqa: ANN201
         endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
         aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        region_name=settings.OBJECT_STORAGE_REGION,
     )
 
 
