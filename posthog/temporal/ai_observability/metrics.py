@@ -104,15 +104,15 @@ def increment_user_errors(error_type: str, *, provider: str | None = None) -> No
     counter.add(1)
 
 
-def increment_settle_poll(outcome: str) -> None:
-    """Track trace settle-poll activity outcomes (not_visible/not_settled/settled).
+def increment_settle_poll(outcome: str, target: str = "trace") -> None:
+    """Track settle-poll activity outcomes (not_visible/not_settled/settled) per target.
 
     Safe to call outside Temporal context (no-ops), matching `increment_errors`.
     """
     if not activity.in_activity() and not workflow.in_workflow():
         return
-    meter = get_metric_meter({"outcome": outcome})
-    counter = meter.create_counter("llma_eval_settle_polls", "Trace settle poll outcomes")
+    meter = get_metric_meter({"outcome": outcome, "target": target})
+    counter = meter.create_counter("llma_eval_settle_polls", "Settle poll outcomes")
     counter.add(1)
 
 

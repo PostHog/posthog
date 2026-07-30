@@ -100,6 +100,10 @@ SESSION_EVAL_DEFAULT_MAX_AGE_SECONDS = 24 * 60 * 60
 SESSION_EVAL_MIN_MAX_AGE_SECONDS = 60
 SESSION_EVAL_MAX_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 
+# Lives here rather than beside MAX_TRACE_EVAL_EVENTS (run_trace_evaluation.py) because both the
+# settle poll and the session fetch enforce it, and those two modules can't import each other.
+MAX_SESSION_EVAL_EVENTS = 2500
+
 
 class FixedWindowSettleConfig(BaseModel):
     """Wait a fixed window after the first matching generation, then evaluate."""

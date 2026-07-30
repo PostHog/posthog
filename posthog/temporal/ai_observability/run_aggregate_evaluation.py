@@ -57,6 +57,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.ai_observability.backend.models.evaluation_configs import (
     DEFAULT_SETTLE_STRATEGY_BY_TARGET,
+    MAX_SESSION_EVAL_EVENTS,
     SESSION_EVAL_DEFAULT_MAX_AGE_SECONDS,
     SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
     SESSION_EVAL_DEFAULT_WINDOW_SECONDS,
@@ -136,15 +137,88 @@ def check_trace_settled_activity(inputs: CheckTraceSettledInputs) -> str:
         # Nothing visible yet (ingestion lag, replica flap, or a trace that never reached
         # ClickHouse): keep polling — the max-age cap is the backstop. Settling on NULL
         # would manufacture a trace_not_found verdict out of a lag spike.
-        increment_settle_poll("not_visible")
+        increment_settle_poll("not_visible", target="trace")
         raise ApplicationError("no trace activity visible yet", type="trace_not_settled")
     if last_seen.tzinfo is None:
         last_seen = last_seen.replace(tzinfo=UTC)
     quiet_for = (datetime.now(UTC) - last_seen).total_seconds()
     if quiet_for < inputs.quiet_period_seconds + INGESTION_LAG_MARGIN_SECONDS:
-        increment_settle_poll("not_settled")
+        increment_settle_poll("not_settled", target="trace")
         raise ApplicationError(f"trace active {int(quiet_for)}s ago", type="trace_not_settled")
-    increment_settle_poll("settled")
+    increment_settle_poll("settled", target="trace")
+    return last_seen.isoformat()
+
+
+# Same liveness rules as the trace poll, keyed on session_id instead. `session_id` is
+# Nullable(String), so equality against a non-null constant already excludes NULL rows.
+#
+# Access path differs from the trace poll: session_id is not in the sort key, so pruning is the
+# team_id prefix plus the idx_session_id bloom filter (0.01 false-positive rate). The partition key
+# is toYYYYMM(drop_date), which derives from timestamp plus a per-row retention_days, so no
+# timestamp predicate prunes partitions — the _timestamp bound only filters within selected
+# granules. count() rides the same scan, which is what makes the runaway-session guard free.
+_SESSION_SETTLE_POLL_SQL = """
+SELECT maxOrNull(_timestamp) AS last_seen, count() AS event_count
+FROM posthog.ai_events AS ai_events
+WHERE event IN {liveness_events}
+  AND session_id = {session_id}
+  AND _timestamp >= {date_from}
+"""
+
+
+@dataclass
+class CheckSessionSettledInputs:
+    team_id: int
+    session_id: str
+    quiet_period_seconds: int
+    lookback_seconds: int
+    max_events: int = MAX_SESSION_EVAL_EVENTS
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {"team_id": self.team_id, "session_id": self.session_id}
+
+
+@temporalio.activity.defn
+@close_db_connections
+def check_session_settled_activity(inputs: CheckSessionSettledInputs) -> str:
+    """One settle probe for a session. Raises the retryable `session_not_settled` error until the
+    session has had no structural activity for quiet_period + margin; the activity's retry
+    schedule is the poll loop, so this function never sleeps."""
+    team = Team.objects.get(id=inputs.team_id)
+    result = query_ai_events(
+        query=parse_select(_SESSION_SETTLE_POLL_SQL),
+        placeholders={
+            "liveness_events": ast.Constant(value=list(_LIVENESS_EVENTS)),
+            "session_id": ast.Constant(value=inputs.session_id),
+            "date_from": ast.Constant(value=datetime.now(UTC) - timedelta(seconds=inputs.lookback_seconds)),
+        },
+        team=team,
+        query_type="SessionSettlePoll",
+        fall_back_to_events=False,
+        workload=Workload.OFFLINE,
+    )
+    row = result.results[0] if result.results else (None, 0)
+    last_seen, event_count = row[0], int(row[1] or 0)
+    if event_count > inputs.max_events:
+        # Bail at the first probe rather than after the full max_age budget: a shared or constant
+        # session id is the session analogue of trace id "0" and would otherwise hold a workflow
+        # open for days before the fetch-time cap noticed.
+        raise ApplicationError(
+            f"session has {event_count} events, over the {inputs.max_events} cap",
+            type="session_too_large",
+            non_retryable=True,
+        )
+    if last_seen is None:
+        increment_settle_poll("not_visible", target="session")
+        raise ApplicationError("no session activity visible yet", type="session_not_settled")
+    if last_seen.tzinfo is None:
+        last_seen = last_seen.replace(tzinfo=UTC)
+    quiet_for = (datetime.now(UTC) - last_seen).total_seconds()
+    if quiet_for < inputs.quiet_period_seconds + INGESTION_LAG_MARGIN_SECONDS:
+        increment_settle_poll("not_settled", target="session")
+        raise ApplicationError(f"session active {int(quiet_for)}s ago", type="session_not_settled")
+    increment_settle_poll("settled", target="session")
     return last_seen.isoformat()
 
 
@@ -231,13 +305,19 @@ def _is_schedule_to_close_timeout(error: temporalio.exceptions.ActivityError) ->
     )
 
 
+# Both poll activities signal "keep waiting" with their own error type. This must stay a set
+# rather than become a rename: `trace_not_settled` is recorded in the history of every in-flight
+# trace run, and replay has to keep matching it.
+_NOT_SETTLED_ERROR_TYPES = frozenset({"trace_not_settled", "session_not_settled"})
+
+
 def _is_still_not_settled(error: temporalio.exceptions.ActivityError) -> bool:
     # Temporal delivers the last attempt's own failure once retries run out of
     # schedule-to-close budget rather than synthesizing a timeout — the first probe
-    # fires immediately, so there's always a prior `trace_not_settled` failure to
-    # report by the time the budget is exhausted.
+    # fires immediately, so there's always a prior not-settled failure to report by
+    # the time the budget is exhausted.
     cause = error.cause
-    return isinstance(cause, ApplicationError) and cause.type == "trace_not_settled"
+    return isinstance(cause, ApplicationError) and cause.type in _NOT_SETTLED_ERROR_TYPES
 
 
 @temporalio.workflow.defn(name="run-aggregate-evaluation")

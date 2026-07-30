@@ -15,9 +15,11 @@ from posthog.models import Organization, Team
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.evaluation_workflow_activities import RunEvaluationInputs
 from posthog.temporal.ai_observability.run_aggregate_evaluation import (
+    CheckSessionSettledInputs,
     CheckTraceSettledInputs,
     RunAggregateEvaluationInputs,
     RunAggregateEvaluationWorkflow,
+    check_session_settled_activity,
     check_trace_settled_activity,
     resolve_settle_plan,
 )
@@ -35,7 +37,13 @@ def setup_data():
 
 
 def _insert_ai_event(
-    *, team: Team, event: str, trace_id: str, arrival: datetime, event_timestamp: datetime | None = None
+    *,
+    team: Team,
+    event: str,
+    trace_id: str,
+    arrival: datetime,
+    event_timestamp: datetime | None = None,
+    session_id: str | None = None,
 ) -> None:
     """Insert a minimal ai_events row with `_timestamp` (arrival) set independently of
     `timestamp` — the settle-poll activity judges liveness on `_timestamp`, not `timestamp`.
@@ -52,10 +60,10 @@ def _insert_ai_event(
         """
         INSERT INTO sharded_ai_events (
             uuid, event, timestamp, team_id, distinct_id, person_id, properties,
-            trace_id, is_error, _timestamp, _offset, _partition
+            trace_id, session_id, is_error, _timestamp, _offset, _partition
         ) VALUES (
             %(uuid)s, %(event)s, %(timestamp)s, %(team_id)s, %(distinct_id)s, %(person_id)s, %(properties)s,
-            %(trace_id)s, 0, %(_timestamp)s, 0, 0
+            %(trace_id)s, %(session_id)s, 0, %(_timestamp)s, 0, 0
         )
         """,
         {
@@ -67,6 +75,7 @@ def _insert_ai_event(
             "person_id": str(uuid.uuid4()),
             "properties": "{}",
             "trace_id": trace_id,
+            "session_id": session_id,
             "_timestamp": arrival.strftime("%Y-%m-%d %H:%M:%S"),
         },
         flush=False,
@@ -376,3 +385,136 @@ class TestCheckTraceSettledActivity:
         # a client timestamp outside the lookback window used to make the row invisible to the poll.
         assert err.value.type == "trace_not_settled"
         assert "trace active" in err.value.message
+
+
+class TestCheckSessionSettledActivity:
+    @pytest.mark.django_db(transaction=True)
+    def test_settled_when_quiet_beyond_margin(self, setup_data):
+        team = setup_data["team"]
+        session_id = f"s-settled-{uuid.uuid4()}"
+        _insert_ai_event(
+            team=team,
+            event="$ai_generation",
+            trace_id=f"t-{uuid.uuid4()}",
+            arrival=datetime.now(UTC) - timedelta(seconds=60),
+            session_id=session_id,
+        )
+        result = check_session_settled_activity(
+            CheckSessionSettledInputs(
+                team_id=team.id, session_id=session_id, quiet_period_seconds=30, lookback_seconds=86400
+            )
+        )
+        assert result is not None
+
+    @pytest.mark.django_db(transaction=True)
+    def test_not_settled_while_activity_is_recent(self, setup_data):
+        team = setup_data["team"]
+        session_id = f"s-active-{uuid.uuid4()}"
+        _insert_ai_event(
+            team=team,
+            event="$ai_generation",
+            trace_id=f"t-{uuid.uuid4()}",
+            arrival=datetime.now(UTC),
+            session_id=session_id,
+        )
+        with pytest.raises(ApplicationError) as exc:
+            check_session_settled_activity(
+                CheckSessionSettledInputs(
+                    team_id=team.id, session_id=session_id, quiet_period_seconds=300, lookback_seconds=86400
+                )
+            )
+        assert exc.value.type == "session_not_settled"
+
+    @pytest.mark.django_db(transaction=True)
+    def test_keeps_polling_when_nothing_is_visible(self, setup_data):
+        team = setup_data["team"]
+        with pytest.raises(ApplicationError) as exc:
+            check_session_settled_activity(
+                CheckSessionSettledInputs(
+                    team_id=team.id,
+                    session_id=f"s-missing-{uuid.uuid4()}",
+                    quiet_period_seconds=30,
+                    lookback_seconds=86400,
+                )
+            )
+        assert exc.value.type == "session_not_settled"
+        assert exc.value.non_retryable is False
+
+    @pytest.mark.django_db(transaction=True)
+    def test_events_carrying_another_session_id_do_not_count_as_activity(self, setup_data):
+        """Liveness must be scoped to the session, not the team."""
+        team = setup_data["team"]
+        session_id = f"s-quiet-{uuid.uuid4()}"
+        _insert_ai_event(
+            team=team,
+            event="$ai_generation",
+            trace_id=f"t-{uuid.uuid4()}",
+            arrival=datetime.now(UTC) - timedelta(seconds=60),
+            session_id=session_id,
+        )
+        _insert_ai_event(
+            team=team,
+            event="$ai_generation",
+            trace_id=f"t-{uuid.uuid4()}",
+            arrival=datetime.now(UTC),
+            session_id=f"s-other-{uuid.uuid4()}",
+        )
+        result = check_session_settled_activity(
+            CheckSessionSettledInputs(
+                team_id=team.id, session_id=session_id, quiet_period_seconds=30, lookback_seconds=86400
+            )
+        )
+        assert result is not None
+
+    @pytest.mark.django_db(transaction=True)
+    def test_evaluation_events_never_defer_settling(self, setup_data):
+        """Session verdicts now carry $ai_session_id, so two session evals would otherwise
+        defer each other's settling forever."""
+        team = setup_data["team"]
+        session_id = f"s-annotated-{uuid.uuid4()}"
+        _insert_ai_event(
+            team=team,
+            event="$ai_generation",
+            trace_id=f"t-{uuid.uuid4()}",
+            arrival=datetime.now(UTC) - timedelta(seconds=60),
+            session_id=session_id,
+        )
+        _insert_ai_event(
+            team=team,
+            event="$ai_evaluation",
+            trace_id="",
+            arrival=datetime.now(UTC),
+            session_id=session_id,
+        )
+        result = check_session_settled_activity(
+            CheckSessionSettledInputs(
+                team_id=team.id, session_id=session_id, quiet_period_seconds=30, lookback_seconds=86400
+            )
+        )
+        assert result is not None
+
+    @pytest.mark.django_db(transaction=True)
+    def test_over_cap_fails_fast_and_non_retryably(self, setup_data):
+        """A shared or constant $ai_session_id would otherwise poll for the full max_age."""
+        team = setup_data["team"]
+        session_id = f"s-huge-{uuid.uuid4()}"
+        for _ in range(3):
+            _insert_ai_event(
+                team=team,
+                event="$ai_generation",
+                trace_id=f"t-{uuid.uuid4()}",
+                arrival=datetime.now(UTC) - timedelta(seconds=60),
+                session_id=session_id,
+            )
+        with pytest.raises(ApplicationError) as exc:
+            check_session_settled_activity(
+                CheckSessionSettledInputs(
+                    team_id=team.id,
+                    session_id=session_id,
+                    quiet_period_seconds=30,
+                    lookback_seconds=86400,
+                    max_events=2,
+                )
+            )
+        assert exc.value.type == "session_too_large"
+        assert exc.value.non_retryable is True
