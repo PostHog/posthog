@@ -18,7 +18,7 @@ import { EntityHeader, VerdictPill } from '../components/EntityHeader'
 import { FailureLogGroups } from '../components/FailureLogs'
 import { GroupedJobsTable } from '../components/GroupedJobsTable'
 import { MetricTile } from '../components/MetricTile'
-import { formatCost, formatMinutes } from '../components/runTables'
+import { formatCost, formatMinutes, runPrNumber } from '../components/runTables'
 import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
 import { githubCommitUrl, githubRunUrl } from '../lib/github'
 import { isDecisiveFailure } from '../lib/lifecycle'
@@ -64,10 +64,11 @@ export function WorkflowRunDetailScene(): JSX.Element {
 
     const githubUrl = run ? githubRunUrl(run.repo.owner, run.repo.name, run.id) : null
     const verdict = run ? verdictTag(run.conclusion) : null
+    const prNumber = run ? runPrNumber(run.pr_number, run.commit_pr_number) : null
     const prUrl =
-        run && run.pr_number > 0
+        prNumber != null && run
             ? withScope(
-                  urls.engineeringAnalyticsPullRequest(run.repo.owner, run.repo.name, run.pr_number),
+                  urls.engineeringAnalyticsPullRequest(run.repo.owner, run.repo.name, prNumber),
                   searchParams,
                   sourceId
               )
@@ -190,7 +191,7 @@ export function WorkflowRunDetailScene(): JSX.Element {
                                 {prUrl && (
                                     <>
                                         <span>· pull request</span>
-                                        <Link to={prUrl}>#{run.pr_number}</Link>
+                                        <Link to={prUrl}>#{prNumber}</Link>
                                     </>
                                 )}
                                 {run.run_attempt > 1 && <span>· attempt {run.run_attempt}</span>}
