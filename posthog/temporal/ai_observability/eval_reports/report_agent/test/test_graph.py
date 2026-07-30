@@ -58,6 +58,23 @@ class TestSystemPromptFormat(SimpleTestCase):
         self.assertIn('outcome="all"|"positive"|"neutral"|"negative"', formatted)
         self.assertNotIn("pass rate", formatted.lower())
 
+    def test_sentiment_prompt_directs_agent_to_user_message_not_reasoning(self):
+        formatted = self._build_prompt(output_type="sentiment")
+
+        self.assertIn("Use user messages instead of reasoning", formatted)
+        self.assertIn("last user message", formatted)
+        self.assertIn("frustrated and why", formatted)
+        self.assertIn('sample_eval_results(outcome="negative", order_by="score")', formatted)
+        self.assertNotIn("get_top_outcome_reasons", formatted)
+        self.assertNotIn("Inspect grouped reasons", formatted)
+
+    def test_boolean_prompt_omits_sentiment_guidance(self):
+        formatted = self._build_prompt(output_type="boolean")
+
+        self.assertNotIn("How to analyze sentiment", formatted)
+        self.assertIn("get_top_outcome_reasons", formatted)
+        self.assertIn("Inspect grouped reasons", formatted)
+
     def test_trace_prompt_uses_only_trace_detail_workflow(self):
         formatted = self._build_prompt(evaluation_target="trace")
 

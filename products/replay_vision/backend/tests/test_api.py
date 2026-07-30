@@ -685,9 +685,9 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
 
 class TestScannerLifecycleTelemetry(_VisionAPITestCase):
     def test_create_reports_config_choices(self) -> None:
-        # Launch dashboards read these to see whether the 100%/comprehensive defaults get changed;
-        # dropped properties or a silent non-fire makes that read a lie.
-        with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+        # Launch dashboards read these config choices, so a dropped property or a silent non-fire
+        # makes that read a lie. Asserted at the capture boundary, where the source tag lands.
+        with patch("posthoganalytics.capture") as capture:
             resp = self.client.post(
                 self.scanners_url,
                 data={
@@ -702,21 +702,27 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
             )
 
         self.assertEqual(resp.status_code, 201, resp.json())
-        report.assert_called_once()
-        event, properties = report.call_args.args[1], report.call_args.args[2]
-        self.assertEqual(event, "replay vision scanner created")
+        created = [
+            call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_scanner_created"
+        ]
+        self.assertEqual(len(created), 1)
+        properties = created[0].kwargs["properties"]
         self.assertEqual(properties["scanner_type"], ScannerType.MONITOR)
         self.assertEqual(properties["sampling_rate"], 0.25)
         self.assertTrue(properties["has_filters"])
+        self.assertTrue(properties["enabled"])
         self.assertEqual(properties["organization_id"], str(self.team.organization_id))
+        # Session auth resolves to "web" (the app UI), MCP callers to "mcp".
+        self.assertEqual(properties["source"], "web")
 
     @parameterized.expand(
         [
-            ("disable", True, False, "replay vision scanner disabled"),
-            ("enable", False, True, "replay vision scanner enabled"),
+            ("disable", True, False, "replay_vision_scanner_disabled"),
+            ("enable", False, True, "replay_vision_scanner_enabled"),
         ]
     )
     def test_enabled_transition_reports_once(self, _name: str, before: bool, after: bool, event: str) -> None:
+        # A pure enable/disable toggle fires the transition event only, not the config-edit event.
         scanner = self._create_scanner(enabled=before)
         with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
             resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"enabled": after}, format="json")
@@ -725,14 +731,33 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         report.assert_called_once()
         self.assertEqual(report.call_args.args[1], event)
 
-    def test_update_without_enabled_transition_reports_nothing(self) -> None:
-        # A rename must not show up as an enable/disable in the lifecycle funnel.
+    @parameterized.expand(
+        [
+            ("rename", {"name": "renamed"}, ["replay_vision_scanner_edited"]),
+            ("no_op", {}, []),
+        ]
+    )
+    def test_full_body_save_reports_only_actually_changed_fields(
+        self, _name: str, mutation: dict[str, Any], expected_events: list[str]
+    ) -> None:
+        # The UI PATCHes the entire form on save, so submitted-but-unchanged fields must not be
+        # reported as edits and a save that changes nothing must not fire at all.
         scanner = self._create_scanner(enabled=True)
+        body = {
+            "name": scanner.name,
+            "scanner_config": scanner.scanner_config,
+            "model": scanner.model,
+            "sampling_rate": scanner.sampling_rate,
+            "enabled": scanner.enabled,
+            **mutation,
+        }
         with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
-            resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"name": "renamed"}, format="json")
+            resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data=body, format="json")
 
         self.assertEqual(resp.status_code, 200, resp.json())
-        report.assert_not_called()
+        self.assertEqual([call.args[1] for call in report.call_args_list], expected_events)
+        if expected_events:
+            self.assertEqual(report.call_args.args[2]["edited_fields"], sorted(mutation.keys()))
 
 
 class TestScannerDigestProvisioning(_VisionAPITestCase):
@@ -949,6 +974,24 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(body["id"], str(observation.id))
         self.assertIsNone(body["previous_observation_id"])
         self.assertIsNone(body["next_observation_id"])
+
+    @parameterized.expand(
+        [
+            ("in_flight_poll_tick", ObservationStatus.PENDING, []),
+            ("terminal_result", ObservationStatus.SUCCEEDED, ["replay_vision_observation_viewed"]),
+        ]
+    )
+    def test_retrieve_reports_viewed_only_for_terminal_observations(
+        self, _name: str, status_value: ObservationStatus, expected_events: list[str]
+    ) -> None:
+        # An in-flight fetch is a poll tick (the scene polls every few seconds), not a person viewing results.
+        completed_at = timezone.now() if status_value == ObservationStatus.SUCCEEDED else None
+        observation = self._create_observation(session_id="viewed", status=status_value, completed_at=completed_at)
+        with patch("products.replay_vision.backend.api.observations.report_user_action") as report:
+            resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}{observation.id}/")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([call.args[1] for call in report.call_args_list], expected_events)
 
     def test_list_observations_for_scanner(self) -> None:
         self._create_observation(session_id="s1")
@@ -1266,6 +1309,53 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(sorted(body["available_tags"]), ["onboarding", "support", "surprise"])
         self.assertIsNone(body["monitor"])
         self.assertIsNone(body["scorer"])
+        self.assertIsNone(body["summarizer"])
+
+    def test_stats_summarizer_facet_rankings(self) -> None:
+        summarizer = self._create_scanner(
+            name="journeys",
+            scanner_type=ScannerType.SUMMARIZER,
+            scanner_config={"prompt": "p", "length": "medium"},
+        )
+        for idx, (friction, keywords) in enumerate(
+            [
+                (["checkout stalls"], ["checkout"]),
+                (["checkout stalls", "filter reset"], ["checkout", "filters"]),
+                ([], []),
+            ]
+        ):
+            ReplayObservation.objects.create(
+                scanner=summarizer,
+                session_id=f"sess-{idx}",
+                scanner_snapshot=_snapshot_for(summarizer),
+                triggered_by=ObservationTrigger.SCHEDULE,
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=timezone.now(),
+                scanner_result={
+                    "model_output": {
+                        "scanner_type": "summarizer",
+                        "title": "t",
+                        "summary": "s",
+                        "friction_points": friction,
+                        "keywords": keywords,
+                        "confidence": 0.5,
+                    },
+                    "signals_count": 0,
+                },
+            )
+        resp = self.client.get(f"{self.observations_url(str(summarizer.id))}stats/")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["summarizer"]["total_with_facets"], 2)
+        self.assertEqual(
+            body["summarizer"]["friction_ranked"],
+            [{"term": "checkout stalls", "count": 2}, {"term": "filter reset", "count": 1}],
+        )
+        self.assertEqual(
+            body["summarizer"]["keyword_ranked"],
+            [{"term": "checkout", "count": 2}, {"term": "filters", "count": 1}],
+        )
+        self.assertIsNone(body["classifier"])
 
     def test_filterset_status_multi_value(self) -> None:
         self._create_observation(session_id="ok", status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
@@ -1704,6 +1794,25 @@ class TestObserveAction(_VisionAPITestCase):
         start_workflow.assert_not_called()
         self.assertFalse(ReplayObservation.objects.filter(scanner=self.scanner, session_id="sess-capped").exists())
 
+    def test_quota_blocked_observe_reports_exhaustion(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # A quota-blocked 402 must still report the exhaustion event.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+
+        exhausted = MagicMock(credit_limit=500, period_end=timezone.now())
+        with patch("products.replay_vision.backend.api.trigger.compute_quota_snapshot", return_value=exhausted):
+            with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+                resp = self.client.post(
+                    self.observe_url(str(self.scanner.id)), data={"session_id": "sess-quota"}, format="json"
+                )
+
+        self.assertEqual(resp.status_code, 402, resp.json())
+        report.assert_called_once()
+        self.assertEqual(report.call_args.args[1], "replay_vision_quota_exhausted")
+        self.assertEqual(report.call_args.args[2]["trigger"], "on_demand")
+
 
 @patch("products.replay_vision.backend.api.trigger.async_to_sync")
 @patch("products.replay_vision.backend.api.trigger.sync_connect")
@@ -1780,13 +1889,41 @@ class TestBulkObserveAction(_VisionAPITestCase):
         # binding limit, so the skip reason must say quota, not in-flight.
         cost = observation_credits_for_model(self.scanner.model)
         with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", cost):
-            resp = self.client.post(
-                self.bulk_url(str(self.scanner.id)), data={"session_ids": ["p", "q"]}, format="json"
-            )
+            with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+                resp = self.client.post(
+                    self.bulk_url(str(self.scanner.id)), data={"session_ids": ["p", "q"]}, format="json"
+                )
         self.assertEqual(resp.status_code, 202, resp.json())
         body = resp.json()
         self.assertEqual(body["started"], 1)
         self.assertEqual([r["scan_outcome"] for r in body["results"]], ["started", "skipped_quota"])
+        events = [call.args[1] for call in report.call_args_list]
+        self.assertEqual(events, ["replay_vision_bulk_scan_started", "replay_vision_quota_exhausted"])
+        self.assertEqual(report.call_args.args[2]["trigger"], "bulk")
+
+    def test_quota_bound_batch_that_fits_does_not_report_exhaustion(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        mock_sync_connect.return_value = MagicMock()
+
+        def _start(*args: Any, **kwargs: Any) -> None:
+            if kwargs["id"] == build_apply_scanner_workflow_id(self.scanner.id, "already"):
+                raise WorkflowAlreadyStartedError(workflow_id=kwargs["id"], workflow_type=APPLY_SCANNER_WORKFLOW_NAME)
+
+        mock_async_to_sync.return_value = MagicMock(side_effect=_start)
+        # Claims left by earlier tests' mocked starts would shrink the in-flight headroom below the quota.
+        get_client().delete(_team_key(self.team.id), _scanner_key(self.scanner.id))
+        # Quota is the tighter limit, but the whole batch fits under it: one session is merely
+        # already running, so no exhaustion should be reported.
+        cost = observation_credits_for_model(self.scanner.model)
+        with patch("products.replay_vision.backend.quota.MONTHLY_CREDIT_QUOTA", 2 * cost):
+            with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+                resp = self.client.post(
+                    self.bulk_url(str(self.scanner.id)), data={"session_ids": ["already", "b"]}, format="json"
+                )
+        self.assertEqual(resp.status_code, 202, resp.json())
+        self.assertEqual([r["scan_outcome"] for r in resp.json()["results"]], ["already_running", "started"])
+        self.assertEqual([call.args[1] for call in report.call_args_list], ["replay_vision_bulk_scan_started"])
 
     def test_concurrent_claim_exhaustion_maps_to_skipped_limit(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock

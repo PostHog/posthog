@@ -14,6 +14,7 @@ want the metering — they only need to mount the tracked adapter:
 
 from __future__ import annotations
 
+import math
 import time
 from collections.abc import Mapping
 from typing import Any
@@ -21,20 +22,43 @@ from typing import Any
 import requests
 from requests import PreparedRequest, Response
 from requests.adapters import HTTPAdapter
+from urllib3.exceptions import InvalidHeader
 from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer import record_request
 
 
 class BoundedRetry(Retry):
-    """`Retry` that caps the honoured `Retry-After` sleep.
+    """`Retry` that hardens `Retry-After` handling against hostile or sloppy servers.
 
-    A server can send a `Retry-After` far larger than any sane wait — an absurd
-    integer or a date decades out. urllib3 passes it straight to `time.sleep`,
-    which raises `OverflowError` once it exceeds what a C `PyTime_t` can hold,
-    killing the sync. Bounding it to the backoff ceiling keeps a hostile value
-    from overflowing (and from parking a worker for hours).
+    Two failure modes are covered:
+
+    - A server can send a `Retry-After` far larger than any sane wait — an absurd
+      integer or a date decades out. urllib3 passes it straight to `time.sleep`,
+      which raises `OverflowError` once it exceeds what a C `PyTime_t` can hold,
+      killing the sync. `get_retry_after` bounds it to the backoff ceiling, keeping
+      a hostile value from overflowing (and from parking a worker for hours).
+    - RFC 9110 requires `Retry-After` to be an integer delay-seconds or an
+      HTTP-date, and urllib3's default parsing raises `InvalidHeader` on anything
+      else. Some upstream APIs send fractional seconds (e.g. "0.129") instead, which
+      otherwise turns a should-be-transient rate limit into a hard failure.
+      `parse_retry_after` tolerates fractional values and falls back to no delay.
     """
+
+    def parse_retry_after(self, retry_after: str) -> float:
+        try:
+            return super().parse_retry_after(retry_after)
+        except InvalidHeader:
+            try:
+                seconds = float(retry_after)
+            except ValueError:
+                return 0.0
+            # `float()` accepts "NaN"/"Infinity"; a non-finite delay would slip past
+            # `min()`/`max()` (which don't order NaN) and reach `time.sleep`, raising
+            # ValueError. Treat non-finite values as "no delay".
+            if not math.isfinite(seconds):
+                return 0.0
+            return max(seconds, 0.0)
 
     def get_retry_after(self, response: Any) -> float | None:
         retry_after = super().get_retry_after(response)

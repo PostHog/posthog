@@ -13,7 +13,7 @@ class Command(BaseCommand):
     help = (
         "Rehydrate scoped_teams on existing agentic provisioning OAuth tokens. "
         "Walks live access + refresh tokens for partner OAuth applications and "
-        "recomputes scoped_teams via _compute_partner_scoped_teams. Idempotent."
+        "recomputes scoped_teams via compute_partner_scoped_teams. Idempotent."
     )
 
     def add_arguments(self, parser):
@@ -30,9 +30,11 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         # Local import so the import graph stays small for the management command
-        # registry; views.py pulls in a much larger dependency surface than the
-        # rest of the command suite.
-        from ee.api.agentic_provisioning.views import _compute_partner_scoped_teams
+        # registry; the provisioning package pulls in a much larger dependency
+        # surface than the rest of the command suite.
+        from ee.api.agentic_provisioning.tokens import (
+            compute_partner_scoped_teams,  # noqa: PLC0415 — keeps the heavy dep off the import path
+        )
 
         application_id = options.get("application_id")
         dry_run: bool = options["dry_run"]
@@ -67,8 +69,8 @@ class Command(BaseCommand):
                     continue
                 old_scope = list(access_token.scoped_teams or [])
                 base_team_id = old_scope[0] if old_scope else 0
-                new_scope = _compute_partner_scoped_teams(application, user, base_team_id)
-                # _compute_partner_scoped_teams returns [] when the base team is gone or the
+                new_scope = compute_partner_scoped_teams(application, user, base_team_id)
+                # compute_partner_scoped_teams returns [] when the base team is gone or the
                 # user lost access. An empty scoped_teams is treated as unrestricted by the
                 # OAuth permission check (permissions.py), so writing [] here would strip the
                 # project restriction from a live token. Leave the existing scope intact and
@@ -108,7 +110,7 @@ class Command(BaseCommand):
                     continue
                 old_scope = list(refresh_token.scoped_teams or [])
                 base_team_id = old_scope[0] if old_scope else 0
-                new_scope = _compute_partner_scoped_teams(application, user, base_team_id)
+                new_scope = compute_partner_scoped_teams(application, user, base_team_id)
                 # Same fail-closed rule as access tokens: never overwrite a restricted scope
                 # with an empty (unrestricted) one. Leave it for re-authorization.
                 if not new_scope:

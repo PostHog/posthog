@@ -10,6 +10,8 @@
 mod common;
 
 use std::collections::HashMap;
+use std::future::pending;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -19,7 +21,7 @@ use tokio_util::sync::CancellationToken;
 use assignment_coordination::store::parse_watch_value;
 use async_trait::async_trait;
 use common::{
-    revoke_lease_of_key, start_coordinator, start_coordinator_named, start_pod,
+    revoke_lease_of_key, start_coordinator, start_coordinator_named, start_pod, start_pod_gated,
     start_pod_with_lease_ttl, start_router_with_lease_ttl, test_store, test_store_with_prefix,
     wait_for_condition, CutoverEvent, HandoffEvent, MockCutoverHandler, POLL_INTERVAL,
     WAIT_TIMEOUT,
@@ -1518,7 +1520,7 @@ impl StashHandler for BlockedDrainHandler {
             partition,
             target: target.to_string(),
         });
-        std::future::pending::<Result<()>>().await
+        pending::<Result<()>>().await
     }
 }
 
@@ -1637,7 +1639,7 @@ impl StashHandler for PartitionOneParker {
         if partition == 0 {
             return Ok(());
         }
-        std::future::pending::<Result<()>>().await
+        pending::<Result<()>>().await
     }
 
     async fn drain_stash(
@@ -1866,13 +1868,13 @@ async fn the_reconcile_pass_reasserts_freeze_acks() {
 /// it for every non-terminal handoff before writing the freeze ack.
 struct FlakyCutoverHandler {
     events: Arc<Mutex<Vec<CutoverEvent>>>,
-    fail: Arc<std::sync::atomic::AtomicBool>,
+    fail: Arc<AtomicBool>,
 }
 
 #[async_trait]
 impl StashHandler for FlakyCutoverHandler {
     async fn begin_stash(&self, partition: u32, new_owner: &str) -> Result<()> {
-        if self.fail.load(std::sync::atomic::Ordering::SeqCst) {
+        if self.fail.load(Ordering::SeqCst) {
             return Err(personhog_coordination::error::Error::invalid_state(
                 "injected begin_stash failure".to_string(),
             ));
@@ -1905,7 +1907,7 @@ async fn start_flaky_router(
     store: &Arc<PersonhogStore>,
     router_name: &str,
     budget: u32,
-) -> (Arc<std::sync::atomic::AtomicBool>, CancellationToken) {
+) -> (Arc<AtomicBool>, CancellationToken) {
     assert!(store
         .create_assignments_and_handoffs(
             &[PartitionAssignment {
@@ -1930,7 +1932,7 @@ async fn start_flaky_router(
             ..RoutingTableConfig::default()
         },
     );
-    let fail = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let fail = Arc::new(AtomicBool::new(false));
     let handler = FlakyCutoverHandler {
         events: Arc::new(Mutex::new(Vec::new())),
         fail: Arc::clone(&fail),
@@ -1969,7 +1971,7 @@ async fn reconcile_failures_within_budget_are_tolerated_and_heal() {
     // the only healer (no new events arrive), and its passes now fail
     // before reaching the ack write, so the ack must stay absent while
     // the run survives the failures.
-    fail.store(true, std::sync::atomic::Ordering::SeqCst);
+    fail.store(true, Ordering::SeqCst);
     let mut raw = etcd_client::Client::connect(["http://localhost:2379"], None)
         .await
         .expect("raw client");
@@ -1995,7 +1997,7 @@ async fn reconcile_failures_within_budget_are_tolerated_and_heal() {
     );
 
     // Recovery: the next successful pass re-asserts the ack.
-    fail.store(false, std::sync::atomic::Ordering::SeqCst);
+    fail.store(false, Ordering::SeqCst);
     wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
         ack_present(Arc::clone(&store))
     })
@@ -2027,7 +2029,7 @@ async fn reconcile_failures_past_the_budget_fail_the_run() {
     })
     .await;
 
-    fail.store(true, std::sync::atomic::Ordering::SeqCst);
+    fail.store(true, Ordering::SeqCst);
 
     // Three failed passes exhaust the budget; the run's teardown
     // deregisters the router.
@@ -2149,6 +2151,205 @@ async fn the_reconcile_pass_skips_drains_for_settled_partitions() {
     assert_eq!(
         drained, 0,
         "a settled partition must not have drains respawned by reconcile ticks"
+    );
+
+    cancel.cancel();
+}
+
+// ============================================================
+// Convergence lanes: partitions converge concurrently,
+// single-flight per partition
+// ============================================================
+//
+// The pod's watch loop runs convergence single-flight per partition but
+// concurrently across partitions. A deploy moving several partitions
+// onto one pod must warm them in parallel — serialized warming is what
+// made stash waits scale with the number of simultaneous inbound
+// handoffs — while two convergences for the same partition must never
+// interleave (concurrent warms for one partition could install a stale
+// cache over a fresh one).
+
+/// Variant of `put_handoff` with an explicit handoff id, for forcing a
+/// re-warm: a warm installed for one handoff id does not satisfy a later
+/// handoff with a different id.
+async fn put_handoff_with_id(
+    store: &PersonhogStore,
+    partition: u32,
+    new_owner: &str,
+    phase: HandoffPhase,
+    handoff_id: &str,
+) {
+    let handoff = HandoffState {
+        partition,
+        old_owner: None,
+        new_owner: new_owner.to_string(),
+        phase,
+        started_at: 0,
+        handoff_id: handoff_id.to_string(),
+        freeze_quorum: None,
+        created_at_ms: 0,
+        phase_entered_at_ms: 0,
+        new_owner_address: None,
+    };
+    store.put_handoff(&handoff).await.expect("write handoff");
+}
+
+/// Wait until the pod has a warmed ack for the partition in etcd.
+async fn wait_for_warmed_ack(store: &Arc<PersonhogStore>, partition: u32, pod: &str) {
+    let check_store = Arc::clone(store);
+    let pod = pod.to_string();
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, move || {
+        let store = Arc::clone(&check_store);
+        let pod = pod.clone();
+        async move {
+            store
+                .list_warmed_acks(partition)
+                .await
+                .map(|acks| acks.iter().any(|a| a.pod_name == pod))
+                .unwrap_or(false)
+        }
+    })
+    .await;
+}
+
+/// With one partition's warm parked, another partition's handoff must
+/// still warm and ack. Serialized convergence would queue the second
+/// warm behind the parked one and its ack would never arrive.
+#[tokio::test]
+async fn concurrent_inbound_handoffs_warm_in_parallel() {
+    let store = test_store("pod-parallel-warm").await;
+    let cancel = CancellationToken::new();
+
+    let pod = start_pod_gated(Arc::clone(&store), "parallel-warm-pod", 4, cancel.clone());
+
+    put_handoff(&store, 0, None, "parallel-warm-pod", HandoffPhase::Warming).await;
+    put_handoff(&store, 1, None, "parallel-warm-pod", HandoffPhase::Warming).await;
+
+    // Partition 0 stays parked; partition 1 must complete regardless.
+    pod.gates.open(1);
+    wait_for_warmed_ack(&store, 1, "parallel-warm-pod").await;
+
+    // The parked warm really is still parked — nothing acked for it.
+    let acks = store.list_warmed_acks(0).await.expect("list acks");
+    assert!(
+        acks.is_empty(),
+        "partition 0's warm is parked; its ack must not exist yet"
+    );
+
+    pod.gates.open(0);
+    wait_for_warmed_ack(&store, 0, "parallel-warm-pod").await;
+
+    cancel.cancel();
+}
+
+/// Two convergences for the same partition must never run concurrently,
+/// even when a new handoff arrives while the partition's warm is parked.
+/// The second handoff (a different id, so it demands its own warm) must
+/// wait for the first convergence to finish, then re-warm.
+#[tokio::test]
+async fn convergences_for_one_partition_never_interleave() {
+    let store = test_store("pod-single-flight").await;
+    let cancel = CancellationToken::new();
+
+    let pod = start_pod_gated(Arc::clone(&store), "single-flight-pod", 4, cancel.clone());
+
+    put_handoff_with_id(
+        &store,
+        0,
+        "single-flight-pod",
+        HandoffPhase::Warming,
+        "era-a",
+    )
+    .await;
+
+    // Wait until the first warm is parked inside the handler.
+    let in_flight = Arc::clone(&pod.warms_in_flight);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, move || {
+        let in_flight = Arc::clone(&in_flight);
+        async move { in_flight.lock().unwrap().get(&0).copied() == Some(1) }
+    })
+    .await;
+
+    // A new era for the same partition while the warm is parked. The
+    // convergence for it must coalesce behind the in-flight one, not
+    // start a second concurrent warm.
+    put_handoff_with_id(
+        &store,
+        0,
+        "single-flight-pod",
+        HandoffPhase::Warming,
+        "era-b",
+    )
+    .await;
+
+    pod.gates.open(0);
+
+    // The era-b convergence releases the era-a warm and re-warms; two
+    // Warmed events mark both warms having completed.
+    let events = Arc::clone(&pod.events);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, move || {
+        let events = Arc::clone(&events);
+        async move {
+            events
+                .lock()
+                .await
+                .iter()
+                .filter(|e| **e == HandoffEvent::Warmed(0))
+                .count()
+                == 2
+        }
+    })
+    .await;
+
+    assert_eq!(
+        pod.max_concurrent_same_partition.load(Ordering::SeqCst),
+        1,
+        "convergences for one partition must never overlap"
+    );
+
+    cancel.cancel();
+}
+
+/// Concurrent warms are bounded by `warm_concurrency`: with the bound at
+/// 2 and four inbound handoffs parked, exactly two warms enter the
+/// handler; the rest queue on the semaphore until a slot frees.
+#[tokio::test]
+async fn concurrent_warms_are_bounded_by_warm_concurrency() {
+    let store = test_store("pod-warm-bound").await;
+    let cancel = CancellationToken::new();
+
+    let pod = start_pod_gated(Arc::clone(&store), "warm-bound-pod", 2, cancel.clone());
+
+    for partition in 0..4 {
+        put_handoff(
+            &store,
+            partition,
+            None,
+            "warm-bound-pod",
+            HandoffPhase::Warming,
+        )
+        .await;
+    }
+
+    // Both slots fill and park; the other two handoffs wait on the bound.
+    let in_flight = Arc::clone(&pod.warms_in_flight);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, move || {
+        let in_flight = Arc::clone(&in_flight);
+        async move { in_flight.lock().unwrap().values().sum::<usize>() == 2 }
+    })
+    .await;
+
+    for partition in 0..4 {
+        pod.gates.open(partition);
+    }
+    for partition in 0..4 {
+        wait_for_warmed_ack(&store, partition, "warm-bound-pod").await;
+    }
+
+    assert_eq!(
+        pod.max_concurrent_warms.load(Ordering::SeqCst),
+        2,
+        "warms in the handler at once must equal the configured bound"
     );
 
     cancel.cancel();
