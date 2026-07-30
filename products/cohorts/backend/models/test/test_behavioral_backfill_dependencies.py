@@ -306,7 +306,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
         self.assertIsNone(cohort.last_backfill_events_at)
 
     def test_hashing_failure_in_maintain_shape_does_not_break_save(self) -> None:
-        # _maintain_behavioral_shape swallows hashing errors so a hashing bug can't take down every
+        # _maintain_filter_shape_hashes swallows hashing errors so a hashing bug can't take down every
         # realtime cohort save. The receiver-guard test above patches a different try/except in the
         # signal path; this one exercises the save-path guard directly by making the hash raise.
         cohort = self._cohort(7)

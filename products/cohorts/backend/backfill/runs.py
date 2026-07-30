@@ -51,23 +51,22 @@ def check_run_preconditions() -> tuple[dict[str, Any], list[str]]:
     return preconditions, missing
 
 
-def check_person_run_preconditions(*, team_scope: bool) -> tuple[dict[str, Any], list[str]]:
+def check_person_run_preconditions(*, requires_sizing_attestation: bool) -> tuple[dict[str, Any], list[str]]:
+    """Person-run gates: the behavioral ones plus person-record TTL, and sizing for team runs.
+
+    TTL is not scope-dependent — every person seed lands in the same ``cf_person_records`` store,
+    whose retention Django cannot see (the seeder reads ``COHORT_PERSON_RECORD_TTL_DAYS``), so an
+    operator has to attest it for any kind of person run. Only the team creator estimates topic
+    bytes, so only it requires the sizing attestation.
+    """
     preconditions, missing = check_run_preconditions()
-    if team_scope:
-        preconditions.update(
-            {
-                "person_sizing_attested": settings.BEHAVIORAL_BACKFILL_PERSON_SIZING_ATTESTED,
-                "person_ttl_attested": settings.BEHAVIORAL_BACKFILL_PERSON_TTL_ATTESTED,
-            }
-        )
-        missing.extend(
-            name
-            for name, met in (
-                ("person seed sizing", preconditions["person_sizing_attested"]),
-                ("person record TTL", preconditions["person_ttl_attested"]),
-            )
-            if not met
-        )
+    preconditions["person_ttl_attested"] = settings.BEHAVIORAL_BACKFILL_PERSON_TTL_ATTESTED
+    if not preconditions["person_ttl_attested"]:
+        missing.append("person record TTL")
+    if requires_sizing_attestation:
+        preconditions["person_sizing_attested"] = settings.BEHAVIORAL_BACKFILL_PERSON_SIZING_ATTESTED
+        if not preconditions["person_sizing_attested"]:
+            missing.append("person seed sizing")
     return preconditions, missing
 
 
@@ -268,6 +267,13 @@ def create_person_backfill_run_for_cohort(
     *,
     person_horizon_days: int | None = None,
 ) -> CohortBackfillRun | None:
+    """Create one cohort's person-property run, on the signal path's contract.
+
+    Unlike ``create_person_team_backfill_run`` this never raises and never touches ClickHouse: it
+    becomes the target of the person counterpart to the behavioral shape-changed receiver (B7.3b),
+    where a refusal has to warn and return rather than fail the Celery task. That is also why the
+    horizon defaults from settings here but is required on the operator-driven team creator.
+    """
     if not is_realtime_cohort_team(team_id):
         return None
 
@@ -313,7 +319,7 @@ def create_person_backfill_run_for_cohort(
 
         filters_shape_hash = ensure_filters_shape_hash(cohort)
         person_filters_shape_hash = cohort.person_filters_shape_hash or ""
-        preconditions, missing = check_person_run_preconditions(team_scope=False)
+        preconditions, missing = check_person_run_preconditions(requires_sizing_attestation=False)
         status, blocked_reason = _run_status(missing)
         person_scan_since = django_timezone.now() - timedelta(days=horizon_days)
         run = CohortBackfillRun.objects.for_team(team_id).create(
@@ -341,7 +347,15 @@ def create_person_backfill_run_for_cohort(
 
 
 def _person_cohorts_for_team(team_id: int, requested_ids: set[int] | None, *, lock: bool) -> list[Cohort]:
-    queryset = Cohort.objects.filter(team_id=team_id)
+    # Narrow on the SQL-expressible half of eligibility before locking: `select_for_update` locks
+    # every row the query returns, so an unnarrowed team scan would hold `FOR UPDATE` on static,
+    # deleted, and non-realtime cohorts that were never candidates, blocking edits to them.
+    queryset = Cohort.objects.filter(
+        team_id=team_id,
+        cohort_type=CohortType.REALTIME,
+        is_static=False,
+        deleted=False,
+    )
     if lock:
         queryset = queryset.select_for_update(of=("self",))
     if requested_ids is not None:
@@ -371,12 +385,11 @@ def create_person_team_backfill_run(
         raise ValueError("person_horizon_days must be at least 1")
 
     boundary_at = _validate_boundary_at(trigger_kind, boundary_at)
-    preconditions, missing = check_person_run_preconditions(team_scope=True)
+    preconditions, missing = check_person_run_preconditions(requires_sizing_attestation=True)
     if missing:
         raise ValueError(f"Missing operator attestations: {', '.join(missing)}")
 
     requested_ids = set(cohort_ids) if cohort_ids is not None else None
-    team = Team.objects.get(id=team_id)
     cohorts = _person_cohorts_for_team(team_id, requested_ids, lock=False)
     pinned = pin_person_conditions_for_cohorts(
         cohorts,
@@ -394,7 +407,7 @@ def create_person_team_backfill_run(
         )
 
     with transaction.atomic():
-        team = Team.objects.get(id=team.id)
+        team = Team.objects.get(id=team_id)
         cohorts = _person_cohorts_for_team(team_id, requested_ids, lock=True)
         locked_pinned = pin_person_conditions_for_cohorts(
             cohorts,

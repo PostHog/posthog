@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from django.db import IntegrityError, transaction
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -241,31 +242,45 @@ class TestPersonBackfillRuns(BaseTest):
             budget_bytes=budget_bytes,
         )
 
-    def test_cohort_run_pins_person_definition_and_scan_horizon(self) -> None:
+    @parameterized.expand(
+        [
+            ("explicit_horizon", 30, 30),
+            ("default_horizon", None, 45),
+        ]
+    )
+    def test_cohort_run_pins_person_definition_and_scan_horizon(
+        self,
+        _name: str,
+        person_horizon_days: int | None,
+        expected_horizon_days: int,
+    ) -> None:
         cohort = self._cohort()
         now = datetime(2026, 7, 29, 12, tzinfo=UTC)
 
-        with mock.patch(
-            "products.cohorts.backend.backfill.runs.django_timezone.now",
-            return_value=now,
+        with (
+            self.settings(BEHAVIORAL_BACKFILL_PERSON_DEFAULT_HORIZON_DAYS=45),
+            mock.patch(
+                "products.cohorts.backend.backfill.runs.django_timezone.now",
+                return_value=now,
+            ),
         ):
             run = create_person_backfill_run_for_cohort(
                 self.team.id,
                 cohort.id,
                 "cohort_created",
-                person_horizon_days=30,
+                person_horizon_days=person_horizon_days,
             )
 
         assert run is not None
         participation = CohortBackfillRunCohort.objects.for_team(self.team.id).get(run=run)
         self.assertEqual(run.backfill_kind, CohortBackfillKind.PERSON_PROPERTY)
-        self.assertEqual(run.person_scan_since, now - timedelta(days=30))
+        self.assertEqual(run.person_scan_since, now - timedelta(days=expected_horizon_days))
         self.assertEqual(
             run.pinned,
             {
                 "schema_version": 1,
                 "conditions": [{"cohort_id": cohort.id, "condition_hash": "person0000000001"}],
-                "person_horizon_days": 30,
+                "person_horizon_days": expected_horizon_days,
             },
         )
         self.assertEqual(participation.filters_shape_hash, cohort.filters_shape_hash)
@@ -283,6 +298,26 @@ class TestPersonBackfillRuns(BaseTest):
         self.assertIsNotNone(person)
         self.assertIsNone(create_person_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
         self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 2)
+
+    def test_cohort_run_refuses_non_positive_horizon(self) -> None:
+        cohort = self._cohort()
+
+        with mock.patch("products.cohorts.backend.backfill.runs.logger") as logger:
+            run = create_person_backfill_run_for_cohort(
+                self.team.id,
+                cohort.id,
+                "cohort_created",
+                person_horizon_days=0,
+            )
+
+        self.assertIsNone(run)
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
+        logger.warning.assert_called_once_with(
+            "cohort_person_backfill_invalid_horizon",
+            team_id=self.team.id,
+            cohort_id=cohort.id,
+            person_horizon_days=0,
+        )
 
     @override_settings(BEHAVIORAL_BACKFILL_PERSON_MAX_PINNED_CONDITIONS=0)
     def test_cohort_run_warns_and_refuses_pinning_cap(self) -> None:
@@ -390,6 +425,42 @@ class TestPersonBackfillRuns(BaseTest):
         self.assertEqual(person.backfill_kind, CohortBackfillKind.PERSON_PROPERTY)
         with self.assertRaisesMessage(ValueError, "active person-property backfill runs"):
             create_person_team_backfill_run(self.team.id, "team_enablement", 30)
+
+    @mock.patch("products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes")
+    def test_team_run_refuses_when_pinned_conditions_drift_during_sizing(self, estimate: mock.Mock) -> None:
+        cohort = self._cohort()
+
+        def edit_cohort_mid_sizing(*args: object, **kwargs: object) -> PersonSeedEstimate:
+            # The estimate is the whole window the run is sized outside the lock, so drifting the
+            # definition here is what the re-pin under `select_for_update` has to catch.
+            Cohort.objects.filter(id=cohort.id).update(filters=self._filters(person_hashes=("person0000000002",)))
+            return self._estimate()
+
+        estimate.side_effect = edit_cohort_mid_sizing
+
+        with self.assertRaisesMessage(ValueError, "changed during sizing"):
+            create_person_team_backfill_run(self.team.id, "team_enablement", 30)
+
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
+
+    def test_active_team_run_uniqueness_index_is_per_kind(self) -> None:
+        # Bypasses the creators' pre-check on purpose: this pins the partial unique index migration
+        # 0009 swapped in, which is the only guard left if the pre-check is ever refactored away.
+        def create_team_run(kind: CohortBackfillKind) -> None:
+            CohortBackfillRun.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                backfill_kind=kind,
+                trigger_kind="team_enablement",
+                scope=CohortBackfillScope.TEAM,
+                status=CohortBackfillRunStatus.AWAITING_BOUNDARY,
+                timezone="UTC",
+            )
+
+        create_team_run(CohortBackfillKind.BEHAVIORAL)
+        create_team_run(CohortBackfillKind.PERSON_PROPERTY)
+
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            create_team_run(CohortBackfillKind.PERSON_PROPERTY)
 
     @mock.patch("products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes")
     def test_team_run_refuses_over_budget_estimate(self, estimate: mock.Mock) -> None:

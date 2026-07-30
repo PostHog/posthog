@@ -145,7 +145,7 @@ class Command(BaseCommand):
         boundary_at: datetime | None,
         dry_run: bool,
     ) -> None:
-        _, missing = check_person_run_preconditions(team_scope=True)
+        _, missing = check_person_run_preconditions(requires_sizing_attestation=True)
         if missing:
             raise CommandError(f"Missing operator attestations: {', '.join(missing)}")
         if person_horizon_days < 1:
@@ -194,17 +194,17 @@ class Command(BaseCommand):
         boundary_at: datetime | None,
     ) -> None:
         requested_ids = set(cohort_ids) if cohort_ids is not None else None
+        # Deliberately wider than `_person_cohorts_for_team`, which narrows the SQL-expressible half
+        # of eligibility away before it locks: the dry run's whole job is naming *why* each cohort was
+        # refused, and it takes no locks. Both sides decide with `_person_backfill_ineligibility_reason`.
         queryset = Cohort.objects.filter(team_id=team_id)
         if requested_ids is not None:
             queryset = queryset.filter(id__in=requested_ids)
-        candidates = list(queryset.order_by("id"))
-        refusals = [
-            (cohort.id, reason)
-            for cohort in candidates
-            if (reason := _person_backfill_ineligibility_reason(cohort)) is not None
-        ]
-        candidate_ids = {cohort.id for cohort in candidates}
+        candidates = [(cohort, _person_backfill_ineligibility_reason(cohort)) for cohort in queryset.order_by("id")]
+
+        refusals = [(cohort.id, reason) for cohort, reason in candidates if reason is not None]
         if requested_ids is not None:
+            candidate_ids = {cohort.id for cohort, _ in candidates}
             refusals.extend((cohort_id, "not found") for cohort_id in sorted(requested_ids - candidate_ids))
 
         if refusals:
@@ -214,7 +214,7 @@ class Command(BaseCommand):
         if requested_ids is not None and refusals:
             raise CommandError("One or more --cohort-ids are not eligible realtime person-property cohorts")
 
-        cohorts = [cohort for cohort in candidates if _person_backfill_ineligibility_reason(cohort) is None]
+        cohorts = [cohort for cohort, reason in candidates if reason is None]
         if not cohorts:
             raise CommandError(f"Team {team_id} has no eligible realtime person-property cohorts")
         try:

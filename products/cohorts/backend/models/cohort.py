@@ -297,21 +297,21 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         (`validate_filters_and_compute_realtime_support`) — so a direct `Cohort.objects.create(...)`
         gets a fresh `condition_type` but a stale/absent `cohort_type`."""
         # update_fields can arrive positionally (4th positional, after force_insert/force_update/using)
-        # or as a keyword. Intercept it so _maintain_behavioral_shape can extend the frozen set.
+        # or as a keyword. Intercept it so _maintain_filter_shape_hashes can extend the frozen set.
         update_fields = args[3] if len(args) > 3 else kwargs.get("update_fields")
         if update_fields is None or "filters" in update_fields:
             self.condition_type = Cohort.compute_condition_type(self.filters)
             if update_fields is not None and "condition_type" not in update_fields:
                 update_fields = [*update_fields, "condition_type"]
 
-        maintained_update_fields = self._maintain_behavioral_shape(update_fields)
+        maintained_update_fields = self._maintain_filter_shape_hashes(update_fields)
         if len(args) > 3:
             args = (*args[:3], maintained_update_fields, *args[4:])
         else:
             kwargs["update_fields"] = maintained_update_fields
         super().save(*args, **kwargs)
 
-    def _maintain_behavioral_shape(self, update_fields: Iterable[str] | None) -> set[str] | None:
+    def _maintain_filter_shape_hashes(self, update_fields: Iterable[str] | None) -> set[str] | None:
         """Maintain full, behavioral, and person filter-shape hashes."""
         self._leaf_shape_changed = False
         self._person_shape_changed = False
@@ -380,6 +380,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 self._leaf_shape_changed = True
             if person_shape_changed:
                 self.last_backfill_person_properties_at = None
+                # Nothing reads this yet: the receiver that supersedes active person-property runs
+                # on a person-leaf edit — the counterpart to `_leaf_shape_changed` in
+                # dependencies.py — lands with the person-run trigger (B7.3b).
                 self._person_shape_changed = True
 
             if maintained_update_fields is None:

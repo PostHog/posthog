@@ -33,13 +33,16 @@ class TestPersonBackfillSizing(SimpleTestCase):
                 "person_seed_topic_bytes_budget": 10_000,
             },
         )
-        query = sync_execute.call_args.args[0]
-        self.assertIn("SELECT uniq(id)", query)
-        self.assertIn("_timestamp >= %(person_scan_since)s", query)
+        # Deleted persons must not inflate the estimate, and the read has to be byte-bounded so the
+        # gate throws instead of sizing a run off a partial scan. Neither is observable without CH.
+        self.assertIn("is_deleted", sync_execute.call_args.args[0])
         self.assertEqual(
             sync_execute.call_args.args[1],
             {"team_id": 7, "person_scan_since": person_scan_since},
         )
-        self.assertEqual(sync_execute.call_args.kwargs["settings"], {"max_execution_time": 30})
+        self.assertEqual(
+            sync_execute.call_args.kwargs["settings"],
+            {"max_execution_time": 30, "max_bytes_to_read": 10_000_000_000, "read_overflow_mode": "throw"},
+        )
         self.assertEqual(sync_execute.call_args.kwargs["team_id"], 7)
         self.assertTrue(sync_execute.call_args.kwargs["readonly"])
