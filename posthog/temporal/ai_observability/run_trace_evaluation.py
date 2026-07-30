@@ -34,15 +34,12 @@ from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai_observability.evaluation_errors import (
-    is_terminal_user_error_result,
-    require_user_error_spec,
-    status_reason_detail_for_terminal_user_error,
-)
+from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
 from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
 from posthog.temporal.ai_observability.evaluation_hog import (
     build_hog_event_global,
     execute_hog_eval_bytecode,
+    finalize_hog_eval_result,
     hog_bytecode_references_global,
 )
 from posthog.temporal.ai_observability.evaluation_llm_judge import (
@@ -546,44 +543,7 @@ async def execute_trace_hog_eval_activity(inputs: ExecuteTraceEvaluationInputs) 
     if skip_reason or result is None:
         return _build_trace_skip_result(allows_na, skip_reason or "trace_not_found")
 
-    if result["error"]:
-        if result.get("unexpected"):
-            # A genuine bug in our evaluation code (not the user's Hog). Raise so the Temporal
-            # interceptor reports it to error tracking and we get paged to investigate.
-            raise ApplicationError(
-                f"Hog evaluation error: {result['error']}",
-                non_retryable=True,
-            )
-
-        # The user's Hog source itself errored — an expected outcome of running customer-authored
-        # code, recorded as a skipped evaluation rather than raised (which would flood error
-        # tracking with one event per trace). Marked terminal so the workflow disables the broken
-        # eval instead of re-running it against every matching trace (mirrors the generation path).
-        spec = require_user_error_spec("hog_error")
-        error_detail = status_reason_detail_for_terminal_user_error(spec, result["error"]) or spec.safe_message
-        errored_result: EvaluationActivityResult = {
-            "result_type": "boolean",
-            "verdict": None if allows_na else False,
-            "reasoning": error_detail,
-            "allows_na": allows_na,
-            "skipped": True,
-            "skip_reason": "hog_error",
-            "terminal_user_error": True,
-            "status_reason": spec.status_reason,
-        }
-        if allows_na:
-            errored_result["applicable"] = False
-        return errored_result
-
-    activity_result: EvaluationActivityResult = {
-        "result_type": "boolean",
-        "verdict": result["verdict"],
-        "reasoning": result["reasoning"],
-        "allows_na": allows_na,
-    }
-    if allows_na:
-        activity_result["applicable"] = result.get("applicable", True)
-    return activity_result
+    return finalize_hog_eval_result(result, allows_na=allows_na, unit_label="trace")
 
 
 @dataclass

@@ -10,19 +10,30 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import temporalio
+import posthoganalytics
+from temporalio.exceptions import ApplicationError
+
 from posthog.schema import DateRange, LLMTrace, SessionQuery
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.client.connection import Workload
-from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
+from posthog.hogql_queries.ai.ai_table_resolver import AIEventsExpiredError, query_ai_events
 from posthog.hogql_queries.ai.session_query_runner import SessionQueryRunner
 from posthog.models.team import Team
-from posthog.temporal.ai_observability.evaluation_hog import build_hog_event_global, hog_bytecode_references_global
-from posthog.temporal.ai_observability.evaluation_llm_judge import get_output_type_config
+from posthog.sync import database_sync_to_async
+from posthog.temporal.ai_observability.evaluation_hog import (
+    build_hog_event_global,
+    execute_hog_eval_bytecode,
+    finalize_hog_eval_result,
+    hog_bytecode_references_global,
+)
+from posthog.temporal.ai_observability.evaluation_llm_judge import call_llm_judge, get_output_type_config
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.run_trace_evaluation import TRACE_EVENTS_LOOKBACK
+from posthog.temporal.common.utils import close_db_connections
 
 from products.ai_observability.backend.models.evaluation_configs import MAX_SESSION_EVAL_EVENTS
 from products.ai_observability.backend.text_repr.formatters import (
@@ -212,3 +223,109 @@ def build_session_skip_result(allows_na: bool, skip_reason: str) -> EvaluationAc
     if allows_na:
         result["applicable"] = False
     return result
+
+
+@dataclass
+class ExecuteSessionEvaluationInputs:
+    evaluation: dict[str, Any]
+    team_id: int
+    session_id: str
+    window_start: str
+    max_age_seconds: int
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {
+            "team_id": self.team_id,
+            "evaluation_id": self.evaluation.get("id"),
+            "session_id": self.session_id,
+        }
+
+
+@temporalio.activity.defn
+@close_db_connections
+@posthoganalytics.scoped()
+def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -> EvaluationActivityResult:
+    """Fetch the whole session and run the LLM judge over its transcript.
+
+    Fetch and judge happen in one activity on purpose: returning the session through the
+    workflow would hit Temporal's ~2 MiB payload limit.
+    """
+    evaluation = inputs.evaluation
+
+    if evaluation["evaluation_type"] != "llm_judge":
+        raise ApplicationError(
+            f"Unsupported evaluation type: {evaluation['evaluation_type']}",
+            non_retryable=True,
+        )
+
+    prompt = evaluation.get("evaluation_config", {}).get("prompt")
+    if not prompt:
+        raise ApplicationError("Missing prompt in evaluation_config", non_retryable=True)
+
+    if evaluation["output_type"] != "boolean":
+        raise ApplicationError(
+            f"Unsupported output type: {evaluation['output_type']}. Supported types: 'boolean'.",
+            non_retryable=True,
+        )
+
+    allows_na = evaluation.get("output_config", {}).get("allows_na", False)
+
+    try:
+        outcome = fetch_session_for_evaluation(
+            inputs.team_id,
+            inputs.session_id,
+            datetime.fromisoformat(inputs.window_start),
+            inputs.max_age_seconds,
+        )
+    except AIEventsExpiredError:
+        return build_session_skip_result(allows_na, "session_expired")
+    if outcome.skip_reason or outcome.traces is None:
+        return build_session_skip_result(allows_na, outcome.skip_reason or "session_not_found")
+
+    return call_llm_judge(
+        evaluation=evaluation,
+        system_prompt=build_session_system_prompt(prompt, allows_na),
+        user_prompt=format_session_for_judge(outcome.traces),
+        allows_na=allows_na,
+    )
+
+
+@temporalio.activity.defn
+async def execute_session_hog_eval_activity(inputs: ExecuteSessionEvaluationInputs) -> EvaluationActivityResult:
+    """Fetch the whole session and run Hog bytecode against session-level globals."""
+    evaluation = inputs.evaluation
+
+    if evaluation["evaluation_type"] != "hog":
+        raise ApplicationError(
+            f"Unsupported evaluation type: {evaluation['evaluation_type']}",
+            non_retryable=True,
+        )
+
+    bytecode = evaluation.get("evaluation_config", {}).get("bytecode")
+    if not bytecode:
+        raise ApplicationError("Missing bytecode in evaluation_config", non_retryable=True)
+
+    allows_na = evaluation.get("output_config", {}).get("allows_na", False)
+
+    def _execute() -> tuple[dict[str, Any] | None, str | None]:
+        try:
+            outcome = fetch_session_for_evaluation(
+                inputs.team_id,
+                inputs.session_id,
+                datetime.fromisoformat(inputs.window_start),
+                inputs.max_age_seconds,
+            )
+        except AIEventsExpiredError:
+            return None, "session_expired"
+        if outcome.skip_reason or outcome.traces is None:
+            return None, outcome.skip_reason or "session_not_found"
+        globals_dict = build_session_hog_globals(outcome.traces, inputs.session_id, bytecode=bytecode)
+        return execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=allows_na), None
+
+    result, skip_reason = await database_sync_to_async(_execute, thread_sensitive=False)()
+
+    if skip_reason or result is None:
+        return build_session_skip_result(allows_na, skip_reason or "session_not_found")
+
+    return finalize_hog_eval_result(result, allows_na=allows_na, unit_label="session")

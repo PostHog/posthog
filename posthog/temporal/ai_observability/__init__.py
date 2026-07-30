@@ -48,6 +48,10 @@ from posthog.temporal.ai_observability.run_aggregate_evaluation import (
     check_trace_settled_activity,
 )
 from posthog.temporal.ai_observability.run_evaluation import RunEvaluationWorkflow
+from posthog.temporal.ai_observability.run_session_evaluation import (
+    execute_session_hog_eval_activity,
+    execute_session_llm_judge_activity,
+)
 from posthog.temporal.ai_observability.run_tagger import (
     RunTaggerWorkflow,
     disable_tagger_activity,
@@ -101,6 +105,8 @@ EVAL_ACTIVITIES = [
     execute_sentiment_eval_activity,
     execute_trace_llm_judge_activity,
     execute_trace_hog_eval_activity,
+    execute_session_llm_judge_activity,
+    execute_session_hog_eval_activity,
     check_trace_settled_activity,
     check_session_settled_activity,
     emit_evaluation_event_activity,

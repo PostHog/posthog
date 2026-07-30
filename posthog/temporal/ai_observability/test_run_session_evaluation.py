@@ -4,14 +4,21 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from unittest.mock import Mock, patch
 
+from asgiref.sync import async_to_sync
+from temporalio.exceptions import ApplicationError
+
 from posthog.schema import LLMTrace, LLMTraceEvent
 
 from posthog.temporal.ai_observability.run_session_evaluation import (
     _MIN_TRACE_CHARS_IN_SESSION,
     _SESSION_EVENT_COUNT_SQL,
     JUDGE_SESSION_MAX_CHARS,
+    ExecuteSessionEvaluationInputs,
+    SessionFetchOutcome,
     _count_session_events,
     build_session_hog_globals,
+    execute_session_hog_eval_activity,
+    execute_session_llm_judge_activity,
     fetch_session_for_evaluation,
     format_session_for_judge,
     session_fetch_lookback,
@@ -163,3 +170,43 @@ class TestFetchSessionForEvaluation:
         assert kwargs["for_evaluation"] is True
         assert kwargs["query"].dateRange.date_from is not None
         assert kwargs["query"].dateRange.date_to is not None
+
+
+class TestExecuteSessionActivities:
+    @pytest.mark.parametrize(
+        "skip_reason",
+        ["session_not_found", "session_too_large", "session_expired"],
+    )
+    def test_hog_skips_carry_a_session_specific_reason(self, skip_reason):
+        with patch(
+            "posthog.temporal.ai_observability.run_session_evaluation.fetch_session_for_evaluation",
+            return_value=SessionFetchOutcome(traces=None, skip_reason=skip_reason, event_count=0),
+        ):
+            result = async_to_sync(execute_session_hog_eval_activity)(
+                ExecuteSessionEvaluationInputs(
+                    evaluation={
+                        "evaluation_type": "hog",
+                        "evaluation_config": {"bytecode": ["_H", 1, 32, True]},
+                        "output_config": {"allows_na": False},
+                    },
+                    team_id=1,
+                    session_id="s-1",
+                    window_start=datetime.now(UTC).isoformat(),
+                    max_age_seconds=86400,
+                )
+            )
+        assert result["skipped"] is True
+        assert result["skip_reason"] == skip_reason
+        assert "session" in result["reasoning"].lower()
+
+    def test_judge_rejects_a_non_judge_evaluation(self):
+        with pytest.raises(ApplicationError, match="Unsupported evaluation type"):
+            execute_session_llm_judge_activity(
+                ExecuteSessionEvaluationInputs(
+                    evaluation={"evaluation_type": "hog", "output_type": "boolean"},
+                    team_id=1,
+                    session_id="s-1",
+                    window_start=datetime.now(UTC).isoformat(),
+                    max_age_seconds=86400,
+                )
+            )
