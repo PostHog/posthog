@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     _delta_merge_spill_kwargs,
     _first_per_pk_table,
     _realign_decimal_buffers,
+    is_transient_delta_maintenance_error,
 )
 
 
@@ -282,12 +283,13 @@ class TestCompactIfFragmented:
         expected_ran: bool,
     ):
         helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
-        mock_delta = MagicMock()
         file_uris = [f"s3://bucket/table/f{i}.parquet" for i in range(file_count)]
+        mock_delta = MagicMock()
+        mock_delta.file_uris = MagicMock(return_value=file_uris)
         with (
             patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)),
-            patch.object(helper, "get_file_uris", AsyncMock(return_value=file_uris)),
-            patch.object(helper, "compact_table", AsyncMock()) as mock_compact,
+            patch.object(helper, "_compact", AsyncMock()) as mock_compact,
+            patch.object(helper, "_vacuum", AsyncMock()) as mock_vacuum,
         ):
             kwargs: dict = {"partition_count": partition_count}
             if threshold_kw is not None:
@@ -296,9 +298,11 @@ class TestCompactIfFragmented:
 
         assert ran is expected_ran
         if expected_ran:
-            mock_compact.assert_called_once()
+            mock_compact.assert_called_once_with(mock_delta)
+            mock_vacuum.assert_called_once_with(mock_delta)
         else:
             mock_compact.assert_not_called()
+            mock_vacuum.assert_not_called()
 
     # (case_name, files_per_dir, dir_count, expected_ran)
     _DERIVATION_CASES: list[tuple[str, int, int, bool]] = [
@@ -324,18 +328,43 @@ class TestCompactIfFragmented:
             for d in range(dir_count)
             for i in range(files_per_dir)
         ]
+        mock_delta = MagicMock()
+        mock_delta.file_uris = MagicMock(return_value=file_uris)
         with (
-            patch.object(helper, "get_delta_table", AsyncMock(return_value=MagicMock())),
-            patch.object(helper, "get_file_uris", AsyncMock(return_value=file_uris)),
-            patch.object(helper, "compact_table", AsyncMock()) as mock_compact,
+            patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)),
+            patch.object(helper, "_compact", AsyncMock()) as mock_compact,
+            patch.object(helper, "_vacuum", AsyncMock()) as mock_vacuum,
         ):
             ran = await helper.compact_if_fragmented(partition_count=None)
 
         assert ran is expected_ran
         if expected_ran:
-            mock_compact.assert_called_once()
+            mock_compact.assert_called_once_with(mock_delta)
+            mock_vacuum.assert_called_once_with(mock_delta)
         else:
             mock_compact.assert_not_called()
+            mock_vacuum.assert_not_called()
+
+
+class TestCompactTable:
+    @pytest.mark.asyncio
+    async def test_does_not_refetch_table_for_the_vacuum_step(self, helper: DeltaTableHelper):
+        # Regression: compact_table used to finish its own compact, then call vacuum_table(),
+        # which called get_delta_table() again instead of reusing the table already in hand.
+        # get_delta_table() is cached only opportunistically (a concurrent sync of a different
+        # table can evict this table's cache entry), so that second call could come back None
+        # and raise "Deltatable not found" right after a successful compact. Asserting a single
+        # get_delta_table() call locks in that the vacuum step reuses the resolved table instead
+        # of re-deriving it.
+        mock_delta = MagicMock()
+        mock_delta.optimize.compact = MagicMock(return_value={})
+        mock_delta.vacuum = MagicMock(return_value=[])
+        with patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)) as mock_get:
+            await helper.compact_table()
+
+        mock_get.assert_called_once()
+        mock_delta.optimize.compact.assert_called_once()
+        mock_delta.vacuum.assert_called_once()
 
 
 class TestGetDeltaTableUnrecoverableErrors:
@@ -788,6 +817,43 @@ class TestAppendDecimalReconciliation:
             )
 
 
+class TestSchemaEvolutionNullability:
+    """A column added mid-table-lifetime always predates its own addition: every file the
+    table already holds was written without it, so `optimize.compact()` must be able to
+    treat those rows as null for that column. If schema evolution adds the column as NOT
+    NULL — which happens whenever the batch that introduces it has no nulls, since delta-rs
+    takes the new field's nullability straight from the incoming Arrow field — compaction
+    later fails with "Non-nullable column '<name>' is missing from the physical schema"."""
+
+    @pytest.mark.asyncio
+    async def test_compact_survives_a_column_added_by_an_all_non_null_batch(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        deltalake.write_deltalake(delta_path, pa.table({"id": pa.array([1, 2], type=pa.int64())}))
+
+        helper = _make_local_helper(delta_path)
+
+        # The incoming field is non-nullable because every value in *this* batch is
+        # non-null — exactly how upstream Arrow construction infers it, unrelated to
+        # whether the column can appear in prior or future batches.
+        fields: list[pa.Field] = [pa.field("id", pa.int64()), pa.field("status", pa.string(), nullable=False)]
+        batch_schema = pa.schema(fields)
+        batch = pa.table(
+            {"id": pa.array([3, 4], type=pa.int64()), "status": pa.array(["ok", "ok"])}, schema=batch_schema
+        )
+
+        result = await helper.write_to_deltalake(
+            data=batch, write_type="append", should_overwrite_table=False, primary_keys=None
+        )
+        status_field = next(f for f in result.schema().fields if f.name == "status")
+        assert status_field.nullable is True
+
+        await helper.compact_table()
+
+        final = result.to_pyarrow_table()
+        by_id = dict(zip(final.column("id").to_pylist(), final.column("status").to_pylist()))
+        assert by_id == {1: None, 2: None, 3: "ok", 4: "ok"}
+
+
 class TestIncrementalBatchDeduplication:
     """Duplicate PKs in a source batch must never reach the Delta write.
 
@@ -1096,13 +1162,15 @@ class TestVacuumIfStale:
         table.version = MagicMock(return_value=150)
         with (
             patch.object(helper, "get_delta_table", new=AsyncMock(return_value=table)),
-            patch.object(helper, "vacuum_table", new=AsyncMock()) as vacuum,
+            patch.object(helper, "_vacuum", new=AsyncMock()) as vacuum,
             patch(f"{module}.posthoganalytics") as ph,
         ):
             result = await helper.vacuum_if_stale(last_version, 100)
 
         assert result == expected_return
         assert vacuum.await_count == (1 if expect_vacuum else 0)
+        if expect_vacuum:
+            vacuum.assert_awaited_once_with(table)
         # The observability event fires exactly when a vacuum runs — not on seed/skip — so the cadence is measurable.
         assert ph.capture.call_count == (1 if expect_vacuum else 0)
         if expect_vacuum:
@@ -1177,3 +1245,25 @@ class TestIsTableCorrupted:
             result = await helper.is_table_corrupted()
 
         assert result is expected
+
+
+class TestIsTransientDeltaMaintenanceError:
+    @parameterized.expand(
+        [
+            # A concurrent optimize/vacuum losing the race on a file scan: safe to skip and retry.
+            (
+                "optimize_scan_file_not_found",
+                deltalake.exceptions.DeltaError(
+                    "Failed to parse parquet: Optimize selected-file scan failed while scanning data: "
+                    "Object at location .../part-0.parquet not found: 404 Not Found"
+                ),
+                True,
+            ),
+            # Other DeltaErrors are real failures (e.g. a genuinely corrupt log) and must still be captured.
+            ("unrelated_delta_error", deltalake.exceptions.DeltaError("no protocol found in delta log"), False),
+            # Same message shape but not the DeltaError type delta-rs actually raises for it.
+            ("wrong_exception_type", RuntimeError("Optimize selected-file scan failed"), False),
+        ]
+    )
+    def test_matches_only_the_racy_optimize_scan_signature(self, _name: str, error: Exception, expected: bool):
+        assert is_transient_delta_maintenance_error(error) is expected

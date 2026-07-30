@@ -123,9 +123,8 @@ fn setup_router_for_mode(
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        false,
+        None, // recorder_handle
         capture_mode,
-        String::from("capture-analytics"),
         None,
         25 * 1024 * 1024,
         false,

@@ -6,14 +6,13 @@ from uuid import UUID
 
 import structlog
 from temporalio import activity
-from temporalio.client import Client, WorkflowExecutionStatus
-from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.temporal.activities.observation_state import mark_observation_terminal
+from products.replay_vision.backend.temporal.activities.reaping import classify_stale_rows
 from products.replay_vision.backend.temporal.constants import (
     OBSERVATION_ORPHAN_CUTOFF,
     REAP_ORPHANED_OBSERVATIONS_BATCH_SIZE,
@@ -39,19 +38,6 @@ def _list_stale_observations() -> list[dict[str, Any]]:
     return cast(list[dict[str, Any]], list(rows))
 
 
-async def _workflow_is_open(temporal: Client, workflow_id: str) -> bool | None:
-    """Whether the latest run of `workflow_id` is still open; `None` when Temporal couldn't answer."""
-    try:
-        desc = await temporal.get_workflow_handle(workflow_id).describe()
-    except RPCError as e:
-        if e.status == RPCStatusCode.NOT_FOUND:
-            return False
-        return None
-    except Exception:
-        return None
-    return desc.status == WorkflowExecutionStatus.RUNNING
-
-
 def _mark_orphaned(observation_id: UUID, scanner_type: str) -> bool:
     return mark_observation_terminal(
         observation_id=observation_id,
@@ -74,18 +60,11 @@ async def reap_orphaned_observations_activity() -> int:
     if not rows:
         return 0
     temporal = await async_connect()
+    reapable, skipped_open, skipped_temporal_error = await classify_stale_rows(
+        temporal, rows, workflow_id_key="workflow_id"
+    )
     reaped = 0
-    skipped_open = 0
-    skipped_temporal_error = 0
-    for row in rows:
-        if row["workflow_id"]:
-            is_open = await _workflow_is_open(temporal, row["workflow_id"])
-            if is_open:
-                skipped_open += 1
-                continue
-            if is_open is None:
-                skipped_temporal_error += 1  # Can't prove it's closed — leave it for the next tick.
-                continue
+    for row in reapable:
         snapshot = row["scanner_snapshot"] or {}
         scanner_type = snapshot.get("scanner_type") or "unknown"
         if await database_sync_to_async(_mark_orphaned, thread_sensitive=False)(row["id"], scanner_type):

@@ -1599,6 +1599,25 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.selectedConnectionSupportsHogQL).toEqual(true)
             expect(logic.values.sourceQuery.source.sendRawQuery).toEqual(true)
             expect(logic.values.sendRawQueryEnabled).toEqual(true)
+
+            // The database sidebar opens a query through this URL without a raw hash param.
+            // The connection stays the same, so the query-opening path must reapply the default.
+            router.actions.push(
+                urls.sqlEditor({
+                    query: 'SELECT * FROM managed_warehouse.events',
+                    connectionId: 'managed-conn-1',
+                })
+            )
+
+            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+
+            expect(logic.values.sourceQuery.source.sendRawQuery).toEqual(true)
+            expect(logic.values.sendRawQueryEnabled).toEqual(true)
+            expect(String(router.values.hashParams.raw)).toEqual('1')
+
+            logic.actions.setSendRawQuery(false)
+
+            expect(logic.values.sendRawQueryEnabled).toEqual(false)
         })
 
         it('does not force raw SQL mode for a user-managed Postgres direct connection', async () => {
@@ -1762,6 +1781,80 @@ describe('sqlEditorLogic', () => {
             expect(performQuerySpy).toHaveBeenCalledTimes(1)
             expect(performQuerySpy.mock.calls[0][0]).toMatchObject({ connectionId: 'conn-123' })
             expect(databaseLogic.values.connectionId).toEqual('conn-123')
+
+            performQuerySpy.mockRestore()
+        })
+
+        it('hands the shared schema catalog back unscoped when a connected editor unmounts', async () => {
+            const performQuerySpy = jest
+                .spyOn(queryRunner, 'performQuery')
+                .mockResolvedValue({ tables: {}, joins: [] } as never)
+
+            const editorLogic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            editorLogic.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'conn-123' })
+            await expectLogic(editorLogic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(databaseLogic.values.connectionId).toEqual('conn-123')
+
+            // databaseTableListLogic outlives the editor, so leaving it scoped hides everything the
+            // project owns (self-managed sources, views) from every other page that reads it.
+            performQuerySpy.mockClear()
+            editorLogic.unmount()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(databaseLogic.values.connectionId).toBeNull()
+            expect(performQuerySpy).toHaveBeenCalledTimes(1)
+            expect(performQuerySpy.mock.calls[0][0]).toMatchObject({ connectionId: undefined })
+
+            performQuerySpy.mockRestore()
+        })
+
+        it('keeps the catalog scoped while another editor on the same connection is still mounted', async () => {
+            const performQuerySpy = jest
+                .spyOn(queryRunner, 'performQuery')
+                .mockResolvedValue({ tables: {}, joins: [] } as never)
+
+            // Notebooks, metrics and endpoints each mount their own embedded editor, so two can sit
+            // on the same connection at once.
+            const firstEditor = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            const secondEditor = sqlEditorLogic({
+                tabId: `${TAB_ID}-second`,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            firstEditor.mount()
+            secondEditor.mount()
+
+            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', c: 'conn-123' })
+            await expectLogic(firstEditor).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(databaseLogic.values.connectionId).toEqual('conn-123')
+            expect(secondEditor.values.selectedConnectionId).toEqual('conn-123')
+
+            // Closing one must not yank the scope away from the other: it would keep running with
+            // the project catalog and never rescope, since its own connection never changed.
+            performQuerySpy.mockClear()
+            firstEditor.unmount()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(databaseLogic.values.connectionId).toEqual('conn-123')
+            expect(performQuerySpy).not.toHaveBeenCalled()
+
+            secondEditor.unmount()
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(databaseLogic.values.connectionId).toBeNull()
+            expect(performQuerySpy.mock.calls[0][0]).toMatchObject({ connectionId: undefined })
 
             performQuerySpy.mockRestore()
         })

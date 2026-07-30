@@ -112,11 +112,18 @@ def _output_instruction(config: EnrichmentPromptConfig) -> str:
 def _bounded(value: Any) -> Any:
     """Cap a single value's contribution to the prompt. An input_fields value can be an
     arbitrarily long string or list (e.g. description, tagsV2), and one company payload with a
-    200 KB description would otherwise set the bill for the whole run."""
-    if isinstance(value, str) and len(value) > MAX_INPUT_VALUE_CHARS:
-        return value[:MAX_INPUT_VALUE_CHARS] + "…"
-    if isinstance(value, list) and len(value) > MAX_INPUT_LIST_ITEMS:
-        return value[:MAX_INPUT_LIST_ITEMS]
+    200 KB description would otherwise set the bill for the whole run.
+
+    Recurses for the same reason to_domain does: several provider fields hold lists of objects, so
+    capping only the top level lets an oversized nested string through to the prompt and into the
+    stored inputs.
+    """
+    if isinstance(value, str):
+        return value[:MAX_INPUT_VALUE_CHARS] + "…" if len(value) > MAX_INPUT_VALUE_CHARS else value
+    if isinstance(value, dict):
+        return {key: _bounded(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_bounded(item) for item in value[:MAX_INPUT_LIST_ITEMS]]
     return value
 
 

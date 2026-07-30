@@ -432,6 +432,7 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
 export interface mcpDashboardOverviewLogicValues {
     clusters: readonly MCPIntentClusterApi[] // mcpClusteringLogic
     hasSnapshot: boolean // mcpClusteringLogic
+    totalClusterCount: number // mcpClusteringLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     timezone: string // teamLogic
     activityIncompleteTail: boolean
@@ -645,7 +646,7 @@ export interface mcpDashboardOverviewLogicMeta {
         dailyActivity: (activityRows: ActivityRow[], bucketKeys: string[]) => DailyActivity
         toolDailySeries: (toolDailyRows: ToolDailyRow[], bucketKeys: string[]) => ToolDailySeries
         notableSessions: (sessionRows: SessionRow[]) => NotableSession[]
-        intentClusterCount: (clusters: readonly MCPIntentClusterApi[]) => KPIMetric
+        intentClusterCount: (totalClusterCount: number) => KPIMetric
     }
 }
 
@@ -659,7 +660,12 @@ export type mcpDashboardOverviewLogicType = MakeLogicType<
 export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'mcpDashboardOverviewLogic']),
     connect(() => ({
-        values: [mcpClusteringLogic, ['clusters', 'hasSnapshot'], teamLogic, ['timezone', 'currentTeam']],
+        values: [
+            mcpClusteringLogic,
+            ['clusters', 'hasSnapshot', 'totalClusterCount'],
+            teamLogic,
+            ['timezone', 'currentTeam'],
+        ],
     })),
     actions({
         setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
@@ -896,9 +902,11 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             (sessionRows: SessionRow[]): NotableSession[] => pickNotableSessions(sessionRows),
         ],
         intentClusterCount: [
-            (s) => [s.clusters],
-            (clusters: readonly MCPIntentClusterApi[]): KPIMetric => ({
-                value: clusters.length,
+            // The snapshot only stores the top clusters by call volume — report
+            // the run's true count, not the length of the truncated list.
+            (s) => [s.totalClusterCount],
+            (totalClusterCount: number): KPIMetric => ({
+                value: totalClusterCount,
                 previousValue: 0,
                 deltaPct: null,
                 sparkline: [],
