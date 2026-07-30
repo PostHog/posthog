@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 # pairing in `get_exposure_event_and_property` (and the handling of configs that explicitly
 # name `$feature_flag_called`) must move with it.
 DEFAULT_EXPOSURE_EVENT = "$feature_flag_called"
+DEDICATED_EXPOSURE_EVENT = "$experiment_exposure"
 
 
 def _is_actions_node_dict(config: dict) -> bool:
@@ -192,6 +193,39 @@ def get_exposure_event_and_property(
     return event, feature_flag_variant_property
 
 
+def build_exposure_variant_expr(
+    feature_flag_key: str,
+    exposure_criteria: Union[ExperimentExposureCriteria, dict, None] = None,
+) -> ast.Expr:
+    criteria = normalize_to_exposure_criteria(exposure_criteria)
+    exposure_config = criteria.exposure_config if criteria else None
+
+    if not isinstance(exposure_config, ActionsNode) and (
+        not exposure_config or exposure_config.event == DEFAULT_EXPOSURE_EVENT
+    ):
+        return parse_expr(
+            "if(event = {dedicated_event}, {dedicated_variant}, {legacy_variant})",
+            placeholders={
+                "dedicated_event": ast.Constant(value=DEDICATED_EXPOSURE_EVENT),
+                "dedicated_variant": ast.Field(chain=["properties", "$experiment_variant"]),
+                "legacy_variant": ast.Field(chain=["properties", "$feature_flag_response"]),
+            },
+        )
+
+    return build_exposure_mapping_variant_expr(feature_flag_key)
+
+
+def build_exposure_mapping_variant_expr(feature_flag_key: str) -> ast.Expr:
+    return parse_expr(
+        "coalesce(nullIf(JSONExtractString({exposures}, {flag_key}), ''), {legacy_variant})",
+        placeholders={
+            "exposures": ast.Field(chain=["properties", "$experiment_exposures"]),
+            "flag_key": ast.Constant(value=feature_flag_key),
+            "legacy_variant": ast.Field(chain=["properties", f"$feature/{feature_flag_key}"]),
+        },
+    )
+
+
 def _get_event_name_from_config(exposure_config: Optional[Union[ActionsNode, ExperimentEventExposureConfig]]) -> str:
     """Extract event name from exposure config, defaulting to DEFAULT_EXPOSURE_EVENT."""
     if not exposure_config or not hasattr(exposure_config, "event"):
@@ -223,16 +257,24 @@ def _build_event_filters(
 
     # Handle event-based exposure
     event = _get_event_name_from_config(exposure_config)
-    filters: list[ast.Expr] = [
-        ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["event"]),
-            right=ast.Constant(value=event),
-        )
-    ]
+    event_filter = ast.CompareOperation(
+        op=ast.CompareOperationOp.Eq,
+        left=ast.Field(chain=["event"]),
+        right=ast.Constant(value=event),
+    )
+    filters: list[ast.Expr] = [event_filter]
 
-    # Add feature flag key filter for $feature_flag_called events
     if event == "$feature_flag_called" and feature_flag_key:
+        filters[0] = ast.Or(
+            exprs=[
+                event_filter,
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["event"]),
+                    right=ast.Constant(value=DEDICATED_EXPOSURE_EVENT),
+                ),
+            ]
+        )
         filters.append(
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
@@ -308,10 +350,13 @@ def build_common_exposure_conditions(
             left=ast.Field(chain=["timestamp"]),
             right=ast.Constant(value=date_range_query.date_to()),
         ),
-        # Variant filter
         ast.CompareOperation(
             op=ast.CompareOperationOp.In,
-            left=ast.Field(chain=["properties", feature_flag_variant_property]),
+            left=(
+                build_exposure_variant_expr(feature_flag_key, criteria)
+                if feature_flag_key
+                else ast.Field(chain=["properties", feature_flag_variant_property])
+            ),
             right=ast.Constant(value=variants),
         ),
         # Test accounts filter

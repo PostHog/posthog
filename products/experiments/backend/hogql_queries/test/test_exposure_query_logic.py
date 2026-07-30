@@ -1,8 +1,16 @@
 import pytest
+from unittest.mock import MagicMock
 
 from posthog.schema import ExperimentEventExposureConfig, ExperimentExposureCriteria
 
-from products.experiments.backend.hogql_queries.exposure_query_logic import normalize_to_exposure_criteria
+from posthog.hogql import ast
+
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    build_exposure_event_conditions,
+    build_exposure_mapping_variant_expr,
+    build_exposure_variant_expr,
+    normalize_to_exposure_criteria,
+)
 
 
 class TestNormalizeToExposureCriteria:
@@ -45,3 +53,31 @@ class TestNormalizeToExposureCriteria:
 
         # Should return the exact same object, not a copy
         assert result is typed_criteria
+
+
+class TestDualReadExposureContract:
+    def test_default_exposure_reads_legacy_and_dedicated_events(self):
+        conditions = build_exposure_event_conditions(None, MagicMock(), "checkout-cta")
+
+        assert isinstance(conditions[0], ast.Or)
+        assert [expr.right.value for expr in conditions[0].exprs if isinstance(expr, ast.CompareOperation)] == [
+            "$feature_flag_called",
+            "$experiment_exposure",
+        ]
+        assert isinstance(build_exposure_variant_expr("checkout-cta"), ast.Call)
+        assert build_exposure_variant_expr("checkout-cta").name == "if"
+
+    def test_custom_exposure_prefers_mapping_and_falls_back_to_legacy_property(self):
+        criteria = {
+            "exposure_config": {
+                "kind": "ExperimentEventExposureConfig",
+                "event": "checkout started",
+                "properties": [],
+            }
+        }
+
+        expression = build_exposure_variant_expr("checkout-cta", criteria)
+
+        assert expression == build_exposure_mapping_variant_expr("checkout-cta")
+        assert isinstance(expression, ast.Call)
+        assert expression.name == "coalesce"

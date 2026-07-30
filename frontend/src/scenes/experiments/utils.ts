@@ -267,6 +267,8 @@ export function getViewRecordingFiltersForVariant(
     experiment: Experiment,
     variantKey?: string
 ): UniversalFiltersGroupValue[] {
+    // TODO(experiment-exposure-rewrite): Add an OR exposure-filter group so recordings can match
+    // either $feature_flag_called or $experiment_exposure without turning the array into an AND.
     const variantKeys =
         variantKey !== undefined ? [variantKey] : getExperimentVariants(experiment).map((variant) => variant.key)
     const exposureConfig = experiment.exposure_criteria?.exposure_config
@@ -437,6 +439,8 @@ export function isUnlinkableEventFilter(
  * steps, which have no event name.
  */
 export function getSessionLinkabilityEventNames(experiment: Experiment): string[] {
+    // TODO(experiment-exposure-rewrite): Return alternative exposure event groups once the
+    // linkability API can express OR; a flat event-name set currently treats both as required.
     const eventNames = new Set<string>()
 
     const exposureConfig = experiment.exposure_criteria?.exposure_config

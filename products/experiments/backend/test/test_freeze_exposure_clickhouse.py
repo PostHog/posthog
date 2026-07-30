@@ -62,6 +62,10 @@ class TestFreezeExposureClickhouse(ClickhouseTestMixin, APIBaseTest):
             properties: dict = {"$feature_flag": flag_key}
             if variant is not None:
                 properties["$feature_flag_response"] = variant
+        elif event == "$experiment_exposure":
+            properties = {"$feature_flag": flag_key}
+            if variant is not None:
+                properties["$experiment_variant"] = variant
         else:
             properties = {f"$feature/{flag_key}": variant} if variant is not None else {}
         _create_event(
@@ -96,6 +100,19 @@ class TestFreezeExposureClickhouse(ClickhouseTestMixin, APIBaseTest):
 
         assert sorted(uuids) == sorted([str(exposed_1.uuid), str(exposed_2.uuid)])
 
+    def test_fetch_exposed_person_uuids_reads_dedicated_exposures(self) -> None:
+        experiment = self._create_running_experiment("freeze-dedicated-flag")
+        assert experiment.start_date is not None
+        exposed = self._expose_person(
+            "dedicated-exposed",
+            "freeze-dedicated-flag",
+            experiment.start_date + timedelta(days=1),
+            event="$experiment_exposure",
+        )
+        flush_persons_and_events()
+
+        assert self._service()._fetch_exposed_person_uuids(experiment) == [str(exposed.uuid)]
+
     def test_fetch_exposed_person_uuids_honors_custom_exposure_criteria(self) -> None:
         experiment = self._create_running_experiment(
             "freeze-custom-flag",
@@ -111,6 +128,14 @@ class TestFreezeExposureClickhouse(ClickhouseTestMixin, APIBaseTest):
         exposed_at = experiment.start_date + timedelta(days=1)
 
         exposed = self._expose_person("custom-exposed", "freeze-custom-flag", exposed_at, event="checkout started")
+        mapped = self._expose_person(
+            "custom-mapped",
+            "freeze-custom-flag",
+            exposed_at,
+            event="checkout started",
+            variant=None,
+            extra_properties={"$experiment_exposures": {"freeze-custom-flag": "control"}},
+        )
         # With a custom exposure event configured, plain $feature_flag_called events don't count —
         # teams configure this exactly because those events are absent or unreliable for them.
         self._expose_person("flag-called-only", "freeze-custom-flag", exposed_at)
@@ -122,7 +147,7 @@ class TestFreezeExposureClickhouse(ClickhouseTestMixin, APIBaseTest):
 
         uuids = self._service()._fetch_exposed_person_uuids(experiment)
 
-        assert uuids == [str(exposed.uuid)]
+        assert sorted(uuids) == sorted([str(exposed.uuid), str(mapped.uuid)])
 
     def test_fetch_exposed_person_uuids_ignores_test_account_filters(self) -> None:
         # filterTestAccounts shapes which exposures are *analyzed*; the snapshot decides who keeps

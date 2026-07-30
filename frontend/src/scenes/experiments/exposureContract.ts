@@ -40,6 +40,8 @@ export function getExposureEventAndProperty({
     featureFlagKey: string
     exposureCriteria: ExperimentExposureCriteria | undefined
 }): { event: string | null; variantProperty: string } {
+    // TODO(experiment-exposure-rewrite): This return type cannot represent the dual-read default
+    // contract. Replace it with event/property alternatives once frontend filters support OR groups.
     const exposureConfig = exposureCriteria?.exposure_config
 
     // No config, or the default `$feature_flag_called` event: variant lives on `$feature_flag_response`.

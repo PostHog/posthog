@@ -54,6 +54,8 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend import metric_events
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     build_exposure_event_conditions,
+    build_exposure_mapping_variant_expr,
+    build_exposure_variant_expr,
     get_exposure_event_and_property,
     normalize_to_exposure_criteria,
 )
@@ -97,14 +99,9 @@ MAX_SESSION_CONTEXT_BATCH_DAYS = 5
 
 @dataclass(frozen=True)
 class _ResolvedExposure:
-    """An experiment's exposure criteria resolved to what its exposure query needs: which
-    property carries the variant, whether the experiment can share the batched default
-    `$feature_flag_called` query, and the normalized criteria + flag key from which the
-    per-experiment branch conditions are built — lazily, after the branch cap, since
-    action-based conditions cost a Postgres lookup each."""
+    """Inputs needed to build an experiment's exposure query."""
 
     flag_key: str
-    variant_property: str
     criteria: Optional[ExperimentExposureCriteria]
     batchable: bool
 
@@ -714,19 +711,13 @@ def _resolve_exposure(flag_key: str, exposure_criteria: Optional[dict]) -> _Reso
     except pydantic.ValidationError:
         criteria = None
     exposure_config = criteria.exposure_config if criteria else None
-    event, variant_property = get_exposure_event_and_property(flag_key, criteria)
-    # Only experiments whose criteria resolve to the plain `$feature_flag_called` shape (no
-    # extra property filters) can share the batched query. The literal is deliberate — it names
-    # the batched query's shape, not the default: if DEFAULT_EXPOSURE_EVENT ever changes in
-    # `exposure_query_logic`, criteria-less experiments resolve to the new event here and
-    # automatically take the per-experiment branch path, which follows the criteria.
+    event, _ = get_exposure_event_and_property(flag_key, criteria)
+    # Only the unfiltered default exposure shape can share the batched dual-read query.
     has_property_filters = isinstance(exposure_config, ExperimentEventExposureConfig) and bool(
         exposure_config.properties
     )
     batchable = event == "$feature_flag_called" and not has_property_filters
-    return _ResolvedExposure(
-        flag_key=flag_key, variant_property=variant_property, criteria=criteria, batchable=batchable
-    )
+    return _ResolvedExposure(flag_key=flag_key, criteria=criteria, batchable=batchable)
 
 
 def _variant_keys_from_filters(filters: Optional[dict]) -> set[str]:
@@ -744,27 +735,23 @@ def _query_flag_evaluations(
     flag_keys: set[str],
     variants: set[str],
 ) -> dict[str, dict[str, list[tuple[str, datetime]]]]:
-    """The sessions' `$feature_flag_called` events for the given experiment flag keys and
+    """The sessions' legacy or dedicated exposure events for the given experiment flag keys and
     defined variant names, as session_id -> flag_key -> [(variant, first_seen)]. Serves two
     roles: variant evidence for every experiment (the replay shows what the session was
     served, whatever the exposure criteria say), and the exposure moment for experiments whose
     criteria resolve to the plain default shape (`$feature_flag_called` with no extra property
     filters).
 
-    Shape-bound to `$feature_flag_called` on purpose — the `$feature_flag` batching key and
-    the `$feature_flag_response` variant property come with that event, so all three are
-    hardcoded together. If DEFAULT_EXPOSURE_EVENT changes in `exposure_query_logic`, this
-    query needs no rewrite: flag evaluations stay `$feature_flag_called` events, and
-    `_resolve_exposure` stops classifying criteria-less experiments as batchable, so their
-    exposure moments move to the branch path."""
+    Both event shapes carry `$feature_flag`; the variant expression selects their respective
+    variant property."""
     query = parse_select(
         """
         SELECT $session_id AS session_id,
                properties.$feature_flag AS flag_key,
-               toString(properties.$feature_flag_response) AS variant,
+               toString(if(event = '$experiment_exposure', properties.$experiment_variant, properties.$feature_flag_response)) AS variant,
                min(timestamp) AS first_seen
         FROM events
-        WHERE event = '$feature_flag_called'
+        WHERE event IN ('$feature_flag_called', '$experiment_exposure')
           AND $session_id IN {session_ids}
           AND properties.$feature_flag IN {flag_keys}
           AND toString(properties.$feature_flag_response) IN {variants}
@@ -809,9 +796,7 @@ def _query_exposure_event_branches(
 
     One union branch per experiment: the event/action and property filters come from the
     experiment's exposure criteria via `build_exposure_event_conditions`, and the variant from
-    the property `get_exposure_event_and_property` dictates — the stamped `$feature/<key>`
-    property for custom events and actions (they carry no `$feature_flag_response`),
-    `$feature_flag_response` for the default event.
+    the shared dual-read variant expression.
     """
     branches: list[ast.SelectQuery] = []
     for experiment_id, resolution, variants in branch_meta:
@@ -843,7 +828,7 @@ def _query_exposure_event_branches(
             """,
             placeholders={
                 "experiment_id": ast.Constant(value=experiment_id),
-                "variant_field": ast.Field(chain=["properties", resolution.variant_property]),
+                "variant_field": build_exposure_variant_expr(resolution.flag_key, resolution.criteria),
                 "exposure_conditions": ast.And(exprs=conditions) if conditions else ast.Constant(value=True),
                 "session_ids": ast.Constant(value=session_ids),
                 "variants": ast.Constant(value=sorted(variants)),
@@ -898,7 +883,7 @@ def _query_stamped_flag_properties(
                 alias=f"v{index}",
                 expr=ast.Call(
                     name="groupUniqArray",
-                    args=[ast.Call(name="toString", args=[ast.Field(chain=["properties", f"$feature/{key}"])])],
+                    args=[ast.Call(name="toString", args=[build_exposure_mapping_variant_expr(key)])],
                 ),
             )
             for index, key in enumerate(sorted_keys)

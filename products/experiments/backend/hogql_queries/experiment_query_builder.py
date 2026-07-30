@@ -606,8 +606,7 @@ class ExperimentQueryBuilder:
     def _build_test_accounts_filter(self) -> ast.Expr:
         return self._exposure_query_builder().build_test_accounts_filter()
 
-    def _build_variant_property(self) -> ast.Field:
-        """Derive which event property that should be used for variants"""
+    def _build_variant_property(self) -> ast.Expr:
         return self._exposure_query_builder().build_variant_property()
 
     def _build_variant_expr_for_funnel(self) -> ast.Expr:

@@ -207,6 +207,9 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             ]
         # 2. Otherwise, we construct a default exposure query: unique users for the $feature_flag_called event
         else:
+            # TODO(experiment-exposure-rewrite): TrendsQuery cannot select two event names with
+            # event-specific variant properties. Replace this legacy runner with the shared
+            # ExposureQueryBuilder, or add a union source before removing $feature_flag_called.
             prepared_exposure_query = TrendsQuery(
                 dateRange=self._get_date_range(),
                 trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE),

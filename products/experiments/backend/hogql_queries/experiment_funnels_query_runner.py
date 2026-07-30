@@ -128,7 +128,8 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
             explicitDate=True,
         )
 
-        # Configure the breakdown to use the feature flag key
+        # TODO(experiment-exposure-rewrite): This legacy funnel attributes variants from one
+        # flat property. Move it to ExposureQueryBuilder before removing $feature/<flag_key>.
         prepared_funnels_query.breakdownFilter = BreakdownFilter(
             breakdown=f"$feature/{self.feature_flag_key}",
             breakdown_type="event",

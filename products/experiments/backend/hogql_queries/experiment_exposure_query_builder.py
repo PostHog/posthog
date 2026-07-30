@@ -10,6 +10,7 @@ from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import event_or_action_to_filter
 from products.experiments.backend.hogql_queries.breakdown_injector import BreakdownInjector
 from products.experiments.backend.hogql_queries.experiment_query_context import ExperimentQueryContext
+from products.experiments.backend.hogql_queries.exposure_query_logic import build_exposure_mapping_variant_expr
 
 
 def _optimize_and_chain(expr: ast.Expr) -> ast.Expr:
@@ -200,14 +201,7 @@ class ExposureQueryBuilder:
                 },
             )
 
-        return parse_expr(
-            "coalesce(nullIf(JSONExtractString({exposures}, {flag_key}), ''), {legacy_variant})",
-            placeholders={
-                "exposures": ast.Field(chain=["properties", "$experiment_exposures"]),
-                "flag_key": ast.Constant(value=self.context.feature_flag_key),
-                "legacy_variant": ast.Field(chain=["properties", f"$feature/{self.context.feature_flag_key}"]),
-            },
-        )
+        return build_exposure_mapping_variant_expr(self.context.feature_flag_key)
 
     def build_exposure_event_predicate(self) -> ast.Expr:
         """

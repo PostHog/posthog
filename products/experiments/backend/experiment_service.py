@@ -58,7 +58,7 @@ from products.experiments.backend.hogql_queries.base_query_utils import is_thres
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     build_exposure_event_conditions,
-    get_exposure_event_and_property,
+    build_exposure_variant_expr,
 )
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
@@ -2077,7 +2077,7 @@ class ExperimentService:
         assert start_date is not None
         flag_key = experiment.get_feature_flag_key()
 
-        _, variant_property = get_exposure_event_and_property(flag_key, experiment.exposure_criteria)
+        variant_expr = build_exposure_variant_expr(flag_key, experiment.exposure_criteria)
         variant_keys = [variant["key"] for variant in experiment.feature_flag.variants]
 
         conditions: list[ast.Expr] = [
@@ -2092,7 +2092,7 @@ class ExperimentService:
             conditions.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
-                    left=ast.Field(chain=["properties", variant_property]),
+                    left=variant_expr,
                     right=ast.Constant(value=variant_keys),
                 )
             )
@@ -3496,6 +3496,9 @@ class ExperimentService:
         if exposure_filter_data:
             exposure_filter = Filter(data={**exposure_filter_data, "is_simplified": True}, team=experiment.team)
 
+        # TODO(experiment-exposure-rewrite): Cohort filters accept one event entity, so this
+        # cannot yet union legacy and dedicated exposure events. Build the cohort from a HogQL
+        # definition using build_exposure_event_conditions before dropping the legacy event.
         target_entity: int | str = "$feature_flag_called"
         target_entity_type = "events"
         target_filters = [

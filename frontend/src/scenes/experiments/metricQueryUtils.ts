@@ -499,6 +499,8 @@ export const getExposureConfigEventsNode = (
     exposureConfig: ExperimentEventExposureConfig,
     options: { featureFlagKey: string; featureFlagVariants: MultivariateFlagVariant[] }
 ): EventsNode => {
+    // TODO(experiment-exposure-rewrite): EventsNode represents one event/property shape. Use a
+    // union exposure node backed by ExposureQueryBuilder before removing the legacy event.
     const exposure_step_name = 'Experiment exposure'
     if (exposureConfig && exposureConfig.event !== EXPOSURE_DEFAULT_EVENT) {
         const { featureFlagKey, featureFlagVariants } = options

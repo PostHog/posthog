@@ -553,7 +553,9 @@ class SessionReplaySummaryTool(MaxTool):
         """
         feature_flag_key = experiment.feature_flag.key
 
-        # Build filter structure matching RecordingUniversalFilters
+        # TODO(experiment-exposure-rewrite): RecordingUniversalFilters cannot OR two event
+        # groups with different variant properties. Add an OR-group contract shared with the
+        # frontend before relying solely on $experiment_exposure.
         return {
             "date_from": experiment.start_date.isoformat() if experiment.start_date else None,
             "date_to": experiment.end_date.isoformat() if experiment.end_date else datetime.now(UTC).isoformat(),

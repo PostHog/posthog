@@ -197,6 +197,20 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         assert result["first_exposure_timestamp"] == "2026-01-01T10:02:11Z"
         assert result["experiment_end_date"] is None
 
+    def test_resolves_variant_from_dedicated_exposure_event(self) -> None:
+        self._create_recording()
+        experiment = self._create_experiment()
+        self._create_session_event(
+            event="$experiment_exposure",
+            properties={"$feature_flag": "checkout-cta", "$experiment_variant": "test"},
+        )
+        flush_persons_and_events()
+
+        result = self._get_session_context().json()["results"][0]
+        assert result["experiment_id"] == experiment.id
+        assert result["variant"] == "test"
+        assert result["first_exposure_timestamp"] == "2026-01-01T10:02:11Z"
+
     def test_resolves_variant_from_stamped_properties_when_no_exposure_event(self) -> None:
         self._create_recording()
         experiment = self._create_experiment()
@@ -215,6 +229,20 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         assert results[0]["variants_seen"] == ["test"]
         assert results[0]["multiple_variants"] is False
         assert results[0]["first_exposure_timestamp"] is None
+
+    def test_resolves_variant_from_exposure_mapping_when_no_exposure_event(self) -> None:
+        self._create_recording()
+        experiment = self._create_experiment()
+        self._create_session_event(
+            event="$pageview",
+            properties={"$experiment_exposures": {"checkout-cta": "test"}},
+        )
+        flush_persons_and_events()
+
+        result = self._get_session_context().json()["results"][0]
+        assert result["experiment_id"] == experiment.id
+        assert result["variant"] == "test"
+        assert result["first_exposure_timestamp"] is None
 
     def test_multiple_variants_detected(self) -> None:
         self._create_recording()
@@ -258,7 +286,7 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         self._create_session_event(
             event="checkout started",
             timestamp="2026-01-01T10:05:00Z",
-            properties={"$feature/checkout-cta": "test"},
+            properties={"$experiment_exposures": {"checkout-cta": "test"}},
         )
         flush_persons_and_events()
 
