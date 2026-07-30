@@ -121,7 +121,7 @@ export const defaultScannerTemplates: readonly ScannerTemplate[] = [
         scanner_name: 'Post-experiment behavior',
         scanner_description: 'Flag sessions where a specific behavior occurs after experiment exposure.',
         scanner_config: {
-            prompt: 'Answer yes if the user shows the behavior you want to monitor after the experiment exposure event. Ignore behavior that happened before exposure. Otherwise answer no.',
+            prompt: 'The experiment exposure is the moment of the first $feature_flag_called event in the session. Answer yes if the user shows the behavior you want to monitor after that moment. Ignore behavior that happened before it. Otherwise answer no.',
         },
         query: {
             kind: NodeKind.RecordingsQuery,

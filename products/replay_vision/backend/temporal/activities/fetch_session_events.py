@@ -40,8 +40,10 @@ logger = structlog.get_logger(__name__)
 # page through the whole session.
 _EVENTS_PER_PAGE = 2000
 
-# Noisy SDK-internal events that add no signal for the LLM.
-_EVENTS_TO_IGNORE = ["$feature_flag_called"]
+# Kept empty on purpose: `$feature_flag_called` marks experiment exposure, so the post-experiment scanner
+# template needs it to separate pre- from post-exposure behavior. Events aren't inlined into the prompt anymore
+# (the model pulls them on demand via `get_events_around`) and identical rows dedup, so leaving it in adds no noise.
+_EVENTS_TO_IGNORE: list[str] = []
 
 # `properties.*` is the HogQL prefix for JSON properties; `uuid` is surfaced to the LLM as the `event_uuid` citation handle.
 _EXTRA_FIELDS = [

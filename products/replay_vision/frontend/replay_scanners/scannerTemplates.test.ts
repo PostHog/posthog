@@ -50,4 +50,11 @@ describe('newScanner', () => {
             })
         }
     )
+
+    // The post-experiment template splits pre- vs post-exposure behavior, so it must select on the exposure event
+    // ($feature_flag_called) and the backend must not strip that event from what the scanner sees.
+    it('selects the post-experiment template on the feature-flag exposure event', () => {
+        const scanner = newScanner('post_experiment_behavior')
+        expect(scanner.query?.events).toEqual([{ id: '$feature_flag_called', type: 'events' }])
+    })
 })

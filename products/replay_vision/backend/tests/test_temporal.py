@@ -1189,7 +1189,7 @@ class TestFetchSessionEventsActivity:
         assert exc_info.value.details == ("no_events",)
 
     @pytest.mark.asyncio
-    async def test_requests_extra_fields_and_event_blocklist(self) -> None:
+    async def test_requests_extra_fields_and_keeps_feature_flag_events(self) -> None:
         scanner = await sync_to_async(_make_scanner)()
         observation_id = uuid.uuid4()
         start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
@@ -1205,7 +1205,8 @@ class TestFetchSessionEventsActivity:
             )
 
         kwargs = mock_obj.get_events.call_args_list[0].kwargs
-        assert kwargs["events_to_ignore"] == ["$feature_flag_called"]
+        # `$feature_flag_called` is the experiment-exposure marker the post-experiment template needs, so it stays.
+        assert kwargs["events_to_ignore"] == []
         assert "elements_chain_ids" in kwargs["extra_fields"]
         assert "properties.$exception_types" in kwargs["extra_fields"]
         assert "properties.$exception_values" in kwargs["extra_fields"]
