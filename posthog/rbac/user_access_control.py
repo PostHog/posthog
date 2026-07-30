@@ -97,7 +97,6 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
 # Resource inheritance mapping - child resources inherit access from parent resources
 RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "session_recording_playlist": "session_recording",
-    "external_data_schema": "external_data_source",
     "warehouse_table": "warehouse_objects",
     "warehouse_view": "warehouse_objects",
     "evaluation": "llm_analytics",
@@ -456,8 +455,6 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "hog_flow"
     if name == "externaldatasource":
         return "external_data_source"
-    if name == "externaldataschema":
-        return "external_data_schema"
     if name == "datawarehousesavedquery":
         return "warehouse_view"
     if name == "datawarehousesavedqueryfolder":
