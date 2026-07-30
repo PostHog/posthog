@@ -247,7 +247,9 @@ export class IngestionConsumer {
             lane: this.config.INGESTION_LANE ?? 'unknown',
         })
 
-        this.finopsUsageMeter = new FinopsUsageMeter(this.deps.outputs)
+        this.finopsUsageMeter = new FinopsUsageMeter(this.deps.outputs, {
+            enabled: this.config.INGESTION_FINOPS_USAGE_METERS_ENABLED,
+        })
     }
 
     public get service(): PluginServerService {
@@ -449,9 +451,13 @@ export class IngestionConsumer {
             backgroundTask: this.runInstrumented('awaitScheduledWork', async () => {
                 const labels = { groupId: this.groupId }
                 // Drains scheduled produces and the hog transformer invocation results, which
-                // the pipeline's afterBatch flush step schedules as a side effect.
-                await timedHistogram(backgroundTaskProducesDuration, labels, () => this.promiseScheduler.waitForAll())
-                await this.finopsUsageMeter.flush()
+                // the pipeline's afterBatch flush step schedules as a side effect. The FinOps
+                // flush is independent of that drain, so run it in parallel rather than after it;
+                // it is internally fail-safe, so it can never reject this task.
+                await Promise.all([
+                    timedHistogram(backgroundTaskProducesDuration, labels, () => this.promiseScheduler.waitForAll()),
+                    this.finopsUsageMeter.flush(),
+                ])
             }),
         }
     }

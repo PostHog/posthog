@@ -202,6 +202,9 @@ export type IngestionConsumerConfig = {
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
     EVENT_SCHEMA_ENFORCEMENT_ENABLED: boolean
     KAFKA_BATCH_START_LOGGING_ENABLED: boolean
+    // FinOps usage metering: opt-in per deployment (off by default), env-controlled. Emits
+    // product-level usage meters to the finops pipeline; fail-safe, never blocks ingestion.
+    INGESTION_FINOPS_USAGE_METERS_ENABLED: boolean
     /** Teams whose $feature_flag_called events default to personless: '*' for all, '' to disable, or comma-separated team IDs */
     FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: string
 
@@ -339,6 +342,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         EVENT_SCHEMA_ENFORCEMENT_ENABLED: true,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
+        INGESTION_FINOPS_USAGE_METERS_ENABLED: false,
         FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
 
         // $feature_flag_called keep-first dedup config

@@ -4,6 +4,7 @@ import { defaultConfig } from '~/common/config/config'
 import { FINOPS_USAGE_OUTPUT, FinopsUsageOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { safeClickhouseString } from '~/common/utils/db/utils'
+import { captureException } from '~/common/utils/posthog'
 import { castTimestampOrNow } from '~/common/utils/utils'
 
 import { TimestampFormat } from '../../types'
@@ -40,6 +41,11 @@ export interface FinopsUsageMeterInput {
     count?: number
 }
 
+export interface FinopsUsageMeterOptions {
+    /** When false (the default) queue() and flush() are no-ops — the emitter is opt-in per consumer, env-controlled. */
+    enabled?: boolean
+}
+
 type AccumulatedMeter = {
     product: string
     billableUnit: string
@@ -64,72 +70,93 @@ type AccumulatedMeter = {
  */
 export class FinopsUsageMeter {
     private buffer = new Map<string, AccumulatedMeter>()
+    private readonly enabled: boolean
 
-    constructor(private readonly outputs: IngestionOutputs<FinopsUsageOutput>) {}
+    constructor(
+        private readonly outputs: IngestionOutputs<FinopsUsageOutput>,
+        options: FinopsUsageMeterOptions = {}
+    ) {
+        this.enabled = options.enabled ?? false
+    }
 
     queue(meter: FinopsUsageMeterInput): void {
-        finopsUsageMeterQueuedCounter.inc({ product: meter.product, billable_unit: meter.billableUnit })
-        const key = makeKey(meter)
-        const existing = this.buffer.get(key)
-        if (existing) {
-            existing.quantity += meter.quantity
-            existing.durationMs += meter.durationMs ?? 0
-            existing.count += meter.count ?? 1
-        } else {
-            this.buffer.set(key, {
-                product: meter.product,
-                billableUnit: meter.billableUnit,
-                teamId: meter.teamId ?? 0,
-                orgId: meter.orgId ?? '',
-                feature: meter.feature ?? '',
-                system: meter.system ?? '',
-                workload: meter.workload ?? '',
-                resourceId: meter.resourceId ?? '',
-                quantity: meter.quantity,
-                durationMs: meter.durationMs ?? 0,
-                count: meter.count ?? 1,
-            })
+        // Opt-in and fail-safe: metering must never block or break the work it measures, so a
+        // disabled meter is a no-op and any error is captured rather than thrown at the caller.
+        if (!this.enabled) {
+            return
+        }
+        try {
+            finopsUsageMeterQueuedCounter.inc({ product: meter.product, billable_unit: meter.billableUnit })
+            const key = makeKey(meter)
+            const existing = this.buffer.get(key)
+            if (existing) {
+                existing.quantity += meter.quantity
+                existing.durationMs += meter.durationMs ?? 0
+                existing.count += meter.count ?? 1
+            } else {
+                this.buffer.set(key, {
+                    product: meter.product,
+                    billableUnit: meter.billableUnit,
+                    teamId: meter.teamId ?? 0,
+                    orgId: meter.orgId ?? '',
+                    feature: meter.feature ?? '',
+                    system: meter.system ?? '',
+                    workload: meter.workload ?? '',
+                    resourceId: meter.resourceId ?? '',
+                    quantity: meter.quantity,
+                    durationMs: meter.durationMs ?? 0,
+                    count: meter.count ?? 1,
+                })
+            }
+        } catch (error) {
+            captureException(error)
         }
     }
 
     async flush(): Promise<void> {
-        if (this.buffer.size === 0) {
+        if (!this.enabled || this.buffer.size === 0) {
             return
         }
+        // Drain before producing so a failed produce drops the batch (best-effort) rather than
+        // letting the buffer grow unbounded across retries.
         const drained = [...this.buffer.values()]
         this.buffer.clear()
 
-        const timestamp = castTimestampOrNow(null, TimestampFormat.ClickHouse)
-        const environment = finopsEnvironment()
-        const serviceName = defaultConfig.OTEL_SERVICE_NAME || ''
-        // No partition key — ClickHouse re-aggregates and round-robin spreads load.
-        const messages = drained.map((m) => ({
-            value: Buffer.from(
-                safeClickhouseString(
-                    JSON.stringify({
-                        timestamp,
-                        product: m.product,
-                        team_id: m.teamId,
-                        org_id: m.orgId,
-                        feature: m.feature,
-                        environment,
-                        billable_unit: m.billableUnit,
-                        quantity: m.quantity,
-                        system: m.system,
-                        workload: m.workload,
-                        resource_id: m.resourceId,
-                        duration_ms: m.durationMs,
-                        service_name: serviceName,
-                        count: m.count,
-                    })
-                )
-            ),
-            key: null,
-        }))
-        await this.outputs.queueMessages(FINOPS_USAGE_OUTPUT, messages)
+        try {
+            const timestamp = castTimestampOrNow(null, TimestampFormat.ClickHouse)
+            const environment = finopsEnvironment()
+            const serviceName = defaultConfig.OTEL_SERVICE_NAME || ''
+            // No partition key — ClickHouse re-aggregates and round-robin spreads load.
+            const messages = drained.map((m) => ({
+                value: Buffer.from(
+                    safeClickhouseString(
+                        JSON.stringify({
+                            timestamp,
+                            product: m.product,
+                            team_id: m.teamId,
+                            org_id: m.orgId,
+                            feature: m.feature,
+                            environment,
+                            billable_unit: m.billableUnit,
+                            quantity: m.quantity,
+                            system: m.system,
+                            workload: m.workload,
+                            resource_id: m.resourceId,
+                            duration_ms: m.durationMs,
+                            service_name: serviceName,
+                            count: m.count,
+                        })
+                    )
+                ),
+                key: null,
+            }))
+            await this.outputs.queueMessages(FINOPS_USAGE_OUTPUT, messages)
 
-        for (const m of drained) {
-            finopsUsageMeterFlushedCounter.inc({ product: m.product, billable_unit: m.billableUnit })
+            for (const m of drained) {
+                finopsUsageMeterFlushedCounter.inc({ product: m.product, billable_unit: m.billableUnit })
+            }
+        } catch (error) {
+            captureException(error)
         }
     }
 }
