@@ -165,7 +165,7 @@ class TestInsightModel(BaseTest):
                     "dateRange": {
                         "date_from": "-14d",
                         "date_to": "-7d",
-                        "explicitDate": False,
+                        "explicitDate": None,
                         "daysOfWeek": None,
                         "excludeIncompletePeriods": False,
                     },
@@ -181,7 +181,7 @@ class TestInsightModel(BaseTest):
                     "dateRange": {
                         "date_from": "-4d",
                         "date_to": "-3d",
-                        "explicitDate": False,
+                        "explicitDate": None,
                         "daysOfWeek": None,
                         "excludeIncompletePeriods": False,
                     },
@@ -197,7 +197,7 @@ class TestInsightModel(BaseTest):
                     "dateRange": {
                         "date_from": "all",
                         "date_to": None,
-                        "explicitDate": False,
+                        "explicitDate": None,
                         "daysOfWeek": None,
                         "excludeIncompletePeriods": False,
                     },
