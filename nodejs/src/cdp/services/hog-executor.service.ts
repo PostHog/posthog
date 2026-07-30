@@ -488,7 +488,12 @@ export class HogExecutorService {
                         result = await this.executeFetch(nextInvocation, options)
                     }
                 } else if (queueParamsType === 'sendPushNotification') {
-                    result = await this.pushNotificationService.executeSendPushNotification(nextInvocation)
+                    // Same signal the email branch uses below: `sendEmailsInline` is only set by the
+                    // test panel, so it doubles as "this is a test send".
+                    result = await this.pushNotificationService.executeSendPushNotification(
+                        nextInvocation,
+                        options?.sendEmailsInline ?? false
+                    )
                 } else if (queueParamsType === 'email') {
                     // Route to the email queue only if we're not already there and the
                     // caller hasn't asked for inline-only execution (e.g. the test panel).

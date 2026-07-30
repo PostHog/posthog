@@ -136,7 +136,8 @@ export class PushNotificationService {
 
     @instrumented('push-notification.executeSendPushNotification')
     async executeSendPushNotification(
-        invocation: CyclotronJobInvocationHogFunction
+        invocation: CyclotronJobInvocationHogFunction,
+        isTest = false
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         if (invocation.queueParameters?.type !== 'sendPushNotification') {
             throw new Error('Bad invocation')
@@ -154,7 +155,9 @@ export class PushNotificationService {
         // Business metrics are emitted once, at the terminal outcome below, rather than per channel — a
         // rescheduled attempt must not re-count the same notification's skips or failures on every retry.
         const pushMetric = (metricName: 'push_sent' | 'push_skipped' | 'push_failed', count: number): void => {
-            if (count <= 0) {
+            // A test send from the editor's "Run test" must not land in the workflow's Metrics tab,
+            // matching what the email path already does.
+            if (count <= 0 || isTest) {
                 return
             }
             result.metrics.push({
@@ -278,7 +281,9 @@ export class PushNotificationService {
         // Only a delivered notification is captured, matching email: an asset is a snapshot of what a
         // recipient received, and a skip has no recipient. Skips stay visible as `push_skipped` plus the
         // per-channel run log explaining why.
-        if (this.messageAssetsService && successCount > 0) {
+        // Skipped for a test send for the same reason the metrics are: the Assets tab should show
+        // what real recipients were sent, not what an editor preview produced.
+        if (this.messageAssetsService && successCount > 0 && !isTest) {
             // Best-effort: the notification is already delivered by this point, so a capture failure
             // must not fail the invocation. Throwing here would send the whole batch back for a retry
             // and deliver every notification in it a second time. Losing an Assets row is the cheaper

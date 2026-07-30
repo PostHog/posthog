@@ -285,6 +285,23 @@ describe('PushNotificationService', () => {
                 )
             })
 
+            it('records neither a metric nor an asset for a test send', async () => {
+                // "Run test" really delivers, but it must not show up as a workflow send: email
+                // already skips both, and a test row on the Assets tab reads as a real delivery.
+                respondWith(200)
+                const invocation = createSendPushNotificationInvocation({
+                    '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
+                })
+                invocation.state.actionId = 'action_push_1'
+
+                const result = await serviceWithAssets.executeSendPushNotification(invocation, true)
+
+                expect(result.error).toBeUndefined()
+                expect(result.metrics).toEqual([])
+                expect(result.emailAssets).toEqual([])
+                expect(result.logs.map((log) => log.message)).toContainEqual(expect.stringContaining('accepted by FCM'))
+            })
+
             it('captures one asset per notification, not one per delivered channel', async () => {
                 respondWith(200)
                 integrationManager.get = jest
